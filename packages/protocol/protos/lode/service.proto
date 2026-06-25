@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+import "lode/commands.proto";
+import "lode/events.proto";
+
+// The single client-facing service. Every client surface (cli/gui/tui over Connect,
+// mobile in-process) speaks this contract. Future Rust engine implements the same
+// service — this is the stable migration boundary.
+service LodeCommands {
+  // session + subscription
+  rpc SessionHello(SessionHelloRequest) returns (SessionInfo);
+  rpc SubscribeDoc(SubscribeDocRequest) returns (google.protobuf.Empty);
+  rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);
+  rpc ListenNotifications(ListenNotificationsRequest) returns (stream Notification);
+
+  // workspace
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (WorkspaceInfo);
+  rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResponse);
+  rpc RemoveWorkspace(RemoveWorkspaceRequest) returns (google.protobuf.BoolValue);
+  rpc CreateWorkspaceDoc(CreateWorkspaceDocRequest) returns (google.protobuf.StringValue);
+  rpc ListWorkspaceDocs(ListWorkspaceDocsRequest) returns (ListWorkspaceDocsResponse);
+  rpc RemoveWorkspaceDoc(RemoveWorkspaceDocRequest) returns (google.protobuf.BoolValue);
+
+  // node
+  rpc CreatePlainNode(CreatePlainNodeRequest) returns (NodeOccurrenceWire);
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  rpc GetNodeById(GetNodeByIdRequest) returns (GetNodeResponse);
+  rpc GetNodeChildren(GetNodeChildrenRequest) returns (GetNodeChildrenResponse);
+  rpc MoveNode(MoveNodeRequest) returns (google.protobuf.Empty);
+  rpc RemoveNodeOccurrence(RemoveNodeOccurrenceRequest) returns (google.protobuf.Empty);
+  rpc HardDeleteNode(HardDeleteNodeRequest) returns (google.protobuf.Empty);
+  rpc PromoteCanonicalNode(PromoteCanonicalNodeRequest) returns (google.protobuf.Empty);
+  rpc ReplaceNodeText(ReplaceNodeTextRequest) returns (google.protobuf.Empty);
+  rpc SetNodeProp(SetNodePropRequest) returns (google.protobuf.Empty);
+  rpc UnsetNodeProp(UnsetNodePropRequest) returns (google.protobuf.Empty);
+  rpc SetOccurrenceProp(SetOccurrencePropRequest) returns (google.protobuf.Empty);
+  rpc UnsetOccurrenceProp(UnsetOccurrencePropRequest) returns (google.protobuf.Empty);
+
+  // ref
+  rpc CreateRef(CreateRefRequest) returns (NodeOccurrenceWire);
+  rpc CloneRef(CloneRefRequest) returns (NodeOccurrenceWire);
+
+  // schema
+  rpc CreateSchema(CreateSchemaRequest) returns (NodeOccurrenceRef);
+  rpc ApplySchema(ApplySchemaRequest) returns (SchemaChangeResult);
+  rpc RemoveSchema(RemoveSchemaRequest) returns (SchemaChangeResult);
+  rpc ReconcileSchema(ReconcileSchemaRequest) returns (SchemaChangeResult);
+
+  // fieldDef
+  rpc CreateFieldDef(CreateFieldDefRequest) returns (NodeOccurrenceRef);
+  rpc SetFieldDefType(SetFieldDefTypeRequest) returns (google.protobuf.Empty);
+  rpc SetFieldDefPresence(SetFieldDefPresenceRequest) returns (google.protobuf.Empty);
+
+  // field
+  rpc AddField(AddFieldRequest) returns (AddFieldResult);
+  rpc SetFieldValues(SetFieldValuesRequest) returns (SetFieldValuesResult);
+  rpc RemoveField(RemoveFieldRequest) returns (google.protobuf.Empty);
+
+  // history
+  rpc UndoHistory(UndoHistoryRequest) returns (google.protobuf.BoolValue);
+  rpc RedoHistory(RedoHistoryRequest) returns (google.protobuf.BoolValue);
+  rpc CanUndoHistory(CanUndoHistoryRequest) returns (google.protobuf.BoolValue);
+  rpc CanRedoHistory(CanRedoHistoryRequest) returns (google.protobuf.BoolValue);
+}

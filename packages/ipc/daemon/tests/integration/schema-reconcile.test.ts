@@ -1,0 +1,232 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { AppServerClient } from "@lode/client";
+import { DomainChangeKind, DomainChangeReason, FieldPresence } from "@lode/protocol/proto";
+import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
+import { tempListenUrl } from "@lode/test-utils";
+import {
+  createTestWorkspaceAndDoc,
+  withDefaultWorkspace,
+  type TestRpc,
+} from "../helpers/workspace.js";
+
+describe("schema reconcile", () => {
+  let server: AppServerDaemon;
+  let client: AppServerClient;
+  let rpc: TestRpc;
+
+  beforeEach(async () => {
+    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    client = new AppServerClient({ url: server.address });
+    client.connect();
+    await hello(client);
+    await createTestWorkspaceAndDoc(client);
+    rpc = withDefaultWorkspace(client);
+  });
+
+  afterEach(async () => {
+    client.close();
+    await server.stop();
+  });
+
+  it("cleans stale managed children after schema child removal", async () => {
+    const target = await createNode();
+    const template = await createNode();
+    const schema = await createSchema("Schema child removal");
+    const fieldDef = await createFieldDef("Removed child");
+
+    const schemaFieldChild = await createRef(fieldDef.nodeId, schema.occurrenceId);
+    const schemaTemplateChild = await createRef(template.nodeId, schema.occurrenceId);
+    const applied = await applySchema(target.occurrenceId, schema.nodeId);
+    const fieldSlotOccurrenceId = applied.changes.find(
+      (change) =>
+        change.kind === DomainChangeKind.FIELD_SLOT && change.reason === DomainChangeReason.CREATED,
+    )?.occurrenceId;
+    const templateRef = (await childrenOf(target.occurrenceId)).find(
+      (child) => child.nodeId === template.nodeId,
+    );
+    expect(fieldSlotOccurrenceId).toBeDefined();
+    expect(templateRef).toBeDefined();
+
+    await rpc.removeNodeOccurrence({
+      docId: "main",
+      occurrenceId: schemaFieldChild.occurrenceId,
+    });
+    await rpc.removeNodeOccurrence({
+      docId: "main",
+      occurrenceId: schemaTemplateChild.occurrenceId,
+    });
+    const reconciled = await rpc.reconcileSchema({
+      docId: "main",
+      targetOccurrenceId: target.occurrenceId,
+    });
+
+    expect(reconciled.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: DomainChangeKind.FIELD_SLOT,
+          reason: DomainChangeReason.DELETED,
+          occurrenceId: fieldSlotOccurrenceId,
+        }),
+        expect.objectContaining({
+          kind: DomainChangeKind.TEMPLATE_REF,
+          reason: DomainChangeReason.KEPT,
+          occurrenceId: templateRef!.occurrenceId,
+        }),
+      ]),
+    );
+    await expect(getNode(fieldSlotOccurrenceId!)).resolves.toBeNull();
+    await expect(getNode(templateRef!.occurrenceId)).resolves.not.toBeNull();
+  });
+
+  it("reuses provenance-bearing template refs on reapply", async () => {
+    const target = await createNode();
+    const template = await createNode();
+    const schema = await createSchema("Template reuse");
+
+    await createRef(template.nodeId, schema.occurrenceId);
+    await applySchema(target.occurrenceId, schema.nodeId);
+    const managedTemplate = (await childrenOf(target.occurrenceId)).find(
+      (child) => child.nodeId === template.nodeId,
+    );
+    expect(managedTemplate).toBeDefined();
+
+    await rpc.removeSchema({
+      docId: "main",
+      targetOccurrenceId: target.occurrenceId,
+      schemaNodeId: schema.nodeId,
+    });
+    await createRef(template.nodeId, target.occurrenceId);
+    await applySchema(target.occurrenceId, schema.nodeId);
+
+    const children = await childrenOf(target.occurrenceId);
+    const firstChild = requireValue(children[0], "Expected first reconciled child");
+    expect(firstChild.nodeId).toBe(template.nodeId);
+    expect(firstChild.occurrenceId).toBe(managedTemplate!.occurrenceId);
+  });
+
+  it("trims shared schema provenance when a field becomes optional", async () => {
+    const target = await createNode();
+    const schemaA = await createSchema("Shared A");
+    const schemaB = await createSchema("Shared B");
+    const fieldDef = await createFieldDef("Shared field");
+
+    await createRef(fieldDef.nodeId, schemaA.occurrenceId);
+    await createRef(fieldDef.nodeId, schemaB.occurrenceId);
+    const appliedA = await applySchema(target.occurrenceId, schemaA.nodeId);
+    const appliedB = await applySchema(target.occurrenceId, schemaB.nodeId);
+    const fieldSlotOccurrenceIds = [...appliedA.changes, ...appliedB.changes]
+      .filter((change) => change.kind === DomainChangeKind.FIELD_SLOT)
+      .map((change) => change.occurrenceId);
+    expect(fieldSlotOccurrenceIds.length).toBeGreaterThan(0);
+
+    await rpc.setFieldDefPresence({
+      docId: "main",
+      fieldDefNodeId: fieldDef.nodeId,
+      presence: FieldPresence.OPTIONAL_PRESENCE,
+    });
+    await rpc.removeSchema({
+      docId: "main",
+      targetOccurrenceId: target.occurrenceId,
+      schemaNodeId: schemaA.nodeId,
+    });
+    await rpc.reconcileSchema({
+      docId: "main",
+      targetOccurrenceId: target.occurrenceId,
+    });
+
+    const remainingOccurrenceIds = (await childrenOf(target.occurrenceId)).map(
+      (child) => child.occurrenceId,
+    );
+    for (const occurrenceId of fieldSlotOccurrenceIds) {
+      expect(remainingOccurrenceIds).not.toContain(occurrenceId);
+    }
+  });
+
+  it("orders managed children before unmanaged children in schema order", async () => {
+    const target = await createNode();
+    const templateA = await createNode();
+    const templateB = await createNode();
+    const schema = await createSchema("Ordering");
+
+    await createRef(templateA.nodeId, schema.occurrenceId);
+    const schemaChildB = await createRef(templateB.nodeId, schema.occurrenceId);
+    await applySchema(target.occurrenceId, schema.nodeId);
+    const unmanaged = await createNode({ parentOccurrenceId: target.occurrenceId });
+
+    await rpc.moveNode({
+      docId: "main",
+      occurrenceId: schemaChildB.occurrenceId,
+      parentOccurrenceId: schema.occurrenceId,
+      index: 0,
+    });
+    await rpc.reconcileSchema({
+      docId: "main",
+      targetOccurrenceId: target.occurrenceId,
+    });
+
+    expect((await childrenOf(target.occurrenceId)).map((child) => child.nodeId)).toEqual([
+      templateB.nodeId,
+      templateA.nodeId,
+      unmanaged.nodeId,
+    ]);
+  });
+
+  async function createNode(params: Record<string, unknown> = {}) {
+    const init: Record<string, unknown> = { docId: "main", ...params };
+    return rpc.createPlainNode(init);
+  }
+
+  async function createFieldDef(name: string) {
+    const defs = await createNode();
+    return rpc.createFieldDef({
+      docId: "main",
+      parentOccurrenceId: defs.occurrenceId,
+      name,
+      presence: FieldPresence.NORMAL,
+    });
+  }
+
+  async function createSchema(name: string) {
+    return rpc.createSchema({ docId: "main", name });
+  }
+
+  async function createRef(targetNodeId: string, parentOccurrenceId: string) {
+    return rpc.createRef({
+      docId: "main",
+      targetNodeId,
+      parentOccurrenceId,
+    });
+  }
+
+  async function applySchema(targetOccurrenceId: string, schemaNodeId: string) {
+    return rpc.applySchema({
+      docId: "main",
+      targetOccurrenceId,
+      schemaNodeId,
+    });
+  }
+
+  async function childrenOf(occurrenceId: string) {
+    const response = await rpc.getNodeChildren({ docId: "main", occurrenceId });
+    return response.children;
+  }
+
+  async function getNode(occurrenceId: string) {
+    const response = await rpc.getNode({ docId: "main", occurrenceId });
+    return response.occurrence ?? null;
+  }
+});
+
+async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
+  await client.rpc.sessionHello({
+    actor: { actorId },
+    client: { name: "vitest" },
+  });
+}
+
+function requireValue<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
+}

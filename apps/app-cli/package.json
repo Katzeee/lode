@@ -1,0 +1,27 @@
+{
+  "name": "@lode/app-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "lode": "./dist/bin/lode.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@lode/client": "file:../../packages/ipc/client",
+    "@lode/protocol": "file:../../packages/protocol"
+  },
+  "devDependencies": {
+    "@lode/daemon": "file:../../packages/ipc/daemon",
+    "@lode/test-utils": "file:../../packages/test-utils",
+    "@types/node": "^20.19.39",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

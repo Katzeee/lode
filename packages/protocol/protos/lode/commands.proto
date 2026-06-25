@@ -1,0 +1,420 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/struct.proto";
+
+// Lode wire contract — request/response messages for the LodeCommands service.
+// This file is the single source of truth for the data shapes exchanged between
+// any client (cli/gui/tui over Connect, mobile in-process) and the engine.
+// Flat field naming mirrors the existing TS DTOs so engine handlers change minimally.
+
+// ---- shared enums ----
+
+enum FieldType {
+  PLAIN = 0;
+  REFERENCE = 1;
+  OPTION = 2;
+  DATE = 3;
+  CHECKBOX = 4;
+}
+
+enum FieldPresence {
+  NORMAL = 0;
+  OPTIONAL_PRESENCE = 1;
+}
+
+enum FieldMode {
+  REUSE_EXISTING = 0;
+  CREATE_ONLY = 1;
+}
+
+enum DomainChangeKind {
+  FIELD_SLOT = 0;
+  TEMPLATE_REF = 1;
+  FIELD_VALUE = 2;
+}
+
+enum DomainChangeReason {
+  CREATED = 0;
+  REUSED = 1;
+  MOVED = 2;
+  DELETED = 3;
+  KEPT = 4;
+  PROVENANCE_UPDATED = 5;
+}
+
+// ---- shared messages ----
+
+message Delta {
+  string insert = 1;
+  optional google.protobuf.Struct attributes = 2;
+}
+
+// Canonical node occurrence shape returned by node/ref RPCs.
+// parent_occurrence_id: null and absent are equivalent (root occurrence) for lode.
+message NodeOccurrenceWire {
+  string node_id = 1;
+  string occurrence_id = 2;
+  optional string parent_occurrence_id = 3;
+  string canonical_occurrence_id = 4;
+  repeated string canonical_child_occurrence_ids = 5;
+  google.protobuf.Struct props = 6;
+  google.protobuf.Struct entity_meta = 7;
+  google.protobuf.Struct occurrence_props = 8;
+  google.protobuf.Struct occurrence_meta = 9;
+  repeated Delta deltas = 10;
+}
+
+message NodeOccurrenceRef {
+  string node_id = 1;
+  string occurrence_id = 2;
+}
+
+message NodeRef {
+  string node_id = 1;
+}
+
+message Origin {
+  string node_id = 1;
+  string actor_id = 2;
+  string session_id = 3;
+}
+
+message Actor {
+  string actor_id = 1;
+  optional string display_name = 2;
+  optional google.protobuf.Struct metadata = 3;
+}
+
+message ClientInfo {
+  optional string name = 1;
+  optional string version = 2;
+  optional google.protobuf.Struct metadata = 3;
+}
+
+message WorkspaceInfo {
+  string workspace_id = 1;
+  string display_name = 2;
+}
+
+message DomainChange {
+  DomainChangeKind kind = 1;
+  DomainChangeReason reason = 2;
+  string node_id = 3;
+  string occurrence_id = 4;
+}
+
+message FieldValueInput {
+  oneof value {
+    FieldTextValue text = 1;
+    FieldRefValue ref = 2;
+    FieldMoveValue move = 3;
+  }
+}
+
+message FieldTextValue {
+  string text = 1;
+}
+
+message FieldRefValue {
+  string target_node_id = 1;
+}
+
+message FieldMoveValue {
+  string occurrence_id = 1;
+}
+
+// ---- session ----
+
+message SessionHelloRequest {
+  Actor actor = 1;
+  optional ClientInfo client = 2;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  Actor actor = 2;
+  int64 connected_at = 3; // epoch millis
+  optional ClientInfo client = 4;
+}
+
+// ---- subscription ----
+
+message SubscribeDocRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+message UnsubscribeDocRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+// ---- workspace ----
+
+message CreateWorkspaceRequest {
+  optional string workspace_id = 1;
+  string display_name = 2;
+}
+
+message RemoveWorkspaceRequest {
+  string workspace_id = 1;
+}
+
+message CreateWorkspaceDocRequest {
+  string workspace_id = 1;
+  optional string doc_id = 2;
+  optional string display_name = 3;
+}
+
+message ListWorkspaceDocsRequest {
+  string workspace_id = 1;
+}
+
+message ListWorkspaceDocsResponse {
+  repeated string doc_ids = 1;
+}
+
+message ListWorkspacesResponse {
+  repeated WorkspaceInfo workspaces = 1;
+}
+
+message RemoveWorkspaceDocRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+// ---- node ----
+
+message CreatePlainNodeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  optional string parent_occurrence_id = 3;
+  optional int32 index = 4;
+  optional google.protobuf.Struct props = 5;
+}
+
+message GetNodeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+}
+
+message GetNodeResponse {
+  optional NodeOccurrenceWire occurrence = 1;
+}
+
+message GetNodeByIdRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string node_id = 3;
+}
+
+message GetNodeChildrenRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+}
+
+message GetNodeChildrenResponse {
+  repeated NodeOccurrenceWire children = 1;
+}
+
+message MoveNodeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  optional string parent_occurrence_id = 4; // absent == move to root
+  optional int32 index = 5;
+}
+
+message RemoveNodeOccurrenceRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+}
+
+message HardDeleteNodeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string node_id = 3;
+}
+
+message PromoteCanonicalNodeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string node_id = 3;
+  string occurrence_id = 4;
+}
+
+message ReplaceNodeTextRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  repeated Delta deltas = 4;
+}
+
+message SetNodePropRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  string key = 4;
+  google.protobuf.Value value = 5;
+}
+
+message UnsetNodePropRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  string key = 4;
+}
+
+message SetOccurrencePropRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  string key = 4;
+  google.protobuf.Value value = 5;
+}
+
+message UnsetOccurrencePropRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  string key = 4;
+}
+
+// ---- ref ----
+
+message CreateRefRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string target_node_id = 3;
+  optional string parent_occurrence_id = 4;
+  optional int32 index = 5;
+}
+
+message CloneRefRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string occurrence_id = 3;
+  optional string parent_occurrence_id = 4;
+  optional int32 index = 5;
+}
+
+// ---- schema ----
+
+message CreateSchemaRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string name = 3;
+  optional string parent_occurrence_id = 4;
+}
+
+message ApplySchemaRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string target_occurrence_id = 3;
+  string schema_node_id = 4;
+}
+
+message RemoveSchemaRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string target_occurrence_id = 3;
+  string schema_node_id = 4;
+}
+
+message ReconcileSchemaRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string target_occurrence_id = 3;
+}
+
+message SchemaChangeResult {
+  NodeOccurrenceRef target = 1;
+  optional NodeRef schema = 2;
+  repeated DomainChange changes = 3;
+}
+
+// ---- fieldDef ----
+
+message CreateFieldDefRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string parent_occurrence_id = 3;
+  string name = 4;
+  optional FieldType field_type = 5;
+  optional FieldPresence presence = 6;
+}
+
+message SetFieldDefTypeRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string field_def_node_id = 3;
+  FieldType field_type = 4;
+}
+
+message SetFieldDefPresenceRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string field_def_node_id = 3;
+  FieldPresence presence = 4;
+}
+
+// ---- field ----
+
+message AddFieldRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string target_occurrence_id = 3;
+  string field_def_node_id = 4;
+  optional FieldMode mode = 5;
+}
+
+message AddFieldResult {
+  string node_id = 1;
+  string occurrence_id = 2;
+  bool created = 3;
+}
+
+message SetFieldValuesRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string field_occurrence_id = 3;
+  repeated FieldValueInput values = 4;
+}
+
+message SetFieldValuesResult {
+  NodeOccurrenceRef field = 1;
+  repeated DomainChange changes = 2;
+}
+
+message RemoveFieldRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+  string field_occurrence_id = 3;
+}
+
+// ---- history ----
+
+message UndoHistoryRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+message RedoHistoryRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+message CanUndoHistoryRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}
+
+message CanRedoHistoryRequest {
+  string workspace_id = 1;
+  string doc_id = 2;
+}

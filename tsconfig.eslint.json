@@ -1,0 +1,23 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": [
+    "apps/app-cli/src/**/*.ts",
+    "apps/app-cli/tests/**/*.ts",
+    "packages/ipc/client/src/**/*.ts",
+    "packages/ipc/client/tests/**/*.ts",
+    "packages/protocol/src/**/*.ts",
+    "packages/protocol/tests/**/*.ts",
+    "packages/ipc/transport/src/**/*.ts",
+    "packages/ipc/transport/tests/**/*.ts",
+    "packages/test-utils/src/**/*.ts",
+    "packages/ipc/daemon/src/**/*.ts",
+    "packages/ipc/daemon/tests/**/*.ts",
+    "packages/engine/src/**/*.ts",
+    "packages/engine/tests/**/*.ts"
+  ],
+  "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
+}

@@ -1,0 +1,10 @@
+version: v2
+clean: true
+plugins:
+  # protoc-gen-es v2 emits message/enum types AND service descriptors
+  # (ServiceDescriptor, consumed by @connectrpc/connect's createClient/createServer).
+  - local: protoc-gen-es
+    out: src/gen
+    opt:
+      - target=ts
+      - import_extension=.js
