@@ -17,6 +17,10 @@ export default tseslint.config(
       "**/*.config.js",
       "**/*.config.mjs",
       "**/*.config.ts",
+
+      // Isolated research/verification prototypes — not production code, not
+      // type-checked or linted by the monorepo config. See experiments/*.
+      "experiments/**",
     ],
   },
   {

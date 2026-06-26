@@ -1,0 +1,16 @@
+{
+  "name": "multi-shard-tree-experiment",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Verification prototype for a multi-shard single-tree CRDT engine. Isolated from production code; deps resolve from the monorepo root.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "loro-crdt": "^1.11.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.9"
+  }
+}
