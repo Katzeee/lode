@@ -1,5 +1,5 @@
 import type { Engine } from "../core/index.js";
-import { SystemEntityMeta } from "./system-entity.js";
+import { SystemEntityMeta } from "../bundle/system-schema.js";
 
 export function readSchemaIds(doc: Engine, occurrenceId: string): string[] {
   const value = doc.getEntityMeta(occurrenceId, SystemEntityMeta.SchemaIds);

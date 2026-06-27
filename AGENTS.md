@@ -19,10 +19,15 @@ concepts.
   another language would have to preserve.
 - `packages/ipc/transport` (`@lode/transport`) owns bytes and connections only.
 - `packages/ipc/client` (`@lode/client`) is the caller-facing facade over transport.
-- `packages/engine` (`@lode/engine`) is the transport-free core: `src/core` owns block tree, text,
-  props, history, and CRDT sync primitives; `src/domain` owns product semantics and policies;
-  `src/services` owns RPC adapters; `src/dispatcher` is the in-process command bus. It must not
-  import `@lode/transport` or `@lode/client`.
+- `packages/engine` (`@lode/engine`) is the transport-free core, layered one way (enforced by
+  ESLint, see below): `src/core` owns block tree, text, props, history, and CRDT sync primitives;
+  `src/persistence` owns storage primitives (SQLite CRUD on bytes/records — no engine imports);
+  `src/domain/model` is the pure value-type leaf (shared domain vocabulary, zero engine imports);
+  `src/domain` owns product semantics and policies (functions over `core`); `src/bundle` is the
+  declarative built-in schema vocabulary (pure leaf); `src/event` owns notification primitives;
+  `src/session` owns session/subscription/broadcast; `src/services` owns RPC adapters; `src/runtime`
+  is the composition root (the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, and the
+  per-workspace registry). It must not import `@lode/transport` or `@lode/client`.
 - `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with a transport
   socket plus process lifecycle — the AppServer process. It owns transport connections and injects
   the engine's notification sink.
@@ -43,14 +48,28 @@ Do not move product concepts into `packages/engine/src/core`. If a concept knows
 semantics, including supertags, fields, queries, sessions, subscriptions, or UI behavior, it
 belongs above the engine.
 
-Engine-internal dependencies must point one way: `services -> domain -> core`. `core` must not
-import from `domain`, `services`, `protocol`, or product policy modules. `domain` may use `core`
-primitives, but must not register RPC methods, send notifications, or shape wire DTOs. `engine`
-must not import `@lode/transport` or `@lode/client`; transport lives in `@lode/daemon`.
+Engine-internal dependencies point one way, enforced automatically by ESLint
+`no-restricted-imports` (each layer is a non-overlapping config block):
+
+```
+runtime -> services -> {domain, event, session} -> core
+                       \--> protocol
+domain  -> {core, bundle, domain/model}
+leaves  : persistence, domain/model, bundle  (no engine imports)
+event   -> protocol      session -> {event, protocol}
+```
+
+`core` must not import from `domain`, `services`, `protocol`, or any product layer. `domain` may
+use `core`/`bundle`/`domain/model` but must not register RPC methods, send notifications, or shape
+wire DTOs. `services` is the RPC adapter layer; `runtime` is the composition root and may import
+every internal layer. `engine` must not import `@lode/transport` or `@lode/client`; transport lives
+in `@lode/daemon`.
 
 `packages/engine/src/services` should register methods, validate params, load the target
-document/context, call domain functions, map results to protocol DTOs, and emit notifications. It
-should not own outline, ref, schema, field, managed-child, reconcile, or hard-delete semantics.
+document/context, call domain functions, map results to protocol DTOs, and emit notifications via
+`session`/`event`. It should not own outline, ref, schema, field, managed-child, reconcile, or
+hard-delete semantics (those live in `domain`), nor connection/subscription lifecycle (that lives
+in `session`).
 
 When refactoring, optimize for clean boundaries over backward compatibility with unshipped
 internals. Do not add compatibility shims, alias modules, dual paths, or deprecated wrappers for

@@ -1,4 +1,5 @@
 import type { AppContext } from "./context.js";
+import { createEditingHandlers } from "./editing.js";
 import { createFieldDefHandlers } from "./field-def.js";
 import { createFieldHandlers } from "./field.js";
 import { createHistoryHandlers } from "./history.js";
@@ -16,6 +17,7 @@ export function createLodeCommands(ctx: AppContext) {
     ...createSessionHandlers(ctx),
     ...createWorkspaceHandlers(ctx),
     ...createNodeHandlers(ctx),
+    ...createEditingHandlers(ctx),
     ...createRefHandlers(ctx),
     ...createSchemaHandlers(ctx),
     ...createFieldDefHandlers(ctx),

@@ -1,5 +1,7 @@
+// Pure value-type leaf: the desired/applied managed-child shapes the reconcile pipeline
+// produces and consumes, plus provenance equality helpers. No engine/domain-op imports.
 import type { DomainChange } from "./changes.js";
-import type { ManagedKind, SchemaProvenance } from "./managed-child-state.js";
+import type { ManagedKind, SchemaProvenance } from "./managed-child.js";
 
 export type DesiredFieldSlotChild = {
   key: string;

@@ -1,11 +1,16 @@
 import { type Engine, type NodeOccurrence, textToDelta } from "../core/index.js";
-import type { DomainChange } from "./changes.js";
+import { SystemEntityMeta, type FieldPresence, type FieldType } from "../bundle/system-schema.js";
+import type { DomainChange } from "./model/changes.js";
+import type {
+  FieldAddMode,
+  FieldAddResult,
+  FieldIdentity,
+  FieldSetValuesResult,
+  FieldValueInput,
+} from "./model/field.js";
 import { invalidDomainInput } from "./errors.js";
 import { assertFieldRemoveAllowed, assertNotActiveManagedChild } from "./managed-child-policy.js";
 import {
-  type FieldPresence,
-  type FieldType,
-  SystemEntityMeta,
   isField,
   markField,
   markFieldDef,
@@ -21,27 +26,6 @@ import {
   moveOccurrence,
   removeOccurrenceOrHardDelete,
 } from "./node.js";
-
-export type FieldAddMode = "reuseExisting" | "createOnly";
-
-export type FieldValueInput =
-  | { type: "text"; text: string }
-  | { type: "ref"; targetNodeId: string }
-  | { type: "move"; occurrenceId: string };
-
-export type FieldIdentity = {
-  nodeId: string;
-  occurrenceId: string;
-};
-
-export type FieldAddResult = FieldIdentity & {
-  created: boolean;
-};
-
-export type FieldSetValuesResult = {
-  field: FieldIdentity;
-  changes: DomainChange[];
-};
 
 export function createFieldDef(
   doc: Engine,

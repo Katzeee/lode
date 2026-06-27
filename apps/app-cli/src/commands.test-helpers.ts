@@ -26,6 +26,11 @@ export const Methods = {
   SetFieldValues: "setFieldValues",
   RemoveField: "removeField",
   GetNodeById: "getNodeById",
+  PasteNodes: "pasteNodes",
+  DuplicateNode: "duplicateNode",
+  IndentNodes: "indentNodes",
+  OutdentNode: "outdentNode",
+  MoveSiblingNode: "moveSiblingNode",
 } as const;
 
 export function command(
@@ -114,6 +119,11 @@ export function createFakeClient(overrides: Record<string, unknown> = {}): {
     },
     removeField: {},
     getNodeById: { occurrence: undefined },
+    pasteNodes: { occurrences: [{ nodeId: "node_clone", occurrenceId: "occ_clone" }] },
+    duplicateNode: { nodeId: "node_clone", occurrenceId: "occ_clone" },
+    indentNodes: {},
+    outdentNode: {},
+    moveSiblingNode: {},
     ...overrides,
   };
 
@@ -150,6 +160,11 @@ export function createFakeClient(overrides: Record<string, unknown> = {}): {
     setFieldValues: make(Methods.SetFieldValues),
     removeField: make(Methods.RemoveField),
     getNodeById: make(Methods.GetNodeById),
+    pasteNodes: make(Methods.PasteNodes),
+    duplicateNode: make(Methods.DuplicateNode),
+    indentNodes: make(Methods.IndentNodes),
+    outdentNode: make(Methods.OutdentNode),
+    moveSiblingNode: make(Methods.MoveSiblingNode),
   } as unknown as ClientLike;
 
   return { client, calls };

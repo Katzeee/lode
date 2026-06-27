@@ -1,4 +1,9 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
+import {
+  ManagedKind,
+  type ManagedChildState,
+  type SchemaProvenance,
+} from "./model/managed-child.js";
 import { invalidDomainInput } from "./errors.js";
 import { readSchemaIds } from "./schema-membership.js";
 
@@ -6,24 +11,6 @@ const ManagedOccurrenceMeta = {
   ManagedKind: "managedKind",
   ManagedBySchemas: "managedBySchemas",
 } as const;
-
-export const ManagedKind = {
-  FieldSlot: "fieldSlot",
-  TemplateRef: "templateRef",
-} as const;
-
-export type ManagedKind = (typeof ManagedKind)[keyof typeof ManagedKind];
-
-export type SchemaProvenance = {
-  schemaId: string;
-  schemaChildNodeId: string;
-  schemaChildOccurrenceId: string;
-};
-
-export type ManagedChildState =
-  | { status: "none" }
-  | { status: "invalid"; reason: "invalid_managed_kind" | "invalid_provenance" }
-  | { status: "valid"; kind: ManagedKind; provenance: SchemaProvenance[] };
 
 export function readManagedChildState(doc: Engine, occurrenceId: string): ManagedChildState {
   const kindValue = doc.getOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.ManagedKind);

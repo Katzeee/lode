@@ -10,8 +10,17 @@ import {
   type SessionHelloRequest,
   type SessionInfo,
 } from "@lode/protocol/proto";
-import { SessionRequiredError } from "./errors.js";
-import { NotificationStream } from "./notification-stream.js";
+import { NotificationStream } from "../event/notification-stream.js";
+
+// Engine-internal typed error: the daemon (Connect layer) maps it to a status code; in-process
+// callers handle it directly. Co-located with its only thrower (requireOrigin) because session/
+// sits below services/ in the layer DAG.
+export class SessionRequiredError extends Error {
+  constructor(message = "Session handshake required") {
+    super(message);
+    this.name = "SessionRequiredError";
+  }
+}
 
 export type EngineOrigin = {
   nodeId: string;

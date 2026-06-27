@@ -21,6 +21,7 @@ service.
                    proto / transport
                         |
                     AppServer (daemon)
+                   ├─ runtime (App/Component/ChildApp composition + workspace registry)
                    ├─ services (RPC handlers)
                    ├─ domain (product semantics)
                    └─ core (engine + storage)
@@ -39,15 +40,15 @@ service.
 
 ## Package Layout
 
-| Package            | Role                                                                                                                                               |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@lode/protocol`   | Wire contract only: method names, schemas, DTOs. Language-neutral.                                                                                 |
-| `@lode/transport`  | Bytes and connections only.                                                                                                                        |
-| `@lode/client`     | Caller-facing facade over transport.                                                                                                               |
-| `@lode/engine`     | Transport-free core: `core` (block tree, text, props, history, CRDT sync); `domain` (product semantics); `services` (RPC adapters); `persistence`. |
-| `@lode/daemon`     | Thin host: wraps engine with a transport socket + process lifecycle.                                                                               |
-| `@lode/test-utils` | Shared test helpers.                                                                                                                               |
-| `apps/app-cli`     | Deployable CLI surface.                                                                                                                            |
+| Package            | Role                                                                                                                                                                                                                                                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@lode/protocol`   | Wire contract only: method names, schemas, DTOs. Language-neutral.                                                                                                                                                                                                                                                               |
+| `@lode/transport`  | Bytes and connections only.                                                                                                                                                                                                                                                                                                      |
+| `@lode/client`     | Caller-facing facade over transport.                                                                                                                                                                                                                                                                                             |
+| `@lode/engine`     | Transport-free core, layered: `core` (block tree, text, props, history, CRDT sync); `persistence` (storage primitives); `domain` + `domain/model` (product semantics + value types); `bundle` (built-in schema); `event` + `session` (notifications/sessions); `services` (RPC adapters); `runtime` (App/Component composition). |
+| `@lode/daemon`     | Thin host: wraps engine with a transport socket + process lifecycle.                                                                                                                                                                                                                                                             |
+| `@lode/test-utils` | Shared test helpers.                                                                                                                                                                                                                                                                                                             |
+| `apps/app-cli`     | Deployable CLI surface.                                                                                                                                                                                                                                                                                                          |
 
 ## Invariants
 
@@ -67,9 +68,12 @@ an API detail.
 in `core`.
 
 **4. Layering is one-way.**
-`services → domain → core`. `core` must not import from `domain`, `services`, `protocol`, or
-any transport. `domain` may use `core` primitives. `engine` must not import `@lode/transport`
-or `@lode/client`. Enforced automatically via ESLint `no-restricted-imports`.
+`runtime → services → {domain, event, session} → core`, with `persistence`, `domain/model`, and
+`bundle` as pure leaves and `event`/`session` sitting below `services` (`event` imports only the
+protocol; `session` imports `event` + protocol). `core` must not import from `domain`, `services`,
+`protocol`, or any transport. `domain` may use `core`/`bundle`/`domain/model` primitives. `engine`
+must not import `@lode/transport` or `@lode/client`. Enforced automatically via ESLint
+`no-restricted-imports` (one non-overlapping config block per layer).
 
 **5. One doc per workspace.**
 `Workspace.createDoc` throws if a doc already exists. The "doc" concept in the protocol is

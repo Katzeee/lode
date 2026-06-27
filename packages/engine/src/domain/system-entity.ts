@@ -1,23 +1,11 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
+import {
+  SystemEntityMeta,
+  SystemKind,
+  type FieldType,
+  type FieldPresence,
+} from "../bundle/system-schema.js";
 import { invalidDomainInput } from "./errors.js";
-
-export const SystemEntityMeta = {
-  SystemKind: "systemKind",
-  SchemaIds: "schemaIds",
-  FieldType: "fieldType",
-  Presence: "presence",
-  FieldDefId: "fieldDefId",
-} as const;
-
-export const SystemKind = {
-  Schema: "schema",
-  FieldDef: "fieldDef",
-  Field: "field",
-} as const;
-
-export type SystemKind = (typeof SystemKind)[keyof typeof SystemKind];
-export type FieldType = "plain" | "reference" | "option" | "date" | "checkbox";
-export type FieldPresence = "normal" | "optional";
 
 export function markFieldDef(
   doc: Engine,

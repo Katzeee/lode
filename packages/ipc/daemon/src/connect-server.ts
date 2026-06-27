@@ -135,6 +135,12 @@ export function createLodeServer(runtime: AppRuntime): {
         setOccurrenceProp: unary(commands.setOccurrenceProp),
         unsetOccurrenceProp: unary(commands.unsetOccurrenceProp),
 
+        pasteNodes: unary(commands.pasteNodes),
+        duplicateNode: unary(commands.duplicateNode),
+        indentNodes: unary(commands.indentNodes),
+        outdentNode: unary(commands.outdentNode),
+        moveSiblingNode: unary(commands.moveSiblingNode),
+
         createRef: unary(commands.createRef),
         cloneRef: unary(commands.cloneRef),
 

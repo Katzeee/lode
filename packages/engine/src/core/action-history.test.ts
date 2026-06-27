@@ -150,4 +150,23 @@ describe("ActionHistory wired into Engine: engine.undo() works on a sharded stor
     e.undo();
     expect(e.getChildOccurrenceIds(root.occurrenceId).length).toBe(0);
   });
+
+  it("nested transact/batch joins the outer group (re-entrant, one undo step)", () => {
+    const e = new Engine({ store: new ShardedBlockStore({ numShards: 8 }) });
+    const root = e.createNode(null);
+    e.resetHistory();
+    // A batch that opens its own batch inside — must not throw, and must collapse to one step.
+    e.batch(() => {
+      e.createNode(root.occurrenceId);
+      e.batch(() => {
+        e.createNode(root.occurrenceId);
+      });
+      e.createNode(root.occurrenceId);
+    });
+    expect(e.getChildOccurrenceIds(root.occurrenceId).length).toBe(3);
+    e.undo();
+    // One undo step removes all three.
+    expect(e.getChildOccurrenceIds(root.occurrenceId).length).toBe(0);
+    expect(e.canUndo()).toBe(false);
+  });
 });

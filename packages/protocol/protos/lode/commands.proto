@@ -387,3 +387,37 @@ message CanUndoHistoryRequest {
 message CanRedoHistoryRequest {
   string workspace_id = 1;
 }
+
+// ---- editing — composite/intent ops (one undo step each) ----
+
+message PasteNodesRequest {
+  string workspace_id = 1;
+  repeated string source_occurrence_ids = 2;
+  string target_parent_occurrence_id = 3;
+  optional int32 index = 4;
+}
+
+message PasteNodesResult {
+  repeated NodeOccurrenceRef occurrences = 1;
+}
+
+message DuplicateNodeRequest {
+  string workspace_id = 1;
+  string occurrence_id = 2;
+}
+
+message IndentRequest {
+  string workspace_id = 1;
+  repeated string occurrence_ids = 2;
+}
+
+message OutdentRequest {
+  string workspace_id = 1;
+  string occurrence_id = 2;
+}
+
+message MoveSiblingRequest {
+  string workspace_id = 1;
+  string occurrence_id = 2;
+  bool up = 3;
+}

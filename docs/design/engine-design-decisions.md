@@ -68,8 +68,10 @@ transclusion.
   move reparented ones back, restore content/props/meta/canonical. One reconciliation pass.
 - **Redo** restores the after-state.
 - **Batch undo**: `engine.transact(fn)` wraps multiple ops in one `begin()`/`end()` pair → one
-  action → one undo step. This is how the domain layer groups user-intent operations (paste,
-  schema-apply, import) into a single undoable unit.
+  action → one undo step. `transact`/`batch` is **re-entrant (nest-safe)** — a batch inside a
+  batch joins the outer group — so a grouped primitive (e.g. a cascade delete) called inside
+  another grouped op stays one undo step. This is how `domain/editing/` composite ops
+  (paste/duplicate/indent/outdent/moveSibling) and the cascade/clone primitives group by intent.
 
 **Storage** ∝ change-size (not doc-size): only changed occurrences/entities are stored per action.
 The undo stack is in-memory (ephemeral); persistence is the CRDT change log (treeDoc + shards).
@@ -120,5 +122,46 @@ or subscribe through the daemon.
 ## What Does NOT Belong in the Engine
 
 Selection (ephemeral, per-client), cursors, awareness, scroll state, drag previews, IME drafts,
-command routing, schema/product validation, rendering, sessions, subscription management. These
-all live above the engine (in `domain` or `services`).
+command routing, schema/product validation, rendering. These live above the `core` engine — in
+`domain`, `session`, or `services` inside the package, or in the client for purely ephemeral
+per-client view state.
+
+## Internal Layering & Component Composition
+
+The `@lode/engine` package is layered one way (enforced by ESLint `no-restricted-imports`, one
+non-overlapping config block per layer):
+
+```
+runtime -> services -> {domain, event, session} -> core
+domain  -> {core, bundle, domain/model}
+leaves  : persistence, domain/model, bundle   (no engine imports)
+event   -> protocol        session -> {event, protocol}
+```
+
+- **`core`** — block tree, text, props, history, CRDT sync primitives. Product-agnostic.
+- **`persistence`** — storage primitives (SQLite CRUD on opaque bytes/records). Pure leaf.
+- **`domain/model`** — the domain's shared value types (change / identity / provenance vocabulary),
+  zero engine imports. Mirrors anytype-heart's `core/domain` pure-type leaf.
+- **`domain`** — product semantics and policies as functions over `core` (node, schema, field,
+  managed-child, cascade). Functional-on-core, not object-oriented.
+- **`bundle`** — declarative built-in schema vocabulary (system entity meta keys + field types),
+  the single source of truth for built-in supertags/fields. Mirrors anytype-heart's `pkg/lib/bundle`.
+- **`event`** / **`session`** — the notification primitive and the session/subscription/broadcast
+  layer above it; both sit below `services` so RPC adapters can use them without circular deps.
+- **`services`** — RPC adapters (validate → load → call domain → map to DTO → emit via session/event).
+- **`runtime`** — composition root: the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, and
+  the per-workspace registry.
+
+**Component composition** (`runtime/app.ts`) mirrors anytype-heart's `app.Component` / `app.App`,
+adapted to TypeScript: constructor injection instead of Go's service-locator lookup. A `Component`
+is a named subsystem with optional async `start`/`stop`; the `App` starts components in registration
+order and stops them in reverse. Each loaded workspace is a `ChildApp` whose components (workspace +
+store) stop independently on unload, and which is the mounting point for future per-workspace
+subsystems (sync state, indexer, query cache). The graph is intentionally lean today; it exists so
+sync, search, and indexer plug in uniformly as they arrive, instead of each bolting on ad-hoc wiring.
+
+**Deliberately not aligned with anytype:** the data model stays functional-on-core + sharded Loro
+CRDT (not SmartBlock OO + any-sync's change-DAG), and there is no object-type/dispatch seam yet —
+lode has one structural object type (a node), so a per-type editor hierarchy would have no client.
+That seam earns its place only when behaviorally-distinct object types (e.g. query/dataview nodes)
+appear.

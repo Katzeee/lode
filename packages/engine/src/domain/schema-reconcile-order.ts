@@ -1,7 +1,7 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
-import type { DomainChange } from "./changes.js";
+import type { DomainChange } from "./model/changes.js";
+import type { SchemaProvenance } from "./model/managed-child.js";
 import {
-  type SchemaProvenance,
   isActiveManagedChild,
   readManagedChildState,
   requireManagedKind,
@@ -9,7 +9,7 @@ import {
 } from "./managed-child-state.js";
 import { readSchemaIds } from "./schema-membership.js";
 import { moveOccurrence } from "./node.js";
-import { isSameProvenance } from "./schema-reconcile-model.js";
+import { isSameProvenance } from "./model/reconcile.js";
 
 export function reorderTargetChildren(
   doc: Engine,

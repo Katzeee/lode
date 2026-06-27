@@ -462,13 +462,21 @@ export class Engine {
 
   // ── History ──────────────────────────────────────────────────────────────
 
-  transact(fn: () => void): void {
+  transact<T>(fn: () => T): T {
+    // Re-entrant: a batch inside a batch joins the outer group (one undo step) instead of
+    // throwing. This lets a composite op group itself while calling other grouped primitives
+    // (e.g. setFieldValues → removeOccurrenceOrHardDelete, or paste → cloneOccurrence). Only
+    // the outermost transact owns begin/end; inner calls run fn bare against the open group.
+    if (this.inTransaction) {
+      return fn();
+    }
     this.actionHistory.begin();
     this.inTransaction = true;
     this.historyActive = true; // suppress per-op auto-grouping; the transaction is the group
     try {
-      fn();
+      const result = fn();
       this.store.commit();
+      return result;
     } finally {
       this.historyActive = false;
       this.inTransaction = false;
@@ -476,8 +484,8 @@ export class Engine {
     }
   }
 
-  batch(fn: () => void): void {
-    this.transact(fn);
+  batch<T>(fn: () => T): T {
+    return this.transact(fn);
   }
 
   undo(): boolean {

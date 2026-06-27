@@ -8,13 +8,8 @@ import {
   type RemoveSchemaRequest,
   type SchemaChangeResult,
 } from "@lode/protocol/proto";
-import {
-  applySchema,
-  createSchema,
-  reconcileSchema,
-  removeSchema,
-  type SchemaChangeResult as DomainSchemaChangeResult,
-} from "../domain/schema.js";
+import { applySchema, createSchema, reconcileSchema, removeSchema } from "../domain/schema.js";
+import type { SchemaChangeResult as DomainSchemaChangeResult } from "../domain/model/schema.js";
 import type { AppContext } from "./context.js";
 import { changeToProto, identityToProto, nodeRefToProto } from "./mappers.js";
 import { runMutation } from "./mutation.js";

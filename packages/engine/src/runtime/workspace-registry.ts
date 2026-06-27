@@ -3,9 +3,10 @@ import { Workspace, type Engine, type VersionVector } from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
 import { validateSnapshot } from "../core/invariant.js";
 import { toJSON } from "../core/serializers/json.js";
-import { workspaceDbPath } from "./paths.js";
-import { RegistryStore, type WorkspaceRecord } from "./registry-store.js";
-import { MAIN_SUBDOC, WorkspaceStore } from "./workspace-store.js";
+import { workspaceDbPath } from "../persistence/paths.js";
+import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
+import { MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
+import { App, type Component } from "./app.js";
 
 export type PersistenceOptions = {
   dataRoot: string;
@@ -18,9 +19,32 @@ export type RuntimeWorkspaceInfo = {
 };
 
 type LoadedWorkspace = {
+  // Per-workspace sub-runtime: a ChildApp whose components (workspace + store) are stopped
+  // in reverse on unload, and which is the mounting point for future per-workspace
+  // subsystems (sync state, indexer, query cache).
+  app: App;
   workspace: Workspace;
   store: WorkspaceStore | null;
 };
+
+// Per-workspace lifecycle components. App.stop runs them in reverse registration order, so
+// workspace is registered before store → store closes before workspace disposes (matching
+// the prior hand-coded teardown order).
+class WorkspaceComponent implements Component {
+  readonly name = "workspace";
+  constructor(private readonly workspace: Workspace) {}
+  stop(): void {
+    this.workspace.dispose();
+  }
+}
+
+class WorkspaceStoreComponent implements Component {
+  readonly name = "workspace-store";
+  constructor(private readonly store: WorkspaceStore | null) {}
+  async stop(): Promise<void> {
+    await this.store?.close();
+  }
+}
 
 export class AppWorkspaceRuntime {
   private readonly loaded = new Map<string, LoadedWorkspace>();
@@ -32,23 +56,50 @@ export class AppWorkspaceRuntime {
       registry: RegistryStore | null;
       snapshotEveryUpdates: number;
     },
+    private readonly createChildApp: () => App,
   ) {}
 
-  static inMemory(): Promise<AppWorkspaceRuntime> {
+  static inMemory(createChildApp: () => App = () => new App()): Promise<AppWorkspaceRuntime> {
     return Promise.resolve(
-      new AppWorkspaceRuntime({
-        registry: null,
-        snapshotEveryUpdates: Number.POSITIVE_INFINITY,
-      }),
+      new AppWorkspaceRuntime(
+        {
+          registry: null,
+          snapshotEveryUpdates: Number.POSITIVE_INFINITY,
+        },
+        createChildApp,
+      ),
     );
   }
 
-  static async persistent(options: PersistenceOptions): Promise<AppWorkspaceRuntime> {
-    return new AppWorkspaceRuntime({
-      dataRoot: options.dataRoot,
-      registry: await RegistryStore.open(options.dataRoot),
-      snapshotEveryUpdates: options.snapshotEveryUpdates ?? 100,
-    });
+  static async persistent(
+    options: PersistenceOptions,
+    createChildApp: () => App = () => new App(),
+  ): Promise<AppWorkspaceRuntime> {
+    return new AppWorkspaceRuntime(
+      {
+        dataRoot: options.dataRoot,
+        registry: await RegistryStore.open(options.dataRoot),
+        snapshotEveryUpdates: options.snapshotEveryUpdates ?? 100,
+      },
+      createChildApp,
+    );
+  }
+
+  // Wraps a loaded workspace + store in a ChildApp (started now) and records it. The load
+  // logic itself (loadShardedDoc, reconcile, validate) stays in the caller; this only owns
+  // the per-workspace lifecycle mounting.
+  private async registerLoaded(
+    workspaceId: string,
+    workspace: Workspace,
+    store: WorkspaceStore | null,
+  ): Promise<LoadedWorkspace> {
+    const app = this.createChildApp();
+    app.register(new WorkspaceComponent(workspace));
+    app.register(new WorkspaceStoreComponent(store));
+    await app.start();
+    const loaded = { app, workspace, store };
+    this.loaded.set(workspaceId, loaded);
+    return loaded;
   }
 
   async createWorkspace(input: {
@@ -59,10 +110,7 @@ export class AppWorkspaceRuntime {
       const workspaceId = input.workspaceId ?? randomUUID();
       const info = { workspaceId, displayName: input.displayName };
       this.memoryCatalog.set(workspaceId, info);
-      this.loaded.set(workspaceId, {
-        workspace: new Workspace({ id: workspaceId }),
-        store: null,
-      });
+      await this.registerLoaded(workspaceId, new Workspace({ id: workspaceId }), null);
       return info;
     }
 
@@ -80,8 +128,8 @@ export class AppWorkspaceRuntime {
 
   async removeWorkspace(workspaceId: string): Promise<boolean> {
     const loaded = this.loaded.get(workspaceId);
-    if (loaded?.store) {
-      await loaded.store.close();
+    if (loaded) {
+      await loaded.app.stop();
     }
     this.loaded.delete(workspaceId);
     if (!this.options.registry) {
@@ -203,8 +251,7 @@ export class AppWorkspaceRuntime {
 
   async close(): Promise<void> {
     for (const loaded of this.loaded.values()) {
-      await loaded.store?.close();
-      loaded.workspace.dispose();
+      await loaded.app.stop();
     }
     this.loaded.clear();
     await this.options.registry?.close();
@@ -240,22 +287,21 @@ export class AppWorkspaceRuntime {
     const store = await WorkspaceStore.open(
       workspaceDbPath(this.options.dataRoot, record.relativePath),
     );
+    let workspace: Workspace;
     try {
       const docIds = await store.listDocs();
-      const workspace = new Workspace({ id: record.workspaceId });
+      workspace = new Workspace({ id: record.workspaceId });
       for (const docId of docIds) {
         await this.loadShardedDoc(store, workspace, docId);
       }
-      const loaded = { workspace, store };
-      this.loaded.set(record.workspaceId, loaded);
-      return loaded;
     } catch (error) {
       // loadShardedDoc can reject a corrupt persisted state (validateSnapshot after
-      // reconcile). The workspace isn't registered in `loaded`, so close() wouldn't
-      // reach this store — close it here to avoid leaking the SQLite handle.
+      // reconcile). No ChildApp is registered yet, so close the store directly to
+      // avoid leaking the SQLite handle.
       await store.close();
       throw error;
     }
+    return this.registerLoaded(record.workspaceId, workspace, store);
   }
 
   /**

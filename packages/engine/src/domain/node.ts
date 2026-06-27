@@ -33,10 +33,23 @@ export function cloneOccurrence(
   parentOccurrenceId?: string | null,
   index?: number,
 ): NodeOccurrence {
-  const clone = createPlainNode(doc, parentOccurrenceId ?? null, index, doc.getProps(occurrenceId));
+  // One undo step for the whole subtree clone. The recursion uses the inner fn so it does
+  // not open its own group (transact is re-entrant anyway, but this avoids redundant snapshots).
+  return doc.batch(() =>
+    cloneOccurrenceInner(doc, occurrenceId, parentOccurrenceId ?? null, index),
+  );
+}
+
+function cloneOccurrenceInner(
+  doc: Engine,
+  occurrenceId: string,
+  parentOccurrenceId: string | null,
+  index?: number,
+): NodeOccurrence {
+  const clone = createPlainNode(doc, parentOccurrenceId, index, doc.getProps(occurrenceId));
   doc.replaceDeltas(clone.occurrenceId, doc.getDeltas(occurrenceId));
   for (const child of getSemanticChildren(doc, occurrenceId)) {
-    cloneOccurrence(doc, child.occurrenceId, clone.occurrenceId);
+    cloneOccurrenceInner(doc, child.occurrenceId, clone.occurrenceId);
   }
   return doc.mustGetOccurrence(clone.occurrenceId);
 }
@@ -60,14 +73,20 @@ export function promoteCanonicalOccurrence(
 }
 
 export function removeOccurrenceOrHardDelete(doc: Engine, occurrenceId: string): void {
-  const { removed, deletedNodes } = cascadeClosure(doc, [occurrenceId]);
-  applyCascade(doc, removed, deletedNodes);
+  // One undo step for the whole cascade (joins an outer batch if called inside one, e.g.
+  // setFieldValues).
+  doc.batch(() => {
+    const { removed, deletedNodes } = cascadeClosure(doc, [occurrenceId]);
+    applyCascade(doc, removed, deletedNodes);
+  });
 }
 
 export function hardDeleteNode(doc: Engine, nodeId: string): void {
-  const seeds = doc.getOccurrences(nodeId).map((occurrence) => occurrence.occurrenceId);
-  const { removed, deletedNodes } = cascadeClosure(doc, seeds);
-  applyCascade(doc, removed, deletedNodes);
+  doc.batch(() => {
+    const seeds = doc.getOccurrences(nodeId).map((occurrence) => occurrence.occurrenceId);
+    const { removed, deletedNodes } = cascadeClosure(doc, seeds);
+    applyCascade(doc, removed, deletedNodes);
+  });
 }
 
 /**

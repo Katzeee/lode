@@ -32,6 +32,18 @@ export async function executeNodeCommand(
       return executeNodeHardDelete(client, command, commandKey);
     case "replace-text":
       return executeNodeReplaceText(client, command, commandKey);
+    case "paste":
+      return executeNodePaste(client, command, commandKey);
+    case "duplicate":
+      return executeNodeDuplicate(client, command, commandKey);
+    case "indent":
+      return executeNodeIndent(client, command, commandKey);
+    case "outdent":
+      return executeNodeOutdent(client, command, commandKey);
+    case "move-up":
+      return executeNodeMoveSibling(client, command, commandKey, true);
+    case "move-down":
+      return executeNodeMoveSibling(client, command, commandKey, false);
     default:
       throw new Error(`Unknown command "${commandKey}".`);
   }
@@ -158,4 +170,78 @@ async function executeNodeReplaceText(
     deltas: [{ insert: text }],
   });
   return `Replaced text for occurrence ${occurrenceId}.`;
+}
+
+async function executeNodePaste(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--target-occ", "--index"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const sourceOccurrenceIds = command.flags["--occ"] ?? [];
+  if (sourceOccurrenceIds.length === 0) {
+    throw new Error('Missing source occurrences. Provide at least one "--occ".');
+  }
+  const targetParentOccurrenceId = getRequiredSingleFlag(command, "--target-occ");
+  const index = getOptionalIndex(command);
+  const result = await client.pasteNodes({
+    workspaceId,
+    sourceOccurrenceIds,
+    targetParentOccurrenceId,
+    ...(index === undefined ? {} : { index }),
+  });
+  return `Pasted ${sourceOccurrenceIds.length} occurrence(s) under ${targetParentOccurrenceId}; new: ${result.occurrences.map((o) => o.occurrenceId).join(", ")}.`;
+}
+
+async function executeNodeDuplicate(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const occurrenceId = getRequiredSingleFlag(command, "--occ");
+  const clone = await client.duplicateNode({ workspaceId, occurrenceId });
+  return `Duplicated occurrence ${occurrenceId} → ${clone.occurrenceId}.`;
+}
+
+async function executeNodeIndent(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const occurrenceIds = command.flags["--occ"] ?? [];
+  if (occurrenceIds.length === 0) {
+    throw new Error('Missing occurrences. Provide at least one "--occ".');
+  }
+  await client.indentNodes({ workspaceId, occurrenceIds });
+  return `Indented ${occurrenceIds.length} occurrence(s).`;
+}
+
+async function executeNodeOutdent(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const occurrenceId = getRequiredSingleFlag(command, "--occ");
+  await client.outdentNode({ workspaceId, occurrenceId });
+  return `Outdented occurrence ${occurrenceId}.`;
+}
+
+async function executeNodeMoveSibling(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+  up: boolean,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const occurrenceId = getRequiredSingleFlag(command, "--occ");
+  await client.moveSiblingNode({ workspaceId, occurrenceId, up });
+  return `Moved occurrence ${occurrenceId} ${up ? "up" : "down"}.`;
 }

@@ -1,9 +1,6 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
-import {
-  ManagedKind,
-  readManagedChildState,
-  writeManagedChildState,
-} from "./managed-child-state.js";
+import { ManagedKind } from "./model/managed-child.js";
+import { readManagedChildState, writeManagedChildState } from "./managed-child-state.js";
 import { isField, markField, readFieldDefId } from "./system-entity.js";
 import { createPlainNode, createReference, getSemanticChildren } from "./node.js";
 import {
@@ -11,7 +8,7 @@ import {
   type DesiredManagedChild,
   isSameProvenance,
   provenanceKeyOf,
-} from "./schema-reconcile-model.js";
+} from "./model/reconcile.js";
 
 export function applyDesiredManagedChildren(
   doc: Engine,

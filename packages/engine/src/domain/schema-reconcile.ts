@@ -1,6 +1,7 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
-import type { DomainChange } from "./changes.js";
-import { ManagedKind, isActiveManagedChild, managedKindValue } from "./managed-child-state.js";
+import type { DomainChange } from "./model/changes.js";
+import { ManagedKind } from "./model/managed-child.js";
+import { isActiveManagedChild, managedKindValue } from "./managed-child-state.js";
 import { isField } from "./system-entity.js";
 import { getSemanticChildren, removeOccurrenceOrHardDelete } from "./node.js";
 import { applyDesiredManagedChildren } from "./schema-reconcile-apply.js";

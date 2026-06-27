@@ -1,22 +1,13 @@
 import { type Engine, textToDelta } from "../core/index.js";
-import type { DomainChange } from "./changes.js";
+import { SystemEntityMeta, SystemKind } from "../bundle/system-schema.js";
+import type { DomainChange } from "./model/changes.js";
+import type { SchemaChangeResult, SchemaIdentity } from "./model/schema.js";
 import { invalidDomainInput } from "./errors.js";
 import { requireCanonicalOccurrence, requireNodeById } from "./lookup.js";
 import { readSchemaIds, writeSchemaIds } from "./schema-membership.js";
-import { SystemEntityMeta, SystemKind, requireSchema } from "./system-entity.js";
+import { requireSchema } from "./system-entity.js";
 import { createPlainNode } from "./node.js";
 import { cleanupInactiveManagedChildren, reconcileTargetSchemas } from "./schema-reconcile.js";
-
-export type SchemaIdentity = {
-  nodeId: string;
-  occurrenceId: string;
-};
-
-export type SchemaChangeResult = {
-  target: SchemaIdentity;
-  schema?: { nodeId: string };
-  changes: DomainChange[];
-};
 
 export function createSchema(
   doc: Engine,

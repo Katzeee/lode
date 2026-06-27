@@ -40,6 +40,13 @@ service LodeCommands {
   rpc SetOccurrenceProp(SetOccurrencePropRequest) returns (google.protobuf.Empty);
   rpc UnsetOccurrenceProp(UnsetOccurrencePropRequest) returns (google.protobuf.Empty);
 
+  // editing — composite/intent ops (one undo step each)
+  rpc PasteNodes(PasteNodesRequest) returns (PasteNodesResult);
+  rpc DuplicateNode(DuplicateNodeRequest) returns (NodeOccurrenceRef);
+  rpc IndentNodes(IndentRequest) returns (google.protobuf.Empty);
+  rpc OutdentNode(OutdentRequest) returns (google.protobuf.Empty);
+  rpc MoveSiblingNode(MoveSiblingRequest) returns (google.protobuf.Empty);
+
   // ref
   rpc CreateRef(CreateRefRequest) returns (NodeOccurrenceWire);
   rpc CloneRef(CloneRefRequest) returns (NodeOccurrenceWire);

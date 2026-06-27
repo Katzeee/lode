@@ -1,3 +1,5 @@
+// Pure value-type leaf: domain change vocabulary shared across the schema-reconcile
+// pipeline and the wire mappers. No engine/domain-op imports.
 export type DomainChangeKind = "fieldSlot" | "templateRef" | "fieldValue";
 export type DomainChangeReason =
   | "created"

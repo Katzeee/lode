@@ -95,8 +95,16 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../domain/*", "../../domain/*", "../services/*", "../../services/*"],
-              message: "core must not import domain/services — engine layers services -> domain -> core.",
+              group: [
+                "**/domain/**",
+                "**/services/**",
+                "**/bundle/**",
+                "**/event/**",
+                "**/session/**",
+                "**/persistence/**",
+                "**/runtime/**",
+              ],
+              message: "core must not import above layers — engine layers services -> domain -> core.",
             },
             {
               group: ["@lode/protocol", "@lode/transport", "@lode/client"],
@@ -109,7 +117,7 @@ export default tseslint.config(
   },
   {
     files: ["packages/engine/src/domain/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    ignores: ["packages/engine/src/domain/model/**", "**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -129,11 +137,133 @@ export default tseslint.config(
     },
   },
   {
-    // services / persistence / dispatcher / top-level src: may use domain/core/protocol, never transport/client.
+    // domain/model: pure value-type leaf — imports only sibling model files.
+    files: ["packages/engine/src/domain/model/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../*", "../../**"],
+              message:
+                "domain/model is a pure value-type leaf — import only sibling model files.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "domain/model must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // bundle: declarative built-in schema vocabulary — pure leaf, no engine imports.
+    files: ["packages/engine/src/bundle/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../**"],
+              message: "bundle is a pure leaf — no engine imports.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "bundle must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // event: low-level notification primitive — imports only the protocol.
+    files: ["packages/engine/src/event/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../**"],
+              message: "event is a low-level notification primitive — import only the protocol.",
+            },
+            {
+              group: ["@lode/transport", "@lode/client"],
+              message: "event must not import any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // session: session/subscription/broadcast — sits below services; imports only event + protocol.
+    files: ["packages/engine/src/session/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../core/**",
+                "../domain/**",
+                "../services/**",
+                "../persistence/**",
+                "../bundle/**",
+              ],
+              message: "session sits below services — import only event + protocol.",
+            },
+            {
+              group: ["@lode/transport", "@lode/client"],
+              message: "session must not import any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // persistence: storage primitives (SQLite CRUD on bytes/records) — pure leaf, no engine imports.
+    files: ["packages/engine/src/persistence/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../**"],
+              message: "persistence storage primitives must not import engine internals.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "persistence must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // services / runtime / top-level src (index.ts): adapter + composition layers; may use any
+    // internal layer + protocol, never transport/client.
     files: ["packages/engine/src/**/*.ts"],
     ignores: [
       "packages/engine/src/core/**",
       "packages/engine/src/domain/**",
+      "packages/engine/src/bundle/**",
+      "packages/engine/src/event/**",
+      "packages/engine/src/session/**",
+      "packages/engine/src/persistence/**",
       "**/*.test.ts",
     ],
     rules: {

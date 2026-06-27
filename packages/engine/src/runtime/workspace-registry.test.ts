@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap } from "loro-crdt";
-import { AppWorkspaceRuntime } from "./runtime.js";
+import { AppWorkspaceRuntime } from "./workspace-registry.js";
 import { shardIdOf } from "../core/sharding.js";
 
 /**
