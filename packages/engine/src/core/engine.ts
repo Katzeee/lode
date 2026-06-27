@@ -1,8 +1,9 @@
 /* eslint-disable max-lines -- the business-agnostic Engine store is intentionally kept in one file */
 import { randomUUID } from "node:crypto";
 import { Subject } from "rxjs";
-import type { UndoManager } from "loro-crdt";
-import { LoroBlockStore } from "./loro-store.js";
+import { ShardedBlockStore } from "./sharded-store.js";
+import { ActionHistory } from "./action-history.js";
+import type { BlockStore } from "./block-store.js";
 import type {
   Delta,
   EngineSlots,
@@ -16,25 +17,41 @@ import type {
 
 export type EngineOptions = {
   id?: string;
-  initialBytes?: Uint8Array;
   readonly?: boolean;
-  historyMergeInterval?: number;
+  /** Inject a custom BlockStore. Defaults to ShardedBlockStore. To restore a sharded
+   * engine from persisted state, inject `new ShardedBlockStore({ initialTreeBytes, shardLoader })`
+   * — a single `initialBytes` blob can't carry the lazy-loaded shards, so there is no
+   * constructor-bytes option (the persistence runtime is the full restore path). */
+  store?: BlockStore;
+  /** Deterministic nodeId generator (test seam; defaults to randomUUID). */
+  nodeIdGenerator?: () => NodeId;
+  /** Deterministic occId generator (test seam; defaults to randomUUID). occId is the
+   * permanent occurrence identity used by undo to reconcile snapshots across churn. */
+  occIdGenerator?: () => string;
 };
 
 export class Engine {
   readonly id: string;
   readonly slots: EngineSlots;
-  private readonly store: LoroBlockStore;
-  private undoManager: UndoManager;
+  private readonly store: BlockStore;
+  /** Cross-doc undo/redo (snapshot-diff): captures before/after per action and restores
+   *  the wanted side forward through these mutators (store-agnostic). */
+  private readonly actionHistory: ActionHistory;
+  /** True inside transact() (the transaction is the one group) and during undo/redo
+   *  application — suppresses per-op auto-grouping so mutators run the store-apply path
+   *  bare instead of each opening their own begin/end group. */
+  private historyActive = false;
   private _readonly = false;
-  private readonly mergeInterval: number;
+  private readonly nodeIdGenerator: () => NodeId;
+  private readonly occIdGenerator: () => string;
   private inTransaction = false;
 
   constructor(options: EngineOptions = {}) {
     this.id = options.id ?? randomUUID();
-    this.store = new LoroBlockStore(options.initialBytes);
-    this.mergeInterval = options.historyMergeInterval ?? 500;
-    this.undoManager = this.store.createUndoManager(this.mergeInterval);
+    this.store = options.store ?? new ShardedBlockStore();
+    this.nodeIdGenerator = options.nodeIdGenerator ?? randomUUID;
+    this.occIdGenerator = options.occIdGenerator ?? randomUUID;
+    this.actionHistory = new ActionHistory(this);
     if (options.readonly) {
       this._readonly = true;
     }
@@ -65,42 +82,65 @@ export class Engine {
     parentOccurrenceId?: OccurrenceId | null,
     index?: number,
     props?: Record<string, unknown>,
+    /** Override the generated nodeId (used by undo to re-create a deleted node with its
+     * original id so refs/content resolve). Undefined → generate. */
+    nodeIdOverride?: NodeId,
+    /** Override the generated occId (used by undo to re-create with the original occId so
+     * snapshot reconciliation is stable across churn). Undefined → generate. */
+    occIdOverride?: string,
   ): NodeOccurrence {
     this.requireWritable();
-    const nodeId = randomUUID();
-    const occurrenceId = this.store.createOccurrenceRecord(nodeId, parentOccurrenceId, index);
-    this.store.createEntity(nodeId, occurrenceId, props);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityAdded", nodeId, occurrenceId },
-      {
-        type: "occurrenceAdded",
+    return this.runAutoGrouped(() => {
+      const nodeId = nodeIdOverride ?? this.nodeIdGenerator();
+      const occId = occIdOverride ?? this.occIdGenerator();
+      const occurrenceId = this.store.createOccurrenceRecord(
         nodeId,
-        occurrenceId,
-        parentOccurrenceId: parentOccurrenceId ?? null,
-      },
-    ]);
-    return this.mustGetOccurrence(occurrenceId);
+        occId,
+        parentOccurrenceId,
+        index,
+      );
+      this.store.createEntity(nodeId, occurrenceId, props);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityAdded", nodeId, occurrenceId },
+        {
+          type: "occurrenceAdded",
+          nodeId,
+          occurrenceId,
+          parentOccurrenceId: parentOccurrenceId ?? null,
+        },
+      ]);
+      return this.mustGetOccurrence(occurrenceId);
+    });
   }
 
   createOccurrence(
     nodeId: NodeId,
     parentOccurrenceId?: OccurrenceId | null,
     index?: number,
+    occIdOverride?: string,
   ): NodeOccurrence {
     this.requireWritable();
-    this.store.requireEntity(nodeId);
-    const occurrenceId = this.store.createOccurrenceRecord(nodeId, parentOccurrenceId, index);
-    this.commitIfNeeded();
-    this.emit([
-      {
-        type: "occurrenceAdded",
+    return this.runAutoGrouped(() => {
+      this.store.requireEntity(nodeId);
+      const occId = occIdOverride ?? this.occIdGenerator();
+      const occurrenceId = this.store.createOccurrenceRecord(
         nodeId,
-        occurrenceId,
-        parentOccurrenceId: parentOccurrenceId ?? null,
-      },
-    ]);
-    return this.mustGetOccurrence(occurrenceId);
+        occId,
+        parentOccurrenceId,
+        index,
+      );
+      this.commitIfNeeded();
+      this.emit([
+        {
+          type: "occurrenceAdded",
+          nodeId,
+          occurrenceId,
+          parentOccurrenceId: parentOccurrenceId ?? null,
+        },
+      ]);
+      return this.mustGetOccurrence(occurrenceId);
+    });
   }
 
   moveOccurrence(
@@ -109,68 +149,76 @@ export class Engine {
     index?: number,
   ): void {
     this.requireWritable();
-    const nodeId = this.store.nodeIdOf(occurrenceId);
-    this.store.moveOccurrenceRecord(occurrenceId, parentOccurrenceId, index);
-    this.commitIfNeeded();
-    this.emit([{ type: "occurrenceMoved", nodeId, occurrenceId, parentOccurrenceId }]);
+    this.runAutoGrouped(() => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      this.store.moveOccurrenceRecord(occurrenceId, parentOccurrenceId, index);
+      this.commitIfNeeded();
+      this.emit([{ type: "occurrenceMoved", nodeId, occurrenceId, parentOccurrenceId }]);
+    });
   }
 
   removeOccurrence(occurrenceId: OccurrenceId): void {
     this.requireWritable();
-    const nodeId = this.store.nodeIdOf(occurrenceId);
-    if (occurrenceId === this.store.canonicalOccurrenceIdOf(nodeId)) {
-      throw new Error(`Cannot remove canonical occurrence: ${occurrenceId}`);
-    }
-    if (this.getChildOccurrenceIds(occurrenceId).length > 0) {
-      throw new Error(`Cannot remove occurrence with children: ${occurrenceId}`);
-    }
-    const parentOccurrenceId = this.getParentOccurrenceId(occurrenceId);
-    this.store.deleteOccurrenceRecord(occurrenceId);
-    this.commitIfNeeded();
-    this.emit([{ type: "occurrenceDeleted", nodeId, occurrenceId, parentOccurrenceId }]);
+    this.runAutoGrouped(() => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      if (occurrenceId === this.store.canonicalOccurrenceIdOf(nodeId)) {
+        throw new Error(`Cannot remove canonical occurrence: ${occurrenceId}`);
+      }
+      if (this.getChildOccurrenceIds(occurrenceId).length > 0) {
+        throw new Error(`Cannot remove occurrence with children: ${occurrenceId}`);
+      }
+      const parentOccurrenceId = this.getParentOccurrenceId(occurrenceId);
+      this.store.deleteOccurrenceRecord(occurrenceId);
+      this.commitIfNeeded();
+      this.emit([{ type: "occurrenceDeleted", nodeId, occurrenceId, parentOccurrenceId }]);
+    });
   }
 
   setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): void {
     this.requireWritable();
-    const promotedNodeId = this.store.nodeIdOf(occurrenceId);
-    if (promotedNodeId !== nodeId) {
-      throw new Error(`Occurrence does not belong to node: ${occurrenceId}`);
-    }
-    if (this.store.canonicalOccurrenceIdOf(nodeId) === occurrenceId) {
-      return;
-    }
-    this.store.setCanonicalOccurrence(nodeId, occurrenceId);
-    this.commitIfNeeded();
-    this.emit([{ type: "canonicalChanged", nodeId, occurrenceId }]);
+    this.runAutoGrouped(() => {
+      const promotedNodeId = this.store.nodeIdOf(occurrenceId);
+      if (promotedNodeId !== nodeId) {
+        throw new Error(`Occurrence does not belong to node: ${occurrenceId}`);
+      }
+      if (this.store.canonicalOccurrenceIdOf(nodeId) === occurrenceId) {
+        return;
+      }
+      this.store.setCanonicalOccurrence(nodeId, occurrenceId);
+      this.commitIfNeeded();
+      this.emit([{ type: "canonicalChanged", nodeId, occurrenceId }]);
+    });
   }
 
   deleteNode(nodeId: NodeId): void {
     this.requireWritable();
-    this.store.requireEntity(nodeId);
-    const occurrenceIds = this.store.getOccurrenceIdsForNode(nodeId).map((occurrenceId) => ({
-      occurrenceId,
-      parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
-    }));
-    const occurrenceWithChildren = occurrenceIds.find(
-      ({ occurrenceId }) => this.getChildOccurrenceIds(occurrenceId).length > 0,
-    );
-    if (occurrenceWithChildren) {
-      throw new Error(`Cannot delete node with children: ${nodeId}`);
-    }
-    for (const { occurrenceId } of occurrenceIds) {
-      this.store.deleteOccurrenceRecord(occurrenceId);
-    }
-    this.store.deleteEntity(nodeId);
-    this.commitIfNeeded();
-    this.emit([
-      ...occurrenceIds.map(({ occurrenceId, parentOccurrenceId }) => ({
-        type: "occurrenceDeleted" as const,
-        nodeId,
+    this.runAutoGrouped(() => {
+      this.store.requireEntity(nodeId);
+      const occurrenceIds = this.store.getOccurrenceIdsForNode(nodeId).map((occurrenceId) => ({
         occurrenceId,
-        parentOccurrenceId,
-      })),
-      { type: "entityDeleted", nodeId },
-    ]);
+        parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
+      }));
+      const occurrenceWithChildren = occurrenceIds.find(
+        ({ occurrenceId }) => this.getChildOccurrenceIds(occurrenceId).length > 0,
+      );
+      if (occurrenceWithChildren) {
+        throw new Error(`Cannot delete node with children: ${nodeId}`);
+      }
+      for (const { occurrenceId } of occurrenceIds) {
+        this.store.deleteOccurrenceRecord(occurrenceId);
+      }
+      this.store.deleteEntity(nodeId);
+      this.commitIfNeeded();
+      this.emit([
+        ...occurrenceIds.map(({ occurrenceId, parentOccurrenceId }) => ({
+          type: "occurrenceDeleted" as const,
+          nodeId,
+          occurrenceId,
+          parentOccurrenceId,
+        })),
+        { type: "entityDeleted", nodeId },
+      ]);
+    });
   }
 
   getOccurrence(occurrenceId: OccurrenceId): NodeOccurrence | undefined {
@@ -182,6 +230,7 @@ export class Engine {
     return {
       nodeId,
       occurrenceId,
+      occId: this.store.occIdOf(occurrenceId),
       parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
       canonicalOccurrenceId,
       canonicalChildOccurrenceIds: this.getChildOccurrenceIds(canonicalOccurrenceId),
@@ -230,29 +279,35 @@ export class Engine {
 
   replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): void {
     this.requireWritable();
-    this.store.replaceDeltas(occurrenceId, deltas);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.replaceDeltas(occurrenceId, deltas);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
+      ]);
+    });
   }
 
   mark(occurrenceId: OccurrenceId, range: MarkRange, key: string, value: unknown): void {
     this.requireWritable();
-    this.store.mark(occurrenceId, range, key, value);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.mark(occurrenceId, range, key, value);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
+      ]);
+    });
   }
 
   unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): void {
     this.requireWritable();
-    this.store.unmark(occurrenceId, range, key);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.unmark(occurrenceId, range, key);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
+      ]);
+    });
   }
 
   getProp(occurrenceId: OccurrenceId, key: string): unknown {
@@ -261,34 +316,40 @@ export class Engine {
 
   setProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
     this.requireWritable();
-    this.store.setProp(occurrenceId, key, value);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.setProp(occurrenceId, key, value);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
+      ]);
+    });
   }
 
   unsetProp(occurrenceId: OccurrenceId, key: string): void {
     this.requireWritable();
-    this.store.unsetProp(occurrenceId, key);
-    this.commitIfNeeded();
-    this.emit([
-      { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.unsetProp(occurrenceId, key);
+      this.commitIfNeeded();
+      this.emit([
+        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
+      ]);
+    });
   }
 
   setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): void {
     this.requireWritable();
-    this.store.setProps(occurrenceId, props);
-    this.commitIfNeeded();
-    this.emit(
-      Object.keys(props).map((key) => ({
-        type: "entityUpdated" as const,
-        nodeId: this.store.nodeIdOf(occurrenceId),
-        field: "props" as const,
-        key,
-      })),
-    );
+    this.runAutoGrouped(() => {
+      this.store.setProps(occurrenceId, props);
+      this.commitIfNeeded();
+      this.emit(
+        Object.keys(props).map((key) => ({
+          type: "entityUpdated" as const,
+          nodeId: this.store.nodeIdOf(occurrenceId),
+          field: "props" as const,
+          key,
+        })),
+      );
+    });
   }
 
   getProps(occurrenceId: OccurrenceId): Record<string, unknown> {
@@ -301,14 +362,18 @@ export class Engine {
 
   setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
     this.requireWritable();
-    this.store.setEntityMeta(occurrenceId, key, value);
-    this.commitIfNeeded();
+    this.runAutoGrouped(() => {
+      this.store.setEntityMeta(occurrenceId, key, value);
+      this.commitIfNeeded();
+    });
   }
 
   unsetEntityMeta(occurrenceId: OccurrenceId, key: string): void {
     this.requireWritable();
-    this.store.unsetEntityMeta(occurrenceId, key);
-    this.commitIfNeeded();
+    this.runAutoGrouped(() => {
+      this.store.unsetEntityMeta(occurrenceId, key);
+      this.commitIfNeeded();
+    });
   }
 
   getEntityMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
@@ -321,32 +386,36 @@ export class Engine {
 
   setOccurrenceProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
     this.requireWritable();
-    this.store.setOccurrenceProp(occurrenceId, key, value);
-    this.commitIfNeeded();
-    this.emit([
-      {
-        type: "occurrenceUpdated",
-        nodeId: this.store.nodeIdOf(occurrenceId),
-        occurrenceId,
-        field: "props",
-        key,
-      },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.setOccurrenceProp(occurrenceId, key, value);
+      this.commitIfNeeded();
+      this.emit([
+        {
+          type: "occurrenceUpdated",
+          nodeId: this.store.nodeIdOf(occurrenceId),
+          occurrenceId,
+          field: "props",
+          key,
+        },
+      ]);
+    });
   }
 
   unsetOccurrenceProp(occurrenceId: OccurrenceId, key: string): void {
     this.requireWritable();
-    this.store.unsetOccurrenceProp(occurrenceId, key);
-    this.commitIfNeeded();
-    this.emit([
-      {
-        type: "occurrenceUpdated",
-        nodeId: this.store.nodeIdOf(occurrenceId),
-        occurrenceId,
-        field: "props",
-        key,
-      },
-    ]);
+    this.runAutoGrouped(() => {
+      this.store.unsetOccurrenceProp(occurrenceId, key);
+      this.commitIfNeeded();
+      this.emit([
+        {
+          type: "occurrenceUpdated",
+          nodeId: this.store.nodeIdOf(occurrenceId),
+          occurrenceId,
+          field: "props",
+          key,
+        },
+      ]);
+    });
   }
 
   getOccurrenceProps(occurrenceId: OccurrenceId): Record<string, unknown> {
@@ -359,14 +428,18 @@ export class Engine {
 
   setOccurrenceMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
     this.requireWritable();
-    this.store.setOccurrenceMeta(occurrenceId, key, value);
-    this.commitIfNeeded();
+    this.runAutoGrouped(() => {
+      this.store.setOccurrenceMeta(occurrenceId, key, value);
+      this.commitIfNeeded();
+    });
   }
 
   unsetOccurrenceMeta(occurrenceId: OccurrenceId, key: string): void {
     this.requireWritable();
-    this.store.unsetOccurrenceMeta(occurrenceId, key);
-    this.commitIfNeeded();
+    this.runAutoGrouped(() => {
+      this.store.unsetOccurrenceMeta(occurrenceId, key);
+      this.commitIfNeeded();
+    });
   }
 
   getOccurrenceMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
@@ -390,14 +463,16 @@ export class Engine {
   // ── History ──────────────────────────────────────────────────────────────
 
   transact(fn: () => void): void {
-    this.undoManager.groupStart();
+    this.actionHistory.begin();
     this.inTransaction = true;
+    this.historyActive = true; // suppress per-op auto-grouping; the transaction is the group
     try {
       fn();
       this.store.commit();
     } finally {
+      this.historyActive = false;
       this.inTransaction = false;
-      this.undoManager.groupEnd();
+      this.actionHistory.end();
     }
   }
 
@@ -409,35 +484,42 @@ export class Engine {
     if (this._readonly) {
       return false;
     }
-    return this.undoManager.undo();
+    this.historyActive = true;
+    try {
+      return this.actionHistory.undo();
+    } finally {
+      this.historyActive = false;
+    }
   }
 
   redo(): boolean {
     if (this._readonly) {
       return false;
     }
-    return this.undoManager.redo();
+    this.historyActive = true;
+    try {
+      return this.actionHistory.redo();
+    } finally {
+      this.historyActive = false;
+    }
   }
 
   canUndo(): boolean {
-    return this._readonly ? false : this.undoManager.canUndo();
+    if (this._readonly) {
+      return false;
+    }
+    return this.actionHistory.canUndo();
   }
 
   canRedo(): boolean {
-    return this._readonly ? false : this.undoManager.canRedo();
+    if (this._readonly) {
+      return false;
+    }
+    return this.actionHistory.canRedo();
   }
 
   resetHistory(): void {
-    this.undoManager.clear();
-  }
-
-  withoutTransact(fn: () => void): void {
-    this.undoManager.setMergeInterval(0);
-    try {
-      fn();
-    } finally {
-      this.undoManager.setMergeInterval(this.mergeInterval);
-    }
+    this.actionHistory.clear();
   }
 
   captureSync(): void {
@@ -462,6 +544,12 @@ export class Engine {
     return this.store.getVersion();
   }
 
+  /** The ShardedBlockStore if this engine is sharded, else null. (Runtime uses this to
+   * persist/load across the treeDoc + shard sub-docs.) */
+  getShardedStore(): ShardedBlockStore | null {
+    return this.store instanceof ShardedBlockStore ? this.store : null;
+  }
+
   // ── Events ───────────────────────────────────────────────────────────────
 
   dispose(): void {
@@ -471,6 +559,23 @@ export class Engine {
   private commitIfNeeded(): void {
     if (!this.inTransaction) {
       this.store.commit();
+    }
+  }
+
+  /** Run a store-mutation thunk. Auto-groups as its own undo step when no group is open
+   *  (top-level call); runs bare when a group is already open (transact) or during
+   *  undo/redo application (historyActive set by undo()/redo()/transact). */
+  private runAutoGrouped<T>(fn: () => T): T {
+    if (this.historyActive) {
+      return fn();
+    }
+    this.historyActive = true;
+    this.actionHistory.begin();
+    try {
+      return fn();
+    } finally {
+      this.actionHistory.end();
+      this.historyActive = false;
     }
   }
 

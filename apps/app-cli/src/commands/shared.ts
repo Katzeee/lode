@@ -230,7 +230,6 @@ export function formatChangeResult(header: string, changes: DomainChange[]): str
 export async function buildNodeNameResolver(
   client: ClientLike,
   workspaceId: string,
-  docId: string,
   nodes: NodeOccurrenceWire[],
 ): Promise<NodeNameResolver> {
   const ids = new Set<string>();
@@ -241,7 +240,7 @@ export async function buildNodeNameResolver(
   const names = new Map<string, string>();
   await Promise.all(
     [...ids].map(async (nodeId) => {
-      const node = (await client.getNodeById({ workspaceId, docId, nodeId })).occurrence;
+      const node = (await client.getNodeById({ workspaceId, nodeId })).occurrence;
       if (node) {
         const text = nodeText(node);
         if (text.length > 0) {
@@ -256,10 +255,9 @@ export async function buildNodeNameResolver(
 export async function resolveNodeLabel(
   client: ClientLike,
   workspaceId: string,
-  docId: string,
   nodeId: string,
 ): Promise<string> {
-  const node = (await client.getNodeById({ workspaceId, docId, nodeId })).occurrence;
+  const node = (await client.getNodeById({ workspaceId, nodeId })).occurrence;
   if (!node) {
     return nodeId;
   }

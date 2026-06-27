@@ -19,6 +19,9 @@ export type MarkRange = {
 export type NodeOccurrence = {
   readonly nodeId: NodeId;
   readonly occurrenceId: OccurrenceId;
+  /** Permanent app-level occurrence identity (survives delete/recreate, e.g. undo).
+   * Distinct from occurrenceId, which is the live Loro tree id. Undo reconciles by occId. */
+  readonly occId: string;
   readonly parentOccurrenceId: OccurrenceId | null;
   readonly canonicalOccurrenceId: OccurrenceId;
   readonly canonicalChildOccurrenceIds: OccurrenceId[];
@@ -100,6 +103,7 @@ export type NodeEntitySnapshot = {
 
 export type NodeOccurrenceSnapshot = {
   occurrenceId: OccurrenceId;
+  occId: string;
   nodeId: NodeId;
   parentOccurrenceId: OccurrenceId | null;
   physicalChildOccurrenceIds: OccurrenceId[];

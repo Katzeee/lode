@@ -8,10 +8,10 @@ export type AppContext = {
   sessions: SessionManager;
 };
 
-export async function getDoc(ctx: AppContext, workspaceId: string, docId: string): Promise<Engine> {
-  const doc = await ctx.workspaces.getDoc(workspaceId, docId);
-  if (!doc) {
-    throw new DocNotFoundError(docId);
+export async function getEngine(ctx: AppContext, workspaceId: string): Promise<Engine> {
+  const engine = await ctx.workspaces.getEngine(workspaceId);
+  if (!engine) {
+    throw new DocNotFoundError(workspaceId);
   }
-  return doc;
+  return engine;
 }

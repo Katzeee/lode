@@ -27,6 +27,7 @@ export function toJSON(engine: Engine, rootOccurrenceId?: OccurrenceId): DocSnap
     });
     occurrences.set(node.occurrenceId, {
       occurrenceId: node.occurrenceId,
+      occId: node.occId,
       nodeId: node.nodeId,
       parentOccurrenceId: node.parentOccurrenceId,
       physicalChildOccurrenceIds: engine

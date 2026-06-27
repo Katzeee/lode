@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { Workspace, type Engine, type VersionVector } from "../core/index.js";
+import { ShardedBlockStore } from "../core/sharded-store.js";
+import { validateSnapshot } from "../core/invariant.js";
+import { toJSON } from "../core/serializers/json.js";
 import { workspaceDbPath } from "./paths.js";
 import { RegistryStore, type WorkspaceRecord } from "./registry-store.js";
-import { WorkspaceStore } from "./workspace-store.js";
+import { MAIN_SUBDOC, WorkspaceStore } from "./workspace-store.js";
 
 export type PersistenceOptions = {
   dataRoot: string;
@@ -93,7 +96,7 @@ export class AppWorkspaceRuntime {
     displayName?: string;
   }): Promise<string> {
     const loaded = await this.requireWorkspace(input.workspaceId);
-    const doc = loaded.workspace.createDoc(input.docId);
+    const doc = loaded.workspace.createDoc(input.docId, { store: new ShardedBlockStore() });
     if (loaded.store) {
       try {
         await loaded.store.createDoc({
@@ -124,23 +127,48 @@ export class AppWorkspaceRuntime {
     return existed;
   }
 
-  async getDoc(workspaceId: string, docId: string): Promise<Engine | null> {
+  async getEngine(workspaceId: string): Promise<Engine | null> {
     const loaded = await this.getWorkspace(workspaceId);
-    return loaded?.workspace.getDoc(docId) ?? null;
+    return this.singleEngine(loaded?.workspace);
   }
 
-  async persistMutation(
-    workspaceId: string,
-    docId: string,
-    beforeVersion: VersionVector,
-  ): Promise<void> {
+  async persistMutation(workspaceId: string, beforeVersion: VersionVector): Promise<void> {
     const loaded = await this.requireWorkspace(workspaceId);
     if (!loaded.store) {
       return;
     }
-    const doc = loaded.workspace.getDoc(docId);
+    const workspace = loaded.workspace;
+    const docId = this.singleDocId(workspace);
+    const doc = workspace.getDoc(docId);
     if (!doc) {
       throw new Error(`Doc not found: ${docId}`);
+    }
+    const sharded = doc.getShardedStore();
+    if (sharded) {
+      // treeDoc persists incrementally via the main sub-doc (exportUpdateFrom/getVersion
+      // are treeDoc-only on the sharded store, so beforeVersion is the treeDoc's VV).
+      const seq = await loaded.store.appendUpdate({
+        docId,
+        updateBytes: doc.exportUpdateFrom(beforeVersion),
+      });
+      if (seq % this.options.snapshotEveryUpdates === 0) {
+        await loaded.store.writeSnapshot({
+          docId,
+          coveredUpdateSeq: seq,
+          snapshotBytes: doc.exportSnapshot(),
+        });
+      }
+      // Each loaded shard persists as its latest snapshot (snapshot-only; shards are
+      // small, lazy-load is the win). Correctness over incremental shard updates.
+      for (const shardId of sharded.shardIds()) {
+        await loaded.store.writeSnapshot({
+          docId,
+          subDoc: shardId,
+          coveredUpdateSeq: 0,
+          snapshotBytes: sharded.getShardDoc(shardId).export({ mode: "snapshot" }),
+        });
+      }
+      return;
     }
     const seq = await loaded.store.appendUpdate({
       docId,
@@ -153,6 +181,24 @@ export class AppWorkspaceRuntime {
         snapshotBytes: doc.exportSnapshot(),
       });
     }
+  }
+
+  // One doc per workspace — the engine accessor + the storage key derive from the
+  // single entry. (Lifecycle RPCs createDoc/listDocs/removeDoc still name the doc.)
+  private singleEngine(workspace: Workspace | undefined): Engine | null {
+    if (!workspace) {
+      return null;
+    }
+    return [...workspace.docs.values()][0] ?? null;
+  }
+
+  private singleDocId(workspace: Workspace): string {
+    const ids = [...workspace.docs.keys()];
+    const id = ids[0];
+    if (id === undefined) {
+      throw new Error("Workspace has no doc");
+    }
+    return id;
   }
 
   async close(): Promise<void> {
@@ -194,22 +240,65 @@ export class AppWorkspaceRuntime {
     const store = await WorkspaceStore.open(
       workspaceDbPath(this.options.dataRoot, record.relativePath),
     );
-    const workspace = new Workspace({ id: record.workspaceId });
-    for (const docId of await store.listDocs()) {
-      const loaded = await store.loadDocBytes(docId);
-      if (!loaded) {
+    try {
+      const docIds = await store.listDocs();
+      const workspace = new Workspace({ id: record.workspaceId });
+      for (const docId of docIds) {
+        await this.loadShardedDoc(store, workspace, docId);
+      }
+      const loaded = { workspace, store };
+      this.loaded.set(record.workspaceId, loaded);
+      return loaded;
+    } catch (error) {
+      // loadShardedDoc can reject a corrupt persisted state (validateSnapshot after
+      // reconcile). The workspace isn't registered in `loaded`, so close() wouldn't
+      // reach this store — close it here to avoid leaking the SQLite handle.
+      await store.close();
+      throw error;
+    }
+  }
+
+  /**
+   * Load a sharded doc: the treeDoc (main sub-doc) eagerly (snapshot + updates), and
+   * shard snapshots pre-loaded into the sync `shardLoader` map. The shard LoroDocs
+   * themselves still materialize lazily on first access; full lazy shard LOAD (not
+   * even reading the bytes until touched) needs an async shardLoader and is deferred.
+   * reconcileDurability runs for cross-doc crash recovery.
+   */
+  private async loadShardedDoc(
+    store: WorkspaceStore,
+    workspace: Workspace,
+    docId: string,
+  ): Promise<void> {
+    const main = await store.loadDocBytes(docId);
+    if (!main) {
+      return;
+    }
+    const shardSnaps = new Map<string, Uint8Array>();
+    for (const subDoc of await store.listSubDocs(docId)) {
+      if (subDoc === MAIN_SUBDOC) {
         continue;
       }
-      const doc = workspace.createDoc(docId, {
-        ...(loaded.snapshotBytes ? { initialBytes: loaded.snapshotBytes } : {}),
-      });
-      for (const updateBytes of loaded.updateBytes) {
-        doc.importUpdate(updateBytes);
+      const shardBytes = await store.loadDocBytes(docId, subDoc);
+      if (shardBytes?.snapshotBytes) {
+        shardSnaps.set(subDoc, shardBytes.snapshotBytes);
       }
     }
-    const loaded = { workspace, store };
-    this.loaded.set(record.workspaceId, loaded);
-    return loaded;
+    const shardLoader = (shardId: string): Uint8Array | null => shardSnaps.get(shardId) ?? null;
+    const blockStore = new ShardedBlockStore({
+      ...(main.snapshotBytes ? { initialTreeBytes: main.snapshotBytes } : {}),
+      shardLoader,
+    });
+    const doc = workspace.createDoc(docId, { store: blockStore });
+    for (const updateBytes of main.updateBytes) {
+      doc.importUpdate(updateBytes);
+    }
+    // reconcileDurability self-heals create/delete orphans between treeDoc and shards;
+    // validateSnapshot then rejects anything it CANNOT heal (a broken canonical ref, a
+    // detached subtree, bytes from an incompatible version). This is the sharded analog
+    // of the old single-doc constructor import validation.
+    blockStore.reconcileDurability();
+    validateSnapshot(toJSON(doc));
   }
 }
 

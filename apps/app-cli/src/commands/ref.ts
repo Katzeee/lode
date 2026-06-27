@@ -16,19 +16,16 @@ export async function executeRefCommand(
     case "create": {
       assertAllowedFlags(command, commandKey, [
         "--workspace",
-        "--doc",
         "--target-node",
         "--parent-occ",
         "--index",
       ]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
-      const docId = getRequiredSingleFlag(command, "--doc");
       const targetNodeId = getRequiredSingleFlag(command, "--target-node");
       const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
       const index = getOptionalIndex(command);
       const created = await client.createRef({
         workspaceId,
-        docId,
         targetNodeId,
         ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
         ...(index === undefined ? {} : { index }),
@@ -37,21 +34,13 @@ export async function executeRefCommand(
     }
 
     case "clone": {
-      assertAllowedFlags(command, commandKey, [
-        "--workspace",
-        "--doc",
-        "--occ",
-        "--parent-occ",
-        "--index",
-      ]);
+      assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--parent-occ", "--index"]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
-      const docId = getRequiredSingleFlag(command, "--doc");
       const occurrenceId = getRequiredSingleFlag(command, "--occ");
       const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
       const index = getOptionalIndex(command);
       const cloned = await client.cloneRef({
         workspaceId,
-        docId,
         occurrenceId,
         ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
         ...(index === undefined ? {} : { index }),

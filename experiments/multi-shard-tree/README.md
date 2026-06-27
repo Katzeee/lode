@@ -1,5 +1,11 @@
 # Multi-shard single-tree engine — verification prototype
 
+> **⚠️ SUPERSEDED — safe to delete.** All verified designs + tests have been ported to
+> production (`packages/engine/src/core/sharded-store.ts`, `action-history.ts`,
+> `sharding.ts`, `invariant.ts`, `block-store.ts`; `packages/engine/tests/`).
+> The production engine runs sharded by default (see `docs/sharded-engine-migration.md`
+> and `docs/test-coverage-audit.md`). This prototype is no longer maintained.
+
 An isolated research prototype that **verifies the viability of a sharded
 single-tree CRDT engine** for a Tana-like outliner. It is **not production code**
 and is **not imported by `@lode/engine`** — it lives under `experiments/` (excluded

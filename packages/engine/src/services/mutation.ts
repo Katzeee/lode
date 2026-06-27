@@ -13,7 +13,7 @@ import {
   type NodeUpdatedPayload as ProtoNodeUpdatedPayload,
 } from "@lode/protocol/proto";
 import type { Engine, NodeUpdatedPayload as CoreNodeUpdatedPayload } from "../core/index.js";
-import { getDoc, type AppContext } from "./context.js";
+import { getEngine, type AppContext } from "./context.js";
 
 // Runs a mutating doc operation within the session/persist/broadcast envelope:
 // requireOrigin → load doc → capture nodeUpdated payloads → run → persist → broadcast.
@@ -22,11 +22,10 @@ export async function runMutation<T>(
   ctx: AppContext,
   connectionId: string,
   workspaceId: string,
-  docId: string,
   fn: (doc: Engine) => T,
 ): Promise<T> {
   const origin = ctx.sessions.requireOrigin(connectionId);
-  const doc = await getDoc(ctx, workspaceId, docId);
+  const doc = await getEngine(ctx, workspaceId);
   const beforeVersion = doc.getVersion();
   const payloads: ProtoNodeUpdatedPayload[] = [];
   const sub = doc.slots.nodeUpdated.subscribe((payload) => {
@@ -34,8 +33,8 @@ export async function runMutation<T>(
   });
   try {
     const result = fn(doc);
-    await ctx.workspaces.persistMutation(workspaceId, docId, beforeVersion);
-    ctx.sessions.broadcastNodeUpdated(workspaceId, docId, payloads, origin);
+    await ctx.workspaces.persistMutation(workspaceId, beforeVersion);
+    ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
     return result;
   } finally {
     sub.unsubscribe();

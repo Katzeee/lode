@@ -29,7 +29,7 @@ import {
   moveOccurrence,
   promoteCanonicalOccurrence,
 } from "../domain/node.js";
-import { getDoc, type AppContext } from "./context.js";
+import { getEngine, type AppContext } from "./context.js";
 import { EMPTY } from "./empty.js";
 import { runMutation } from "./mutation.js";
 import { fromValue } from "./struct.js";
@@ -41,14 +41,14 @@ export function createNodeHandlers(ctx: AppContext) {
       req: CreatePlainNodeRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceWire> => {
-      const node = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         createPlainNodeCore(doc, req.parentOccurrenceId ?? null, req.index, req.props),
       );
       return nodeToProto(node);
     },
 
     getNode: async (req: GetNodeRequest, _connectionId: string): Promise<GetNodeResponse> => {
-      const node = (await getDoc(ctx, req.workspaceId, req.docId)).getOccurrence(req.occurrenceId);
+      const node = (await getEngine(ctx, req.workspaceId)).getOccurrence(req.occurrenceId);
       return create(GetNodeResponseSchema, { occurrence: node ? nodeToProto(node) : undefined });
     },
 
@@ -56,7 +56,7 @@ export function createNodeHandlers(ctx: AppContext) {
       req: GetNodeByIdRequest,
       _connectionId: string,
     ): Promise<GetNodeResponse> => {
-      const doc = await getDoc(ctx, req.workspaceId, req.docId);
+      const doc = await getEngine(ctx, req.workspaceId);
       try {
         return create(GetNodeResponseSchema, {
           occurrence: nodeToProto(doc.mustGetOccurrence(doc.getCanonicalOccurrenceId(req.nodeId))),
@@ -70,15 +70,12 @@ export function createNodeHandlers(ctx: AppContext) {
       req: GetNodeChildrenRequest,
       _connectionId: string,
     ): Promise<GetNodeChildrenResponse> => {
-      const children = getSemanticChildren(
-        await getDoc(ctx, req.workspaceId, req.docId),
-        req.occurrenceId,
-      );
+      const children = getSemanticChildren(await getEngine(ctx, req.workspaceId), req.occurrenceId);
       return create(GetNodeChildrenResponseSchema, { children: children.map(nodeToProto) });
     },
 
     moveNode: async (req: MoveNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) => {
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) => {
         assertNotActiveManagedChild(doc, req.occurrenceId);
         moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId ?? null, req.index);
       });
@@ -86,21 +83,21 @@ export function createNodeHandlers(ctx: AppContext) {
     },
 
     replaceNodeText: async (req: ReplaceNodeTextRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         doc.replaceDeltas(req.occurrenceId, deltasFromProto(req.deltas)),
       );
       return EMPTY;
     },
 
     setNodeProp: async (req: SetNodePropRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         doc.setProp(req.occurrenceId, req.key, fromValue(req.value)),
       );
       return EMPTY;
     },
 
     unsetNodeProp: async (req: UnsetNodePropRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         doc.unsetProp(req.occurrenceId, req.key),
       );
       return EMPTY;
@@ -110,7 +107,7 @@ export function createNodeHandlers(ctx: AppContext) {
       req: SetOccurrencePropRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         doc.setOccurrenceProp(req.occurrenceId, req.key, fromValue(req.value)),
       );
       return EMPTY;
@@ -120,7 +117,7 @@ export function createNodeHandlers(ctx: AppContext) {
       req: UnsetOccurrencePropRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         doc.unsetOccurrenceProp(req.occurrenceId, req.key),
       );
       return EMPTY;
@@ -130,7 +127,7 @@ export function createNodeHandlers(ctx: AppContext) {
       req: RemoveNodeOccurrenceRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) => {
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) => {
         assertNotActiveManagedChild(doc, req.occurrenceId);
         doc.removeOccurrence(req.occurrenceId);
       });
@@ -138,7 +135,7 @@ export function createNodeHandlers(ctx: AppContext) {
     },
 
     hardDeleteNode: async (req: HardDeleteNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) => {
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) => {
         assertNodeHardDeleteAllowed(doc, req.nodeId);
         hardDeleteNodeCore(doc, req.nodeId);
       });
@@ -149,7 +146,7 @@ export function createNodeHandlers(ctx: AppContext) {
       req: PromoteCanonicalNodeRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         promoteCanonicalOccurrence(doc, req.nodeId, req.occurrenceId),
       );
       return EMPTY;

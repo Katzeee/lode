@@ -143,12 +143,10 @@ message SessionInfo {
 
 message SubscribeDocRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }
 
 message UnsubscribeDocRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }
 
 // ---- workspace ----
@@ -189,7 +187,6 @@ message RemoveWorkspaceDocRequest {
 
 message CreatePlainNodeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   optional string parent_occurrence_id = 3;
   optional int32 index = 4;
   optional google.protobuf.Struct props = 5;
@@ -197,7 +194,6 @@ message CreatePlainNodeRequest {
 
 message GetNodeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
 }
 
@@ -207,13 +203,11 @@ message GetNodeResponse {
 
 message GetNodeByIdRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string node_id = 3;
 }
 
 message GetNodeChildrenRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
 }
 
@@ -223,7 +217,6 @@ message GetNodeChildrenResponse {
 
 message MoveNodeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   optional string parent_occurrence_id = 4; // absent == move to root
   optional int32 index = 5;
@@ -231,33 +224,28 @@ message MoveNodeRequest {
 
 message RemoveNodeOccurrenceRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
 }
 
 message HardDeleteNodeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string node_id = 3;
 }
 
 message PromoteCanonicalNodeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string node_id = 3;
   string occurrence_id = 4;
 }
 
 message ReplaceNodeTextRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   repeated Delta deltas = 4;
 }
 
 message SetNodePropRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   string key = 4;
   google.protobuf.Value value = 5;
@@ -265,14 +253,12 @@ message SetNodePropRequest {
 
 message UnsetNodePropRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   string key = 4;
 }
 
 message SetOccurrencePropRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   string key = 4;
   google.protobuf.Value value = 5;
@@ -280,7 +266,6 @@ message SetOccurrencePropRequest {
 
 message UnsetOccurrencePropRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   string key = 4;
 }
@@ -289,7 +274,6 @@ message UnsetOccurrencePropRequest {
 
 message CreateRefRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string target_node_id = 3;
   optional string parent_occurrence_id = 4;
   optional int32 index = 5;
@@ -297,7 +281,6 @@ message CreateRefRequest {
 
 message CloneRefRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string occurrence_id = 3;
   optional string parent_occurrence_id = 4;
   optional int32 index = 5;
@@ -307,28 +290,24 @@ message CloneRefRequest {
 
 message CreateSchemaRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string name = 3;
   optional string parent_occurrence_id = 4;
 }
 
 message ApplySchemaRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string target_occurrence_id = 3;
   string schema_node_id = 4;
 }
 
 message RemoveSchemaRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string target_occurrence_id = 3;
   string schema_node_id = 4;
 }
 
 message ReconcileSchemaRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string target_occurrence_id = 3;
 }
 
@@ -342,7 +321,6 @@ message SchemaChangeResult {
 
 message CreateFieldDefRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string parent_occurrence_id = 3;
   string name = 4;
   optional FieldType field_type = 5;
@@ -351,14 +329,12 @@ message CreateFieldDefRequest {
 
 message SetFieldDefTypeRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string field_def_node_id = 3;
   FieldType field_type = 4;
 }
 
 message SetFieldDefPresenceRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string field_def_node_id = 3;
   FieldPresence presence = 4;
 }
@@ -367,7 +343,6 @@ message SetFieldDefPresenceRequest {
 
 message AddFieldRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string target_occurrence_id = 3;
   string field_def_node_id = 4;
   optional FieldMode mode = 5;
@@ -381,7 +356,6 @@ message AddFieldResult {
 
 message SetFieldValuesRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string field_occurrence_id = 3;
   repeated FieldValueInput values = 4;
 }
@@ -393,7 +367,6 @@ message SetFieldValuesResult {
 
 message RemoveFieldRequest {
   string workspace_id = 1;
-  string doc_id = 2;
   string field_occurrence_id = 3;
 }
 
@@ -401,20 +374,16 @@ message RemoveFieldRequest {
 
 message UndoHistoryRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }
 
 message RedoHistoryRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }
 
 message CanUndoHistoryRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }
 
 message CanRedoHistoryRequest {
   string workspace_id = 1;
-  string doc_id = 2;
 }

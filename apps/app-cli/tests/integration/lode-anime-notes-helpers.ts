@@ -47,16 +47,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
   };
 
   const createNode = async (text: string, parentOccurrenceId?: string): Promise<NodeRef> => {
-    const args = [
-      "node",
-      "create",
-      "--workspace",
-      ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
-      "--text",
-      text,
-    ];
+    const args = ["node", "create", "--workspace", ANIME_WORKSPACE_ID, "--text", text];
     if (parentOccurrenceId !== undefined) {
       args.push("--parent-occ", parentOccurrenceId);
     }
@@ -70,8 +61,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "create",
         "--workspace",
         ANIME_WORKSPACE_ID,
-        "--doc",
-        "main",
+
         "--name",
         name,
         "--parent-occ",
@@ -90,8 +80,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "create",
         "--workspace",
         ANIME_WORKSPACE_ID,
-        "--doc",
-        "main",
+
         "--parent-occ",
         parentOccurrenceId,
         "--name",
@@ -106,8 +95,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "apply",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--target-occ",
       targetOccurrenceId,
       "--schema-node",
@@ -125,8 +113,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "add",
         "--workspace",
         ANIME_WORKSPACE_ID,
-        "--doc",
-        "main",
+
         "--target-occ",
         targetOccurrenceId,
         "--field-def-node",
@@ -145,8 +132,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "set-values",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--field-occ",
       field.occurrenceId,
       "--text",
@@ -166,8 +152,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "set-values",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--field-occ",
       field.occurrenceId,
       "--ref-node",

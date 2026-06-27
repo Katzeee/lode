@@ -29,7 +29,7 @@ describe("lode CLI anime notes smoke", () => {
     const cli = createBeCliHarness(() => address);
 
     await cli.be("workspace", "create", "--workspace", ANIME_WORKSPACE_ID, "--name", "Anime");
-    await cli.be("doc", "create", "--workspace", ANIME_WORKSPACE_ID, "--doc", "main");
+    await cli.be("doc", "create", "--workspace", ANIME_WORKSPACE_ID);
 
     const root = await cli.createNode("Root");
     const schemaRoot = await cli.createNode("Schema", root.occurrenceId);
@@ -195,8 +195,7 @@ describe("lode CLI anime notes smoke", () => {
       "children",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       root.occurrenceId,
     );
@@ -209,8 +208,7 @@ describe("lode CLI anime notes smoke", () => {
       "children",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       notesRoot.occurrenceId,
     );
@@ -222,8 +220,7 @@ describe("lode CLI anime notes smoke", () => {
       "get",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       quickNote.occurrenceId,
     );
@@ -235,8 +232,7 @@ describe("lode CLI anime notes smoke", () => {
       "children",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       quickMoodField.occurrenceId,
     );
@@ -247,8 +243,7 @@ describe("lode CLI anime notes smoke", () => {
       "children",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       reviewOverallField.occurrenceId,
     );
@@ -266,8 +261,7 @@ describe("lode CLI anime notes smoke", () => {
       "get",
       "--workspace",
       ANIME_WORKSPACE_ID,
-      "--doc",
-      "main",
+
       "--occ",
       quickNote.occurrenceId,
     );

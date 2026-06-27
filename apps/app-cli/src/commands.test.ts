@@ -21,7 +21,6 @@ describe("executeCommand", () => {
     const summary = await executeCommand(
       client,
       command("schema", "apply", {
-        "--doc": ["doc_main"],
         "--target-occ": ["occ_target"],
         "--schema-node": ["node_schema"],
       }),
@@ -31,7 +30,6 @@ describe("executeCommand", () => {
       method: Methods.ApplySchema,
       params: {
         workspaceId: "ws_main",
-        docId: "doc_main",
         targetOccurrenceId: "occ_target",
         schemaNodeId: "node_schema",
       },
@@ -55,7 +53,6 @@ describe("executeCommand", () => {
     await executeCommand(
       client,
       command("node", "create", {
-        "--doc": ["doc_main"],
         "--parent-occ": ["null"],
         "--index": ["2"],
         "--text": ["hello"],
@@ -66,7 +63,6 @@ describe("executeCommand", () => {
       method: Methods.CreatePlainNode,
       params: {
         workspaceId: "ws_main",
-        docId: "doc_main",
         index: 2,
       },
     });
@@ -74,7 +70,6 @@ describe("executeCommand", () => {
       method: Methods.ReplaceNodeText,
       params: {
         workspaceId: "ws_main",
-        docId: "doc_main",
         occurrenceId: "occ_new",
         deltas: [{ insert: "hello" }],
       },
@@ -127,14 +122,12 @@ describe("executeCommand", () => {
     const nodeSummary = await executeCommand(
       client,
       command("node", "get", {
-        "--doc": ["doc_main"],
         "--occ": ["occ_task"],
       }),
     );
     const childrenSummary = await executeCommand(
       client,
       command("node", "children", {
-        "--doc": ["doc_main"],
         "--occ": ["occ_task"],
       }),
     );
@@ -167,14 +160,12 @@ describe("executeCommand", () => {
         "field",
         "set-values",
         {
-          "--doc": ["doc_main"],
           "--field-occ": ["occ_field"],
           "--text": ["a", "c"],
           "--ref-node": ["node_b"],
           "--move-occ": ["occ_move"],
         },
         [
-          { name: "--doc", value: "doc_main" },
           { name: "--field-occ", value: "occ_field" },
           { name: "--text", value: "a" },
           { name: "--ref-node", value: "node_b" },
@@ -189,7 +180,6 @@ describe("executeCommand", () => {
       | undefined;
     expect(setValuesCall?.params).toMatchObject({
       workspaceId: "ws_main",
-      docId: "doc_main",
       fieldOccurrenceId: "occ_field",
     });
     const cases = setValuesCall?.params.values.map((v) => v.value.case);
@@ -226,7 +216,6 @@ describe("executeCommand", () => {
     const summary = await executeCommand(
       client,
       command("field", "add", {
-        "--doc": ["doc_main"],
         "--target-occ": ["occ_target"],
         "--field-def-node": ["node_field_def"],
       }),
@@ -247,7 +236,6 @@ describe("executeCommand", () => {
     await executeCommand(
       client,
       command("field-def", "create", {
-        "--doc": ["doc_main"],
         "--parent-occ": ["occ_defs"],
         "--name": ["Due"],
         "--field-type": ["date"],
@@ -257,7 +245,6 @@ describe("executeCommand", () => {
     await executeCommand(
       client,
       command("field-def", "set-type", {
-        "--doc": ["doc_main"],
         "--field-def-node": ["node_field_def"],
         "--field-type": ["checkbox"],
       }),
@@ -267,7 +254,6 @@ describe("executeCommand", () => {
       method: Methods.CreateFieldDef,
       params: {
         workspaceId: "ws_main",
-        docId: "doc_main",
         parentOccurrenceId: "occ_defs",
         name: "Due",
         fieldType: 3,
@@ -278,7 +264,6 @@ describe("executeCommand", () => {
       method: Methods.SetFieldDefType,
       params: {
         workspaceId: "ws_main",
-        docId: "doc_main",
         fieldDefNodeId: "node_field_def",
         fieldType: 4,
       },
@@ -291,11 +276,11 @@ describe("executeCommand", () => {
     await expect(executeCommand(client, command("schema", "unknown", {}))).rejects.toThrow(
       /Unknown command/,
     );
+    await expect(executeCommand(client, command("schema", "apply", {}))).rejects.toThrow(
+      /--target-occ/,
+    );
     await expect(
-      executeCommand(client, command("schema", "apply", { "--doc": ["doc_main"] })),
-    ).rejects.toThrow(/--target-occ/);
-    await expect(
-      executeCommand(client, command("schema", "apply", { "--doc": ["doc_main"], "--bad": ["x"] })),
+      executeCommand(client, command("schema", "apply", { "--bad": ["x"] })),
     ).rejects.toThrow(/Unknown flag/);
   });
 });

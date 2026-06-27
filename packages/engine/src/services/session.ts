@@ -6,7 +6,7 @@ import type {
   SubscribeDocRequest,
   UnsubscribeDocRequest,
 } from "@lode/protocol/proto";
-import { getDoc, type AppContext } from "./context.js";
+import { getEngine, type AppContext } from "./context.js";
 import { EMPTY } from "./empty.js";
 
 export function createSessionHandlers(ctx: AppContext) {
@@ -16,13 +16,13 @@ export function createSessionHandlers(ctx: AppContext) {
 
     subscribeDoc: async (req: SubscribeDocRequest, connectionId: string) => {
       ctx.sessions.requireOrigin(connectionId);
-      await getDoc(ctx, req.workspaceId, req.docId);
-      ctx.sessions.subscribeDoc(connectionId, req.workspaceId, req.docId);
+      await getEngine(ctx, req.workspaceId);
+      ctx.sessions.subscribeDoc(connectionId, req.workspaceId);
       return EMPTY;
     },
 
     unsubscribeDoc: (req: UnsubscribeDocRequest, connectionId: string) => {
-      ctx.sessions.unsubscribeDoc(connectionId, req.workspaceId, req.docId);
+      ctx.sessions.unsubscribeDoc(connectionId, req.workspaceId);
       return EMPTY;
     },
 

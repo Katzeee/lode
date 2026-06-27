@@ -49,11 +49,10 @@ describe("AppServer persistence", () => {
     });
     const node = await first.client.rpc.createPlainNode({
       workspaceId: workspace.workspaceId,
-      docId: "main",
     });
     await first.client.rpc.replaceNodeText({
       workspaceId: workspace.workspaceId,
-      docId: "main",
+
       occurrenceId: node.occurrenceId,
       deltas: [{ insert: "Persist me" }],
     });
@@ -63,7 +62,7 @@ describe("AppServer persistence", () => {
     try {
       const restored = await second.client.rpc.getNode({
         workspaceId: workspace.workspaceId,
-        docId: "main",
+
         occurrenceId: node.occurrenceId,
       });
       expect(restored.occurrence?.deltas).toMatchObject([{ insert: "Persist me" }]);
@@ -86,17 +85,16 @@ describe("AppServer persistence", () => {
     });
     const node = await first.client.rpc.createPlainNode({
       workspaceId: "ws_main",
-      docId: "main",
     });
     await first.client.rpc.replaceNodeText({
       workspaceId: "ws_main",
-      docId: "main",
+
       occurrenceId: node.occurrenceId,
       deltas: [{ insert: "Snapshot base" }],
     });
     await first.client.rpc.setNodeProp({
       workspaceId: "ws_main",
-      docId: "main",
+
       occurrenceId: node.occurrenceId,
       key: "status",
       value: fromJson(ValueSchema, "after-snapshot"),
@@ -107,7 +105,7 @@ describe("AppServer persistence", () => {
     try {
       const restored = await second.client.rpc.getNode({
         workspaceId: "ws_main",
-        docId: "main",
+
         occurrenceId: node.occurrenceId,
       });
       expect(restored.occurrence?.deltas).toMatchObject([{ insert: "Snapshot base" }]);

@@ -32,7 +32,7 @@ export function createSchemaHandlers(ctx: AppContext) {
       req: CreateSchemaRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceRef> => {
-      const identity = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const identity = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         createSchema(doc, req.name, req.parentOccurrenceId ?? null),
       );
       return identityToProto(identity);
@@ -43,7 +43,7 @@ export function createSchemaHandlers(ctx: AppContext) {
       connectionId: string,
     ): Promise<SchemaChangeResult> =>
       toResult(
-        await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+        await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
           applySchema(doc, req.targetOccurrenceId, req.schemaNodeId),
         ),
       ),
@@ -53,7 +53,7 @@ export function createSchemaHandlers(ctx: AppContext) {
       connectionId: string,
     ): Promise<SchemaChangeResult> =>
       toResult(
-        await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+        await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
           removeSchema(doc, req.targetOccurrenceId, req.schemaNodeId),
         ),
       ),
@@ -63,7 +63,7 @@ export function createSchemaHandlers(ctx: AppContext) {
       connectionId: string,
     ): Promise<SchemaChangeResult> =>
       toResult(
-        await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+        await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
           reconcileSchema(doc, req.targetOccurrenceId),
         ),
       ),

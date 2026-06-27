@@ -6,20 +6,20 @@ import type {
   RedoHistoryRequest,
   UndoHistoryRequest,
 } from "@lode/protocol/proto";
-import { getDoc, type AppContext } from "./context.js";
+import { getEngine, type AppContext } from "./context.js";
 
 export function createHistoryHandlers(ctx: AppContext) {
   const undoOrRedo = async (
     req: UndoHistoryRequest | RedoHistoryRequest,
     connectionId: string,
-    apply: (doc: Awaited<ReturnType<typeof getDoc>>) => boolean,
+    apply: (doc: Awaited<ReturnType<typeof getEngine>>) => boolean,
   ): Promise<BoolValue> => {
     ctx.sessions.requireOrigin(connectionId);
-    const doc = await getDoc(ctx, req.workspaceId, req.docId);
+    const doc = await getEngine(ctx, req.workspaceId);
     const beforeVersion = doc.getVersion();
     const done = apply(doc);
     if (done) {
-      await ctx.workspaces.persistMutation(req.workspaceId, req.docId, beforeVersion);
+      await ctx.workspaces.persistMutation(req.workspaceId, beforeVersion);
     }
     return create(BoolValueSchema, { value: done });
   };
@@ -32,9 +32,9 @@ export function createHistoryHandlers(ctx: AppContext) {
       undoOrRedo(req, connectionId, (doc) => doc.redo()),
 
     canUndoHistory: async (req: CanUndoHistoryRequest, _connectionId: string): Promise<BoolValue> =>
-      create(BoolValueSchema, { value: (await getDoc(ctx, req.workspaceId, req.docId)).canUndo() }),
+      create(BoolValueSchema, { value: (await getEngine(ctx, req.workspaceId)).canUndo() }),
 
     canRedoHistory: async (req: CanRedoHistoryRequest, _connectionId: string): Promise<BoolValue> =>
-      create(BoolValueSchema, { value: (await getDoc(ctx, req.workspaceId, req.docId)).canRedo() }),
+      create(BoolValueSchema, { value: (await getEngine(ctx, req.workspaceId)).canRedo() }),
   };
 }

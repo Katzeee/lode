@@ -4,6 +4,7 @@
  */
 import { LoroDoc, LoroText } from "loro-crdt";
 import { Engine } from "../../src/core/engine.js";
+import { ShardedBlockStore } from "../../src/core/sharded-store.js";
 
 const t = (label: string, fn: () => void) => {
   const t0 = performance.now();
@@ -139,8 +140,8 @@ console.log("\n═══ Engine API ══════════════�
   t("Engine.export() after 100 blocks", () => {
     doc.exportSnapshot();
   });
-  t("new Engine({ initialBytes }) — import 100 blocks", () => {
-    new Engine({ initialBytes: doc.exportSnapshot() });
+  t("new Engine({ initialTreeBytes }) — import 100 blocks (treeDoc structure)", () => {
+    new Engine({ store: new ShardedBlockStore({ initialTreeBytes: doc.exportSnapshot() }) });
   });
 }
 {
@@ -161,8 +162,8 @@ console.log("\n═══ Engine API ══════════════�
   console.log(
     `  ${"Engine: 500 blocks snapshot size".padEnd(48)} ${(snap.length / 1024).toFixed(1).padStart(8)} KB`,
   );
-  t("new Engine({ initialBytes }) — import 500 blocks", () => {
-    new Engine({ initialBytes: snap });
+  t("new Engine({ initialTreeBytes }) — import 500 blocks (treeDoc structure)", () => {
+    new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   });
 }
 

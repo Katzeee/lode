@@ -31,6 +31,3 @@ export { deltaToText, textToDelta } from "./delta/utils.js";
 
 // Serializers
 export { toJSON, fromJSON } from "./serializers/json.js";
-
-// Persistence (Node.js)
-export { FileStore } from "./persistence/file-store.js";

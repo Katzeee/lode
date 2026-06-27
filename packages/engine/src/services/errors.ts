@@ -10,11 +10,11 @@ export class SessionRequiredError extends Error {
 }
 
 export class DocNotFoundError extends Error {
-  readonly docId: string;
+  readonly workspaceId: string;
 
-  constructor(docId: string) {
-    super(`Doc not found: ${docId}`);
+  constructor(workspaceId: string) {
+    super(`Doc not found for workspace: ${workspaceId}`);
     this.name = "DocNotFoundError";
-    this.docId = docId;
+    this.workspaceId = workspaceId;
   }
 }

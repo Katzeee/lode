@@ -1,5 +1,9 @@
+/* eslint-disable max-lines -- one persistence boundary; sub-doc stream handling kept together */
 import { bytesToBuffer, openSqliteDatabase, rowBytes, runTransaction } from "./sqlite.js";
 import type { SqliteDatabase } from "./sqlite.js";
+
+/** The default sub-doc name. Single-doc stores use only this; sharded stores use it for the treeDoc and one sub-doc per shard id. */
+export const MAIN_SUBDOC = "main";
 
 export type DocRecord = {
   docId: string;
@@ -37,24 +41,27 @@ export class WorkspaceStore {
 
       CREATE TABLE IF NOT EXISTS crdt_updates (
         doc_id TEXT NOT NULL,
+        sub_doc TEXT NOT NULL DEFAULT '${MAIN_SUBDOC}',
         seq INTEGER NOT NULL,
         update_bytes BLOB NOT NULL,
         created_at INTEGER NOT NULL,
 
-        PRIMARY KEY (doc_id, seq),
+        PRIMARY KEY (doc_id, sub_doc, seq),
         FOREIGN KEY (doc_id) REFERENCES docs(doc_id)
       );
 
       CREATE TABLE IF NOT EXISTS crdt_snapshots (
         doc_id TEXT NOT NULL,
+        sub_doc TEXT NOT NULL DEFAULT '${MAIN_SUBDOC}',
         covered_update_seq INTEGER NOT NULL,
         snapshot_bytes BLOB NOT NULL,
         created_at INTEGER NOT NULL,
 
-        PRIMARY KEY (doc_id, covered_update_seq),
+        PRIMARY KEY (doc_id, sub_doc, covered_update_seq),
         FOREIGN KEY (doc_id) REFERENCES docs(doc_id)
       );
     `);
+    await migrateSubDocColumn(db);
     return new WorkspaceStore(db);
   }
 
@@ -76,8 +83,8 @@ export class WorkspaceStore {
       );
       await this.db.run(
         `INSERT INTO crdt_snapshots
-          (doc_id, covered_update_seq, snapshot_bytes, created_at)
-         VALUES (?, 0, ?, ?)`,
+          (doc_id, sub_doc, covered_update_seq, snapshot_bytes, created_at)
+         VALUES (?, '${MAIN_SUBDOC}', 0, ?, ?)`,
         input.docId,
         bytesToBuffer(input.snapshotBytes),
         now,
@@ -95,6 +102,39 @@ export class WorkspaceStore {
       "SELECT doc_id FROM docs ORDER BY created_at ASC",
     );
     return rows.map((row) => row.doc_id);
+  }
+
+  /** Read a workspace_meta value (null if absent). Used to persist the store kind. */
+  async getMeta(key: string): Promise<string | null> {
+    const row = await this.db.get<{ value: string }>(
+      "SELECT value FROM workspace_meta WHERE key = ?",
+      key,
+    );
+    return row?.value ?? null;
+  }
+
+  /** Write a workspace_meta value. */
+  async setMeta(key: string, value: string): Promise<void> {
+    await this.db.run(
+      "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES (?, ?)",
+      key,
+      value,
+    );
+  }
+
+  /** Distinct sub-doc names that have any persisted bytes for a doc (incl. the main sub-doc). */
+  async listSubDocs(docId: string): Promise<string[]> {
+    const rows = await this.db.all<{ sub_doc: string }[]>(
+      `SELECT DISTINCT sub_doc FROM (
+          SELECT sub_doc FROM crdt_updates WHERE doc_id = ?
+          UNION
+          SELECT sub_doc FROM crdt_snapshots WHERE doc_id = ?
+       )
+       ORDER BY sub_doc ASC`,
+      docId,
+      docId,
+    );
+    return rows.map((row) => row.sub_doc);
   }
 
   async getDoc(docId: string): Promise<DocRecord | null> {
@@ -118,7 +158,12 @@ export class WorkspaceStore {
     return removed;
   }
 
-  async appendUpdate(input: { docId: string; updateBytes: Uint8Array }): Promise<number> {
+  async appendUpdate(input: {
+    docId: string;
+    updateBytes: Uint8Array;
+    subDoc?: string;
+  }): Promise<number> {
+    const subDoc = input.subDoc ?? MAIN_SUBDOC;
     let nextSeq = 0;
     const now = Date.now();
     await runTransaction(this.db, async () => {
@@ -126,23 +171,26 @@ export class WorkspaceStore {
       if (!doc) {
         throw new Error(`Doc not found: ${input.docId}`);
       }
-      nextSeq = doc.latestUpdateSeq + 1;
+      const latest = await this.latestSeq(input.docId, subDoc);
+      nextSeq = latest + 1;
       await this.db.run(
-        `INSERT INTO crdt_updates (doc_id, seq, update_bytes, created_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO crdt_updates (doc_id, sub_doc, seq, update_bytes, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
         input.docId,
+        subDoc,
         nextSeq,
         bytesToBuffer(input.updateBytes),
         now,
       );
-      await this.db.run(
-        `UPDATE docs
-         SET latest_update_seq = ?, updated_at = ?
-         WHERE doc_id = ?`,
-        nextSeq,
-        now,
-        input.docId,
-      );
+      // docs.latest_*_seq tracks the main sub-doc (back-compat with single-doc callers).
+      if (subDoc === MAIN_SUBDOC) {
+        await this.db.run(
+          `UPDATE docs SET latest_update_seq = ?, updated_at = ? WHERE doc_id = ?`,
+          nextSeq,
+          now,
+          input.docId,
+        );
+      }
     });
     return nextSeq;
   }
@@ -151,7 +199,9 @@ export class WorkspaceStore {
     docId: string;
     coveredUpdateSeq: number;
     snapshotBytes: Uint8Array;
+    subDoc?: string;
   }): Promise<void> {
+    const subDoc = input.subDoc ?? MAIN_SUBDOC;
     const now = Date.now();
     await runTransaction(this.db, async () => {
       const doc = await this.getDoc(input.docId);
@@ -160,48 +210,64 @@ export class WorkspaceStore {
       }
       await this.db.run(
         `INSERT OR REPLACE INTO crdt_snapshots
-          (doc_id, covered_update_seq, snapshot_bytes, created_at)
-         VALUES (?, ?, ?, ?)`,
+          (doc_id, sub_doc, covered_update_seq, snapshot_bytes, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
         input.docId,
+        subDoc,
         input.coveredUpdateSeq,
         bytesToBuffer(input.snapshotBytes),
         now,
       );
-      await this.db.run(
-        `UPDATE docs
-         SET latest_snapshot_seq = ?, updated_at = ?
-         WHERE doc_id = ?`,
-        input.coveredUpdateSeq,
-        now,
-        input.docId,
-      );
+      if (subDoc === MAIN_SUBDOC) {
+        await this.db.run(
+          `UPDATE docs SET latest_snapshot_seq = ?, updated_at = ? WHERE doc_id = ?`,
+          input.coveredUpdateSeq,
+          now,
+          input.docId,
+        );
+      }
     });
   }
 
-  async loadDocBytes(docId: string): Promise<LoadedDocBytes | null> {
+  async loadDocBytes(docId: string, subDoc?: string): Promise<LoadedDocBytes | null> {
+    const sd = subDoc ?? MAIN_SUBDOC;
     const doc = await this.getDoc(docId);
     if (!doc) {
       return null;
     }
-
-    const snapshotSeq = doc.latestSnapshotSeq;
+    const latest = await this.latestSeq(docId, sd);
+    if (latest === 0 && sd !== MAIN_SUBDOC) {
+      // Non-main sub-doc with no rows: nothing persisted (e.g., a shard never touched).
+      const hasRows = await this.db.get<{ c: number }>(
+        `SELECT COUNT(*) AS c FROM crdt_snapshots WHERE doc_id = ? AND sub_doc = ?`,
+        docId,
+        sd,
+      );
+      if (!(hasRows && hasRows.c > 0)) {
+        return null;
+      }
+    }
+    const snapshotSeq =
+      sd === MAIN_SUBDOC ? doc.latestSnapshotSeq : await this.latestSnapshotSeq(docId, sd);
     const snapshot =
       snapshotSeq == null
         ? null
         : await this.db.get<{ snapshot_bytes: Buffer }>(
             `SELECT snapshot_bytes
              FROM crdt_snapshots
-             WHERE doc_id = ? AND covered_update_seq = ?`,
+             WHERE doc_id = ? AND sub_doc = ? AND covered_update_seq = ?`,
             docId,
+            sd,
             snapshotSeq,
           );
     const coveredSeq = snapshotSeq ?? 0;
     const updates = await this.db.all<{ update_bytes: Buffer }[]>(
       `SELECT update_bytes
        FROM crdt_updates
-       WHERE doc_id = ? AND seq > ?
+       WHERE doc_id = ? AND sub_doc = ? AND seq > ?
        ORDER BY seq ASC`,
       docId,
+      sd,
       coveredSeq,
     );
 
@@ -213,6 +279,26 @@ export class WorkspaceStore {
 
   async close(): Promise<void> {
     await this.db.close();
+  }
+
+  /** Highest update seq for a (doc, sub-doc), or 0 if none. */
+  private async latestSeq(docId: string, subDoc: string): Promise<number> {
+    const row = await this.db.get<{ seq: number }>(
+      `SELECT MAX(seq) AS seq FROM crdt_updates WHERE doc_id = ? AND sub_doc = ?`,
+      docId,
+      subDoc,
+    );
+    return row?.seq ?? 0;
+  }
+
+  /** Highest covered_update_seq for a (doc, sub-doc), or null if no snapshot. */
+  private async latestSnapshotSeq(docId: string, subDoc: string): Promise<number | null> {
+    const row = await this.db.get<{ seq: number }>(
+      `SELECT MAX(covered_update_seq) AS seq FROM crdt_snapshots WHERE doc_id = ? AND sub_doc = ?`,
+      docId,
+      subDoc,
+    );
+    return row?.seq ?? null;
   }
 }
 
@@ -234,4 +320,40 @@ function rowToDoc(row: DocRow): DocRecord {
     latestUpdateSeq: row.latest_update_seq,
     latestSnapshotSeq: row.latest_snapshot_seq,
   };
+}
+
+/**
+ * Pre-production migration: older dev schemas lacked the `sub_doc` column (and used a
+ * (doc_id, seq) PK). Rebuild the CRDT tables to the sub-doc schema. DROPS existing
+ * CRDT bytes — acceptable since the project is not yet in production; dev workspaces
+ * are recreated on next open. A no-op when the column already exists.
+ */
+async function migrateSubDocColumn(db: SqliteDatabase): Promise<void> {
+  const cols = await db.all<{ name: string }[]>(`PRAGMA table_info(crdt_updates)`);
+  const hasSubDoc = cols.some((c) => c.name === "sub_doc");
+  if (hasSubDoc) {
+    return;
+  }
+  await db.exec(`
+    DROP TABLE IF EXISTS crdt_updates;
+    DROP TABLE IF EXISTS crdt_snapshots;
+    CREATE TABLE IF NOT EXISTS crdt_updates (
+      doc_id TEXT NOT NULL,
+      sub_doc TEXT NOT NULL DEFAULT '${MAIN_SUBDOC}',
+      seq INTEGER NOT NULL,
+      update_bytes BLOB NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (doc_id, sub_doc, seq),
+      FOREIGN KEY (doc_id) REFERENCES docs(doc_id)
+    );
+    CREATE TABLE IF NOT EXISTS crdt_snapshots (
+      doc_id TEXT NOT NULL,
+      sub_doc TEXT NOT NULL DEFAULT '${MAIN_SUBDOC}',
+      covered_update_seq INTEGER NOT NULL,
+      snapshot_bytes BLOB NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (doc_id, sub_doc, covered_update_seq),
+      FOREIGN KEY (doc_id) REFERENCES docs(doc_id)
+    );
+  `);
 }

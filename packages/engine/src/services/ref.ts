@@ -7,14 +7,14 @@ import { nodeToProto } from "./wire-node.js";
 export function createRefHandlers(ctx: AppContext) {
   return {
     createRef: async (req: CreateRefRequest, connectionId: string): Promise<NodeOccurrenceWire> => {
-      const node = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         createReference(doc, req.targetNodeId, req.parentOccurrenceId ?? null, req.index),
       );
       return nodeToProto(node);
     },
 
     cloneRef: async (req: CloneRefRequest, connectionId: string): Promise<NodeOccurrenceWire> => {
-      const node = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         cloneOccurrence(doc, req.occurrenceId, req.parentOccurrenceId ?? null, req.index),
       );
       return nodeToProto(node);

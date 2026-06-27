@@ -80,4 +80,74 @@ export default tseslint.config(
       "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
     },
   },
+  // Architecture boundaries (AGENTS.md: services -> domain -> core; engine ↛ transport/client).
+  // Enforced automatically so a future PR can't silently cross them. Tests may cross layers
+  // (e.g. cascade-exhaustive drives the domain cascade from a core test), so *.test.ts is exempt.
+  // NB: flat-config rule values don't merge across blocks (last-wins), so the three blocks use
+  // NON-overlapping file scopes — each src file matches exactly one — and each carries the full
+  // restriction set for its layer.
+  {
+    files: ["packages/engine/src/core/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../domain/*", "../../domain/*", "../services/*", "../../services/*"],
+              message: "core must not import domain/services — engine layers services -> domain -> core.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "core must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/domain/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../services/*", "../../services/*"],
+              message: "domain must not import services — services sit above domain.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "domain must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // services / persistence / dispatcher / top-level src: may use domain/core/protocol, never transport/client.
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: [
+      "packages/engine/src/core/**",
+      "packages/engine/src/domain/**",
+      "**/*.test.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/transport", "@lode/client"],
+              message: "engine must not import transport/client — that lives in @lode/daemon.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 );

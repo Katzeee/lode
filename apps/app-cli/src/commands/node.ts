@@ -42,21 +42,13 @@ async function executeNodeCreate(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, [
-    "--workspace",
-    "--doc",
-    "--parent-occ",
-    "--index",
-    "--text",
-  ]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--parent-occ", "--index", "--text"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
   const index = getOptionalIndex(command);
   const text = getOptionalSingleFlag(command, "--text");
   const created = await client.createPlainNode({
     workspaceId,
-    docId,
     ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
     ...(index === undefined ? {} : { index }),
   });
@@ -64,7 +56,6 @@ async function executeNodeCreate(
   if (text !== undefined) {
     await client.replaceNodeText({
       workspaceId,
-      docId,
       occurrenceId: created.occurrenceId,
       deltas: [{ insert: text }],
     });
@@ -79,15 +70,14 @@ async function executeNodeGet(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--occ"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
-  const node = (await client.getNode({ workspaceId, docId, occurrenceId })).occurrence;
+  const node = (await client.getNode({ workspaceId, occurrenceId })).occurrence;
   if (!node) {
-    return `Node occurrence ${occurrenceId} not found in doc ${docId}.`;
+    return `Node occurrence ${occurrenceId} not found.`;
   }
-  const resolveNodeName = await buildNodeNameResolver(client, workspaceId, docId, [node]);
+  const resolveNodeName = await buildNodeNameResolver(client, workspaceId, [node]);
   return ["node", formatNodeBlock(node, resolveNodeName)].join("\n");
 }
 
@@ -96,15 +86,14 @@ async function executeNodeChildren(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--occ"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
-  const children = (await client.getNodeChildren({ workspaceId, docId, occurrenceId })).children;
+  const children = (await client.getNodeChildren({ workspaceId, occurrenceId })).children;
   if (children.length === 0) {
     return `No children under occurrence ${occurrenceId}.`;
   }
-  const resolveNodeName = await buildNodeNameResolver(client, workspaceId, docId, children);
+  const resolveNodeName = await buildNodeNameResolver(client, workspaceId, children);
   return [
     `children parent=${occurrenceId} count=${children.length}`,
     ...children.map((child) => formatNodeBlock(child, resolveNodeName)),
@@ -116,21 +105,13 @@ async function executeNodeMove(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, [
-    "--workspace",
-    "--doc",
-    "--occ",
-    "--parent-occ",
-    "--index",
-  ]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--parent-occ", "--index"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
   const parentOccurrenceId = getRequiredNullableFlag(command, "--parent-occ");
   const index = getOptionalIndex(command);
   await client.moveNode({
     workspaceId,
-    docId,
     occurrenceId,
     ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
     ...(index === undefined ? {} : { index }),
@@ -143,11 +124,10 @@ async function executeNodeRemoveOccurrence(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--occ"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
-  await client.removeNodeOccurrence({ workspaceId, docId, occurrenceId });
+  await client.removeNodeOccurrence({ workspaceId, occurrenceId });
   return `Removed occurrence ${occurrenceId}.`;
 }
 
@@ -156,11 +136,10 @@ async function executeNodeHardDelete(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--node"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--node"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const nodeId = getRequiredSingleFlag(command, "--node");
-  await client.hardDeleteNode({ workspaceId, docId, nodeId });
+  await client.hardDeleteNode({ workspaceId, nodeId });
   return `Hard-deleted node ${nodeId}.`;
 }
 
@@ -169,14 +148,12 @@ async function executeNodeReplaceText(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--occ", "--text"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--text"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
   const text = getRequiredSingleFlag(command, "--text");
   await client.replaceNodeText({
     workspaceId,
-    docId,
     occurrenceId,
     deltas: [{ insert: text }],
   });

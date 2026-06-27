@@ -16,6 +16,7 @@
  */
 
 import { Engine } from "../../src/core/engine.js";
+import { ShardedBlockStore } from "../../src/core/sharded-store.js";
 import { textToDelta } from "../../src/core/delta/utils.js";
 import type { OccurrenceId } from "../../src/core/types.js";
 
@@ -91,7 +92,7 @@ function runUser(blockCount: number, avgChars: number, nestRatio: number) {
 
   const snap = engine.exportSnapshot();
   const t1 = performance.now();
-  const e2 = new Engine({ initialBytes: snap });
+  const e2 = new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;
 
   engine.dispose();
@@ -125,7 +126,7 @@ function runBatched(blockCount: number, avgChars: number, nestRatio: number) {
 
   const snap = doc.exportSnapshot();
   const t1 = performance.now();
-  new Engine({ initialBytes: snap });
+  new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;
 
   return { tBuild, tImport, snapBytes: snap.length };
@@ -159,7 +160,7 @@ function runTyping(blockCount: number, avgChars: number, nestRatio: number) {
 
   const snap = doc.exportSnapshot();
   const t1 = performance.now();
-  new Engine({ initialBytes: snap });
+  new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;
 
   return { tBuild, tImport, snapBytes: snap.length };

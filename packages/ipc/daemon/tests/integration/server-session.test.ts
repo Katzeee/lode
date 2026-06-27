@@ -44,25 +44,24 @@ describe("AppServer sessions and notifications", () => {
   });
 
   it("doc.subscribe requires a session", async () => {
-    await expect(
-      client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID, docId: "main" }),
-    ).rejects.toThrow("Session handshake required");
+    await expect(client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID })).rejects.toThrow(
+      "Session handshake required",
+    );
   });
 
   it("broadcasts node.updated with origin to subscribed sessions including the writer", async () => {
     await hello(client, "writer");
     await createWorkspaceAndDoc(client);
-    await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID, docId: "main" });
+    await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
 
     const observer = new AppServerClient({ url: server.address });
     observer.connect();
     await hello(observer, "observer");
-    await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID, docId: "main" });
+    await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
 
     const notifications = Promise.all([waitForNotification(client), waitForNotification(observer)]);
     const node = await client.rpc.createPlainNode({
       workspaceId: WORKSPACE_ID,
-      docId: "main",
     });
     const [writerNotification, observerNotification] = await notifications;
 
@@ -79,15 +78,14 @@ describe("AppServer sessions and notifications", () => {
     const observer = new AppServerClient({ url: server.address });
     observer.connect();
     await hello(observer, "observer");
-    await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID, docId: "main" });
+    await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
     observer.close();
 
-    await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID, docId: "main" });
+    await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
     const writerNotification = waitForNotification(client);
-    await client.rpc.createPlainNode({ workspaceId: WORKSPACE_ID, docId: "main" });
+    await client.rpc.createPlainNode({ workspaceId: WORKSPACE_ID });
     const notification = await writerNotification;
     expect(notification.workspaceId).toBe(WORKSPACE_ID);
-    expect(notification.docId).toBe("main");
   });
 });
 
@@ -119,7 +117,6 @@ function expectNodeUpdated(
   actorId: string,
 ): void {
   expect(notification.workspaceId).toBe(WORKSPACE_ID);
-  expect(notification.docId).toBe("main");
   const origin = notification.origin;
   expect(origin).toBeDefined();
   expect(origin!.nodeId.length).toBeGreaterThan(0);

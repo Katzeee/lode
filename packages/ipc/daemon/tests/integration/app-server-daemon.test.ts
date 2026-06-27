@@ -58,11 +58,10 @@ describe("app server daemon runtime", () => {
     });
     const node = await first.rpc.createPlainNode({
       workspaceId: "ws_daemon",
-      docId: "main",
     });
     await first.rpc.replaceNodeText({
       workspaceId: "ws_daemon",
-      docId: "main",
+
       occurrenceId: node.occurrenceId,
       deltas: [{ insert: "daemon persisted" }],
     });
@@ -77,7 +76,7 @@ describe("app server daemon runtime", () => {
 
     const restored = await second.rpc.getNode({
       workspaceId: "ws_daemon",
-      docId: "main",
+
       occurrenceId: node.occurrenceId,
     });
     expect(restored.occurrence?.deltas).toMatchObject([{ insert: "daemon persisted" }]);

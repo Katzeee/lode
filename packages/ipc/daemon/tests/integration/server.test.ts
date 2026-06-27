@@ -46,13 +46,11 @@ describe("AppServer integration", () => {
   it("reads the canonical occurrence by node id through RPC", async () => {
     const node = await createNode();
     await rpc.replaceNodeText({
-      docId: "main",
       occurrenceId: node.occurrenceId,
       deltas: [{ insert: "Canonical title" }],
     });
 
     const got = await rpc.getNodeById({
-      docId: "main",
       nodeId: node.nodeId,
     });
     expect(got.occurrence).toMatchObject({
@@ -61,7 +59,6 @@ describe("AppServer integration", () => {
       deltas: [{ insert: "Canonical title" }],
     });
     const missing = await rpc.getNodeById({
-      docId: "main",
       nodeId: "missing-node",
     });
     expect(missing.occurrence).toBeUndefined();
@@ -71,14 +68,12 @@ describe("AppServer integration", () => {
     const source = await createNode();
     const holder = await createNode();
     const ref = await rpc.createRef({
-      docId: "main",
       targetNodeId: source.nodeId,
       parentOccurrenceId: holder.occurrenceId,
     });
     const child = await createNode({ parentOccurrenceId: ref.occurrenceId });
 
     await rpc.replaceNodeText({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       deltas: [{ insert: "shared" }],
     });
@@ -86,7 +81,6 @@ describe("AppServer integration", () => {
     const sourceNode = await getNode(source.occurrenceId);
     expect(sourceNode.deltas).toMatchObject([{ insert: "shared" }]);
     const children = await rpc.getNodeChildren({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
     });
     expect(children.children).toEqual([
@@ -99,17 +93,14 @@ describe("AppServer integration", () => {
     const holder = await createNode();
 
     await rpc.replaceNodeText({
-      docId: "main",
       occurrenceId: source.occurrenceId,
       deltas: [{ insert: "source" }],
     });
     const clone = await rpc.cloneRef({
-      docId: "main",
       occurrenceId: source.occurrenceId,
       parentOccurrenceId: holder.occurrenceId,
     });
     await rpc.replaceNodeText({
-      docId: "main",
       occurrenceId: clone.occurrenceId,
       deltas: [{ insert: "clone" }],
     });
@@ -124,30 +115,25 @@ describe("AppServer integration", () => {
     const holder = await createNode();
     const otherParent = await createNode();
     const ref = await rpc.createRef({
-      docId: "main",
       targetNodeId: source.nodeId,
       parentOccurrenceId: holder.occurrenceId,
     });
 
     await rpc.setNodeProp({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       key: "status",
       value: fromJson(ValueSchema, "todo"),
     });
     await rpc.setOccurrenceProp({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       key: "collapsed",
       value: fromJson(ValueSchema, true),
     });
     await rpc.moveNode({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       parentOccurrenceId: otherParent.occurrenceId,
     });
     await rpc.promoteCanonicalNode({
-      docId: "main",
       nodeId: source.nodeId,
       occurrenceId: ref.occurrenceId,
     });
@@ -160,12 +146,10 @@ describe("AppServer integration", () => {
       occurrenceProps: { collapsed: true },
     });
     await rpc.unsetNodeProp({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       key: "status",
     });
     await rpc.unsetOccurrenceProp({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
       key: "collapsed",
     });
@@ -174,10 +158,9 @@ describe("AppServer integration", () => {
     expect(got.occurrenceProps).toEqual({});
 
     await rpc.hardDeleteNode({
-      docId: "main",
       nodeId: source.nodeId,
     });
-    const hardDeleted = await rpc.getNode({ docId: "main", occurrenceId: ref.occurrenceId });
+    const hardDeleted = await rpc.getNode({ occurrenceId: ref.occurrenceId });
     expect(hardDeleted.occurrence).toBeUndefined();
   });
 
@@ -185,41 +168,34 @@ describe("AppServer integration", () => {
     const source = await createNode();
     const holder = await createNode();
     const ref = await rpc.createRef({
-      docId: "main",
       targetNodeId: source.nodeId,
       parentOccurrenceId: holder.occurrenceId,
     });
 
     await rpc.removeNodeOccurrence({
-      docId: "main",
       occurrenceId: ref.occurrenceId,
     });
 
-    const removedRef = await rpc.getNode({ docId: "main", occurrenceId: ref.occurrenceId });
+    const removedRef = await rpc.getNode({ occurrenceId: ref.occurrenceId });
     expect(removedRef.occurrence).toBeUndefined();
     await expect(getNode(source.occurrenceId)).resolves.toMatchObject({
       nodeId: source.nodeId,
     });
   });
 
-  it("removes workspace docs through RPC", async () => {
-    await client.rpc.createWorkspaceDoc({
-      workspaceId: WORKSPACE_ID,
-      docId: "extra",
-    });
-
+  it("removes the workspace doc through RPC (one doc per workspace; idempotent)", async () => {
     let docs = await client.rpc.listWorkspaceDocs({ workspaceId: WORKSPACE_ID });
-    expect(docs.docIds).toEqual(expect.arrayContaining(["main", "extra"]));
+    expect(docs.docIds).toEqual(["main"]);
     const removed = await client.rpc.removeWorkspaceDoc({
       workspaceId: WORKSPACE_ID,
-      docId: "extra",
+      docId: "main",
     });
     expect(removed.value).toBe(true);
     docs = await client.rpc.listWorkspaceDocs({ workspaceId: WORKSPACE_ID });
-    expect(docs.docIds).not.toContain("extra");
+    expect(docs.docIds).toEqual([]);
     const removedAgain = await client.rpc.removeWorkspaceDoc({
       workspaceId: WORKSPACE_ID,
-      docId: "extra",
+      docId: "main",
     });
     expect(removedAgain.value).toBe(false);
   });
@@ -227,23 +203,23 @@ describe("AppServer integration", () => {
   it("exposes document history state through RPC", async () => {
     await createNode();
 
-    const canUndo = await rpc.canUndoHistory({ docId: "main" });
+    const canUndo = await rpc.canUndoHistory({});
     expect(canUndo.value).toBe(true);
-    const undo = await rpc.undoHistory({ docId: "main" });
+    const undo = await rpc.undoHistory({});
     expect(undo.value).toBe(true);
-    const canRedo = await rpc.canRedoHistory({ docId: "main" });
+    const canRedo = await rpc.canRedoHistory({});
     expect(canRedo.value).toBe(true);
-    const redo = await rpc.redoHistory({ docId: "main" });
+    const redo = await rpc.redoHistory({});
     expect(redo.value).toBe(true);
   });
 
   async function createNode(params: Record<string, unknown> = {}) {
-    const init: Record<string, unknown> = { docId: "main", ...params };
+    const init: Record<string, unknown> = { ...params };
     return rpc.createPlainNode(init);
   }
 
   async function getNode(occurrenceId: string) {
-    const response = await rpc.getNode({ docId: "main", occurrenceId });
+    const response = await rpc.getNode({ occurrenceId });
     if (response.occurrence === undefined) {
       throw new Error(`expected node at occurrence ${occurrenceId}`);
     }

@@ -20,11 +20,9 @@ export async function hello(client: AppServerClient, actorId = "test-actor"): Pr
 export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
   async function createTextNode(text: string, parentOccurrenceId?: string) {
     const node = await rpc.createPlainNode({
-      docId: "main",
       ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
     });
     await rpc.replaceNodeText({
-      docId: "main",
       occurrenceId: node.occurrenceId,
       deltas: [{ insert: text }],
     });
@@ -33,7 +31,6 @@ export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
 
   async function createSchema(name: string, parentOccurrenceId: string) {
     return rpc.createSchema({
-      docId: "main",
       name,
       parentOccurrenceId,
     });
@@ -45,7 +42,6 @@ export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
     options: { fieldType?: FieldType; presence?: FieldPresence } = {},
   ) {
     return rpc.createFieldDef({
-      docId: "main",
       parentOccurrenceId,
       name,
       ...(options.fieldType ? { fieldType: options.fieldType } : {}),
@@ -55,7 +51,6 @@ export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
 
   async function applySchema(targetOccurrenceId: string, schemaNodeId: string) {
     return rpc.applySchema({
-      docId: "main",
       targetOccurrenceId,
       schemaNodeId,
     });
@@ -83,12 +78,10 @@ export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
     values: FieldValueInput[],
   ) {
     const field = await rpc.addField({
-      docId: "main",
       targetOccurrenceId,
       fieldDefNodeId,
     });
     await rpc.setFieldValues({
-      docId: "main",
       fieldOccurrenceId: field.occurrenceId,
       values,
     });
@@ -128,12 +121,12 @@ export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
   }
 
   async function childrenOf(occurrenceId: string) {
-    const response = await rpc.getNodeChildren({ docId: "main", occurrenceId });
+    const response = await rpc.getNodeChildren({ occurrenceId });
     return response.children;
   }
 
   async function getNode(occurrenceId: string): Promise<NodeOccurrenceWire> {
-    const response = await rpc.getNode({ docId: "main", occurrenceId });
+    const response = await rpc.getNode({ occurrenceId });
     expect(response.occurrence).toBeDefined();
     return response.occurrence!;
   }

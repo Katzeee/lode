@@ -17,7 +17,7 @@ export function createFieldDefHandlers(ctx: AppContext) {
       req: CreateFieldDefRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceRef> => {
-      const identity = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const identity = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         createFieldDef(
           doc,
           req.parentOccurrenceId,
@@ -30,7 +30,7 @@ export function createFieldDefHandlers(ctx: AppContext) {
     },
 
     setFieldDefType: async (req: SetFieldDefTypeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         setFieldDefType(doc, req.fieldDefNodeId, fieldTypeFromProto(req.fieldType) ?? "plain"),
       );
       return EMPTY;
@@ -40,7 +40,7 @@ export function createFieldDefHandlers(ctx: AppContext) {
       req: SetFieldDefPresenceRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         setFieldDefPresence(
           doc,
           req.fieldDefNodeId,

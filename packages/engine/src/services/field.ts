@@ -23,7 +23,7 @@ import { runMutation } from "./mutation.js";
 export function createFieldHandlers(ctx: AppContext) {
   return {
     addField: async (req: AddFieldRequest, connectionId: string): Promise<AddFieldResult> => {
-      const result = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const result = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         addField(doc, req.targetOccurrenceId, req.fieldDefNodeId, fieldModeFromProto(req.mode)),
       );
       return create(AddFieldResultSchema, {
@@ -37,7 +37,7 @@ export function createFieldHandlers(ctx: AppContext) {
       req: SetFieldValuesRequest,
       connectionId: string,
     ): Promise<SetFieldValuesResult> => {
-      const result = await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      const result = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         setFieldValues(doc, req.fieldOccurrenceId, req.values.map(fieldValueInputFromProto)),
       );
       return create(SetFieldValuesResultSchema, {
@@ -47,7 +47,7 @@ export function createFieldHandlers(ctx: AppContext) {
     },
 
     removeField: async (req: RemoveFieldRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, req.docId, (doc) =>
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         removeField(doc, req.fieldOccurrenceId),
       );
       return EMPTY;

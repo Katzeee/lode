@@ -15,14 +15,12 @@ export async function executeSchemaCommand(
 ): Promise<string> {
   switch (command.action) {
     case "create": {
-      assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--name", "--parent-occ"]);
+      assertAllowedFlags(command, commandKey, ["--workspace", "--name", "--parent-occ"]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
-      const docId = getRequiredSingleFlag(command, "--doc");
       const name = getRequiredSingleFlag(command, "--name");
       const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
       const created = await client.createSchema({
         workspaceId,
-        docId,
         name,
         ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
       });
@@ -45,23 +43,16 @@ async function executeSchemaApply(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, [
-    "--workspace",
-    "--doc",
-    "--target-occ",
-    "--schema-node",
-  ]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--target-occ", "--schema-node"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const targetOccurrenceId = getRequiredSingleFlag(command, "--target-occ");
   const schemaNodeId = getRequiredSingleFlag(command, "--schema-node");
   const result = await client.applySchema({
     workspaceId,
-    docId,
     targetOccurrenceId,
     schemaNodeId,
   });
-  const schemaLabel = await resolveNodeLabel(client, workspaceId, docId, schemaNodeId);
+  const schemaLabel = await resolveNodeLabel(client, workspaceId, schemaNodeId);
   return formatChangeResult(
     `schema apply target=${result.target?.occurrenceId ?? "null"} schema=${schemaLabel}`,
     result.changes,
@@ -73,23 +64,16 @@ async function executeSchemaRemove(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, [
-    "--workspace",
-    "--doc",
-    "--target-occ",
-    "--schema-node",
-  ]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--target-occ", "--schema-node"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const targetOccurrenceId = getRequiredSingleFlag(command, "--target-occ");
   const schemaNodeId = getRequiredSingleFlag(command, "--schema-node");
   const result = await client.removeSchema({
     workspaceId,
-    docId,
     targetOccurrenceId,
     schemaNodeId,
   });
-  const schemaLabel = await resolveNodeLabel(client, workspaceId, docId, schemaNodeId);
+  const schemaLabel = await resolveNodeLabel(client, workspaceId, schemaNodeId);
   return formatChangeResult(
     `schema remove target=${result.target?.occurrenceId ?? "null"} schema=${schemaLabel}`,
     result.changes,
@@ -101,11 +85,10 @@ async function executeSchemaReconcile(
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
-  assertAllowedFlags(command, commandKey, ["--workspace", "--doc", "--target-occ"]);
+  assertAllowedFlags(command, commandKey, ["--workspace", "--target-occ"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const docId = getRequiredSingleFlag(command, "--doc");
   const targetOccurrenceId = getRequiredSingleFlag(command, "--target-occ");
-  const result = await client.reconcileSchema({ workspaceId, docId, targetOccurrenceId });
+  const result = await client.reconcileSchema({ workspaceId, targetOccurrenceId });
   return formatChangeResult(
     `schema reconcile target=${result.target?.occurrenceId ?? "null"}`,
     result.changes,

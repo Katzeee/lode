@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- cohesive schema/field integration coverage */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { AppServerClient } from "@lode/client";
@@ -45,12 +44,10 @@ describe("schema and field services", () => {
     const fieldDef = await createFieldDef("Mixed");
 
     const first = await rpc.addField({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       fieldDefNodeId: fieldDef.nodeId,
     });
     const second = await rpc.addField({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       fieldDefNodeId: fieldDef.nodeId,
     });
@@ -58,7 +55,6 @@ describe("schema and field services", () => {
     expect(second).toMatchObject({ occurrenceId: first.occurrenceId, created: false });
 
     await rpc.setFieldValues({
-      docId: "main",
       fieldOccurrenceId: first.occurrenceId,
       values: [
         fieldValue("text", { text: "alpha" }),
@@ -78,7 +74,6 @@ describe("schema and field services", () => {
     expect(firstValue.deltas).toMatchObject([{ insert: "alpha" }]);
 
     const reordered = await rpc.setFieldValues({
-      docId: "main",
       fieldOccurrenceId: first.occurrenceId,
       values: [
         fieldValue("move", {
@@ -103,7 +98,6 @@ describe("schema and field services", () => {
     ]);
 
     const replaced = await rpc.setFieldValues({
-      docId: "main",
       fieldOccurrenceId: first.occurrenceId,
       values: [fieldValue("text", { text: "replacement" })],
     });
@@ -126,7 +120,6 @@ describe("schema and field services", () => {
     });
 
     const added = await rpc.addField({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       fieldDefNodeId: fieldDef.nodeId,
     });
@@ -155,7 +148,6 @@ describe("schema and field services", () => {
   it("rejects schema creation with an invalid parent occurrence", async () => {
     await expect(
       rpc.createSchema({
-        docId: "main",
         name: "Invalid parent",
         parentOccurrenceId: "missing-occurrence-id",
       }),
@@ -184,13 +176,11 @@ describe("schema and field services", () => {
     )?.occurrenceId;
     expect(fieldSlotOccurrenceId).toBeDefined();
     await rpc.setFieldValues({
-      docId: "main",
       fieldOccurrenceId: fieldSlotOccurrenceId!,
       values: [fieldValue("text", { text: "keep me" })],
     });
 
     await rpc.removeSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       schemaNodeId: schema.nodeId,
     });
@@ -199,12 +189,10 @@ describe("schema and field services", () => {
     expect(children.some((child) => child.nodeId === template.nodeId)).toBe(true);
 
     await rpc.setFieldDefPresence({
-      docId: "main",
       fieldDefNodeId: requiredFieldDef.nodeId,
       presence: FieldPresence.OPTIONAL_PRESENCE,
     });
     await rpc.reconcileSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
     });
     children = await childrenOf(target.occurrenceId);
@@ -223,7 +211,6 @@ describe("schema and field services", () => {
     await createRef(template.nodeId, schema.occurrenceId);
     const applied = await applySchema(target.occurrenceId, schema.nodeId);
     const managedResponse = await rpc.getNode({
-      docId: "main",
       occurrenceId: applied.changes.find((change) => change.kind === DomainChangeKind.FIELD_SLOT)!
         .occurrenceId,
     });
@@ -232,60 +219,54 @@ describe("schema and field services", () => {
 
     await expect(
       rpc.moveNode({
-        docId: "main",
         occurrenceId: managedNode.occurrenceId,
         parentOccurrenceId: otherParent.occurrenceId,
       }),
     ).rejects.toThrow("active_managed_child");
     await expect(
       rpc.removeNodeOccurrence({
-        docId: "main",
         occurrenceId: managedNode.occurrenceId,
       }),
     ).rejects.toThrow("active_managed_child");
     await expect(
       rpc.removeField({
-        docId: "main",
         fieldOccurrenceId: managedNode.occurrenceId,
       }),
     ).rejects.toThrow("active_managed_child");
 
     const writableField = await rpc.addField({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       fieldDefNodeId: writableFieldDef.nodeId,
     });
     await expect(
       rpc.setFieldValues({
-        docId: "main",
         fieldOccurrenceId: writableField.occurrenceId,
         values: [fieldValue("move", { occurrenceId: managedNode.occurrenceId })],
       }),
     ).rejects.toThrow("active_managed_child");
 
-    await expect(rpc.hardDeleteNode({ docId: "main", nodeId: schema.nodeId })).rejects.toThrow(
+    await expect(rpc.hardDeleteNode({ nodeId: schema.nodeId })).rejects.toThrow(
       "protected_node_hard_delete",
     );
-    await expect(rpc.hardDeleteNode({ docId: "main", nodeId: fieldDef.nodeId })).rejects.toThrow(
+    await expect(rpc.hardDeleteNode({ nodeId: fieldDef.nodeId })).rejects.toThrow(
       "protected_node_hard_delete",
     );
-    await expect(rpc.hardDeleteNode({ docId: "main", nodeId: managedNode.nodeId })).rejects.toThrow(
+    await expect(rpc.hardDeleteNode({ nodeId: managedNode.nodeId })).rejects.toThrow(
       "protected_node_hard_delete",
     );
-    await expect(rpc.hardDeleteNode({ docId: "main", nodeId: template.nodeId })).rejects.toThrow(
+    await expect(rpc.hardDeleteNode({ nodeId: template.nodeId })).rejects.toThrow(
       "protected_node_hard_delete",
     );
   });
 
   async function createNode(params: Record<string, unknown> = {}) {
-    const init: Record<string, unknown> = { docId: "main", ...params };
+    const init: Record<string, unknown> = { ...params };
     return rpc.createPlainNode(init);
   }
 
   async function createFieldDef(name: string, presence: FieldPresence = FieldPresence.NORMAL) {
     const defs = await createNode();
     return rpc.createFieldDef({
-      docId: "main",
       parentOccurrenceId: defs.occurrenceId,
       name,
       presence,
@@ -294,12 +275,11 @@ describe("schema and field services", () => {
   }
 
   async function createSchema(name: string) {
-    return rpc.createSchema({ docId: "main", name });
+    return rpc.createSchema({ name });
   }
 
   async function createRef(targetNodeId: string, parentOccurrenceId: string) {
     return rpc.createRef({
-      docId: "main",
       targetNodeId,
       parentOccurrenceId,
     });
@@ -307,14 +287,13 @@ describe("schema and field services", () => {
 
   async function applySchema(targetOccurrenceId: string, schemaNodeId: string) {
     return rpc.applySchema({
-      docId: "main",
       targetOccurrenceId,
       schemaNodeId,
     });
   }
 
   async function childrenOf(occurrenceId: string) {
-    const response = await rpc.getNodeChildren({ docId: "main", occurrenceId });
+    const response = await rpc.getNodeChildren({ occurrenceId });
     return response.children;
   }
 });

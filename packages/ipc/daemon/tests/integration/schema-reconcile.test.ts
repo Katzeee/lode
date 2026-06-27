@@ -48,15 +48,12 @@ describe("schema reconcile", () => {
     expect(templateRef).toBeDefined();
 
     await rpc.removeNodeOccurrence({
-      docId: "main",
       occurrenceId: schemaFieldChild.occurrenceId,
     });
     await rpc.removeNodeOccurrence({
-      docId: "main",
       occurrenceId: schemaTemplateChild.occurrenceId,
     });
     const reconciled = await rpc.reconcileSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
     });
 
@@ -91,7 +88,6 @@ describe("schema reconcile", () => {
     expect(managedTemplate).toBeDefined();
 
     await rpc.removeSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       schemaNodeId: schema.nodeId,
     });
@@ -120,17 +116,14 @@ describe("schema reconcile", () => {
     expect(fieldSlotOccurrenceIds.length).toBeGreaterThan(0);
 
     await rpc.setFieldDefPresence({
-      docId: "main",
       fieldDefNodeId: fieldDef.nodeId,
       presence: FieldPresence.OPTIONAL_PRESENCE,
     });
     await rpc.removeSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
       schemaNodeId: schemaA.nodeId,
     });
     await rpc.reconcileSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
     });
 
@@ -154,13 +147,11 @@ describe("schema reconcile", () => {
     const unmanaged = await createNode({ parentOccurrenceId: target.occurrenceId });
 
     await rpc.moveNode({
-      docId: "main",
       occurrenceId: schemaChildB.occurrenceId,
       parentOccurrenceId: schema.occurrenceId,
       index: 0,
     });
     await rpc.reconcileSchema({
-      docId: "main",
       targetOccurrenceId: target.occurrenceId,
     });
 
@@ -172,14 +163,13 @@ describe("schema reconcile", () => {
   });
 
   async function createNode(params: Record<string, unknown> = {}) {
-    const init: Record<string, unknown> = { docId: "main", ...params };
+    const init: Record<string, unknown> = { ...params };
     return rpc.createPlainNode(init);
   }
 
   async function createFieldDef(name: string) {
     const defs = await createNode();
     return rpc.createFieldDef({
-      docId: "main",
       parentOccurrenceId: defs.occurrenceId,
       name,
       presence: FieldPresence.NORMAL,
@@ -187,12 +177,11 @@ describe("schema reconcile", () => {
   }
 
   async function createSchema(name: string) {
-    return rpc.createSchema({ docId: "main", name });
+    return rpc.createSchema({ name });
   }
 
   async function createRef(targetNodeId: string, parentOccurrenceId: string) {
     return rpc.createRef({
-      docId: "main",
       targetNodeId,
       parentOccurrenceId,
     });
@@ -200,19 +189,18 @@ describe("schema reconcile", () => {
 
   async function applySchema(targetOccurrenceId: string, schemaNodeId: string) {
     return rpc.applySchema({
-      docId: "main",
       targetOccurrenceId,
       schemaNodeId,
     });
   }
 
   async function childrenOf(occurrenceId: string) {
-    const response = await rpc.getNodeChildren({ docId: "main", occurrenceId });
+    const response = await rpc.getNodeChildren({ occurrenceId });
     return response.children;
   }
 
   async function getNode(occurrenceId: string) {
-    const response = await rpc.getNode({ docId: "main", occurrenceId });
+    const response = await rpc.getNode({ occurrenceId });
     return response.occurrence ?? null;
   }
 });

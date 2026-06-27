@@ -1,0 +1,566 @@
+/* eslint-disable max-lines -- one internal storage boundary */
+import {
+  LoroDoc,
+  LoroMap,
+  LoroText,
+  type LoroTree,
+  type LoroTreeNode,
+  type TreeID,
+  type VersionVector,
+} from "loro-crdt";
+import type { BlockStore } from "./block-store.js";
+import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
+import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
+
+/**
+ * Sharded storage: the production `BlockStore` implementation. State is split across
+ * many LoroDocs so structure and content can load/sync independently.
+ *
+ *   treeDoc  → occurrenceTree (full structure: nodeId + per-occ props/meta)
+ *              + ownership (nodeId → permanent virtual bucket)
+ *              + tombstones (hard-deleted nodeIds, for GC)
+ *   shard*   → one content doc per shardId, `entities` map keyed by nodeId
+ *              (canonicalOccurrenceId + content + props + meta)
+ *
+ * The tree doc is the single structural authority; a node's owning shard is derived
+ * from the immutable bucket in `ownership`, so it converges with the tree doc and
+ * never splits. Shards load lazily (`shardLoader`). Ported from the verified
+ * prototype (`experiments/multi-shard-tree/src/sharded-engine.ts`), adapted to the
+ * FULL production data model (entity meta + per-occurrence props/meta) and the
+ * `BlockStore` interface.
+ *
+ * The cascade is NOT here (production keeps it domain-level); this store offers only
+ * the low-level `deleteOccurrenceRecord` / `deleteEntity` the domain cascade drives.
+ *
+ * PERSISTENCE (transitional): `exportSnapshot` / `exportUpdateFrom` / `importUpdate`
+ * / `getVersion` operate on the treeDoc ONLY. Real multi-doc persistence (treeDoc +
+ * per-shard streams, lazy shard load) is Step 5; until then a single-doc persistence
+ * model would lose shard content on restart. Step 3 tests read/write correctness via
+ * the Engine (toJSON), not via these bytes.
+ */
+export class ShardedBlockStore implements BlockStore {
+  readonly treeDoc: LoroDoc;
+  private readonly occurrenceTree: LoroTree;
+  private readonly ownership: LoroMap;
+  private readonly tombstones: LoroMap;
+  private readonly shards = new Map<string, LoroDoc>();
+  readonly numShards: number;
+  /** Optional lazy loader: returns persisted shard bytes on first access. */
+  readonly shardLoader?: (shardId: string) => Uint8Array | null;
+  private round = 0;
+  private readonly tombstoneRound = new Map<string, number>();
+
+  constructor(
+    options: {
+      numShards?: number;
+      initialTreeBytes?: Uint8Array;
+      shardLoader?: (shardId: string) => Uint8Array | null;
+    } = {},
+  ) {
+    this.numShards = options.numShards ?? 256;
+    this.shardLoader = options.shardLoader;
+    this.treeDoc = new LoroDoc();
+    if (options.initialTreeBytes && options.initialTreeBytes.length > 0) {
+      this.treeDoc.import(options.initialTreeBytes);
+    }
+    this.occurrenceTree = this.treeDoc.getTree("occurrences");
+    this.ownership = this.treeDoc.getMap("ownership");
+    this.tombstones = this.treeDoc.getMap("tombstones");
+  }
+
+  // ── lifecycle ───────────────────────────────────────────────────────────────
+
+  commit(): void {
+    this.treeDoc.commit();
+    for (const s of this.shards.values()) {
+      s.commit();
+    }
+  }
+
+  // ── entity (node content) CRUD — content lives in the owning shard ──────────
+
+  createEntity(
+    nodeId: NodeId,
+    canonicalOccurrenceId: OccurrenceId,
+    props?: Record<string, unknown>,
+  ): void {
+    if (this.ownership.get(nodeId) !== undefined) {
+      throw new Error(`Node already exists: ${nodeId}`);
+    }
+    // Creating a node means it is alive: clear any stale tombstone a prior
+    // hard-delete left (undo↔GC contract — undo of a delete re-creates via this).
+    if (this.tombstones.get(nodeId) !== undefined) {
+      this.tombstones.delete(nodeId);
+    }
+    this.tombstoneRound.delete(nodeId);
+    // Record immutable ownership (the permanent bucket, not the shardId).
+    this.ownership.set(nodeId, bucketOf(nodeId));
+    // Entity lives in the shard.
+    const entity = this.shard(shardIdOf(nodeId, this.numShards))
+      .getMap("entities")
+      .setContainer(nodeId, new LoroMap());
+    entity.set("canonicalOccurrenceId", canonicalOccurrenceId);
+    entity.setContainer("content", new LoroText());
+    const propsMap = entity.setContainer("props", new LoroMap());
+    entity.setContainer("meta", new LoroMap());
+    for (const [key, value] of Object.entries(props ?? {})) {
+      propsMap.set(key, value as never);
+    }
+  }
+
+  requireEntity(nodeId: NodeId): void {
+    this.entityOf(nodeId);
+  }
+
+  deleteEntity(nodeId: NodeId): void {
+    // Idempotent if already gone (the domain cascade may call after the occurrence
+    // side is already deleted).
+    if (this.ownership.get(nodeId) === undefined) {
+      return;
+    }
+    this.shard(this.shardIdOfNode(nodeId)).getMap("entities").delete(nodeId);
+    this.ownership.delete(nodeId);
+    this.recordTombstone(nodeId);
+  }
+
+  setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): void {
+    this.entityOf(nodeId).set("canonicalOccurrenceId", occurrenceId);
+  }
+
+  canonicalOccurrenceIdOf(nodeId: NodeId): OccurrenceId {
+    const id = this.entityOf(nodeId).get("canonicalOccurrenceId");
+    if (typeof id !== "string") {
+      throw new Error(`Canonical occurrence not found: ${nodeId}`);
+    }
+    return id;
+  }
+
+  // ── occurrence (tree position) CRUD — structure lives in the treeDoc ────────
+
+  createOccurrenceRecord(
+    nodeId: NodeId,
+    occId: string,
+    parentOccurrenceId?: OccurrenceId | null,
+    index?: number,
+  ): OccurrenceId {
+    const parent = parentOccurrenceId == null ? undefined : (parentOccurrenceId as TreeID);
+    const node = this.occurrenceTree.createNode(parent, index);
+    const occurrenceId = String(node.id);
+    node.data.set("nodeId", nodeId);
+    node.data.set("occId", occId);
+    node.data.setContainer("props", new LoroMap());
+    node.data.setContainer("meta", new LoroMap());
+    return occurrenceId;
+  }
+
+  moveOccurrenceRecord(
+    occurrenceId: OccurrenceId,
+    parentOccurrenceId: OccurrenceId | null,
+    index?: number,
+  ): void {
+    // Pre-check: LoroTree's cycle check throws a non-recoverable WASM error on a
+    // cycle-forming move (caught synchronously but also delivered as an uncaught
+    // exception that kills a long-running host). Reject it cleanly first.
+    if (parentOccurrenceId != null) {
+      let cur = this.liveTreeNodeOf(parentOccurrenceId);
+      while (cur) {
+        if (String(cur.id) === occurrenceId) {
+          throw new Error(`Move would create a cycle: ${occurrenceId} → ${parentOccurrenceId}`);
+        }
+        cur = cur.parent() ?? null;
+      }
+    }
+    const parent = parentOccurrenceId == null ? undefined : (parentOccurrenceId as TreeID);
+    this.occurrenceTree.move(occurrenceId as TreeID, parent, index);
+  }
+
+  deleteOccurrenceRecord(occurrenceId: OccurrenceId): void {
+    this.occurrenceTree.delete(occurrenceId as TreeID);
+  }
+
+  nodeIdOf(occurrenceId: OccurrenceId): NodeId {
+    const node = this.treeNodeOf(occurrenceId);
+    const nodeId = node?.data.get("nodeId");
+    if (typeof nodeId !== "string") {
+      throw new Error(`Occurrence not found: ${occurrenceId}`);
+    }
+    return nodeId;
+  }
+
+  occIdOf(occurrenceId: OccurrenceId): string {
+    const node = this.treeNodeOf(occurrenceId);
+    const occId = node?.data.get("occId");
+    if (typeof occId !== "string") {
+      throw new Error(`Occurrence not found: ${occurrenceId}`);
+    }
+    return occId;
+  }
+
+  occurrenceExists(occurrenceId: OccurrenceId): boolean {
+    return this.treeNodeOf(occurrenceId) != null;
+  }
+
+  getOccurrenceIdsForNode(nodeId: NodeId): OccurrenceId[] {
+    this.entityOf(nodeId);
+    return this.occurrenceTree
+      .getNodes({ withDeleted: false })
+      .filter((node) => node.data.get("nodeId") === nodeId)
+      .map((node) => String(node.id));
+  }
+
+  getRootOccurrenceIds(): OccurrenceId[] {
+    return this.occurrenceTree.roots().map((node) => String(node.id));
+  }
+
+  getParentOccurrenceId(occurrenceId: OccurrenceId): OccurrenceId | null {
+    const node = this.treeNodeOf(occurrenceId);
+    if (!node) {
+      return null;
+    }
+    const parent = node.parent();
+    return parent ? String(parent.id) : null;
+  }
+
+  getChildOccurrenceIds(occurrenceId: OccurrenceId): OccurrenceId[] {
+    const node = this.treeNodeOf(occurrenceId);
+    if (!node) {
+      return [];
+    }
+    return node.children()?.map((child) => String(child.id)) ?? [];
+  }
+
+  // ── rich text (resolve nodeId from occurrence, content from shard) ──────────
+
+  getDeltas(occurrenceId: OccurrenceId): Delta {
+    const raw = this.contentOf(occurrenceId).toDelta() as Record<string, unknown>[];
+    return raw
+      .filter(
+        (d): d is { insert: string; attributes?: Record<string, unknown> } =>
+          typeof d.insert === "string",
+      )
+      .map((d) => {
+        const out: DeltaInsert = { insert: d.insert };
+        if (d.attributes && Object.keys(d.attributes).length > 0) {
+          out.attributes = d.attributes;
+        }
+        return out;
+      });
+  }
+
+  replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): void {
+    const text = this.contentOf(occurrenceId);
+    const len = text.length;
+    if (len > 0) {
+      text.delete(0, len);
+    }
+    const fullText = deltas.map((d) => d.insert).join("");
+    if (fullText.length > 0) {
+      text.insert(0, fullText);
+    }
+    let pos = 0;
+    for (const span of deltas) {
+      const end = pos + span.insert.length;
+      if (span.attributes) {
+        for (const [key, value] of Object.entries(span.attributes)) {
+          text.mark({ start: pos, end }, key, value);
+        }
+      }
+      pos = end;
+    }
+  }
+
+  mark(occurrenceId: OccurrenceId, range: MarkRange, key: string, value: unknown): void {
+    this.contentOf(occurrenceId).mark({ start: range.start, end: range.end }, key, value);
+  }
+
+  unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): void {
+    this.contentOf(occurrenceId).unmark({ start: range.start, end: range.end }, key);
+  }
+
+  // ── entity props + meta (resolve nodeId from occurrence) ────────────────────
+
+  getProp(occurrenceId: OccurrenceId, key: string): unknown {
+    return this.propsOf(occurrenceId).get(key);
+  }
+  setProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+    this.propsOf(occurrenceId).set(key, value as never);
+  }
+  unsetProp(occurrenceId: OccurrenceId, key: string): void {
+    this.propsOf(occurrenceId).delete(key);
+  }
+  setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): void {
+    const propsMap = this.propsOf(occurrenceId);
+    for (const [key, value] of Object.entries(props)) {
+      propsMap.set(key, value as never);
+    }
+  }
+  getProps(occurrenceId: OccurrenceId): Record<string, unknown> {
+    return this.mapToRecord(this.propsOf(occurrenceId));
+  }
+  getEntityMeta(occurrenceId: OccurrenceId, key: string): unknown {
+    return this.entityMetaOf(occurrenceId).get(key);
+  }
+  setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+    this.entityMetaOf(occurrenceId).set(key, value as never);
+  }
+  unsetEntityMeta(occurrenceId: OccurrenceId, key: string): void {
+    this.entityMetaOf(occurrenceId).delete(key);
+  }
+  getEntityMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
+    return this.mapToRecord(this.entityMetaOf(occurrenceId));
+  }
+
+  // ── occurrence props + meta (on the tree node's `data`) ─────────────────────
+
+  getOccurrenceProp(occurrenceId: OccurrenceId, key: string): unknown {
+    return this.occurrencePropsOf(occurrenceId).get(key);
+  }
+  setOccurrenceProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+    this.occurrencePropsOf(occurrenceId).set(key, value as never);
+  }
+  unsetOccurrenceProp(occurrenceId: OccurrenceId, key: string): void {
+    this.occurrencePropsOf(occurrenceId).delete(key);
+  }
+  getOccurrenceProps(occurrenceId: OccurrenceId): Record<string, unknown> {
+    return this.mapToRecord(this.occurrencePropsOf(occurrenceId));
+  }
+  getOccurrenceMeta(occurrenceId: OccurrenceId, key: string): unknown {
+    return this.occurrenceMetaOf(occurrenceId).get(key);
+  }
+  setOccurrenceMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+    this.occurrenceMetaOf(occurrenceId).set(key, value as never);
+  }
+  unsetOccurrenceMeta(occurrenceId: OccurrenceId, key: string): void {
+    this.occurrenceMetaOf(occurrenceId).delete(key);
+  }
+  getOccurrenceMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
+    return this.mapToRecord(this.occurrenceMetaOf(occurrenceId));
+  }
+
+  // ── persistence / sync bytes (transitional: treeDoc only — see class doc) ───
+
+  exportSnapshot(): Uint8Array {
+    return this.treeDoc.export({ mode: "snapshot" });
+  }
+  exportUpdateFrom(from: VersionVector): Uint8Array {
+    return this.treeDoc.export({ mode: "update", from });
+  }
+  importUpdate(bytes: Uint8Array): void {
+    this.treeDoc.import(bytes);
+  }
+  getVersion(): VersionVector {
+    return this.treeDoc.version();
+  }
+
+  // ── sharded-specific (not in BlockStore; for Step 5 persistence/sync) ───────
+
+  /** All docs that participate in sync/persistence (treeDoc + every loaded shard). */
+  syncDocs(): LoroDoc[] {
+    return [this.treeDoc, ...this.shards.values()];
+  }
+
+  /** Get (lazily creating) a shard doc by id. */
+  getShardDoc(shardId: string): LoroDoc {
+    return this.shard(shardId);
+  }
+
+  /** Every shard id referenced by the ownership map. */
+  shardIds(): string[] {
+    const out = new Set<string>();
+    for (const [, bucketRaw] of this.ownership.entries()) {
+      if (typeof bucketRaw === "number") {
+        out.add(shardIdOfBucket(bucketRaw, this.numShards));
+      }
+    }
+    return [...out];
+  }
+
+  /**
+   * Crash recovery: reconcile treeDoc ↔ shards after a non-atomic restart. The tree
+   * doc and each shard are independent LoroDocs (persisted separately in Step 5), so
+   * a crash between their writes leaves two kinds of incompleteness:
+   *   CREATE-direction: occurrence + ownership present, shard entity absent.
+   *   DELETE-direction: shard entity present, ownership already gone.
+   * Run to a fixpoint; deterministic given tree-doc + shard state.
+   */
+  reconcileDurability(): void {
+    for (let iter = 0; iter < 100; iter++) {
+      let changed = false;
+      // CREATE-direction: drop live occurrences pointing at a missing entity.
+      const occsToDrop: TreeID[] = [];
+      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
+        const nid = node.data.get("nodeId");
+        if (typeof nid === "string" && !this.entityPresent(nid)) {
+          occsToDrop.push(node.id);
+        }
+      }
+      for (const id of occsToDrop) {
+        this.occurrenceTree.delete(id);
+        changed = true;
+      }
+      // Ownership with neither a live occurrence nor an entity: crashed-create residue.
+      const liveOccNodeIds = new Set<NodeId>();
+      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
+        const nid = node.data.get("nodeId");
+        if (typeof nid === "string") {
+          liveOccNodeIds.add(nid);
+        }
+      }
+      for (const nid of [...(this.ownership.keys() as string[])]) {
+        if (!liveOccNodeIds.has(nid) && !this.entityPresent(nid)) {
+          this.ownership.delete(nid);
+          changed = true;
+        }
+      }
+      // DELETE-direction: orphan shard entities whose ownership is gone (scan every shard).
+      for (let i = 0; i < this.numShards; i++) {
+        const ents = this.shard(`s${i}`).getMap("entities");
+        const stale: NodeId[] = [];
+        for (const [nid] of ents.entries()) {
+          if (typeof nid === "string" && this.ownership.get(nid) === undefined) {
+            stale.push(nid);
+          }
+        }
+        for (const nid of stale) {
+          ents.delete(nid);
+          changed = true;
+        }
+      }
+      if (!changed) {
+        break;
+      }
+    }
+    this.treeDoc.commit();
+    for (const s of this.shards.values()) {
+      s.commit();
+    }
+  }
+
+  // ── internals ───────────────────────────────────────────────────────────────
+
+  private shard(shardId: string): LoroDoc {
+    let s = this.shards.get(shardId);
+    if (!s) {
+      s = new LoroDoc();
+      s.configTextStyle({
+        bold: { expand: "after" },
+        italic: { expand: "after" },
+      });
+      s.getMap("entities"); // ensure container exists
+      if (this.shardLoader) {
+        const bytes = this.shardLoader(shardId);
+        if (bytes && bytes.length > 0) {
+          s.import(bytes);
+        }
+      }
+      this.shards.set(shardId, s);
+    }
+    return s;
+  }
+
+  private shardIdOfNode(nodeId: NodeId): string {
+    const bucket = this.ownership.get(nodeId);
+    if (typeof bucket !== "number") {
+      throw new Error(`Node entity not found: ${nodeId}`);
+    }
+    return shardIdOfBucket(bucket, this.numShards);
+  }
+
+  private entityOf(nodeId: NodeId): LoroMap {
+    const entity = this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
+    if (!(entity instanceof LoroMap)) {
+      throw new Error(`Node entity not found: ${nodeId}`);
+    }
+    return entity;
+  }
+
+  private entityInShard(nodeId: NodeId, shardId: string): LoroMap | null {
+    const entity = this.shard(shardId).getMap("entities").get(nodeId);
+    return entity instanceof LoroMap ? entity : null;
+  }
+
+  /** True iff the node's entity currently exists in its owning shard. */
+  private entityPresent(nodeId: NodeId): boolean {
+    const bucket = this.ownership.get(nodeId);
+    return (
+      typeof bucket === "number" &&
+      this.entityInShard(nodeId, shardIdOfBucket(bucket, this.numShards)) !== null
+    );
+  }
+
+  private contentOf(occurrenceId: OccurrenceId): LoroText {
+    const nodeId = this.nodeIdOf(occurrenceId);
+    const text = this.entityOf(nodeId).get("content");
+    if (!(text instanceof LoroText)) {
+      throw new Error(`Node content not found: ${nodeId}`);
+    }
+    return text;
+  }
+
+  private propsOf(occurrenceId: OccurrenceId): LoroMap {
+    const nodeId = this.nodeIdOf(occurrenceId);
+    const props = this.entityOf(nodeId).get("props");
+    if (!(props instanceof LoroMap)) {
+      throw new Error(`Node entity props not found: ${nodeId}`);
+    }
+    const narrowed = props as unknown as LoroMap;
+    return narrowed;
+  }
+
+  private entityMetaOf(occurrenceId: OccurrenceId): LoroMap {
+    const nodeId = this.nodeIdOf(occurrenceId);
+    const meta = this.entityOf(nodeId).get("meta");
+    if (!(meta instanceof LoroMap)) {
+      throw new Error(`Node entity meta not found: ${nodeId}`);
+    }
+    const narrowed = meta as unknown as LoroMap;
+    return narrowed;
+  }
+
+  private occurrencePropsOf(occurrenceId: OccurrenceId): LoroMap {
+    const node = this.treeNodeOf(occurrenceId);
+    const props = node?.data.get("props");
+    if (!(props instanceof LoroMap)) {
+      throw new Error(`Occurrence props not found: ${occurrenceId}`);
+    }
+    const narrowed = props as unknown as LoroMap;
+    return narrowed;
+  }
+
+  private occurrenceMetaOf(occurrenceId: OccurrenceId): LoroMap {
+    const node = this.treeNodeOf(occurrenceId);
+    const meta = node?.data.get("meta");
+    if (!(meta instanceof LoroMap)) {
+      throw new Error(`Occurrence meta not found: ${occurrenceId}`);
+    }
+    const narrowed = meta as unknown as LoroMap;
+    return narrowed;
+  }
+
+  private treeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {
+    const node = this.occurrenceTree.getNodeByID(occurrenceId as TreeID);
+    if (!node || node.isDeleted()) {
+      return null;
+    }
+    return node;
+  }
+
+  private liveTreeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {
+    return this.treeNodeOf(occurrenceId);
+  }
+
+  private recordTombstone(nodeId: NodeId): void {
+    this.tombstones.set(nodeId, true as never);
+    if (!this.tombstoneRound.has(nodeId)) {
+      this.tombstoneRound.set(nodeId, this.round);
+    }
+  }
+
+  private mapToRecord(map: LoroMap): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of map.entries()) {
+      out[key] = value;
+    }
+    return out;
+  }
+}

@@ -13,23 +13,41 @@ service.
 ## Structure
 
 ```
-     CLI              TUI              GUI
-      \                |               /
-       \               |              /
-        ───────  AppServerClient  ───────
+     CLI              TUI              GUI              Mobile
+      \                |               /                /
+       \               |              /                /
+        ───────  AppServerClient  ──────────────────────
                         |
-             newline-delimited JSON
-             over supported transports
+                   proto / transport
                         |
-                    AppServer
-                   ├─ services
-                   └─ core workspace
-                        └─ Engine (one per doc)
-                             └─ BlockDoc (Loro CRDT)
+                    AppServer (daemon)
+                   ├─ services (RPC handlers)
+                   ├─ domain (product semantics)
+                   └─ core (engine + storage)
+                        └─ Engine (1 per workspace)
+                             ├─ BlockStore (ShardedBlockStore)
+                             │    ├─ treeDoc  (structure + ownership + tombstones + occId)
+                             │    └─ shard*   (256 content docs, virtual-bucket assigned)
+                             │
+                             └─ ActionHistory (snapshot-diff undo/redo)
+                                  └─ per-action: before/after of affected occurrences (by occId)
+                                     undo = reconcile(before) forward through Engine mutators
 ```
 
 **AppServerClient** is a shared library. All frontends use it. No frontend imports
-`server/src/` directly.
+`server/src/` directly. In-process clients (mobile) may use `@lode/engine` directly.
+
+## Package Layout
+
+| Package            | Role                                                                                                                                               |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@lode/protocol`   | Wire contract only: method names, schemas, DTOs. Language-neutral.                                                                                 |
+| `@lode/transport`  | Bytes and connections only.                                                                                                                        |
+| `@lode/client`     | Caller-facing facade over transport.                                                                                                               |
+| `@lode/engine`     | Transport-free core: `core` (block tree, text, props, history, CRDT sync); `domain` (product semantics); `services` (RPC adapters); `persistence`. |
+| `@lode/daemon`     | Thin host: wraps engine with a transport socket + process lifecycle.                                                                               |
+| `@lode/test-utils` | Shared test helpers.                                                                                                                               |
+| `apps/app-cli`     | Deployable CLI surface.                                                                                                                            |
 
 ## Invariants
 
@@ -44,19 +62,26 @@ All clients speak the same RPC contract from `protocol`. Transport is a deployme
 an API detail.
 
 **3. Engine stays product-agnostic.**
-`server/core` owns block tree, text, props, history, and CRDT sync primitives. Product semantics
-such as supertags, fields, queries, sessions, and notifications live above it.
+`core` owns block tree, text, props, history, and CRDT sync primitives. Product semantics
+(supertags, fields, queries, sessions, subscriptions) live in `domain` or `services`, never
+in `core`.
 
-**4. Daemon first.**
-The intended runtime is one local AppServer daemon per user. Client surfaces are wrappers around
-that service, not independent owners of state.
+**4. Layering is one-way.**
+`services → domain → core`. `core` must not import from `domain`, `services`, `protocol`, or
+any transport. `domain` may use `core` primitives. `engine` must not import `@lode/transport`
+or `@lode/client`. Enforced automatically via ESLint `no-restricted-imports`.
 
-**5. Notifications are not sync history.**
-Semantic notifications are UI events. Reconnect and durable sync must rely on CRDT update or
-version exchange, not replayed UI notifications.
+**5. One doc per workspace.**
+`Workspace.createDoc` throws if a doc already exists. The "doc" concept in the protocol is
+vestigial (always one per workspace). Doc lifecycle RPCs (`createWorkspaceDoc`,
+`removeWorkspaceDoc`, `listWorkspaceDocs`) remain for discovery; per-op RPCs carry no `doc_id`.
 
-**6. Headless by default.**
+**6. Notifications are not sync history.**
+Semantic notifications are UI events (per-workspace subscription). Reconnect and durable sync
+must rely on CRDT update or version exchange, not replayed UI notifications.
+
+**7. Headless by default.**
 The AppServer has no UI dependency. Every frontend is optional and external.
 
-**7. Clients are thin.**
+**8. Clients are thin.**
 Business logic lives in the AppServer. Clients render and dispatch commands.

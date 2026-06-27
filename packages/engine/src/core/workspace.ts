@@ -27,6 +27,9 @@ export class Workspace {
   }
 
   createDoc(docId?: string, options?: DocOptions): Engine {
+    if (this._docs.size > 0) {
+      throw new Error("Workspace already has a doc — one engine per workspace");
+    }
     const id = docId ?? this._idGenerator();
     if (this._docs.has(id)) {
       throw new Error(`Doc already exists: ${id}`);

@@ -92,4 +92,31 @@ describe("WorkspaceStore", () => {
     await expect(store.listDocs()).resolves.toEqual([]);
     await expect(store.loadDocBytes("main")).resolves.toBeNull();
   });
+
+  it("persists multiple independent sub-doc streams per logical doc (sharded treeDoc + shards)", async () => {
+    await store.createDoc({
+      docId: "ws1",
+      displayName: "WS",
+      snapshotBytes: new Uint8Array([0]), // main sub-doc (treeDoc) initial snapshot
+    });
+
+    // The main sub-doc and named shard sub-docs each have their own seq space + streams.
+    await store.appendUpdate({ docId: "ws1", updateBytes: new Uint8Array([1, 2]) });
+    await store.appendUpdate({ docId: "ws1", subDoc: "s3", updateBytes: new Uint8Array([7]) });
+    await store.appendUpdate({ docId: "ws1", subDoc: "s3", updateBytes: new Uint8Array([8]) });
+    await store.appendUpdate({ docId: "ws1", subDoc: "s17", updateBytes: new Uint8Array([9]) });
+
+    // listSubDocs enumerates every sub-doc with persisted bytes.
+    expect(await store.listSubDocs("ws1")).toEqual(["main", "s17", "s3"]);
+
+    // Each sub-doc loads its own stream, independently sequenced.
+    const main = await store.loadDocBytes("ws1");
+    expect(main?.updateBytes.map((b) => [...b])).toEqual([[1, 2]]);
+    const s3 = await store.loadDocBytes("ws1", "s3");
+    expect(s3?.updateBytes.map((b) => [...b])).toEqual([[7], [8]]);
+    const s17 = await store.loadDocBytes("ws1", "s17");
+    expect(s17?.updateBytes.map((b) => [...b])).toEqual([[9]]);
+    // A sub-doc with no rows returns null.
+    await expect(store.loadDocBytes("ws1", "s999")).resolves.toBeNull();
+  });
 });

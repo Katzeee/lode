@@ -8,41 +8,36 @@ beforeEach(() => {
   workspace = new Workspace();
 });
 
-describe("Workspace", () => {
-  it("creates docs with explicit or generated ids", () => {
+describe("Workspace (one engine per workspace)", () => {
+  it("creates a doc with an explicit or generated id", () => {
     let counter = 0;
-    const ws = new Workspace({ id: "workspace-main", idGenerator: () => `doc-${++counter}` });
+    const ws = new Workspace({ id: "ws-main", idGenerator: () => `doc-${++counter}` });
 
     const generated = ws.createDoc();
-    const explicit = ws.createDoc("explicit");
 
-    expect(ws.id).toBe("workspace-main");
+    expect(ws.id).toBe("ws-main");
     expect(generated).toBeInstanceOf(Engine);
     expect(generated.id).toBe("doc-1");
-    expect(explicit.id).toBe("explicit");
     expect(generated.createNode().nodeId.length).toBeGreaterThan(0);
     ws.dispose();
   });
 
-  it("rejects duplicate doc ids and allows reuse after removal", () => {
+  it("rejects a second doc — one engine per workspace", () => {
+    workspace.createDoc("main");
+    expect(() => workspace.createDoc("other")).toThrow(/one engine per workspace/);
+    expect(workspace.docs.size).toBe(1);
+  });
+
+  it("allows recreate after remove", () => {
     workspace.createDoc("doc");
-
-    expect(() => workspace.createDoc("doc")).toThrow(/Doc already exists/);
-
     workspace.removeDoc("doc");
     expect(workspace.createDoc("doc").id).toBe("doc");
   });
 
-  it("tracks docs independently", () => {
-    const a = workspace.createDoc("a");
-    const b = workspace.createDoc("b");
-
-    a.createNode();
-    workspace.removeDoc("a");
-
-    expect(workspace.getDoc("a")).toBeUndefined();
-    expect(workspace.getDoc("b")).toBe(b);
-    expect(b.getRootOccurrences()).toHaveLength(0);
+  it("getDoc returns the single engine", () => {
+    const engine = workspace.createDoc("main");
+    expect(workspace.getDoc("main")).toBe(engine);
+    expect(workspace.getDoc("nonexistent")).toBeUndefined();
   });
 
   it("emits doc list updates for real mutations only", () => {
@@ -50,17 +45,16 @@ describe("Workspace", () => {
     workspace.slots.docListUpdated.subscribe(() => updates.push(1));
 
     workspace.createDoc("doc");
-    workspace.removeDoc("missing");
+    workspace.removeDoc("missing"); // no-op
     workspace.removeDoc("doc");
 
-    expect(updates).toHaveLength(2);
+    expect(updates).toHaveLength(2); // create + remove
   });
 
-  it("disposes docs and completes the doc list subject", () => {
+  it("disposes the engine and completes the doc list subject", () => {
     let completed = false;
     workspace.slots.docListUpdated.subscribe({ complete: () => (completed = true) });
-    workspace.createDoc("a");
-    workspace.createDoc("b");
+    workspace.createDoc("main");
 
     workspace.dispose();
 
