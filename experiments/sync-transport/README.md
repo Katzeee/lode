@@ -26,58 +26,62 @@ cd experiments/sync-transport && npx vitest run
 
 ## Status
 
-P0–P6 done, **44 tests green, 0 skipped.** P7 (ACL log) is next — see below.
+P0–P7 done, **51 tests green, 0 skipped.** (P7 = the owner+member membership log.)
 
-| Phase | Proved                                                                                                        |
-| ----- | ------------------------------------------------------------------------------------------------------------- |
-| P0    | In-process stand-in harness (convergence / conservation / determinism).                                       |
-| P1    | Real-wire framing + Loro-native VV encode/decode converges over loopback TCP.                                 |
-| P2    | Multi-doc docId-tagged routing discipline (an s3 update can't land in s7).                                    |
-| P3    | Outcome-level partial-delivery + reconnect self-heal (no loss, no resurrection).                              |
-| P4    | Ed25519 membership gate — non-member rejected before any doc bytes cross.                                     |
-| P5    | `node:crypto` AES-256-GCM transit privacy — relay/bridge sees only ciphertext.                                |
-| P6    | **Workspace-routing broker** — subscription routing, private-workspace isolation, fan-out, content-blindness. |
+| Phase | Proved                                                                                                                                                        |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P0    | In-process stand-in harness (convergence / conservation / determinism).                                                                                       |
+| P1    | Real-wire framing + Loro-native VV encode/decode converges over loopback TCP.                                                                                 |
+| P2    | Multi-doc docId-tagged routing discipline (an s3 update can't land in s7).                                                                                    |
+| P3    | Outcome-level partial-delivery + reconnect self-heal (no loss, no resurrection).                                                                              |
+| P4    | Ed25519 membership gate — non-member rejected before any doc bytes cross.                                                                                     |
+| P5    | `node:crypto` AES-256-GCM transit privacy — relay/bridge sees only ciphertext.                                                                                |
+| P6    | **Workspace-routing broker** — subscription routing, private-workspace isolation, fan-out, content-blindness.                                                 |
+| P7    | **Membership log (owner+member)** — signed append-only log, transit-key wrapping + re-key chain, owner-only governance + transfer, forward secrecy, recovery. |
 
 (Full per-phase detail + the honest "genuinely unvalidated" gaps:
 [`PROGRESS.md`](./PROGRESS.md) §"Playground complete — assessment".)
 
 ## Key files
 
-| File                 | What                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| `src/broker.ts`      | The workspace-routing broker (P6). Production relay core.                             |
-| `src/wire.ts`        | Framing (`FrameSocket`) + payload-level `Cipher`.                                     |
-| `src/multi-sync.ts`  | Multi-doc exchange (`DocSet` + profile-union + per-doc).                              |
-| `src/socket-sync.ts` | Loopback TCP pair harness.                                                            |
-| `src/identity.ts`    | Ed25519 keypair (test-grade; production needs keystore + mnemonic).                   |
-| `src/gated-sync.ts`  | Auth handshake (playground model; production = ACL log + read-key AEAD).              |
-| `src/relay.ts`       | AES-256-GCM cipher + pairwise instrumented bridge (P5).                               |
-| `src/sync.ts`        | P0 in-process harness (`exchangeDocs`, mirrors production `SyncManager.exchangeDoc`). |
+| File                       | What                                                                                                                       |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/broker.ts`            | The workspace-routing broker (P6). Production relay core.                                                                  |
+| `src/wire.ts`              | Framing (`FrameSocket`) + payload-level `Cipher`.                                                                          |
+| `src/multi-sync.ts`        | Multi-doc exchange (`DocSet` + profile-union + per-doc).                                                                   |
+| `src/socket-sync.ts`       | Loopback TCP pair harness.                                                                                                 |
+| `src/identity.ts`          | Ed25519 keypair (test-grade; production needs keystore + mnemonic).                                                        |
+| `src/gated-sync.ts`        | Auth handshake (playground model; production = membership log + transit-key AEAD).                                         |
+| `src/relay.ts`             | AES-256-GCM cipher + pairwise instrumented bridge (P5).                                                                    |
+| `src/membership-crypto.ts` | P7 actor keys (Ed25519 sign + X25519 encrypt), sealed-box transit-key wrap/unwrap, AEAD — pure `node:crypto`.              |
+| `src/membership-log.ts`    | **P7 membership log** — signed append-only records (root/add/rotate/transfer) over a Loro doc, replay→state, re-key chain. |
+| `src/sync.ts`              | P0 in-process harness (`exchangeDocs`, mirrors production `SyncManager.exchangeDoc`).                                      |
 
-## P7 — the ACL log (next)
+## P7 — the membership log (owner+member, validated)
 
-P7 validates the **membership layer** decided in
-[`sync-identity-persistence.md`](../../docs/design/sync-identity-persistence.md) §2 (model
-C). It is the gate before production ACL wiring. Same substrate as P0–P6: raw `loro-crdt` +
-`node:crypto`, no engine, reusing P4 (Ed25519) + P5 (AEAD).
+P7 validates the **membership log** decided in
+[`sync-identity-persistence.md`](../../docs/design/sync-identity-persistence.md) §2 — an
+**owner + member(rw)** log, **not an ACL** (lode has no authoritative server to enforce access
+rules). It was the gate before production membership-log wiring — now green (7 tests). Same
+substrate as P0–P6: raw `loro-crdt` + `node:crypto`, no engine, reusing P4 (Ed25519) + P5
+(AEAD).
 
-The transport/broker is already de-risked (P1–P6) — an ACL doc is just another stream of
-sync bytes, **do not re-prove routing.** P7 focuses on the genuinely new risk:
+The transport/broker is already de-risked (P1–P6) — the membership log is just another stream
+of sync bytes, **do not re-prove routing.** P7 focused on the genuinely new risk, now covered:
 
-- **ACL log as a CRDT (Loro doc) — merge semantics.** The log is an append-only list of
-  signed records; replay → deterministic ACL state. Stress case: two replicas concurrently
-  append conflicting records (two admins mutually removing each other) → merge → replay →
-  one consistent, deterministic state.
-- **Crypto wrapping.** Read-key wrapped to each member's actor pubkey (X25519 sealed box);
-  re-key chain (`encryptedPreviousReadKey`, AES-256-GCM) for cross-epoch historical
-  decryption. Ed25519→Curve25519 conversion for the actor key's encrypt role.
-- **Lifecycle scenarios.** Create workspace (ACL root with owner + wrapped read-key); add
-  member; remove member + rotate key; change role; transfer ownership.
-- **Security properties.** Non-admin forged ACL change is rejected on apply; a removed
-  member cannot unwrap the new epoch's read-key; a current member can walk the re-key chain
-  back to decrypt all history.
-- **Recovery scenario.** Mnemonic → derive actor key → admin re-adds the actor (wraps
-  current read-key to its pubkey) → unwrap → walk chain → full history.
+- **Membership log as a CRDT (Loro doc) — replay semantics.** Signed append-only records
+  (root/add/rotate/transfer); replay → deterministic membership. Invalid records (bad sig,
+  non-owner signer, stale rotate) are **skipped** at replay (not fatal) so every replica
+  converges. Owner-only governance means no multi-admin concurrent conflict to resolve.
+- **Transit-key wrapping.** The transit key (transport-only AEAD key) is wrapped to each
+  member's X25519 pubkey; re-key chain (`encPrev` = AEAD(new, old)) for cross-epoch historical
+  decryption.
+- **Lifecycle.** root (owner self-signs) → add member → rotate (omission = revoke, the atomic
+  removeAndRotate) → transfer ownership (new owner governs, old owner becomes a member).
+- **Security.** A non-owner's forged add/rotate is skipped; a revoked member cannot unwrap the
+  new epoch's transit key; a current member walks the chain back to all history.
+- **Recovery.** Owner re-adds a recovered actor (same mnemonic-derived key) → unwrap current
+  transit key → walk chain → full history.
 
 These properties are cheap and conclusive to test in-process with real Loro merges and real
 signatures — there is no reason to first hit them inside the production engine.

@@ -96,11 +96,10 @@ home machine, exposed via a public pipe" is a _deployment_ path available later.
 ## 4. Membership — possession of the workspace read-key (egalitarian, no admin)
 
 > **⚠️ REVERSED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
-> Membership is now a **replicated signed ACL log** (model C), with roles + admins, the same
-> as any-sync. The read-key is no longer the membership credential; it is the content key
-> wrapped _within_ the ACL log. The egalitarian/no-admin/no-roles model below is kept only as
-> the historical rationale for the decision we later overturned (A and B turned out to be
-> degenerations of C).
+> Membership is now a **replicated signed membership log** with two roles — owner + member(rw)
+> — no admin/reader/writer tiers. The read-key is no longer the membership credential; it is the
+> **transit key** wrapped _within the membership log_. The egalitarian/no-roles model below is
+> kept only as the historical rationale for the decision we later overturned.
 
 A workspace is a set of devices that have agreed to sync. **All members are equal; there is no
 admin and no fine-grained role (read-only/admin).**

@@ -32,15 +32,21 @@ concepts.
 - `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with a transport
   socket plus process lifecycle — the AppServer process. It owns transport connections and injects
   the engine's notification sink.
+- `packages/sync` (`@lode/sync`) is the shared sync transport: the workspace-routing broker
+  (client + `--relay` server), the `SyncTransport` adapter over it, read-key AEAD, actor wire
+  signing, and real sockets. It depends on `@lode/engine` (the `SyncTransport` interface + actor
+  identity) and is used by BOTH `@lode/daemon` and in-process mobile — mobile dials a relay
+  directly, so the sync transport cannot live daemon-only. The engine must not import it.
 - `packages/test-utils` (`@lode/test-utils`) holds test helpers shared across packages.
 - `apps/*` are deployable client surfaces (`app-cli` today; `app-gui`, `app-tui`, `app-mobile`
   later). Out-of-process surfaces reach the engine through `@lode/client`/`@lode/daemon`; an
-  in-process surface (e.g. mobile) may use `@lode/engine` directly.
+  in-process surface (e.g. mobile) may use `@lode/engine` + `@lode/sync` directly.
 
 `@lode/engine` is the in-process service boundary; `@lode/daemon` exposes it as a local AppServer
 process. Out-of-process clients may use `@lode/client`, `@lode/transport`, and `@lode/protocol`,
 but must not import from `@lode/engine` source directly — to run a server they depend on
-`@lode/daemon`. In-process clients (mobile) may depend on `@lode/engine`.
+`@lode/daemon`. In-process clients (mobile) may depend on `@lode/engine` + `@lode/sync` (mobile
+dials a relay directly via `@lode/sync`, with no daemon).
 
 The intended desktop runtime is one local AppServer daemon per user. Clients may render or cache
 local views, but workspace ownership and business logic stay behind the engine API.
@@ -63,8 +69,8 @@ event   -> protocol      session -> {event, protocol}
 `core` must not import from `domain`, `services`, `protocol`, or any product layer. `domain` may
 use `core`/`bundle`/`domain/model` but must not register RPC methods, send notifications, or shape
 wire DTOs. `services` is the RPC adapter layer; `runtime` is the composition root and may import
-every internal layer. `engine` must not import `@lode/transport` or `@lode/client`; transport lives
-in `@lode/daemon`.
+every internal layer. `engine` must not import `@lode/transport`, `@lode/client`, or `@lode/sync`
+(the sync transport); transport lives in `@lode/daemon` and `@lode/sync`.
 
 `packages/engine/src/services` should register methods, validate params, load the target
 document/context, call domain functions, map results to protocol DTOs, and emit notifications via

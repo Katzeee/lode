@@ -85,22 +85,41 @@ cd experiments/sync-transport && npx vitest run
       "how to forward" gap** the audit identified: P0–P5 were pairwise; P6 is the multi-client
       workspace-routing layer the corrected design (§3) actually specifies.
 
+- [x] **P7 — the membership log (owner+member).** `src/membership-crypto.ts` (actor Ed25519
+      sign + X25519 encrypt keypairs; sealed-box transit-key wrap/unwrap via ephemeral X25519 +
+      ECDH + HKDF-SHA256 + AES-256-GCM; pure `node:crypto`) + `src/membership-log.ts`
+      (`MembershipLog` = a Loro doc with an append-only signed `LoroList` of root/add/rotate/
+      transfer; replay → state; re-key chain). `test/p7-membership.test.ts` (7 tests): root+add+
+      decrypt; rotate-omission revokes (forward secrecy); re-key chain history walk; transfer
+      (new owner governs, old can't); non-owner forge skipped; tampered sig + unknown signer
+      skipped; recovery (re-add → current transit key + full-history walk). Validates design §2 —
+      membership = replicated signed log, **owner+member only (no ACL/admin)**, transit key wrapped
+      per member, **owner-only governance** (no multi-admin conflict), forward secrecy on rotate
+      (omission = revoke), CRDT convergence (invalid records SKIPPED at replay), full-history
+      recovery via re-add + chain, self-signed root (no masterKey). **Unblocks A1 (production
+      membership log).** No new deps (all `node:crypto`). Redone from the earlier ACL-log P7 after
+      the model converged to owner+member.
+
 ## Playground complete — assessment
 
-All seven phases done (P0–P6); 44 tests green, 0 skipped.
+All eight phases done (P0–P7); 51 tests green, 0 skipped.
 
 **De-risked (the playground's job):** real-wire framing/serialization/Loro encode-decode (P1);
 multi-doc docId-tagged routing discipline (P2); outcome-level partial-delivery self-heal (P3);
 membership gating at the connection boundary (P4); client-to-client `node:crypto` AEAD transit
 privacy (P5); **the workspace-routing broker — subscription routing, private-workspace isolation,
-fan-out, content-blindness (P6)**.
+fan-out, content-blindness (P6)**; **the membership log (owner+member) — signed append-only log,
+transit-key wrapping + re-key chain, owner-only governance + transfer, forward secrecy on
+rotate, full-history recovery (P7)**.
 
 **Genuinely unvalidated (honest gaps → Phase D production work):** (1) true OS-process isolation
 (peers/clients share one Node process); (2) frame-header metadata visibility (the broker/bridge see
 plaintext tags/lengths); (3) production `SyncManager`/`ShardedBlockStore` wiring + ownership-derived
 shard discovery + per-op VV provenance (pubHex→peerId); (4) byte-level wire-fault robustness
 (mid-frame truncation, FrameSocket timeout); (5) **broker + CRDT composition end-to-end** — P6 used
-opaque payloads; composing the broker with P1–P3 pairwise sync through it is a hypothetical P7;
+opaque payloads, and P7 validated the membership log in ISOLATION, not composed with the broker +
+pairwise
+sync; that end-to-end composition is the production transport wiring (T1/T2);
 (6) delete / no-resurrection / revocation-confiscation (CRDT-owned, production truth tests cover).
 Reachability (§3a: LAN/VPS/tunwg) is a deployment dimension, orthogonal — not validated here, by
 design.
