@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { registryDbPath, workspaceRelativePath } from "./paths.js";
 import { openSqliteDatabase, runTransaction, type SqliteDatabase } from "./sqlite.js";
 
@@ -82,6 +82,44 @@ export class RegistryStore {
   async removeWorkspace(workspaceId: string): Promise<boolean> {
     const result = await this.db.run("DELETE FROM workspaces WHERE workspace_id = ?", workspaceId);
     return (result.changes ?? 0) > 0;
+  }
+
+  // ── registry-level metadata (key/value) ─────────────────────────────────────
+
+  async getMeta(key: string): Promise<string | null> {
+    const row = await this.db.get<{ value: string }>(
+      "SELECT value FROM registry_meta WHERE key = ?",
+      key,
+    );
+    return row?.value ?? null;
+  }
+
+  async setMeta(key: string, value: string): Promise<void> {
+    await this.db.run(
+      "INSERT OR REPLACE INTO registry_meta (key, value) VALUES (?, ?)",
+      key,
+      value,
+    );
+  }
+
+  /**
+   * Get-or-create this dataRoot's stable device peerId — the Loro replica site id, set on
+   * every LoroDoc (see ShardedBlockStore.peerId). Generated once and persisted in
+   * registry_meta so the version vector stays stable across restarts. 48-bit random: only
+   * collisions among concurrent editors of the SAME doc across replicas matter, and 2^48
+   * makes that negligible while staying inside JS safe-integer range.
+   */
+  async ensurePeerId(): Promise<number> {
+    const existing = await this.getMeta("peerId");
+    if (existing !== null) {
+      const parsed = Number(existing);
+      if (Number.isSafeInteger(parsed) && parsed > 0) {
+        return parsed;
+      }
+    }
+    const peerId = randomInt(1, 2 ** 48);
+    await this.setMeta("peerId", String(peerId));
+    return peerId;
   }
 
   async close(): Promise<void> {

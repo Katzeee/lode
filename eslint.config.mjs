@@ -254,6 +254,39 @@ export default tseslint.config(
     },
   },
   {
+    // identity: actor identity primitives + per-dataRoot keystore/catalog — a leaf that may use
+    // the persistence storage primitives (sqlite/paths) + node:crypto + sibling identity files,
+    // nothing above (no core/domain/services/runtime/bundle/event/session).
+    files: ["packages/engine/src/identity/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../core/**",
+                "../domain/**",
+                "../services/**",
+                "../runtime/**",
+                "../bundle/**",
+                "../event/**",
+                "../session/**",
+              ],
+              message:
+                "identity is a leaf — may use only persistence storage primitives + node:crypto + sibling identity files.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "identity must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // services / runtime / top-level src (index.ts): adapter + composition layers; may use any
     // internal layer + protocol, never transport/client.
     files: ["packages/engine/src/**/*.ts"],
@@ -264,6 +297,7 @@ export default tseslint.config(
       "packages/engine/src/event/**",
       "packages/engine/src/session/**",
       "packages/engine/src/persistence/**",
+      "packages/engine/src/identity/**",
       "**/*.test.ts",
     ],
     rules: {

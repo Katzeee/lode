@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- per-workspace lifecycle + sharded persistence composition root;
+   the peerId/store/createDoc/load/persist wiring is cohesive in one place */
 import { randomUUID } from "node:crypto";
 import { Workspace, type Engine, type VersionVector } from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
@@ -54,10 +56,16 @@ export class AppWorkspaceRuntime {
     private readonly options: {
       dataRoot?: string;
       registry: RegistryStore | null;
+      peerId?: number;
       snapshotEveryUpdates: number;
     },
     private readonly createChildApp: () => App,
   ) {}
+
+  /** This dataRoot's stable Loro peer id (undefined in in-memory mode → Loro auto-assigns). */
+  get peerId(): number | undefined {
+    return this.options.peerId;
+  }
 
   static inMemory(createChildApp: () => App = () => new App()): Promise<AppWorkspaceRuntime> {
     return Promise.resolve(
@@ -75,10 +83,13 @@ export class AppWorkspaceRuntime {
     options: PersistenceOptions,
     createChildApp: () => App = () => new App(),
   ): Promise<AppWorkspaceRuntime> {
+    const registry = await RegistryStore.open(options.dataRoot);
+    const peerId = await registry.ensurePeerId();
     return new AppWorkspaceRuntime(
       {
         dataRoot: options.dataRoot,
-        registry: await RegistryStore.open(options.dataRoot),
+        registry,
+        peerId,
         snapshotEveryUpdates: options.snapshotEveryUpdates ?? 100,
       },
       createChildApp,
@@ -144,7 +155,9 @@ export class AppWorkspaceRuntime {
     displayName?: string;
   }): Promise<string> {
     const loaded = await this.requireWorkspace(input.workspaceId);
-    const doc = loaded.workspace.createDoc(input.docId, { store: new ShardedBlockStore() });
+    const doc = loaded.workspace.createDoc(input.docId, {
+      store: new ShardedBlockStore(this.peerId !== undefined ? { peerId: this.peerId } : {}),
+    });
     if (loaded.store) {
       try {
         await loaded.store.createDoc({
@@ -333,6 +346,7 @@ export class AppWorkspaceRuntime {
     const shardLoader = (shardId: string): Uint8Array | null => shardSnaps.get(shardId) ?? null;
     const blockStore = new ShardedBlockStore({
       ...(main.snapshotBytes ? { initialTreeBytes: main.snapshotBytes } : {}),
+      ...(this.peerId !== undefined ? { peerId: this.peerId } : {}),
       shardLoader,
     });
     const doc = workspace.createDoc(docId, { store: blockStore });

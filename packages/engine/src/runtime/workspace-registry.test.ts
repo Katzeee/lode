@@ -74,6 +74,40 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     await rt.close();
   });
 
+  it("exposes a stable per-dataRoot peerId wired into the Loro treeDoc", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
+    const doc = (await rt.getEngine("ws"))!;
+    const peerId = rt.peerId;
+    expect(typeof peerId).toBe("number");
+    expect(peerId!).toBeGreaterThan(0);
+    // The peerId reached the treeDoc: an op lands under it in the version vector.
+    doc.createNode(null);
+    const vvPeers = [...doc.getVersion().toJSON().keys()];
+    expect(vvPeers).toContain(String(peerId));
+    await rt.close();
+
+    // Stable across reopen (same dataRoot → same peerId).
+    const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    expect(rt2.peerId).toBe(peerId);
+    await rt2.close();
+  });
+
+  it("wires peerId into lazily-created shard docs, not just the treeDoc", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
+    const doc = (await rt.getEngine("ws"))!;
+    // createNode writes an entity into the owning shard, materializing that shard lazily.
+    const node = doc.createNode(null);
+    const store = doc.getShardedStore()!;
+    const shard = store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
+    const shardPeers = [...shard.version().toJSON().keys()];
+    expect(shardPeers).toContain(String(rt.peerId));
+    await rt.close();
+  });
+
   it("rejects a persisted state that reconcile cannot heal (broken canonical)", async () => {
     // reconcileDurability self-heals create/delete orphans between treeDoc and shards, but
     // it does NOT touch a broken canonical reference. Shards persist as snapshots, so a

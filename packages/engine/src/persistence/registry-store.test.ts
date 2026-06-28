@@ -47,3 +47,29 @@ describe("RegistryStore", () => {
     await expect(store.listWorkspaces()).resolves.toEqual([]);
   });
 });
+
+describe("RegistryStore peerId", () => {
+  it("generates a stable, positive peerId and persists it across reopen", async () => {
+    const first = await store.ensurePeerId();
+    expect(Number.isSafeInteger(first)).toBe(true);
+    expect(first).toBeGreaterThan(0);
+
+    // Persisted: a fresh store over the same dataRoot returns the same value.
+    await store.close();
+    store = await RegistryStore.open(tempDir);
+    await expect(store.ensurePeerId()).resolves.toBe(first);
+  });
+
+  it("different dataRoots get different peerIds", async () => {
+    const a = await store.ensurePeerId();
+    const otherDir = await mkdtemp(join(tmpdir(), "be-registry-2-"));
+    try {
+      const other = await RegistryStore.open(otherDir);
+      const b = await other.ensurePeerId();
+      expect(b).not.toBe(a);
+      await other.close();
+    } finally {
+      await rm(otherDir, { recursive: true, force: true });
+    }
+  });
+});

@@ -60,17 +60,33 @@ export class ShardedBlockStore implements BlockStore {
   readonly numShards: number;
   /** Optional lazy loader: returns persisted shard bytes on first access. */
   readonly shardLoader?: (shardId: string) => Uint8Array | null;
+  /**
+   * Stable per-dataRoot peer id set on every LoroDoc this store creates. Without it, Loro
+   * auto-assigns a fresh random peer per `new LoroDoc()` per process, so every restart
+   * fragments the version vector with a new peer and sync can no longer diff cleanly. One
+   * stable peerId per dataRoot = one replica site id (design §3/§5). Same value across the
+   * treeDoc + all shards is correct: they are independent CRDTs with independent VVs, so a
+   * shared local peer id never collides (collision only matters among concurrent editors of
+   * the SAME doc, i.e. across replicas, which carry different per-dataRoot peerIds).
+   */
+  private readonly peerId?: number;
 
   constructor(
     options: {
       numShards?: number;
       initialTreeBytes?: Uint8Array;
       shardLoader?: (shardId: string) => Uint8Array | null;
+      /** Stable peer id for every LoroDoc (see field doc). Omit to let Loro auto-assign. */
+      peerId?: number;
     } = {},
   ) {
     this.numShards = options.numShards ?? 256;
     this.shardLoader = options.shardLoader;
+    this.peerId = options.peerId;
     this.treeDoc = new LoroDoc();
+    if (this.peerId !== undefined) {
+      this.treeDoc.setPeerId(this.peerId);
+    }
     if (options.initialTreeBytes && options.initialTreeBytes.length > 0) {
       this.treeDoc.import(options.initialTreeBytes);
     }
@@ -517,6 +533,9 @@ export class ShardedBlockStore implements BlockStore {
     let s = this.shards.get(shardId);
     if (!s) {
       s = new LoroDoc();
+      if (this.peerId !== undefined) {
+        s.setPeerId(this.peerId);
+      }
       s.configTextStyle({
         bold: { expand: "after" },
         italic: { expand: "after" },

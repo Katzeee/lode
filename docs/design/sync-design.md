@@ -59,8 +59,9 @@ The relay's exact scope:
   each message to that workspace's subscribers. This is the minimal "data flow" logic the relay owns.
 - **Content-blind** — it does NOT understand sync RPCs, VVs, or update bytes. Clients encrypt
   end-to-end (§5); the relay routes opaque ciphertext.
-- **No auth** — it does not decide membership. Clients enforce the allowlist (§4) + signature checks;
-  the relay forwards whatever a subscriber publishes, and a non-member cannot decrypt it anyway.
+- **No auth** — it does not decide membership. Clients enforce the read-key AEAD (§4) + actor
+  signature checks; the relay forwards whatever a subscriber publishes, and a non-member (lacking
+  the read-key) cannot decrypt it anyway.
 - **No content storage** — local-first: the relay forwards, never persists workspace content (§2).
 
 > Earlier drafts waffled between "dumb byte pipe" and "sync-aware router." The relay is neither
@@ -92,50 +93,60 @@ broker regardless. Options, in increasing setup cost:
 home machine, exposed via a public pipe" is a _deployment_ path available later. The sync logic
 (client ↔ workspace-routing relay) is identical across all reachability options.
 
-## 4. Membership — egalitarian, no admin, no roles
+## 4. Membership — possession of the workspace read-key (egalitarian, no admin)
+
+> **⚠️ REVERSED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
+> Membership is now a **replicated signed ACL log** (model C), with roles + admins, the same
+> as any-sync. The read-key is no longer the membership credential; it is the content key
+> wrapped _within_ the ACL log. The egalitarian/no-admin/no-roles model below is kept only as
+> the historical rationale for the decision we later overturned (A and B turned out to be
+> degenerations of C).
 
 A workspace is a set of devices that have agreed to sync. **All members are equal; there is no
 admin and no fine-grained role (read-only/admin).**
 
-- **Membership = who holds the workspace coordinate** (relay address + workspaceId + tunnel
-  credential). The set of devices that can sync = the set whose public keys are in each member's
-  **allowlist** for that workspace.
-- **Invite (add):** any member shares the coordinate out-of-band and adds the new device's pubkey
-  to its allowlist. Trust is social — you only invite people you trust, because a member has full
-  data and can invite others.
-- **Rejected: any-sync's admin-signed ACL + roles.** Local-first has no authority: any member
-  with a full replica can "write"/fork locally, so roles cannot be technically enforced. Binary
-  membership (in/out) is the only enforceable boundary. (any-sync carries admin/ACL because it
-  has a coordination layer; lode does not.)
+- **Membership = who holds the workspace read-key.** The workspace **coordinate** is
+  `(relay address, workspaceId, read-key)`; whoever has it is a member. There is no separate pubkey
+  allowlist — the read-key does double duty as the membership credential AND the content-encryption
+  key (§5). This is simpler than a pubkey allowlist + a separate encryption key.
+- **Identity = actor keypair** (per-user, generated on first run, recoverable via mnemonic; §8) +
+  **device peerId** (random UUID per device = the Loro VV id, for uniqueness across a user's
+  devices). The actor key SIGNS updates (attribution) and encrypts re-key messages — it is NOT the
+  membership credential.
+- **Invite (add):** any member shares the coordinate out-of-band (QR / link); the recipient imports
+  it → has the read-key → is a member. Trust is social (a member has full data).
+- **Rejected:** any-sync's admin-signed ACL + roles (local-first can't enforce roles; binary
+  membership only), AND a separate pubkey allowlist (read-key-as-membership subsumes it — the key
+  is the membership).
 
-## 5. Encryption — client-to-client E2E (`node:crypto` AEAD)
+## 5. Encryption — `node:crypto` AEAD with the workspace read-key
 
-Clients encrypt sync content end-to-end with each other (AEAD, e.g. AES-256-GCM); the relay (§3)
-routes **opaque ciphertext** and cannot read workspace content. This is the transit-privacy property,
-done in pure Node (`node:crypto`) — **no WireGuard**. (WireGuard was tied to tunwg; with tunwg now
-just an optional reachability choice (§3a), encryption is lode's own `node:crypto` AEAD.)
+Clients encrypt sync content end-to-end with the workspace **read-key** (AEAD, e.g. AES-256-GCM);
+the relay (§3) routes **opaque ciphertext** and cannot read workspace content. The read-key is
+generated with the workspace and shared via the coordinate/invite (§4). No WireGuard (that was
+tunwg-bundled; tunwg is now only an optional reachability choice, §3a).
 
-- **No workspace read-key / content encryption beyond transit AEAD.** Members are trusted by
-  definition (they hold all data and any keys); extra encryption cannot constrain a member who wants
-  to leak, so "defense against member collusion" is not a real property.
-- **Non-members are excluded by the allowlist (§4) + cannot decrypt** — they get no key, and clients
-  reject unsigned/non-member updates. So there is nothing more to encrypt against.
-- The only encryption that matters and is **not** covered here is **local at-rest** disk encryption
-  (stolen-device defense) — a separate, future feature unrelated to sync.
+- **The read-key IS the membership credential** (§4) — possessing it = being a member. A recipient
+  AEAD-decrypts; success proves the sender held the key (member), failure = non-member (discard).
+  Membership is enforced by cryptography, not a list.
+- **What it protects:** the relay (untrusted, no-auth) and any non-member subscriber cannot read
+  content — they lack the read-key. This is the transit-privacy property.
+- **What it does NOT protect:** a member leaking the key/data (fundamental — a member has
+  everything; no encryption constrains a willing leaker). "Anti-collusion" is not a real property.
+- **Local at-rest** disk encryption (stolen-device) is a separate, future feature unrelated to sync.
 
-## 6. Revocation — cut the tunnel, accept the fork
+## 6. Revocation — rotate the read-key, accept the fork
 
-**You cannot confiscate data a peer already has** (fundamental to local-first). Revocation only
-stops _future_ updates:
+**You cannot confiscate data a peer already has** (fundamental to local-first). Revocation stops
+_future_ content from being readable by the ousted member:
 
-- Members agree (out-of-band) to **remove the revoked peer's pubkey from their allowlists** → the
-  peer can no longer open tunnels to any member → transport-level cutoff. Its local copy freezes
-  at the revocation point; it gets no new updates.
-- No admin action — each member just maintains its own allowlist; the social agreement is "all of
-  us drop this pubkey."
-- If a hard cutoff is ever needed beyond tunnel-dropping (e.g., worry that a member keeps the
-  ousted peer's tunnel alive), the group migrates to a new workspace (new coordinate), excluding
-  the ousted peer. This is "move the party elsewhere," not "kick from the existing workspace."
+- A remaining member **rotates the workspace read-key** and distributes the **new key** to the
+  other remaining members (encrypted to their actor pubkeys, §8). Updates after the rotation are
+  AEAD'd with the new key.
+- The ousted member keeps the OLD key (can still read what they cached/recorded — can't confiscate)
+  but cannot read NEW content (new key) nor produce valid updates for the rotated workspace.
+- No admin — any member can rotate; the social agreement is "the remaining members adopt the new
+  key." Full cutoff is social, same as any local-first revocation.
 
 ## 7. Relay form — a daemon role; placement is deployment (§3a)
 
@@ -153,28 +164,39 @@ tunwg-exposed home machine — and does not change the broker's function.
 - A dedicated relay-only process (no co-located client) is supported but weaker for offline sync
   (no always-on member unless a separate device is always-on).
 
-## 8. Identity — device keypair
+## 8. Identity — actor keypair + device peerId
 
-Each device has a signing keypair. The public key is the device identity and serves as:
+> **⚠️ Partially revised — see [`sync-identity-persistence.md`](./sync-identity-persistence.md)
+> §3 & §5.** The "device peerId" is re-scoped to **per-dataRoot** (one replica site id per
+> running daemon), not per-device — a machine may host multiple dataRoots, and two dataRoots
+> holding the same shared workspace need distinct site ids or their version vectors collide.
+> The actor keypair description below otherwise stands (Ed25519, mnemonic-recoverable).
 
-- the **allowlist membership key** (§4 — workspace membership is "whose pubkey is in the list"), and
-- the **signing key** for sync auth (peers prove they own the claimed pubkey; playground P4).
+**Actor keypair** (Ed25519, per-user): generated on first run, stored in a local keystore,
+recoverable via a **mnemonic** (BIP39-style). All of a user's devices share the same actor keypair
+(restored via mnemonic / QR / key-file import). The actor key is used to:
 
-(Loro's `setPeerId` takes a NUMERIC id, so pubHex→Loro-peerId mapping is a production-integration
-detail; the playground enforces membership at the connection gate, which is where it structurally
-belongs. An actor may own multiple devices; multi-device-per-actor grouping is higher-level, not
-required for the sync mechanism.) This replaces the engine's current runtime `randomUUID` nodeId,
-which is only an in-process id.
+- **SIGN sync updates** (attribution: "this edit is by actor1").
+- **ENCRYPT re-key messages** (distribute a new read-key to specific members after revocation, §6).
+
+It is NOT the membership credential (membership = read-key, §4).
+
+**Device peerId** (random UUID, per-device, non-secret): set as the Loro `doc.setPeerId()` for VV
+uniqueness. Loro's peerId must be unique per concurrent editor — if two devices of the same actor
+shared a peerId, concurrent edits would corrupt the VV. The device peerId is generated locally and
+needs no coordination beyond randomness.
+
+This replaces the engine's current runtime `randomUUID` nodeId, which is only an in-process id.
 
 ## Honest security model
 
 - Trust among members is **social, not technical**. A member has all data and keys; leakage
   cannot be prevented technically.
-- The only technical boundary is **member vs non-member**, enforced by the pubkey allowlist
-  (non-members cannot sync — clients reject them at the gate).
-- The relay is untrusted and harmless: clients E2E-encrypt (`node:crypto` AEAD, §5), so the relay
-  routes only ciphertext.
-- No admin, no roles, no workspace read-key. The model is deliberately minimal and egalitarian.
+- The only technical boundary is **member vs non-member**, enforced by the **read-key**: members
+  can AEAD-decrypt sync content; non-members (no key) cannot.
+- The relay is untrusted and harmless: clients E2E-encrypt (`node:crypto` AEAD with the read-key,
+  §5), so the relay routes only ciphertext.
+- No admin, no roles, no separate allowlist. The model is deliberately minimal and egalitarian.
 
 ## Roadmap (dependency order)
 
@@ -184,11 +206,11 @@ which is only an in-process id.
    hazard characterization test.
 2. **Transport (the relay/broker + client transport):** the workspace-routing **relay** (§3:
    subscription table + route-by-workspace, content-blind, no data) + client-side `SyncTransport`
-   (the validated pairwise sync protocol over the relay) + allowlist auth + proto/CLI
+   (the validated pairwise sync protocol over the relay) + read-key AEAD auth + proto/CLI
    (`sync --relay <url>`). **Reachability (§3a) is deployment, not this layer** — LAN/VPS suffice
    for MVP; tunwg-exposed-home is a later option.
-3. **Membership:** workspace coordinate + pubkey allowlist; client-side "sync only with allowlist
-   members."
+3. **Membership:** workspace coordinate `(relay addr, workspaceId, read-key)` — create/import/
+   export; the read-key IS the membership credential (§4); no allowlist.
 4. **Hardening (alongside):** merge-cycle policy (concurrent moves forming a cycle on merge —
    Loro abort), Loro `getNodeByID(ref)` upstream-panic guard, `persistMutation` dirty-shard-only,
    mid-sync-read gate breadth, lazy shard LOAD (async `shardLoader`).
@@ -205,4 +227,4 @@ which is only an in-process id.
   public dumb pipe" — that is ONE of lode's deployment options (§3a), not lode's relay function
   (lode's relay is the §3 workspace-routing broker, which hapi's tunwg pipe is NOT). hapi's
   `CLI_API_TOKEN` auth is _not_ borrowed — it is shared-secret connection auth, not actor identity;
-  lode uses per-device keypairs + allowlists instead.
+  lode uses read-key AEAD for membership (§4) + actor keypairs for signing (§8) instead.
