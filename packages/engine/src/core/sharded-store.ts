@@ -13,12 +13,26 @@ import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
 import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
 
 /**
+ * One syncable LoroDoc within a sharded store, with its stable sync id ("main" for the
+ * treeDoc, the shardId for shards). Each is an independent CRDT with its own version vector;
+ * a SyncManager exchanges per-doc updates — treeDoc first (it carries ownership, so it reveals
+ * which shardIds exist), then shards. This is the Loro-native analog of any-sync's per-object
+ * sync channel, using direct version-vector comparison instead of a head/bloom diff.
+ */
+export type SyncDoc = {
+  readonly id: string;
+  version(): VersionVector;
+  exportUpdate(from?: VersionVector): Uint8Array;
+  exportSnapshot(): Uint8Array;
+  importUpdate(bytes: Uint8Array): void;
+};
+
+/**
  * Sharded storage: the production `BlockStore` implementation. State is split across
  * many LoroDocs so structure and content can load/sync independently.
  *
  *   treeDoc  → occurrenceTree (full structure: nodeId + per-occ props/meta)
  *              + ownership (nodeId → permanent virtual bucket)
- *              + tombstones (hard-deleted nodeIds, for GC)
  *   shard*   → one content doc per shardId, `entities` map keyed by nodeId
  *              (canonicalOccurrenceId + content + props + meta)
  *
@@ -42,13 +56,10 @@ export class ShardedBlockStore implements BlockStore {
   readonly treeDoc: LoroDoc;
   private readonly occurrenceTree: LoroTree;
   private readonly ownership: LoroMap;
-  private readonly tombstones: LoroMap;
   private readonly shards = new Map<string, LoroDoc>();
   readonly numShards: number;
   /** Optional lazy loader: returns persisted shard bytes on first access. */
   readonly shardLoader?: (shardId: string) => Uint8Array | null;
-  private round = 0;
-  private readonly tombstoneRound = new Map<string, number>();
 
   constructor(
     options: {
@@ -65,7 +76,6 @@ export class ShardedBlockStore implements BlockStore {
     }
     this.occurrenceTree = this.treeDoc.getTree("occurrences");
     this.ownership = this.treeDoc.getMap("ownership");
-    this.tombstones = this.treeDoc.getMap("tombstones");
   }
 
   // ── lifecycle ───────────────────────────────────────────────────────────────
@@ -87,12 +97,6 @@ export class ShardedBlockStore implements BlockStore {
     if (this.ownership.get(nodeId) !== undefined) {
       throw new Error(`Node already exists: ${nodeId}`);
     }
-    // Creating a node means it is alive: clear any stale tombstone a prior
-    // hard-delete left (undo↔GC contract — undo of a delete re-creates via this).
-    if (this.tombstones.get(nodeId) !== undefined) {
-      this.tombstones.delete(nodeId);
-    }
-    this.tombstoneRound.delete(nodeId);
     // Record immutable ownership (the permanent bucket, not the shardId).
     this.ownership.set(nodeId, bucketOf(nodeId));
     // Entity lives in the shard.
@@ -120,7 +124,6 @@ export class ShardedBlockStore implements BlockStore {
     }
     this.shard(this.shardIdOfNode(nodeId)).getMap("entities").delete(nodeId);
     this.ownership.delete(nodeId);
-    this.recordTombstone(nodeId);
   }
 
   setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): void {
@@ -201,6 +204,11 @@ export class ShardedBlockStore implements BlockStore {
   }
 
   getOccurrenceIdsForNode(nodeId: NodeId): OccurrenceId[] {
+    // `entityOf` is the guard: it throws if the node's content shard is not present.
+    // Mid-sync this is reachable when ownership has arrived via the treeDoc but the owning
+    // content shard has not been delivered yet (a pending-shard state). Sync is synchronous
+    // today so reads never interleave a half-delivered node; this throw is the Phase-D async
+    // gate — real network transport must not surface a node for reading before its shard lands.
     this.entityOf(nodeId);
     return this.occurrenceTree
       .getNodes({ withDeleted: false })
@@ -354,9 +362,25 @@ export class ShardedBlockStore implements BlockStore {
 
   // ── sharded-specific (not in BlockStore; for Step 5 persistence/sync) ───────
 
-  /** All docs that participate in sync/persistence (treeDoc + every loaded shard). */
-  syncDocs(): LoroDoc[] {
-    return [this.treeDoc, ...this.shards.values()];
+  /** The per-doc sync surface: treeDoc ("main") first, then every referenced shard. Each entry
+   *  is an independent CRDT; a SyncManager diffs version vectors and exchanges updates per id. */
+  syncDocs(): SyncDoc[] {
+    return [
+      this.syncDoc(this.treeDoc, "main"),
+      ...this.shardIds().map((id) => this.syncDoc(this.shard(id), id)),
+    ];
+  }
+
+  private syncDoc(doc: LoroDoc, id: string): SyncDoc {
+    return {
+      id,
+      version: () => doc.version(),
+      exportUpdate: (from) => doc.export(from ? { mode: "update", from } : { mode: "update" }),
+      exportSnapshot: () => doc.export({ mode: "snapshot" }),
+      importUpdate: (bytes) => {
+        doc.import(bytes);
+      },
+    };
   }
 
   /** Get (lazily creating) a shard doc by id. */
@@ -423,6 +447,57 @@ export class ShardedBlockStore implements BlockStore {
         }
         for (const nid of stale) {
           ents.delete(nid);
+          changed = true;
+        }
+      }
+      if (!changed) {
+        break;
+      }
+    }
+    this.treeDoc.commit();
+    for (const s of this.shards.values()) {
+      s.commit();
+    }
+  }
+
+  /**
+   * Sync heal (ownership-based). After exchanging treeDoc + shards, a live occurrence may
+   * reference a node whose ownership was hard-deleted on another replica (a ref to X created
+   * concurrently with X's deletion); such orphan occurrences are swept, and the entity +
+   * ownership of any node left with no live occurrence are dropped. Ownership-based on purpose:
+   * an occurrence whose shard is merely PENDING (ownership present, entity not yet delivered)
+   * is NOT swept, so partial delivery self-heals when the shard arrives. (No-resurrection
+   * rests on the CRDT permanence of `ownership.delete`, not on a tombstone — the tombstone
+   * machinery was removed once verified not to carry correctness.) This is distinct from
+   * `reconcileDurability` (entity-based, crash-restart healing) which must NOT run mid-sync.
+   * Deterministic given tree-doc state, so every replica that exchanges the same bytes
+   * converges identically.
+   */
+  sweepOrphans(): void {
+    for (let iter = 0; iter < 100; iter++) {
+      let changed = false;
+      const occToRemove: TreeID[] = [];
+      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
+        const nid = node.data.get("nodeId");
+        if (typeof nid === "string" && this.ownership.get(nid) === undefined) {
+          occToRemove.push(node.id);
+        }
+      }
+      for (const id of occToRemove) {
+        this.occurrenceTree.delete(id);
+        changed = true;
+      }
+      const liveOccNodeIds = new Set<NodeId>();
+      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
+        const nid = node.data.get("nodeId");
+        if (typeof nid === "string") {
+          liveOccNodeIds.add(nid);
+        }
+      }
+      for (const nid of [...(this.ownership.keys() as string[])]) {
+        if (!liveOccNodeIds.has(nid)) {
+          this.shard(this.shardIdOfNode(nid)).getMap("entities").delete(nid);
+          this.ownership.delete(nid);
           changed = true;
         }
       }
@@ -547,13 +622,6 @@ export class ShardedBlockStore implements BlockStore {
 
   private liveTreeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {
     return this.treeNodeOf(occurrenceId);
-  }
-
-  private recordTombstone(nodeId: NodeId): void {
-    this.tombstones.set(nodeId, true as never);
-    if (!this.tombstoneRound.has(nodeId)) {
-      this.tombstoneRound.set(nodeId, this.round);
-    }
   }
 
   private mapToRecord(map: LoroMap): Record<string, unknown> {

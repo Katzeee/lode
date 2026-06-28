@@ -23,10 +23,16 @@ export type EngineOptions = {
    * — a single `initialBytes` blob can't carry the lazy-loaded shards, so there is no
    * constructor-bytes option (the persistence runtime is the full restore path). */
   store?: BlockStore;
-  /** Deterministic nodeId generator (test seam; defaults to randomUUID). */
+  /** NodeId generator (test seam; defaults to randomUUID). CONTRACT: must return globally-
+   *  unique ids across all replicas and sessions. The engine assumes global uniqueness, so
+   *  concurrent createNode on different replicas never collide (randomUUID makes a collision
+   *  astronomically unlikely). The only collision path is a caller injecting a generator that
+   *  yields a duplicate id — a caller-contract violation, not an engine bug. */
   nodeIdGenerator?: () => NodeId;
-  /** Deterministic occId generator (test seam; defaults to randomUUID). occId is the
-   * permanent occurrence identity used by undo to reconcile snapshots across churn. */
+  /** occId generator (test seam; defaults to randomUUID). occId is the permanent occurrence
+   *  identity used by undo to reconcile snapshots across churn. Same global-uniqueness
+   *  contract as nodeIdGenerator: concurrent occurrence creation on different replicas never
+   *  collides; only an injected duplicate-producing generator can. */
   occIdGenerator?: () => string;
 };
 

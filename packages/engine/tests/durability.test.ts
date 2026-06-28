@@ -63,7 +63,7 @@ describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", (
     const n1Shard = shardIdOf("n1", numShards);
     const n1ShardBytes = store.getShardDoc(n1Shard).export({ mode: "snapshot" }); // entity present
 
-    // Hard-delete n1 (ownership gone, tombstone, occurrence gone) — then snapshot treeDoc.
+    // Hard-delete n1 (ownership gone, occurrence gone) — then snapshot treeDoc.
     e.deleteNode("n1");
     e.captureSync();
     const treeBytes = store.treeDoc.export({ mode: "snapshot" });

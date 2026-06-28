@@ -26,8 +26,9 @@ concepts.
   `src/domain` owns product semantics and policies (functions over `core`); `src/bundle` is the
   declarative built-in schema vocabulary (pure leaf); `src/event` owns notification primitives;
   `src/session` owns session/subscription/broadcast; `src/services` owns RPC adapters; `src/runtime`
-  is the composition root (the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, and the
-  per-workspace registry). It must not import `@lode/transport` or `@lode/client`.
+  is the composition root (the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, the
+  per-workspace registry, and the in-process sync core). It must not import `@lode/transport` or
+  `@lode/client`.
 - `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with a transport
   socket plus process lifecycle — the AppServer process. It owns transport connections and injects
   the engine's notification sink.
