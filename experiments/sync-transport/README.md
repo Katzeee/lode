@@ -11,8 +11,8 @@ this directory is deleted.
 - [`sync-design.md`](../../docs/design/sync-design.md) — transport topology, the
   workspace-routing broker, encryption (node:crypto AEAD), honest security model.
 - [`sync-identity-persistence.md`](../../docs/design/sync-identity-persistence.md) —
-  membership = replicated signed ACL log (model C), identity (actor keypair + per-dataRoot
-  peerId), per-dataRoot persistence, daemon topology, recovery.
+  membership = owner+member membership log (not an ACL), identity (actor keypair +
+  per-dataRoot peerId), per-dataRoot persistence, daemon topology, recovery.
 
 This README is the playground's own record: what it validated, the key files, and what's
 left (P7). Detailed phase log: [`PROGRESS.md`](./PROGRESS.md). Test methodology:

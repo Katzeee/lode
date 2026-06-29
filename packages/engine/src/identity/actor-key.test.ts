@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { generateMnemonic } from "../utils/crypto/bip39.js";
 import {
   actorIdFromPublicKey,
+  deriveActorKeypairFromMnemonic,
   deserializeActorPrivateKey,
+  ed25519SeedFromPrivateKey,
   generateActorKeypair,
+  keypairFromEd25519Seed,
   serializeActorPrivateKey,
   signWithActor,
   verifyActorSignature,
@@ -59,5 +63,39 @@ describe("actor-key", () => {
     expect(verifyActorSignature(kp.publicKey, data, signWithActor(restored, data))).toBe(true);
     // And the original signature still verifies (key material unchanged).
     expect(verifyActorSignature(kp.publicKey, data, sig)).toBe(true);
+  });
+
+  it("keypairFromEd25519Seed is deterministic (same seed → same keypair)", () => {
+    const seed = ed25519SeedFromPrivateKey(generateActorKeypair().privateKey);
+    const a = keypairFromEd25519Seed(seed);
+    const b = keypairFromEd25519Seed(seed);
+    expect(b.actorId).toBe(a.actorId);
+    expect(b.publicKey).toEqual(a.publicKey);
+    // Distinct seeds → distinct keys.
+    const other = keypairFromEd25519Seed(
+      ed25519SeedFromPrivateKey(generateActorKeypair().privateKey),
+    );
+    expect(other.actorId).not.toBe(a.actorId);
+  });
+
+  it("deriveActorKeypairFromMnemonic is deterministic — THE continuity invariant", () => {
+    const mnemonic = generateMnemonic();
+    const a = deriveActorKeypairFromMnemonic(mnemonic);
+    const b = deriveActorKeypairFromMnemonic(mnemonic);
+    expect(b.actorId).toBe(a.actorId); // same words → same identity (owner continuity)
+    // The derived key is a real signing key.
+    const data = new TextEncoder().encode("recovered");
+    expect(verifyActorSignature(a.publicKey, data, signWithActor(b.privateKey, data))).toBe(true);
+  });
+
+  it("deriveActorKeypairFromMnemonic throws on an invalid mnemonic", () => {
+    expect(() => deriveActorKeypairFromMnemonic("not a real mnemonic at all")).toThrow();
+  });
+
+  it("ed25519SeedFromPrivateKey round-trips through serialize/deserialize", () => {
+    const kp = generateActorKeypair();
+    const seed = ed25519SeedFromPrivateKey(kp.privateKey);
+    const restored = deserializeActorPrivateKey(serializeActorPrivateKey(kp.privateKey));
+    expect(ed25519SeedFromPrivateKey(restored)).toEqual(seed);
   });
 });

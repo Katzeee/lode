@@ -93,6 +93,28 @@ broker regardless. Options, in increasing setup cost:
 home machine, exposed via a public pipe" is a _deployment_ path available later. The sync logic
 (client ↔ workspace-routing relay) is identical across all reachability options.
 
+## 3b. Relay migration — moving the relay to a new host
+
+A workspace's coordinate is `(relay address, workspaceId, transit key)` (§4). The relay is a
+**stateless coordinate**, not replicated state — so **relocating the relay (host A → host B) is
+supported and lightweight**: only the `relay address` field of the coordinate changes; `workspaceId`
+and the transit key stay the same. Because the relay stores no content/identity/membership (§2/§3),
+there is **nothing to migrate** — every member already holds the full workspace locally; the relay is
+only the meeting point.
+
+- **MVP migration = social re-share**: the owner exports the new coordinate `(newAddr, wsId,
+transitKey)`; members import it and dial the new relay (Phase 4 coordinate create/import/export).
+  No new protocol — the same flow as inviting a device.
+- **In-flight during migration**: members still on the old relay vs. already on the new one are
+  temporarily two meeting points; once everyone converges on the new relay, CRDT merge catches every
+  member up with no data loss.
+- **Future nicety (not MVP)**: embed the relay address as a replicated field in the membership log so
+  the owner can issue a signed `relay-change` record that propagates via the (old) relay, sparing the
+  out-of-band re-share.
+
+This is a strength of the stateless relay: a stateful coordinator (e.g. any-sync's) would require
+data/identity migration on relocation; lode's relay has nothing to move.
+
 ## 4. Membership — possession of the workspace read-key (egalitarian, no admin)
 
 > **⚠️ REVERSED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { actorKeystorePath } from "../persistence/paths.js";
+import { generateMnemonic } from "../utils/crypto/bip39.js";
 import { verifyActorSignature, signWithActor } from "./actor-key.js";
 import { ActorStore } from "./actor-store.js";
 
@@ -64,5 +65,36 @@ describe("ActorStore", () => {
     await expect(store.removeActor(record.actorId)).resolves.toBe(false); // already gone
     await expect(store.getActor(record.actorId)).resolves.toBeNull();
     await expect(stat(actorKeystorePath(tempDir, record.actorId))).rejects.toThrow();
+  });
+
+  it("recovers the SAME actorId from a mnemonic on a fresh dataRoot (continuity)", async () => {
+    const mnemonic = generateMnemonic();
+    const { record: original } = await store.createActor({ displayName: "Original", mnemonic });
+
+    // A fresh dataRoot (a new device) recovering from the same mnemonic → same identity.
+    const otherDir = await mkdtemp(join(tmpdir(), "lode-actors-"));
+    try {
+      const recovered = await ActorStore.open(otherDir);
+      try {
+        const { record } = await recovered.createActor({ displayName: "Recovered", mnemonic });
+        expect(record.actorId).toBe(original.actorId);
+        // The recovered private key signs against the original public key.
+        const priv = await recovered.loadPrivateKey(record.actorId);
+        const data = new TextEncoder().encode("continuity");
+        expect(verifyActorSignature(original.publicKey, data, signWithActor(priv, data))).toBe(
+          true,
+        );
+      } finally {
+        await recovered.close();
+      }
+    } finally {
+      await rm(otherDir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to recover a mnemonic whose actor already exists on this dataRoot", async () => {
+    const mnemonic = generateMnemonic();
+    await store.createActor({ displayName: "First", mnemonic });
+    await expect(store.createActor({ displayName: "Second", mnemonic })).rejects.toThrow();
   });
 });

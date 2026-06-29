@@ -106,3 +106,24 @@ files, old names, or temporary refactor paths.
 Avoid one-test-per-wrapper forwarding checks. Test wrappers only when they transform input, own
 error behavior, or expose a stable user-facing contract that is not already covered by integration
 tests or the type system.
+
+## Documentation
+
+Three places for written docs, by lifespan — put content where its lifespan matches:
+
+- `docs/` (git-tracked) — **durable design decisions**: the "why" behind architecture and
+  choices, retained after the feature ships. `docs/design/` holds the design-decision records
+  (e.g. `sync-design.md`, `engine-design-decisions.md`). This is the source of truth that
+  outlives any one workstream. Write decisions here, not transient implementation state.
+- `experiments/<name>/` (git-tracked) — **the playground's own record**: `README.md` (what it
+  is / status / key files), `PROGRESS.md` (phase log), `TEST-MODEL.md` (test methodology). It
+  lives with the experiment and is deleted when the experiment is ported to production and the
+  directory removed. Put playground-coupled content (what was validated, how) here, not in
+  `docs/`.
+- `_local/` (git-ignored) — **local-only handoff / resume notes** for multi-person
+  collaboration on a workstream: current state, what's done, what's next. Ephemeral — not a
+  contract, not a substitute for `docs/`. Point at the durable docs; don't duplicate decisions
+  here.
+
+Rule of thumb: a decision that must outlive the workstream → `docs/`; the experiment's
+validation record → `experiments/<name>/`; "where are we right now / what's next" → `_local/`.

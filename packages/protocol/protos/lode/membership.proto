@@ -1,0 +1,67 @@
+syntax = "proto3";
+
+package lode;
+
+// The replicated, signed, append-only membership log (design sync-identity-persistence §2). NOT an
+// ACL — lode has no authoritative server, so this records who is in a workspace, who owns it, and
+// each member's transit key. Two roles: owner (single governance authority) + member(rw). The owner
+// alone signs governance records; members are full rw. Records are stored as MembershipRecord bytes
+// in a LoroList and synced like any doc; invalid records are skipped at replay (deterministic → all
+// replicas converge). Signatures (MembershipRecord.sig) cover the deterministic proto3 encoding of
+// the chosen `body` message — the wrapped set is `repeated MemberWrap` (ordered, not a map) so the
+// signed bytes are canonical.
+
+// A member's public keys + the transit key wrapped to their X25519 public.
+message MemberWrap {
+  string actor_id = 1; // hex Ed25519 public key (= stable actor identity)
+  bytes sign_pub = 2; // raw 32-byte Ed25519 public key (verifies this member's signatures)
+  bytes enc_pub = 3; // raw 32-byte X25519 public key (dual-use; the transit key is wrapped to this)
+  bytes wrapped_transit = 4; // the transit key, sealed to enc_pub
+}
+
+// Owner self-signs the workspace root; carries the owner's transit key wrapped to the owner.
+message RootRecord {
+  string owner = 1; // owner actor_id (= hex of owner_sign_pub)
+  bytes owner_sign_pub = 2;
+  bytes owner_enc_pub = 3;
+  bytes wrapped_transit = 4;
+  int32 epoch = 5;
+}
+
+// Owner adds a member; the current transit key wrapped to them.
+message AddRecord {
+  string actor = 1;
+  bytes sign_pub = 2;
+  bytes enc_pub = 3;
+  bytes wrapped_transit = 4;
+  int32 epoch = 5;
+}
+
+// Owner re-keys. `wrapped` IS the new membership: every member listed gets the new transit key;
+// anyone omitted is revoked (atomic removeAndRotate). enc_prev = AEAD(newTransitKey, oldTransitKey)
+// chains the old key under the new so current members walk back to decrypt prior epochs.
+message RotateRecord {
+  int32 epoch = 1;
+  repeated MemberWrap wrapped = 2;
+  bytes enc_prev = 3;
+}
+
+// Owner transfers ownership to an existing member (the new owner already holds the transit key; only
+// governance authority moves). The old owner remains a member.
+message TransferRecord {
+  string new_owner = 1;
+}
+
+// One signed log entry. `signer` is the owner's actor_id; `sig` is an Ed25519 signature over the
+// encoded `body`. Root self-authorizes (signer == owner, verified via owner_sign_pub); every other
+// record must be signed by the current owner.
+message MembershipRecord {
+  string signer = 1;
+  bytes sig = 2;
+  oneof body {
+    RootRecord root = 3;
+    AddRecord add = 4;
+    RotateRecord rotate = 5;
+    TransferRecord transfer = 6;
+  }
+}

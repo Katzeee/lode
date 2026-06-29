@@ -17,7 +17,8 @@
     "packages/ipc/daemon/src/**/*.ts",
     "packages/ipc/daemon/tests/**/*.ts",
     "packages/engine/src/**/*.ts",
-    "packages/engine/tests/**/*.ts"
+    "packages/engine/tests/**/*.ts",
+    "packages/sync/src/**/*.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
 }

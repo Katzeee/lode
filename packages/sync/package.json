@@ -1,5 +1,5 @@
 {
-  "name": "@lode/engine",
+  "name": "@lode/sync",
   "version": "0.1.0",
   "type": "module",
   "exports": {
@@ -15,23 +15,16 @@
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.12.1",
-    "@lode/protocol": "file:../protocol",
-    "@noble/curves": "^1.9.0",
-    "@scure/bip39": "^2.0.0",
+    "@lode/engine": "file:../engine",
     "loro-crdt": "^1.11.0",
-    "rxjs": "^7.8.2",
-    "sqlite": "^5.1.1",
-    "sqlite3": "^6.0.1"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "tsx": "^4.22.4",
+    "@types/ws": "^8.18.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"
   }

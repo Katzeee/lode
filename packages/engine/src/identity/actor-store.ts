@@ -9,6 +9,7 @@ import {
   type SqliteDatabase,
 } from "../persistence/sqlite.js";
 import {
+  deriveActorKeypairFromMnemonic,
   deserializeActorPrivateKey,
   generateActorKeypair,
   serializeActorPrivateKey,
@@ -22,9 +23,9 @@ import {
  *   - `actors.sqlite` catalog: actorId → displayName + raw Ed25519 public key.
  *   - `actors/<actorId>/keystore`: the PKCS8 private key, file mode 0600 (separate from the
  *     catalog for a clean secret boundary; at-rest passphrase encryption is a later feature).
- * Everything is per-dataRoot: copy the directory, get a complete identity set. Mnemonic-based
- * generation/recovery (BIP-39/SLIP-10) and Ed25519→X25519 conversion (for read-key wrapping)
- * land with the ACL work; this is the signing-identity foundation.
+ * Everything is per-dataRoot: copy the directory, get a complete identity set. Mnemonic recovery
+ * (BIP-39/SLIP-10) is landed (F3b): createActor with a mnemonic re-derives the same key on any
+ * dataRoot (continuity); the dual-use X25519 conversion lives in actor-encryption.ts.
  */
 export type ActorRecord = {
   actorId: string;
@@ -52,13 +53,18 @@ export class ActorStore {
     return new ActorStore(db, dataRoot);
   }
 
-  /** Generate a fresh actor keypair, persist its private key to a 0600 keystore, and record
-   *  the public key in the catalog. Keystore is written BEFORE the catalog row so a failed
-   *  insert leaves only a harmless orphan file (never a catalog row pointing at no keystore). */
+  /** Generate (random) or recover (from a mnemonic) an actor keypair, persist its private key to a
+   *  0600 keystore, and record the public key in the catalog. Keystore is written BEFORE the catalog
+   *  row so a failed insert leaves only a harmless orphan file (never a catalog row with no keystore).
+   *  Recovering with a mnemonic whose actor already exists on this dataRoot is refused (recover on a
+   *  fresh dataRoot, or load the existing one) rather than silently shadowing it. */
   async createActor(input: {
     displayName: string;
+    mnemonic?: string;
   }): Promise<{ record: ActorRecord; keypair: ActorKeypair }> {
-    const keypair = generateActorKeypair();
+    const keypair = input.mnemonic
+      ? deriveActorKeypairFromMnemonic(input.mnemonic)
+      : generateActorKeypair();
     const now = Date.now();
     const record: ActorRecord = {
       actorId: keypair.actorId,
@@ -66,7 +72,10 @@ export class ActorStore {
       publicKey: keypair.publicKey,
       createdAt: now,
     };
-    await this.writeKeystore(keypair.actorId, serializeActorPrivateKey(keypair.privateKey));
+    if (input.mnemonic && (await this.getActor(record.actorId))) {
+      throw new Error(`actor ${record.actorId} already exists on this dataRoot`);
+    }
+    await this.writeKeystore(record.actorId, serializeActorPrivateKey(keypair.privateKey));
     await runTransaction(this.db, async () => {
       await this.db.run(
         `INSERT INTO actors (actor_id, display_name, public_key, created_at) VALUES (?, ?, ?, ?)`,

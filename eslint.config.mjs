@@ -287,6 +287,29 @@ export default tseslint.config(
     },
   },
   {
+    // utils: generic cross-cutting primitives (crypto, ...) — a pure leaf. Only node: builtins +
+    // third-party libs; no engine internals. Mirrors anytype's util/crypto/ (importable by all layers).
+    files: ["packages/engine/src/utils/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../**"],
+              message: "utils is a pure leaf — no engine imports (only node: builtins + third-party libs).",
+            },
+            {
+              group: ["@lode/protocol", "@lode/transport", "@lode/client"],
+              message: "utils must not import the wire contract or any transport/client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // services / runtime / top-level src (index.ts): adapter + composition layers; may use any
     // internal layer + protocol, never transport/client.
     files: ["packages/engine/src/**/*.ts"],
@@ -298,6 +321,7 @@ export default tseslint.config(
       "packages/engine/src/session/**",
       "packages/engine/src/persistence/**",
       "packages/engine/src/identity/**",
+      "packages/engine/src/utils/**",
       "**/*.test.ts",
     ],
     rules: {

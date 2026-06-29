@@ -17,19 +17,49 @@ export { createAppRuntime } from "./runtime/app-runtime.js";
 // transports can reach them without importing engine source directly.
 export { SyncManager, InMemorySyncTransport, syncPair } from "./runtime/sync.js";
 export type { SyncTransport, SyncProfile } from "./runtime/sync.js";
+// The sync-core store + doc + version types the transport layer (T2) reaches via
+// `runtime.workspaces.getEngine(wsId).getShardedStore()`. Exported as types/values so @lode/sync can
+// construct a SyncManager and serve/respond over the broker without importing engine source.
+export type { VersionVector } from "./core/types.js";
+export { Engine } from "./core/engine.js";
+export { ShardedBlockStore } from "./core/sharded-store.js";
+export type { SyncDoc } from "./core/sharded-store.js";
 
 // Actor identity — the membership/attribution principal (Ed25519 keypair) + per-dataRoot
-// keystore/catalog. Pure node:crypto; mnemonic + Ed25519→X25519 (read-key wrapping) land with
-// the ACL work. Exported so the daemon can authenticate actor sessions (F4) and sign ACL
-// records (A1) without importing engine source directly.
+// keystore/catalog. Mnemonic recovery (BIP-39/SLIP-10) + Ed25519→X25519 dual-use (transit-key
+// wrapping) are landed (F3b). Exported so the daemon can authenticate actor sessions (F4), sign
+// membership-log records (A1), and wrap transit keys — without importing engine source directly.
+// Generic crypto utilities (mirrors anytype's util/crypto/): AES-256-GCM AEAD, BIP-39 mnemonic,
+// SLIP-10 Ed25519 derivation, Edwards↔Montgomery conversion. Pure leaves (node:crypto + audited
+// libs); re-exported so @lode/sync shares them (no duplicated wire-security AEAD).
+export { aeadEncrypt, aeadDecrypt } from "./utils/crypto/aes.js";
+export { generateMnemonic, validateMnemonic, mnemonicToSeed } from "./utils/crypto/bip39.js";
+export { deriveEd25519Seed } from "./utils/crypto/slip10.js";
+export type { Slip10Node } from "./utils/crypto/slip10.js";
+export { edwardsToMontgomeryPub, edwardsToMontgomeryPriv } from "./utils/crypto/curve.js";
 export {
   actorIdFromPublicKey,
   generateActorKeypair,
+  keypairFromEd25519Seed,
+  ed25519SeedFromPrivateKey,
+  deriveActorKeypairFromMnemonic,
   signWithActor,
   verifyActorSignature,
   serializeActorPrivateKey,
   deserializeActorPrivateKey,
 } from "./identity/actor-key.js";
 export type { ActorKeypair, ActorPrivateKey, ActorPublicKey } from "./identity/actor-key.js";
+export {
+  actorEncryptionPublic,
+  actorEncryptionPrivate,
+  wrapKey,
+  unwrapKey,
+} from "./identity/actor-encryption.js";
 export { ActorStore } from "./identity/actor-store.js";
 export type { ActorRecord } from "./identity/actor-store.js";
+
+// Membership log — the replicated, signed owner+member log (the membership half of the in-process
+// sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc; F3b dual-use
+// crypto. SyncManager/workspace wiring lands in T2; exported now so A1 consumers + tests reach it.
+export { MembershipLog } from "./runtime/membership/membership-log.js";
+export type { Member, MembershipState, Survivor } from "./runtime/membership/membership-log.js";

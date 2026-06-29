@@ -102,21 +102,30 @@ CRDT-skip replay rule (skip records with a bad signature, an unknown signer, or 
 — a stale epoch) is still needed to reject forged records, but the sharp conflict edges a
 multi-admin model creates (e.g. concurrent-rotate loser content loss) do not arise.
 
-**What the log records (protobuf in `@lode/protocol`, stored as bytes in a LoroList):**
+**What the log records (protobuf in `@lode/protocol` [`membership.proto`], stored base64 in a
+LoroList; signed over the canonical proto3 body encoding — the wrapped set is `repeated`, ordered):**
 
-- `root` — owner self-signs; carries the owner's transit key wrapped to the owner.
+- `root` — owner self-signs; carries the owner's transit key wrapped to the owner. Only the FIRST
+  root applies; a later root is skipped (a former owner can't re-seize governance by appending one).
 - `add` — owner adds a member; the current transit key wrapped to the member.
-- `removeAndRotate` — owner removes a member **and** rotates the transit key in one atomic
-  record (forward secrecy with no window; the only revocation path).
-- `rotate` — owner re-keys (transit-key rotation) without changing membership.
-- `transfer` — owner transfers ownership to an existing member (atomic demote-old +
-  promote-new).
+- `rotate` — owner re-keys. The `wrapped` set IS the new membership: every listed member gets the new
+  transit key; anyone omitted is revoked (atomic removeAndRotate — the only revocation path). `enc_prev`
+  = AEAD(newTransit, oldTransit) chains the old key under the new so current members walk back to prior
+  epochs. A rotate whose epoch isn't strictly ahead of the current is skipped (stale).
+- `transfer` — owner transfers ownership to an EXISTING member (skipped if the target isn't a member,
+  so governance can't be bricked on a stranger). The old owner stays on as a member.
 
-The log is a **Loro doc inside the workspace**, so it syncs for free through `SyncManager`
-and lands in the existing `workspaces/<wsId>/` store — no new storage location. Validity =
-the record's signature verifies AND the signer is the current owner (root is self-authorizing).
-Invalid records are **skipped at replay**, not fatal — deterministic given the merged Loro
-list, so every replica converges to the same membership.
+The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core` (LoroDoc)
+
+- `identity` (F3b crypto) + `@lode/protocol` (records), so it can't sit in `domain` (no-protocol rule);
+  `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a **Loro doc inside the
+  workspace**, so it syncs like any doc (SyncManager/workspace wiring lands in T2; A1 ships the log +
+  export/import). Validity = the record's signature verifies AND the signer is the current owner (root is
+  self-authorizing as the first record). The owner's signPub is tracked independently of `members`
+  (`state.ownerSignPub`), so the owner can still sign governance even if a rotate dropped them from the
+  member set. Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a
+  non-member / stale rotate / undecodable) are **skipped at replay**, not fatal — deterministic given the
+  merged list, so every replica converges to the same membership.
 
 **Transit key, not a content key.** The wrapped key is the **transit key**: it encrypts sync
 messages in transit (`node:crypto` AEAD), so the untrusted relay sees only ciphertext.
@@ -160,10 +169,14 @@ share the same actor keypair (restored via mnemonic / QR / key-file import).
   anchor (no masterKey co-signature — see §2).
 - **Encrypts** via Ed25519→Curve25519 conversion (any-sync's dual-use trick; no separate
   X25519 keypair type) — used to wrap the **transit key** to members and to seal re-key
-  messages. (Production dual-use; the playground uses a separate X25519 keypair until F3b.)
-- **Mnemonic:** BIP-39 (12 words) → SLIP-10 / BIP-44 hardened derivation → 32-byte seed →
-  Ed25519. The mnemonic is the recovery root for the actor identity (mirrors any-sync's
-  `util/crypto/mnemonic.go`).
+  messages. Landed in F3b: the Edwards↔Montgomery conversions + X25519 ECDH use `@noble/curves`
+  (`ed25519.utils.toMontgomery` / `toMontgomerySecret` + `x25519.getSharedSecret`); SLIP-10
+  HMAC, Ed25519 sign/verify, and the sealed-box AES-256-GCM + HKDF stay in `node:crypto`. The
+  playground's separate-X25519-keypair interim is superseded.
+- **Mnemonic:** BIP-39 (12 words) → SLIP-10 hardened derivation → 32-byte seed → Ed25519. The
+  mnemonic is the recovery root for the actor identity (mirrors any-sync's
+  `util/crypto/mnemonic.go`). Lode's actor path is `m/44'/2026'/<account>'/0'/<index>'` (all
+  hardened — SLIP-10 Ed25519 supports hardened only); account/index default 0. Landed in F3b.
 
 **Device peerId** (random UUID, per-**dataRoot**, non-secret) — set as the Loro
 `doc.setPeerId()` for VV uniqueness. It identifies _one replica of the store_, i.e. one
