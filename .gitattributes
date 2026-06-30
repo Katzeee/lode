@@ -1,0 +1,31 @@
+# Line-ending policy for this cross-OS repo.
+# git auto-detects text files, checks them out as LF, and normalizes to LF on
+# commit — regardless of OS. History is already all-LF, so no
+# `git add --renormalize` is needed after adding this file.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF: cmd.exe misparses LF-only .bat/.cmd.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binaries: never normalize line endings, never attempt text diff/merge.
+# Uses git's `binary` macro (-text -diff) — NOT Git LFS. We do not use LFS;
+# binaries are stored inline in the repo.
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.webp   binary
+*.ico    binary
+*.pdf    binary
+*.zip    binary
+*.gz     binary
+*.tar    binary
+*.sqlite binary
+*.db     binary
+*.lockb  binary
+*.ttf    binary
+*.otf    binary
+*.woff   binary
+*.woff2  binary

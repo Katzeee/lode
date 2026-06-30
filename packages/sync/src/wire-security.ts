@@ -20,8 +20,11 @@ import {
  */
 
 export type WireSealContext = {
-  /** 32-byte workspace transit key (members unwrap it from the membership log; design §2). */
-  readonly transitKey: Uint8Array;
+  /** The current 32-byte workspace transit key. A concrete (mutable) field: a host installs a fresh
+   *  key when the membership doc converges / a governance rotate lands, then `seal`/`open` AEAD under
+   *  whatever key is currently held. The crypto layer does not know about membership lifecycle — the
+   *  host gates sealed rounds on membership so this is never read before a real key is installed. */
+  transitKey: Uint8Array;
   /** The sender's actor id (hex Ed25519 public). */
   readonly actorId: string;
   /** The sender's actor Ed25519 private key (signs outgoing payloads). */
@@ -29,7 +32,7 @@ export type WireSealContext = {
 };
 
 export type WireOpenContext = {
-  readonly transitKey: Uint8Array;
+  transitKey: Uint8Array;
   /** Resolve an actor id to its public key (member pubkeys); undefined → unknown sender → reject. */
   readonly resolveActorPub: (actorId: string) => ActorPublicKey | undefined;
 };

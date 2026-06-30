@@ -193,6 +193,13 @@ export class AppWorkspaceRuntime {
     return this.singleEngine(loaded?.workspace);
   }
 
+  /** The engine for an ALREADY-loaded workspace, WITHOUT triggering a load. Sync attaches to open
+   *  workspaces; calling the load path here would race with the doc-adding load (a concurrent reload
+   *  can overwrite the `loaded` entry and lose a just-added doc). Null if the workspace isn't open. */
+  loadedEngine(workspaceId: string): Engine | null {
+    return this.singleEngine(this.loaded.get(workspaceId)?.workspace);
+  }
+
   async persistMutation(workspaceId: string, beforeVersion: VersionVector): Promise<void> {
     const loaded = await this.requireWorkspace(workspaceId);
     if (!loaded.store) {

@@ -2,9 +2,16 @@ import { describe, expect, it } from "vitest";
 import { establishCliSession } from "./session.js";
 
 describe("establishCliSession", () => {
-  it("sends a local actor session hello for the typed client", async () => {
+  it("signs a server challenge before session hello", async () => {
     const calls: { method: string; params: unknown }[] = [];
+    const challenge = new Uint8Array([1, 2, 3]);
+    const signPub = new Uint8Array([4, 5, 6]);
+    const signature = new Uint8Array([7, 8, 9]);
     const client = {
+      sessionChallenge: (params: unknown) => {
+        calls.push({ method: "sessionChallenge", params });
+        return Promise.resolve({ challenge });
+      },
       sessionHello: (params: unknown) => {
         calls.push({ method: "sessionHello", params });
         return Promise.resolve({
@@ -16,13 +23,24 @@ describe("establishCliSession", () => {
       },
     };
 
-    await establishCliSession(client as never, { actorId: "alice" });
+    await establishCliSession(client as never, {
+      actorId: "alice",
+      signPub,
+      signChallenge: (value) => {
+        expect(value).toBe(challenge);
+        return signature;
+      },
+    });
 
     expect(calls).toEqual([
       {
+        method: "sessionChallenge",
+        params: {},
+      },
+      {
         method: "sessionHello",
         params: {
-          actor: { actorId: "alice" },
+          actor: { actorId: "alice", signPub },
           client: {
             name: "lode",
             metadata: {
@@ -30,6 +48,8 @@ describe("establishCliSession", () => {
               platform: process.platform,
             },
           },
+          challenge,
+          signature,
         },
       },
     ]);

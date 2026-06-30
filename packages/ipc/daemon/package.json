@@ -25,7 +25,8 @@
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-node": "^2.1.2",
     "@lode/engine": "file:../../engine",
-    "@lode/protocol": "file:../../protocol"
+    "@lode/protocol": "file:../../protocol",
+    "@lode/sync": "file:../../sync"
   },
   "devDependencies": {
     "@lode/client": "file:../client",

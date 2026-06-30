@@ -10,11 +10,11 @@ import {
 describe("sync-message", () => {
   it("round-trips every message kind", () => {
     const cases = [
-      { kind: "profile-req", reqId: "r1" },
-      { kind: "profile-resp", reqId: "r2", body: new Uint8Array([1, 2, 3]) },
-      { kind: "updates-req", reqId: "r3", docId: "main", body: new Uint8Array([9, 9]) },
-      { kind: "updates-resp", reqId: "r4", body: new Uint8Array([0, 255, 0]) },
-      { kind: "updates-push", docId: "s3", body: new Uint8Array([7, 7, 7, 0]) },
+      { kind: "profileReq", reqId: "r1" },
+      { kind: "profileResp", reqId: "r2", body: new Uint8Array([1, 2, 3]) },
+      { kind: "updatesReq", reqId: "r3", docId: "main", body: new Uint8Array([9, 9]) },
+      { kind: "updatesResp", reqId: "r4", body: new Uint8Array([0, 255, 0]) },
+      { kind: "updatesPush", docId: "s3", body: new Uint8Array([7, 7, 7, 0]) },
     ] as const;
     for (const m of cases) {
       expect(decodeSyncMessage(encodeSyncMessage(m))).toEqual(m);
@@ -23,9 +23,9 @@ describe("sync-message", () => {
 
   it("preserves an opaque binary body with embedded zeros", () => {
     const body = new Uint8Array([0, 1, 0, 255, 0, 0, 7]);
-    const m = decodeSyncMessage(encodeSyncMessage({ kind: "updates-push", docId: "x", body }));
-    if (m.kind !== "updates-push") {
-      throw new Error("expected updates-push");
+    const m = decodeSyncMessage(encodeSyncMessage({ kind: "updatesPush", docId: "x", body }));
+    if (m.kind !== "updatesPush") {
+      throw new Error("expected updatesPush");
     }
     expect(Buffer.from(m.body).equals(Buffer.from(body))).toBe(true);
   });
@@ -33,23 +33,22 @@ describe("sync-message", () => {
   it("round-trips a utf8 docId / reqId", () => {
     const m = decodeSyncMessage(
       encodeSyncMessage({
-        kind: "updates-req",
+        kind: "updatesReq",
         reqId: "req-Ω",
         docId: "doc-ü",
         body: new Uint8Array(),
       }),
     );
-    if (m.kind !== "updates-req") {
-      throw new Error("expected updates-req");
+    if (m.kind !== "updatesReq") {
+      throw new Error("expected updatesReq");
     }
     expect(m.reqId).toBe("req-Ω");
     expect(m.docId).toBe("doc-ü");
   });
 
-  it("rejects truncated / unknown messages", () => {
-    expect(() => decodeSyncMessage(new Uint8Array(2))).toThrow();
-    // unknown msgType 99, rest well-formed.
-    expect(() => decodeSyncMessage(Buffer.from([99, 0, 0, 0, 0]))).toThrow();
+  it("rejects bytes that decode to a message with no kind", () => {
+    // An empty buffer deserializes to a default SyncMessage (oneof `kind` unset).
+    expect(() => decodeSyncMessage(new Uint8Array(0))).toThrow();
   });
 
   it("encodeProfile / decodeProfile round-trip a real version vector", () => {

@@ -7,6 +7,7 @@ import { ValueSchema } from "@bufbuild/protobuf/wkt";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon } from "../../src/index.js";
 import { tempListenUrl } from "@lode/test-utils";
+import { openAuthedSession } from "./authed-session.js";
 
 const dataRoots: string[] = [];
 
@@ -26,7 +27,7 @@ describe("AppServer persistence", () => {
     const client = new AppServerClient({ url: server.address });
     client.connect();
     try {
-      await client.rpc.sessionHello({ actor: { actorId: "alice" } });
+      await openAuthedSession(client);
 
       await expect(client.rpc.listWorkspaces({})).resolves.toMatchObject({ workspaces: [] });
     } finally {
@@ -132,7 +133,7 @@ async function startPersistentServer(
   });
   const client = new AppServerClient({ url: server.address });
   client.connect();
-  await client.rpc.sessionHello({ actor: { actorId: "alice" } });
+  await openAuthedSession(client);
   return {
     client,
     stop: async () => {

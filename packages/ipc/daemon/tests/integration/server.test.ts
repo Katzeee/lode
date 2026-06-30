@@ -4,6 +4,7 @@ import { ValueSchema } from "@bufbuild/protobuf/wkt";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { tempListenUrl } from "@lode/test-utils";
+import { openAuthedSession } from "./authed-session.js";
 import {
   createTestWorkspaceAndDoc,
   TEST_WORKSPACE_ID as WORKSPACE_ID,
@@ -227,9 +228,6 @@ describe("AppServer integration", () => {
   }
 });
 
-async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
-  await client.rpc.sessionHello({
-    actor: { actorId },
-    client: { name: "vitest" },
-  });
+async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<void> {
+  await openAuthedSession(client, { client: { name: "vitest" } });
 }

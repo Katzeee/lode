@@ -4,11 +4,11 @@ import { generateActorKeypair } from "@lode/engine";
 import { open, seal, type WireOpenContext, type WireSealContext } from "./wire-security.js";
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
-const transitKey = (): Uint8Array => randomBytes(32);
+const newTransitKey = (): Uint8Array => randomBytes(32);
 
 describe("wire-security", () => {
   it("seal/open round-trips a payload between two members", () => {
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const sealCtx: WireSealContext = {
       transitKey: tk,
@@ -25,7 +25,7 @@ describe("wire-security", () => {
   });
 
   it("the sealed blob does NOT contain the plaintext (ciphertext opacity)", () => {
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const blob = seal(
       { transitKey: tk, actorId: sender.actorId, actorPrivateKey: sender.privateKey },
@@ -37,20 +37,21 @@ describe("wire-security", () => {
   });
 
   it("open fails with the wrong transit key (a non-member can't decrypt)", () => {
+    const sealTk = newTransitKey();
     const member = generateActorKeypair();
     const blob = seal(
-      { transitKey: transitKey(), actorId: member.actorId, actorPrivateKey: member.privateKey },
+      { transitKey: sealTk, actorId: member.actorId, actorPrivateKey: member.privateKey },
       enc("payload"),
     );
     const openCtx: WireOpenContext = {
-      transitKey: transitKey(), // a DIFFERENT key
+      transitKey: newTransitKey(), // a DIFFERENT key
       resolveActorPub: (id) => (id === member.actorId ? member.publicKey : undefined),
     };
     expect(() => open(openCtx, blob)).toThrow();
   });
 
   it("open rejects a tampered blob (AEAD integrity)", () => {
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const blob = Buffer.from(
       seal(
@@ -68,7 +69,7 @@ describe("wire-security", () => {
   });
 
   it("open rejects a forged signature (wrong key signed)", () => {
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const impostor = generateActorKeypair();
     // Seal claiming to be the impostor's id but... actually seal signs with its own key. To forge,
@@ -92,7 +93,7 @@ describe("wire-security", () => {
     // undefined), is rejected. AEAD decrypts fine and the signature is cryptographically valid; the
     // resolveActorPub gate is what enforces "sender must be a known member." (A future refactor that
     // reordered/cached this check must not silently weaken it — that's why this is asserted directly.)
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const blob = seal(
       { transitKey: tk, actorId: sender.actorId, actorPrivateKey: sender.privateKey },
@@ -103,7 +104,7 @@ describe("wire-security", () => {
   });
 
   it("a fresh nonce per seal (two seals of the same plaintext differ)", () => {
-    const tk = transitKey();
+    const tk = newTransitKey();
     const sender = generateActorKeypair();
     const ctx = { transitKey: tk, actorId: sender.actorId, actorPrivateKey: sender.privateKey };
     const a = seal(ctx, enc("same"));

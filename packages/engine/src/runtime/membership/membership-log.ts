@@ -1,6 +1,6 @@
 import { LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { aeadDecrypt, aeadEncrypt } from "../../utils/crypto/aes.js";
+import { aeadEncrypt } from "../../utils/crypto/aes.js";
 import {
   actorEncryptionPrivate,
   actorEncryptionPublic,
@@ -12,6 +12,7 @@ import {
   verifyActorSignature,
   type ActorKeypair,
 } from "../../identity/actor-key.js";
+import type { SyncDoc } from "../../core/sharded-store.js";
 import {
   AddRecordSchema,
   MemberWrapSchema,
@@ -48,6 +49,11 @@ import {
  * "same actorId" is cryptographic continuity (no masterKey co-sign).
  */
 
+/** The reserved sync docId for the membership log. The log is a PUBLIC signed roster (transit keys
+ *  inside it are per-member wrapped, so the log itself isn't secret) → it rides the broker's plaintext
+ *  envelope so a joining device can read it BEFORE it holds the transit key (bootstrap). */
+export const MEMBERSHIP_DOC_ID = "membership";
+
 const LOG_CONTAINER = "membership_log";
 
 export type Member = {
@@ -62,17 +68,13 @@ export type Member = {
 
 export type MembershipState = {
   owner: string;
-  /** The owner's Ed25519 signPub, tracked independently of `members` so the owner can still sign
-   *  governance (e.g. re-add themselves) even when a rotate has dropped them from `members`. */
-  ownerSignPub: Uint8Array;
   members: Map<string, Member>;
   currentEpoch: number;
-  /** Rotate records by epoch, for the history-chain walk. */
-  rotates: Map<number, { encPrev: Uint8Array }>;
 };
 
-/** Input shape for a rotate survivor: the owner knows each survivor's public keys. */
-export type Survivor = { actorId: string; signPub: Uint8Array; encPub: Uint8Array };
+/** A member's public identity — the owner knows each member's sign + enc pubkeys; the private key
+ *  never leaves the member's device. The single input shape for `appendAdd` and `appendRotate`. */
+export type MemberPublicKeys = { actorId: string; signPub: Uint8Array; encPub: Uint8Array };
 
 export class MembershipLog {
   readonly doc: LoroDoc;
@@ -94,35 +96,46 @@ export class MembershipLog {
     this.doc.commit();
   }
 
-  exportBytes(): Uint8Array {
-    return this.doc.export({ mode: "snapshot" });
-  }
-
-  importBytes(bytes: Uint8Array): void {
-    this.doc.import(bytes);
+  /** The log as a `SyncDoc` (id `MEMBERSHIP_DOC_ID`) so a transport can exchange it like any doc.
+   *  Mirrors `ShardedBlockStore`'s per-doc adapter. The transport serves this on the push-apply path
+   *  only (never in its profile — see DaemonSyncRunner), so SyncManager never mistakes the membership
+   *  doc for a shard. */
+  toSyncDoc(): SyncDoc {
+    const doc = this.doc;
+    return {
+      id: MEMBERSHIP_DOC_ID,
+      version: () => doc.version(),
+      exportUpdate: (from) => doc.export(from ? { mode: "update", from } : { mode: "update" }),
+      exportSnapshot: () => doc.export({ mode: "snapshot" }),
+      importUpdate: (bytes) => {
+        doc.import(bytes);
+      },
+    };
   }
 
   // ── record builders (owner signs + appends) ────────────────────────────────────
 
   /** Create the workspace: owner self-signs; the transit key wrapped to the owner. */
   appendRoot(owner: ActorKeypair, transitKey: Uint8Array): void {
+    const ownerEncPub = actorEncryptionPublic(owner.publicKey);
     this.appendSigned(owner, {
       case: "root",
       value: create(RootRecordSchema, {
         owner: owner.actorId,
         ownerSignPub: owner.publicKey,
-        ownerEncPub: actorEncryptionPublic(owner.publicKey),
-        wrappedTransit: wrapKeyTo(owner.publicKey, transitKey),
+        ownerEncPub,
+        wrappedTransit: wrapKey(ownerEncPub, transitKey),
         epoch: 0,
       }),
     });
   }
 
   /** Owner adds a member; the current transit key wrapped to them. `epoch` should be the current
-   *  epoch (deriveState().state.currentEpoch) at add time — it records when the member joined. */
+   *  epoch (deriveState().state.currentEpoch) at add time — it records when the member joined. Only the
+   *  member's public identity is needed (their private key never leaves their device). */
   appendAdd(
     owner: ActorKeypair,
-    member: ActorKeypair,
+    member: MemberPublicKeys,
     transitKey: Uint8Array,
     epoch: number,
   ): void {
@@ -130,24 +143,29 @@ export class MembershipLog {
       case: "add",
       value: create(AddRecordSchema, {
         actor: member.actorId,
-        signPub: member.publicKey,
-        encPub: actorEncryptionPublic(member.publicKey),
-        wrappedTransit: wrapKeyTo(member.publicKey, transitKey),
+        signPub: member.signPub,
+        encPub: member.encPub,
+        wrappedTransit: wrapKey(member.encPub, transitKey),
         epoch,
       }),
     });
   }
 
   /** Owner re-keys. `survivors` IS the new membership: listed members get the new transit key; anyone
-   *  omitted is revoked (atomic removeAndRotate). encPrev chains the old key under the new so current
-   *  members can walk back to decrypt history. */
+   *  omitted is revoked (atomic removeAndRotate). The owner must be a survivor — they cannot rotate
+   *  themselves out (the owner is always a member). encPrev chains the old key under the new (stored
+   *  on the rotate record for future history decryption; not projected into state until something
+   *  reads it). */
   appendRotate(
     owner: ActorKeypair,
-    survivors: Survivor[],
+    survivors: MemberPublicKeys[],
     newKey: Uint8Array,
     oldKey: Uint8Array,
     newEpoch: number,
   ): void {
+    if (!survivors.some((s) => s.actorId === owner.actorId)) {
+      throw new Error("appendRotate: survivors must include the owner");
+    }
     this.appendSigned(owner, {
       case: "rotate",
       value: create(RotateRecordSchema, {
@@ -157,7 +175,7 @@ export class MembershipLog {
             actorId: s.actorId,
             signPub: s.signPub,
             encPub: s.encPub,
-            wrappedTransit: wrapKeyToEncPub(s.encPub, newKey),
+            wrappedTransit: wrapKey(s.encPub, newKey),
           }),
         ),
         encPrev: aeadEncrypt(newKey, oldKey),
@@ -190,10 +208,8 @@ export class MembershipLog {
   deriveState(): { state: MembershipState; skipped: MembershipRecord[] } {
     const state: MembershipState = {
       owner: "",
-      ownerSignPub: new Uint8Array(0),
       members: new Map(),
       currentEpoch: -1,
-      rotates: new Map(),
     };
     const skipped: MembershipRecord[] = [];
     for (const raw of this.list.toArray()) {
@@ -203,10 +219,6 @@ export class MembershipLog {
       } catch {
         // An undecodable entry (e.g. a malformed/garbage push from a bad replica) can't be a valid
         // record — skip it, never let it abort the replay.
-        continue;
-      }
-      if (rec.body.case === undefined) {
-        skipped.push(rec);
         continue;
       }
       const sigOk = verifySignature(state, rec);
@@ -234,35 +246,7 @@ export class MembershipLog {
     if (!m) {
       throw new Error(`not a member: ${member.actorId}`);
     }
-    return unwrapKeyFromPriv(member.privateKey, m.wrappedTransit);
-  }
-
-  /** Walk the re-key chain back to `targetEpoch` (< current). Each rotate's encPrev decrypts the
-   *  prior epoch's transit key under the current one. NB: the chain is a single shared sequence, so a
-   *  member who can unwrap the current key recovers transit for EVERY prior epoch — including ones
-   *  before they joined. That is the intended MVP recovery model (full history via the chain, design
-   *  §9); per-epoch member-bounded secrecy is a future refinement. */
-  walkHistoryTransitKey(
-    state: MembershipState,
-    member: ActorKeypair,
-    targetEpoch: number,
-  ): Uint8Array {
-    if (targetEpoch > state.currentEpoch) {
-      throw new Error(
-        `target epoch ${targetEpoch} is in the future (current ${state.currentEpoch})`,
-      );
-    }
-    let key = this.unwrapCurrentTransitKey(state, member);
-    let epoch = state.currentEpoch;
-    while (epoch > targetEpoch) {
-      const rot = state.rotates.get(epoch);
-      if (!rot) {
-        throw new Error(`missing rotate record for epoch ${epoch}`);
-      }
-      key = aeadDecrypt(key, rot.encPrev);
-      epoch--;
-    }
-    return key;
+    return unwrapKey(actorEncryptionPrivate(member.privateKey), m.wrappedTransit);
   }
 }
 
@@ -272,7 +256,6 @@ function apply(state: MembershipState, rec: MembershipRecord): void {
   if (rec.body.case === "root") {
     const b = rec.body.value;
     state.owner = b.owner;
-    state.ownerSignPub = b.ownerSignPub;
     state.members.set(b.owner, {
       signPub: b.ownerSignPub,
       encPub: b.ownerEncPub,
@@ -304,43 +287,31 @@ function apply(state: MembershipState, rec: MembershipRecord): void {
         m.epoch = b.epoch;
       }
     }
-    state.rotates.set(b.epoch, { encPrev: b.encPrev });
     state.currentEpoch = b.epoch;
   } else if (rec.body.case === "transfer") {
-    // The new owner is a current member (enforced before apply); capture their signPub so governance
-    // signature verification follows the owner even if a later rotate drops them from `members`.
+    // Ownership moves to a current member (enforced before apply); they're already in `members`, so
+    // their signPub is found there for governance verification. (The owner is always a member.)
     state.owner = rec.body.value.newOwner;
-    const newOwnerMember = state.members.get(rec.body.value.newOwner);
-    if (newOwnerMember) {
-      state.ownerSignPub = newOwnerMember.signPub;
-    }
   }
 }
 
 // ── signature verification + canonical body encoding ─────────────────────────────
 
-/** Verify a record's signature. Root self-authorizes (via its own ownerSignPub); every other record is
- *  owner-signed, verified against `state.ownerSignPub` (tracked independently of `members`, so the
- *  owner can still sign governance — e.g. re-add themselves — even when a rotate has dropped them from
- *  the member set). A non-owner signer's record is skipped by the auth check regardless. */
+/** Verify a record's signature. Root self-authorizes (via its embedded owner_sign_pub); every other
+ *  record is owner-signed, and the owner is always a member, so their signPub lives in `members`. A
+ *  non-owner signer's record is skipped by the auth check regardless. `verifyActorSignature` returns
+ *  false on any malformed input (including a missing/empty pubkey), so no extra guard is needed. */
 function verifySignature(state: MembershipState, rec: MembershipRecord): boolean {
   if (rec.body.case === undefined) {
     return false;
   }
   const signPub =
-    rec.body.case === "root"
-      ? rec.body.value.ownerSignPub
-      : rec.signer === state.owner
-        ? state.ownerSignPub
-        : state.members.get(rec.signer)?.signPub;
-  if (!signPub || signPub.length === 0) {
-    return false;
-  }
-  return verifyActorSignature(signPub, bodyBytes(rec.body), rec.sig);
+    rec.body.case === "root" ? rec.body.value.ownerSignPub : state.members.get(rec.signer)?.signPub;
+  return signPub !== undefined && verifyActorSignature(signPub, bodyBytes(rec.body), rec.sig);
 }
 
 /** The canonical bytes a record's signature commits to: the deterministic proto3 encoding of its body
- *  (signer + sig excluded). `repeated` fields keep insertion order, so the wrapped set is canonical. */
+ * (signer + sig excluded). `repeated` fields keep insertion order, so the wrapped set is canonical. */
 function bodyBytes(body: MembershipRecord["body"]): Uint8Array {
   switch (body.case) {
     case "root":
@@ -354,24 +325,4 @@ function bodyBytes(body: MembershipRecord["body"]): Uint8Array {
     case undefined:
       return new Uint8Array(0);
   }
-}
-
-// ── transit-key wrapping helpers (dual-use: X25519 derived from the actor Ed25519 key) ─
-
-/** Wrap a transit key to an actor's Ed25519 public (converted to its X25519 public). */
-function wrapKeyTo(ed25519Pub: Uint8Array, transitKey: Uint8Array): Uint8Array {
-  return wrapKey(actorEncryptionPublic(ed25519Pub), transitKey);
-}
-
-/** Wrap a transit key directly to an X25519 public (used by rotate, which already has encPub). */
-function wrapKeyToEncPub(encPub: Uint8Array, transitKey: Uint8Array): Uint8Array {
-  return wrapKey(encPub, transitKey);
-}
-
-/** Unwrap a transit key held by an actor (X25519 private derived from the actor's Ed25519 seed). */
-function unwrapKeyFromPriv(
-  privateKey: ActorKeypair["privateKey"],
-  wrapped: Uint8Array,
-): Uint8Array {
-  return unwrapKey(actorEncryptionPrivate(privateKey), wrapped);
 }

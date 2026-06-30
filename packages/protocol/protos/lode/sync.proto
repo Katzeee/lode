@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package lode;
+
+// The sync protocol envelope exchanged over a broker workspace channel (design sync-design.md §4).
+// Each peer runs both halves: the initiator publishes a correlated request (profile_req /
+// updates_req) and awaits the matching response by req_id; the responder answers from its local
+// store, and updates_push is a one-way push. `body` is opaque at this layer — profile_resp body is a
+// SyncProfile; updates_req body is a Loro VersionVector; updates_resp / updates_push body is a Loro
+// update. (Replaces an earlier hand-rolled binary codec.)
+
+message ProfileReq { string req_id = 1; }
+message ProfileResp { string req_id = 1; bytes body = 2; }
+message UpdatesReq { string req_id = 1; string doc_id = 2; bytes body = 3; }
+message UpdatesResp { string req_id = 1; bytes body = 2; }
+message UpdatesPush { string doc_id = 1; bytes body = 2; }
+
+message SyncMessage {
+  oneof kind {
+    ProfileReq profile_req = 1;
+    ProfileResp profile_resp = 2;
+    UpdatesReq updates_req = 3;
+    UpdatesResp updates_resp = 4;
+    UpdatesPush updates_push = 5;
+  }
+}
+
+// A peer's per-doc version vectors — the cheap metadata exchanged first to find what differs. `version`
+// is a Loro VersionVector.encode() blob (opaque here).
+message SyncProfileEntry { string doc_id = 1; bytes version = 2; }
+message SyncProfile { repeated SyncProfileEntry entries = 1; }

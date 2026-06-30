@@ -45,7 +45,8 @@ export class SyncManager {
 
     // Shards: the UNION of local + remote ids. Local ids are re-read AFTER the treeDoc sync so
     // shards whose ownership just arrived from the peer are included; a shard the peer has but
-    // local hasn't is materialized here, then pulled.
+    // local hasn't is materialized (getShardDoc), then pulled. Materialize every union id first,
+    // then snapshot the local docs as a Map for O(1) lookup during the exchange loop.
     const shardIds = new Set<string>();
     for (const id of this.store.syncDocs().map((d) => d.id)) {
       if (id !== "main") {
@@ -58,8 +59,11 @@ export class SyncManager {
       }
     }
     for (const sid of shardIds) {
-      this.store.getShardDoc(sid); // materialize if the treeDoc sync revealed a new shard
-      const doc = this.localDoc(sid);
+      this.store.getShardDoc(sid); // materialize shards the now-synced treeDoc revealed
+    }
+    const local = new Map(this.store.syncDocs().map((d) => [d.id, d]));
+    for (const sid of shardIds) {
+      const doc = local.get(sid);
       if (doc) {
         await this.exchangeDoc(doc, remote.get(sid));
       }
@@ -94,10 +98,10 @@ export class SyncManager {
 }
 
 /**
- * In-process transport backed by another store directly. This is the Phase-B "production"
- * transport (e.g. two workspaces in one process) AND the test substrate. `syncPair` runs one
- * round (which exchanges both directions) then reconciles both sides — each peer is its own
- * good citizen in production; the helper models that for in-process pairs.
+ * In-process transport backed by another store directly — the test substrate and the path for two
+ * workspaces in one process. `syncPair` runs one round (both directions exchanged) then reconciles
+ * both sides — each peer is its own good citizen in production; the helper models that for in-process
+ * pairs. The real network transport lives in `@lode/sync` (`BrokerClientSyncTransport`).
  */
 export class InMemorySyncTransport implements SyncTransport {
   constructor(private readonly remote: ShardedBlockStore) {}

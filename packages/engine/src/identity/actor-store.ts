@@ -56,8 +56,9 @@ export class ActorStore {
   /** Generate (random) or recover (from a mnemonic) an actor keypair, persist its private key to a
    *  0600 keystore, and record the public key in the catalog. Keystore is written BEFORE the catalog
    *  row so a failed insert leaves only a harmless orphan file (never a catalog row with no keystore).
-   *  Recovering with a mnemonic whose actor already exists on this dataRoot is refused (recover on a
-   *  fresh dataRoot, or load the existing one) rather than silently shadowing it. */
+   *  Recovering with a mnemonic whose actor already exists on this dataRoot is refused up front for a
+   *  clear error (recover on a fresh dataRoot, or load the existing one) — the catalog's PRIMARY KEY
+   *  would also reject the duplicate, but only with a generic constraint error. */
   async createActor(input: {
     displayName: string;
     mnemonic?: string;

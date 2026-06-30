@@ -10,6 +10,11 @@ export { DomainInvalidInputError } from "./domain/errors.js";
 
 export type { AppRuntime, AppRuntimeOptions, LodeCommands } from "./runtime/app-runtime.js";
 export { createAppRuntime } from "./runtime/app-runtime.js";
+// The App/Component lifecycle framework. createAppRuntime returns the engine subsystems registered on
+// an App but NOT started — the host (daemon/mobile) registers its own components (sync, relay, http)
+// and drives lifecycle via app.start()/stop() (anytype-ideal composition root: assemble-then-start).
+export { App } from "./runtime/app.js";
+export type { Component } from "./runtime/app.js";
 
 // Sync — the in-process CRDT sync core. SyncManager + the SyncTransport seam are the
 // engine's whole sync surface; the daemon/transport layer implements SyncTransport over the
@@ -60,6 +65,12 @@ export type { ActorRecord } from "./identity/actor-store.js";
 
 // Membership log — the replicated, signed owner+member log (the membership half of the in-process
 // sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc; F3b dual-use
-// crypto. SyncManager/workspace wiring lands in T2; exported now so A1 consumers + tests reach it.
-export { MembershipLog } from "./runtime/membership/membership-log.js";
-export type { Member, MembershipState, Survivor } from "./runtime/membership/membership-log.js";
+// crypto. T4-b wires it as a synced doc: `MembershipSync` gossip-pushes it over a transport (plaintext
+// — it's a public roster), and a host derives the content transport's `WireSecurity` from its state.
+export { MembershipLog, MEMBERSHIP_DOC_ID } from "./runtime/membership/membership-log.js";
+export type {
+  Member,
+  MembershipState,
+  MemberPublicKeys,
+} from "./runtime/membership/membership-log.js";
+export { MembershipSync } from "./runtime/membership/membership-sync.js";

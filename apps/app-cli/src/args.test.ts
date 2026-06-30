@@ -8,6 +8,8 @@ describe("parseCli", () => {
       "http://localhost:8080",
       "--actor",
       "alice",
+      "--actor-mnemonic",
+      "test words",
       "field",
       "set-values",
       "--doc",
@@ -25,6 +27,7 @@ describe("parseCli", () => {
     expect(parsed).toEqual({
       url: "http://localhost:8080",
       actorId: "alice",
+      actorMnemonic: "test words",
       group: "field",
       action: "set-values",
       flags: {
@@ -46,16 +49,20 @@ describe("parseCli", () => {
   it("uses LODE_URL when --url is absent", () => {
     const previousUrl = process.env.LODE_URL;
     const previousActor = process.env.LODE_ACTOR;
+    const previousMnemonic = process.env.LODE_ACTOR_MNEMONIC;
     process.env.LODE_URL = "http://from-env:8080";
     process.env.LODE_ACTOR = "env-actor";
+    process.env.LODE_ACTOR_MNEMONIC = "env words";
 
     try {
       const parsed = parseCli(["doc", "list"]);
       expect(parsed.url).toBe("http://from-env:8080");
       expect(parsed.actorId).toBe("env-actor");
+      expect(parsed.actorMnemonic).toBe("env words");
     } finally {
       process.env.LODE_URL = previousUrl;
       process.env.LODE_ACTOR = previousActor;
+      process.env.LODE_ACTOR_MNEMONIC = previousMnemonic;
     }
   });
 

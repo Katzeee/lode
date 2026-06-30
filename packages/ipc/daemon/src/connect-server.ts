@@ -109,6 +109,7 @@ export function createLodeServer(runtime: AppRuntime): {
     },
     routes: (router) =>
       router.service(LodeCommands, {
+        sessionChallenge: unary(commands.sessionChallenge),
         sessionHello: unary(commands.sessionHello),
         subscribeDoc: unary(commands.subscribeDoc),
         unsubscribeDoc: unary(commands.unsubscribeDoc),

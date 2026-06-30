@@ -12,21 +12,28 @@ export type BrokerClientOptions = {
   readonly url: string;
   /** Called on each `deliver` frame (a routed payload for a subscribed workspace). */
   readonly onDeliver: (wsId: string, payload: Uint8Array) => void;
+  /** Called on a mid-session socket error (relay reset, ECONNRESET). Lets a caller fail fast instead
+   *  of waiting out a response timeout. (A *connect* failure still rejects open().) Optional. */
+  readonly onError?: (err: Error) => void;
 };
 
 export class BrokerClient {
   private readonly sock: WebSocket;
   private readonly onDeliver: BrokerClientOptions["onDeliver"];
+  private readonly onError: BrokerClientOptions["onError"];
   private closed = false;
+  private lastError: Error | null = null;
 
   constructor(opts: BrokerClientOptions) {
     this.onDeliver = opts.onDeliver;
+    this.onError = opts.onError;
     this.sock = new WebSocket(opts.url);
-    // Permanent error sink: a mid-session socket error (relay reset, ECONNRESET) must never crash
-    // the process — Node throws on an unhandled 'error'. (open()'s temporary listener still rejects
-    // on a *connect* failure.) A closed socket is surfaced via the 'close' event, not here.
-    this.sock.on("error", () => {
-      // no-op
+    // A permanent listener keeps Node from throwing on an unhandled 'error'. A mid-session socket
+    // error is surfaced via onError + lastError so callers can fail fast instead of waiting out a
+    // response timeout. (open()'s temporary listener still rejects on a *connect* failure.)
+    this.sock.on("error", (err: Error) => {
+      this.lastError = err;
+      this.onError?.(err);
     });
     this.sock.on("message", (data) => {
       const frame = safeDecode(data);
@@ -34,6 +41,11 @@ export class BrokerClient {
         this.onDeliver(frame.wsId, frame.payload);
       }
     });
+  }
+
+  /** The last mid-session socket error, or null. */
+  get error(): Error | null {
+    return this.lastError;
   }
 
   /** Resolve once the socket is OPEN (ready to send). Rejects on a connect error or if already closed. */

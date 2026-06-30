@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import { AppServerClient } from "@lode/client";
+import { generateActorKeypair, signWithActor } from "@lode/engine";
 import { parseCli } from "../../src/args.js";
 import { executeCommand } from "../../src/commands.js";
 import { establishCliSession } from "../../src/session.js";
@@ -34,12 +35,17 @@ export type BeCliHarness = {
 export const ANIME_WORKSPACE_ID = "ws_anime";
 
 export function createBeCliHarness(url: () => string): BeCliHarness {
+  const actor = generateActorKeypair();
   const be = async (...args: string[]): Promise<string> => {
-    const parsed = parseCli(["--url", url(), "--actor", "alice", ...args]);
+    const parsed = parseCli(["--url", url(), "--actor", actor.actorId, ...args]);
     const client = new AppServerClient({ url: parsed.url });
     client.connect();
     try {
-      await establishCliSession(client.rpc, { actorId: parsed.actorId });
+      await establishCliSession(client.rpc, {
+        actorId: parsed.actorId,
+        signPub: actor.publicKey,
+        signChallenge: (challenge) => signWithActor(actor.privateKey, challenge),
+      });
       return await executeCommand(client.rpc, parsed);
     } finally {
       client.close();

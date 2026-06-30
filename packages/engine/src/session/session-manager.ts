@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
 import {
   NotificationSchema,
@@ -40,8 +40,38 @@ export class SessionManager {
   // One doc per workspace, so subscriptions are keyed by workspaceId alone.
   private readonly subscribers = new Map<string, Set<string>>();
   private readonly streams = new Map<string, NotificationStream>();
+  // F4 challenge-response: a pending per-connection nonce, single-use + short TTL. Crypto-free — the
+  // signature verification happens in the services adapter (`services/session.ts`), which may import
+  // identity; this layer only owns nonce lifecycle.
+  private readonly challenges = new Map<string, { nonce: Uint8Array; expiresAt: number }>();
+
+  private static readonly CHALLENGE_TTL_MS = 60_000;
 
   constructor(private readonly nodeId: string) {}
+
+  /** F4: issue a fresh challenge nonce for this connection (single-use, TTL-bounded). */
+  issueChallenge(connectionId: string): Uint8Array {
+    const nonce = randomBytes(32);
+    this.challenges.set(connectionId, {
+      nonce,
+      expiresAt: Date.now() + SessionManager.CHALLENGE_TTL_MS,
+    });
+    return nonce;
+  }
+
+  /** F4: consume the challenge for this connection. True only if `nonce` matches a fresh, unused,
+   *  unexpired challenge — and the challenge is revoked (single-use) on success. */
+  consumeChallenge(connectionId: string, nonce: Uint8Array): boolean {
+    const pending = this.challenges.get(connectionId);
+    if (pending === undefined) {
+      return false; // no challenge issued (or already consumed)
+    }
+    this.challenges.delete(connectionId); // single-use: revoke whether or not it matches
+    if (Date.now() > pending.expiresAt) {
+      return false; // expired
+    }
+    return Buffer.from(nonce).equals(Buffer.from(pending.nonce));
+  }
 
   createSession(connectionId: string, request: SessionHelloRequest): SessionInfo {
     const record: SessionRecord = {
@@ -121,6 +151,7 @@ export class SessionManager {
 
   removeConnection(connectionId: string): void {
     this.sessionsByConnection.delete(connectionId);
+    this.challenges.delete(connectionId);
     this.streams.get(connectionId)?.close();
     this.streams.delete(connectionId);
     for (const subs of this.subscribers.values()) {

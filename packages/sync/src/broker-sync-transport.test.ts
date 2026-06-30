@@ -126,7 +126,7 @@ describe("BrokerClientSyncTransport — transport contract (timeouts, lifecycle,
     server = new BrokerServer();
     await server.ready();
     const url = `ws://127.0.0.1:${server.port}`;
-    // A single transport, no other peer → its profile-req goes unanswered.
+    // A single transport, no other peer → its profileReq goes unanswered.
     const ta = new BrokerClientSyncTransport({
       url,
       store: a.store,
@@ -177,7 +177,7 @@ describe("BrokerClientSyncTransport — transport contract (timeouts, lifecycle,
       raw.once("error", rej);
     });
     raw.send(
-      encodeSyncMessage({ kind: "profile-req", reqId: "garbage-Ω-not-decodable-payload" }).subarray(
+      encodeSyncMessage({ kind: "profileReq", reqId: "garbage-Ω-not-decodable-payload" }).subarray(
         0,
         3,
       ),

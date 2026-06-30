@@ -12,13 +12,13 @@ import {
   generateActorKeypair,
   type ActorKeypair,
 } from "../../identity/actor-key.js";
-import { MembershipLog, type Survivor } from "./membership-log.js";
+import { MembershipLog, type MemberPublicKeys } from "./membership-log.js";
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-const survivor = (m: ActorKeypair): Survivor => ({
+const memberPub = (m: ActorKeypair): MemberPublicKeys => ({
   actorId: m.actorId,
   signPub: m.publicKey,
   encPub: actorEncryptionPublic(m.publicKey),
@@ -32,9 +32,9 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const k0b = newTransitKey(); // would-be stale rotate key
     const log = new MembershipLog();
     log.appendRoot(owner, k0);
-    log.appendRotate(owner, [survivor(owner)], k1, k0, 1);
+    log.appendRotate(owner, [memberPub(owner)], k1, k0, 1);
     // A second rotate claiming epoch 1 (not strictly ahead of current=1) → skipped.
-    log.appendRotate(owner, [survivor(owner)], k0b, k1, 1);
+    log.appendRotate(owner, [memberPub(owner)], k0b, k1, 1);
 
     const { state, skipped } = log.deriveState();
     expect(state.currentEpoch).toBe(1);
@@ -48,7 +48,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const tk = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(owner, tk);
-    log.appendAdd(owner, member, tk, 0);
+    log.appendAdd(owner, memberPub(member), tk, 0);
     log.appendTransfer(member, member.actorId); // member forges ownership to themselves
 
     const { state, skipped } = log.deriveState();
@@ -62,7 +62,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const tk = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(owner, tk);
-    log.appendAdd(owner, successor, tk, 0);
+    log.appendAdd(owner, memberPub(successor), tk, 0);
     log.appendTransfer(owner, successor.actorId);
     log.appendRoot(owner, newTransitKey()); // old owner self-authorizes a fresh root → skipped
 
@@ -92,7 +92,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const log = new MembershipLog();
     log.appendRoot(owner, k0);
     // Onboarding is add-only (design §2); a stranger listed in rotate is a no-op, not an add.
-    log.appendRotate(owner, [survivor(owner), survivor(stranger)], k1, k0, 1);
+    log.appendRotate(owner, [memberPub(owner), memberPub(stranger)], k1, k0, 1);
 
     const { state } = log.deriveState();
     expect(state.members.has(stranger.actorId)).toBe(false);
@@ -107,7 +107,7 @@ describe("membership log — dual-use crypto invariants + mnemonic recovery (F3b
     const tk = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(owner, tk);
-    log.appendAdd(owner, member, tk, 0);
+    log.appendAdd(owner, memberPub(member), tk, 0);
     const { state } = log.deriveState();
 
     const m = state.members.get(member.actorId)!;
@@ -118,23 +118,22 @@ describe("membership log — dual-use crypto invariants + mnemonic recovery (F3b
     );
   });
 
-  it("mnemonic recovery: a re-derived owner on a new device re-derives the same X25519 unwrap + chain", () => {
+  it("mnemonic recovery: a re-derived owner on a new device re-derives the same X25519 unwrap", () => {
     const mnemonic = generateMnemonic();
     const ownerA = deriveActorKeypairFromMnemonic(mnemonic);
     const k0 = newTransitKey();
     const k1 = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(ownerA, k0);
-    log.appendRotate(ownerA, [survivor(ownerA)], k1, k0, 1);
+    log.appendRotate(ownerA, [memberPub(ownerA)], k1, k0, 1);
 
     // New device: re-derive the SAME owner from the mnemonic, replay the synced log, recover transit.
     const ownerB = deriveActorKeypairFromMnemonic(mnemonic);
     expect(ownerB.actorId).toBe(ownerA.actorId);
     const recovered = new MembershipLog();
-    recovered.importBytes(log.exportBytes());
+    recovered.toSyncDoc().importUpdate(log.toSyncDoc().exportSnapshot());
     const { state } = recovered.deriveState();
     expect(eq(recovered.unwrapCurrentTransitKey(state, ownerB), k1)).toBe(true);
-    expect(eq(recovered.walkHistoryTransitKey(state, ownerB, 0), k0)).toBe(true);
   });
 });
 
@@ -145,9 +144,9 @@ describe("membership log — replay robustness + edge characterization", () => {
     const k0 = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(owner, k0);
-    log.appendAdd(owner, member, k0, 0);
+    log.appendAdd(owner, memberPub(member), k0, 0);
     const k1 = newTransitKey();
-    log.appendRotate(owner, [survivor(owner)], k1, k0, 1); // member revoked
+    log.appendRotate(owner, [memberPub(owner)], k1, k0, 1); // member revoked
     const { state } = log.deriveState();
     // New-epoch content is sealed under k1; the member only ever held k0. encPrev = AEAD(k1, k0) is
     // one-way: k0 cannot recover k1, so the revoked member can't read anything sealed after the rotate.
@@ -156,23 +155,15 @@ describe("membership log — replay robustness + edge characterization", () => {
     expect(() => log.unwrapCurrentTransitKey(state, member)).toThrow();
   });
 
-  it("a rotate that omits the owner drops them from members but they can self-re-add to recover", () => {
+  it("a rotate that omits the owner is rejected (the owner is always a member)", () => {
     const owner = generateActorKeypair();
+    const member = generateActorKeypair();
     const k0 = newTransitKey();
-    const k1 = newTransitKey();
     const log = new MembershipLog();
     log.appendRoot(owner, k0);
-    log.appendRotate(owner, [], k1, k0, 1); // owner wraps the new key to no one — themselves included
-    const { state } = log.deriveState();
-    expect(state.members.has(owner.actorId)).toBe(false);
-    expect(state.owner).toBe(owner.actorId); // governance authority unchanged
-    expect(() => log.unwrapCurrentTransitKey(state, owner)).toThrow(); // no transit access
-    // The owner's signPub is tracked independently of `members` (state.ownerSignPub), so governance
-    // signatures stay verifiable even when a rotate dropped them — they can self-re-add to recover.
-    log.appendAdd(owner, owner, k1, 1);
-    const s2 = log.deriveState().state;
-    expect(s2.members.has(owner.actorId)).toBe(true);
-    expect(eq(log.unwrapCurrentTransitKey(s2, owner), k1)).toBe(true);
+    log.appendAdd(owner, memberPub(member), k0, 0);
+    // The owner cannot rotate themselves out of membership — build-time invariant.
+    expect(() => log.appendRotate(owner, [memberPub(member)], k0, k0, 1)).toThrow();
   });
 
   it("re-importing the same snapshot is idempotent (no error, no membership change)", () => {
@@ -181,12 +172,12 @@ describe("membership log — replay robustness + edge characterization", () => {
     const tk = newTransitKey();
     const a = new MembershipLog();
     a.appendRoot(owner, tk);
-    a.appendAdd(owner, member, tk, 0);
-    const snap = a.exportBytes();
+    a.appendAdd(owner, memberPub(member), tk, 0);
+    const snap = a.toSyncDoc().exportSnapshot();
     const b = new MembershipLog();
-    b.importBytes(snap);
+    b.toSyncDoc().importUpdate(snap);
     const before = [...b.deriveState().state.members.keys()].sort();
-    b.importBytes(snap); // again — must not throw or duplicate
+    b.toSyncDoc().importUpdate(snap); // again — must not throw or duplicate
     const after = [...b.deriveState().state.members.keys()].sort();
     expect(after).toEqual(before);
   });

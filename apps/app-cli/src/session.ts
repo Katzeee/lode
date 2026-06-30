@@ -3,14 +3,17 @@ import type { SessionInfo } from "@lode/protocol/proto";
 
 export type CliSessionOptions = {
   actorId: string;
+  signPub: Uint8Array;
+  signChallenge(challenge: Uint8Array): Uint8Array;
 };
 
-export function establishCliSession(
+export async function establishCliSession(
   client: LodeCommandsClient,
   options: CliSessionOptions,
 ): Promise<SessionInfo> {
+  const { challenge } = await client.sessionChallenge({});
   return client.sessionHello({
-    actor: { actorId: options.actorId },
+    actor: { actorId: options.actorId, signPub: options.signPub },
     client: {
       name: "lode",
       metadata: {
@@ -18,5 +21,7 @@ export function establishCliSession(
         platform: process.platform,
       },
     },
+    challenge,
+    signature: options.signChallenge(challenge),
   });
 }

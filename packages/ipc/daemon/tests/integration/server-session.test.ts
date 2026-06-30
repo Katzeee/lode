@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
+import { generateActorKeypair, signWithActor } from "@lode/engine";
 import type { Notification, NodeOccurrenceWire } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { tempListenUrl } from "@lode/test-utils";
+import { openAuthedSession } from "./authed-session.js";
 
 const WORKSPACE_ID = "ws_main";
 
@@ -32,13 +34,18 @@ describe("AppServer sessions and notifications", () => {
   });
 
   it("session.hello returns the established session", async () => {
-    const session = await client.rpc.sessionHello({
-      actor: { actorId: "actor-1", displayName: "Actor One" },
+    const { session, actor } = await openAuthedSession(client, {
+      displayName: "Actor One",
       client: { name: "vitest" },
     });
 
     expect(session.sessionId.length).toBeGreaterThan(0);
-    expect(session.actor).toMatchObject({ actorId: "actor-1", displayName: "Actor One" });
+    expect(session.actor).toBeDefined();
+    if (!session.actor) {
+      throw new Error("expected session actor");
+    }
+    expect(session.actor).toMatchObject({ actorId: actor.actorId, displayName: "Actor One" });
+    expect(session.actor.signPub).toEqual(actor.publicKey);
     expect(session.client).toMatchObject({ name: "vitest" });
     expect(typeof session.connectedAt).toBe("bigint");
   });
@@ -50,7 +57,7 @@ describe("AppServer sessions and notifications", () => {
   });
 
   it("broadcasts node.updated with origin to subscribed sessions including the writer", async () => {
-    await hello(client, "writer");
+    const writerActor = await hello(client, "writer");
     await createWorkspaceAndDoc(client);
     await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
 
@@ -65,8 +72,8 @@ describe("AppServer sessions and notifications", () => {
     });
     const [writerNotification, observerNotification] = await notifications;
 
-    expectNodeUpdated(writerNotification, node, "writer");
-    expectNodeUpdated(observerNotification, node, "writer");
+    expectNodeUpdated(writerNotification, node, writerActor);
+    expectNodeUpdated(observerNotification, node, writerActor);
 
     observer.close();
   });
@@ -89,11 +96,9 @@ describe("AppServer sessions and notifications", () => {
   });
 });
 
-async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
-  await client.rpc.sessionHello({
-    actor: { actorId },
-    client: { name: "vitest" },
-  });
+async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<string> {
+  const { actor } = await openAuthedSession(client, { client: { name: "vitest" } });
+  return actor.actorId;
 }
 
 function waitForNotification(client: AppServerClient): Promise<Notification> {
@@ -143,3 +148,73 @@ async function createWorkspaceAndDoc(client: AppServerClient): Promise<void> {
     displayName: "Main",
   });
 }
+
+describe("F4 actor authentication (challenge-response)", () => {
+  let server: AppServerDaemon;
+  let client: AppServerClient;
+
+  beforeEach(async () => {
+    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    client = new AppServerClient({ url: server.address });
+    client.connect();
+  });
+
+  afterEach(async () => {
+    client.close();
+    await server.stop();
+  });
+
+  it("rejects sessionHello with no challenge (actor didn't prove key ownership)", async () => {
+    const actor = generateActorKeypair();
+    await expect(
+      client.rpc.sessionHello({ actor: { actorId: actor.actorId, signPub: actor.publicKey } }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects sessionHello signed by the wrong key (forged signature)", async () => {
+    const { challenge } = await client.rpc.sessionChallenge({});
+    const claimed = generateActorKeypair();
+    const impostor = generateActorKeypair();
+    const signature = signWithActor(impostor.privateKey, challenge); // a DIFFERENT key signed
+    await expect(
+      client.rpc.sessionHello({
+        actor: { actorId: claimed.actorId, signPub: claimed.publicKey },
+        challenge,
+        signature,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects an actor id that does not match the declared signing public key", async () => {
+    const { challenge } = await client.rpc.sessionChallenge({});
+    const signer = generateActorKeypair();
+    const claimed = generateActorKeypair();
+    await expect(
+      client.rpc.sessionHello({
+        actor: { actorId: claimed.actorId, signPub: signer.publicKey },
+        challenge,
+        signature: signWithActor(signer.privateKey, challenge),
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("rejects a replayed challenge (single-use nonce)", async () => {
+    const actor = generateActorKeypair();
+    const { challenge } = await client.rpc.sessionChallenge({});
+    const signature = signWithActor(actor.privateKey, challenge);
+    // First hello consumes the challenge + creates the session...
+    await client.rpc.sessionHello({
+      actor: { actorId: actor.actorId, signPub: actor.publicKey },
+      challenge,
+      signature,
+    });
+    // ...replaying the SAME challenge + signature is rejected (the nonce is single-use).
+    await expect(
+      client.rpc.sessionHello({
+        actor: { actorId: actor.actorId, signPub: actor.publicKey },
+        challenge,
+        signature,
+      }),
+    ).rejects.toThrow();
+  });
+});

@@ -11,6 +11,7 @@ import {
 } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { tempListenUrl } from "@lode/test-utils";
+import { openAuthedSession } from "./authed-session.js";
 import {
   createTestWorkspaceAndDoc,
   withDefaultWorkspace,
@@ -298,11 +299,8 @@ describe("schema and field services", () => {
   }
 });
 
-async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
-  await client.rpc.sessionHello({
-    actor: { actorId },
-    client: { name: "vitest" },
-  });
+async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<void> {
+  await openAuthedSession(client, { client: { name: "vitest" } });
 }
 
 function fieldValue(variant: "text", value: { text: string }): FieldValueInput;

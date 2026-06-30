@@ -12,6 +12,7 @@ import "lode/events.proto";
 // service — this is the stable migration boundary.
 service LodeCommands {
   // session + subscription
+  rpc SessionChallenge(google.protobuf.Empty) returns (SessionChallengeResponse); // F4
   rpc SessionHello(SessionHelloRequest) returns (SessionInfo);
   rpc SubscribeDoc(SubscribeDocRequest) returns (google.protobuf.Empty);
   rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);

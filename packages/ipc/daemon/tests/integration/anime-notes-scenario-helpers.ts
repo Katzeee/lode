@@ -9,12 +9,10 @@ import type {
   NodeOccurrenceWire,
 } from "@lode/protocol/proto";
 import type { TestRpc } from "../helpers/workspace.js";
+import { openAuthedSession } from "./authed-session.js";
 
-export async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
-  await client.rpc.sessionHello({
-    actor: { actorId },
-    client: { name: "vitest" },
-  });
+export async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<void> {
+  await openAuthedSession(client, { client: { name: "vitest" } });
 }
 
 export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {

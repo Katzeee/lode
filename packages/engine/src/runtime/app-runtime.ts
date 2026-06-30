@@ -17,14 +17,16 @@ export type AppRuntime = {
   // The LodeCommands service implementation (typed handlers keyed by RPC name). The daemon
   // binds this to a Connect server; in-process callers invoke handlers directly.
   readonly commands: LodeCommands;
+  /** The composition root. The engine registers its subsystems here but does NOT start them — the
+   *  host (daemon/mobile) registers its own components (sync, relay, http) and drives lifecycle via
+   *  `app.start()` (registration order) / `app.stop()` (reverse). Anytype-ideal: assemble-then-start. */
+  readonly app: App;
   removeConnection(connectionId: string): void;
-  close(): Promise<void>;
 };
 
 // Adapts the workspace registry to the Component lifecycle: stop tears down every loaded
-// workspace sub-runtime (each a ChildApp) and the registry store. Registered so the
-// daemon-global App owns the teardown ordering; future subsystems (sync, indexer) register
-// alongside it.
+// workspace sub-runtime (each a ChildApp) and the registry store. Registered first so it stops LAST
+// (workspaces outlive everything that uses them).
 class WorkspaceRegistryComponent implements Component {
   readonly name = "workspace-registry";
   constructor(readonly runtime: AppWorkspaceRuntime) {}
@@ -33,10 +35,11 @@ class WorkspaceRegistryComponent implements Component {
   }
 }
 
-// Builds the in-process engine core as a component graph: a top-level App registers the
-// daemon-global subsystems and drives their lifecycle. Each loaded workspace is a ChildApp
-// of this App (see workspace-registry.ts). Transport-free — the host (daemon or mobile)
-// drives connection lifecycle. Mirrors anytype-heart's app.App bootstrap.
+// Builds the in-process engine core: constructs the subsystems, registers the workspace registry on a
+// fresh App, and returns — WITHOUT starting. The host is the composition root: it registers its own
+// components on `runtime.app` and calls `app.start()`. Each loaded workspace is a ChildApp of this App
+// (see workspace-registry.ts). Transport-free — the host drives connection lifecycle. Mirrors
+// anytype-heart's app.App bootstrap.
 export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise<AppRuntime> {
   const app = new App();
   const workspaces = options.persistence
@@ -52,13 +55,12 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
   const commands = createLodeCommands(ctx);
 
   app.register(new WorkspaceRegistryComponent(workspaces));
-  await app.start();
 
   return {
     nodeId,
     workspaces,
     commands,
+    app,
     removeConnection: (connectionId) => sessions.removeConnection(connectionId),
-    close: () => app.stop(),
   };
 }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/app-server-daemon.js";
 import { tempListenUrl } from "@lode/test-utils";
+import { openAuthedSession } from "./authed-session.js";
 
 describe("app server daemon runtime", () => {
   let daemon: AppServerDaemon | null = null;
@@ -23,7 +24,7 @@ describe("app server daemon runtime", () => {
 
     const client = new AppServerClient({ url: daemon.address });
     client.connect();
-    await client.rpc.sessionHello({ actor: { actorId: "daemon-test" } });
+    await openAuthedSession(client);
     await expect(client.rpc.listWorkspaces({})).resolves.toMatchObject({ workspaces: [] });
     client.close();
   });
@@ -46,7 +47,7 @@ describe("app server daemon runtime", () => {
     daemon = await startAppServerDaemon({ listen: tempListenUrl(), dataRoot });
     const first = new AppServerClient({ url: daemon.address });
     first.connect();
-    await first.rpc.sessionHello({ actor: { actorId: "daemon-test" } });
+    await openAuthedSession(first);
     await first.rpc.createWorkspace({
       workspaceId: "ws_daemon",
       displayName: "Daemon",
@@ -72,7 +73,7 @@ describe("app server daemon runtime", () => {
     daemon = await startAppServerDaemon({ listen: tempListenUrl(), dataRoot });
     const second = new AppServerClient({ url: daemon.address });
     second.connect();
-    await second.rpc.sessionHello({ actor: { actorId: "daemon-test" } });
+    await openAuthedSession(second);
 
     const restored = await second.rpc.getNode({
       workspaceId: "ws_daemon",

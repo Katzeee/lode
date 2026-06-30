@@ -25,14 +25,15 @@ export class BrokerServer {
   private readonly broker: Broker;
   private nextId = 0;
   private boundPort = 0;
+  private bindError: Error | null = null;
 
   constructor(opts: BrokerServerOptions = {}) {
     this.broker = createBroker();
     this.wss = new WebSocketServer({ port: opts.port ?? 0, host: opts.host ?? "127.0.0.1" });
-    // A server-level error (e.g. EADDRINUSE on a fixed port) must never crash the relay — Node
-    // throws on an unhandled 'error'. Swallow here; T4 surfaces it via the daemon.
-    this.wss.on("error", () => {
-      // no-op
+    // A permanent listener keeps Node from throwing on an unhandled 'error' (a server-level error
+    // such as EADDRINUSE on a fixed port). Store it so ready() can reject instead of hanging forever.
+    this.wss.on("error", (err: Error) => {
+      this.bindError = err;
     });
     this.wss.on("listening", () => {
       const addr = this.wss.address();
@@ -50,18 +51,30 @@ export class BrokerServer {
     return this.boundPort;
   }
 
-  /** Resolve once the server is bound and `port` is known. Race-free: registers the listener before
-   *  re-checking the bound flag, so a 'listening' that already fired can't strand the awaiter. */
+  /** Resolve once the server is bound and `port` is known; reject on a bind error (e.g. EADDRINUSE).
+   *  Race-free: registers both listeners before re-checking the flags. */
   ready(): Promise<void> {
-    return new Promise((resolve) => {
-      const done = (): void => {
-        this.wss.off("listening", done);
+    if (this.boundPort > 0) {
+      return Promise.resolve();
+    }
+    if (this.bindError !== null) {
+      return Promise.reject(this.bindError);
+    }
+    return new Promise<void>((resolve, reject) => {
+      const onListening = (): void => {
+        cleanup();
         resolve();
       };
-      this.wss.on("listening", done);
-      if (this.boundPort > 0) {
-        done();
-      }
+      const onError = (err: Error): void => {
+        cleanup();
+        reject(err);
+      };
+      const cleanup = (): void => {
+        this.wss.off("listening", onListening);
+        this.wss.off("error", onError);
+      };
+      this.wss.once("listening", onListening);
+      this.wss.once("error", onError);
     });
   }
 

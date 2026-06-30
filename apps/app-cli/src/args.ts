@@ -6,6 +6,7 @@ export type OrderedFlag = {
 export type ParsedCli = {
   url: string;
   actorId: string;
+  actorMnemonic?: string;
   group: string;
   action: string;
   flags: Record<string, string[]>;
@@ -17,6 +18,7 @@ export function parseCli(argv: string[]): ParsedCli {
   const orderedFlags: OrderedFlag[] = [];
   let url: string | undefined;
   let actorId: string | undefined;
+  let actorMnemonic: string | undefined;
   let group: string | undefined;
   let action: string | undefined;
 
@@ -36,6 +38,8 @@ export function parseCli(argv: string[]): ParsedCli {
         url = value;
       } else if (token === "--actor") {
         actorId = value;
+      } else if (token === "--actor-mnemonic") {
+        actorMnemonic = value;
       } else {
         if (!flags[token]) {
           flags[token] = [];
@@ -73,6 +77,7 @@ export function parseCli(argv: string[]): ParsedCli {
   if (!resolvedActorId) {
     throw new Error('Missing actor. Provide "--actor <id>" or set LODE_ACTOR.');
   }
+  const resolvedActorMnemonic = actorMnemonic ?? process.env.LODE_ACTOR_MNEMONIC;
   if (!group) {
     throw new Error("Missing command group.");
   }
@@ -83,6 +88,7 @@ export function parseCli(argv: string[]): ParsedCli {
   return {
     url: resolvedUrl,
     actorId: resolvedActorId,
+    ...(resolvedActorMnemonic === undefined ? {} : { actorMnemonic: resolvedActorMnemonic }),
     group,
     action,
     flags,

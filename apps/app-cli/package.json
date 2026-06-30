@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@lode/client": "file:../../packages/ipc/client",
+    "@lode/engine": "file:../../packages/engine",
     "@lode/protocol": "file:../../packages/protocol"
   },
   "devDependencies": {

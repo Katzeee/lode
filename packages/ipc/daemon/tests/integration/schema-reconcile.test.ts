@@ -8,6 +8,7 @@ import {
   withDefaultWorkspace,
   type TestRpc,
 } from "../helpers/workspace.js";
+import { openAuthedSession } from "./authed-session.js";
 
 describe("schema reconcile", () => {
   let server: AppServerDaemon;
@@ -205,11 +206,8 @@ describe("schema reconcile", () => {
   }
 });
 
-async function hello(client: AppServerClient, actorId = "test-actor"): Promise<void> {
-  await client.rpc.sessionHello({
-    actor: { actorId },
-    client: { name: "vitest" },
-  });
+async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<void> {
+  await openAuthedSession(client, { client: { name: "vitest" } });
 }
 
 function requireValue<T>(value: T | undefined, message: string): T {

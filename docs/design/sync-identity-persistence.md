@@ -121,9 +121,8 @@ The log lives in the engine's in-process sync core (`runtime/membership/`) — i
   `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a **Loro doc inside the
   workspace**, so it syncs like any doc (SyncManager/workspace wiring lands in T2; A1 ships the log +
   export/import). Validity = the record's signature verifies AND the signer is the current owner (root is
-  self-authorizing as the first record). The owner's signPub is tracked independently of `members`
-  (`state.ownerSignPub`), so the owner can still sign governance even if a rotate dropped them from the
-  member set. Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a
+  self-authorizing as the first record). The owner is always a member — a rotate may not omit the owner — so the owner's signPub is always in
+  `members` and governance signatures always verify. Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a
   non-member / stale rotate / undecodable) are **skipped at replay**, not fatal — deterministic given the
   merged list, so every replica converges to the same membership.
 
