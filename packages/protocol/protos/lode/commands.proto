@@ -85,7 +85,6 @@ message Actor {
   string actor_id = 1;
   optional string display_name = 2;
   optional google.protobuf.Struct metadata = 3;
-  optional bytes sign_pub = 4; // raw 32B Ed25519 public key (F4: the session proves it holds the matching private key)
 }
 
 message ClientInfo {
@@ -131,14 +130,9 @@ message FieldMoveValue {
 message SessionHelloRequest {
   Actor actor = 1;
   optional ClientInfo client = 2;
-  bytes challenge = 3; // the nonce from SessionChallenge (F4)
-  bytes signature = 4; // Ed25519(actor_private_key, challenge) (F4)
-}
-
-// F4: the daemon issues a per-connection challenge nonce; the client signs it to prove it holds the
-// actor's private key (see SessionHelloRequest.challenge/signature).
-message SessionChallengeResponse {
-  bytes challenge = 1;
+  // The actor's BIP-39 mnemonic; the daemon derives the keypair and confirms the derived actor_id
+  // matches the declared actor — only the mnemonic holder can.
+  string mnemonic = 3;
 }
 
 message SessionInfo {

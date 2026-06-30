@@ -1,13 +1,5 @@
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { actorDbPath, actorKeystorePath } from "../persistence/paths.js";
-import {
-  bytesToBuffer,
-  openSqliteDatabase,
-  rowBytes,
-  runTransaction,
-  type SqliteDatabase,
-} from "../persistence/sqlite.js";
 import {
   deriveActorKeypairFromMnemonic,
   deserializeActorPrivateKey,
@@ -16,7 +8,10 @@ import {
   type ActorKeypair,
   type ActorPrivateKey,
   type ActorPublicKey,
-} from "./actor-key.js";
+} from "../utils/crypto/index.js";
+import { actorDbPath, actorKeystorePath } from "../persistence/paths.js";
+import { bytesToBuffer, rowBytes, type SqlDatabase } from "../persistence/sql-database.js";
+import { openSqliteDatabase } from "../persistence/better-sqlite-adapter.js";
 
 /**
  * Per-dataRoot actor identity store (design sync-identity-persistence §3/§8). Two parts:
@@ -24,8 +19,8 @@ import {
  *   - `actors/<actorId>/keystore`: the PKCS8 private key, file mode 0600 (separate from the
  *     catalog for a clean secret boundary; at-rest passphrase encryption is a later feature).
  * Everything is per-dataRoot: copy the directory, get a complete identity set. Mnemonic recovery
- * (BIP-39/SLIP-10) is landed (F3b): createActor with a mnemonic re-derives the same key on any
- * dataRoot (continuity); the dual-use X25519 conversion lives in actor-encryption.ts.
+ * (BIP-39/SLIP-10): createActor with a mnemonic re-derives the same key on any dataRoot
+ * (continuity); the dual-use X25519 conversion lives in actor-encryption.ts.
  */
 export type ActorRecord = {
   actorId: string;
@@ -36,7 +31,7 @@ export type ActorRecord = {
 
 export class ActorStore {
   private constructor(
-    private readonly db: SqliteDatabase,
+    private readonly db: SqlDatabase,
     private readonly dataRoot: string,
   ) {}
 
@@ -77,7 +72,7 @@ export class ActorStore {
       throw new Error(`actor ${record.actorId} already exists on this dataRoot`);
     }
     await this.writeKeystore(record.actorId, serializeActorPrivateKey(keypair.privateKey));
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       await this.db.run(
         `INSERT INTO actors (actor_id, display_name, public_key, created_at) VALUES (?, ?, ?, ?)`,
         record.actorId,
@@ -90,7 +85,7 @@ export class ActorStore {
   }
 
   async listActors(): Promise<ActorRecord[]> {
-    const rows = await this.db.all<ActorRow[]>(
+    const rows = await this.db.all<ActorRow>(
       `SELECT actor_id, display_name, public_key, created_at FROM actors ORDER BY created_at ASC`,
     );
     return rows.map(rowToRecord);
@@ -112,7 +107,7 @@ export class ActorStore {
 
   async removeActor(actorId: string): Promise<boolean> {
     let removed = false;
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       const result = await this.db.run("DELETE FROM actors WHERE actor_id = ?", actorId);
       removed = (result.changes ?? 0) > 0;
     });

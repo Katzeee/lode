@@ -5,8 +5,7 @@ import { getSemanticChildren, moveOccurrence } from "../node.js";
 // step. They operate on the physical occurrence tree for sibling discovery and place through
 // the node.ts `moveOccurrence` wrapper, which resolves the target parent to its canonical
 // occurrence (children attach under the canonical — the rest of the domain's convention).
-// Plain-outline (no transclusion) is the MVP path; indent/outdent of a non-canonical ref is
-// an edge case deferred to Phase 2 hardening.
+// Plain-outline (no transclusion) only; indent/outdent of a non-canonical ref is not handled.
 
 /**
  * Indent a contiguous run of sibling occurrences one level: the first becomes the last child

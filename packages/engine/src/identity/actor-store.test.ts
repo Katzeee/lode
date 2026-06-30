@@ -2,9 +2,8 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { generateMnemonic, signWithActor, verifyActorSignature } from "../utils/crypto/index.js";
 import { actorKeystorePath } from "../persistence/paths.js";
-import { generateMnemonic } from "../utils/crypto/bip39.js";
-import { verifyActorSignature, signWithActor } from "./actor-key.js";
 import { ActorStore } from "./actor-store.js";
 
 let tempDir: string;
@@ -33,9 +32,12 @@ describe("ActorStore", () => {
     });
     await expect(store.listActors()).resolves.toEqual([record]);
 
-    // Keystore file exists with restrictive mode (0600 → 0o100600).
-    const st = await stat(actorKeystorePath(tempDir, record.actorId));
-    expect(st.mode & 0o777).toBe(0o600);
+    // Keystore is written with restrictive mode (0600) on POSIX. Windows/NTFS ignores the
+    // `mode` option (not a code bug), so only assert where the platform enforces it.
+    if (process.platform !== "win32") {
+      const st = await stat(actorKeystorePath(tempDir, record.actorId));
+      expect(st.mode & 0o777).toBe(0o600);
+    }
   });
 
   it("loads a private key that signs against the cataloged public key", async () => {

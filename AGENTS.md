@@ -17,36 +17,40 @@ concepts.
 - `packages/protocol` (`@lode/protocol`) is the wire contract only: method names, schemas, DTOs,
   errors. It is the one package that must stay language-neutral — the contract a future rewrite in
   another language would have to preserve.
-- `packages/ipc/transport` (`@lode/transport`) owns bytes and connections only.
-- `packages/ipc/client` (`@lode/client`) is the caller-facing facade over transport.
+- `packages/ipc/client` (`@lode/client`) is the caller-facing RPC client (wraps
+  `@connectrpc/connect-node`).
 - `packages/engine` (`@lode/engine`) is the transport-free core, layered one way (enforced by
   ESLint, see below): `src/core` owns block tree, text, props, history, and CRDT sync primitives;
   `src/persistence` owns storage primitives (SQLite CRUD on bytes/records — no engine imports);
   `src/domain/model` is the pure value-type leaf (shared domain vocabulary, zero engine imports);
   `src/domain` owns product semantics and policies (functions over `core`); `src/bundle` is the
-  declarative built-in schema vocabulary (pure leaf); `src/event` owns notification primitives;
+  declarative built-in schema vocabulary (pure leaf); `src/utils/crypto` is the crypto leaf
+  (Ed25519 / X25519 / AES-256-GCM / BIP-39 / SLIP-10 — `node:crypto` + `@noble/curves` +
+  `@scure/bip39`, no engine internals; the standardized layer that travels inside the engine when
+  it is rebuilt as a Rust dynamic library); `src/event` owns notification primitives;
   `src/session` owns session/subscription/broadcast; `src/services` owns RPC adapters; `src/runtime`
   is the composition root (the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, the
-  per-workspace registry, and the in-process sync core). It must not import `@lode/transport` or
-  `@lode/client`.
+  per-workspace registry, the in-process sync core, and the wire-security/SyncProfile content layer
+  the transport consumes). It must not import `@lode/client`.
 - `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with a transport
   socket plus process lifecycle — the AppServer process. It owns transport connections and injects
   the engine's notification sink.
-- `packages/sync` (`@lode/sync`) is the shared sync transport: the workspace-routing broker
-  (client + `--relay` server), the `SyncTransport` adapter over it, read-key AEAD, actor wire
-  signing, and real sockets. It depends on `@lode/engine` (the `SyncTransport` interface + actor
-  identity) and is used by BOTH `@lode/daemon` and in-process mobile — mobile dials a relay
-  directly, so the sync transport cannot live daemon-only. The engine must not import it.
-- `packages/test-utils` (`@lode/test-utils`) holds test helpers shared across packages.
-- `apps/*` are deployable client surfaces (`app-cli` today; `app-gui`, `app-tui`, `app-mobile`
-  later). Out-of-process surfaces reach the engine through `@lode/client`/`@lode/daemon`; an
-  in-process surface (e.g. mobile) may use `@lode/engine` + `@lode/sync` directly.
+- `packages/transport` (`@lode/transport`) is the shared sync transport SHELL: the
+  workspace-routing broker (client + `--relay` server) over real WebSockets + the `SyncTransport`
+  adapter over it. It is a pure socket shell — the content/security layer (transit-key AEAD seal/
+  open, actor wire signing, the membership→wire bridge, the SyncProfile codec) lives in
+  `@lode/engine` now and is imported from there. It depends on `@lode/engine` and is used by BOTH
+  `@lode/daemon` and in-process mobile — mobile dials a relay directly, so the transport cannot
+  live daemon-only. The engine must not import it.
+- `apps/*` are deployable client surfaces (currently: `app-cli`). Out-of-process surfaces reach
+  the engine through `@lode/client`/`@lode/daemon`; an in-process surface (e.g. mobile) may use
+  `@lode/engine` + `@lode/transport` directly.
 
 `@lode/engine` is the in-process service boundary; `@lode/daemon` exposes it as a local AppServer
-process. Out-of-process clients may use `@lode/client`, `@lode/transport`, and `@lode/protocol`,
-but must not import from `@lode/engine` source directly — to run a server they depend on
-`@lode/daemon`. In-process clients (mobile) may depend on `@lode/engine` + `@lode/sync` (mobile
-dials a relay directly via `@lode/sync`, with no daemon).
+process. Out-of-process clients may use `@lode/client` and `@lode/protocol`, but must not import
+from `@lode/engine` source directly — to run a server they depend on `@lode/daemon`. In-process
+clients (mobile) may depend on `@lode/engine` + `@lode/transport` (mobile dials a relay directly via
+`@lode/transport`, with no daemon).
 
 The intended desktop runtime is one local AppServer daemon per user. Clients may render or cache
 local views, but workspace ownership and business logic stay behind the engine API.
@@ -62,27 +66,18 @@ Engine-internal dependencies point one way, enforced automatically by ESLint
 runtime -> services -> {domain, event, session} -> core
                        \--> protocol
 domain  -> {core, bundle, domain/model}
-leaves  : persistence, domain/model, bundle  (no engine imports)
+leaves  : persistence, domain/model, bundle, utils/crypto  (no engine imports)
 event   -> protocol      session -> {event, protocol}
 ```
 
 `core` must not import from `domain`, `services`, `protocol`, or any product layer. `domain` may
 use `core`/`bundle`/`domain/model` but must not register RPC methods, send notifications, or shape
 wire DTOs. `services` is the RPC adapter layer; `runtime` is the composition root and may import
-every internal layer. `engine` must not import `@lode/transport`, `@lode/client`, or `@lode/sync`
-(the sync transport); transport lives in `@lode/daemon` and `@lode/sync`.
+every internal layer. `engine` must not import `@lode/client` or `@lode/transport` (the sync transport);
+transport responsibility lives in `@lode/daemon` and `@lode/transport`.
 
-`packages/engine/src/services` should register methods, validate params, load the target
-document/context, call domain functions, map results to protocol DTOs, and emit notifications via
-`session`/`event`. It should not own outline, ref, schema, field, managed-child, reconcile, or
-hard-delete semantics (those live in `domain`), nor connection/subscription lifecycle (that lives
-in `session`).
-
-When refactoring, optimize for clean boundaries over backward compatibility with unshipped
-internals. Do not add compatibility shims, alias modules, dual paths, or deprecated wrappers for
-moved internal code. Update callers and tests directly. If a stable public contract must change to
-preserve the architecture, change the contract and its callers together instead of hiding the
-mismatch behind adapters.
+`packages/engine/src/services` must not own domain semantics (those live in `domain`) nor
+connection/subscription lifecycle (that lives in `session`).
 
 ## Code Style
 
@@ -91,6 +86,13 @@ why something is non-obvious, not restate what the code does.
 
 Avoid `any`; use `unknown` and narrow it. Keep async handling explicit. Use type-only imports
 for type-only dependencies.
+
+## Refactoring
+
+- No compat shims, alias re-exports, dual paths, or deprecated wrappers for moved internal code.
+  Update callers and tests directly.
+- No production scaffolding without callers (debug modes, metrics, helpers with no consumer).
+  Delete what isn't exercised today.
 
 ## Testing
 
@@ -112,9 +114,9 @@ tests or the type system.
 Three places for written docs, by lifespan — put content where its lifespan matches:
 
 - `docs/` (git-tracked) — **durable design decisions**: the "why" behind architecture and
-  choices, retained after the feature ships. `docs/design/` holds the design-decision records
-  (e.g. `sync-design.md`, `engine-design-decisions.md`). This is the source of truth that
-  outlives any one workstream. Write decisions here, not transient implementation state.
+  choices, retained after the feature ships. `docs/design/` holds the design-decision records.
+  This is the source of truth that outlives any one workstream. Write decisions here, not
+  transient implementation state.
 - `experiments/<name>/` (git-tracked) — **the playground's own record**: `README.md` (what it
   is / status / key files), `PROGRESS.md` (phase log), `TEST-MODEL.md` (test methodology). It
   lives with the experiment and is deleted when the experiment is ported to production and the

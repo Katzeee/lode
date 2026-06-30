@@ -1,17 +1,16 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { aeadDecrypt, aeadEncrypt } from "../../utils/crypto/aes.js";
 import {
+  aeadDecrypt,
+  aeadEncrypt,
   actorEncryptionPrivate,
   actorEncryptionPublic,
-  unwrapKey,
-} from "../../identity/actor-encryption.js";
-import { generateMnemonic } from "../../utils/crypto/bip39.js";
-import {
   deriveActorKeypairFromMnemonic,
   generateActorKeypair,
+  generateMnemonic,
+  unwrapKey,
   type ActorKeypair,
-} from "../../identity/actor-key.js";
+} from "../../utils/crypto/index.js";
 import { MembershipLog, type MemberPublicKeys } from "./membership-log.js";
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
@@ -100,7 +99,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
   });
 });
 
-describe("membership log — dual-use crypto invariants + mnemonic recovery (F3b)", () => {
+describe("membership log — dual-use crypto invariants + mnemonic recovery", () => {
   it("the stored encPub is the X25519 pub, distinct from the Ed25519 signPub", () => {
     const owner = generateActorKeypair();
     const member = generateActorKeypair();

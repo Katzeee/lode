@@ -26,11 +26,10 @@
     "@connectrpc/connect-node": "^2.1.2",
     "@lode/engine": "file:../../engine",
     "@lode/protocol": "file:../../protocol",
-    "@lode/sync": "file:../../sync"
+    "@lode/transport": "file:../../transport"
   },
   "devDependencies": {
     "@lode/client": "file:../client",
-    "@lode/test-utils": "file:../../test-utils",
     "@types/node": "^20.0.0",
     "tsx": "^4.22.4",
     "typescript": "^5.7.0",

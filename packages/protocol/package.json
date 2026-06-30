@@ -3,10 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
     "./proto": {
       "types": "./dist/proto.d.ts",
       "import": "./dist/proto.js"
@@ -27,6 +23,7 @@
   "devDependencies": {
     "@bufbuild/buf": "^1.71.0",
     "@bufbuild/protoc-gen-es": "^2.12.1",
+    "@typescript/vfs": "^1.6.2",
     "typescript": "^5.7.0"
   }
 }

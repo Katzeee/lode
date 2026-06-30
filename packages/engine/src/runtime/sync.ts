@@ -101,7 +101,7 @@ export class SyncManager {
  * In-process transport backed by another store directly — the test substrate and the path for two
  * workspaces in one process. `syncPair` runs one round (both directions exchanged) then reconciles
  * both sides — each peer is its own good citizen in production; the helper models that for in-process
- * pairs. The real network transport lives in `@lode/sync` (`BrokerClientSyncTransport`).
+ * pairs. The real network transport lives in `@lode/transport` (`BrokerClientSyncTransport`).
  */
 export class InMemorySyncTransport implements SyncTransport {
   constructor(private readonly remote: ShardedBlockStore) {}

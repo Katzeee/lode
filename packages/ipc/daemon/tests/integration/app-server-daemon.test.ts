@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/app-server-daemon.js";
-import { tempListenUrl } from "@lode/test-utils";
 import { openAuthedSession } from "./authed-session.js";
 
 describe("app server daemon runtime", () => {
@@ -20,7 +19,7 @@ describe("app server daemon runtime", () => {
   });
 
   it("starts from a tcp listen URL and accepts client RPCs", async () => {
-    daemon = await startAppServerDaemon({ listen: tempListenUrl() });
+    daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
 
     const client = new AppServerClient({ url: daemon.address });
     client.connect();
@@ -30,7 +29,7 @@ describe("app server daemon runtime", () => {
   });
 
   it("stops gracefully and closes transport connections", async () => {
-    daemon = await startAppServerDaemon({ listen: tempListenUrl() });
+    daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
     const client = new AppServerClient({ url: daemon.address });
     client.connect();
 
@@ -44,7 +43,7 @@ describe("app server daemon runtime", () => {
   it("persists workspace docs across daemon restarts with a data root", async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "be-daemon-data-"));
     dataRoots.push(dataRoot);
-    daemon = await startAppServerDaemon({ listen: tempListenUrl(), dataRoot });
+    daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
     const first = new AppServerClient({ url: daemon.address });
     first.connect();
     await openAuthedSession(first);
@@ -70,7 +69,7 @@ describe("app server daemon runtime", () => {
     await daemon.stop();
     daemon = null;
 
-    daemon = await startAppServerDaemon({ listen: tempListenUrl(), dataRoot });
+    daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
     const second = new AppServerClient({ url: daemon.address });
     second.connect();
     await openAuthedSession(second);

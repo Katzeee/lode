@@ -5,11 +5,8 @@ import { toJSON } from "./serializers/json.js";
 import type { DocSnapshot } from "./types.js";
 
 /**
- * validateSnapshot — the structural-correctness contract, ported from the sharded
- * prototype. These tests confirm (a) the current single-doc Engine always produces
- * a valid snapshot, and (b) the checker actually catches each violation class. This
- * is the regression net for the sharded migration: after Step 3 it runs against the
- * sharded store too.
+ * validateSnapshot — the structural-correctness contract. These tests confirm (a) the Engine
+ * always produces a valid snapshot, and (b) the checker catches each violation class.
  */
 
 const freshEngine = (): Engine => new Engine();

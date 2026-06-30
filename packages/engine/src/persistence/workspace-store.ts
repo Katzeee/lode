@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- one persistence boundary; sub-doc stream handling kept together */
-import { bytesToBuffer, openSqliteDatabase, rowBytes, runTransaction } from "./sqlite.js";
-import type { SqliteDatabase } from "./sqlite.js";
+import { bytesToBuffer, rowBytes } from "./sql-database.js";
+import type { SqlDatabase } from "./sql-database.js";
+import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 
 /** The default sub-doc name. Single-doc stores use only this; sharded stores use it for the treeDoc and one sub-doc per shard id. */
 export const MAIN_SUBDOC = "main";
@@ -20,7 +21,7 @@ export type LoadedDocBytes = {
 };
 
 export class WorkspaceStore {
-  private constructor(private readonly db: SqliteDatabase) {}
+  private constructor(private readonly db: SqlDatabase) {}
 
   static async open(filePath: string): Promise<WorkspaceStore> {
     const db = await openSqliteDatabase(filePath);
@@ -71,7 +72,7 @@ export class WorkspaceStore {
     snapshotBytes: Uint8Array;
   }): Promise<DocRecord> {
     const now = Date.now();
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       await this.db.run(
         `INSERT INTO docs
           (doc_id, display_name, created_at, updated_at, latest_update_seq, latest_snapshot_seq)
@@ -98,7 +99,7 @@ export class WorkspaceStore {
   }
 
   async listDocs(): Promise<string[]> {
-    const rows = await this.db.all<{ doc_id: string }[]>(
+    const rows = await this.db.all<{ doc_id: string }>(
       "SELECT doc_id FROM docs ORDER BY created_at ASC",
     );
     return rows.map((row) => row.doc_id);
@@ -124,7 +125,7 @@ export class WorkspaceStore {
 
   /** Distinct sub-doc names that have any persisted bytes for a doc (incl. the main sub-doc). */
   async listSubDocs(docId: string): Promise<string[]> {
-    const rows = await this.db.all<{ sub_doc: string }[]>(
+    const rows = await this.db.all<{ sub_doc: string }>(
       `SELECT DISTINCT sub_doc FROM (
           SELECT sub_doc FROM crdt_updates WHERE doc_id = ?
           UNION
@@ -149,7 +150,7 @@ export class WorkspaceStore {
 
   async removeDoc(docId: string): Promise<boolean> {
     let removed = false;
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       await this.db.run("DELETE FROM crdt_updates WHERE doc_id = ?", docId);
       await this.db.run("DELETE FROM crdt_snapshots WHERE doc_id = ?", docId);
       const result = await this.db.run("DELETE FROM docs WHERE doc_id = ?", docId);
@@ -166,7 +167,7 @@ export class WorkspaceStore {
     const subDoc = input.subDoc ?? MAIN_SUBDOC;
     let nextSeq = 0;
     const now = Date.now();
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       const doc = await this.getDoc(input.docId);
       if (!doc) {
         throw new Error(`Doc not found: ${input.docId}`);
@@ -203,15 +204,18 @@ export class WorkspaceStore {
   }): Promise<void> {
     const subDoc = input.subDoc ?? MAIN_SUBDOC;
     const now = Date.now();
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       const doc = await this.getDoc(input.docId);
       if (!doc) {
         throw new Error(`Doc not found: ${input.docId}`);
       }
       await this.db.run(
-        `INSERT OR REPLACE INTO crdt_snapshots
+        `INSERT INTO crdt_snapshots
           (doc_id, sub_doc, covered_update_seq, snapshot_bytes, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(doc_id, sub_doc, covered_update_seq) DO UPDATE SET
+           snapshot_bytes = excluded.snapshot_bytes,
+           created_at = excluded.created_at`,
         input.docId,
         subDoc,
         input.coveredUpdateSeq,
@@ -261,7 +265,7 @@ export class WorkspaceStore {
             snapshotSeq,
           );
     const coveredSeq = snapshotSeq ?? 0;
-    const updates = await this.db.all<{ update_bytes: Buffer }[]>(
+    const updates = await this.db.all<{ update_bytes: Buffer }>(
       `SELECT update_bytes
        FROM crdt_updates
        WHERE doc_id = ? AND sub_doc = ? AND seq > ?
@@ -323,13 +327,12 @@ function rowToDoc(row: DocRow): DocRecord {
 }
 
 /**
- * Pre-production migration: older dev schemas lacked the `sub_doc` column (and used a
- * (doc_id, seq) PK). Rebuild the CRDT tables to the sub-doc schema. DROPS existing
- * CRDT bytes — acceptable since the project is not yet in production; dev workspaces
+ * Migration: older dev schemas lacked the `sub_doc` column (and used a (doc_id, seq) PK).
+ * Rebuild the CRDT tables to the sub-doc schema. DROPS existing CRDT bytes — dev workspaces
  * are recreated on next open. A no-op when the column already exists.
  */
-async function migrateSubDocColumn(db: SqliteDatabase): Promise<void> {
-  const cols = await db.all<{ name: string }[]>(`PRAGMA table_info(crdt_updates)`);
+async function migrateSubDocColumn(db: SqlDatabase): Promise<void> {
+  const cols = await db.all<{ name: string }>(`PRAGMA table_info(crdt_updates)`);
   const hasSubDoc = cols.some((c) => c.name === "sub_doc");
   if (hasSubDoc) {
     return;

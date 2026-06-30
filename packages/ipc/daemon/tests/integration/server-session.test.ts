@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { generateActorKeypair, signWithActor } from "@lode/engine";
+import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import type { Notification, NodeOccurrenceWire } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
-import { tempListenUrl } from "@lode/test-utils";
 import { openAuthedSession } from "./authed-session.js";
 
 const WORKSPACE_ID = "ws_main";
@@ -13,7 +12,7 @@ describe("AppServer sessions and notifications", () => {
   let client: AppServerClient;
 
   beforeEach(async () => {
-    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
     client = new AppServerClient({ url: server.address });
     client.connect();
   });
@@ -34,7 +33,7 @@ describe("AppServer sessions and notifications", () => {
   });
 
   it("session.hello returns the established session", async () => {
-    const { session, actor } = await openAuthedSession(client, {
+    const { session, actorId } = await openAuthedSession(client, {
       displayName: "Actor One",
       client: { name: "vitest" },
     });
@@ -44,8 +43,7 @@ describe("AppServer sessions and notifications", () => {
     if (!session.actor) {
       throw new Error("expected session actor");
     }
-    expect(session.actor).toMatchObject({ actorId: actor.actorId, displayName: "Actor One" });
-    expect(session.actor.signPub).toEqual(actor.publicKey);
+    expect(session.actor).toMatchObject({ actorId, displayName: "Actor One" });
     expect(session.client).toMatchObject({ name: "vitest" });
     expect(typeof session.connectedAt).toBe("bigint");
   });
@@ -97,8 +95,8 @@ describe("AppServer sessions and notifications", () => {
 });
 
 async function hello(client: AppServerClient, _actorId = "test-actor"): Promise<string> {
-  const { actor } = await openAuthedSession(client, { client: { name: "vitest" } });
-  return actor.actorId;
+  const { actorId } = await openAuthedSession(client, { client: { name: "vitest" } });
+  return actorId;
 }
 
 function waitForNotification(client: AppServerClient): Promise<Notification> {
@@ -149,12 +147,12 @@ async function createWorkspaceAndDoc(client: AppServerClient): Promise<void> {
   });
 }
 
-describe("F4 actor authentication (challenge-response)", () => {
+describe("actor authentication (mnemonic)", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;
 
   beforeEach(async () => {
-    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
     client = new AppServerClient({ url: server.address });
     client.connect();
   });
@@ -164,56 +162,20 @@ describe("F4 actor authentication (challenge-response)", () => {
     await server.stop();
   });
 
-  it("rejects sessionHello with no challenge (actor didn't prove key ownership)", async () => {
-    const actor = generateActorKeypair();
+  it("rejects a mnemonic that derives to a different actor than declared", async () => {
+    const claimedMnemonic = generateMnemonic();
+    const claimedActorId = deriveActorKeypairFromMnemonic(claimedMnemonic).actorId;
+    const otherMnemonic = generateMnemonic(); // derives to a different actor id
     await expect(
-      client.rpc.sessionHello({ actor: { actorId: actor.actorId, signPub: actor.publicKey } }),
+      client.rpc.sessionHello({ actor: { actorId: claimedActorId }, mnemonic: otherMnemonic }),
     ).rejects.toThrow();
   });
 
-  it("rejects sessionHello signed by the wrong key (forged signature)", async () => {
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const claimed = generateActorKeypair();
-    const impostor = generateActorKeypair();
-    const signature = signWithActor(impostor.privateKey, challenge); // a DIFFERENT key signed
+  it("rejects an invalid mnemonic (not a valid BIP-39 phrase)", async () => {
     await expect(
       client.rpc.sessionHello({
-        actor: { actorId: claimed.actorId, signPub: claimed.publicKey },
-        challenge,
-        signature,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("rejects an actor id that does not match the declared signing public key", async () => {
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const signer = generateActorKeypair();
-    const claimed = generateActorKeypair();
-    await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: claimed.actorId, signPub: signer.publicKey },
-        challenge,
-        signature: signWithActor(signer.privateKey, challenge),
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("rejects a replayed challenge (single-use nonce)", async () => {
-    const actor = generateActorKeypair();
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const signature = signWithActor(actor.privateKey, challenge);
-    // First hello consumes the challenge + creates the session...
-    await client.rpc.sessionHello({
-      actor: { actorId: actor.actorId, signPub: actor.publicKey },
-      challenge,
-      signature,
-    });
-    // ...replaying the SAME challenge + signature is rejected (the nonce is single-use).
-    await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: actor.actorId, signPub: actor.publicKey },
-        challenge,
-        signature,
+        actor: { actorId: "nobody" },
+        mnemonic: "this is not a valid bip39 phrase",
       }),
     ).rejects.toThrow();
   });

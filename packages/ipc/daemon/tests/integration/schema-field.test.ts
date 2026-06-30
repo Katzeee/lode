@@ -10,7 +10,6 @@ import {
   type FieldValueInput,
 } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
-import { tempListenUrl } from "@lode/test-utils";
 import { openAuthedSession } from "./authed-session.js";
 import {
   createTestWorkspaceAndDoc,
@@ -24,7 +23,7 @@ describe("schema and field services", () => {
   let rpc: TestRpc;
 
   beforeEach(async () => {
-    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
     client = new AppServerClient({ url: server.address });
     client.connect();
     await hello(client);

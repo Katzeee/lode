@@ -1,12 +1,23 @@
 import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
-import { LodeCommands, type Notification } from "@lode/protocol/proto";
+import { LodeCommands, type Notification, type SessionInfo } from "@lode/protocol/proto";
 
 export type LodeCommandsClient = Client<typeof LodeCommands>;
 export type NotificationHandler = (notification: Notification) => void;
 
 export type AppServerClientOptions = {
   url: string;
+};
+
+export type AuthenticateOptions = {
+  /** The actor's BIP-39 mnemonic; the daemon derives the keypair and verifies identity server-side. */
+  readonly actorMnemonic: string;
+  /** The claimed actor id — must match what the mnemonic derives to (the daemon checks). */
+  readonly actorId: string;
+  /** Optional human-readable name surfaced to the daemon (audit/debug display only). */
+  readonly displayName?: string;
+  /** Client identity hints surfaced to the daemon (UI surface name + version). */
+  readonly client?: { readonly name?: string; readonly version?: string };
 };
 
 // Connect (gRPC over loopback TCP) client. `rpc` is the typed LodeCommands client every
@@ -31,6 +42,20 @@ export class AppServerClient {
   connect(): void {
     this.notificationIter = this.rpc.listenNotifications({})[Symbol.asyncIterator]();
     void this.pumpNotifications();
+  }
+
+  /** Submit the mnemonic in `sessionHello`; the daemon derives the keypair and confirms the derived
+   *  actor id matches the declared one before creating the session. The caller supplies only the
+   *  mnemonic + actor id — no private key material crosses into the client. */
+  async authenticate(opts: AuthenticateOptions): Promise<SessionInfo> {
+    return this.rpc.sessionHello({
+      actor: {
+        actorId: opts.actorId,
+        ...(opts.displayName === undefined ? {} : { displayName: opts.displayName }),
+      },
+      mnemonic: opts.actorMnemonic,
+      ...(opts.client === undefined ? {} : { client: opts.client }),
+    });
   }
 
   private async pumpNotifications(): Promise<void> {

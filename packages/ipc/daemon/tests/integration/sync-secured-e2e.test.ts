@@ -3,14 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { BrokerClient, BrokerServer } from "@lode/sync";
+import { BrokerClient, BrokerServer } from "@lode/transport";
 import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
-import { tempListenUrl } from "@lode/test-utils";
 import { openAuthedSession } from "./authed-session.js";
 
-// T4-b: secured daemon-level end-to-end sync. Two real AppServer daemons (each its own dataRoot →
+// Secured daemon-level end-to-end sync. Two real AppServer daemons (each its own dataRoot →
 // distinct stable peerId), each with a mnemonic-derived actor keypair, + a workspace-routing relay.
 // The owner bootstraps the membership log (root + `add` member); the member converges that PUBLIC log
 // over the broker's plaintext envelope, derives the transit key, then content syncs SEALED. An
@@ -50,7 +49,7 @@ async function bootSecuredDaemon(
   opts: { mnemonic: string; bootstrapMembers?: Uint8Array[] },
 ): Promise<AppServerDaemon> {
   const daemon = await startAppServerDaemon({
-    listen: tempListenUrl(),
+    listen: "tcp://127.0.0.1:0",
     dataRoot: await tempDataRoot(),
     sync: {
       url: syncUrl,
@@ -64,7 +63,7 @@ async function bootSecuredDaemon(
   return daemon;
 }
 
-describe("daemon sync e2e (T4-b, secured)", () => {
+describe("daemon sync e2e (secured)", () => {
   it("owner + member converge a workspace over a relay; content is opaque to an eavesdropper", async () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
@@ -73,8 +72,8 @@ describe("daemon sync e2e (T4-b, secured)", () => {
 
     const ownerMnemonic = generateMnemonic();
     const memberMnemonic = generateMnemonic();
-    // The owner must know the member's sign pub to `add` them (the social re-add; Phase 4 wraps this
-    // in a coordinate-import RPC). Derived deterministically from the member's mnemonic.
+    // The owner must know the member's sign pub to `add` them (the social re-add). Derived
+    // deterministically from the member's mnemonic.
     const memberSignPub = deriveActorKeypairFromMnemonic(memberMnemonic).publicKey;
 
     const [a, b] = await Promise.all([

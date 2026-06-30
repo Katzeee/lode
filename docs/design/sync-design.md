@@ -59,9 +59,9 @@ The relay's exact scope:
   each message to that workspace's subscribers. This is the minimal "data flow" logic the relay owns.
 - **Content-blind** — it does NOT understand sync RPCs, VVs, or update bytes. Clients encrypt
   end-to-end (§5); the relay routes opaque ciphertext.
-- **No auth** — it does not decide membership. Clients enforce the read-key AEAD (§4) + actor
+- **No auth** — it does not decide membership. Clients enforce the transit-key AEAD (§5) + actor
   signature checks; the relay forwards whatever a subscriber publishes, and a non-member (lacking
-  the read-key) cannot decrypt it anyway.
+  the transit key) cannot decrypt it anyway.
 - **No content storage** — local-first: the relay forwards, never persists workspace content (§2).
 
 > Earlier drafts waffled between "dumb byte pipe" and "sync-aware router." The relay is neither
@@ -142,6 +142,11 @@ admin and no fine-grained role (read-only/admin).**
 
 ## 5. Encryption — `node:crypto` AEAD with the workspace read-key
 
+> **⚠️ Partially revised — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
+> The AEAD-with-a-shared-key mechanism below stands (now called the **transit key**, one key per
+> epoch, rotated as a unit). What was reversed is §4's claim that this key "IS the membership
+> credential": it is not — membership is the signed log; the transit key is wrapped _within_ it.
+
 Clients encrypt sync content end-to-end with the workspace **read-key** (AEAD, e.g. AES-256-GCM);
 the relay (§3) routes **opaque ciphertext** and cannot read workspace content. The read-key is
 generated with the workspace and shared via the coordinate/invite (§4). No WireGuard (that was
@@ -157,6 +162,12 @@ tunwg-bundled; tunwg is now only an optional reachability choice, §3a).
 - **Local at-rest** disk encryption (stolen-device) is a separate, future feature unrelated to sync.
 
 ## 6. Revocation — rotate the read-key, accept the fork
+
+> **⚠️ REVISED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
+> Revocation is now **owner-only**: the owner appends a `rotate` whose wrapped set omits the ousted
+> member (atomic removeAndRotate — no forward-secrecy window), re-wrapping the transit key to the
+> survivors. The "any member can rotate" / social-rotate model below is the earlier egalitarian form,
+> superseded by owner + member(rw).
 
 **You cannot confiscate data a peer already has** (fundamental to local-first). Revocation stops
 _future_ content from being readable by the ousted member:
@@ -211,15 +222,25 @@ This replaces the engine's current runtime `randomUUID` nodeId, which is only an
 
 ## Honest security model
 
+> Superseded in part by [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2/§6
+> (membership = signed owner+member log, not read-key-as-membership). The trust boundary below
+> stands; the credential is the **transit key** wrapped in the membership log, not a bare read-key.
+
 - Trust among members is **social, not technical**. A member has all data and keys; leakage
   cannot be prevented technically.
-- The only technical boundary is **member vs non-member**, enforced by the **read-key**: members
+- The only technical boundary is **member vs non-member**, enforced by the **transit key**: members
   can AEAD-decrypt sync content; non-members (no key) cannot.
-- The relay is untrusted and harmless: clients E2E-encrypt (`node:crypto` AEAD with the read-key,
+- The relay is untrusted and harmless: clients E2E-encrypt (`node:crypto` AEAD with the transit key,
   §5), so the relay routes only ciphertext.
-- No admin, no roles, no separate allowlist. The model is deliberately minimal and egalitarian.
+- Roles are owner + member(rw) only — no admin/reader/writer tiers (can't hard-enforce without an
+  authority). The model is deliberately minimal.
 
 ## Roadmap (dependency order)
+
+> **Status (2026-06):** items 1–3 have landed — foundation (`F1`–`F4`), transport (`T1`–`T4`,
+> secured), and the production membership log (`A1`, wired as a synced doc in T4-b). The next
+> workstream is coordinate create/import/export UX (Phase 4), then hardening (Phase 5). Live
+> status lives in `_local/handoff/sync-handoff.md`; this is the design-time sequence.
 
 1. **Foundation (topology-agnostic):** device identity (keystore + stable peerId) → wire
    `SyncManager` into the runtime + export from the engine public API (audit BLOCKER 1) →
@@ -227,11 +248,13 @@ This replaces the engine's current runtime `randomUUID` nodeId, which is only an
    hazard characterization test.
 2. **Transport (the relay/broker + client transport):** the workspace-routing **relay** (§3:
    subscription table + route-by-workspace, content-blind, no data) + client-side `SyncTransport`
-   (the validated pairwise sync protocol over the relay) + read-key AEAD auth + proto/CLI
+   (the validated pairwise sync protocol over the relay) + transit-key AEAD auth + proto/CLI
    (`sync --relay <url>`). **Reachability (§3a) is deployment, not this layer** — LAN/VPS suffice
    for MVP; tunwg-exposed-home is a later option.
-3. **Membership:** workspace coordinate `(relay addr, workspaceId, read-key)` — create/import/
-   export; the read-key IS the membership credential (§4); no allowlist.
+3. **Membership & coordinates:** workspace coordinate `(relay addr, workspaceId, transit key)` —
+   create/import/export. Membership is the signed owner+member log
+   ([`sync-identity-persistence.md`](./sync-identity-persistence.md) §2); the transit key is wrapped
+   within it (not a bare membership credential).
 4. **Hardening (alongside):** merge-cycle policy (concurrent moves forming a cycle on merge —
    Loro abort), Loro `getNodeByID(ref)` upstream-panic guard, `persistMutation` dirty-shard-only,
    mid-sync-read gate breadth, lazy shard LOAD (async `shardLoader`).
@@ -248,4 +271,6 @@ This replaces the engine's current runtime `randomUUID` nodeId, which is only an
   public dumb pipe" — that is ONE of lode's deployment options (§3a), not lode's relay function
   (lode's relay is the §3 workspace-routing broker, which hapi's tunwg pipe is NOT). hapi's
   `CLI_API_TOKEN` auth is _not_ borrowed — it is shared-secret connection auth, not actor identity;
-  lode uses read-key AEAD for membership (§4) + actor keypairs for signing (§8) instead.
+  lode uses transit-key AEAD for content confidentiality (§5) + a signed membership log for
+  membership ([`sync-identity-persistence.md`](./sync-identity-persistence.md) §2) + actor keypairs
+  for signing (§8) instead.

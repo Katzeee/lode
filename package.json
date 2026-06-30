@@ -1,13 +1,16 @@
 {
   "name": "lode-workspace",
   "private": true,
+  "engines": {
+    "node": ">=22.0.0 <27.0.0"
+  },
   "workspaces": [
     "packages/*",
     "packages/ipc/*",
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/test-utils && npm run build --workspace=@lode/client && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/sync && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/client && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/transport && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",
@@ -41,7 +44,7 @@
   },
   "allowScripts": {
     "@bufbuild/buf@1.71.0": true,
-    "esbuild@0.28.1": true,
-    "sqlite3@6.0.1": true
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.1": true
   }
 }

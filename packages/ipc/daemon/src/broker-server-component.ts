@@ -1,5 +1,5 @@
 import type { Component } from "@lode/engine";
-import { BrokerServer } from "@lode/sync";
+import { BrokerServer } from "@lode/transport";
 
 /**
  * Hosts the workspace-routing broker (the relay) as an App `Component` (design sync-design.md §3).

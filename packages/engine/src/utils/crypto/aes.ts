@@ -2,9 +2,9 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
  * AES-256-GCM AEAD (12-byte nonce ‖ ciphertext ‖ 16-byte tag), node:crypto only. A generic shared
- * leaf: used by actor transit-key sealing (`identity/actor-encryption` wrap/unwrap), the membership-log
- * re-key chain (`enc_prev = AEAD(newTransitKey, oldTransitKey)`), and the sync wire-security layer
- * (`@lode/sync/wire-security`). Encryption is transport-only (design §2).
+ * leaf: used by actor transit-key sealing (`actor-encryption.ts` wrap/unwrap), the membership-log
+ * re-key chain (`enc_prev = AEAD(newTransitKey, oldTransitKey)`), and the wire-security layer
+ * (`runtime/membership/wire-security`). Encryption is transport-only (design §2).
  */
 
 /** Seal `plain` under `key`. Blob = nonce(12) ‖ ciphertext ‖ tag(16). */

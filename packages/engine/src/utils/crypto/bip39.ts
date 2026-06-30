@@ -11,7 +11,7 @@ import { wordlist } from "@scure/bip39/wordlists/english.js";
  * re-derives the same identity (the actor key does not rotate). Thin wrappers over the audited
  * @scure/bip39 (English wordlist, 12 words / 128-bit entropy) — we don't vendor the 2048-word list or
  * hand-roll the PBKDF2 seed / checksum. Generic crypto utility; the actor keypair derivation that
- * consumes it lives in `identity/actor-key.ts`.
+ * consumes it lives in `actor-key.ts`.
  */
 
 const MNEMONIC_STRENGTH_BITS = 128; // → 12 words

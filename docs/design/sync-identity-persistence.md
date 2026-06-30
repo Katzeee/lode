@@ -28,9 +28,9 @@ _membership_ and _identity_ halves, and how they persist.
 ## 1. Architecture boundary — engine stays transport-free (resolves handoff vs AGENTS.md)
 
 The sync-relay handoff proposed putting the **broker and `SyncTransport` in the engine**.
-`AGENTS.md` says the opposite: the engine "must not import `@lode/transport`", and
-transport "owns bytes and connections only". We follow **AGENTS.md**, and any-sync proves
-this is the right split.
+`AGENTS.md` says the opposite: the engine "must not import `@lode/client` or `@lode/transport`"
+— transport responsibility lives outside engine. We follow **AGENTS.md**, and any-sync
+proves this is the right split.
 
 any-sync's sync core (`commonspace/sync`, `headsync`) does **not** import `net/` on its
 main path. It talks to the network through one interface — `peermanager.PeerManager`
@@ -44,19 +44,21 @@ wrapping engine + transport, while **mobile** uses `@lode/engine` **in-process**
 Mobile is still a device that must sync (dial the relay, AEAD, sign, run the broker client) —
 so the sync transport **cannot live daemon-only**. It goes in a shared package both depend on:
 
-| Layer                  | Owns                                                                                                                                                                             | Used by                |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **`@lode/engine`**     | sync core (`SyncManager` + the `SyncTransport` **interface**: docIds + bytes + VVs) + peerId → `setPeerId` + actor identity (keypair/keystore/`ActorStore`) + the membership log | daemon + mobile + apps |
-| **`@lode/sync`** (new) | `Broker` client + `Broker` server (`--relay`) + `BrokerClientSyncTransport` adapter + transit-key AEAD + actor wire signing + real WebSocket sockets                             | daemon + mobile        |
-| **`@lode/daemon`**     | thin desktop host: engine + sync(client) + broker server (`--relay`) + IPC transport + process lifecycle                                                                         | desktop                |
-| **mobile**             | engine (in-process) + sync (client — dials the relay directly, no daemon)                                                                                                        | mobile                 |
+| Layer                 | Owns                                                                                                                                                                                                                                                                                                                                  | Used by                |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **`@lode/engine`**    | sync core (`SyncManager` + the `SyncTransport` **interface**: docIds + bytes + VVs) + peerId → `setPeerId` + actor identity (keypair/keystore/`ActorStore` + the `utils/crypto` leaf) + the membership log + the wire-security/SyncProfile **content layer** (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
+| **`@lode/transport`** | `Broker` client + `Broker` server (`--relay`) + `BrokerClientSyncTransport` adapter + real WebSocket sockets — a pure socket shell (content/security imported from engine)                                                                                                                                                            | daemon + mobile        |
+| **`@lode/daemon`**    | thin desktop host: engine + transport(client) + broker server (`--relay`) + IPC transport + process lifecycle                                                                                                                                                                                                                         | desktop                |
+| **mobile**            | engine (in-process) + transport (client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                        | mobile                 |
 
-Engine stays transport-free (no sockets/AEAD/wire-signing) and holds actor identity because
-**both** the membership log replay (engine: verify signatures) and the wire (sync: sign messages)
-need it — the lowest shared layer. The broker **server** (`--relay`) also lives in `@lode/sync`;
-the daemon merely hosts it, and mobile uses only the client half. Not `@lode/transport` —
-that package is the IPC transport (gRPC to the daemon); the sync broker/AEAD/signing is a
-different concern.
+Engine stays **socket-free** (no sockets / connection types) but it DOES own the content/security
+layer (AEAD seal/open, actor wire signing, the SyncProfile codec) — that logic is needed by both
+the membership log replay (verify signatures) and the wire (sign messages), so the lowest shared
+layer owns it; it also travels inside the engine's future Rust dynamic-library form. Only the
+socket I/O is split out into `@lode/transport`. The broker **server** (`--relay`) also lives in
+`@lode/transport`; the daemon merely hosts it, and mobile uses only the client half. This is
+distinct from the IPC transport (connectrpc between client and daemon, owned by `@lode/client` +
+`@lode/daemon`): the sync broker/AEAD/signing is a different concern.
 
 The engine's existing `SyncTransport` interface is already clean — **no socket or
 connection type crosses it**. any-sync's seam _leaks_ (`PeerManager` returns
@@ -64,9 +66,8 @@ connection type crosses it**. any-sync's seam _leaks_ (`PeerManager` returns
 core). **Lesson: keep `SyncTransport` socket-free.** If the adapter needs connection
 state, it owns it internally; never add a `Connection`/`Peer` type to the interface.
 
-> **AGENTS.md follow-up (pending user confirm):** AGENTS.md currently says "in-process
-> clients (mobile) may depend on `@lode/engine`" — this should expand to "`@lode/engine` +
-> `@lode/sync`" so mobile can reach the shared sync transport.
+> AGENTS.md registers `@lode/transport`: in-process clients (mobile) may depend on
+> `@lode/engine` + `@lode/transport` so mobile can reach the shared sync transport.
 
 ---
 
@@ -115,16 +116,17 @@ LoroList; signed over the canonical proto3 body encoding — the wrapped set is 
 - `transfer` — owner transfers ownership to an EXISTING member (skipped if the target isn't a member,
   so governance can't be bricked on a stranger). The old owner stays on as a member.
 
-The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core` (LoroDoc)
-
-- `identity` (F3b crypto) + `@lode/protocol` (records), so it can't sit in `domain` (no-protocol rule);
-  `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a **Loro doc inside the
-  workspace**, so it syncs like any doc (SyncManager/workspace wiring lands in T2; A1 ships the log +
-  export/import). Validity = the record's signature verifies AND the signer is the current owner (root is
-  self-authorizing as the first record). The owner is always a member — a rotate may not omit the owner — so the owner's signPub is always in
-  `members` and governance signatures always verify. Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a
-  non-member / stale rotate / undecodable) are **skipped at replay**, not fatal — deterministic given the
-  merged list, so every replica converges to the same membership.
+The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core`
+(LoroDoc) + `identity` (F3b crypto) + `@lode/protocol` (records), so it can't sit in `domain`
+(no-protocol rule); `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a
+**Loro doc inside the workspace**, so it syncs like any doc — wired as a synced doc in T4-b
+(`MembershipSync` gossip-pushes it over the transport's plaintext envelope; A1 shipped the log
+itself). Validity = the record's signature verifies AND the signer is the current owner (root is
+self-authorizing as the first record). The owner is always a member — a rotate may not omit the
+owner — so the owner's signPub is always in `members` and governance signatures always verify.
+Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a non-member
+/ stale rotate / undecodable) are **skipped at replay**, not fatal — deterministic given the merged
+list, so every replica converges to the same membership.
 
 **Transit key, not a content key.** The wrapped key is the **transit key**: it encrypts sync
 messages in transit (`node:crypto` AEAD), so the untrusted relay sees only ciphertext.
@@ -132,10 +134,12 @@ messages in transit (`node:crypto` AEAD), so the untrusted relay sees only ciphe
 a separate, future feature; sync-design §5). There is **no per-object content encryption and
 no per-object key derivation**; the transit key is one key per epoch, rotated as a unit.
 
-**Re-key chain** (`encPrev` = AEAD(newTransitKey, oldTransitKey) on each rotate): a current
-member walks back to decrypt transit from any prior epoch; a removed member (no wrapped key in
-new epochs) cannot. Rotate only re-wraps the transit key to survivors (O(members)); content is
-never re-encrypted.
+**Re-key chain** (`encPrev` = AEAD(newTransitKey, oldTransitKey) on each rotate): each rotate
+record stores its `encPrev`, so a current member can in principle walk back to decrypt transit
+from any prior epoch (a removed member, with no wrapped key in new epochs, cannot). **The walker
+is deferred** — it shipped once but was removed as forward-looking (no production caller); the
+chain stays on the wire record so history-decryption can land later without a migration. Rotate
+only re-wraps the transit key to survivors (O(members)); content is never re-encrypted.
 
 **Self-signed root, no masterKey.** The root is signed by the owner's actor key alone. The
 actor key **is** the mnemonic-derived key (§3), so "same actorId" is cryptographic continuity
@@ -305,11 +309,13 @@ A lost device loses its local keystore and transit keys. Recovery is:
    _current_ transit key to your actor pubkey). This step is **social** — lode has no
    coordinator/naming service to self-discover workspaces (any-sync relies on its coordinator
    for that bootstrap, which lode deliberately does not have).
-3. You unwrap the current transit key, then **walk the re-key chain backward** to decrypt
-   transit from all historical epochs.
+3. You unwrap the current transit key. (Walking the re-key chain backward to recover
+   historical-epoch transit keys is a **deferred refinement** — the chain is stored on each
+   rotate record, but the walker is not yet shipped; today re-add yields the current transit
+   key only.)
 
-The win over a read-key-only model: re-add gives you **full history**, not just transit from
-the re-add forward (the chain lets the current key recover prior epochs). The bootstrap
+The win over a read-key-only model: re-add restores your current transit key (and the stored
+re-key chain leaves the door open to full-history recovery once the walker ships). The bootstrap
 (finding/re-joining the workspace) stays social.
 
 **Owner continuity vs. node death** is the same mechanism: a dead owner device with the
@@ -363,8 +369,8 @@ lifecycle incl. `transfer` + `removeAndRotate`, forge-skip, recovery; substrate:
 - **Workspace discovery on a fresh device** without a coordinator (§9). MVP = social re-add.
 - **Owner succession when key + mnemonic are both lost** — governance frozen; quorum-based
   succession deferred (not MVP) (§2, §9).
-- **`@lode/sync` package name** — the broker/sync-transport goes in a new **shared** package
-  (decided, §1 — mobile needs it); only the exact name is minor.
+- **Re-key-chain walker** (history-epoch transit recovery) — deferred; the chain is stored on
+  each rotate record, the walker is not yet shipped (§2, §9).
 - **Local default-access UX** (do all local actors open all local workspaces by default, or is
   it gated everywhere?) — §7. A daemon UX choice, not a membership fact.
 
@@ -382,7 +388,7 @@ lifecycle incl. `transfer` + `removeAndRotate`, forge-skip, recovery; substrate:
    (protobuf records in `@lode/protocol`); wire membership derivation + re-key + owner
    governance.
 4. **Transport (relay/broker + client):** the workspace-routing broker + `SyncTransport` over
-   the broker + transit-key AEAD + actor signing, in the shared `@lode/sync` package (§1).
+   the broker + transit-key AEAD + actor signing, in the shared `@lode/transport` package (§1).
 5. **Coordinate management:** workspace coordinate create/import/export (relay addr, wsId,
    membership bootstrap).
 6. **Hardening (alongside):** the items already listed in sync-design.md's roadmap (merge-cycle

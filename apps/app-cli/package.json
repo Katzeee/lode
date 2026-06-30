@@ -15,12 +15,10 @@
   },
   "dependencies": {
     "@lode/client": "file:../../packages/ipc/client",
-    "@lode/engine": "file:../../packages/engine",
     "@lode/protocol": "file:../../packages/protocol"
   },
   "devDependencies": {
     "@lode/daemon": "file:../../packages/ipc/daemon",
-    "@lode/test-utils": "file:../../packages/test-utils",
     "@types/node": "^20.19.39",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

@@ -6,7 +6,6 @@ import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon } from "../../src/index.js";
-import { tempListenUrl } from "@lode/test-utils";
 import { openAuthedSession } from "./authed-session.js";
 
 const dataRoots: string[] = [];
@@ -21,7 +20,7 @@ describe("AppServer persistence", () => {
   it("starts with an empty persisted data root without creating workspaces", async () => {
     const dataRoot = await tempDataRoot();
     const server = await startAppServerDaemon({
-      listen: tempListenUrl(),
+      listen: "tcp://127.0.0.1:0",
       persistence: { dataRoot },
     });
     const client = new AppServerClient({ url: server.address });
@@ -128,7 +127,7 @@ async function startPersistentServer(
   snapshotEveryUpdates?: number,
 ): Promise<{ client: AppServerClient; stop: () => Promise<void> }> {
   const server = await startAppServerDaemon({
-    listen: tempListenUrl(),
+    listen: "tcp://127.0.0.1:0",
     persistence: { dataRoot, ...(snapshotEveryUpdates ? { snapshotEveryUpdates } : {}) },
   });
   const client = new AppServerClient({ url: server.address });

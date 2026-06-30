@@ -1,11 +1,11 @@
 import type { AppServerDaemonOptions } from "./app-server-daemon.js";
 
-// CLI parsing for the AppServer daemon (T4-a/T4-b). Extends the original --listen / --data-root with
-// the sync surface: `--relay` hosts the workspace-routing broker in-process (design sync-design.md §3;
-// the relay is a user-deployed, stateless coordinate), and `--sync-url` + `--sync-workspace` dial a
-// relay and drive CRDT sync rounds for the named workspaces. `--actor-mnemonic` (T4-b) switches sync
-// to the secured path: transit-key AEAD + actor signing, with the membership log converging over a
-// plaintext envelope. Kept explicit (no flag lib) to match the daemon's minimal argv style.
+// CLI parsing for the AppServer daemon. `--listen`/`--data-root` are the local-service surface;
+// `--relay` hosts the workspace-routing broker in-process (design sync-design.md §3; the relay is a
+// user-deployed, stateless coordinate); `--sync-url` + `--sync-workspace` dial a relay and drive CRDT
+// sync rounds for the named workspaces. `--actor-mnemonic` switches sync to the secured path:
+// transit-key AEAD + actor signing, with the membership log converging over a plaintext envelope.
+// Kept explicit (no flag lib) to match the daemon's minimal argv style.
 
 const USAGE = `Usage: app-server --listen <url> [--data-root <path>] [--relay [<port>]] [--sync-url <url> --sync-workspace <id>... [--actor-mnemonic <12 words>] [--bootstrap-member <hex-sign-pub>...]]`;
 

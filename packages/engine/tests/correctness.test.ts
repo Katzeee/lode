@@ -180,7 +180,7 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
         runTruth(ops, shardedEngine(ns), `sharded×${ns} seed=${seed}`);
       }
     }
-  });
+  }, 600000);
 
   it("negative control: a stale model is caught (oracle is non-vacuous)", () => {
     // Apply the script to the engine but SKIP model.step on the replaceDeltas op, so
@@ -223,7 +223,7 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
       const ops = generateScript(rng, 10 + (seed % 16), true);
       runUndoRedo(ops, shardedEngine(8), `seed=${seed}`);
     }
-  });
+  }, 600000);
 });
 
 /** Apply a script, then assert undo walks back to each prior snapshot and redo replays

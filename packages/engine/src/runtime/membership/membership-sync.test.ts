@@ -1,7 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { actorEncryptionPublic } from "../../identity/actor-encryption.js";
-import { generateActorKeypair, type ActorKeypair } from "../../identity/actor-key.js";
+import {
+  actorEncryptionPublic,
+  generateActorKeypair,
+  type ActorKeypair,
+} from "../../utils/crypto/index.js";
 import { MembershipLog, type MemberPublicKeys } from "./membership-log.js";
 import { MembershipSync } from "./membership-sync.js";
 import type { SyncProfile, SyncTransport } from "../sync.js";

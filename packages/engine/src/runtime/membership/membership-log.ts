@@ -1,17 +1,15 @@
 import { LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { aeadEncrypt } from "../../utils/crypto/aes.js";
 import {
+  aeadEncrypt,
   actorEncryptionPrivate,
   actorEncryptionPublic,
-  unwrapKey,
-  wrapKey,
-} from "../../identity/actor-encryption.js";
-import {
   signWithActor,
+  unwrapKey,
   verifyActorSignature,
+  wrapKey,
   type ActorKeypair,
-} from "../../identity/actor-key.js";
+} from "../../utils/crypto/index.js";
 import type { SyncDoc } from "../../core/sharded-store.js";
 import {
   AddRecordSchema,
@@ -31,8 +29,7 @@ import {
  * full rw.
  *
  * Records are protobuf (MembershipRecord) bytes in a LoroList, so the log is itself a Loro doc that
- * syncs like any other (exportBytes/importBytes here; SyncManager wiring lands in T4 — the log is a
- * separate Loro doc, not yet in the ShardedBlockStore synced-doc set). A record is
+ * syncs like any other. A record is
  * SKIPPED at replay (not fatal) if its signature fails, its signer is unknown, its signer isn't the
  * current owner, or (rotate) its epoch isn't strictly ahead of the current. Deterministic given the
  * merged list → every replica converges. Owner-only governance means there is no multi-admin
@@ -42,8 +39,8 @@ import {
  * walks back to decrypt transit from any prior epoch; a revoked member cannot. Rotate only re-wraps
  * the transit key (O(members)); content is never re-encrypted (transport-only encryption).
  *
- * Production crypto (F3b): signatures via the actor Ed25519 key; transit-key wrapping via the dual-use
- * X25519 derived from each actor's Ed25519 key. Signatures cover the deterministic proto3 encoding of
+ * Signatures are the actor Ed25519 key; transit-key wrapping uses the dual-use X25519 derived from
+ * each actor's Ed25519 key. Signatures cover the deterministic proto3 encoding of
  * the record's `body` (the wrapped set is `repeated MemberWrap`, ordered — so the signed bytes are
  * canonical). The actor key is mnemonic-derived and does not rotate, so the root is self-signed and
  * "same actorId" is cryptographic continuity (no masterKey co-sign).

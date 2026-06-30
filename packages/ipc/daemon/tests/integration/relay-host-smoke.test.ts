@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BrokerClient } from "@lode/sync";
+import { BrokerClient } from "@lode/transport";
 import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
-import { tempListenUrl } from "@lode/test-utils";
 
 // `--relay` hosts the workspace-routing broker in-process. Smoke: the hosted relay is dialable and
 // tears down cleanly with the daemon. (Secured sync convergence is covered by sync-secured-e2e.)
@@ -18,7 +17,7 @@ afterEach(async () => {
 describe("daemon relay host (--relay)", () => {
   it("hosts a relay in-process via the relay option", async () => {
     const daemon = await startAppServerDaemon({
-      listen: tempListenUrl(),
+      listen: "tcp://127.0.0.1:0",
       relay: { port: 0 },
     });
     daemons.push(daemon);

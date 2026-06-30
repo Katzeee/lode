@@ -5,16 +5,14 @@ import {
   SyncManager,
   actorEncryptionPublic,
   actorIdFromPublicKey,
-  type ActorKeypair,
+  createMembershipWireSecurity,
   type AppRuntime,
+  type ActorKeypair,
   type Component,
+  type MembershipWireSecurity,
   type ShardedBlockStore,
 } from "@lode/engine";
-import {
-  BrokerClientSyncTransport,
-  createMembershipWireSecurity,
-  type MembershipWireSecurity,
-} from "@lode/sync";
+import { BrokerClientSyncTransport } from "@lode/transport";
 
 export type DaemonSyncRunnerOptions = {
   readonly workspaces: AppRuntime["workspaces"];
@@ -27,9 +25,9 @@ export type DaemonSyncRunnerOptions = {
   readonly actorKeypair: ActorKeypair;
   /** Round interval; default 1000ms. */
   readonly intervalMs?: number;
-  /** Owner bootstrap (test / Phase-4 stepping stone): each member's sign pub to `add` once, the first
-   *  time an empty membership log is materialized. TODO(phase-4): replace with a coordinate-import
-   *  RPC — the owner should bootstrap via RPC after the workspace loads, not declaratively at boot. */
+  /** Owner bootstrap: each member's sign pub to `add` once, the first time an empty membership log is
+   *  materialized. A declarative stand-in — the owner should bootstrap via a coordinate-import RPC
+   *  after the workspace loads, not at boot. */
   readonly bootstrapMembers?: Uint8Array[];
 };
 
@@ -42,7 +40,7 @@ type Wired = {
 };
 
 /**
- * Drives secured CRDT sync rounds for one or more workspaces over a relay (T4-b). For each requested
+ * Drives secured CRDT sync rounds for one or more workspaces over a relay. For each requested
  * workspace it lazily builds a secured `BrokerClientSyncTransport` + `SyncManager` once the workspace
  * is open, subscribes to the workspace's broker channel, and runs periodic rounds. An App `Component`.
  *
@@ -53,7 +51,7 @@ type Wired = {
  * initial members on first materialize of an empty log.
  *
  * Host glue: composes the engine's per-workspace `ShardedBlockStore` (via the peek-only
- * `loadedEngine().getShardedStore()`) with `@lode/sync`'s broker transport and the engine's
+ * `loadedEngine().getShardedStore()`) with `@lode/transport`'s broker transport and the engine's
  * `SyncManager`/`MembershipSync`. It lives in the daemon (the desktop host); mobile composes the same
  * pieces in-process.
  */

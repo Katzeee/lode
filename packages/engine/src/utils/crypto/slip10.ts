@@ -7,7 +7,7 @@ import { createHmac } from "node:crypto";
  * HMAC-SHA512 chain (no curve arithmetic). lode's actor path is `m/44'/2026'/<account>'/0'/<index>'`.
  *
  * Verified against the SLIP-0010 Ed25519 test vectors (seed 000102…0f). See slip10.test.ts. Generic
- * crypto utility; the actor keypair derivation that consumes it lives in `identity/actor-key.ts`.
+ * crypto utility; the actor keypair derivation that consumes it lives in `actor-key.ts`.
  */
 
 const HARDENED_OFFSET = 0x80000000; // 2^31

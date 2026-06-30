@@ -1,13 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { describe, expect, it } from "vitest";
-import { aeadDecrypt, aeadEncrypt } from "../../utils/crypto/aes.js";
-import { actorEncryptionPublic } from "../../identity/actor-encryption.js";
 import {
+  aeadDecrypt,
+  aeadEncrypt,
+  actorEncryptionPublic,
   generateActorKeypair,
   signWithActor,
   type ActorKeypair,
-} from "../../identity/actor-key.js";
+} from "../../utils/crypto/index.js";
 import {
   AddRecordSchema,
   MembershipRecordSchema,

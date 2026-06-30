@@ -1,19 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { generateActorKeypair, signWithActor } from "@lode/engine";
+import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
-import { tempListenUrl } from "@lode/test-utils";
 
-// F4: the actor-authentication security contract over the real Connect transport. The happy path
-// (challenge → sign → hello) is covered elsewhere via openAuthedSession; this file nails the
-// REJECTION paths — the properties that make a claimed actor identity unforgeable.
+// The actor-authentication security contract over the real Connect transport. The happy path is
+// covered elsewhere via openAuthedSession; this file nails the REJECTION paths — the properties
+// that make a claimed actor identity unforgeable. The daemon derives the keypair from the mnemonic
+// and confirms the derived actor id matches the declared one.
 
-describe("F4 session authentication (challenge-response)", () => {
+describe("session authentication (mnemonic)", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;
 
   beforeEach(async () => {
-    server = await startAppServerDaemon({ listen: tempListenUrl() });
+    server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
     client = new AppServerClient({ url: server.address });
     client.connect();
   });
@@ -23,73 +23,32 @@ describe("F4 session authentication (challenge-response)", () => {
     await server.stop();
   });
 
-  it("succeeds: sessionChallenge → sign → sessionHello establishes a session", async () => {
-    const actor = generateActorKeypair();
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const signature = signWithActor(actor.privateKey, challenge);
-    const session = await client.rpc.sessionHello({
-      actor: { actorId: actor.actorId, signPub: actor.publicKey },
-      challenge,
-      signature,
-    });
+  it("succeeds: sessionHello (mnemonic) establishes a session", async () => {
+    const mnemonic = generateMnemonic();
+    const { actorId } = deriveActorKeypairFromMnemonic(mnemonic);
+    const session = await client.rpc.sessionHello({ actor: { actorId }, mnemonic });
     expect(session.sessionId.length).toBeGreaterThan(0);
     expect(session.actor).toBeDefined();
     if (!session.actor) {
       throw new Error("expected session actor");
     }
-    expect(session.actor.actorId).toBe(actor.actorId);
+    expect(session.actor.actorId).toBe(actorId);
   });
 
-  it("rejects a hello with no prior sessionChallenge (challenge not issued for this connection)", async () => {
-    const actor = generateActorKeypair();
+  it("rejects a hello whose mnemonic derives to a DIFFERENT actor than declared", async () => {
+    const declaredMnemonic = generateMnemonic();
+    const declaredActorId = deriveActorKeypairFromMnemonic(declaredMnemonic).actorId;
+    const otherMnemonic = generateMnemonic(); // derives to a different actor id
     await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: actor.actorId, signPub: actor.publicKey },
-        challenge: new Uint8Array(32),
-        signature: signWithActor(actor.privateKey, new Uint8Array(32)),
-      }),
+      client.rpc.sessionHello({ actor: { actorId: declaredActorId }, mnemonic: otherMnemonic }),
     ).rejects.toThrow(/authentication failed/);
   });
 
-  it("rejects a hello signed by the WRONG key (signature does not match the declared sign_pub)", async () => {
-    const actor = generateActorKeypair();
-    const imposter = generateActorKeypair();
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const signature = signWithActor(imposter.privateKey, challenge); // signed by a different key
-    await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: actor.actorId, signPub: actor.publicKey },
-        challenge,
-        signature,
-      }),
-    ).rejects.toThrow(/authentication failed/);
-  });
-
-  it("rejects a REUSED challenge (single-use: a second hello with the same nonce fails)", async () => {
-    const actor = generateActorKeypair();
-    const { challenge } = await client.rpc.sessionChallenge({});
-    const signature = signWithActor(actor.privateKey, challenge);
-    await client.rpc.sessionHello({
-      actor: { actorId: actor.actorId, signPub: actor.publicKey },
-      challenge,
-      signature,
-    });
-    await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: actor.actorId, signPub: actor.publicKey },
-        challenge,
-        signature,
-      }),
-    ).rejects.toThrow(/authentication failed/);
-  });
-
-  it("rejects a hello whose actor carries no sign_pub (no key to verify against)", async () => {
-    const { challenge } = await client.rpc.sessionChallenge({});
+  it("rejects a hello with an invalid mnemonic (not a valid BIP-39 phrase)", async () => {
     await expect(
       client.rpc.sessionHello({
         actor: { actorId: "nobody" },
-        challenge,
-        signature: new Uint8Array(64),
+        mnemonic: "this is not a valid bip39 phrase",
       }),
     ).rejects.toThrow(/authentication failed/);
   });

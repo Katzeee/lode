@@ -1,6 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { registryDbPath, workspaceRelativePath } from "./paths.js";
-import { openSqliteDatabase, runTransaction, type SqliteDatabase } from "./sqlite.js";
+import { openSqliteDatabase } from "./better-sqlite-adapter.js";
+import type { SqlDatabase } from "./sql-database.js";
 
 export type WorkspaceRecord = {
   workspaceId: string;
@@ -11,7 +12,7 @@ export type WorkspaceRecord = {
 };
 
 export class RegistryStore {
-  private constructor(private readonly db: SqliteDatabase) {}
+  private constructor(private readonly db: SqlDatabase) {}
 
   static async open(dataRoot: string): Promise<RegistryStore> {
     const db = await openSqliteDatabase(registryDbPath(dataRoot));
@@ -45,7 +46,7 @@ export class RegistryStore {
       createdAt: now,
       updatedAt: now,
     };
-    await runTransaction(this.db, async () => {
+    await this.db.transaction(async () => {
       await this.db.run(
         `INSERT INTO workspaces
           (workspace_id, display_name, relative_path, created_at, updated_at)
@@ -61,7 +62,7 @@ export class RegistryStore {
   }
 
   async listWorkspaces(): Promise<WorkspaceRecord[]> {
-    const rows = await this.db.all<WorkspaceRow[]>(
+    const rows = await this.db.all<WorkspaceRow>(
       `SELECT workspace_id, display_name, relative_path, created_at, updated_at
        FROM workspaces
        ORDER BY created_at ASC`,
@@ -96,7 +97,7 @@ export class RegistryStore {
 
   async setMeta(key: string, value: string): Promise<void> {
     await this.db.run(
-      "INSERT OR REPLACE INTO registry_meta (key, value) VALUES (?, ?)",
+      "INSERT INTO registry_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
       key,
       value,
     );

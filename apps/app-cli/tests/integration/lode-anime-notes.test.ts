@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
-import { tempListenUrl } from "@lode/test-utils";
 import { ANIME_WORKSPACE_ID, createBeCliHarness } from "./lode-anime-notes-helpers.js";
 
 describe("lode CLI anime notes smoke", () => {
@@ -14,7 +13,7 @@ describe("lode CLI anime notes smoke", () => {
   beforeEach(async () => {
     dataRoot = await mkdtemp(join(tmpdir(), "lode-anime-data-"));
     server = await startAppServerDaemon({
-      listen: tempListenUrl(),
+      listen: "tcp://127.0.0.1:0",
       persistence: { dataRoot },
     });
     address = server.address;
@@ -251,7 +250,7 @@ describe("lode CLI anime notes smoke", () => {
 
     await server.stop();
     server = await startAppServerDaemon({
-      listen: tempListenUrl(),
+      listen: "tcp://127.0.0.1:0",
       persistence: { dataRoot },
     });
     address = server.address;

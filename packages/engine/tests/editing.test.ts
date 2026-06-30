@@ -14,7 +14,7 @@ import { indent, moveSibling, outdent } from "../src/domain/editing/structure.js
 import { stableStringify } from "./truth-model.js";
 
 /**
- * Domain MVP Phase 1 — composite/intent ops group as ONE undo step, and each undoes/redoes
+ * Composite/intent ops group as ONE undo step, and each undoes/redoes
  * to the exact prior snapshot. The step-count check (canUndo flips false after a single
  * undo from a reset baseline) catches any op that accidentally opens two groups; the
  * stableStringify equivalence catches any undo that doesn't fully restore state.

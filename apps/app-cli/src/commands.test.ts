@@ -176,8 +176,7 @@ describe("executeCommand", () => {
     );
 
     const setValuesCall = calls.find((c) => c.method === Methods.SetFieldValues) as
-      | { method: string; params: { values: { value: { case: string } }[] } }
-      | undefined;
+      { method: string; params: { values: { value: { case: string } }[] } } | undefined;
     expect(setValuesCall?.params).toMatchObject({
       workspaceId: "ws_main",
       fieldOccurrenceId: "occ_field",
