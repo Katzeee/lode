@@ -7,7 +7,10 @@ import type { AppServerDaemonOptions } from "./app-server-daemon.js";
 // transit-key AEAD + actor signing, with the membership log converging over a plaintext envelope.
 // Kept explicit (no flag lib) to match the daemon's minimal argv style.
 
-const USAGE = `Usage: app-server --listen <url> [--data-root <path>] [--relay [<port>]] [--sync-url <url> --sync-workspace <id>... [--actor-mnemonic <12 words>] [--bootstrap-member <hex-sign-pub>...]]`;
+const USAGE = `Usage: app-server --listen <url> [--data-root <path>] [--relay [<port>]]
+  [--actor-mnemonic <12 words> [--sync-url <url> --sync-workspace <id>...]]
+    --actor-mnemonic alone: member daemon (identity only; joins at runtime via \`lode sync join\`)
+    --sync-url + --sync-workspace: owner (dials the relay + bootstraps the membership root)`;
 
 /** Read the value immediately following `flag`, or undefined if absent / if the next token is another flag. */
 function valueAfter(argv: string[], flag: string): string | undefined {
@@ -62,7 +65,6 @@ export function parseAppServerArgs(argv: string[]): AppServerDaemonOptions {
   const syncUrl = valueAfter(argv, "--sync-url");
   const syncWorkspaces = valuesAfter(argv, "--sync-workspace");
   const actorMnemonic = mnemonicAfter(argv, "--actor-mnemonic");
-  const bootstrapMembersHex = valuesAfter(argv, "--bootstrap-member");
 
   const options: AppServerDaemonOptions = { listen };
   if (dataRoot) {
@@ -85,10 +87,15 @@ export function parseAppServerArgs(argv: string[]): AppServerDaemonOptions {
     if (!actorMnemonic) {
       throw new Error("--sync-url requires --actor-mnemonic <12 words> (sync is always secured)");
     }
-    options.sync = { url: syncUrl, workspaceIds: syncWorkspaces, actorMnemonic };
-    if (bootstrapMembersHex.length > 0) {
-      options.sync.bootstrapMembers = bootstrapMembersHex.map((hex) => Buffer.from(hex, "hex"));
-    }
+  }
+  // `--actor-mnemonic` alone = member daemon (identity only; it JoinWorkspaces at runtime with a
+  // coordinate from the owner). With `--sync-url` = owner (dials the relay + bootstraps the root).
+  if (actorMnemonic) {
+    options.sync = {
+      actorMnemonic,
+      ...(syncUrl === undefined ? {} : { url: syncUrl }),
+      ...(syncWorkspaces.length === 0 ? {} : { workspaceIds: syncWorkspaces }),
+    };
   }
   return options;
 }

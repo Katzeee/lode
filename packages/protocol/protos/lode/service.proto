@@ -72,4 +72,10 @@ service LodeCommands {
   rpc RedoHistory(RedoHistoryRequest) returns (google.protobuf.BoolValue);
   rpc CanUndoHistory(CanUndoHistoryRequest) returns (google.protobuf.BoolValue);
   rpc CanRedoHistory(CanRedoHistoryRequest) returns (google.protobuf.BoolValue);
+
+  // sync — runtime governance + share/join (host-side; the daemon owns the sync runner + owner identity)
+  rpc AddMember(AddMemberRequest) returns (google.protobuf.Empty);
+  rpc GetActorPublicKeys(google.protobuf.Empty) returns (ActorPublicKeys);
+  rpc ShareWorkspace(ShareWorkspaceRequest) returns (WorkspaceCoordinate);
+  rpc JoinWorkspace(JoinWorkspaceRequest) returns (google.protobuf.Empty);
 }

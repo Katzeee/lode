@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { WorkspaceStore } from "./workspace-store.js";
+import { CONTENT_DOC_KIND, WorkspaceStore } from "./workspace-store.js";
 
 let tempDir: string;
 let store: WorkspaceStore;
@@ -118,5 +118,28 @@ describe("WorkspaceStore", () => {
     expect(s17?.updateBytes.map((b) => [...b])).toEqual([[9]]);
     // A sub-doc with no rows returns null.
     await expect(store.loadDocBytes("ws1", "s999")).resolves.toBeNull();
+  });
+
+  it("discriminates docs by kind (content loader sees only content)", async () => {
+    await store.createDoc({
+      docId: "main",
+      displayName: "Main",
+      snapshotBytes: new Uint8Array([0]),
+    }); // defaults to content
+    await store.createDoc({
+      docId: "membership",
+      displayName: "membership",
+      kind: "membership",
+      snapshotBytes: new Uint8Array([0]),
+    });
+
+    await expect(store.getDoc("main")).resolves.toMatchObject({ kind: "content" });
+    await expect(store.getDoc("membership")).resolves.toMatchObject({ kind: "membership" });
+
+    // Unfiltered lists every doc; filtering by kind keeps non-content docs (the membership log) out
+    // of the content loader without it having to know their names.
+    expect((await store.listDocs()).sort()).toEqual(["main", "membership"]);
+    await expect(store.listDocs(CONTENT_DOC_KIND)).resolves.toEqual(["main"]);
+    await expect(store.listDocs("membership")).resolves.toEqual(["membership"]);
   });
 });

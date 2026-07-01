@@ -1,9 +1,12 @@
 import type { ParsedCli } from "./args.js";
+import { executeActorCommand } from "./commands/actor.js";
 import { executeDocCommand } from "./commands/doc.js";
 import { executeFieldCommand, executeFieldDefCommand } from "./commands/field.js";
+import { executeMemberCommand } from "./commands/member.js";
 import { executeNodeCommand } from "./commands/node.js";
 import { executeRefCommand } from "./commands/ref.js";
 import { executeSchemaCommand } from "./commands/schema.js";
+import { executeSyncCommand } from "./commands/sync.js";
 import { APPROVED_FLAGS } from "./commands/shared.js";
 import type { ClientLike } from "./commands/types.js";
 import { executeWorkspaceCommand } from "./commands/workspace.js";
@@ -29,6 +32,12 @@ export async function executeCommand(client: ClientLike, command: ParsedCli): Pr
       return executeFieldDefCommand(client, command, commandKey);
     case "field":
       return executeFieldCommand(client, command, commandKey);
+    case "actor":
+      return executeActorCommand(client, command, commandKey);
+    case "member":
+      return executeMemberCommand(client, command, commandKey);
+    case "sync":
+      return executeSyncCommand(client, command, commandKey);
     default:
       throw new Error(`Unknown command "${command.group} ${command.action}".`);
   }

@@ -91,8 +91,13 @@ for type-only dependencies.
 
 - No compat shims, alias re-exports, dual paths, or deprecated wrappers for moved internal code.
   Update callers and tests directly.
-- No production scaffolding without callers (debug modes, metrics, helpers with no consumer).
-  Delete what isn't exercised today.
+- No production scaffolding without callers (debug modes, metrics, speculative generalization,
+  helpers with no consumer). Delete what isn't exercised today. This restrains building AHEAD of
+  need, not fixing what's already wrong.
+- Smells are fixed when found, never deferred — properly, with the right mechanism, not a stopgap.
+  "No scaffolding without callers" never justifies postponing a smell fix: scaffolding is speculative
+  structure; a fix targets code that already runs. Deferral compounds — more code accretes around
+  the smell, the fix only gets harder.
 
 ## Testing
 

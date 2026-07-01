@@ -424,3 +424,34 @@ message MoveSiblingRequest {
   string occurrence_id = 2;
   bool up = 3;
 }
+
+// ---- sync ----
+// Runtime governance + share/join. These are host-side concerns (the daemon owns the sync runner +
+// the owner identity); mobile wires its own equivalent in-process. The wire contract stays here so
+// every client surface speaks the same LodeCommands service.
+
+message AddMemberRequest {
+  string workspace_id = 1;
+  bytes member_sign_pub = 2; // 32-byte Ed25519 sign pub of the actor being added
+}
+
+message ActorPublicKeys {
+  string actor_id = 1; // hex of the Ed25519 sign pub
+  bytes sign_pub = 2; // 32-byte Ed25519 sign pub
+}
+
+message ShareWorkspaceRequest {
+  string workspace_id = 1;
+}
+
+// The payload an owner hands to a joiner (out of band). relay_url = where to dial; workspace_id =
+// the broker channel; doc_id = the single content doc to create locally so CRDT sync applies.
+message WorkspaceCoordinate {
+  string relay_url = 1;
+  string workspace_id = 2;
+  string doc_id = 3;
+}
+
+message JoinWorkspaceRequest {
+  WorkspaceCoordinate coordinate = 1;
+}

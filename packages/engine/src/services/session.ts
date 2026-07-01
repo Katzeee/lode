@@ -1,4 +1,7 @@
+import { create } from "@bufbuild/protobuf";
+import type { Empty } from "@bufbuild/protobuf/wkt";
 import type {
+  ActorPublicKeys,
   ListenNotificationsRequest,
   Notification,
   SessionHelloRequest,
@@ -6,7 +9,8 @@ import type {
   SubscribeDocRequest,
   UnsubscribeDocRequest,
 } from "@lode/protocol/proto";
-import { deriveActorKeypairFromMnemonic } from "../utils/crypto/index.js";
+import { ActorPublicKeysSchema } from "@lode/protocol/proto";
+import { deriveActorKeypairFromMnemonic, type ActorKeypair } from "../utils/crypto/index.js";
 import { getEngine, type AppContext } from "./context.js";
 import { EMPTY } from "./empty.js";
 
@@ -14,19 +18,27 @@ export function createSessionHandlers(ctx: AppContext) {
   return {
     // The client sends the actor's mnemonic; the daemon derives the keypair and confirms the derived
     // actor id matches the declared one (only the mnemonic holder can). No match → reject; the session
-    // is never created for an unverified actor.
+    // is never created for an unverified actor. The derived sign pub is retained on the session so a
+    // peer can add this actor as a member via GetActorPublicKeys.
     sessionHello: (req: SessionHelloRequest, connectionId: string): SessionInfo => {
       const actor = req.actor;
-      let derivedActorId: string | undefined;
+      let keypair: ActorKeypair | undefined;
       try {
-        derivedActorId = deriveActorKeypairFromMnemonic(req.mnemonic).actorId;
+        keypair = deriveActorKeypairFromMnemonic(req.mnemonic);
       } catch {
-        derivedActorId = undefined;
+        keypair = undefined;
       }
-      if (actor === undefined || derivedActorId !== actor.actorId) {
+      if (actor === undefined || keypair === undefined || keypair.actorId !== actor.actorId) {
         throw new Error("sessionHello: actor authentication failed (bad mnemonic)");
       }
-      return ctx.sessions.createSession(connectionId, req);
+      return ctx.sessions.createSession(connectionId, req, keypair.publicKey);
+    },
+
+    // The session actor's public identity — what a peer needs to add this actor as a sync member.
+    // Gated (throws without a verified session).
+    getActorPublicKeys: (_req: Empty, connectionId: string): ActorPublicKeys => {
+      const { actorId, signPub } = ctx.sessions.getActorPublicKeys(connectionId);
+      return create(ActorPublicKeysSchema, { actorId, signPub });
     },
 
     subscribeDoc: async (req: SubscribeDocRequest, connectionId: string) => {

@@ -1,5 +1,6 @@
 import type { AppRuntime, Component } from "@lode/engine";
 import { createLodeServer } from "./connect-server.js";
+import type { SyncHandlers } from "./sync-handlers.js";
 
 /**
  * Hosts the gRPC (HTTP/2, h2c) Connect server as an App `Component`. Wraps `createLodeServer`
@@ -12,14 +13,16 @@ export class ConnectServerComponent implements Component {
   private readonly runtime: AppRuntime;
   private readonly host: string;
   private readonly port: number;
+  private readonly syncHandlers: SyncHandlers;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
 
-  constructor(runtime: AppRuntime, host: string, port: number) {
+  constructor(runtime: AppRuntime, host: string, port: number, syncHandlers: SyncHandlers) {
     this.runtime = runtime;
     this.host = host;
     this.port = port;
+    this.syncHandlers = syncHandlers;
   }
 
   /** The daemon's gRPC URL (`http://host:port`); readable after `start()`. */
@@ -28,7 +31,7 @@ export class ConnectServerComponent implements Component {
   }
 
   async start(): Promise<void> {
-    const { server, closeConnections } = createLodeServer(this.runtime);
+    const { server, closeConnections } = createLodeServer(this.runtime, this.syncHandlers);
     this.server = server;
     this.closeConnections = closeConnections;
     await new Promise<void>((resolve) => {

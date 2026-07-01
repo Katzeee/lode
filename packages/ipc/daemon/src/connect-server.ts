@@ -15,6 +15,7 @@ import {
   SessionRequiredError,
   type AppRuntime,
 } from "@lode/engine";
+import type { SyncHandlers } from "./sync-handlers.js";
 
 // Per-call connection id, stamped into the handler context by the adapter (one id per
 // HTTP/2 session). Identifies a client for session/subscription/notification routing.
@@ -80,11 +81,16 @@ function serverStreaming<I, O>(handler: (req: I, connectionId: string) => AsyncI
 // handlers. One connectionId is assigned per HTTP/2 session and cleaned up on session close.
 // Returns the server plus closeConnections() to forcibly tear down live sessions on shutdown
 // (http2 servers don't expose closeAllConnections like http servers do).
-export function createLodeServer(runtime: AppRuntime): {
+export function createLodeServer(
+  runtime: AppRuntime,
+  extraHandlers: SyncHandlers,
+): {
   server: http2.Http2Server;
   closeConnections: () => void;
 } {
-  const commands = runtime.commands;
+  // Merge the engine's handlers with the daemon-side sync handlers (governance/share/join). The
+  // engine is transport/host-free; the daemon is the composition root that owns the sync runner.
+  const commands = { ...runtime.commands, ...extraHandlers };
   const sessions = new Map<http2.Http2Session, string>();
 
   const handler = connectNodeAdapter({
@@ -161,6 +167,11 @@ export function createLodeServer(runtime: AppRuntime): {
         redoHistory: unary(commands.redoHistory),
         canUndoHistory: unary(commands.canUndoHistory),
         canRedoHistory: unary(commands.canRedoHistory),
+
+        addMember: unary(commands.addMember),
+        getActorPublicKeys: unary(commands.getActorPublicKeys),
+        shareWorkspace: unary(commands.shareWorkspace),
+        joinWorkspace: unary(commands.joinWorkspace),
       }),
   });
 

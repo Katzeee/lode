@@ -31,6 +31,9 @@ export type EngineOrigin = {
 type SessionRecord = {
   sessionId: string;
   actor: Actor | undefined;
+  // The actor's Ed25519 sign pub (derived at hello). Exposed via getActorPublicKeys so a peer can add
+  // this actor as a member; undefined only for an unverified session (which can't exist post-hello).
+  signPub: Uint8Array | undefined;
   connectedAt: bigint;
   client: ClientInfo | undefined;
 };
@@ -43,10 +46,15 @@ export class SessionManager {
 
   constructor(private readonly nodeId: string) {}
 
-  createSession(connectionId: string, request: SessionHelloRequest): SessionInfo {
+  createSession(
+    connectionId: string,
+    request: SessionHelloRequest,
+    signPub?: Uint8Array,
+  ): SessionInfo {
     const record: SessionRecord = {
       sessionId: randomUUID(),
       actor: request.actor,
+      signPub,
       connectedAt: BigInt(Date.now()),
       client: request.client,
     };
@@ -69,6 +77,16 @@ export class SessionManager {
       throw new SessionRequiredError();
     }
     return { nodeId: this.nodeId, actorId: actor.actorId, sessionId: record.sessionId };
+  }
+
+  /** The session actor's id + Ed25519 sign pub — what a peer needs to add this actor as a member.
+   *  Throws SessionRequiredError without a verified session, so it doubles as the auth gate. */
+  getActorPublicKeys(connectionId: string): { actorId: string; signPub: Uint8Array } {
+    const record = this.sessionsByConnection.get(connectionId);
+    if (record === undefined || record.actor === undefined || record.signPub === undefined) {
+      throw new SessionRequiredError();
+    }
+    return { actorId: record.actor.actorId, signPub: record.signPub };
   }
 
   subscribeDoc(connectionId: string, workspaceId: string): void {

@@ -7,7 +7,11 @@ import { validateSnapshot } from "../core/invariant.js";
 import { toJSON } from "../core/serializers/json.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
-import { MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
+import { CONTENT_DOC_KIND, MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
+import {
+  WorkspaceMembershipPersistence,
+  type MembershipPersistence,
+} from "./membership/membership-persistence.js";
 import { App, type Component } from "./app.js";
 
 export type PersistenceOptions = {
@@ -200,6 +204,15 @@ export class AppWorkspaceRuntime {
     return this.singleEngine(this.loaded.get(workspaceId)?.workspace);
   }
 
+  /** The membership-persistence handle for an ALREADY-loaded workspace (null in in-memory mode or
+   *  when the workspace isn't open yet). The sync runner loads the membership snapshot on wire-up
+   *  and persists it each round; engine-owned so mobile inherits it. Like `loadedEngine`, this is a
+   *  peek — it never triggers a load. */
+  membershipPersistence(workspaceId: string): MembershipPersistence | null {
+    const store = this.loaded.get(workspaceId)?.store ?? null;
+    return store ? new WorkspaceMembershipPersistence(store) : null;
+  }
+
   async persistMutation(workspaceId: string, beforeVersion: VersionVector): Promise<void> {
     const loaded = await this.requireWorkspace(workspaceId);
     if (!loaded.store) {
@@ -309,7 +322,9 @@ export class AppWorkspaceRuntime {
     );
     let workspace: Workspace;
     try {
-      const docIds = await store.listDocs();
+      // Load only CONTENT docs. Non-content docs (the membership log) share this sqlite but are a
+      // sync artifact loaded by the sync runner via membershipPersistence() — not sharded engine docs.
+      const docIds = await store.listDocs(CONTENT_DOC_KIND);
       workspace = new Workspace({ id: record.workspaceId });
       for (const docId of docIds) {
         await this.loadShardedDoc(store, workspace, docId);

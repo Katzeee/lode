@@ -8,6 +8,7 @@ import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerComponent } from "./broker-server-component.js";
 import { ConnectServerComponent } from "./connect-server-component.js";
 import { DaemonSyncRunner } from "./sync-runner.js";
+import { createSyncHandlers } from "./sync-handlers.js";
 
 export type AppServerDaemonOptions = {
   listen: string;
@@ -15,15 +16,15 @@ export type AppServerDaemonOptions = {
   persistence?: PersistenceOptions;
   /** Host the workspace-routing broker (relay) in-process (opt-in `--relay`, design §3). */
   relay?: { port?: number; host?: string };
-  /** Dial a relay and drive secured CRDT sync rounds for the named workspaces (`--sync-url` +
-   *  `--sync-workspace`). `actorMnemonic` is required (sync is always secured: transit-key AEAD + the
-   *  membership log). `bootstrapMembers` (owner only) seeds the root + `add` records. */
+  /** Sync configuration. `actorMnemonic` is always required (sync is secured: transit-key AEAD + the
+   *  membership log). Owner: `url` + `workspaceIds` pre-configured (it bootstraps the membership root);
+   *  members are added via the `AddMember` RPC. Member: just the mnemonic — it `JoinWorkspace`es at
+   *  runtime with a coordinate from the owner. */
   sync?: {
-    url: string;
-    workspaceIds: string[];
     actorMnemonic: string;
+    url?: string;
+    workspaceIds?: string[];
     intervalMs?: number;
-    bootstrapMembers?: Uint8Array[];
   };
 };
 
@@ -46,9 +47,27 @@ export async function startAppServerDaemon(
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
   const runtime: AppRuntime = await createAppRuntime(persistence ? { persistence } : {});
 
+  // Build the sync runner + its RPC handlers before registration so the Connect server can merge
+  // them with the engine's LodeCommands. An owner pre-configures `url` + `workspaceIds` (it
+  // bootstraps the membership root); a member starts with just a mnemonic and JoinWorkspaces at
+  // runtime. No `--bootstrap-member`: members arrive via the AddMember RPC.
+  const syncRunner =
+    options.sync !== undefined
+      ? new DaemonSyncRunner({
+          workspaces: runtime.workspaces,
+          ...(options.sync.url === undefined ? {} : { url: options.sync.url }),
+          workspaceIds: options.sync.workspaceIds ?? [],
+          intervalMs: options.sync.intervalMs,
+          actorKeypair: deriveActorKeypairFromMnemonic(options.sync.actorMnemonic),
+        })
+      : undefined;
+  const syncHandlers = createSyncHandlers(syncRunner, runtime.sessions);
+
   // Register in start-order; the App stops them in reverse. createAppRuntime already registered the
   // workspace registry FIRST → it stops LAST (workspaces outlive everything that uses them).
-  const connect = runtime.app.register(new ConnectServerComponent(runtime, host, port));
+  const connect = runtime.app.register(
+    new ConnectServerComponent(runtime, host, port, syncHandlers),
+  );
   const relay =
     options.relay !== undefined
       ? runtime.app.register(
@@ -56,17 +75,8 @@ export async function startAppServerDaemon(
         )
       : undefined;
   // The sync runner stops FIRST (closes outbound transports before the relay/workspaces go).
-  if (options.sync !== undefined) {
-    runtime.app.register(
-      new DaemonSyncRunner({
-        workspaces: runtime.workspaces,
-        url: options.sync.url,
-        workspaceIds: options.sync.workspaceIds,
-        intervalMs: options.sync.intervalMs,
-        actorKeypair: deriveActorKeypairFromMnemonic(options.sync.actorMnemonic),
-        bootstrapMembers: options.sync.bootstrapMembers,
-      }),
-    );
+  if (syncRunner !== undefined) {
+    runtime.app.register(syncRunner);
   }
 
   await runtime.app.start();

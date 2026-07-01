@@ -1,5 +1,6 @@
-import { LoroDoc, type LoroList } from "loro-crdt";
+import { encodeFrontiers, LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import type { MembershipPersistence } from "./membership-persistence.js";
 import {
   aeadEncrypt,
   actorEncryptionPrivate,
@@ -76,10 +77,43 @@ export type MemberPublicKeys = { actorId: string; signPub: Uint8Array; encPub: U
 export class MembershipLog {
   readonly doc: LoroDoc;
   private readonly list: LoroList;
+  private readonly persistence?: MembershipPersistence;
+  /** Encoded frontiers of the last persisted snapshot — the dirty-check baseline. */
+  private lastPersisted?: Uint8Array;
 
-  constructor(doc: LoroDoc = new LoroDoc()) {
+  constructor(doc: LoroDoc = new LoroDoc(), persistence?: MembershipPersistence) {
     this.doc = doc;
     this.list = doc.getList(LOG_CONTAINER);
+    this.persistence = persistence;
+  }
+
+  /** Load the persisted membership snapshot into this log's doc. Returns whether bytes were loaded.
+   *  Seeds `lastPersisted` so the loaded state isn't immediately re-written. No-op without a handle. */
+  async load(): Promise<boolean> {
+    if (!this.persistence) {
+      return false;
+    }
+    const bytes = await this.persistence.load();
+    if (!bytes) {
+      return false;
+    }
+    this.doc.import(bytes);
+    this.lastPersisted = encodeFrontiers(this.doc.oplogFrontiers());
+    return true;
+  }
+
+  /** Persist a deep snapshot IF the doc advanced since the last persist. No-op without a handle or
+   *  when frontiers are unchanged (membership changes rarely → most rounds skip the write). */
+  async persistIfDirty(): Promise<void> {
+    if (!this.persistence) {
+      return;
+    }
+    const frontiers = encodeFrontiers(this.doc.oplogFrontiers());
+    if (this.lastPersisted && sameBytes(frontiers, this.lastPersisted)) {
+      return;
+    }
+    await this.persistence.save(this.doc.export({ mode: "snapshot" }));
+    this.lastPersisted = frontiers;
   }
 
   records(): MembershipRecord[] {
@@ -322,4 +356,17 @@ function bodyBytes(body: MembershipRecord["body"]): Uint8Array {
     case undefined:
       return new Uint8Array(0);
   }
+}
+
+/** Constant-time-unconcerned byte equality for the dirty-check baseline (frontiers are not secret). */
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
 }

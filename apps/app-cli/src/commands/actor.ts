@@ -1,0 +1,19 @@
+import type { ParsedCli } from "../args.js";
+import { assertAllowedFlags } from "./shared.js";
+import type { ClientLike } from "./types.js";
+
+export async function executeActorCommand(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  switch (command.action) {
+    case "print-pub": {
+      assertAllowedFlags(command, commandKey, []);
+      const { actorId, signPub } = await client.getActorPublicKeys({});
+      return [`actor ${actorId}`, `signPub ${Buffer.from(signPub).toString("hex")}`].join("\n");
+    }
+    default:
+      throw new Error(`Unknown command "${commandKey}".`);
+  }
+}

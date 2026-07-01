@@ -14,6 +14,9 @@ export type LodeCommands = ReturnType<typeof createLodeCommands>;
 export type AppRuntime = {
   readonly nodeId: string;
   readonly workspaces: AppWorkspaceRuntime;
+  /** The session manager — exposed so daemon-side handlers (sync governance/share/join) can gate on
+   *  `requireOrigin`, the same gate the engine's own write handlers use. */
+  readonly sessions: SessionManager;
   // The LodeCommands service implementation (typed handlers keyed by RPC name). The daemon
   // binds this to a Connect server; in-process callers invoke handlers directly.
   readonly commands: LodeCommands;
@@ -59,6 +62,7 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
   return {
     nodeId,
     workspaces,
+    sessions,
     commands,
     app,
     removeConnection: (connectionId) => sessions.removeConnection(connectionId),

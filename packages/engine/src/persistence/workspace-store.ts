@@ -6,9 +6,16 @@ import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 /** The default sub-doc name. Single-doc stores use only this; sharded stores use it for the treeDoc and one sub-doc per shard id. */
 export const MAIN_SUBDOC = "main";
 
+/** The doc-kind value for workspace CONTENT docs (the single sharded engine doc). The `docs` table
+ *  holds every persisted Loro doc in the workspace sqlite — content AND non-content (e.g. the
+ *  membership log). `kind` discriminates them so the content loader loads ONLY content and never
+ *  has to know the names of the non-content docs (no magic-string denylist). */
+export const CONTENT_DOC_KIND = "content";
+
 export type DocRecord = {
   docId: string;
   displayName: string;
+  kind: string;
   createdAt: number;
   updatedAt: number;
   latestUpdateSeq: number;
@@ -34,6 +41,7 @@ export class WorkspaceStore {
       CREATE TABLE IF NOT EXISTS docs (
         doc_id TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT '${CONTENT_DOC_KIND}',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
         latest_update_seq INTEGER NOT NULL DEFAULT 0,
@@ -63,6 +71,7 @@ export class WorkspaceStore {
       );
     `);
     await migrateSubDocColumn(db);
+    await migrateKindColumn(db);
     return new WorkspaceStore(db);
   }
 
@@ -70,15 +79,20 @@ export class WorkspaceStore {
     docId: string;
     displayName: string;
     snapshotBytes: Uint8Array;
+    /** Doc kind; defaults to content. Non-content docs (e.g. the membership log) pass their own kind
+     *  so the content loader never loads them. */
+    kind?: string;
   }): Promise<DocRecord> {
     const now = Date.now();
+    const kind = input.kind ?? CONTENT_DOC_KIND;
     await this.db.transaction(async () => {
       await this.db.run(
         `INSERT INTO docs
-          (doc_id, display_name, created_at, updated_at, latest_update_seq, latest_snapshot_seq)
-         VALUES (?, ?, ?, ?, 0, 0)`,
+          (doc_id, display_name, kind, created_at, updated_at, latest_update_seq, latest_snapshot_seq)
+         VALUES (?, ?, ?, ?, ?, 0, 0)`,
         input.docId,
         input.displayName,
+        kind,
         now,
         now,
       );
@@ -98,10 +112,17 @@ export class WorkspaceStore {
     return record;
   }
 
-  async listDocs(): Promise<string[]> {
-    const rows = await this.db.all<{ doc_id: string }>(
-      "SELECT doc_id FROM docs ORDER BY created_at ASC",
-    );
+  /** All doc ids, optionally filtered by kind. Callers that iterate CONTENT (e.g. workspace load)
+   *  pass `kind = CONTENT_DOC_KIND` so non-content docs (the membership log) are excluded without the
+   *  loader having to know their names. */
+  async listDocs(kind?: string): Promise<string[]> {
+    const rows =
+      kind === undefined
+        ? await this.db.all<{ doc_id: string }>("SELECT doc_id FROM docs ORDER BY created_at ASC")
+        : await this.db.all<{ doc_id: string }>(
+            "SELECT doc_id FROM docs WHERE kind = ? ORDER BY created_at ASC",
+            kind,
+          );
     return rows.map((row) => row.doc_id);
   }
 
@@ -140,7 +161,7 @@ export class WorkspaceStore {
 
   async getDoc(docId: string): Promise<DocRecord | null> {
     const row = await this.db.get<DocRow>(
-      `SELECT doc_id, display_name, created_at, updated_at, latest_update_seq, latest_snapshot_seq
+      `SELECT doc_id, display_name, kind, created_at, updated_at, latest_update_seq, latest_snapshot_seq
        FROM docs
        WHERE doc_id = ?`,
       docId,
@@ -309,6 +330,7 @@ export class WorkspaceStore {
 type DocRow = {
   doc_id: string;
   display_name: string;
+  kind: string;
   created_at: number;
   updated_at: number;
   latest_update_seq: number;
@@ -319,6 +341,7 @@ function rowToDoc(row: DocRow): DocRecord {
   return {
     docId: row.doc_id,
     displayName: row.display_name,
+    kind: row.kind,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     latestUpdateSeq: row.latest_update_seq,
@@ -359,4 +382,17 @@ async function migrateSubDocColumn(db: SqlDatabase): Promise<void> {
       FOREIGN KEY (doc_id) REFERENCES docs(doc_id)
     );
   `);
+}
+
+/**
+ * Migration: add the `kind` column to `docs` (discriminates content from non-content docs like the
+ * membership log). Existing rows predate the column → backfill 'content' (every pre-existing doc WAS
+ * content). A no-op when the column already exists.
+ */
+async function migrateKindColumn(db: SqlDatabase): Promise<void> {
+  const cols = await db.all<{ name: string }>(`PRAGMA table_info(docs)`);
+  if (cols.some((c) => c.name === "kind")) {
+    return;
+  }
+  await db.exec(`ALTER TABLE docs ADD COLUMN kind TEXT NOT NULL DEFAULT '${CONTENT_DOC_KIND}'`);
 }
