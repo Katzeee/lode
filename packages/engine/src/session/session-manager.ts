@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { create } from "@bufbuild/protobuf";
 import {
+  ActorSchema,
   NotificationSchema,
   OriginSchema,
   SessionInfoSchema,
@@ -55,9 +56,13 @@ export class SessionManager {
     request: SessionHelloRequest,
     keypair?: ActorKeypair,
   ): SessionInfo {
+    // The actor identity is derived from the mnemonic (no declared actor in the request) — it lives
+    // on the keypair. An anonymous session (no keypair) has no actor.
+    const actor =
+      keypair === undefined ? undefined : create(ActorSchema, { actorId: keypair.actorId });
     const record: SessionRecord = {
       sessionId: randomUUID(),
-      actor: request.actor,
+      actor,
       keypair,
       connectedAt: BigInt(Date.now()),
       client: request.client,

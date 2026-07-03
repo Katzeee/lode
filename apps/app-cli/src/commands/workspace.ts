@@ -1,5 +1,5 @@
 import type { ParsedCli } from "../args.js";
-import { assertAllowedFlags, getOptionalSingleFlag, getRequiredSingleFlag } from "./shared.js";
+import { assertAllowedFlags, getRequiredSingleFlag } from "./shared.js";
 import type { ClientLike } from "./types.js";
 
 export async function executeWorkspaceCommand(
@@ -9,13 +9,12 @@ export async function executeWorkspaceCommand(
 ): Promise<string> {
   switch (command.action) {
     case "create": {
-      assertAllowedFlags(command, commandKey, ["--workspace", "--name"]);
-      const workspaceId = getOptionalSingleFlag(command, "--workspace");
+      assertAllowedFlags(command, commandKey, ["--name"]);
       const displayName = getRequiredSingleFlag(command, "--name");
-      const workspace = await client.createWorkspace({
-        ...(workspaceId ? { workspaceId } : {}),
-        displayName,
-      });
+      // The workspace id is the sync channel id (the broker routes by it; a joiner inherits it via the
+      // share coordinate), so it must be system-generated — never user-chosen (two users picking the
+      // same id on one relay would cross-talk). The RPC generates it when omitted.
+      const workspace = await client.createWorkspace({ displayName });
       return `Created workspace ${workspace.displayName} (${workspace.workspaceId}).`;
     }
 

@@ -3,6 +3,7 @@ import { type Empty } from "@bufbuild/protobuf/wkt";
 import {
   GetNodeChildrenResponseSchema,
   GetNodeResponseSchema,
+  ListRootsResponseSchema,
   type CreatePlainNodeRequest,
   type GetNodeByIdRequest,
   type GetNodeChildrenRequest,
@@ -10,6 +11,8 @@ import {
   type GetNodeRequest,
   type GetNodeResponse,
   type HardDeleteNodeRequest,
+  type ListRootsRequest,
+  type ListRootsResponse,
   type MoveNodeRequest,
   type NodeOccurrenceWire,
   type PromoteCanonicalNodeRequest,
@@ -41,6 +44,11 @@ export function createNodeHandlers(ctx: AppContext) {
       req: CreatePlainNodeRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceWire> => {
+      // The service is a thin RPC adapter over the forest core (AGENTS.md: services own no domain
+      // semantics). Single-root is a PRODUCT policy, so it is enforced at the product surface (the
+      // CLI's `node create` requires `--parent-occ`); the owner-bootstrap root is seeded directly via
+      // the domain primitive in `createWorkspace`. This RPC stays a forest pass-through (null parent =
+      // root), which the engine/CRUD tests rely on.
       const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
         createPlainNodeCore(doc, req.parentOccurrenceId ?? null, req.index, req.props),
       );
@@ -72,6 +80,11 @@ export function createNodeHandlers(ctx: AppContext) {
     ): Promise<GetNodeChildrenResponse> => {
       const children = getSemanticChildren(await getEngine(ctx, req.workspaceId), req.occurrenceId);
       return create(GetNodeChildrenResponseSchema, { children: children.map(nodeToProto) });
+    },
+
+    listRoots: async (req: ListRootsRequest, _connectionId: string): Promise<ListRootsResponse> => {
+      const roots = (await getEngine(ctx, req.workspaceId)).getRootOccurrences();
+      return create(ListRootsResponseSchema, { roots: roots.map(nodeToProto) });
     },
 
     moveNode: async (req: MoveNodeRequest, connectionId: string): Promise<Empty> => {

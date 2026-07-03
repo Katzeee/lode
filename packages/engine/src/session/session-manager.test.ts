@@ -10,10 +10,7 @@ describe("SessionManager — getActorPublicKeys", () => {
     const actor = generateActorKeypair();
     sessions.createSession(
       "conn-1",
-      create(SessionHelloRequestSchema, {
-        actor: { actorId: actor.actorId },
-        mnemonic: "ignored by the manager",
-      }),
+      create(SessionHelloRequestSchema, { mnemonic: "ignored by the manager" }),
       actor,
     );
     expect(sessions.getActorPublicKeys("conn-1")).toEqual({
@@ -25,11 +22,7 @@ describe("SessionManager — getActorPublicKeys", () => {
   it("retains the full keypair (createWorkspace signs as this actor)", () => {
     const sessions = new SessionManager("node-1");
     const actor = generateActorKeypair();
-    sessions.createSession(
-      "conn-1",
-      create(SessionHelloRequestSchema, { actor: { actorId: actor.actorId }, mnemonic: "x" }),
-      actor,
-    );
+    sessions.createSession("conn-1", create(SessionHelloRequestSchema, { mnemonic: "x" }), actor);
     expect(sessions.getActorKeypair("conn-1")).toEqual({ actorId: actor.actorId, keypair: actor });
   });
 

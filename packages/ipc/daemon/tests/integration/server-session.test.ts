@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import type { Notification, NodeOccurrenceWire } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
@@ -34,7 +33,6 @@ describe("AppServer sessions and notifications", () => {
 
   it("session.hello returns the established session", async () => {
     const { session, actorId } = await openAuthedSession(client, {
-      displayName: "Actor One",
       client: { name: "vitest" },
     });
 
@@ -43,7 +41,7 @@ describe("AppServer sessions and notifications", () => {
     if (!session.actor) {
       throw new Error("expected session actor");
     }
-    expect(session.actor).toMatchObject({ actorId, displayName: "Actor One" });
+    expect(session.actor).toMatchObject({ actorId });
     expect(session.client).toMatchObject({ name: "vitest" });
     expect(typeof session.connectedAt).toBe("bigint");
   });
@@ -141,37 +139,3 @@ async function createWorkspaceAndDoc(client: AppServerClient): Promise<void> {
     displayName: "Test Workspace",
   });
 }
-
-describe("actor authentication (mnemonic)", () => {
-  let server: AppServerDaemon;
-  let client: AppServerClient;
-
-  beforeEach(async () => {
-    server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient({ url: server.address });
-    client.connect();
-  });
-
-  afterEach(async () => {
-    client.close();
-    await server.stop();
-  });
-
-  it("rejects a mnemonic that derives to a different actor than declared", async () => {
-    const claimedMnemonic = generateMnemonic();
-    const claimedActorId = deriveActorKeypairFromMnemonic(claimedMnemonic).actorId;
-    const otherMnemonic = generateMnemonic(); // derives to a different actor id
-    await expect(
-      client.rpc.sessionHello({ actor: { actorId: claimedActorId }, mnemonic: otherMnemonic }),
-    ).rejects.toThrow();
-  });
-
-  it("rejects an invalid mnemonic (not a valid BIP-39 phrase)", async () => {
-    await expect(
-      client.rpc.sessionHello({
-        actor: { actorId: "nobody" },
-        mnemonic: "this is not a valid bip39 phrase",
-      }),
-    ).rejects.toThrow();
-  });
-});

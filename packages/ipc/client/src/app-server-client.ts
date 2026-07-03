@@ -10,12 +10,8 @@ export type AppServerClientOptions = {
 };
 
 export type AuthenticateOptions = {
-  /** The actor's BIP-39 mnemonic; the daemon derives the keypair and verifies identity server-side. */
+  /** The actor's BIP-39 mnemonic; the daemon derives the keypair (identity) server-side. */
   readonly actorMnemonic: string;
-  /** The claimed actor id — must match what the mnemonic derives to (the daemon checks). */
-  readonly actorId: string;
-  /** Optional human-readable name surfaced to the daemon (audit/debug display only). */
-  readonly displayName?: string;
   /** Client identity hints surfaced to the daemon (UI surface name + version). */
   readonly client?: { readonly name?: string; readonly version?: string };
 };
@@ -44,15 +40,10 @@ export class AppServerClient {
     void this.pumpNotifications();
   }
 
-  /** Submit the mnemonic in `sessionHello`; the daemon derives the keypair and confirms the derived
-   *  actor id matches the declared one before creating the session. The caller supplies only the
-   *  mnemonic + actor id — no private key material crosses into the client. */
+  /** Submit the mnemonic in `sessionHello`; the daemon derives the identity from it before creating
+   *  the session. The caller supplies only the mnemonic — no actor id, no private key material. */
   async authenticate(opts: AuthenticateOptions): Promise<SessionInfo> {
     return this.rpc.sessionHello({
-      actor: {
-        actorId: opts.actorId,
-        ...(opts.displayName === undefined ? {} : { displayName: opts.displayName }),
-      },
       mnemonic: opts.actorMnemonic,
       ...(opts.client === undefined ? {} : { client: opts.client }),
     });

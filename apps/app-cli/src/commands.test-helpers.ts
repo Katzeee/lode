@@ -42,7 +42,6 @@ export function command(
       : { "--workspace": ["ws_main"], ...flags };
   return {
     url: "http://localhost:8080",
-    actorId: "alice",
     group,
     action,
     flags: resolvedFlags,

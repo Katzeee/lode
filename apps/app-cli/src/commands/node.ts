@@ -5,7 +5,6 @@ import {
   describeNullableId,
   formatNodeBlock,
   getOptionalIndex,
-  getOptionalNullableFlag,
   getOptionalSingleFlag,
   getRequiredNullableFlag,
   getRequiredSingleFlag,
@@ -22,6 +21,8 @@ export async function executeNodeCommand(
       return executeNodeCreate(client, command, commandKey);
     case "get":
       return executeNodeGet(client, command, commandKey);
+    case "list":
+      return executeNodeList(client, command, commandKey);
     case "children":
       return executeNodeChildren(client, command, commandKey);
     case "move":
@@ -56,7 +57,9 @@ async function executeNodeCreate(
 ): Promise<string> {
   assertAllowedFlags(command, commandKey, ["--workspace", "--parent-occ", "--index", "--text"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
-  const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
+  // Single-root tree: every node has a parent. The owner's createWorkspace seeds the root; thereafter
+  // all creation attaches under it (or its descendants) — `--parent-occ` is required.
+  const parentOccurrenceId = getRequiredNullableFlag(command, "--parent-occ");
   const index = getOptionalIndex(command);
   const text = getOptionalSingleFlag(command, "--text");
   const created = await client.createPlainNode({
@@ -110,6 +113,38 @@ async function executeNodeChildren(
     `children parent=${occurrenceId} count=${children.length}`,
     ...children.map((child) => formatNodeBlock(child, resolveNodeName)),
   ].join("\n");
+}
+
+async function executeNodeList(
+  client: ClientLike,
+  command: ParsedCli,
+  commandKey: string,
+): Promise<string> {
+  assertAllowedFlags(command, commandKey, ["--workspace"]);
+  const workspaceId = getRequiredSingleFlag(command, "--workspace");
+  const roots = (await client.listRoots({ workspaceId })).roots;
+  if (roots.length === 0) {
+    // A fresh joiner before the owner's root converges via sync, or a workspace with no root yet.
+    return `No root in workspace ${workspaceId} yet.`;
+  }
+  const lines: string[] = [`roots count=${roots.length}`];
+  for (const root of roots) {
+    const resolveRootName = await buildNodeNameResolver(client, workspaceId, [root]);
+    lines.push(formatNodeBlock(root, resolveRootName));
+    // Under single-root the top-level notes are the root's direct children — show them inline so a
+    // member can see synced content (and the owner can browse) without a second command.
+    const children = (
+      await client.getNodeChildren({ workspaceId, occurrenceId: root.occurrenceId })
+    ).children;
+    if (children.length > 0) {
+      const resolveChildName = await buildNodeNameResolver(client, workspaceId, children);
+      lines.push(
+        `children parent=${root.occurrenceId} count=${children.length}`,
+        ...children.map((child) => formatNodeBlock(child, resolveChildName)),
+      );
+    }
+  }
+  return lines.join("\n");
 }
 
 async function executeNodeMove(

@@ -11,23 +11,18 @@ async function main(): Promise<void> {
     const parsed = parseCli(process.argv.slice(2));
     client = new AppServerClient({ url: parsed.url });
     client.connect();
-    // `actor new` mints a fresh identity — it has no actor/mnemonic yet and must skip auth. Every
-    // other command needs an authenticated session (actor + mnemonic).
+    // `actor new` mints a fresh identity — it has no mnemonic yet and must skip auth. Every other
+    // command needs an authenticated session, established from the mnemonic alone (the daemon derives
+    // the identity).
     const needsAuth = !(parsed.group === "actor" && parsed.action === "new");
     if (needsAuth) {
-      if (!parsed.actorId) {
-        throw new Error('Missing actor. Provide "--actor <id>" or set LODE_ACTOR.');
-      }
       if (!parsed.actorMnemonic) {
         throw new Error(
           'Missing actor mnemonic. Provide "--actor-mnemonic <words>" or set LODE_ACTOR_MNEMONIC.',
         );
       }
-      // The daemon derives the keypair from the mnemonic and verifies it matches the declared actor
-      // id — no key material lives client-side.
       await client.authenticate({
         actorMnemonic: parsed.actorMnemonic,
-        actorId: parsed.actorId,
         client: { name: "lode" },
       });
     }

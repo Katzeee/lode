@@ -21,19 +21,18 @@ import { EMPTY } from "./empty.js";
 
 export function createSessionHandlers(ctx: AppContext) {
   return {
-    // The client sends the actor's mnemonic; the daemon derives the keypair and confirms the derived
-    // actor id matches the declared one (only the mnemonic holder can). No match → reject; the session
-    // is never created for an unverified actor. The derived sign pub is retained on the session so a
-    // peer can add this actor as a member via GetActorPublicKeys.
+    // The client sends only the mnemonic; the daemon derives the keypair (the identity IS the derived
+    // actor id — no declared actor to cross-check). A bad/undecodable mnemonic → reject; the session is
+    // never created. The derived sign pub is retained on the session so a peer can add this actor as a
+    // member via GetActorPublicKeys.
     sessionHello: (req: SessionHelloRequest, connectionId: string): SessionInfo => {
-      const actor = req.actor;
       let keypair: ActorKeypair | undefined;
       try {
         keypair = deriveActorKeypairFromMnemonic(req.mnemonic);
       } catch {
         keypair = undefined;
       }
-      if (actor === undefined || keypair === undefined || keypair.actorId !== actor.actorId) {
+      if (keypair === undefined) {
         throw new Error("sessionHello: actor authentication failed (bad mnemonic)");
       }
       return ctx.sessions.createSession(connectionId, req, keypair);

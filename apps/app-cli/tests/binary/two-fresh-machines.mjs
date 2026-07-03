@@ -1,0 +1,90 @@
+// Test B — binary sync: the real two-fresh-machines share→join→see flow. Spawns a relay + two engine
+// daemons (owner A, member B), drives `lode` against each, and asserts bidirectional convergence:
+//   • A→B (Stage C fast-path): member joins, sees the owner's node via `node list` — no manual sync.
+//   • B→A (writes don't auto-push): member writes + both `sync now`, owner sees the member's node.
+//
+// Run: `node tests/binary/two-fresh-machines.mjs` (verbose) or via `npm run test:binary` (`--quiet`).
+
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  spawnRelay,
+  spawnDaemon,
+  runLode,
+  poll,
+  parseActorNew,
+  parseSignPub,
+  parseWorkspaceCreated,
+  parseRootOcc,
+  assertContains,
+  killAll,
+} from "./_binary-helpers.mjs";
+
+let relay;
+let relayUrl;
+let owner;
+let ownerUrl;
+let member;
+let memberUrl;
+let tmpA;
+let tmpB;
+
+try {
+  // ── topology: one relay + two independent daemons (two fresh machines) ──
+  ({ child: relay, url: relayUrl } = await spawnRelay());
+  tmpA = await mkdtemp(join(tmpdir(), "lode-sync-owner-"));
+  tmpB = await mkdtemp(join(tmpdir(), "lode-sync-member-"));
+  ({ child: owner, url: ownerUrl } = await spawnDaemon(tmpA));
+  ({ child: member, url: memberUrl } = await spawnDaemon(tmpB));
+
+  /** A `lode` runner bound to one daemon's url + the session's mnemonic. */
+  const be = (url, mnemonic) => (...args) => runLode(url, mnemonic, args);
+
+  // ── bootstrap identities on each machine ──
+  const ownerMnemonic = parseActorNew(await runLode(ownerUrl, undefined, ["actor", "new"])).mnemonic;
+  const memberMnemonic = parseActorNew(await runLode(memberUrl, undefined, ["actor", "new"])).mnemonic;
+  const ownerBe = be(ownerUrl, ownerMnemonic);
+  const memberBe = be(memberUrl, memberMnemonic);
+
+  // member's sign pub → owner (out-of-band): the owner needs it to add the member.
+  const memberSignPub = parseSignPub(await memberBe("actor", "print-pub"));
+
+  // ── owner: workspace (system-generated id) + its seeded root ──
+  const ws = parseWorkspaceCreated(await ownerBe("workspace", "create", "--name", "Shared"));
+  const ownerRoot = parseRootOcc(await ownerBe("node", "list", "--workspace", ws));
+
+  // ── owner: add member, dial the relay, write a node, share the coordinate ──
+  await ownerBe("member", "add", "--workspace", ws, "--sign-pub", memberSignPub);
+  await ownerBe("sync", "register", "--workspace", ws, "--relay", relayUrl);
+  await ownerBe("node", "create", "--workspace", ws, "--parent-occ", ownerRoot, "--text", "Hello from A");
+  const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
+
+  // ── A→B: member joins → sees the owner's node (Stage C auto-fires a content round) ──
+  await memberBe("sync", "join", "--coordinate", coord);
+  const memberListing = await poll("member to see 'Hello from A'", async () => {
+    const out = await memberBe("node", "list", "--workspace", ws);
+    return out.includes("Hello from A") ? out : undefined;
+  });
+  assertContains(memberListing, "Hello from A", "member node list (A→B)");
+  const memberRoot = parseRootOcc(memberListing);
+
+  // ── B→A: member writes + both sides `sync now` (writes don't auto-push — T3 deferred) → owner sees it ──
+  await memberBe("node", "create", "--workspace", ws, "--parent-occ", memberRoot, "--text", "Hello from B");
+  await memberBe("sync", "now", "--workspace", ws); // member pushes
+  await ownerBe("sync", "now", "--workspace", ws); // owner pulls
+  const ownerListing = await poll("owner to see 'Hello from B'", async () => {
+    const out = await ownerBe("node", "list", "--workspace", ws);
+    return out.includes("Hello from B") ? out : undefined;
+  });
+  assertContains(ownerListing, "Hello from B", "owner node list (B→A)");
+
+  if (process.argv.includes("--quiet")) {
+    console.log("two-fresh-machines binary test: OK");
+  }
+} finally {
+  killAll(relay, owner, member);
+  await Promise.all(
+    [tmpA, tmpB].map((d) => (d ? rm(d, { recursive: true, force: true }) : undefined)),
+  );
+}

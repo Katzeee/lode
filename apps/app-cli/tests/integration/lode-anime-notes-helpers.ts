@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
+import { generateMnemonic } from "@lode/engine";
 import { parseCli } from "../../src/args.js";
 import { executeCommand } from "../../src/commands.js";
 
@@ -11,7 +11,9 @@ export type NodeRef = {
 
 export type BeCliHarness = {
   be: (...args: string[]) => Promise<string>;
-  createNode: (text: string, parentOccurrenceId?: string) => Promise<NodeRef>;
+  /** Create a workspace (system-generated id) and return its id + the owner-root occurrence. */
+  createWorkspace: (name: string) => Promise<{ workspaceId: string; rootOccurrenceId: string }>;
+  createNode: (text: string, parentOccurrenceId: string) => Promise<NodeRef>;
   createSchema: (name: string, parentOccurrenceId: string) => Promise<NodeRef>;
   createFieldDef: (
     name: string,
@@ -31,30 +33,50 @@ export type BeCliHarness = {
   ) => Promise<{ occurrenceId: string }>;
 };
 
-export const ANIME_WORKSPACE_ID = "ws_anime";
-
 export function createBeCliHarness(url: () => string): BeCliHarness {
   const mnemonic = generateMnemonic();
-  const actorId = deriveActorKeypairFromMnemonic(mnemonic).actorId;
+  // Set by createWorkspace; subsequent commands target it (a workspace id is the sync channel, so it
+  // is system-generated, not user-chosen — captured from the create output).
+  let workspaceId = "";
+
   const be = async (...args: string[]): Promise<string> => {
-    const parsed = parseCli(["--url", url(), "--actor", actorId, ...args]);
+    const parsed = parseCli(["--url", url(), ...args]);
     const client = new AppServerClient({ url: parsed.url });
     client.connect();
     try {
-      await client.authenticate({ actorMnemonic: mnemonic, actorId });
+      await client.authenticate({ actorMnemonic: mnemonic });
       return await executeCommand(client.rpc, parsed);
     } finally {
       client.close();
     }
   };
 
-  const createNode = async (text: string, parentOccurrenceId?: string): Promise<NodeRef> => {
-    const args = ["node", "create", "--workspace", ANIME_WORKSPACE_ID, "--text", text];
-    if (parentOccurrenceId !== undefined) {
-      args.push("--parent-occ", parentOccurrenceId);
-    }
-    return parseNodeCreated(await be(...args));
+  const createWorkspace = async (
+    name: string,
+  ): Promise<{ workspaceId: string; rootOccurrenceId: string }> => {
+    const out = await be("workspace", "create", "--name", name);
+    const match = /^Created workspace .* \((?<id>.+)\)\.$/.exec(out);
+    workspaceId = requireGroup(requireGroups(match), "id");
+    // createWorkspace seeds the single owner root (named = name); discover its occurrence via `node list`
+    // (line 1 is "root"; line 2 begins with "<rootOcc>  <name>").
+    const listed = await be("node", "list", "--workspace", workspaceId);
+    const rootOccurrenceId = listed.split("\n").at(1)?.split(/\s+/).at(0) ?? "";
+    return { workspaceId, rootOccurrenceId };
   };
+
+  const createNode = async (text: string, parentOccurrenceId: string): Promise<NodeRef> =>
+    parseNodeCreated(
+      await be(
+        "node",
+        "create",
+        "--workspace",
+        workspaceId,
+        "--text",
+        text,
+        "--parent-occ",
+        parentOccurrenceId,
+      ),
+    );
 
   const createSchema = async (name: string, parentOccurrenceId: string): Promise<NodeRef> =>
     parseSchemaCreated(
@@ -62,8 +84,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "schema",
         "create",
         "--workspace",
-        ANIME_WORKSPACE_ID,
-
+        workspaceId,
         "--name",
         name,
         "--parent-occ",
@@ -81,8 +102,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "field-def",
         "create",
         "--workspace",
-        ANIME_WORKSPACE_ID,
-
+        workspaceId,
         "--parent-occ",
         parentOccurrenceId,
         "--name",
@@ -96,8 +116,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "schema",
       "apply",
       "--workspace",
-      ANIME_WORKSPACE_ID,
-
+      workspaceId,
       "--target-occ",
       targetOccurrenceId,
       "--schema-node",
@@ -114,8 +133,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
         "field",
         "add",
         "--workspace",
-        ANIME_WORKSPACE_ID,
-
+        workspaceId,
         "--target-occ",
         targetOccurrenceId,
         "--field-def-node",
@@ -133,8 +151,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "field",
       "set-values",
       "--workspace",
-      ANIME_WORKSPACE_ID,
-
+      workspaceId,
       "--field-occ",
       field.occurrenceId,
       "--text",
@@ -153,8 +170,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
       "field",
       "set-values",
       "--workspace",
-      ANIME_WORKSPACE_ID,
-
+      workspaceId,
       "--field-occ",
       field.occurrenceId,
       "--ref-node",
@@ -165,6 +181,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
 
   return {
     be,
+    createWorkspace,
     createNode,
     createSchema,
     createFieldDef,

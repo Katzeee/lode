@@ -129,6 +129,7 @@ export function createLodeServer(
         getNode: unary(commands.getNode),
         getNodeById: unary(commands.getNodeById),
         getNodeChildren: unary(commands.getNodeChildren),
+        listRoots: unary(commands.listRoots),
         moveNode: unary(commands.moveNode),
         removeNodeOccurrence: unary(commands.removeNodeOccurrence),
         hardDeleteNode: unary(commands.hardDeleteNode),

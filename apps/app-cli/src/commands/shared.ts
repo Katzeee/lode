@@ -65,6 +65,7 @@ export const APPROVED_FLAGS = new Set([
   "--index",
   "--sign-pub",
   "--coordinate",
+  "--relay",
 ]);
 
 export function assertAllowedFlags(

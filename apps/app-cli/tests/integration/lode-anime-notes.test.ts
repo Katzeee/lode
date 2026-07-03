@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
-import { ANIME_WORKSPACE_ID, createBeCliHarness } from "./lode-anime-notes-helpers.js";
+import { createBeCliHarness } from "./lode-anime-notes-helpers.js";
 
 describe("lode CLI anime notes smoke", () => {
   let server: AppServerDaemon;
@@ -27,9 +27,11 @@ describe("lode CLI anime notes smoke", () => {
   it("creates and reads a realistic anime notes workspace through be commands", async () => {
     const cli = createBeCliHarness(() => address);
 
-    await cli.be("workspace", "create", "--workspace", ANIME_WORKSPACE_ID, "--name", "Anime");
+    const ws = await cli.createWorkspace("Anime");
 
-    const root = await cli.createNode("Root");
+    // The owner's createWorkspace seeds the single root (named "Anime"); nest the test's "Root"
+    // container under it (single-root tree — every node has a parent).
+    const root = await cli.createNode("Root", ws.rootOccurrenceId);
     const schemaRoot = await cli.createNode("Schema", root.occurrenceId);
     const libraryRoot = await cli.createNode("Library", root.occurrenceId);
     const notesRoot = await cli.createNode("Notes", root.occurrenceId);
@@ -192,7 +194,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "children",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       root.occurrenceId,
@@ -205,7 +207,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "children",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       notesRoot.occurrenceId,
@@ -217,7 +219,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "get",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       quickNote.occurrenceId,
@@ -229,7 +231,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "children",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       quickMoodField.occurrenceId,
@@ -240,7 +242,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "children",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       reviewOverallField.occurrenceId,
@@ -258,7 +260,7 @@ describe("lode CLI anime notes smoke", () => {
       "node",
       "get",
       "--workspace",
-      ANIME_WORKSPACE_ID,
+      ws.workspaceId,
 
       "--occ",
       quickNote.occurrenceId,

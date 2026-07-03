@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap } from "loro-crdt";
+import { generateActorKeypair } from "../utils/crypto/index.js";
 import { AppWorkspaceRuntime } from "./workspace-registry.js";
 import { shardIdOf } from "../core/sharding.js";
 
@@ -151,5 +152,57 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     expect(second.displayName).toBe("WS"); // original display name preserved, not overwritten
     expect((await rt.listWorkspaces()).length).toBe(1);
     await rt.close();
+  });
+
+  it("an owner createWorkspace creates a single root node named = the workspace display name", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    const owner = generateActorKeypair();
+    await rt.createWorkspace({
+      workspaceId: "ws",
+      displayName: "My Workspace",
+      actorKeypair: owner,
+    });
+    const doc = (await rt.getEngine("ws"))!;
+    const roots = doc.getRootOccurrences();
+    expect(roots).toHaveLength(1);
+    for (const root of roots) {
+      const text = doc
+        .getOccurrence(root.occurrenceId)
+        ?.deltas.map((d) => d.insert)
+        .join("");
+      expect(text).toBe("My Workspace");
+    }
+    await rt.close();
+  });
+
+  it("a joiner createWorkspace (no keypair) creates no root — it converges the owner's over sync", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    const doc = (await rt.getEngine("ws"))!;
+    expect(doc.getRootOccurrences()).toHaveLength(0);
+    await rt.close();
+  });
+
+  it("the owner root is persisted — it survives a restart (regression guard for the bootstrap persist)", async () => {
+    const owner = generateActorKeypair();
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "Persisted", actorKeypair: owner });
+    await rt.close();
+    // Re-open the same dataRoot: the root must reload from the persisted update, not be in-memory only.
+    const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    try {
+      const doc = (await rt2.getEngine("ws"))!;
+      const roots = doc.getRootOccurrences();
+      expect(roots).toHaveLength(1);
+      for (const root of roots) {
+        const text = doc
+          .getOccurrence(root.occurrenceId)
+          ?.deltas.map((d) => d.insert)
+          .join("");
+        expect(text).toBe("Persisted");
+      }
+    } finally {
+      await rt2.close();
+    }
   });
 });

@@ -128,10 +128,9 @@ message FieldMoveValue {
 // ---- session ----
 
 message SessionHelloRequest {
-  Actor actor = 1;
   optional ClientInfo client = 2;
-  // The actor's BIP-39 mnemonic; the daemon derives the keypair and confirms the derived actor_id
-  // matches the declared actor — only the mnemonic holder can.
+  // The actor's BIP-39 mnemonic; the daemon derives the keypair (identity = the derived actor id).
+  // No declared actor: the id is fully determined by the mnemonic, so it carries nothing extra.
   string mnemonic = 3;
 }
 
@@ -197,6 +196,16 @@ message GetNodeChildrenRequest {
 
 message GetNodeChildrenResponse {
   repeated NodeOccurrenceWire children = 1;
+}
+
+message ListRootsRequest {
+  string workspace_id = 1;
+}
+
+message ListRootsResponse {
+  // The workspace's top-level (root) occurrences. After single-root, exactly one for an owner-created
+  // workspace (the joiner converges it via sync); empty before the root has arrived.
+  repeated NodeOccurrenceWire roots = 1;
 }
 
 message MoveNodeRequest {

@@ -6,6 +6,7 @@ import { Workspace, type Engine, type VersionVector } from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
 import { validateSnapshot } from "../core/invariant.js";
 import { toJSON } from "../core/serializers/json.js";
+import { createPlainNode } from "../domain/node.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
 import { CONTENT_DOC_KIND, MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
@@ -206,6 +207,24 @@ export class AppWorkspaceRuntime {
       docId: MAIN_SUBDOC,
       displayName: "Main",
     });
+    // Single-root tree: the owner's createWorkspace creates the one root node (named = the workspace's
+    // display name), gated on the owner keypair exactly like the membership root above. The joiner (no
+    // keypair) creates no root — it converges the owner's root over sync. Guarded on an empty tree so a
+    // re-create never double-roots. The runtime calls the domain primitive directly (parent = null),
+    // bypassing the service-layer parent-required guard the RPC path enforces.
+    const doc = loaded.workspace.getDoc(MAIN_SUBDOC);
+    if (
+      doc !== undefined &&
+      input.actorKeypair !== undefined &&
+      doc.getRootOccurrences().length === 0
+    ) {
+      // Persist alongside createDoc's empty snapshot — capture the pre-create version so the root
+      // op (node + its name text) is appended as one update; otherwise a restart reloads an empty tree.
+      const beforeVersion = doc.getVersion();
+      const root = createPlainNode(doc, null);
+      doc.replaceDeltas(root.occurrenceId, [{ insert: input.displayName }]);
+      await this.persistMutation(info.workspaceId, beforeVersion);
+    }
     return info;
   }
 

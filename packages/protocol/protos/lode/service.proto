@@ -30,6 +30,7 @@ service LodeCommands {
   rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
   rpc GetNodeById(GetNodeByIdRequest) returns (GetNodeResponse);
   rpc GetNodeChildren(GetNodeChildrenRequest) returns (GetNodeChildrenResponse);
+  rpc ListRoots(ListRootsRequest) returns (ListRootsResponse);
   rpc MoveNode(MoveNodeRequest) returns (google.protobuf.Empty);
   rpc RemoveNodeOccurrence(RemoveNodeOccurrenceRequest) returns (google.protobuf.Empty);
   rpc HardDeleteNode(HardDeleteNodeRequest) returns (google.protobuf.Empty);
