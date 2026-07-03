@@ -139,3 +139,161 @@ describe("broker routing core — content-blindness + edges", () => {
     expect(at(b.delivered).payload).toHaveLength(0);
   });
 });
+
+describe("broker directed routing (§3c)", () => {
+  it("routes a directed publish to only the target peerId", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    const c = recorder("c");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.connect(c.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W", "peerB");
+    broker.subscribe("c", "W", "peerC");
+
+    broker.publish("a", "W", bytes("dm"), "peerC");
+
+    expect(c.delivered).toHaveLength(1); // only the target
+    expect(Buffer.from(at(c.delivered).payload).toString()).toBe("dm");
+    expect(b.delivered).toHaveLength(0); // other subscriber not reached
+    expect(a.delivered).toHaveLength(0); // sender never echoed
+  });
+
+  it("a directed publish to an unknown peerId delivers nothing and does not throw", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W", "peerB");
+
+    expect(() => broker.publish("a", "W", bytes("x"), "ghost")).not.toThrow();
+    expect(b.delivered).toHaveLength(0);
+  });
+
+  it("broadcast still reaches subscribers that declared no peerId (back-compat)", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W"); // broadcast-only — not a directed target, but still receives broadcasts
+
+    broker.publish("a", "W", bytes("all"));
+    expect(b.delivered).toHaveLength(1);
+    expect(a.delivered).toHaveLength(0); // sender excluded
+  });
+
+  it("peers(wsId) lists only the declared routing peerIds", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    const d = recorder("d");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.connect(d.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W", "peerB");
+    broker.subscribe("d", "W"); // no peerId → not directable, not listed
+
+    expect(broker.peers("W").sort()).toEqual(["peerA", "peerB"]);
+    expect(broker.peers("nope")).toEqual([]);
+  });
+
+  it("isSubscribed reports channel activeness", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    broker.connect(a.peer);
+    broker.subscribe("a", "W");
+    expect(broker.isSubscribed("a", "W")).toBe(true);
+    expect(broker.isSubscribed("a", "other")).toBe(false);
+  });
+
+  it("unsubscribe clears the route entry, so a directed publish to it becomes a no-op", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W", "peerB");
+
+    broker.unsubscribe("b", "W");
+    expect(broker.peers("W")).toEqual(["peerA"]);
+    broker.publish("a", "W", bytes("x"), "peerB");
+    expect(b.delivered).toHaveLength(0); // b left the route table → not reached
+  });
+
+  it("disconnect clears the peer's route entries across every channel", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W1", "peerA");
+    broker.subscribe("b", "W1", "peerB");
+    broker.subscribe("a", "W2", "peerA");
+    broker.subscribe("b", "W2", "peerB");
+
+    broker.disconnect("b");
+    expect(broker.peers("W1")).toEqual(["peerA"]);
+    expect(broker.peers("W2")).toEqual(["peerA"]);
+    broker.publish("a", "W1", bytes("x"), "peerB");
+    broker.publish("a", "W2", bytes("y"), "peerB");
+    expect(b.delivered).toHaveLength(0);
+  });
+
+  it("two conns claiming the same peerId: last-writer-wins the route (no-auth hint)", () => {
+    // peerId is a spoofable routing hint on a no-auth relay — the relay does not adjudicate ownership;
+    // the latest subscriber to claim a peerId wins its route entry.
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    const c = recorder("c");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.connect(c.peer);
+    broker.subscribe("a", "W", "dup");
+    broker.subscribe("b", "W", "dup"); // b overwrites a's claim
+    broker.subscribe("c", "W", "peerC"); // a neutral sender
+
+    broker.publish("c", "W", bytes("z"), "dup");
+    expect(b.delivered).toHaveLength(1); // latest claimant receives
+    expect(a.delivered).toHaveLength(0); // shadowed by b
+    expect(c.delivered).toHaveLength(0); // sender excluded
+  });
+
+  it("re-subscribing a conn with a new peerId clears the old route entry (no stale target)", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W", "pa");
+    broker.subscribe("b", "W", "pb");
+    broker.subscribe("a", "W", "pa2"); // a rotates its peerId
+
+    expect(broker.peers("W").sort()).toEqual(["pa2", "pb"]); // "pa" gone, not lingering
+    broker.publish("b", "W", bytes("x"), "pa"); // old peerId no longer routes
+    expect(a.delivered).toHaveLength(0);
+    broker.publish("b", "W", bytes("y"), "pa2"); // new peerId routes
+    expect(a.delivered).toHaveLength(1);
+  });
+
+  it("re-subscribing a conn without a peerId downgrades it out of the route table", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W", "pa");
+    broker.subscribe("b", "W", "pb");
+    broker.subscribe("a", "W"); // a drops its peerId → broadcast-only
+
+    expect(broker.peers("W")).toEqual(["pb"]); // a no longer a directed target
+  });
+});

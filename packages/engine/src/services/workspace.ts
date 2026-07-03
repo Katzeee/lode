@@ -1,15 +1,10 @@
 import { create } from "@bufbuild/protobuf";
-import { BoolValueSchema, StringValueSchema, type Empty } from "@bufbuild/protobuf/wkt";
+import { BoolValueSchema, type Empty } from "@bufbuild/protobuf/wkt";
 import {
-  ListWorkspaceDocsResponseSchema,
   ListWorkspacesResponseSchema,
   WorkspaceInfoSchema,
-  type CreateWorkspaceDocRequest,
   type CreateWorkspaceRequest,
-  type ListWorkspaceDocsRequest,
-  type ListWorkspaceDocsResponse,
   type ListWorkspacesResponse,
-  type RemoveWorkspaceDocRequest,
   type RemoveWorkspaceRequest,
   type WorkspaceInfo,
 } from "@lode/protocol/proto";
@@ -22,9 +17,12 @@ export function createWorkspaceHandlers(ctx: AppContext) {
       connectionId: string,
     ): Promise<WorkspaceInfo> => {
       ctx.sessions.requireOrigin(connectionId);
+      // The creator is the owner: init the membership root with the session actor's keypair.
+      const { keypair } = ctx.sessions.getActorKeypair(connectionId);
       const info = await ctx.workspaces.createWorkspace({
         displayName: req.displayName,
         ...(req.workspaceId === undefined ? {} : { workspaceId: req.workspaceId }),
+        actorKeypair: keypair,
       });
       return create(WorkspaceInfoSchema, {
         workspaceId: info.workspaceId,
@@ -48,31 +46,6 @@ export function createWorkspaceHandlers(ctx: AppContext) {
       ctx.sessions.requireOrigin(connectionId);
       return create(BoolValueSchema, {
         value: await ctx.workspaces.removeWorkspace(req.workspaceId),
-      });
-    },
-
-    createWorkspaceDoc: async (req: CreateWorkspaceDocRequest, connectionId: string) => {
-      ctx.sessions.requireOrigin(connectionId);
-      const docId = await ctx.workspaces.createDoc({
-        workspaceId: req.workspaceId,
-        ...(req.docId === undefined ? {} : { docId: req.docId }),
-        ...(req.displayName === undefined ? {} : { displayName: req.displayName }),
-      });
-      return create(StringValueSchema, { value: docId });
-    },
-
-    listWorkspaceDocs: async (
-      req: ListWorkspaceDocsRequest,
-      _connectionId: string,
-    ): Promise<ListWorkspaceDocsResponse> =>
-      create(ListWorkspaceDocsResponseSchema, {
-        docIds: await ctx.workspaces.listDocs(req.workspaceId),
-      }),
-
-    removeWorkspaceDoc: async (req: RemoveWorkspaceDocRequest, connectionId: string) => {
-      ctx.sessions.requireOrigin(connectionId);
-      return create(BoolValueSchema, {
-        value: await ctx.workspaces.removeDoc(req.workspaceId, req.docId),
       });
     },
   };

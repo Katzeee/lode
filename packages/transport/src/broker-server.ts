@@ -105,7 +105,8 @@ export class BrokerServer {
       const k = frame.kind;
       switch (k.case) {
         case "subscribe":
-          this.broker.subscribe(id, k.value.wsId);
+          // peerId (optional, per-dataRoot) opts the peer into directed delivery + the peers() list.
+          this.broker.subscribe(id, k.value.wsId, k.value.peerId || undefined);
           break;
         case "unsubscribe":
           this.broker.unsubscribe(id, k.value.wsId);
@@ -113,14 +114,33 @@ export class BrokerServer {
         case "publish":
           // A non-subscriber publish throws in the core; swallow it (routing rule, not a crash).
           try {
-            this.broker.publish(id, k.value.wsId, k.value.payload);
+            this.broker.publish(id, k.value.wsId, k.value.payload, k.value.toPeerId || undefined);
           } catch {
             // sender not subscribed — ignore
           }
           break;
+        case "peersReq": {
+          // Discovery (§3c). The relay answers every request (never a silent drop — a no-answer is
+          // indistinguishable from a dead relay), but a NON-subscriber gets an empty roster: a peer may
+          // only learn the members of a channel it belongs to (workspace isolation — a ws1 peer must
+          // not enumerate ws2's peers). peerIds are non-secret *within* a workspace, but their existence
+          // and channel-association are not.
+          const wsId = k.value.wsId;
+          const peerIds = this.broker.isSubscribed(id, wsId) ? this.broker.peers(wsId) : [];
+          sock.send(
+            toBinary(
+              BrokerFrameSchema,
+              create(BrokerFrameSchema, {
+                kind: { case: "peersResp", value: { wsId, peerIds } },
+              }),
+            ),
+          );
+          break;
+        }
         case "deliver":
+        case "peersResp":
         case undefined:
-          // Clients must not send `deliver`; an unset kind is garbage. Ignore both.
+          // Clients must not send `deliver` or `peersResp` (server-only frames); unset kind is garbage.
           break;
       }
     });

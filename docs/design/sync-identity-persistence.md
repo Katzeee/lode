@@ -5,10 +5,8 @@ design pass that followed [`sync-design.md`](./sync-design.md). It is the resume
 for the engineer wiring identity, membership, and per-dataRoot persistence into
 production.
 
-It references `sync-design.md` and **explicitly reverses one of its decisions** (§4 —
-read-key-as-membership). Read `sync-design.md` first for the transport topology, the
-broker, and the honest security model; this doc layers identity + membership + storage on
-top.
+Read [`sync-design.md`](./sync-design.md) first for topology, the relay, and transport
+security; this doc layers identity + membership + persistence on top.
 
 Decisions were reached after studying any-sync (`/home/xac/codes/any-sync`, anytype's
 sync layer) and anytype-heart (`/home/xac/codes/anytype-heart`, anytype's client),
@@ -44,18 +42,21 @@ wrapping engine + transport, while **mobile** uses `@lode/engine` **in-process**
 Mobile is still a device that must sync (dial the relay, AEAD, sign, run the broker client) —
 so the sync transport **cannot live daemon-only**. It goes in a shared package both depend on:
 
-| Layer                 | Owns                                                                                                                                                                                                                                                                                                                                  | Used by                |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **`@lode/engine`**    | sync core (`SyncManager` + the `SyncTransport` **interface**: docIds + bytes + VVs) + peerId → `setPeerId` + actor identity (keypair/keystore/`ActorStore` + the `utils/crypto` leaf) + the membership log + the wire-security/SyncProfile **content layer** (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
-| **`@lode/transport`** | `Broker` client + `Broker` server (`--relay`) + `BrokerClientSyncTransport` adapter + real WebSocket sockets — a pure socket shell (content/security imported from engine)                                                                                                                                                            | daemon + mobile        |
-| **`@lode/daemon`**    | thin desktop host: engine + transport(client) + broker server (`--relay`) + IPC transport + process lifecycle                                                                                                                                                                                                                         | desktop                |
-| **mobile**            | engine (in-process) + transport (client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                        | mobile                 |
+| Layer                 | Owns                                                                                                                                                                                                                                                                                                                                           | Used by                |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **`@lode/engine`**    | sync core (`SyncManager` + the `SyncTransport` **interface**: docIds + bytes + VVs) + peerId → `setPeerId` + actor crypto (the `utils/crypto` leaf: Ed25519/X25519/AES-256-GCM/BIP-39/SLIP-10) + the membership log + the wire-security/SyncProfile **content layer** (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
+| **`@lode/transport`** | `Broker` client + `Broker` server (`--relay`) + `BrokerClientSyncTransport` adapter + real WebSocket sockets — a pure socket shell (content/security imported from engine)                                                                                                                                                                     | daemon + mobile        |
+| **`@lode/daemon`**    | thin desktop host: engine + transport(client) + broker server (`--relay`) + IPC transport + process lifecycle                                                                                                                                                                                                                                  | desktop                |
+| **mobile**            | engine (in-process) + transport (client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                                 | mobile                 |
 
 Engine stays **socket-free** (no sockets / connection types) but it DOES own the content/security
 layer (AEAD seal/open, actor wire signing, the SyncProfile codec) — that logic is needed by both
 the membership log replay (verify signatures) and the wire (sign messages), so the lowest shared
 layer owns it; it also travels inside the engine's future Rust dynamic-library form. Only the
-socket I/O is split out into `@lode/transport`. The broker **server** (`--relay`) also lives in
+socket I/O is split out into `@lode/transport`. The directed-routing work (peerId addressing, the
+relay's subscription/routing table) is socket/routing logic too — it lives in `@lode/transport`
+(TypeScript), not the engine, so a Rust engine rewrite is unaffected; `@lode/transport` is imported
+only by the daemon (and future mobile), never by the engine. The broker **server** (`--relay`) also lives in
 `@lode/transport`; the daemon merely hosts it, and mobile uses only the client half. This is
 distinct from the IPC transport (connectrpc between client and daemon, owned by `@lode/client` +
 `@lode/daemon`): the sync broker/AEAD/signing is a different concern.
@@ -71,10 +72,9 @@ state, it owns it internally; never add a `Connection`/`Peer` type to the interf
 
 ---
 
-## 2. Membership model — owner + member log (reverses sync-design.md §4)
+## 2. Membership model — owner + member log
 
-sync-design.md §4 chose **read-key-as-membership** (egalitarian, no roles). **We reverse
-that.** Membership is a **replicated, signed, append-only membership log** in a Loro doc — but
+Membership is a **replicated, signed, append-only membership log** in a Loro doc — but
 it is **not an ACL**: lode has no authoritative server to enforce access rules, so there is no
 "access control list." The log is the source of truth for _who is in_ the workspace, _who
 owns_ it, and each member's _transit key_. The only hard-enforced property is membership itself
@@ -117,11 +117,11 @@ LoroList; signed over the canonical proto3 body encoding — the wrapped set is 
   so governance can't be bricked on a stranger). The old owner stays on as a member.
 
 The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core`
-(LoroDoc) + `identity` (F3b crypto) + `@lode/protocol` (records), so it can't sit in `domain`
+(LoroDoc) + the `utils/crypto` leaf + `@lode/protocol` (records), so it can't sit in `domain`
 (no-protocol rule); `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a
-**Loro doc inside the workspace**, so it syncs like any doc — wired as a synced doc in T4-b
-(`MembershipSync` gossip-pushes it over the transport's plaintext envelope; A1 shipped the log
-itself). Validity = the record's signature verifies AND the signer is the current owner (root is
+**Loro doc inside the workspace**, so it syncs like any doc — `MembershipSync` gossip-pushes
+it over the transport's plaintext envelope. Validity = the record's signature verifies AND the
+signer is the current owner (root is
 self-authorizing as the first record). The owner is always a member — a rotate may not omit the
 owner — so the owner's signPub is always in `members` and governance signatures always verify.
 Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a non-member
@@ -131,7 +131,7 @@ list, so every replica converges to the same membership.
 **Transit key, not a content key.** The wrapped key is the **transit key**: it encrypts sync
 messages in transit (`node:crypto` AEAD), so the untrusted relay sees only ciphertext.
 **Encryption is transport-only** — content at rest is unencrypted (at-rest disk encryption is
-a separate, future feature; sync-design §5). There is **no per-object content encryption and
+a separate, future feature; sync-design §4). There is **no per-object content encryption and
 no per-object key derivation**; the transit key is one key per epoch, rotated as a unit.
 
 **Re-key chain** (`encPrev` = AEAD(newTransitKey, oldTransitKey) on each rotate): each rotate
@@ -154,87 +154,94 @@ cannot add/remove/rotate/transfer) — the honest lower bound of a no-authority 
 **Quorum-based owner succession is deferred (not MVP).**
 
 **Consequence for §4/§6:** the read-key is no longer the membership credential; it is the
-transit key wrapped within the membership log. sync-design.md §4 and §6 are superseded by this
-section.
+transit key wrapped within the membership log. (The earlier egalitarian
+read-key-as-membership idea is obsolete; this log is the model.)
 
 ---
 
-## 3. Identity — actor keypair + per-dataRoot peerId
+## 3. Identity — actor (client/session) + per-dataRoot peerId
 
 Two distinct identities, do not conflate them:
 
-**Actor keypair** (Ed25519, per-user) — the membership/attribution principal. Generated on
-first run, stored in a keystore, **recoverable via mnemonic**. All of a user's devices
-share the same actor keypair (restored via mnemonic / QR / key-file import).
+**Actor keypair** (Ed25519, per-user) — the membership/attribution principal. **The actor is
+client-side:** the client holds the mnemonic and supplies it at `sessionHello`; the daemon
+derives the keypair transiently per session (**local recognition, not attestation** — there is
+no challenge / no proof-of-possession beyond mnemonic possession). All of a user's devices share
+the same actor keypair (same mnemonic).
 
+- **The daemon holds no actor private key persistently — it has no identity of its own.** It acts
+  on behalf of whichever actor a client brought. For background sync, the registered actor's key
+  is captured **in-memory** by the sync registration (no persistence) — see `sync-handoff.md`.
+  (This supersedes an earlier "daemon-side actor keystore / `actors.sqlite`" design; the current
+  code still carries it, pending refactor.)
 - **Signs** sync updates (attribution) and **membership-log records** (owner authority). The
   owner's actor key is the governance signer; it does **not** rotate, so it is its own recovery
   anchor (no masterKey co-signature — see §2).
-- **Encrypts** via Ed25519→Curve25519 conversion (any-sync's dual-use trick; no separate
-  X25519 keypair type) — used to wrap the **transit key** to members and to seal re-key
-  messages. Landed in F3b: the Edwards↔Montgomery conversions + X25519 ECDH use `@noble/curves`
-  (`ed25519.utils.toMontgomery` / `toMontgomerySecret` + `x25519.getSharedSecret`); SLIP-10
-  HMAC, Ed25519 sign/verify, and the sealed-box AES-256-GCM + HKDF stay in `node:crypto`. The
-  playground's separate-X25519-keypair interim is superseded.
+- **Encrypts** via Ed25519→Curve25519 conversion (any-sync's dual-use trick; no separate X25519
+  keypair type) — used to wrap the **transit key** to members. The Edwards↔Montgomery conversions
+  - X25519 ECDH use `@noble/curves` (`ed25519.utils.toMontgomery` / `toMontgomerySecret` +
+    `x25519.getSharedSecret`); SLIP-10 HMAC, Ed25519 sign/verify, and the sealed-box AES-256-GCM +
+    HKDF stay in `node:crypto` (the `utils/crypto` leaf).
 - **Mnemonic:** BIP-39 (12 words) → SLIP-10 hardened derivation → 32-byte seed → Ed25519. The
   mnemonic is the recovery root for the actor identity (mirrors any-sync's
   `util/crypto/mnemonic.go`). Lode's actor path is `m/44'/2026'/<account>'/0'/<index>'` (all
-  hardened — SLIP-10 Ed25519 supports hardened only); account/index default 0. Landed in F3b.
+  hardened — SLIP-10 Ed25519 supports hardened only); account/index default 0.
 
-**Device peerId** (random UUID, per-**dataRoot**, non-secret) — set as the Loro
-`doc.setPeerId()` for VV uniqueness. It identifies _one replica of the store_, i.e. one
-running daemon. It is **not** the actor (attribution) and is **not** per-actor — see §6.
+**peerId** (random, per-**dataRoot**, non-secret) — set as the Loro `doc.setPeerId()` for VV
+uniqueness. It identifies _one replica of the store_, i.e. one running daemon for that dataRoot.
+It is **not** the actor (attribution) and is **not** per-actor — see §6. It is also the **routing
+identity** for directed client→client requests (`sync-design.md` §3c).
 
-> §8's name "device peerId" is now slightly misleading: with multiple dataRoots per
-> machine (§5), the unit is the dataRoot, not the machine. Read it as "per-dataRoot replica
-> site id".
-
-**No password KDF** (no argon2/scrypt/bcrypt) — same as any-sync. The mnemonic is the
-secret; the keystore file is `0600`. At-rest disk encryption (stolen-device) remains a
-separate future feature (sync-design.md §5).
+**No password KDF** (no argon2/scrypt/bcrypt) — same as any-sync. The mnemonic is the secret,
+held by the client. At-rest disk encryption (stolen-device) remains a separate future feature
+(sync-design.md §4).
 
 ---
 
-## 4. Daemon topology — one root per machine; actor declared per session
+## 4. Daemon topology — one process per machine; actor declared per session
 
-The daemon is a **single AppServer process per machine**, bound to one dataRoot. An actor
-is **declared per connection/session**, not per daemon startup. Multiple actors on one
-machine = multiple client connections to the same daemon, each its own session.
+The daemon is a **single AppServer process per machine**, bound to one dataRoot, with **no
+identity of its own**. An actor is **declared per connection/session**, not per daemon startup.
+Multiple actors on one machine (Alice, Bob) = multiple client connections to the same daemon,
+each its own session.
 
-This matches the existing session layer: `SessionHelloRequest` already carries an `actor`,
-`SessionManager.createSession` stores it per connection, and `requireOrigin` returns
-`{ nodeId, actorId, sessionId }`. The mechanism exists; what's missing is making the actor
-**keypair-backed** (verify the session really holds the actor's private key) and adding an
-actor registry + keystore.
+This matches the existing session layer: `SessionHelloRequest` carries the actor **and the
+mnemonic**; `SessionManager.createSession` derives the keypair per connection; `requireOrigin`
+returns `{ nodeId, actorId, sessionId }`. Identity is **local recognition, not attestation** — the
+daemon derives the keypair from the mnemonic the client supplies. (An earlier challenge-response
+design was replaced by mnemonic-at-hello.)
 
-**New daemon responsibility: actor authentication.** A session declaring actor X must prove
-it holds X's private key (challenge-response, reusing any-sync's handshake pattern). The
-daemon gates workspace access on this. (Local access derivation is in §7.)
+Because the daemon has no identity, **sync is a client-registered service**: a client registers
+"sync ws-X as my actor via relay(s)"; the daemon captures that actor's key **in-memory** for
+background sync rounds (no persistence — see `sync-handoff.md`). The daemon never picks or owns
+an actor. (Local access derivation is in §7.)
 
 ---
 
-## 5. Storage scoping — everything per-dataRoot, NOT per-machine
+## 5. Storage scoping — workspace + peerId per-dataRoot; identity client-held
 
-A machine may host **multiple dataRoots** (separate lode profiles / instances). **Actor
-registry, keystores, and peerId are all stored per-dataRoot.** The machine is just a host;
-it holds no shared cross-dataRoot state.
+A machine may host **multiple dataRoots** (separate lode profiles / instances). **peerId is
+stored per-dataRoot.** The machine is just a host; it holds no shared cross-dataRoot state.
 
-**Why (correctness, not just tidiness):** two dataRoots on one machine can each hold a
-replica of the **same shared workspace** (two sqlite files, two Loro docs, same wsId —
-e.g. two profiles whose actors are both members of W). Each replica needs its own peerId
-(Loro site id). If peerId were per-machine, both replicas would share a site id and
-**collide in W's version vector** → concurrent edits corrupt the VV. Per-dataRoot peerId
-gives each replica a distinct site id.
+**Actor keys are NOT stored daemon-side.** The actor identity is client-held (the mnemonic);
+the daemon derives it transiently at session hello and captures it in-memory only for a
+registered sync (§4). There is no daemon-side actor registry or keystore. (An earlier design
+proposed `actors.sqlite` + per-actor keystores per dataRoot; that is superseded — identity
+belongs to the client, not the daemon.)
 
-**Why (portability):** a dataRoot is the self-contained, portable unit (registry +
-workspaces + identities). Per-machine identity storage would put state outside the
-dataRoot — copying/moving/backing up a dataRoot to another machine would lose identities,
-breaking the local-first portability guarantee. Per-dataRoot: copy the directory, get a
-complete lode with its identities.
+**Why peerId is per-dataRoot (correctness):** two dataRoots on one machine can each hold a
+replica of the **same shared workspace** (two sqlite files, two Loro docs, same wsId — e.g.
+two profiles whose actors are both members of W). Each replica needs its own peerId (Loro site
+id). If peerId were per-machine, both replicas would share a site id and **collide in W's
+version vector** → concurrent edits corrupt the VV. Per-dataRoot peerId gives each replica a
+distinct site id.
 
-The only machine-level concern is a **process singleton** (one daemon per dataRoot at a
-time, like not opening the same sqlite concurrently) — a process lock, unrelated to
-identity/storage.
+**Why per-dataRoot (portability):** a dataRoot is the self-contained, portable unit (registry +
+workspaces + the membership docs). Copy the directory, get a complete lode with its workspaces
+and membership. Actor identities travel with the client (mnemonic), not the dataRoot.
+
+The only machine-level concern is a **process singleton** (one daemon per dataRoot at a time,
+like not opening the same sqlite concurrently) — a process lock, unrelated to identity/storage.
 
 ---
 
@@ -283,25 +290,23 @@ convenience, that is a local daemon UX choice layered on top, not a membership f
 
 ```
 <dataRoot>/
-  registry.sqlite              # workspace catalog (existing): wsId → relativePath, displayName
-  device.peerId                # this dataRoot's Lora site id (non-secret); or a registry_meta key
-  actors.sqlite                # actor catalog (NEW): actorId → displayName / pubkey / createdAt
-  actors/<actorId>/
-    keystore                   # actor Ed25519 private key (0600); mnemonic-derived on first run
-  workspaces/<wsId>/           # workspace stored ONCE (unchanged)
+  registry.sqlite              # workspace catalog: wsId → relativePath, displayName
+  device.peerId                # this dataRoot's Loro site id (non-secret)
+  workspaces/<wsId>/           # workspace stored ONCE
     workspace.sqlite           # docs + crdt_updates + crdt_snapshots + workspace_meta
                                #   + the membership log as one of its docs/shards (syncs like any doc)
 ```
 
-Separation of concerns: `registry.sqlite` = which workspaces exist on this dataRoot;
-`actors.sqlite` = which actors exist on this dataRoot; the **membership log (in each workspace)**
-= global membership/roles (replicated, authoritative).
+Separation of concerns: `registry.sqlite` = which workspaces exist on this dataRoot; the
+**membership log (in each workspace)** = global membership/roles (replicated, authoritative).
+Actor identity is client-held (mnemonic), not in the dataRoot.
 
 ---
 
 ## 9. Recovery model — re-add by the owner, then full history via the chain
 
-A lost device loses its local keystore and transit keys. Recovery is:
+A lost device loses its local transit keys (and its peerId); the actor key is mnemonic-derived,
+so it survives if the mnemonic was backed up. Recovery is:
 
 1. Enter mnemonic → derive the actor Ed25519 key (same actor pubkey as before — the actor key
    is mnemonic-derived and does not rotate, §3).
@@ -328,32 +333,28 @@ is deferred. See §11.
 
 ---
 
-## 10. Playground-first — validate the membership log before production wiring
+## 10. Validation history
 
-The membership log is **security-critical and conceptually new** (CRDT-merge replay semantics,
-signature verification, transit-key wrapping + re-key chain, owner/member lifecycle). Following
-the P0–P6 discipline that de-risked the transport layer, validate it in the playground first
-(phase **P7**), then wire to production. **P7 green is the gate for production membership-log
-wiring** — the detailed validation plan lives with the playground in
-[`experiments/sync-transport/README.md`](../../experiments/sync-transport/README.md) §P7
-(scope: membership-log CRDT merge semantics, transit-key wrapping + re-key chain, owner/member
-lifecycle incl. `transfer` + `removeAndRotate`, forge-skip, recovery; substrate: raw `loro-crdt`
-
-- `node:crypto`, no engine, reusing P4/P5). The detailed plan is intentionally NOT here — it is
-  playground-coupled and goes away when `experiments/` is deleted after porting to production.
+The membership log was validated playground-first (phase **P7**, in the now-deleted
+`experiments/sync-transport/`) before production wiring — CRDT-merge replay semantics,
+signature verification, transit-key wrapping + re-key chain, owner/member lifecycle
+(`transfer`, `removeAndRotate`), forge-skip, recovery. It is now in production in
+`runtime/membership/`.
 
 ---
 
-## 11. Reversals & open questions
+## 11. Supersessions & open questions
 
-**Reversals of `sync-design.md`:**
+**Superseded by the 2026-07-01 design pass:**
 
-- **§4 reversed.** Membership is no longer read-key-as-membership. It is the **membership log**
-  (§2): a replicated, signed, owner+member log; the read-key is now the **transit key** wrapped
-  within it. §4/§6's "egalitarian, no admin, no roles" is superseded by owner + member(rw).
-- **§8 "device peerId"** is re-scoped to **per-dataRoot** (§3, §5), not per-device.
+- **No daemon identity / no daemon-side actor keystore.** The daemon does not pick an actor or
+  persist actor keys. Actors are client/session-side (mnemonic at hello); sync uses the session
+  actor's key in-memory. Supersedes the earlier `actors.sqlite` + per-actor keystore + daemon
+  `--actor-mnemonic` design (§3, §4, §5).
+- **Membership auth = local recognition, no attestation.** mnemonic-at-hello, not challenge-response (§4).
+- **`device peerId`** is just **per-dataRoot peerId** (and now also the routing identity) — §3.
 
-**Decided (this design pass):**
+**Decided (membership model, stable):**
 
 - **Roles = owner + member(rw)** — no admin/reader/writer tiers (§2, §6).
 - **Self-signed root, no masterKey** — the actor key is mnemonic-derived and does not rotate,
@@ -370,27 +371,23 @@ lifecycle incl. `transfer` + `removeAndRotate`, forge-skip, recovery; substrate:
 - **Owner succession when key + mnemonic are both lost** — governance frozen; quorum-based
   succession deferred (not MVP) (§2, §9).
 - **Re-key-chain walker** (history-epoch transit recovery) — deferred; the chain is stored on
-  each rotate record, the walker is not yet shipped (§2, §9).
+  each rotate record, the walker is not shipped (§2, §9).
 - **Local default-access UX** (do all local actors open all local workspaces by default, or is
   it gated everywhere?) — §7. A daemon UX choice, not a membership fact.
 
 ---
 
-## 12. Roadmap (dependency order, updated)
+## 12. Roadmap (dependency order)
 
-1. **Foundation:** per-dataRoot device peerId (persist + feed `setPeerId`) → actor keypair +
-   keystore + actor registry (`actors.sqlite`) → actor-authenticated sessions (daemon verifies
-   the session holds the actor's private key).
-2. **Playground P7:** the membership log layer (§10) — owner/member lifecycle, transit-key
-   wrapping + re-key chain, `transfer`, `removeAndRotate`, forge-skip, recovery. **Gate:** do
-   not start production membership-log wiring until P7 is green.
-3. **Production membership log:** port the validated log into the engine as a workspace doc
-   (protobuf records in `@lode/protocol`); wire membership derivation + re-key + owner
-   governance.
-4. **Transport (relay/broker + client):** the workspace-routing broker + `SyncTransport` over
-   the broker + transit-key AEAD + actor signing, in the shared `@lode/transport` package (§1).
-5. **Coordinate management:** workspace coordinate create/import/export (relay addr, wsId,
-   membership bootstrap).
-6. **Hardening (alongside):** the items already listed in sync-design.md's roadmap (merge-cycle
-   policy, `getNodeByID(ref)` guard, dirty-shard-only `persistMutation`, mid-sync-read gate
-   breadth, lazy shard LOAD).
+> Live status in `_local/handoff/sync-handoff.md`. Design-time sequence:
+
+1. **Directed client→client request capability** — relay peerId tracking + directed routing +
+   peer-list query (`sync-design.md` §3c). Foundation; lands without breaking existing code.
+2. **Identity refactor:** daemon drops `--actor-mnemonic`; sync becomes a client-registered
+   service (in-memory); `createWorkspace` inits the root with the session actor; remove the
+   daemon-side actor keystore / `actors.sqlite`.
+3. **join/sync split:** join establishes membership (directed fetch); sync does content.
+4. **Relay-only mode** + tick → 20s + CLI manual trigger.
+5. **Then:** N>2 usage of the directed capability; CLI e2e; hardening (merge-cycle policy,
+   `getNodeByID(ref)` guard, dirty-shard-only `persistMutation`, mid-sync-read gate breadth,
+   lazy shard LOAD).

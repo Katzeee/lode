@@ -40,10 +40,6 @@ export { Engine } from "./core/engine.js";
 export { ShardedBlockStore } from "./core/sharded-store.js";
 export type { SyncDoc } from "./core/sharded-store.js";
 
-// Per-dataRoot actor identity catalog + on-disk keystore (engine's identity-persistence glue).
-export { ActorStore } from "./identity/actor-store.js";
-export type { ActorRecord } from "./identity/actor-store.js";
-
 // Membership log — the replicated, signed owner+member log (the membership half of the in-process
 // sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc that
 // `MembershipSync` gossip-pushes over a transport (plaintext — it's a public roster); a host derives

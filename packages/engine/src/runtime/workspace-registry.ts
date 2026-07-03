@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- per-workspace lifecycle + sharded persistence composition root;
    the peerId/store/createDoc/load/persist wiring is cohesive in one place */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
+import { LoroDoc } from "loro-crdt";
 import { Workspace, type Engine, type VersionVector } from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
 import { validateSnapshot } from "../core/invariant.js";
@@ -8,11 +9,10 @@ import { toJSON } from "../core/serializers/json.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
 import { CONTENT_DOC_KIND, MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
-import {
-  WorkspaceMembershipPersistence,
-  type MembershipPersistence,
-} from "./membership/membership-persistence.js";
+import { WorkspaceMembershipPersistence } from "./membership/membership-persistence.js";
+import { MembershipLog } from "./membership/membership-log.js";
 import { App, type Component } from "./app.js";
+import type { ActorKeypair } from "../utils/crypto/index.js";
 
 export type PersistenceOptions = {
   dataRoot: string;
@@ -31,6 +31,9 @@ type LoadedWorkspace = {
   app: App;
   workspace: Workspace;
   store: WorkspaceStore | null;
+  // The membership log is workspace state — owned by the engine, consumed by the sync runner via
+  // membershipLog(). Created + loaded in registerLoaded; rooted at createWorkspace for an owner.
+  membershipLog: MembershipLog;
 };
 
 // Per-workspace lifecycle components. App.stop runs them in reverse registration order, so
@@ -112,26 +115,98 @@ export class AppWorkspaceRuntime {
     app.register(new WorkspaceComponent(workspace));
     app.register(new WorkspaceStoreComponent(store));
     await app.start();
-    const loaded = { app, workspace, store };
+    // The engine owns the membership log (workspace state). Loaded from persistence here — empty on
+    // a first create; an owner's root is appended in createWorkspace. The sync runner consumes it via
+    // membershipLog() and never constructs one of its own.
+    const membershipLog = new MembershipLog(
+      new LoroDoc(),
+      store ? new WorkspaceMembershipPersistence(store) : undefined,
+    );
+    await membershipLog.load();
+    const loaded = { app, workspace, store, membershipLog };
     this.loaded.set(workspaceId, loaded);
     return loaded;
   }
 
+  /** Create a workspace, or return it unchanged if it already exists. Idempotent and serialized: a
+   *  concurrent create for the same id (two joins racing, or a re-create) runs after the in-flight one
+   *  resolves, sees the ws exists, and returns it — never re-inserting, re-rooting, or re-doc'ing. */
   async createWorkspace(input: {
     workspaceId?: string;
     displayName: string;
+    /** The creator's keypair. Present ⇒ this create OWNS the workspace: append the membership root
+     *  (creator = owner, ACL-at-birth). Absent ⇒ a local-only / joiner create with no root (the owner's
+     *  root converges over sync). */
+    actorKeypair?: ActorKeypair;
   }): Promise<RuntimeWorkspaceInfo> {
+    let resolve!: (v: RuntimeWorkspaceInfo) => void;
+    let reject!: (e: unknown) => void;
+    const result = new Promise<RuntimeWorkspaceInfo>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    // Serialize so the existence check below is atomic w.r.t. a concurrent create (no TOCTOU into a
+    // duplicate insert). `run` never throws up — it rejects `result` and leaves the chain fulfilled.
+    const run = async () => {
+      try {
+        resolve(await this.doCreateWorkspace(input));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    this.createChain = this.createChain.then(run);
+    return result;
+  }
+
+  private createChain: Promise<void> = Promise.resolve();
+
+  private async doCreateWorkspace(input: {
+    workspaceId?: string;
+    displayName: string;
+    actorKeypair?: ActorKeypair;
+  }): Promise<RuntimeWorkspaceInfo> {
+    // Idempotent: an existing ws is returned untouched (the serialization above guarantees this sees
+    // the result of any prior in-flight create for the same id).
+    if (input.workspaceId !== undefined) {
+      if (!this.options.registry) {
+        const existing = this.memoryCatalog.get(input.workspaceId);
+        if (existing) {
+          return existing;
+        }
+      } else {
+        const record = await this.options.registry.getWorkspace(input.workspaceId);
+        if (record) {
+          return recordToInfo(record);
+        }
+      }
+    }
+    let info: RuntimeWorkspaceInfo;
+    let loaded: LoadedWorkspace;
     if (!this.options.registry) {
       const workspaceId = input.workspaceId ?? randomUUID();
-      const info = { workspaceId, displayName: input.displayName };
+      info = { workspaceId, displayName: input.displayName };
       this.memoryCatalog.set(workspaceId, info);
-      await this.registerLoaded(workspaceId, new Workspace({ id: workspaceId }), null);
-      return info;
+      loaded = await this.registerLoaded(workspaceId, new Workspace({ id: workspaceId }), null);
+    } else {
+      const record = await this.options.registry.createWorkspace(input);
+      info = recordToInfo(record);
+      loaded = await this.loadPersistentWorkspace(record);
     }
-
-    const record = await this.options.registry.createWorkspace(input);
-    await this.loadPersistentWorkspace(record);
-    return recordToInfo(record);
+    // Creator asserts ownership by supplying its keypair. Guarded on an empty log so a re-create over
+    // an already-rooted workspace is a no-op (never double-roots).
+    if (input.actorKeypair !== undefined && loaded.membershipLog.records().length === 0) {
+      loaded.membershipLog.appendRoot(input.actorKeypair, randomBytes(32));
+      await loaded.membershipLog.persistIfDirty();
+    }
+    // A ws is one content tree: auto-init the single content doc ("main") at creation. Both owner-
+    // create (keypair present) and joiner-create (no keypair) get it, so the joiner converges the
+    // owner's content into it. (The existence check above means this only runs on a genuine new ws.)
+    await this.createDoc({
+      workspaceId: info.workspaceId,
+      docId: MAIN_SUBDOC,
+      displayName: "Main",
+    });
+    return info;
   }
 
   async listWorkspaces(): Promise<RuntimeWorkspaceInfo[]> {
@@ -177,21 +252,6 @@ export class AppWorkspaceRuntime {
     return doc.id;
   }
 
-  async listDocs(workspaceId: string): Promise<string[]> {
-    const loaded = await this.requireWorkspace(workspaceId);
-    return [...loaded.workspace.docs.keys()];
-  }
-
-  async removeDoc(workspaceId: string, docId: string): Promise<boolean> {
-    const loaded = await this.requireWorkspace(workspaceId);
-    const existed = loaded.workspace.getDoc(docId) != null;
-    loaded.workspace.removeDoc(docId);
-    if (loaded.store) {
-      await loaded.store.removeDoc(docId);
-    }
-    return existed;
-  }
-
   async getEngine(workspaceId: string): Promise<Engine | null> {
     const loaded = await this.getWorkspace(workspaceId);
     return this.singleEngine(loaded?.workspace);
@@ -204,13 +264,11 @@ export class AppWorkspaceRuntime {
     return this.singleEngine(this.loaded.get(workspaceId)?.workspace);
   }
 
-  /** The membership-persistence handle for an ALREADY-loaded workspace (null in in-memory mode or
-   *  when the workspace isn't open yet). The sync runner loads the membership snapshot on wire-up
-   *  and persists it each round; engine-owned so mobile inherits it. Like `loadedEngine`, this is a
-   *  peek — it never triggers a load. */
-  membershipPersistence(workspaceId: string): MembershipPersistence | null {
-    const store = this.loaded.get(workspaceId)?.store ?? null;
-    return store ? new WorkspaceMembershipPersistence(store) : null;
+  /** The membership log for an ALREADY-loaded workspace (null if not open yet). Peek-only — never
+   *  triggers a load. The log is created + loaded in registerLoaded and rooted at createWorkspace;
+   *  the sync runner consumes it here instead of constructing its own. */
+  membershipLog(workspaceId: string): MembershipLog | null {
+    return this.loaded.get(workspaceId)?.membershipLog ?? null;
   }
 
   async persistMutation(workspaceId: string, beforeVersion: VersionVector): Promise<void> {
@@ -264,8 +322,8 @@ export class AppWorkspaceRuntime {
     }
   }
 
-  // One doc per workspace — the engine accessor + the storage key derive from the
-  // single entry. (Lifecycle RPCs createDoc/listDocs/removeDoc still name the doc.)
+  // One doc per workspace — the engine accessor + the storage key derive from its single entry
+  // (auto-created at createWorkspace; no doc-lifecycle RPC).
   private singleEngine(workspace: Workspace | undefined): Engine | null {
     if (!workspace) {
       return null;
@@ -322,8 +380,8 @@ export class AppWorkspaceRuntime {
     );
     let workspace: Workspace;
     try {
-      // Load only CONTENT docs. Non-content docs (the membership log) share this sqlite but are a
-      // sync artifact loaded by the sync runner via membershipPersistence() — not sharded engine docs.
+      // Load only CONTENT docs. Non-content docs (the membership log) share this sqlite but are
+      // engine-owned sync state loaded in registerLoaded — not sharded engine docs.
       const docIds = await store.listDocs(CONTENT_DOC_KIND);
       workspace = new Workspace({ id: record.workspaceId });
       for (const docId of docIds) {

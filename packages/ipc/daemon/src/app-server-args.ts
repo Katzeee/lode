@@ -1,16 +1,16 @@
-import type { AppServerDaemonOptions } from "./app-server-daemon.js";
+import type { ParsedAppServerArgs } from "./app-server-daemon.js";
 
 // CLI parsing for the AppServer daemon. `--listen`/`--data-root` are the local-service surface;
 // `--relay` hosts the workspace-routing broker in-process (design sync-design.md §3; the relay is a
-// user-deployed, stateless coordinate); `--sync-url` + `--sync-workspace` dial a relay and drive CRDT
-// sync rounds for the named workspaces. `--actor-mnemonic` switches sync to the secured path:
-// transit-key AEAD + actor signing, with the membership log converging over a plaintext envelope.
+// user-deployed, stateless coordinate). The daemon carries no sync identity — workspaces are
+// registered at runtime by sessions (RegisterSync / JoinWorkspace), so there are no sync flags here.
 // Kept explicit (no flag lib) to match the daemon's minimal argv style.
 
-const USAGE = `Usage: app-server --listen <url> [--data-root <path>] [--relay [<port>]]
-  [--actor-mnemonic <12 words> [--sync-url <url> --sync-workspace <id>...]]
-    --actor-mnemonic alone: member daemon (identity only; joins at runtime via \`lode sync join\`)
-    --sync-url + --sync-workspace: owner (dials the relay + bootstraps the membership root)`;
+const USAGE = `Usage: app-server [--listen <url>] [--data-root <path>] [--relay [<port>]]
+    --listen:    engine daemon (the gRPC service clients talk to)
+    --relay:     host the workspace-routing broker (omit --listen for a relay-only process)
+    --data-root: where the engine persists data (default: in-memory)
+  At least one of --listen / --relay is required.`;
 
 /** Read the value immediately following `flag`, or undefined if absent / if the next token is another flag. */
 function valueAfter(argv: string[], flag: string): string | undefined {
@@ -25,77 +25,37 @@ function valueAfter(argv: string[], flag: string): string | undefined {
   return next;
 }
 
-/** Read every value following each occurrence of `flag` (repeatable), skipping flag-like tokens. */
-function valuesAfter(argv: string[], flag: string): string[] {
-  const out: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
-    const token = argv[i];
-    const value = argv[i + 1];
-    if (token === flag && value !== undefined && !value.startsWith("--")) {
-      out.push(value);
-    }
-  }
-  return out;
-}
-
-/** Read a multi-word value (a BIP-39 mnemonic is 12 space-separated words): consume every token after
- *  `flag` until the next `--flag` or end of argv. */
-function mnemonicAfter(argv: string[], flag: string): string | undefined {
-  const i = argv.indexOf(flag);
-  if (i === -1) {
-    return undefined;
-  }
-  const words: string[] = [];
-  for (let j = i + 1; j < argv.length; j++) {
-    const tok = argv[j];
-    if (tok === undefined || tok.startsWith("--")) {
-      break;
-    }
-    words.push(tok);
-  }
-  return words.length === 0 ? undefined : words.join(" ");
-}
-
-export function parseAppServerArgs(argv: string[]): AppServerDaemonOptions {
+export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
   const listen = valueAfter(argv, "--listen");
-  if (!listen) {
+  const dataRoot = valueAfter(argv, "--data-root");
+  const hasRelay = argv.includes("--relay");
+
+  // At least one of --listen / --relay. --listen absent + --relay present = relay-only (no engine).
+  if (!listen && !hasRelay) {
     throw new Error(USAGE);
   }
-  const dataRoot = valueAfter(argv, "--data-root");
-  const syncUrl = valueAfter(argv, "--sync-url");
-  const syncWorkspaces = valuesAfter(argv, "--sync-workspace");
-  const actorMnemonic = mnemonicAfter(argv, "--actor-mnemonic");
 
-  const options: AppServerDaemonOptions = { listen };
-  if (dataRoot) {
-    options.dataRoot = dataRoot;
-  }
-  if (argv.includes("--relay")) {
-    // `--relay` alone = ephemeral port; `--relay 4193` binds a fixed port.
+  // `--relay` alone = ephemeral port; `--relay 4193` = fixed port; absent = undefined.
+  let relay: { port?: number; host?: string } | undefined;
+  if (hasRelay) {
     const portToken = valueAfter(argv, "--relay");
     if (portToken === undefined) {
-      options.relay = {};
+      relay = {};
     } else {
       const port = Number.parseInt(portToken, 10);
-      options.relay = Number.isNaN(port) ? {} : { port };
+      relay = Number.isNaN(port) ? {} : { port };
     }
   }
-  if (syncUrl) {
-    if (syncWorkspaces.length === 0) {
-      throw new Error("--sync-url requires at least one --sync-workspace <id>");
-    }
-    if (!actorMnemonic) {
-      throw new Error("--sync-url requires --actor-mnemonic <12 words> (sync is always secured)");
-    }
+
+  // Relay-only: --relay without --listen (no engine, no dataRoot).
+  if (listen === undefined) {
+    return { mode: "relay", ...(relay === undefined ? {} : { relay }) };
   }
-  // `--actor-mnemonic` alone = member daemon (identity only; it JoinWorkspaces at runtime with a
-  // coordinate from the owner). With `--sync-url` = owner (dials the relay + bootstraps the root).
-  if (actorMnemonic) {
-    options.sync = {
-      actorMnemonic,
-      ...(syncUrl === undefined ? {} : { url: syncUrl }),
-      ...(syncWorkspaces.length === 0 ? {} : { workspaceIds: syncWorkspaces }),
-    };
-  }
-  return options;
+  // Engine mode.
+  return {
+    mode: "engine",
+    listen,
+    ...(dataRoot === undefined ? {} : { dataRoot }),
+    ...(relay === undefined ? {} : { relay }),
+  };
 }

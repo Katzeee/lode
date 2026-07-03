@@ -8,7 +8,6 @@ describe("WorkspaceCoordinate codec", () => {
     const coord = create(WorkspaceCoordinateSchema, {
       relayUrl: "ws://1.2.3.4:4193",
       workspaceId: "ws-abc",
-      docId: "main",
     });
     const encoded = encodeCoordinate(coord);
     expect(encoded).toMatch(/^[A-Za-z0-9+/]+={0,2}$/); // base64, one pasteable token (no spaces)
@@ -16,17 +15,15 @@ describe("WorkspaceCoordinate codec", () => {
     expect({
       relayUrl: decoded.relayUrl,
       workspaceId: decoded.workspaceId,
-      docId: decoded.docId,
     }).toEqual({
       relayUrl: "ws://1.2.3.4:4193",
       workspaceId: "ws-abc",
-      docId: "main",
     });
   });
 
   it("is deterministic: the same coordinate encodes identically", () => {
     const make = () =>
-      create(WorkspaceCoordinateSchema, { relayUrl: "ws://h:1", workspaceId: "w", docId: "d" });
+      create(WorkspaceCoordinateSchema, { relayUrl: "ws://h:1", workspaceId: "w" });
     expect(encodeCoordinate(make())).toBe(encodeCoordinate(make()));
   });
 });

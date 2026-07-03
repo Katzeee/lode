@@ -3,6 +3,7 @@ import { ShardedBlockStore, type SyncDoc } from "../../src/core/sharded-store.js
 import { toJSON } from "../../src/core/serializers/json.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
 import { syncPair } from "../../src/runtime/sync.js";
+import { MAIN_SUBDOC } from "../../src/persistence/workspace-store.js";
 import { stableStringify } from "../truth-model.js";
 
 /**
@@ -144,8 +145,8 @@ function twoWaySyncDoc(da: SyncDoc, db: SyncDoc): void {
 /** Sync ONLY the treeDoc ("main") between two replicas; content shards stay undelivered.
  *  Models a mid-sync or partitioned-shard state. */
 export function syncTreeOnly(a: Engine, b: Engine): void {
-  const da = docOf(a, "main");
-  const db = docOf(b, "main");
+  const da = docOf(a, MAIN_SUBDOC);
+  const db = docOf(b, MAIN_SUBDOC);
   if (da && db) {
     twoWaySyncDoc(da, db);
   }

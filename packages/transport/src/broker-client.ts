@@ -19,10 +19,22 @@ export type BrokerClientOptions = {
   readonly onError?: (err: Error) => void;
 };
 
+/** How long `peers()` waits for the relay's roster before rejecting (best-effort, no-auth relay). */
+const PEER_QUERY_TIMEOUT_MS = 2000;
+
 export class BrokerClient {
   private readonly sock: WebSocket;
   private readonly onDeliver: BrokerClientOptions["onDeliver"];
   private readonly onError: BrokerClientOptions["onError"];
+  /** Outstanding `peers()` queries, correlated by wsId (one per channel at a time). */
+  private readonly peerQueries = new Map<
+    string,
+    {
+      resolve: (peerIds: string[]) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
   private closed = false;
   private lastError: Error | null = null;
 
@@ -35,12 +47,21 @@ export class BrokerClient {
     // response timeout. (open()'s temporary listener still rejects on a *connect* failure.)
     this.sock.on("error", (err: Error) => {
       this.lastError = err;
+      this.rejectPeerQueries(err);
       this.onError?.(err);
     });
     this.sock.on("message", (data) => {
       const frame = safeDecode(data);
       if (frame?.kind.case === "deliver") {
         this.onDeliver(frame.kind.value.wsId, frame.kind.value.payload);
+      } else if (frame?.kind.case === "peersResp") {
+        const { wsId, peerIds } = frame.kind.value;
+        const q = this.peerQueries.get(wsId);
+        if (q) {
+          clearTimeout(q.timer);
+          this.peerQueries.delete(wsId);
+          q.resolve([...peerIds]);
+        }
       }
     });
   }
@@ -76,16 +97,62 @@ export class BrokerClient {
     });
   }
 
-  subscribe(wsId: string): void {
-    this.send(create(BrokerFrameSchema, { kind: { case: "subscribe", value: { wsId } } }));
+  /** Subscribe to `wsId`. `peerId` (the dataRoot routing id) opts this peer into directed delivery
+   *  + the relay's `peers()` roster; omit it for broadcast-only. */
+  subscribe(wsId: string, peerId?: string): void {
+    this.send(
+      create(BrokerFrameSchema, {
+        kind: { case: "subscribe", value: { wsId, peerId: peerId ?? "" } },
+      }),
+    );
   }
 
   unsubscribe(wsId: string): void {
     this.send(create(BrokerFrameSchema, { kind: { case: "unsubscribe", value: { wsId } } }));
   }
 
-  publish(wsId: string, payload: Uint8Array): void {
-    this.send(create(BrokerFrameSchema, { kind: { case: "publish", value: { wsId, payload } } }));
+  /** Publish `payload` to all subscribers of `wsId` minus self (broadcast, the default), or to one
+   *  `toPeerId` only (directed). */
+  publish(wsId: string, payload: Uint8Array, toPeerId?: string): void {
+    this.send(
+      create(BrokerFrameSchema, {
+        kind: { case: "publish", value: { wsId, payload, toPeerId: toPeerId ?? "" } },
+      }),
+    );
+  }
+
+  /** Ask the relay "which dataRoot peerIds are declared on `wsId`?" Resolves with the roster (the
+   *  caller filters out its own peerId). Rejects on timeout or socket close — liveness/fallback is the
+   *  caller's job (the relay is best-effort, no-auth). One outstanding query per wsId: a second call
+   *  for the same wsId supersedes (rejects) the in-flight one. */
+  peers(wsId: string): Promise<string[]> {
+    // The peersReq/Resp protocol correlates by wsId (no reqId), so at most one query per wsId is
+    // meaningful. Supersede an in-flight one eagerly — otherwise its timer would fire later and reject
+    // THIS call's promise via the shared map slot (both calls would hang/misresolve).
+    const prior = this.peerQueries.get(wsId);
+    if (prior) {
+      clearTimeout(prior.timer);
+      this.peerQueries.delete(wsId);
+      prior.reject(new Error(`broker peers query superseded (wsId ${wsId})`));
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (this.peerQueries.delete(wsId)) {
+          reject(new Error(`broker peers query timeout (wsId ${wsId})`));
+        }
+      }, PEER_QUERY_TIMEOUT_MS);
+      this.peerQueries.set(wsId, { resolve, reject, timer });
+      this.send(create(BrokerFrameSchema, { kind: { case: "peersReq", value: { wsId } } }));
+    });
+  }
+
+  /** Reject every outstanding `peers()` query (a closed transport or a mid-session socket error). */
+  private rejectPeerQueries(err: Error): void {
+    for (const q of this.peerQueries.values()) {
+      clearTimeout(q.timer);
+      q.reject(err);
+    }
+    this.peerQueries.clear();
   }
 
   private send(frame: BrokerFrame): void {
@@ -97,6 +164,7 @@ export class BrokerClient {
   close(): void {
     if (!this.closed) {
       this.closed = true;
+      this.rejectPeerQueries(new Error("broker client closed"));
       this.sock.close();
     }
   }

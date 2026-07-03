@@ -48,7 +48,6 @@ function parseFieldPresence(raw: string): FieldPresence {
 
 export const APPROVED_FLAGS = new Set([
   "--workspace",
-  "--doc",
   "--occ",
   "--node",
   "--parent-occ",

@@ -378,8 +378,10 @@ export class ShardedBlockStore implements BlockStore {
 
   // ── sharded-specific (not in BlockStore; for Step 5 persistence/sync) ───────
 
-  /** The per-doc sync surface: treeDoc ("main") first, then every referenced shard. Each entry
-   *  is an independent CRDT; a SyncManager diffs version vectors and exchanges updates per id. */
+  /** The per-doc sync surface: treeDoc first, then every referenced shard. Each entry is an
+   *  independent CRDT; a SyncManager diffs version vectors and exchanges updates per id. The treeDoc
+   *  id ("main") mirrors `persistence/workspace-store.ts MAIN_SUBDOC` — the layer DAG forbids sharing
+   *  the constant across core↔persistence, so update both together. */
   syncDocs(): SyncDoc[] {
     return [
       this.syncDoc(this.treeDoc, "main"),

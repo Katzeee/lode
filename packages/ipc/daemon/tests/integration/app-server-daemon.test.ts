@@ -51,11 +51,6 @@ describe("app server daemon runtime", () => {
       workspaceId: "ws_daemon",
       displayName: "Daemon",
     });
-    await first.rpc.createWorkspaceDoc({
-      workspaceId: "ws_daemon",
-      docId: "main",
-      displayName: "Main",
-    });
     const node = await first.rpc.createPlainNode({
       workspaceId: "ws_daemon",
     });

@@ -1,6 +1,5 @@
 import type { ParsedCli } from "./args.js";
 import { executeActorCommand } from "./commands/actor.js";
-import { executeDocCommand } from "./commands/doc.js";
 import { executeFieldCommand, executeFieldDefCommand } from "./commands/field.js";
 import { executeMemberCommand } from "./commands/member.js";
 import { executeNodeCommand } from "./commands/node.js";
@@ -20,8 +19,6 @@ export async function executeCommand(client: ClientLike, command: ParsedCli): Pr
   switch (command.group) {
     case "workspace":
       return executeWorkspaceCommand(client, command, commandKey);
-    case "doc":
-      return executeDocCommand(client, command, commandKey);
     case "node":
       return executeNodeCommand(client, command, commandKey);
     case "ref":

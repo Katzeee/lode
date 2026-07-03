@@ -13,6 +13,9 @@ import "lode/events.proto";
 service LodeCommands {
   // session + subscription
   rpc SessionHello(SessionHelloRequest) returns (SessionInfo);
+  // Mint a fresh actor identity (mnemonic + derived actor id). Unauthenticated — the bootstrap a new
+  // user calls once before any authed command is possible (`lode actor new`).
+  rpc GenerateActorMnemonic(google.protobuf.Empty) returns (ActorMnemonic);
   rpc SubscribeDoc(SubscribeDocRequest) returns (google.protobuf.Empty);
   rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);
   rpc ListenNotifications(ListenNotificationsRequest) returns (stream Notification);
@@ -21,9 +24,6 @@ service LodeCommands {
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (WorkspaceInfo);
   rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResponse);
   rpc RemoveWorkspace(RemoveWorkspaceRequest) returns (google.protobuf.BoolValue);
-  rpc CreateWorkspaceDoc(CreateWorkspaceDocRequest) returns (google.protobuf.StringValue);
-  rpc ListWorkspaceDocs(ListWorkspaceDocsRequest) returns (ListWorkspaceDocsResponse);
-  rpc RemoveWorkspaceDoc(RemoveWorkspaceDocRequest) returns (google.protobuf.BoolValue);
 
   // node
   rpc CreatePlainNode(CreatePlainNodeRequest) returns (NodeOccurrenceWire);
@@ -73,9 +73,17 @@ service LodeCommands {
   rpc CanUndoHistory(CanUndoHistoryRequest) returns (google.protobuf.BoolValue);
   rpc CanRedoHistory(CanRedoHistoryRequest) returns (google.protobuf.BoolValue);
 
-  // sync — runtime governance + share/join (host-side; the daemon owns the sync runner + owner identity)
+  // sync — runtime governance + share/join + register (host-side; the daemon owns the sync runner,
+  // never an identity — every syncing workspace is registered by a session that supplies the actor).
   rpc AddMember(AddMemberRequest) returns (google.protobuf.Empty);
   rpc GetActorPublicKeys(google.protobuf.Empty) returns (ActorPublicKeys);
   rpc ShareWorkspace(ShareWorkspaceRequest) returns (WorkspaceCoordinate);
   rpc JoinWorkspace(JoinWorkspaceRequest) returns (google.protobuf.Empty);
+  // Register the session's actor to drive sync for a workspace via a relay. The daemon captures the
+  // actor keypair so the tick keeps running while the client is disconnected (Phase 3: the daemon has
+  // no identity of its own — every syncing workspace is registered by a session).
+  rpc RegisterSync(RegisterSyncRequest) returns (google.protobuf.Empty);
+  // Manual trigger: run one sync round for `workspace_id` now (`lode sync now`) instead of waiting
+  // for the next tick. Session-gated like the rest; reuses the registered actor keypair.
+  rpc SyncNow(SyncNowRequest) returns (google.protobuf.Empty);
 }

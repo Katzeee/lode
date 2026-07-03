@@ -20,7 +20,20 @@ export async function executeSyncCommand(
       const encoded = getRequiredSingleFlag(command, "--coordinate");
       const coordinate = decodeCoordinate(encoded);
       await client.joinWorkspace({ coordinate });
-      return `Joined workspace ${coordinate.workspaceId} via ${coordinate.relayUrl} (doc ${coordinate.docId}).`;
+      return `Joined workspace ${coordinate.workspaceId} via ${coordinate.relayUrl}.`;
+    }
+    case "register": {
+      assertAllowedFlags(command, commandKey, ["--workspace", "--relay"]);
+      const workspaceId = getRequiredSingleFlag(command, "--workspace");
+      const relayUrl = getRequiredSingleFlag(command, "--relay");
+      await client.registerSync({ workspaceId, relayUrl });
+      return `Registered sync for workspace ${workspaceId} via ${relayUrl}.`;
+    }
+    case "now": {
+      assertAllowedFlags(command, commandKey, ["--workspace"]);
+      const workspaceId = getRequiredSingleFlag(command, "--workspace");
+      await client.syncNow({ workspaceId });
+      return `Triggered sync round for workspace ${workspaceId}.`;
     }
     default:
       throw new Error(`Unknown command "${commandKey}".`);

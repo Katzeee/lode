@@ -1,6 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import type { Empty } from "@bufbuild/protobuf/wkt";
 import type {
+  ActorMnemonic,
   ActorPublicKeys,
   ListenNotificationsRequest,
   Notification,
@@ -9,8 +10,12 @@ import type {
   SubscribeDocRequest,
   UnsubscribeDocRequest,
 } from "@lode/protocol/proto";
-import { ActorPublicKeysSchema } from "@lode/protocol/proto";
-import { deriveActorKeypairFromMnemonic, type ActorKeypair } from "../utils/crypto/index.js";
+import { ActorMnemonicSchema, ActorPublicKeysSchema } from "@lode/protocol/proto";
+import {
+  deriveActorKeypairFromMnemonic,
+  generateMnemonic,
+  type ActorKeypair,
+} from "../utils/crypto/index.js";
 import { getEngine, type AppContext } from "./context.js";
 import { EMPTY } from "./empty.js";
 
@@ -31,7 +36,16 @@ export function createSessionHandlers(ctx: AppContext) {
       if (actor === undefined || keypair === undefined || keypair.actorId !== actor.actorId) {
         throw new Error("sessionHello: actor authentication failed (bad mnemonic)");
       }
-      return ctx.sessions.createSession(connectionId, req, keypair.publicKey);
+      return ctx.sessions.createSession(connectionId, req, keypair);
+    },
+
+    // Mint a fresh actor identity — a 12-word mnemonic + the actor id it derives to. Unauthenticated
+    // by design: this is the bootstrap (`lode actor new`) a new user calls once, before any authed
+    // command is possible. It mints a new identity; it reads/signs nothing.
+    generateActorMnemonic: (_req: Empty): ActorMnemonic => {
+      const mnemonic = generateMnemonic();
+      const actorId = deriveActorKeypairFromMnemonic(mnemonic).actorId;
+      return create(ActorMnemonicSchema, { mnemonic, actorId });
     },
 
     // The session actor's public identity — what a peer needs to add this actor as a sync member.

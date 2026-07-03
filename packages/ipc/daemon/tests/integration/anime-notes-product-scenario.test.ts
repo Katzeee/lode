@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
 import { FieldType, FieldPresence } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
-import {
-  createTestWorkspaceAndDoc,
-  withDefaultWorkspace,
-  type TestRpc,
-} from "../helpers/workspace.js";
+import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
 import { createAnimeNotesScenarioHelpers, hello } from "./anime-notes-scenario-helpers.js";
 
 /*
@@ -168,7 +164,7 @@ describe("anime notes product scenario", () => {
     client = new AppServerClient({ url: server.address });
     client.connect();
     await hello(client);
-    await createTestWorkspaceAndDoc(client);
+    await createTestWorkspace(client);
     rpc = withDefaultWorkspace(client);
   });
 

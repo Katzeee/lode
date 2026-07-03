@@ -42,11 +42,6 @@ describe("AppServer persistence", () => {
       workspaceId: "ws_main",
       displayName: "Personal",
     });
-    await first.client.rpc.createWorkspaceDoc({
-      workspaceId: workspace.workspaceId,
-      docId: "main",
-      displayName: "Main",
-    });
     const node = await first.client.rpc.createPlainNode({
       workspaceId: workspace.workspaceId,
     });
@@ -77,11 +72,6 @@ describe("AppServer persistence", () => {
     await first.client.rpc.createWorkspace({
       workspaceId: "ws_main",
       displayName: "Personal",
-    });
-    await first.client.rpc.createWorkspaceDoc({
-      workspaceId: "ws_main",
-      docId: "main",
-      displayName: "Main",
     });
     const node = await first.client.rpc.createPlainNode({
       workspaceId: "ws_main",

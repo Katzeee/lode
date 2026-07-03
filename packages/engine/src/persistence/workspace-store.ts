@@ -3,7 +3,10 @@ import { bytesToBuffer, rowBytes } from "./sql-database.js";
 import type { SqlDatabase } from "./sql-database.js";
 import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 
-/** The default sub-doc name. Single-doc stores use only this; sharded stores use it for the treeDoc and one sub-doc per shard id. */
+/** The default sub-doc name. Single-doc stores use only this; sharded stores use it for the treeDoc
+ *  and one sub-doc per shard id. Also the content doc id. Mirrored as a literal in
+ *  `core/sharded-store.ts` (`syncDocs`) — the layer DAG forbids sharing this across the
+ *  core↔persistence boundary, so update both together. */
 export const MAIN_SUBDOC = "main";
 
 /** The doc-kind value for workspace CONTENT docs (the single sharded engine doc). The `docs` table

@@ -41,6 +41,9 @@ export class BrokerClientSyncTransport implements SyncTransport {
   private readonly brokerClient: BrokerClient;
   private readonly security?: WireSecurity;
   private readonly publicDocs?: () => SyncDoc[];
+  /** This replica's per-dataRoot routing peerId (declared at subscribe so the peer is a directed
+   *  target + appears in `peers()`). The engine's numeric site id, stringified for the broker. */
+  private readonly peerId?: string;
   private readonly pending = new Map<
     string,
     {
@@ -61,12 +64,16 @@ export class BrokerClientSyncTransport implements SyncTransport {
      *  log, a public roster a joining device reads BEFORE it holds the transit key. One option covers
      *  both concerns (they are the same set): the plaintext-exemption set is derived from these ids. */
     readonly publicDocs?: () => SyncDoc[];
+    /** This replica's routing peerId (the engine's numeric site id as a string). Declared at subscribe
+     *  so the peer is reachable by a directed request + listed in `peers()`. Omit for broadcast-only. */
+    readonly peerId?: string;
   }) {
     this.store = opts.store;
     this.workspaceId = opts.workspaceId;
     this.responseTimeoutMs = opts.responseTimeoutMs ?? 2000;
     this.security = opts.security;
     this.publicDocs = opts.publicDocs;
+    this.peerId = opts.peerId;
     this.brokerClient = new BrokerClient({
       url: opts.url,
       onDeliver: (_wsId, payload) => this.handle(payload),
@@ -84,10 +91,11 @@ export class BrokerClientSyncTransport implements SyncTransport {
     return Buffer.concat([Buffer.from([plaintext ? TAG_PLAIN : TAG_SEALED]), Buffer.from(body)]);
   }
 
-  /** Connect + subscribe to the workspace. Await before driving sync rounds. */
+  /** Connect + subscribe to the workspace (declaring this replica's peerId so it's a directed target
+   *  + discoverable via `peers()`). Await before driving sync rounds. */
   async open(): Promise<void> {
     await this.brokerClient.open();
-    this.brokerClient.subscribe(this.workspaceId);
+    this.brokerClient.subscribe(this.workspaceId, this.peerId);
   }
 
   close(): void {
@@ -124,16 +132,52 @@ export class BrokerClientSyncTransport implements SyncTransport {
       encodeMessage({
         kind: { case: "updatesReq", value: { reqId, docId, body: from.encode() } },
       }),
+      undefined,
+      this.isPublicDoc(docId),
     );
   }
 
+  /** Directed `fetchUpdates` (§3c): same `updatesReq/Resp` + `reqId` correlation, but the request
+   *  publish carries `toPeerId` so the relay routes it to ONE peer (cold-start fetch — a joiner asks a
+   *  specific member for the membership doc). The request is PLAINTEXT for a public doc (the membership
+   *  roster): a joiner fetches it BEFORE it holds the transit key, so it cannot seal the request — the
+   *  bootstrap chicken-and-egg. The response is broadcast (sender-exclusion delivers it back here) and
+   *  also plaintext for a public doc. Not on the `SyncTransport` interface — the engine's SyncManager
+   *  broadcasts; only the daemon's join path directs. */
+  async directedFetchUpdates(
+    docId: string,
+    from: VersionVector,
+    toPeerId: string,
+  ): Promise<Uint8Array> {
+    const reqId = randomUUID();
+    return this.request(
+      reqId,
+      encodeMessage({
+        kind: { case: "updatesReq", value: { reqId, docId, body: from.encode() } },
+      }),
+      toPeerId,
+      this.isPublicDoc(docId),
+    );
+  }
+
+  /** The routing peerIds declared on this workspace's channel (§3c discovery: "who's on channel W?"),
+   *  INCLUDING this replica's own — the caller filters self. Empty until peers subscribe with a peerId. */
+  peers(): Promise<string[]> {
+    return this.brokerClient.peers(this.workspaceId);
+  }
+
+  /** Whether `docId` is a public doc (rides the plaintext envelope). The membership roster is public so
+   *  a joiner can fetch + read it BEFORE it holds the transit key. */
+  private isPublicDoc(docId: string): boolean {
+    return this.publicDocs?.().some((d) => d.id === docId) ?? false;
+  }
+
   sendUpdates(docId: string, bytes: Uint8Array): Promise<void> {
-    const plaintext = this.publicDocs?.().some((d) => d.id === docId) ?? false;
     this.brokerClient.publish(
       this.workspaceId,
       this.wireEncode(
         encodeMessage({ kind: { case: "updatesPush", value: { docId, body: bytes } } }),
-        plaintext,
+        this.isPublicDoc(docId),
       ),
     );
     return Promise.resolve();
@@ -204,11 +248,13 @@ export class BrokerClientSyncTransport implements SyncTransport {
   private respondUpdates(reqId: string, docId: string, fromVVBytes: Uint8Array): void {
     const doc = this.lookupDoc(docId);
     const body = doc ? doc.exportUpdate(VersionVector.decode(fromVVBytes)) : new Uint8Array(0);
+    // A public doc (the membership roster) is answered on the plaintext envelope so a joiner can
+    // fetch it via `fetchUpdates("membership")` BEFORE it holds the transit key. Mirrors sendUpdates.
     this.brokerClient.publish(
       this.workspaceId,
       this.wireEncode(
         encodeMessage({ kind: { case: "updatesResp", value: { reqId, body } } }),
-        false,
+        this.isPublicDoc(docId),
       ),
     );
   }
@@ -239,7 +285,12 @@ export class BrokerClientSyncTransport implements SyncTransport {
 
   // ── request/response correlation ────────────────────────────────────────────────
 
-  private request(reqId: string, msgBytes: Uint8Array): Promise<Uint8Array> {
+  private request(
+    reqId: string,
+    msgBytes: Uint8Array,
+    toPeerId?: string,
+    plaintext = false,
+  ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         if (this.pending.delete(reqId)) {
@@ -247,7 +298,7 @@ export class BrokerClientSyncTransport implements SyncTransport {
         }
       }, this.responseTimeoutMs);
       this.pending.set(reqId, { resolve, reject, timer });
-      this.brokerClient.publish(this.workspaceId, this.wireEncode(msgBytes, false));
+      this.brokerClient.publish(this.workspaceId, this.wireEncode(msgBytes, plaintext), toPeerId);
     });
   }
 

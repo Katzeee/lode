@@ -1,20 +1,23 @@
 # Sync Design Decisions
 
-This document records the stable decisions for lode's **Phase D** — real network sync across
-devices. It explains **why** each choice was made: the constraints, the alternatives rejected,
-and the trade-offs. The in-process CRDT sync core (`SyncManager` / `sweepOrphans` in
-`@lode/engine`) is already landed and truth-tested; Phase D makes it reachable over a network.
+The stable decisions for lode's real network sync. Each records **why**: the constraints, the
+alternatives rejected, the trade-offs. The in-process CRDT sync core (`SyncManager` /
+`sweepOrphans` in `@lode/engine`) is landed; this doc is about reaching it over a network.
 
-Decisions were reached after studying the source of **any-sync** (`/home/xac/codes/any-sync`,
-anytype's sync layer), **anytype-heart** (client), and **hapi** (`/home/xac/codes/hapi`, a
-local-first remote-control app with a relay model).
+Identity, membership, and persistence layer on top — see
+[`sync-identity-persistence.md`](./sync-identity-persistence.md); this doc focuses on topology,
+the relay, and transport security.
+
+Decisions were reached after studying **any-sync** (`/home/xac/codes/any-sync`, anytype's sync
+layer), **anytype-heart** (client), and **hapi** (`/home/xac/codes/hapi`, a local-first
+remote-control app with a relay model).
 
 ## Governing principle
 
 **Loro CRDT already guarantees convergence, validity, and no-resurrection.** The sync layer's
 only job is therefore **reachability** (getting bytes across networks/NAT) and **membership**
-(who you choose to sync with) — not correctness. Everything below follows from pushing work
-out of the sync layer and onto the CRDT + social trust.
+(who you choose to sync with) — not correctness. Everything below follows from pushing work out
+of the sync layer and onto the CRDT + social trust.
 
 ## 1. Topology — dedicated central relay (star)
 
@@ -38,239 +41,201 @@ identity**, and is **untrusted**.
   privacy/at-rest concerns and keeps it trivial to operate (a forwarding process).
 - **Offline durability is therefore an always-on _client_'s job, not the relay's.** CRDT updates
   are durable in every client's own store. A workspace stays in sync as long as, when a peer
-  reconnects, some client holding the workspace is online. **Transport-only ⇒ robust offline
-  sync requires an always-on member client.** This is why the recommended relay form is
-  co-located with a client (§7): that client is online whenever the relay is, providing the
-  durable member.
+  reconnects, some client holding the workspace is online.
 - CRDT transitivity ⇒ a client only needs to sync with **one** up-to-date peer to converge.
 
-## 3. Relay — a workspace-routing broker (routing-aware, content-blind)
+## 3. Relay — an address-aware, content-blind workspace broker
 
 The relay is **not** a dumb byte pipe. Clients register the workspaces they hold (subscribe), and
-the relay **routes messages by workspace** to the subscribed clients. Worked example (devices A/B/C,
-relay on B): A, B, C each subscribe their workspaces. A edits shared workspace W → relay forwards
-that message **only** to B and C (W's other subscribers). A's private workspace W_A (A is the only
-subscriber) → relay does **not** forward it to B/C. A dumb broadcast would leak private workspaces'
-metadata/traffic to non-subscribers; routing by subscription is required.
+the relay **routes messages by workspace** to the subscribed clients — and, within a workspace,
+can **address a specific peer** so one client can request data directly from another. Worked
+example (devices A/B/C, relay on B): A, B, C each subscribe their workspaces. A edits shared
+workspace W → relay forwards that message **only** to B and C (W's other subscribers). A's private
+workspace W_A (A is the only subscriber) → relay does **not** forward it to B/C. A dumb broadcast
+would leak private workspaces' metadata/traffic to non-subscribers; routing by subscription is
+required.
 
-The relay's exact scope:
+The relay's scope:
 
-- **Routing-aware** — it knows a subscription table (client → subscribed workspace ids) and routes
-  each message to that workspace's subscribers. This is the minimal "data flow" logic the relay owns.
-- **Content-blind** — it does NOT understand sync RPCs, VVs, or update bytes. Clients encrypt
-  end-to-end (§5); the relay routes opaque ciphertext.
-- **No auth** — it does not decide membership. Clients enforce the transit-key AEAD (§5) + actor
-  signature checks; the relay forwards whatever a subscriber publishes, and a non-member (lacking
-  the transit key) cannot decrypt it anyway.
-- **No content storage** — local-first: the relay forwards, never persists workspace content (§2).
+- **Address-aware** — it routes by workspace channel AND can address a specific peer within it
+  (peerId-keyed), enabling directed client→client requests (§3c). This is routing metadata, not
+  content understanding.
+- **Content-blind (where it matters)** — it cannot read sealed content. Clients encrypt
+  end-to-end (transit-key AEAD, §4); the relay routes opaque ciphertext. It sees peerIds and
+  channel membership (public routing info) but never plaintext.
+- **Auth — open question.** Today the relay is **no-auth** (forwards anything; admission is
+  transit-key-based + cooperative). Whether to add relay-side admission is undecided; current
+  leaning is no. **Address-awareness is routing, NOT admission** — do not let it slide into
+  enforcement. A non-member can request data but cannot decrypt the sealed response.
+- **No persistence (hard)** — routing tables are in-memory, rebuilt on connect; the relay never
+  persists workspace content or identity (§2). Its in-memory state may grow beyond a bare routing
+  table (e.g., hints like "which peer holds membership for a newcomer"); that is undecided and the
+  next discussion.
 
-> Earlier drafts waffled between "dumb byte pipe" and "sync-aware router." The relay is neither
-> extreme: it is **routing-aware** (by workspace subscription) but **content-blind** (no CRDT/auth
-> semantics). It must route — broadcasting everything to every client would leak private-workspace
-> traffic to non-subscribers.
+> The relay is neither a "dumb byte pipe" nor a "sync-aware router": it is **routing-aware** (by
+> workspace subscription + peerId) but **content-blind** (no CRDT/plaintext/auth semantics). It
+> must route — broadcasting everything to every client would leak private-workspace traffic to
+> non-subscribers.
 
 **Reachability is a SEPARATE concern (§3a).** How clients reach the relay (LAN / VPS / tunwg /
-Cloudflare / Tailscale) is a deployment dimension, orthogonal to the relay's function above.
+Cloudflare / Tailscale) is a deployment dimension, orthogonal to the relay's function.
 
 ## 3a. Reachability — an independent deployment dimension
 
-The relay (§3) must be reachable by its clients. **How** that reachability is achieved is a
-deployment choice, **orthogonal to the sync design** — the relay is the same workspace-routing
-broker regardless. Options, in increasing setup cost:
+The relay must be reachable by its clients. **How** is a deployment choice, **orthogonal to the
+sync design** — the relay is the same broker regardless. Options, increasing setup cost:
 
-- **Same LAN** — clients connect to the relay directly (e.g. relay on device B, A/C dial B's LAN
-  address). No public infrastructure needed at all.
+- **Same LAN** — clients connect to the relay directly. No public infrastructure needed.
 - **Public VPS** — the relay runs on a VPS with a public IP; clients dial out to it. Simplest
-  cross-network option; the user provides the VPS (or Cloudflare Tunnel / port-forward to a home
-  machine). Pure Node; no external binary.
-- **tunwg / hosted dumb pipe** — the relay runs on a user's NAT'd home machine and is exposed via a
-  shared public dumb pipe (tunwg-style, with auto-cert). This is the option that lets **each user
-  group self-host the relay at home** rather than on a VPS — useful in multi-user scenarios. It is
-  **one deployment option, not MVP, and not part of the sync design**: it bundles a Go binary +
-  WireGuard + a hosted public server, and is only about reachability, not routing/sync.
+  cross-network option; the user provides the VPS (or Cloudflare Tunnel / port-forward). Pure Node.
+- **tunwg / hosted dumb pipe** — the relay runs on a NAT'd home machine exposed via a shared
+  public dumb pipe (tunwg-style, auto-cert). Lets each user group self-host at home. **One
+  deployment option, not MVP, not part of the sync design** — it bundles a Go binary + WireGuard +
+  a hosted public server, and is only about reachability.
 
-**tunwg is not being built for MVP.** It exists in this doc only to record that "relay on a NAT'd
-home machine, exposed via a public pipe" is a _deployment_ path available later. The sync logic
-(client ↔ workspace-routing relay) is identical across all reachability options.
+**tunwg is not being built for MVP.** It is recorded here only to note "relay on a NAT'd home
+machine, exposed via a public pipe" is a deployment path available later.
 
 ## 3b. Relay migration — moving the relay to a new host
 
-A workspace's coordinate is `(relay address, workspaceId, transit key)` (§4). The relay is a
-**stateless coordinate**, not replicated state — so **relocating the relay (host A → host B) is
-supported and lightweight**: only the `relay address` field of the coordinate changes; `workspaceId`
-and the transit key stay the same. Because the relay stores no content/identity/membership (§2/§3),
-there is **nothing to migrate** — every member already holds the full workspace locally; the relay is
-only the meeting point.
+A workspace's coordinate is `(relay address(es), workspaceId, transit key)` (§4). The relay is a
+**stateless coordinate**, not replicated state — so **relocating the relay is supported and
+lightweight**: only the `relay address` field changes. Because the relay stores no
+content/identity/membership (§2/§3), there is **nothing to migrate** — every member already holds
+the full workspace locally.
 
-- **MVP migration = social re-share**: the owner exports the new coordinate `(newAddr, wsId,
-transitKey)`; members import it and dial the new relay (Phase 4 coordinate create/import/export).
-  No new protocol — the same flow as inviting a device.
-- **In-flight during migration**: members still on the old relay vs. already on the new one are
-  temporarily two meeting points; once everyone converges on the new relay, CRDT merge catches every
-  member up with no data loss.
-- **Future nicety (not MVP)**: embed the relay address as a replicated field in the membership log so
-  the owner can issue a signed `relay-change` record that propagates via the (old) relay, sparing the
-  out-of-band re-share.
+- **MVP migration = social re-share**: the owner exports the new coordinate; members import it and
+  dial the new relay. Same flow as inviting a device.
+- **In-flight during migration**: members split across old/new relay temporarily; CRDT merge
+  catches everyone up once they converge.
+- A workspace may register **multiple relays**; each member dials all of them (no inter-relay
+  routing). This is a strength of the stateless relay: a stateful coordinator (e.g. any-sync's)
+  would require data/identity migration on relocation; lode's relay has nothing to move.
 
-This is a strength of the stateless relay: a stateful coordinator (e.g. any-sync's) would require
-data/identity migration on relocation; lode's relay has nothing to move.
+## 3c. Directed client→client requests — the core transport capability
 
-## 4. Membership — possession of the workspace read-key (egalitarian, no admin)
+The essential capability: **one client can request something from another specific client** (by
+peerId), through the relay. This is what makes `join` clean (fetch membership on demand) and
+replaces broadcast-then-first-responder-wins for N>2.
 
-> **⚠️ REVERSED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
-> Membership is now a **replicated signed membership log** with two roles — owner + member(rw)
-> — no admin/reader/writer tiers. The read-key is no longer the membership credential; it is the
-> **transit key** wrapped _within the membership log_. The egalitarian/no-roles model below is
-> kept only as the historical rationale for the decision we later overturned.
+**The primitives already exist — no new RPC.** The `SyncTransport` interface + its broker adapter
+(`BrokerClientSyncTransport`) already have the broadcast/directed split any-sync uses:
 
-A workspace is a set of devices that have agreed to sync. **All members are equal; there is no
-admin and no fine-grained role (read-only/admin).**
+|                                                         | our primitive                                                                 | anytype analog                                                                              |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **broadcast** (one-way push)                            | `updatesPush` (`sendUpdates`) + the membership gossip-push (`MembershipSync`) | `HeadUpdate` on mutation (heads + inline changes); ACL-record push                          |
+| **directed** (req/resp to one peer, `reqId`-correlated) | `profileReq/Resp` (`remoteProfile`) + `updatesReq/Resp` (`fetchUpdates`)      | `HeadSync` (ldiff); `ObjectSyncRequestStream` (missing-data pull); `SpacePull` (cold-start) |
 
-- **Membership = who holds the workspace read-key.** The workspace **coordinate** is
-  `(relay address, workspaceId, read-key)`; whoever has it is a member. There is no separate pubkey
-  allowlist — the read-key does double duty as the membership credential AND the content-encryption
-  key (§5). This is simpler than a pubkey allowlist + a separate encryption key.
-- **Identity = actor keypair** (per-user, generated on first run, recoverable via mnemonic; §8) +
-  **device peerId** (random UUID per device = the Loro VV id, for uniqueness across a user's
-  devices). The actor key SIGNS updates (attribution) and encrypts re-key messages — it is NOT the
-  membership credential.
-- **Invite (add):** any member shares the coordinate out-of-band (QR / link); the recipient imports
-  it → has the read-key → is a member. Trust is social (a member has full data).
-- **Rejected:** any-sync's admin-signed ACL + roles (local-first can't enforce roles; binary
-  membership only), AND a separate pubkey allowlist (read-key-as-membership subsumes it — the key
-  is the membership).
+Concretely:
 
-## 5. Encryption — `node:crypto` AEAD with the workspace read-key
+- **join fetches membership via the existing `fetchUpdates("membership", ∅)`** — the membership doc
+  is already reachable (`lookupDoc` searches `store ∪ publicDocs`). One change needed: `respondUpdates`
+  must emit the response on the **plaintext envelope** when the docId is a public doc (today it
+  hardcodes sealed) so a pre-key joiner can read it — ~1 line, mirroring `sendUpdates`.
+- **Directed routing** = adding `toPeerId` to the broker publish; the relay's
+  `channel → {peerId → connection}` table routes it. The `reqId` req/resp correlation is reused as-is.
+  Today a req publishes to all subscribers (first-responder-wins); directed just targets one peer.
 
-> **⚠️ Partially revised — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
-> The AEAD-with-a-shared-key mechanism below stands (now called the **transit key**, one key per
-> epoch, rotated as a unit). What was reversed is §4's claim that this key "IS the membership
-> credential": it is not — membership is the signed log; the transit key is wrapped _within_ it.
+- **peerId (per-dataRoot) is the routing identity** — already the CRDT site id, so reusing it for
+  routing is consistent. A directed request is daemon→daemon, keyed by the ws's peerId.
+- **Discovery:** a peer learns whom to ask via a relay query ("who's on channel W"), answered from
+  the relay's in-memory table.
+- **Security:** the relay is no-auth, so an unauthorized peer _can_ request — but the content
+  response is transit-key-sealed (it cannot decrypt), and membership is a public roster anyway.
+  peerId is a routing _hint_, not a trust anchor (spoofable on a no-auth relay); trust comes from
+  the AEAD seal + actor signature on the response.
+- **Liveness / fallback** (a directed request hits a just-disconnected peer) is the **client's**
+  strategy — try another peer, fall back to broadcast; the relay does not manage it.
 
-Clients encrypt sync content end-to-end with the workspace **read-key** (AEAD, e.g. AES-256-GCM);
-the relay (§3) routes **opaque ciphertext** and cannot read workspace content. The read-key is
-generated with the workspace and shared via the coordinate/invite (§4). No WireGuard (that was
-tunwg-bundled; tunwg is now only an optional reachability choice, §3a).
+This mirrors any-sync's model (broadcast head-updates for changes; directed streaming pull for
+missing data) but **simpler**: any-sync needs a hash ring + "responsible peers" because it shards
+storage; lode **full-replicates** (every member holds the whole doc), so _any_ peer can answer —
+no sharding machinery.
 
-- **The read-key IS the membership credential** (§4) — possessing it = being a member. A recipient
-  AEAD-decrypts; success proves the sender held the key (member), failure = non-member (discard).
-  Membership is enforced by cryptography, not a list.
-- **What it protects:** the relay (untrusted, no-auth) and any non-member subscriber cannot read
-  content — they lack the read-key. This is the transit-privacy property.
-- **What it does NOT protect:** a member leaking the key/data (fundamental — a member has
-  everything; no encryption constrains a willing leaker). "Anti-collusion" is not a real property.
-- **Local at-rest** disk encryption (stolen-device) is a separate, future feature unrelated to sync.
+**Split (decided):** broadcast pushes changes (content `updatesPush` + membership-roster updates);
+directed pulls gaps (cold-start full doc + missing shards, via `fetchUpdates`/`remoteProfile`). MVP
+content sync is round-based directed (each round: profile-req + updates-req to a peer); push-on-
+mutation (the low-latency broadcast path) is the event-driven refinement, deferred.
 
-## 6. Revocation — rotate the read-key, accept the fork
+## 4. Membership, encryption, revocation
 
-> **⚠️ REVISED — see [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.**
-> Revocation is now **owner-only**: the owner appends a `rotate` whose wrapped set omits the ousted
-> member (atomic removeAndRotate — no forward-secrecy window), re-wrapping the transit key to the
-> survivors. The "any member can rotate" / social-rotate model below is the earlier egalitarian form,
-> superseded by owner + member(rw).
+Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2. Summary:
 
-**You cannot confiscate data a peer already has** (fundamental to local-first). Revocation stops
-_future_ content from being readable by the ousted member:
+- **Membership** = a replicated, signed, append-only **membership log** (a Loro doc) with two
+  roles — **owner** + **member(rw)**. Not an ACL (no authoritative server enforces it); the only
+  hard-enforced property is membership itself. Invalid records are skipped at CRDT replay.
+- **Encryption** = one **transit key** per epoch, transport-only (the relay sees ciphertext),
+  rotated as a unit by the owner. No per-object content keys, no at-rest content encryption.
+- **Revocation** = owner-only `rotate` whose wrapped set omits the ousted member (atomic
+  removeAndRotate — no forward-secrecy window); a re-key chain (`encPrev`) lets current members
+  walk back to prior epochs.
 
-- A remaining member **rotates the workspace read-key** and distributes the **new key** to the
-  other remaining members (encrypted to their actor pubkeys, §8). Updates after the rotation are
-  AEAD'd with the new key.
-- The ousted member keeps the OLD key (can still read what they cached/recorded — can't confiscate)
-  but cannot read NEW content (new key) nor produce valid updates for the rotated workspace.
-- No admin — any member can rotate; the social agreement is "the remaining members adopt the new
-  key." Full cutoff is social, same as any local-first revocation.
+The membership doc rides the relay's **plaintext envelope** (a public roster) so a joining device
+can read it _before_ it holds the transit key; content docs ride **sealed**.
 
-## 7. Relay form — a daemon role; placement is deployment (§3a)
+## 5. Relay form — one binary, three modes
 
-The relay (the §3 workspace-routing broker) is one role of the **AppServer daemon**, not a separate
-binary. A machine runs `--relay` to act as the broker; clients (mobile, other devices) dial it.
-**Where** that machine lives is the reachability/deployment dimension (§3a) — LAN, VPS, or a
-tunwg-exposed home machine — and does not change the broker's function.
+The relay is one role of the **AppServer binary**, not a separate process. `--listen` is
+**optional**, giving three modes:
 
-- The recommended form co-locates the relay with an always-on client (the user's desktop daemon
-  runs `--relay` AND holds its workspaces). This satisfies §2: that co-located client is the
-  always-on member that transport-only offline sync depends on.
-- Relay mode is **opt-in** (`--relay`), **not the default**. Default = client mode (dial a
-  configured relay). Starting a second `--relay` by mistake creates two relay islands
-  (misconfiguration, not a crash); mitigated by explicit relay-address config.
-- A dedicated relay-only process (no co-located client) is supported but weaker for offline sync
-  (no always-on member unless a separate device is always-on).
+| invocation              | mode          | runs                                                  |
+| ----------------------- | ------------- | ----------------------------------------------------- |
+| `app-server --listen …` | engine daemon | engine + gRPC ConnectServer                           |
+| `app-server --relay …`  | relay-only    | only the broker — **no engine, no gRPC, no identity** |
+| both                    | combined      | engine daemon that also hosts the relay               |
 
-## 8. Identity — actor keypair + device peerId
+- Relay-only mode is how a dedicated relay machine runs (one process, no wasted engine).
+- The recommended desktop form is **combined** (co-located always-on client + relay) — that client
+  is the always-on member transport-only offline sync depends on (§2).
+- A second `--relay` by mistake creates two relay islands (misconfiguration, not a crash);
+  mitigated by explicit relay-address config.
 
-> **⚠️ Partially revised — see [`sync-identity-persistence.md`](./sync-identity-persistence.md)
-> §3 & §5.** The "device peerId" is re-scoped to **per-dataRoot** (one replica site id per
-> running daemon), not per-device — a machine may host multiple dataRoots, and two dataRoots
-> holding the same shared workspace need distinct site ids or their version vectors collide.
-> The actor keypair description below otherwise stands (Ed25519, mnemonic-recoverable).
+## 6. Identity — actor (client/session) + peerId (per-dataRoot)
 
-**Actor keypair** (Ed25519, per-user): generated on first run, stored in a local keystore,
-recoverable via a **mnemonic** (BIP39-style). All of a user's devices share the same actor keypair
-(restored via mnemonic / QR / key-file import). The actor key is used to:
+Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3–§5. Summary:
 
-- **SIGN sync updates** (attribution: "this edit is by actor1").
-- **ENCRYPT re-key messages** (distribute a new read-key to specific members after revocation, §6).
-
-It is NOT the membership credential (membership = read-key, §4).
-
-**Device peerId** (random UUID, per-device, non-secret): set as the Loro `doc.setPeerId()` for VV
-uniqueness. Loro's peerId must be unique per concurrent editor — if two devices of the same actor
-shared a peerId, concurrent edits would corrupt the VV. The device peerId is generated locally and
-needs no coordination beyond randomness.
-
-This replaces the engine's current runtime `randomUUID` nodeId, which is only an in-process id.
+- **The daemon has no identity.** Actors are **client-side**: declared per session (mnemonic at
+  `sessionHello`; the daemon derives the keypair transiently, no attestation). One daemon, many
+  actors, many sessions. Permissions follow the actor.
+- **Actor keypair** (Ed25519, mnemonic-recoverable, Ed25519→X25519 dual-use): signs updates +
+  membership records; wraps the transit key to members. The mnemonic is held by the client.
+- **peerId** (random, per-dataRoot, non-secret): the Loro `setPeerId()` for VV uniqueness —
+  identifies one replica (one running daemon for that dataRoot). Also the **routing identity** for
+  directed requests (§3c). It is per-dataRoot, not per-actor (one replica per workspace; all local
+  actors' edits flow through it; attribution rides on the actor signature).
 
 ## Honest security model
 
-> Superseded in part by [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2/§6
-> (membership = signed owner+member log, not read-key-as-membership). The trust boundary below
-> stands; the credential is the **transit key** wrapped in the membership log, not a bare read-key.
-
-- Trust among members is **social, not technical**. A member has all data and keys; leakage
-  cannot be prevented technically.
+- Trust among members is **social, not technical**. A member has all data and keys; leakage cannot
+  be prevented technically.
 - The only technical boundary is **member vs non-member**, enforced by the **transit key**: members
-  can AEAD-decrypt sync content; non-members (no key) cannot.
-- The relay is untrusted and harmless: clients E2E-encrypt (`node:crypto` AEAD with the transit key,
-  §5), so the relay routes only ciphertext.
-- Roles are owner + member(rw) only — no admin/reader/writer tiers (can't hard-enforce without an
-  authority). The model is deliberately minimal.
+  can AEAD-decrypt sync content; non-members cannot. The relay (untrusted, no-auth) routes only
+  ciphertext.
+- Roles are owner + member(rw) only — no admin/reader/writer tiers (cannot hard-enforce without an
+  authority).
+- Local at-rest disk encryption (stolen-device) is a separate, future feature unrelated to sync.
 
-## Roadmap (dependency order)
+## Roadmap
 
-> **Status (2026-06):** items 1–3 have landed — foundation (`F1`–`F4`), transport (`T1`–`T4`,
-> secured), and the production membership log (`A1`, wired as a synced doc in T4-b). The next
-> workstream is coordinate create/import/export UX (Phase 4), then hardening (Phase 5). Live
-> status lives in `_local/handoff/sync-handoff.md`; this is the design-time sequence.
+> Live status lives in `_local/handoff/sync-handoff.md`. Design-time sequence:
 
-1. **Foundation (topology-agnostic):** device identity (keystore + stable peerId) → wire
-   `SyncManager` into the runtime + export from the engine public API (audit BLOCKER 1) →
-   `VersionVector` wire encode/decode (audit BLOCKER 2) → re-port the reconcile-before-resync
-   hazard characterization test.
-2. **Transport (the relay/broker + client transport):** the workspace-routing **relay** (§3:
-   subscription table + route-by-workspace, content-blind, no data) + client-side `SyncTransport`
-   (the validated pairwise sync protocol over the relay) + transit-key AEAD auth + proto/CLI
-   (`sync --relay <url>`). **Reachability (§3a) is deployment, not this layer** — LAN/VPS suffice
-   for MVP; tunwg-exposed-home is a later option.
-3. **Membership & coordinates:** workspace coordinate `(relay addr, workspaceId, transit key)` —
-   create/import/export. Membership is the signed owner+member log
-   ([`sync-identity-persistence.md`](./sync-identity-persistence.md) §2); the transit key is wrapped
-   within it (not a bare membership credential).
-4. **Hardening (alongside):** merge-cycle policy (concurrent moves forming a cycle on merge —
-   Loro abort), Loro `getNodeByID(ref)` upstream-panic guard, `persistMutation` dirty-shard-only,
-   mid-sync-read gate breadth, lazy shard LOAD (async `shardLoader`).
+1. **Directed client→client request capability** (§3c) — relay peerId tracking + directed routing +
+   peer-list query. The foundation; lands alongside without breaking existing code.
+2. **Identity refactor:** daemon drops `--actor-mnemonic`; sync becomes a client-registered
+   service (in-memory); `createWorkspace` inits the root; drop `--sync-workspace`/`ownerWorkspaces`.
+3. **join/sync split:** join establishes membership (directed fetch); sync does content.
+4. **Relay-only mode** (`--listen` optional) + **tick → 20s** + CLI manual trigger.
+5. **Then:** N>2 usage of the directed capability; CLI e2e; hardening (merge-cycle policy,
+   `getNodeByID(ref)` guard, dirty-shard-only `persistMutation`, mid-sync-read gate breadth,
+   lazy shard LOAD).
 
 ## What is borrowed from where
 
-- **any-sync** (`/home/xac/codes/any-sync`): the conceptual frame (per-object sync, VV/head diff,
-  store-and-forward among replicas). Lode is simpler — Loro VVs are bounded and directly
-  comparable, so lode needs none of any-sync's Merkle-bucket head-diff or coordinator/consensus
-  machinery. Lode also confirmed (from any-sync's own gc-partition verification) that no-resurrection
-  does not need tombstones — see the tombstone removal in `sharded-store.ts`.
-- **hapi** (`/home/xac/codes/hapi`): a **reachability/deployment** reference, not a transport
-  reference. hapi's `tunwg` / `tunnelManager.ts` solves "expose a NAT'd home machine via a hosted
-  public dumb pipe" — that is ONE of lode's deployment options (§3a), not lode's relay function
-  (lode's relay is the §3 workspace-routing broker, which hapi's tunwg pipe is NOT). hapi's
-  `CLI_API_TOKEN` auth is _not_ borrowed — it is shared-secret connection auth, not actor identity;
-  lode uses transit-key AEAD for content confidentiality (§5) + a signed membership log for
-  membership ([`sync-identity-persistence.md`](./sync-identity-persistence.md) §2) + actor keypairs
-  for signing (§8) instead.
+- **any-sync**: the conceptual frame (broadcast-push + directed-pull + gossip relay; signed-log
+  membership; Ed25519→X25519 dual-use). Lode is simpler — Loro VVs are bounded and directly
+  comparable, so lode needs none of any-sync's Merkle-bucket head-diff, coordinator/consensus, or
+  hash-ring sharding (lode full-replicates). Confirmed from any-sync's own gc-partition: no
+  tombstones needed (see `sharded-store.ts`).
+- **hapi**: a **reachability/deployment** reference only — `tunwg` solves "expose a NAT'd home
+  machine via a hosted public pipe," one of lode's deployment options (§3a), not lode's relay
+  function. hapi's `CLI_API_TOKEN` shared-secret auth is NOT borrowed.

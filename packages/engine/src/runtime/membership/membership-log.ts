@@ -5,6 +5,7 @@ import {
   aeadEncrypt,
   actorEncryptionPrivate,
   actorEncryptionPublic,
+  actorIdFromPublicKey,
   signWithActor,
   unwrapKey,
   verifyActorSignature,
@@ -278,6 +279,31 @@ export class MembershipLog {
       throw new Error(`not a member: ${member.actorId}`);
     }
     return unwrapKey(actorEncryptionPrivate(member.privateKey), m.wrappedTransit);
+  }
+
+  /** Owner-only governance: add a member (their raw Ed25519 sign pub) at the current epoch. Composes
+   *  `deriveState` + the owner guard + transit-key unwrap + `appendAdd`. Throws if `owner` isn't the
+   *  workspace owner. Only the member's public identity is needed; their private key never leaves their
+   *  device. Does NOT persist — the caller flushes via `persistIfDirty()`, like the raw appends. */
+  addMember(owner: ActorKeypair, memberSignPub: Uint8Array): void {
+    const { state } = this.deriveState();
+    if (state.owner === "") {
+      throw new Error("addMember: workspace has no owner root");
+    }
+    if (state.owner !== owner.actorId) {
+      throw new Error("addMember: only the owner can add members");
+    }
+    const transitKey = this.unwrapCurrentTransitKey(state, owner);
+    this.appendAdd(
+      owner,
+      {
+        actorId: actorIdFromPublicKey(memberSignPub),
+        signPub: memberSignPub,
+        encPub: actorEncryptionPublic(memberSignPub),
+      },
+      transitKey,
+      state.currentEpoch,
+    );
   }
 }
 

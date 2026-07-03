@@ -11,18 +11,26 @@ async function main(): Promise<void> {
     const parsed = parseCli(process.argv.slice(2));
     client = new AppServerClient({ url: parsed.url });
     client.connect();
-    if (!parsed.actorMnemonic) {
-      throw new Error(
-        'Missing actor mnemonic. Provide "--actor-mnemonic <words>" or set LODE_ACTOR_MNEMONIC.',
-      );
+    // `actor new` mints a fresh identity — it has no actor/mnemonic yet and must skip auth. Every
+    // other command needs an authenticated session (actor + mnemonic).
+    const needsAuth = !(parsed.group === "actor" && parsed.action === "new");
+    if (needsAuth) {
+      if (!parsed.actorId) {
+        throw new Error('Missing actor. Provide "--actor <id>" or set LODE_ACTOR.');
+      }
+      if (!parsed.actorMnemonic) {
+        throw new Error(
+          'Missing actor mnemonic. Provide "--actor-mnemonic <words>" or set LODE_ACTOR_MNEMONIC.',
+        );
+      }
+      // The daemon derives the keypair from the mnemonic and verifies it matches the declared actor
+      // id — no key material lives client-side.
+      await client.authenticate({
+        actorMnemonic: parsed.actorMnemonic,
+        actorId: parsed.actorId,
+        client: { name: "lode" },
+      });
     }
-    // The daemon derives the keypair from the mnemonic and verifies it matches the declared actor
-    // id — no key material lives client-side.
-    await client.authenticate({
-      actorMnemonic: parsed.actorMnemonic,
-      actorId: parsed.actorId,
-      client: { name: "lode" },
-    });
     const output = await executeCommand(client.rpc, parsed);
     process.stdout.write(`${output}\n`);
   } catch (error) {

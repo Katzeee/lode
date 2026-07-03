@@ -8,6 +8,11 @@ export async function executeActorCommand(
   commandKey: string,
 ): Promise<string> {
   switch (command.action) {
+    case "new": {
+      assertAllowedFlags(command, commandKey, []);
+      const { actorId, mnemonic } = await client.generateActorMnemonic({});
+      return [`actor ${actorId}`, `mnemonic ${mnemonic}`].join("\n");
+    }
     case "print-pub": {
       assertAllowedFlags(command, commandKey, []);
       const { actorId, signPub } = await client.getActorPublicKeys({});

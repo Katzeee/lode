@@ -11,6 +11,7 @@ import {
   type SessionInfo,
 } from "@lode/protocol/proto";
 import { NotificationStream } from "../event/notification-stream.js";
+import type { ActorKeypair } from "../utils/crypto/index.js";
 
 // Engine-internal typed error: the daemon (Connect layer) maps it to a status code; in-process
 // callers handle it directly. Co-located with its only thrower (requireOrigin) because session/
@@ -31,9 +32,12 @@ export type EngineOrigin = {
 type SessionRecord = {
   sessionId: string;
   actor: Actor | undefined;
-  // The actor's Ed25519 sign pub (derived at hello). Exposed via getActorPublicKeys so a peer can add
-  // this actor as a member; undefined only for an unverified session (which can't exist post-hello).
-  signPub: Uint8Array | undefined;
+  // The actor's full keypair (derived at hello). Retained for the session so daemon-side operations
+  // can act AS this actor — `createWorkspace` signs the membership root, and `RegisterSync` captures
+  // it so the sync tick keeps signing after the client disconnects. undefined only for an unverified
+  // session (which can't exist post-hello). Local-first: this is the user's own process holding the
+  // user's own key, not a third-party trust boundary.
+  keypair: ActorKeypair | undefined;
   connectedAt: bigint;
   client: ClientInfo | undefined;
 };
@@ -49,12 +53,12 @@ export class SessionManager {
   createSession(
     connectionId: string,
     request: SessionHelloRequest,
-    signPub?: Uint8Array,
+    keypair?: ActorKeypair,
   ): SessionInfo {
     const record: SessionRecord = {
       sessionId: randomUUID(),
       actor: request.actor,
-      signPub,
+      keypair,
       connectedAt: BigInt(Date.now()),
       client: request.client,
     };
@@ -83,10 +87,21 @@ export class SessionManager {
    *  Throws SessionRequiredError without a verified session, so it doubles as the auth gate. */
   getActorPublicKeys(connectionId: string): { actorId: string; signPub: Uint8Array } {
     const record = this.sessionsByConnection.get(connectionId);
-    if (record === undefined || record.actor === undefined || record.signPub === undefined) {
+    if (record === undefined || record.actor === undefined || record.keypair === undefined) {
       throw new SessionRequiredError();
     }
-    return { actorId: record.actor.actorId, signPub: record.signPub };
+    return { actorId: record.actor.actorId, signPub: record.keypair.publicKey };
+  }
+
+  /** The session actor's full keypair — for daemon-side operations that act AS this actor:
+   *  `createWorkspace` signing the membership root, and `RegisterSync` capturing it for the tick.
+   *  Same SessionRequiredError gate as getActorPublicKeys. */
+  getActorKeypair(connectionId: string): { actorId: string; keypair: ActorKeypair } {
+    const record = this.sessionsByConnection.get(connectionId);
+    if (record === undefined || record.actor === undefined || record.keypair === undefined) {
+      throw new SessionRequiredError();
+    }
+    return { actorId: record.actor.actorId, keypair: record.keypair };
   }
 
   subscribeDoc(connectionId: string, workspaceId: string): void {

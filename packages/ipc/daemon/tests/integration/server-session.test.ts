@@ -24,7 +24,7 @@ describe("AppServer sessions and notifications", () => {
 
   it("rejects write RPCs before session hello", async () => {
     await expect(
-      client.rpc.createWorkspaceDoc({ workspaceId: WORKSPACE_ID, docId: "main" }),
+      client.rpc.createWorkspace({ workspaceId: WORKSPACE_ID, displayName: "x" }),
     ).rejects.toThrow("Session handshake required");
   });
 
@@ -139,11 +139,6 @@ async function createWorkspaceAndDoc(client: AppServerClient): Promise<void> {
   await client.rpc.createWorkspace({
     workspaceId: WORKSPACE_ID,
     displayName: "Test Workspace",
-  });
-  await client.rpc.createWorkspaceDoc({
-    workspaceId: WORKSPACE_ID,
-    docId: "main",
-    displayName: "Main",
   });
 }
 

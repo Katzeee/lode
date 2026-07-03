@@ -3,9 +3,6 @@ import type { ClientLike } from "./commands/types.js";
 
 // Method names matching the typed client, so tests can assert calls by name.
 export const Methods = {
-  CreateWorkspaceDoc: "createWorkspaceDoc",
-  ListWorkspaceDocs: "listWorkspaceDocs",
-  RemoveWorkspaceDoc: "removeWorkspaceDoc",
   CreatePlainNode: "createPlainNode",
   GetNode: "getNode",
   GetNodeChildren: "getNodeChildren",
@@ -66,9 +63,6 @@ export function createFakeClient(overrides: Record<string, unknown> = {}): {
   const calls: CallRecord[] = [];
 
   const responses: Record<string, unknown> = {
-    createWorkspaceDoc: { value: "doc_created" },
-    listWorkspaceDocs: { docIds: ["doc_main"] },
-    removeWorkspaceDoc: { value: true },
     createPlainNode: wireNode("node_new", "occ_new"),
     getNode: { occurrence: undefined },
     getNodeChildren: { children: [] },
@@ -137,9 +131,6 @@ export function createFakeClient(overrides: Record<string, unknown> = {}): {
   };
 
   const client = {
-    createWorkspaceDoc: make(Methods.CreateWorkspaceDoc),
-    listWorkspaceDocs: make(Methods.ListWorkspaceDocs),
-    removeWorkspaceDoc: make(Methods.RemoveWorkspaceDoc),
     createPlainNode: make(Methods.CreatePlainNode),
     getNode: make(Methods.GetNode),
     getNodeChildren: make(Methods.GetNodeChildren),

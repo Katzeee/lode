@@ -163,27 +163,8 @@ message RemoveWorkspaceRequest {
   string workspace_id = 1;
 }
 
-message CreateWorkspaceDocRequest {
-  string workspace_id = 1;
-  optional string doc_id = 2;
-  optional string display_name = 3;
-}
-
-message ListWorkspaceDocsRequest {
-  string workspace_id = 1;
-}
-
-message ListWorkspaceDocsResponse {
-  repeated string doc_ids = 1;
-}
-
 message ListWorkspacesResponse {
   repeated WorkspaceInfo workspaces = 1;
-}
-
-message RemoveWorkspaceDocRequest {
-  string workspace_id = 1;
-  string doc_id = 2;
 }
 
 // ---- node ----
@@ -440,18 +421,39 @@ message ActorPublicKeys {
   bytes sign_pub = 2; // 32-byte Ed25519 sign pub
 }
 
+// A freshly generated BIP-39 mnemonic + the actor id it derives to — the bootstrap a new user calls
+// ONCE (`lode actor new`) to get an identity, before any authenticated command is possible.
+// Unauthenticated by design (it mints a new identity; it does not read or sign anything).
+message ActorMnemonic {
+  string mnemonic = 1; // 12-word BIP-39 phrase (the user's recovery root; keep secret)
+  string actor_id = 2; // the id derived from the mnemonic — supply it back as `--actor`
+}
+
 message ShareWorkspaceRequest {
   string workspace_id = 1;
 }
 
 // The payload an owner hands to a joiner (out of band). relay_url = where to dial; workspace_id =
-// the broker channel; doc_id = the single content doc to create locally so CRDT sync applies.
+// the broker channel. (The single content doc is auto-created at createWorkspace — no doc id crosses
+// the coordinate; CRDT sync targets it implicitly.)
 message WorkspaceCoordinate {
   string relay_url = 1;
   string workspace_id = 2;
-  string doc_id = 3;
 }
 
 message JoinWorkspaceRequest {
   WorkspaceCoordinate coordinate = 1;
+}
+
+// Register the session's actor to drive sync for `workspace_id` via `relay_url`. The actor keypair
+// comes from the session (sessionHello), not the request — the client never re-sends its key.
+message RegisterSyncRequest {
+  string workspace_id = 1;
+  string relay_url = 2;
+}
+
+// Manual trigger: run one sync round for `workspace_id` now (`lode sync now`), instead of waiting
+// for the next tick.
+message SyncNowRequest {
+  string workspace_id = 1;
 }

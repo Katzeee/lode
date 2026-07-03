@@ -278,39 +278,6 @@ export default tseslint.config(
     },
   },
   {
-    // identity: engine's per-dataRoot ActorStore (SQLite catalog + on-disk keystore) — engine's
-    // identity-persistence glue. May use the persistence storage primitives + the utils/crypto leaf;
-    // no upper layers (no core/domain/services/runtime/bundle/event/session).
-    files: ["packages/engine/src/identity/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../core/**",
-                "../domain/**",
-                "../services/**",
-                "../runtime/**",
-                "../bundle/**",
-                "../event/**",
-                "../session/**",
-              ],
-              message:
-                "identity glue may use only persistence storage primitives + utils/crypto.",
-            },
-            {
-              group: ["@lode/protocol", "@lode/client"],
-              message: "identity must not import the wire contract or any client.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
     // services / runtime / top-level src (index.ts): adapter + composition layers; may use any
     // internal layer + protocol, never client.
     files: ["packages/engine/src/**/*.ts"],
@@ -321,7 +288,6 @@ export default tseslint.config(
       "packages/engine/src/event/**",
       "packages/engine/src/session/**",
       "packages/engine/src/persistence/**",
-      "packages/engine/src/identity/**",
       "packages/engine/src/utils/**",
       "**/*.test.ts",
     ],

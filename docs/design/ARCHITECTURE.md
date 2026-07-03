@@ -75,9 +75,9 @@ must not import `@lode/client` or `@lode/transport`. Enforced automatically via 
 `no-restricted-imports` (one non-overlapping config block per layer).
 
 **5. One doc per workspace.**
-`Workspace.createDoc` throws if a doc already exists. The "doc" concept in the protocol is
-vestigial (always one per workspace). Doc lifecycle RPCs (`createWorkspaceDoc`,
-`removeWorkspaceDoc`, `listWorkspaceDocs`) remain for discovery; per-op RPCs carry no `doc_id`.
+`Workspace.createDoc` throws if a doc already exists, and `createWorkspace` auto-inits that single
+content doc (`"main"`). So the "doc" concept never reaches the protocol: there are no doc-lifecycle
+RPCs, the `WorkspaceCoordinate` carries no doc id, and per-op RPCs carry only `workspace_id`.
 
 **6. Notifications are not sync history.**
 Semantic notifications are UI events (per-workspace subscription). Reconnect and durable sync

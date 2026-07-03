@@ -165,6 +165,59 @@ describe("membership log — owner-only governance", () => {
   });
 });
 
+describe("membership log — addMember (owner-guarded composition)", () => {
+  it("the owner adds a member: they join at the current epoch and unwrap the transit key", () => {
+    const owner = generateActorKeypair();
+    const member = generateActorKeypair();
+    const tk = newTransitKey();
+    const log = new MembershipLog();
+    log.appendRoot(owner, tk);
+
+    log.addMember(owner, member.publicKey);
+
+    const { state, skipped } = log.deriveState();
+    expect(skipped).toHaveLength(0);
+    expect(state.members.has(member.actorId)).toBe(true);
+    // The added member's public identity is derived from just their sign pub.
+    const m = state.members.get(member.actorId)!;
+    expect(eq(m.signPub, member.publicKey)).toBe(true);
+    expect(eq(m.encPub, actorEncryptionPublic(member.publicKey))).toBe(true);
+    expect(m.epoch).toBe(state.currentEpoch);
+    // The wrapped transit key decrypts — addMember wrapped the current key to the member.
+    expect(eq(log.unwrapCurrentTransitKey(state, member), tk)).toBe(true);
+  });
+
+  it("a non-owner is refused and the log is unchanged", () => {
+    const owner = generateActorKeypair();
+    const member = generateActorKeypair();
+    const outsider = generateActorKeypair();
+    const tk = newTransitKey();
+    const log = new MembershipLog();
+    log.appendRoot(owner, tk);
+    log.appendAdd(owner, memberPub(member), tk, 0);
+    const before = log.records().length;
+
+    expect(() => log.addMember(outsider, generateActorKeypair().publicKey)).toThrow(
+      "addMember: only the owner can add members",
+    );
+
+    expect(log.records().length).toBe(before);
+    const { state } = log.deriveState();
+    expect(state.owner).toBe(owner.actorId);
+    expect(state.members.has(outsider.actorId)).toBe(false);
+  });
+
+  it("refuses on a workspace with no owner root yet (e.g. an unrooted log)", () => {
+    const log = new MembershipLog();
+    // No appendRoot — even the actor who would be the owner cannot add before a root exists.
+    const owner = generateActorKeypair();
+    expect(() => log.addMember(owner, generateActorKeypair().publicKey)).toThrow(
+      "addMember: workspace has no owner root",
+    );
+    expect(log.records()).toHaveLength(0);
+  });
+});
+
 describe("membership log — recovery (re-add → current transit key)", () => {
   it("a re-added member regains the current transit key", () => {
     const owner = generateActorKeypair();

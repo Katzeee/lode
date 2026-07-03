@@ -4,12 +4,7 @@ import { ValueSchema } from "@bufbuild/protobuf/wkt";
 import { AppServerClient } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
-import {
-  createTestWorkspaceAndDoc,
-  TEST_WORKSPACE_ID as WORKSPACE_ID,
-  withDefaultWorkspace,
-  type TestRpc,
-} from "../helpers/workspace.js";
+import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
 
 describe("AppServer integration", () => {
   let server: AppServerDaemon;
@@ -21,7 +16,7 @@ describe("AppServer integration", () => {
     client = new AppServerClient({ url: server.address });
     client.connect();
     await hello(client);
-    await createTestWorkspaceAndDoc(client);
+    await createTestWorkspace(client);
     rpc = withDefaultWorkspace(client);
   });
 
@@ -181,23 +176,6 @@ describe("AppServer integration", () => {
     await expect(getNode(source.occurrenceId)).resolves.toMatchObject({
       nodeId: source.nodeId,
     });
-  });
-
-  it("removes the workspace doc through RPC (one doc per workspace; idempotent)", async () => {
-    let docs = await client.rpc.listWorkspaceDocs({ workspaceId: WORKSPACE_ID });
-    expect(docs.docIds).toEqual(["main"]);
-    const removed = await client.rpc.removeWorkspaceDoc({
-      workspaceId: WORKSPACE_ID,
-      docId: "main",
-    });
-    expect(removed.value).toBe(true);
-    docs = await client.rpc.listWorkspaceDocs({ workspaceId: WORKSPACE_ID });
-    expect(docs.docIds).toEqual([]);
-    const removedAgain = await client.rpc.removeWorkspaceDoc({
-      workspaceId: WORKSPACE_ID,
-      docId: "main",
-    });
-    expect(removedAgain.value).toBe(false);
   });
 
   it("exposes document history state through RPC", async () => {

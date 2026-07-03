@@ -26,7 +26,6 @@ afterEach(async () => {
 const buildAndMutate = async (dataRoot: string) => {
   const rt = await AppWorkspaceRuntime.persistent({ dataRoot });
   await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-  await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
   const doc = (await rt.getEngine("ws"))!;
   expect(doc.getShardedStore()).not.toBeNull();
 
@@ -68,7 +67,6 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
   it("the runtime is sharded-only (no single-doc path)", async () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
     const doc = (await rt.getEngine("ws"))!;
     expect(doc.getShardedStore()).not.toBeNull(); // always sharded
     await rt.close();
@@ -77,7 +75,6 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
   it("exposes a stable per-dataRoot peerId wired into the Loro treeDoc", async () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
     const doc = (await rt.getEngine("ws"))!;
     const peerId = rt.peerId;
     expect(typeof peerId).toBe("number");
@@ -97,7 +94,6 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
   it("wires peerId into lazily-created shard docs, not just the treeDoc", async () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
     const doc = (await rt.getEngine("ws"))!;
     // createNode writes an entity into the owning shard, materializing that shard lazily.
     const node = doc.createNode(null);
@@ -115,7 +111,6 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     // validateSnapshot (the sharded analog of the old single-doc import validation).
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    await rt.createDoc({ workspaceId: "ws", docId: "main", displayName: "Main" });
     const doc = (await rt.getEngine("ws"))!;
     const before = doc.getVersion();
     const root = doc.createNode(null);
@@ -135,5 +130,26 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     } finally {
       await rt2.close();
     }
+  });
+
+  it("createWorkspace auto-inits the single content doc ('main')", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    // No createDoc call: the ws is born with its one content tree — an engine exists for it.
+    expect(await rt.getEngine("ws")).not.toBeNull();
+    await rt.close();
+  });
+
+  it("createWorkspace is idempotent — a concurrent/repeated create returns the existing ws", async () => {
+    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    const first = await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    // A second create for the same id (a racing join, or a re-create) returns the existing ws — no
+    // duplicate insert, no throw. (Two creates fired concurrently also resolve to one ws because
+    // createWorkspace is serialized.)
+    const second = await rt.createWorkspace({ workspaceId: "ws", displayName: "WS-ignored" });
+    expect(second.workspaceId).toBe(first.workspaceId);
+    expect(second.displayName).toBe("WS"); // original display name preserved, not overwritten
+    expect((await rt.listWorkspaces()).length).toBe(1);
+    await rt.close();
   });
 });

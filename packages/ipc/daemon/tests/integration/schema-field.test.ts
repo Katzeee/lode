@@ -11,11 +11,7 @@ import {
 } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
-import {
-  createTestWorkspaceAndDoc,
-  withDefaultWorkspace,
-  type TestRpc,
-} from "../helpers/workspace.js";
+import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
 
 describe("schema and field services", () => {
   let server: AppServerDaemon;
@@ -27,7 +23,7 @@ describe("schema and field services", () => {
     client = new AppServerClient({ url: server.address });
     client.connect();
     await hello(client);
-    await createTestWorkspaceAndDoc(client);
+    await createTestWorkspace(client);
     rpc = withDefaultWorkspace(client);
   });
 

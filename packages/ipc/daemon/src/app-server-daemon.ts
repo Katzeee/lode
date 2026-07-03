@@ -1,9 +1,4 @@
-import {
-  createAppRuntime,
-  deriveActorKeypairFromMnemonic,
-  type AppRuntime,
-  type PersistenceOptions,
-} from "@lode/engine";
+import { createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lode/engine";
 import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerComponent } from "./broker-server-component.js";
 import { ConnectServerComponent } from "./connect-server-component.js";
@@ -16,16 +11,14 @@ export type AppServerDaemonOptions = {
   persistence?: PersistenceOptions;
   /** Host the workspace-routing broker (relay) in-process (opt-in `--relay`, design §3). */
   relay?: { port?: number; host?: string };
-  /** Sync configuration. `actorMnemonic` is always required (sync is secured: transit-key AEAD + the
-   *  membership log). Owner: `url` + `workspaceIds` pre-configured (it bootstraps the membership root);
-   *  members are added via the `AddMember` RPC. Member: just the mnemonic — it `JoinWorkspace`es at
-   *  runtime with a coordinate from the owner. */
-  sync?: {
-    actorMnemonic: string;
-    url?: string;
-    workspaceIds?: string[];
-    intervalMs?: number;
-  };
+  /** Sync round interval (default 20000ms); exposed for tests. The daemon has no sync identity —
+   *  workspaces are registered at runtime by sessions (RegisterSync / JoinWorkspace). */
+  syncIntervalMs?: number;
+};
+
+/** Relay-only mode options (no engine, no gRPC — just the broker). */
+export type RelayDaemonOptions = {
+  relay?: { port?: number; host?: string };
 };
 
 export type AppServerDaemon = {
@@ -34,6 +27,18 @@ export type AppServerDaemon = {
   relayUrl?: string;
   stop(): Promise<void>;
 };
+
+export type RelayDaemon = {
+  relayUrl: string;
+  stop(): Promise<void>;
+};
+
+/** Parsed CLI args — a discriminated union of engine mode (`--listen` present) and relay-only. The
+ *  bin switches on `mode` and feeds the matching starter; the discriminant makes the narrowing exact
+ *  (no whole-object narrowing workaround). */
+export type EngineParsedArgs = AppServerDaemonOptions & { mode: "engine" };
+export type RelayParsedArgs = RelayDaemonOptions & { mode: "relay" };
+export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 
 // Hosts the engine as a local gRPC (HTTP/2, h2c) daemon. The daemon IS the composition root: it
 // builds the runtime, registers the connect server (+ optional relay + sync runner) on the runtime's
@@ -47,21 +52,14 @@ export async function startAppServerDaemon(
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
   const runtime: AppRuntime = await createAppRuntime(persistence ? { persistence } : {});
 
-  // Build the sync runner + its RPC handlers before registration so the Connect server can merge
-  // them with the engine's LodeCommands. An owner pre-configures `url` + `workspaceIds` (it
-  // bootstraps the membership root); a member starts with just a mnemonic and JoinWorkspaces at
-  // runtime. No `--bootstrap-member`: members arrive via the AddMember RPC.
-  const syncRunner =
-    options.sync !== undefined
-      ? new DaemonSyncRunner({
-          workspaces: runtime.workspaces,
-          ...(options.sync.url === undefined ? {} : { url: options.sync.url }),
-          workspaceIds: options.sync.workspaceIds ?? [],
-          intervalMs: options.sync.intervalMs,
-          actorKeypair: deriveActorKeypairFromMnemonic(options.sync.actorMnemonic),
-        })
-      : undefined;
-  const syncHandlers = createSyncHandlers(syncRunner, runtime.sessions);
+  // The sync runner has no identity of its own — every syncing workspace is registered by a session
+  // (RegisterSync / JoinWorkspace), which captures that session's actor keypair. Built unconditionally:
+  // any daemon can sync once a client registers.
+  const syncRunner = new DaemonSyncRunner({
+    workspaces: runtime.workspaces,
+    ...(options.syncIntervalMs === undefined ? {} : { intervalMs: options.syncIntervalMs }),
+  });
+  const syncHandlers = createSyncHandlers(syncRunner, runtime.workspaces, runtime.sessions);
 
   // Register in start-order; the App stops them in reverse. createAppRuntime already registered the
   // workspace registry FIRST → it stops LAST (workspaces outlive everything that uses them).
@@ -75,9 +73,7 @@ export async function startAppServerDaemon(
         )
       : undefined;
   // The sync runner stops FIRST (closes outbound transports before the relay/workspaces go).
-  if (syncRunner !== undefined) {
-    runtime.app.register(syncRunner);
-  }
+  runtime.app.register(syncRunner);
 
   await runtime.app.start();
 
@@ -86,4 +82,16 @@ export async function startAppServerDaemon(
     ...(relay === undefined ? {} : { relayUrl: relay.url }),
     stop: () => runtime.app.stop(),
   };
+}
+
+/** Relay-only mode: host just the workspace-routing broker — no engine, no gRPC, no identity. One
+ *  binary, three modes (design sync-design.md §5); the bin picks this entry when `--listen` is
+ *  absent. Uses `BrokerServerComponent` directly (single-component lifecycle needs no App wrapper). */
+export async function startRelayDaemon(options: RelayDaemonOptions = {}): Promise<RelayDaemon> {
+  const component = new BrokerServerComponent({
+    port: options.relay?.port,
+    host: options.relay?.host,
+  });
+  await component.start();
+  return { relayUrl: component.url, stop: () => component.stop() };
 }

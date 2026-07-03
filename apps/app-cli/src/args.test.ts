@@ -12,8 +12,6 @@ describe("parseCli", () => {
       "test words",
       "field",
       "set-values",
-      "--doc",
-      "doc_main",
       "--field-occ",
       "occ_field",
       "--text",
@@ -31,13 +29,11 @@ describe("parseCli", () => {
       group: "field",
       action: "set-values",
       flags: {
-        "--doc": ["doc_main"],
         "--field-occ": ["occ_field"],
         "--text": ["a", "c"],
         "--ref-node": ["node_b"],
       },
       orderedFlags: [
-        { name: "--doc", value: "doc_main" },
         { name: "--field-occ", value: "occ_field" },
         { name: "--text", value: "a" },
         { name: "--ref-node", value: "node_b" },
@@ -55,7 +51,7 @@ describe("parseCli", () => {
     process.env.LODE_ACTOR_MNEMONIC = "env words";
 
     try {
-      const parsed = parseCli(["doc", "list"]);
+      const parsed = parseCli(["workspace", "list"]);
       expect(parsed.url).toBe("http://from-env:8080");
       expect(parsed.actorId).toBe("env-actor");
       expect(parsed.actorMnemonic).toBe("env words");
@@ -71,23 +67,26 @@ describe("parseCli", () => {
     process.env.LODE_ACTOR = "env-actor";
 
     try {
-      const parsed = parseCli(["--url", "http://localhost:8080", "doc", "list"]);
+      const parsed = parseCli(["--url", "http://localhost:8080", "workspace", "list"]);
       expect(parsed.actorId).toBe("env-actor");
     } finally {
       process.env.LODE_ACTOR = previous;
     }
   });
 
-  it("throws clear error for missing actor", () => {
+  it("treats actor as optional (the bootstrap `actor new` has none; enforced by bin/lode.ts)", () => {
     const previous = process.env.LODE_ACTOR;
+    const previousMnemonic = process.env.LODE_ACTOR_MNEMONIC;
     delete process.env.LODE_ACTOR;
+    delete process.env.LODE_ACTOR_MNEMONIC;
 
     try {
-      expect(() => parseCli(["--url", "http://localhost:8080", "doc", "list"])).toThrow(
-        /Missing actor/,
-      );
+      const parsed = parseCli(["--url", "http://localhost:8080", "workspace", "list"]);
+      expect(parsed.actorId).toBeUndefined();
+      expect(parsed.actorMnemonic).toBeUndefined();
     } finally {
       process.env.LODE_ACTOR = previous;
+      process.env.LODE_ACTOR_MNEMONIC = previousMnemonic;
     }
   });
 
@@ -98,7 +97,7 @@ describe("parseCli", () => {
     process.env.LODE_ACTOR = "actor";
 
     try {
-      expect(() => parseCli(["doc", "list"])).toThrow(/Missing server URL/);
+      expect(() => parseCli(["workspace", "list"])).toThrow(/Missing server URL/);
     } finally {
       process.env.LODE_URL = previousUrl;
       process.env.LODE_ACTOR = previousActor;
@@ -107,13 +106,21 @@ describe("parseCli", () => {
 
   it("throws clear error for malformed flags", () => {
     expect(() =>
-      parseCli(["--url", "http://localhost:8080", "--actor", "alice", "doc", "list", "-bad"]),
+      parseCli(["--url", "http://localhost:8080", "--actor", "alice", "workspace", "list", "-bad"]),
     ).toThrow(/Malformed flag/);
   });
 
   it("throws clear error for missing flag values", () => {
     expect(() =>
-      parseCli(["--url", "http://localhost:8080", "--actor", "alice", "doc", "remove", "--doc"]),
+      parseCli([
+        "--url",
+        "http://localhost:8080",
+        "--actor",
+        "alice",
+        "workspace",
+        "create",
+        "--name",
+      ]),
     ).toThrow(/requires a value/);
   });
 });

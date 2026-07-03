@@ -28,7 +28,6 @@ describe("lode CLI anime notes smoke", () => {
     const cli = createBeCliHarness(() => address);
 
     await cli.be("workspace", "create", "--workspace", ANIME_WORKSPACE_ID, "--name", "Anime");
-    await cli.be("doc", "create", "--workspace", ANIME_WORKSPACE_ID);
 
     const root = await cli.createNode("Root");
     const schemaRoot = await cli.createNode("Schema", root.occurrenceId);

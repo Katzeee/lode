@@ -1,26 +1,27 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { BrokerClient } from "@lode/transport";
-import type { AppServerDaemon } from "../../src/app-server-daemon.js";
-import { startAppServerDaemon } from "../../src/app-server-daemon.js";
+import type { AppServerDaemon, RelayDaemon } from "../../src/app-server-daemon.js";
+import { startAppServerDaemon, startRelayDaemon } from "../../src/app-server-daemon.js";
 
 // `--relay` hosts the workspace-routing broker in-process. Smoke: the hosted relay is dialable and
-// tears down cleanly with the daemon. (Secured sync convergence is covered by sync-secured-e2e.)
+// tears down cleanly. (Secured sync convergence is covered by sync-secured-e2e.) Relay-only mode
+// (no --listen) is the separate `startRelayDaemon` entry — no engine/gRPC.
 
-const daemons: AppServerDaemon[] = [];
+const handles: (AppServerDaemon | RelayDaemon)[] = [];
 
 afterEach(async () => {
-  for (const d of daemons.splice(0)) {
-    await d.stop();
+  for (const h of handles.splice(0)) {
+    await h.stop();
   }
 });
 
 describe("daemon relay host (--relay)", () => {
-  it("hosts a relay in-process via the relay option", async () => {
+  it("hosts a relay in-process via the relay option (combined with the engine)", async () => {
     const daemon = await startAppServerDaemon({
       listen: "tcp://127.0.0.1:0",
       relay: { port: 0 },
     });
-    daemons.push(daemon);
+    handles.push(daemon);
 
     expect(daemon.relayUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
 
@@ -31,6 +32,20 @@ describe("daemon relay host (--relay)", () => {
 
     // Must tear down cleanly (relay + Connect server + runtime).
     await expect(daemon.stop()).resolves.toBeUndefined();
-    daemons.pop();
+    handles.pop();
+  });
+
+  it("runs relay-only via startRelayDaemon (no engine, no gRPC)", async () => {
+    const relay = await startRelayDaemon({ relay: { port: 0 } });
+    handles.push(relay);
+
+    expect(relay.relayUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+
+    const probe = new BrokerClient({ url: relay.relayUrl, onDeliver: () => {} });
+    await probe.open();
+    probe.close();
+
+    await expect(relay.stop()).resolves.toBeUndefined();
+    handles.pop();
   });
 });

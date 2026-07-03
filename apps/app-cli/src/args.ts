@@ -5,7 +5,7 @@ export type OrderedFlag = {
 
 export type ParsedCli = {
   url: string;
-  actorId: string;
+  actorId?: string;
   actorMnemonic?: string;
   group: string;
   action: string;
@@ -73,10 +73,10 @@ export function parseCli(argv: string[]): ParsedCli {
   if (!resolvedUrl) {
     throw new Error('Missing server URL. Provide "--url <url>" or set LODE_URL.');
   }
+  // `--actor` / `--actor-mnemonic` are parsed-but-not-enforced here: the bootstrap command
+  // (`actor new`) has neither, so the requirement is enforced by the entrypoint (bin/lode.ts),
+  // which knows whether a command needs an authenticated session.
   const resolvedActorId = actorId ?? process.env.LODE_ACTOR;
-  if (!resolvedActorId) {
-    throw new Error('Missing actor. Provide "--actor <id>" or set LODE_ACTOR.');
-  }
   const resolvedActorMnemonic = actorMnemonic ?? process.env.LODE_ACTOR_MNEMONIC;
   if (!group) {
     throw new Error("Missing command group.");
@@ -87,7 +87,7 @@ export function parseCli(argv: string[]): ParsedCli {
 
   return {
     url: resolvedUrl,
-    actorId: resolvedActorId,
+    ...(resolvedActorId === undefined ? {} : { actorId: resolvedActorId }),
     ...(resolvedActorMnemonic === undefined ? {} : { actorMnemonic: resolvedActorMnemonic }),
     group,
     action,

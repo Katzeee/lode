@@ -116,6 +116,7 @@ export function createLodeServer(
     routes: (router) =>
       router.service(LodeCommands, {
         sessionHello: unary(commands.sessionHello),
+        generateActorMnemonic: unary(commands.generateActorMnemonic),
         subscribeDoc: unary(commands.subscribeDoc),
         unsubscribeDoc: unary(commands.unsubscribeDoc),
         listenNotifications: serverStreaming(commands.listenNotifications),
@@ -123,9 +124,6 @@ export function createLodeServer(
         createWorkspace: unary(commands.createWorkspace),
         listWorkspaces: unary(commands.listWorkspaces),
         removeWorkspace: unary(commands.removeWorkspace),
-        createWorkspaceDoc: unary(commands.createWorkspaceDoc),
-        listWorkspaceDocs: unary(commands.listWorkspaceDocs),
-        removeWorkspaceDoc: unary(commands.removeWorkspaceDoc),
 
         createPlainNode: unary(commands.createPlainNode),
         getNode: unary(commands.getNode),
@@ -172,6 +170,8 @@ export function createLodeServer(
         getActorPublicKeys: unary(commands.getActorPublicKeys),
         shareWorkspace: unary(commands.shareWorkspace),
         joinWorkspace: unary(commands.joinWorkspace),
+        registerSync: unary(commands.registerSync),
+        syncNow: unary(commands.syncNow),
       }),
   });
 

@@ -4,20 +4,20 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
 import { BrokerClient, BrokerServer } from "@lode/transport";
-import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
 import { openAuthedSession } from "./authed-session.js";
 
-// Secured daemon-level end-to-end sync over the real Phase-4 flow: the OWNER pre-configures its
-// workspace (dials the relay + bootstraps the membership root), adds a member via the AddMember RPC,
-// and shares a WorkspaceCoordinate; the MEMBER starts with just a mnemonic and JoinWorkspaces via
-// that coordinate → it creates the workspace + doc locally, converges the public membership log over
-// the broker's plaintext envelope, derives the transit key, then content syncs SEALED. An
-// eavesdropper on the workspace channel cannot read the content.
+// Secured daemon-level end-to-end sync on the Phase-3 identity model: the daemon has NO identity —
+// every syncing workspace is registered by a session. The OWNER session creates the workspace (which
+// roots the membership log with the creator's actor = owner and auto-inits its single content doc),
+// registers sync (captures the owner actor + dials the relay), then adds the member + shares a
+// WorkspaceCoordinate. The MEMBER session joins via that coordinate → creates the workspace locally
+// (its content doc is auto-inited), registers, converges the public membership log over the broker's
+// plaintext envelope, derives the transit key, then content syncs SEALED. An eavesdropper on the
+// workspace channel cannot read the content.
 
 const WORKSPACE = "ws-secured-e2e";
-const DOC = "main";
 const daemons: AppServerDaemon[] = [];
 const relays: BrokerServer[] = [];
 const eavesdroppers: BrokerClient[] = [];
@@ -44,24 +44,14 @@ async function tempDataRoot(): Promise<string> {
   return root;
 }
 
-/** Boot a daemon. The owner passes `url` + `workspaceIds` (it bootstraps the membership root for
- *  those); a member passes neither (it joins at runtime via JoinWorkspace). `dataRoot` is reused
- *  across boots so a restart reopens the persisted membership log + content. */
-async function bootDaemon(opts: {
-  mnemonic: string;
-  url?: string;
-  workspaceIds?: string[];
-  dataRoot?: string;
-}): Promise<AppServerDaemon> {
+/** Boot an identity-free daemon (the daemon carries no actor; sessions register workspaces). */
+async function bootDaemon(
+  opts: { dataRoot?: string; syncIntervalMs?: number } = {},
+): Promise<AppServerDaemon> {
   const daemon = await startAppServerDaemon({
     listen: "tcp://127.0.0.1:0",
     dataRoot: opts.dataRoot ?? (await tempDataRoot()),
-    sync: {
-      actorMnemonic: opts.mnemonic,
-      intervalMs: 30,
-      ...(opts.url === undefined ? {} : { url: opts.url }),
-      ...(opts.workspaceIds === undefined ? {} : { workspaceIds: opts.workspaceIds }),
-    },
+    syncIntervalMs: opts.syncIntervalMs ?? 30,
   });
   daemons.push(daemon);
   return daemon;
@@ -89,25 +79,15 @@ async function expectConverged(
   throw new Error(`member did not converge "${secret}" within ${timeoutMs}ms`);
 }
 
-describe("daemon sync e2e (secured, Phase-4 flow)", () => {
-  it("owner adds + shares; member joins via coordinate; content converges sealed (opaque to an eavesdropper)", async () => {
+describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
+  it("owner creates + registers + adds + shares; member joins; content converges sealed (opaque to an eavesdropper)", async () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
     const syncUrl = `ws://127.0.0.1:${relay.port}`;
 
-    const ownerMnemonic = generateMnemonic();
-    const memberMnemonic = generateMnemonic();
-    // The owner must know the member's sign pub to add them (the social re-add). Derived
-    // deterministically from the member's mnemonic.
-    const memberSignPub = deriveActorKeypairFromMnemonic(memberMnemonic).publicKey;
-
-    const owner = await bootDaemon({
-      mnemonic: ownerMnemonic,
-      url: syncUrl,
-      workspaceIds: [WORKSPACE],
-    });
-    const member = await bootDaemon({ mnemonic: memberMnemonic });
+    const owner = await bootDaemon();
+    const member = await bootDaemon();
 
     const ownerClient = new AppServerClient({ url: owner.address });
     const memberClient = new AppServerClient({ url: member.address });
@@ -116,13 +96,18 @@ describe("daemon sync e2e (secured, Phase-4 flow)", () => {
     await openAuthedSession(ownerClient);
     await openAuthedSession(memberClient);
 
-    // Owner creates the workspace + doc → its runner materializes + bootstraps the membership root.
+    // The owner needs the member's sign pub to add them (the social re-add). It comes from the member's
+    // OWN session — actors are session-side now, so the member's identity is whatever it authenticated
+    // with, read back via GetActorPublicKeys.
+    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+
+    // Owner creates the workspace — createWorkspace roots the membership log with the owner's session
+    // actor (creator = owner). Membership governance is relay-independent: addMember writes the log
+    // directly (registry + session keypair, no sync wiring), so it runs BEFORE registerSync — proving
+    // the decoupling. registerSync then wires the relay + captures the owner keypair for the tick.
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
-    await ownerClient.rpc.createWorkspaceDoc({
-      workspaceId: WORKSPACE,
-      docId: DOC,
-      displayName: "Main",
-    });
+    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
 
     // Eavesdropper on the SAME workspace channel — the relay routes every publish to all subscribers,
     // so it sees all traffic (sealed content + the plaintext membership roster).
@@ -132,14 +117,13 @@ describe("daemon sync e2e (secured, Phase-4 flow)", () => {
     await eavesdropper.open();
     eavesdropper.subscribe(WORKSPACE);
 
-    // Owner governance: add the member, then share the coordinate.
-    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    // Share the coordinate so the member can join.
     const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
     expect(coordinate.workspaceId).toBe(WORKSPACE);
-    expect(coordinate.docId).toBe(DOC);
     expect(coordinate.relayUrl).toBe(syncUrl);
 
-    // Member joins via the coordinate → creates the workspace + doc locally, dials, syncs.
+    // Member joins via the coordinate → creates the workspace locally (content doc auto-inited),
+    // registers, and syncs.
     await memberClient.rpc.joinWorkspace({ coordinate });
 
     // Owner writes a node + text. The member converges membership (plaintext) THEN content (sealed).
@@ -166,82 +150,145 @@ describe("daemon sync e2e (secured, Phase-4 flow)", () => {
     memberClient.close();
   }, 30000);
 
-  it("membership log survives a full daemon restart: content re-syncs sealed (no re-bootstrap)", async () => {
+  it("refuses a second, different actor re-registering a workspace (ownership guard)", async () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
     const syncUrl = `ws://127.0.0.1:${relay.port}`;
 
-    const ownerMnemonic = generateMnemonic();
-    const memberMnemonic = generateMnemonic();
-    const memberSignPub = deriveActorKeypairFromMnemonic(memberMnemonic).publicKey;
-    // Stable per-actor data roots so the second boot reuses the persisted membership log + content.
-    const ownerRoot = await tempDataRoot();
-    const memberRoot = await tempDataRoot();
+    const owner = await bootDaemon();
+    const ownerClient = new AppServerClient({ url: owner.address });
+    ownerClient.connect();
+    await openAuthedSession(ownerClient);
+    // Owner creates + registers its workspace (the owner's session actor is the registrant).
+    await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
 
-    // Run 1 — full flow: owner bootstraps + adds + shares; member joins; SECRET1 syncs sealed.
-    const o1 = await bootDaemon({
-      mnemonic: ownerMnemonic,
-      url: syncUrl,
-      workspaceIds: [WORKSPACE],
-      dataRoot: ownerRoot,
-    });
-    const m1 = await bootDaemon({ mnemonic: memberMnemonic, dataRoot: memberRoot });
-    const cA1 = new AppServerClient({ url: o1.address });
-    const cB1 = new AppServerClient({ url: m1.address });
-    cA1.connect();
-    cB1.connect();
-    await openAuthedSession(cA1);
-    await openAuthedSession(cB1);
-    await cA1.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
-    await cA1.rpc.createWorkspaceDoc({ workspaceId: WORKSPACE, docId: DOC, displayName: "Main" });
-    await cA1.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
-    const coordinate = await cA1.rpc.shareWorkspace({ workspaceId: WORKSPACE });
-    await cB1.rpc.joinWorkspace({ coordinate });
-    const n1 = await cA1.rpc.createPlainNode({ workspaceId: WORKSPACE });
-    const SECRET1 = "before-restart";
-    await cA1.rpc.replaceNodeText({
-      workspaceId: WORKSPACE,
-      occurrenceId: n1.occurrenceId,
-      deltas: [{ insert: SECRET1 }],
-    });
-    await expectConverged(cB1, n1.occurrenceId, SECRET1);
-    cA1.close();
-    cB1.close();
-    await o1.stop();
-    await m1.stop();
+    // A second session on the SAME daemon, a DIFFERENT actor, tries to register the owner's workspace.
+    // Without the guard this would overwrite the owner's keypair and brick addMember for the real
+    // owner; the guard refuses it.
+    const intruderClient = new AppServerClient({ url: owner.address });
+    intruderClient.connect();
+    await openAuthedSession(intruderClient);
+    await expect(
+      intruderClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl }),
+    ).rejects.toThrow(/already registered by actor/);
 
-    // Run 2 — SAME dataRoots + mnemonics. The owner reloads the persisted membership (records > 0 →
-    // no re-bootstrap); the member re-joins its persisted workspace. Newly written content syncs
-    // sealed under the SAME transit key. (The load-before-bootstrap gate + the snapshot round-trip
-    // are proven directly in engine membership-log.persist.test.ts.)
-    const o2 = await bootDaemon({
-      mnemonic: ownerMnemonic,
-      url: syncUrl,
-      workspaceIds: [WORKSPACE],
-      dataRoot: ownerRoot,
-    });
-    const m2 = await bootDaemon({ mnemonic: memberMnemonic, dataRoot: memberRoot });
-    const cA2 = new AppServerClient({ url: o2.address });
-    const cB2 = new AppServerClient({ url: m2.address });
-    cA2.connect();
-    cB2.connect();
-    await openAuthedSession(cA2);
-    await openAuthedSession(cB2);
-    // The workspace + doc already persist on the owner; re-share + re-join (the member's runner
-    // forgets its joined set on restart — re-join re-opens its persisted workspace).
-    const coordinate2 = await cA2.rpc.shareWorkspace({ workspaceId: WORKSPACE });
-    await cB2.rpc.joinWorkspace({ coordinate: coordinate2 });
-    const n2 = await cA2.rpc.createPlainNode({ workspaceId: WORKSPACE });
-    const SECRET2 = "after-restart";
-    await cA2.rpc.replaceNodeText({
+    // The owner's registration survives the refused intruder — it can still share the workspace.
+    const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
+    expect(coordinate.workspaceId).toBe(WORKSPACE);
+    expect(coordinate.relayUrl).toBe(syncUrl);
+
+    ownerClient.close();
+    intruderClient.close();
+  });
+
+  it("`sync now` drives a round immediately — converges with the periodic tick starved", async () => {
+    const relay = new BrokerServer({ port: 0 });
+    relays.push(relay);
+    await relay.ready();
+    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+
+    // 60s ticks → the periodic round CANNOT fire during this short test. The ONLY thing that can move
+    // content is `syncNow` (`lode sync now`).
+    const owner = await bootDaemon({ syncIntervalMs: 60000 });
+    const member = await bootDaemon({ syncIntervalMs: 60000 });
+
+    const ownerClient = new AppServerClient({ url: owner.address });
+    const memberClient = new AppServerClient({ url: member.address });
+    ownerClient.connect();
+    memberClient.connect();
+    await openAuthedSession(ownerClient);
+    await openAuthedSession(memberClient);
+
+    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+
+    await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
+    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
+    await memberClient.rpc.joinWorkspace({ coordinate });
+
+    const node = await ownerClient.rpc.createPlainNode({ workspaceId: WORKSPACE });
+    const SECRET = "driven-by-sync-now";
+    await ownerClient.rpc.replaceNodeText({
       workspaceId: WORKSPACE,
-      occurrenceId: n2.occurrenceId,
-      deltas: [{ insert: SECRET2 }],
+      occurrenceId: node.occurrenceId,
+      deltas: [{ insert: SECRET }],
     });
-    await expectConverged(cB2, n2.occurrenceId, SECRET2); // new content syncs sealed post-restart
-    await expectConverged(cB2, n1.occurrenceId, SECRET1); // pre-restart content is still readable
-    cA2.close();
-    cB2.close();
-  }, 60000);
+
+    // Drive alternating manual rounds until the handshake completes. With the tick starved, only
+    // `syncNow` can carry this content across — if it didn't work this loop times out.
+    const deadline = Date.now() + 20000;
+    let converged = false;
+    while (Date.now() < deadline) {
+      await ownerClient.rpc.syncNow({ workspaceId: WORKSPACE });
+      await memberClient.rpc.syncNow({ workspaceId: WORKSPACE });
+      try {
+        const got = await memberClient.rpc.getNode({
+          workspaceId: WORKSPACE,
+          occurrenceId: node.occurrenceId,
+        });
+        if (got.occurrence?.deltas?.some((d) => d.insert === SECRET)) {
+          converged = true;
+          break;
+        }
+      } catch {
+        // not replicated yet — another manual round
+      }
+    }
+    expect(converged).toBe(true);
+
+    // Usage guard: triggering a workspace the session never registered is a user error, surfaced.
+    await expect(ownerClient.rpc.syncNow({ workspaceId: "never-registered" })).rejects.toThrow(
+      /not registered/,
+    );
+
+    ownerClient.close();
+    memberClient.close();
+  }, 30000);
+
+  it("`join` drives a content round immediately — converges with the tick starved (no manual trigger)", async () => {
+    const relay = new BrokerServer({ port: 0 });
+    relays.push(relay);
+    await relay.ready();
+    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+
+    // 60s ticks → the periodic round CANNOT fire during this short test. The ONLY thing that can move
+    // content is the round `joinWorkspace` auto-fires (Stage C) — no manual `syncNow` anywhere.
+    const owner = await bootDaemon({ syncIntervalMs: 60000 });
+    const member = await bootDaemon({ syncIntervalMs: 60000 });
+
+    const ownerClient = new AppServerClient({ url: owner.address });
+    const memberClient = new AppServerClient({ url: member.address });
+    ownerClient.connect();
+    memberClient.connect();
+    await openAuthedSession(ownerClient);
+    await openAuthedSession(memberClient);
+
+    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+
+    // Owner sets up the workspace AND writes content BEFORE the member joins, so "join → content
+    // visible immediately" is exactly the property under test.
+    await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
+    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
+    const node = await ownerClient.rpc.createPlainNode({ workspaceId: WORKSPACE });
+    const SECRET = "driven-by-join";
+    await ownerClient.rpc.replaceNodeText({
+      workspaceId: WORKSPACE,
+      occurrenceId: node.occurrenceId,
+      deltas: [{ insert: SECRET }],
+    });
+    const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
+
+    // Member joins — the auto-fired content round is the only possible carrier (tick starved, no
+    // manual syncNow). If `joinWorkspace` didn't fire it, this polls 20s → the 60s tick never comes
+    // → expectConverged throws → test fails.
+    await memberClient.rpc.joinWorkspace({ coordinate });
+    await expectConverged(memberClient, node.occurrenceId, SECRET);
+
+    ownerClient.close();
+    memberClient.close();
+  }, 30000);
 });

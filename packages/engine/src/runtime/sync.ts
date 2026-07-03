@@ -1,5 +1,6 @@
 import type { ShardedBlockStore, SyncDoc } from "../core/sharded-store.js";
 import type { VersionVector } from "../core/types.js";
+import { MAIN_SUBDOC } from "../persistence/workspace-store.js";
 
 /** A peer's per-doc version vectors — the cheap metadata exchanged first to find what differs.
  *  Loro VVs are bounded (Map<peer,count>) and directly comparable, so — unlike any-sync's
@@ -38,9 +39,9 @@ export class SyncManager {
 
     // TreeDoc FIRST: it carries ownership, so syncing it reveals which shard ids exist on each
     // side. Exchange both directions in one round.
-    const tree = this.localDoc("main");
+    const tree = this.localDoc(MAIN_SUBDOC);
     if (tree) {
-      await this.exchangeDoc(tree, remote.get("main"));
+      await this.exchangeDoc(tree, remote.get(MAIN_SUBDOC));
     }
 
     // Shards: the UNION of local + remote ids. Local ids are re-read AFTER the treeDoc sync so
@@ -49,12 +50,12 @@ export class SyncManager {
     // then snapshot the local docs as a Map for O(1) lookup during the exchange loop.
     const shardIds = new Set<string>();
     for (const id of this.store.syncDocs().map((d) => d.id)) {
-      if (id !== "main") {
+      if (id !== MAIN_SUBDOC) {
         shardIds.add(id);
       }
     }
     for (const id of remote.keys()) {
-      if (id !== "main") {
+      if (id !== MAIN_SUBDOC) {
         shardIds.add(id);
       }
     }
