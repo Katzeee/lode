@@ -1,8 +1,16 @@
 #!/usr/bin/env node
+import { configureLogger } from "@lode/logger";
 import { startAppServerDaemon, startRelayDaemon } from "../app-server-daemon.js";
 import { parseAppServerArgs } from "../app-server-args.js";
 
 const options = parseAppServerArgs(process.argv.slice(2));
+
+// Wire the file sink BEFORE the first log emit (startAppServerDaemon/startRelayDaemon run the engine
+// + broker, whose loggers build their pino lazily on first emit — so this reads first). Default
+// (no flag): stderr only.
+if (options.logFile) {
+  configureLogger({ file: { path: options.logFile } });
+}
 
 // One binary, three modes (design sync-design.md §5): --listen = engine daemon; --relay without
 // --listen = relay-only (no engine/gRPC); both = combined. parseAppServerArgs discriminates by mode.

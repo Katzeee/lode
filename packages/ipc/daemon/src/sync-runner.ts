@@ -11,7 +11,10 @@ import {
   type ShardedBlockStore,
   type SyncDoc,
 } from "@lode/engine";
+import { createLogger } from "@lode/logger";
 import { BrokerClientSyncTransport } from "@lode/transport";
+
+const log = createLogger("sync.runner");
 
 export type DaemonSyncRunnerOptions = {
   readonly workspaces: AppRuntime["workspaces"];
@@ -93,9 +96,16 @@ export class DaemonSyncRunner implements Component {
       for (const w of this.wired.values()) {
         await this.roundWorkspace(w);
       }
-    } catch {
+    } catch (err) {
       // A round may fail transiently (relay blip, a peer mid-restart, a content round whose peer
-      // hasn't converged membership yet). Never abort the driver — the next round retries.
+      // hasn't converged membership yet). Never abort the driver — the next round retries. With
+      // `stopped` set the failure is the in-flight round seeing stop()'s transport close — expected
+      // teardown (debug), not a fault. A genuine mid-round relay drop falls through to warn.
+      if (this.stopped) {
+        log.debug("sync tick round aborted on stop", { err });
+      } else {
+        log.warn("sync tick round failed", { err });
+      }
     } finally {
       this.busy = false;
     }
@@ -135,8 +145,14 @@ export class DaemonSyncRunner implements Component {
       if (w) {
         await this.roundWorkspace(w);
       }
-    } catch {
-      // transient (relay blip, peer mid-restart) — never throw to the caller, same as tick
+    } catch (err) {
+      // transient (relay blip, peer mid-restart) — never throw to the caller, same as tick. `stopped`
+      // = stop()'s transport close mid-round (expected teardown → debug); a real relay drop → warn.
+      if (this.stopped) {
+        log.debug("syncNow round aborted on stop", { wsId, err });
+      } else {
+        log.warn("syncNow round failed", { wsId, err });
+      }
     } finally {
       this.busy = false;
     }
@@ -148,9 +164,14 @@ export class DaemonSyncRunner implements Component {
   private materializeChain: Promise<void> = Promise.resolve();
   private materialize(): Promise<void> {
     const run = () => this.doMaterialize();
-    // `doMaterialize` catches per-workspace and never throws up (see below), so a rejection handler
-    // is unnecessary — `.then(run)` suffices.
-    this.materializeChain = this.materializeChain.then(run);
+    // Defense-in-depth: `doMaterialize` catches per-workspace and never throws up (see below), so in
+    // practice this chain never rejects. But that is an unenforced load-bearing invariant — a future
+    // change outside its inner try must not reject the chain (a rejected chain never runs the handler
+    // again, permanently stalling materialize/registerSync/tick). Swallow defensively; callers (tick,
+    // syncNow) already swallow too. A rejection here is an operational alarm — warn loudly.
+    this.materializeChain = this.materializeChain.then(run).catch((err) => {
+      log.warn("materialize chain rejected", { err });
+    });
     return this.materializeChain;
   }
 
@@ -181,8 +202,9 @@ export class DaemonSyncRunner implements Component {
           return;
         }
         this.wired.set(wsId, wired);
-      } catch {
+      } catch (err) {
         // skip this workspace this round — retry on the next tick
+        log.warn("sync wire build failed; retrying next tick", { wsId, err });
       }
     }
   }
@@ -278,9 +300,12 @@ export class DaemonSyncRunner implements Component {
     await this.directedMembershipFetch(wsId);
     // Stage C: fire-and-forget a content round so a joiner (transit key just installed) pulls content
     // now, not on the next tick. Best-effort: syncNow swallows transient round failures internally;
-    // .catch defuses the stop()/not-registered race (the only throws left). The tick backstops any
-    // peer-offline / raced case this single round doesn't close.
-    void this.syncNow(wsId).catch(() => {});
+    // .catch defuses the stop()/not-registered race (the only throws left) — Debug because that race
+    // is expected during join, not a fault. The tick backstops any peer-offline / raced case this
+    // single round doesn't close.
+    void this.syncNow(wsId).catch((err) => {
+      log.debug("join syncNow skipped (stopped or not registered)", { wsId, err });
+    });
   }
 
   /** One-shot directed membership fetch (§3c). Asks ONE peer (by peerId) for the full membership doc,
@@ -291,11 +316,12 @@ export class DaemonSyncRunner implements Component {
     if (!w) {
       return; // not wired yet — the tick will converge membership via broadcast
     }
+    let target: string | undefined;
     try {
       const self = this.opts.workspaces.peerId;
       const selfPeerId = self === undefined ? undefined : String(self);
       const peers = await w.transport.peers();
-      const target = peers.find((p) => p !== selfPeerId && p !== "");
+      target = peers.find((p) => p !== selfPeerId && p !== "");
       if (target === undefined) {
         return; // no other peer on the channel yet — wait for the broadcast round
       }
@@ -309,8 +335,13 @@ export class DaemonSyncRunner implements Component {
         await w.log.persistIfDirty();
         w.sec.refresh();
       }
-    } catch {
+    } catch (err) {
       // Transient (peer mid-restart, relay blip, timeout) — the next broadcast tick retries.
+      log.warn("directed membership fetch failed; falling back to broadcast tick", {
+        wsId,
+        peerId: target,
+        err,
+      });
     }
   }
 

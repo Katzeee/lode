@@ -1,6 +1,8 @@
 import { encodeFrontiers, LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { createLogger } from "@lode/logger";
 import type { MembershipPersistence } from "./membership-persistence.js";
+import { bodyBytes, deriveMembershipState } from "./membership-replay.js";
 import {
   aeadEncrypt,
   actorEncryptionPrivate,
@@ -8,7 +10,6 @@ import {
   actorIdFromPublicKey,
   signWithActor,
   unwrapKey,
-  verifyActorSignature,
   wrapKey,
   type ActorKeypair,
 } from "../../utils/crypto/index.js";
@@ -22,6 +23,8 @@ import {
   TransferRecordSchema,
   type MembershipRecord,
 } from "@lode/protocol/proto";
+
+const log = createLogger("engine.membership");
 
 /**
  * The membership log — the in-process sync core's membership half (design sync-identity-persistence
@@ -81,6 +84,10 @@ export class MembershipLog {
   private readonly persistence?: MembershipPersistence;
   /** Encoded frontiers of the last persisted snapshot — the dirty-check baseline. */
   private lastPersisted?: Uint8Array;
+  /** Last-seen skipped-record count. `deriveState` runs every round (via `sec.refresh`), so we warn
+   *  only when NEW corruption appears (count rises) — mirrors any-sync's synclogger "always log on
+   *  change", not a per-instance boolean that would hide a second, later corruption. */
+  private skipLastCount = 0;
 
   constructor(doc: LoroDoc = new LoroDoc(), persistence?: MembershipPersistence) {
     this.doc = doc;
@@ -232,44 +239,21 @@ export class MembershipLog {
 
   // ── state derivation / decryption ───────────────────────────────────────────────
 
-  /** Replay every record, verifying signatures + owner authorization. A record is SKIPPED (not
-   *  fatal) if it can't be decoded, its signature fails, its signer is unknown, its signer isn't the
-   *  current owner, it's a `root` after the first one, it's a `transfer` to a non-member, or (rotate)
-   *  its epoch isn't strictly ahead of the current. Deterministic given the merged list → every
-   *  replica converges. */
+  /** Replay every record into a membership state + the records that were skipped. The replay rules
+   *  (signature + owner authorization + the authority-independent invariants) live in
+   *  `membership-replay.ts`. Deterministic given the merged list → every replica converges. */
   deriveState(): { state: MembershipState; skipped: MembershipRecord[] } {
-    const state: MembershipState = {
-      owner: "",
-      members: new Map(),
-      currentEpoch: -1,
-    };
-    const skipped: MembershipRecord[] = [];
-    for (const raw of this.list.toArray()) {
-      let rec: MembershipRecord;
-      try {
-        rec = fromBinary(MembershipRecordSchema, Buffer.from(raw as string, "base64"));
-      } catch {
-        // An undecodable entry (e.g. a malformed/garbage push from a bad replica) can't be a valid
-        // record — skip it, never let it abort the replay.
-        continue;
-      }
-      const sigOk = verifySignature(state, rec);
-      // A root self-authorizes ONLY as the first record (state.owner === "" → no root seen yet); a
-      // later root is skipped, so a former owner can't re-seize governance by appending a new root.
-      // Any other record must be signed by the current owner.
-      const authOk = rec.body.case === "root" ? state.owner === "" : rec.signer === state.owner;
-      const staleRotate = rec.body.case === "rotate" && rec.body.value.epoch <= state.currentEpoch;
-      // Transfer must target an existing member (design §2: transfer to an existing member); otherwise
-      // it would leave the workspace with an owner who holds no transit key (bricked governance).
-      const transferTargetUnknown =
-        rec.body.case === "transfer" && !state.members.has(rec.body.value.newOwner);
-      if (!sigOk || !authOk || staleRotate || transferTargetUnknown) {
-        skipped.push(rec);
-        continue;
-      }
-      apply(state, rec);
+    const result = deriveMembershipState(this.list.toArray());
+    if (result.skipped.length > this.skipLastCount) {
+      // New corruption appeared since the last round — surface it. A stable count stays quiet
+      // (per-round dedup); a heal (count falling) updates silently. Turn up engine=debug for every
+      // occurrence. A malformed/garbage entry can't be a valid record — skipped, never aborts replay.
+      log.warn("skipped malformed membership records during replay", {
+        count: result.skipped.length,
+      });
     }
-    return { state, skipped };
+    this.skipLastCount = result.skipped.length;
+    return result;
   }
 
   /** A member unwraps its current-epoch transit key. */
@@ -304,83 +288,6 @@ export class MembershipLog {
       transitKey,
       state.currentEpoch,
     );
-  }
-}
-
-// ── replay apply ──────────────────────────────────────────────────────────────────
-
-function apply(state: MembershipState, rec: MembershipRecord): void {
-  if (rec.body.case === "root") {
-    const b = rec.body.value;
-    state.owner = b.owner;
-    state.members.set(b.owner, {
-      signPub: b.ownerSignPub,
-      encPub: b.ownerEncPub,
-      epoch: b.epoch,
-      wrappedTransit: b.wrappedTransit,
-    });
-    state.currentEpoch = b.epoch;
-  } else if (rec.body.case === "add") {
-    const b = rec.body.value;
-    state.members.set(b.actor, {
-      signPub: b.signPub,
-      encPub: b.encPub,
-      epoch: b.epoch,
-      wrappedTransit: b.wrappedTransit,
-    });
-  } else if (rec.body.case === "rotate") {
-    const b = rec.body.value;
-    // The wrapped set IS the new membership: members omitted are revoked.
-    const survivors = new Set(b.wrapped.map((w) => w.actorId));
-    for (const actorId of [...state.members.keys()]) {
-      if (!survivors.has(actorId)) {
-        state.members.delete(actorId);
-      }
-    }
-    for (const w of b.wrapped) {
-      const m = state.members.get(w.actorId);
-      if (m) {
-        m.wrappedTransit = w.wrappedTransit;
-        m.epoch = b.epoch;
-      }
-    }
-    state.currentEpoch = b.epoch;
-  } else if (rec.body.case === "transfer") {
-    // Ownership moves to a current member (enforced before apply); they're already in `members`, so
-    // their signPub is found there for governance verification. (The owner is always a member.)
-    state.owner = rec.body.value.newOwner;
-  }
-}
-
-// ── signature verification + canonical body encoding ─────────────────────────────
-
-/** Verify a record's signature. Root self-authorizes (via its embedded owner_sign_pub); every other
- *  record is owner-signed, and the owner is always a member, so their signPub lives in `members`. A
- *  non-owner signer's record is skipped by the auth check regardless. `verifyActorSignature` returns
- *  false on any malformed input (including a missing/empty pubkey), so no extra guard is needed. */
-function verifySignature(state: MembershipState, rec: MembershipRecord): boolean {
-  if (rec.body.case === undefined) {
-    return false;
-  }
-  const signPub =
-    rec.body.case === "root" ? rec.body.value.ownerSignPub : state.members.get(rec.signer)?.signPub;
-  return signPub !== undefined && verifyActorSignature(signPub, bodyBytes(rec.body), rec.sig);
-}
-
-/** The canonical bytes a record's signature commits to: the deterministic proto3 encoding of its body
- * (signer + sig excluded). `repeated` fields keep insertion order, so the wrapped set is canonical. */
-function bodyBytes(body: MembershipRecord["body"]): Uint8Array {
-  switch (body.case) {
-    case "root":
-      return toBinary(RootRecordSchema, body.value);
-    case "add":
-      return toBinary(AddRecordSchema, body.value);
-    case "rotate":
-      return toBinary(RotateRecordSchema, body.value);
-    case "transfer":
-      return toBinary(TransferRecordSchema, body.value);
-    case undefined:
-      return new Uint8Array(0);
   }
 }
 

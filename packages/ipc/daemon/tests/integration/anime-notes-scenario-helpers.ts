@@ -16,9 +16,21 @@ export async function hello(client: AppServerClient, _actorId = "test-actor"): P
 }
 
 export function createAnimeNotesScenarioHelpers(rpc: TestRpc) {
+  // createWorkspace seeds the workspace's single root; a createTextNode with no parent attaches
+  // under it (single-root product policy enforced in services/node.ts).
+  let seededRootOccurrenceId: string | undefined;
+
   async function createTextNode(text: string, parentOccurrenceId?: string) {
+    let resolvedParent = parentOccurrenceId;
+    if (!resolvedParent) {
+      if (seededRootOccurrenceId === undefined) {
+        const roots = await rpc.listRoots({});
+        seededRootOccurrenceId = roots.roots[0]?.occurrenceId;
+      }
+      resolvedParent = seededRootOccurrenceId;
+    }
     const node = await rpc.createPlainNode({
-      ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+      parentOccurrenceId: resolvedParent,
     });
     await rpc.replaceNodeText({
       occurrenceId: node.occurrenceId,

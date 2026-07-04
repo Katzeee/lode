@@ -129,12 +129,14 @@ replaces broadcast-then-first-responder-wins for N>2.
 Concretely:
 
 - **join fetches membership via the existing `fetchUpdates("membership", ∅)`** — the membership doc
-  is already reachable (`lookupDoc` searches `store ∪ publicDocs`). One change needed: `respondUpdates`
-  must emit the response on the **plaintext envelope** when the docId is a public doc (today it
-  hardcodes sealed) so a pre-key joiner can read it — ~1 line, mirroring `sendUpdates`.
-- **Directed routing** = adding `toPeerId` to the broker publish; the relay's
+  is already reachable (`lookupDoc` searches `store ∪ publicDocs`). `respondUpdates` emits on the
+  **plaintext envelope** for a public doc (so a pre-key joiner can read it) and **aims the response at
+  the asker** via the deliver frame's `fromPeerId` — the relay populates `fromPeerId` from its route
+  table at publish time, and the responder sets `toPeerId = fromPeerId` (broadcast fallback when the
+  asker declared no peerId).
+- **Directed routing** = `toPeerId` on the broker publish; the relay's
   `channel → {peerId → connection}` table routes it. The `reqId` req/resp correlation is reused as-is.
-  Today a req publishes to all subscribers (first-responder-wins); directed just targets one peer.
+  A directed request targets one peer (broadcast remains the default + the fallback).
 
 - **peerId (per-dataRoot) is the routing identity** — already the CRDT site id, so reusing it for
   routing is consistent. A directed request is daemon→daemon, keyed by the ws's peerId.
@@ -217,12 +219,13 @@ Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3�
 
 ## Roadmap
 
-> Live status lives in `_local/handoff/sync-handoff.md`. Design-time sequence:
+> Live status lives in `_local/handoff/sync-handoff.md`. Design-time sequence (1–4 landed; 5 open):
 
 1. **Directed client→client request capability** (§3c) — relay peerId tracking + directed routing +
    peer-list query. The foundation; lands alongside without breaking existing code.
-2. **Identity refactor:** daemon drops `--actor-mnemonic`; sync becomes a client-registered
-   service (in-memory); `createWorkspace` inits the root; drop `--sync-workspace`/`ownerWorkspaces`.
+2. **Identity refactor:** daemon has no identity (drops `--actor` / `--sync-workspace` /
+   `ownerWorkspaces` / `actors.sqlite`); sync becomes a client-registered service (in-memory);
+   `createWorkspace` inits the root with the session actor.
 3. **join/sync split:** join establishes membership (directed fetch); sync does content.
 4. **Relay-only mode** (`--listen` optional) + **tick → 20s** + CLI manual trigger.
 5. **Then:** N>2 usage of the directed capability; CLI e2e; hardening (merge-cycle policy,

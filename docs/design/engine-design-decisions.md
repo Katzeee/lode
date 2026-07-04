@@ -172,25 +172,24 @@ appear.
 
 A Loro/VV-based CRDT sync core, matching any-sync's **semantics + structure** but NOT its
 change-DAG mechanism (lode is Loro-based, so it uses Loro's per-doc version vectors directly — no
-bloom-filter head-diff needed). Scope today: a verified **in-process** core; real network transport
+bloom-filter head-diff needed). Scope: a verified in-process core; the real network transport lives
+in `@lode/transport` (the `BrokerClientSyncTransport` adapter over the workspace-routing broker).
 
-- ACL are a later epic.
-
-* **Sync unit** = a workspace doc = `treeDoc ("main") + N shards`, each an independent `LoroDoc`
+- **Sync unit** = a workspace doc = `treeDoc ("main") + N shards`, each an independent `LoroDoc`
   with its own version vector. `ShardedBlockStore.syncDocs()` exposes the per-doc `SyncDoc` surface
   (version + export/import) — the seam a sync manager plugs into.
-* **`SyncManager`** (`runtime/sync.ts`) drives one round with a peer over a `SyncTransport`:
+- **`SyncManager`** (`runtime/sync.ts`) drives one round with a peer over a `SyncTransport`:
   treeDoc **first** (it carries ownership → reveals which shard ids exist), then the **union** of
   local + remote shard ids (materializing any the treeDoc sync revealed), exchanging both
   directions per doc (push captured before pull, so it never echoes the peer's own ops). One round
   converges a pair.
-* **`sweepTombstones`** — ownership-based post-sync heal: drops live occurrences whose node's
+- **`sweepOrphans`** — ownership-based post-sync heal: drops live occurrences whose node's
   ownership was hard-deleted on a peer (the concurrent ref+delete orphan), and tombstones orphan
   entities. Deliberately ownership-based (not entity-based like crash-recovery
   `reconcileDurability`) so a shard merely pending delivery is NOT swept — partial delivery
   self-heals when the shard arrives.
-* **`SyncTransport`** is the network seam (Phase D real transport is a drop-in impl); today an
-  `InMemorySyncTransport` + `syncPair` drive the in-process core + tests.
+- **`SyncTransport`** is the network seam. The production adapter is `BrokerClientSyncTransport`
+  (`@lode/transport`); an `InMemorySyncTransport` + `syncPair` drive the in-process core + tests.
 
 **Testing** is truth-based, not differential (comparing to another implementation only proves
 equality, not correctness): contract properties (convergence, validity, conservation,

@@ -15,7 +15,7 @@ package lode;
 message BrokerSubscribe { string ws_id = 1; string peer_id = 2; }
 message BrokerUnsubscribe { string ws_id = 1; }
 message BrokerPublish { string ws_id = 1; bytes payload = 2; string to_peer_id = 3; }
-message BrokerDeliver { string ws_id = 1; bytes payload = 2; }
+message BrokerDeliver { string ws_id = 1; bytes payload = 2; string from_peer_id = 3; }
 message BrokerPeersReq { string ws_id = 1; }
 message BrokerPeersResp { string ws_id = 1; repeated string peer_ids = 2; }
 

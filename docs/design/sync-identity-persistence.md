@@ -108,13 +108,18 @@ LoroList; signed over the canonical proto3 body encoding — the wrapped set is 
 
 - `root` — owner self-signs; carries the owner's transit key wrapped to the owner. Only the FIRST
   root applies; a later root is skipped (a former owner can't re-seize governance by appending one).
+  The declared `owner` actorId must equal `actorIdFromPublicKey(ownerSignPub)` — actorId is a pure
+  function of the sign pubkey, so a root whose label diverges from its signing key is skipped.
 - `add` — owner adds a member; the current transit key wrapped to the member.
 - `rotate` — owner re-keys. The `wrapped` set IS the new membership: every listed member gets the new
   transit key; anyone omitted is revoked (atomic removeAndRotate — the only revocation path). `enc_prev`
   = AEAD(newTransit, oldTransit) chains the old key under the new so current members walk back to prior
-  epochs. A rotate whose epoch isn't strictly ahead of the current is skipped (stale).
+  epochs. A rotate whose epoch isn't strictly ahead of the current is skipped (stale), as is a rotate
+  that omits the owner (the owner always survives — a self-removing rotate would delete the only key
+  that can sign further governance, bricking the workspace).
 - `transfer` — owner transfers ownership to an EXISTING member (skipped if the target isn't a member,
-  so governance can't be bricked on a stranger). The old owner stays on as a member.
+  so governance can't be bricked on a stranger; also skipped if the target is the current owner — a
+  signed no-op). The old owner stays on as a member.
 
 The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core`
 (LoroDoc) + the `utils/crypto` leaf + `@lode/protocol` (records), so it can't sit in `domain`
@@ -124,9 +129,10 @@ it over the transport's plaintext envelope. Validity = the record's signature ve
 signer is the current owner (root is
 self-authorizing as the first record). The owner is always a member — a rotate may not omit the
 owner — so the owner's signPub is always in `members` and governance signatures always verify.
-Invalid records (bad signature / unknown signer / non-owner / second root / transfer to a non-member
-/ stale rotate / undecodable) are **skipped at replay**, not fatal — deterministic given the merged
-list, so every replica converges to the same membership.
+Invalid records (bad signature / unknown signer / non-owner / second root / root whose owner label
+diverges from its signing key / transfer to a non-member / transfer to the current owner / stale
+rotate / rotate that omits the owner / undecodable) are **skipped at replay**, not fatal —
+deterministic given the merged list, so every replica converges to the same membership.
 
 **Transit key, not a content key.** The wrapped key is the **transit key**: it encrypts sync
 messages in transit (`node:crypto` AEAD), so the untrusted relay sees only ciphertext.
@@ -172,8 +178,8 @@ the same actor keypair (same mnemonic).
 - **The daemon holds no actor private key persistently — it has no identity of its own.** It acts
   on behalf of whichever actor a client brought. For background sync, the registered actor's key
   is captured **in-memory** by the sync registration (no persistence) — see `sync-handoff.md`.
-  (This supersedes an earlier "daemon-side actor keystore / `actors.sqlite`" design; the current
-  code still carries it, pending refactor.)
+  (This supersedes an earlier "daemon-side actor keystore / `actors.sqlite`" design, now fully
+  removed.)
 - **Signs** sync updates (attribution) and **membership-log records** (owner authority). The
   owner's actor key is the governance signer; it does **not** rotate, so it is its own recovery
   anchor (no masterKey co-signature — see §2).
@@ -198,18 +204,21 @@ held by the client. At-rest disk encryption (stolen-device) remains a separate f
 
 ---
 
-## 4. Daemon topology — one process per machine; actor declared per session
+## 4. Daemon topology — one process per machine; actor established per session
 
 The daemon is a **single AppServer process per machine**, bound to one dataRoot, with **no
-identity of its own**. An actor is **declared per connection/session**, not per daemon startup.
+identity of its own**. An actor is **established per connection/session**, not per daemon startup.
 Multiple actors on one machine (Alice, Bob) = multiple client connections to the same daemon,
 each its own session.
 
-This matches the existing session layer: `SessionHelloRequest` carries the actor **and the
-mnemonic**; `SessionManager.createSession` derives the keypair per connection; `requireOrigin`
-returns `{ nodeId, actorId, sessionId }`. Identity is **local recognition, not attestation** — the
-daemon derives the keypair from the mnemonic the client supplies. (An earlier challenge-response
-design was replaced by mnemonic-at-hello.)
+This matches the existing session layer: `SessionHelloRequest` carries **only the mnemonic**;
+`SessionManager.createSession` derives the keypair (and thus the actor id) per connection;
+`requireOrigin` returns `{ nodeId, actorId, sessionId }`. Identity is **local recognition, not
+attestation** — the daemon derives the keypair from the mnemonic the client supplies. There is no
+client-declared actor id: it is fully determined by the mnemonic, so the daemon deriving it is the
+whole truth. (An earlier challenge-response design was replaced by mnemonic-at-hello; an earlier
+"client declares actor id, daemon cross-checks" variant was dropped as redundant — the id is
+derivable, and there is no persistent session to anchor it.)
 
 Because the daemon has no identity, **sync is a client-registered service**: a client registers
 "sync ws-X as my actor via relay(s)"; the daemon captures that actor's key **in-memory** for
@@ -379,13 +388,13 @@ signature verification, transit-key wrapping + re-key chain, owner/member lifecy
 
 ## 12. Roadmap (dependency order)
 
-> Live status in `_local/handoff/sync-handoff.md`. Design-time sequence:
+> Live status in `_local/handoff/sync-handoff.md`. Design-time sequence (1–4 landed; 5 open):
 
 1. **Directed client→client request capability** — relay peerId tracking + directed routing +
    peer-list query (`sync-design.md` §3c). Foundation; lands without breaking existing code.
-2. **Identity refactor:** daemon drops `--actor-mnemonic`; sync becomes a client-registered
-   service (in-memory); `createWorkspace` inits the root with the session actor; remove the
-   daemon-side actor keystore / `actors.sqlite`.
+2. **Identity refactor:** daemon has no identity (drops `--actor` / `--sync-workspace` /
+   `ownerWorkspaces` / `actors.sqlite`); sync becomes a client-registered service (in-memory);
+   `createWorkspace` inits the root with the session actor.
 3. **join/sync split:** join establishes membership (directed fetch); sync does content.
 4. **Relay-only mode** + tick → 20s + CLI manual trigger.
 5. **Then:** N>2 usage of the directed capability; CLI e2e; hardening (merge-cycle policy,

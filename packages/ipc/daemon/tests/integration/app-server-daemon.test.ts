@@ -51,13 +51,15 @@ describe("app server daemon runtime", () => {
       workspaceId: "ws_daemon",
       displayName: "Daemon",
     });
-    const node = await first.rpc.createPlainNode({
+    // createWorkspace seeds the single root; exercise persistence against it directly.
+    const seededRoot = await first.rpc.listRoots({
       workspaceId: "ws_daemon",
     });
+    const seededOccurrenceId = seededRoot.roots.at(0)!.occurrenceId;
     await first.rpc.replaceNodeText({
       workspaceId: "ws_daemon",
 
-      occurrenceId: node.occurrenceId,
+      occurrenceId: seededOccurrenceId,
       deltas: [{ insert: "daemon persisted" }],
     });
     first.close();
@@ -72,7 +74,7 @@ describe("app server daemon runtime", () => {
     const restored = await second.rpc.getNode({
       workspaceId: "ws_daemon",
 
-      occurrenceId: node.occurrenceId,
+      occurrenceId: seededOccurrenceId,
     });
     expect(restored.occurrence?.deltas).toMatchObject([{ insert: "daemon persisted" }]);
     second.close();

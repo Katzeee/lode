@@ -1,6 +1,9 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { WebSocket } from "ws";
+import { createLogger } from "@lode/logger";
 import { type BrokerFrame, BrokerFrameSchema } from "@lode/protocol/proto";
+
+const log = createLogger("transport.broker.client");
 
 /**
  * The broker WebSocket CLIENT — dials a relay (`BrokerServer`) and speaks the broker frame protocol.
@@ -12,8 +15,9 @@ import { type BrokerFrame, BrokerFrameSchema } from "@lode/protocol/proto";
 export type BrokerClientOptions = {
   /** The relay WebSocket URL, e.g. `ws://127.0.0.1:4193`. */
   readonly url: string;
-  /** Called on each `deliver` frame (a routed payload for a subscribed workspace). */
-  readonly onDeliver: (wsId: string, payload: Uint8Array) => void;
+  /** Called on each `deliver` frame — a routed payload for a subscribed workspace, with the
+   *  publisher's routing `fromPeerId` ("" if the publisher declared none). */
+  readonly onDeliver: (wsId: string, payload: Uint8Array, fromPeerId: string) => void;
   /** Called on a mid-session socket error (relay reset, ECONNRESET). Lets a caller fail fast instead
    *  of waiting out a response timeout. (A *connect* failure still rejects open().) Optional. */
   readonly onError?: (err: Error) => void;
@@ -53,7 +57,11 @@ export class BrokerClient {
     this.sock.on("message", (data) => {
       const frame = safeDecode(data);
       if (frame?.kind.case === "deliver") {
-        this.onDeliver(frame.kind.value.wsId, frame.kind.value.payload);
+        this.onDeliver(
+          frame.kind.value.wsId,
+          frame.kind.value.payload,
+          frame.kind.value.fromPeerId,
+        );
       } else if (frame?.kind.case === "peersResp") {
         const { wsId, peerIds } = frame.kind.value;
         const q = this.peerQueries.get(wsId);
@@ -173,7 +181,8 @@ export class BrokerClient {
 function safeDecode(data: unknown): BrokerFrame | undefined {
   try {
     return fromBinary(BrokerFrameSchema, Buffer.from(data as Uint8Array));
-  } catch {
+  } catch (err) {
+    log.debug("dropped malformed broker frame", { err });
     return undefined;
   }
 }

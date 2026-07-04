@@ -9,6 +9,7 @@ describe("schema reconcile", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;
   let rpc: TestRpc;
+  let seededRootOccurrenceId: string | undefined;
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
@@ -17,6 +18,7 @@ describe("schema reconcile", () => {
     await hello(client);
     await createTestWorkspace(client);
     rpc = withDefaultWorkspace(client);
+    seededRootOccurrenceId = undefined;
   });
 
   afterEach(async () => {
@@ -158,8 +160,17 @@ describe("schema reconcile", () => {
     ]);
   });
 
+  // createWorkspace always seeds the workspace's single root; nodes that don't specify a parent
+  // attach under it (single-root product policy enforced in services/node.ts).
   async function createNode(params: Record<string, unknown> = {}) {
     const init: Record<string, unknown> = { ...params };
+    if (!init.parentOccurrenceId) {
+      if (seededRootOccurrenceId === undefined) {
+        const roots = await rpc.listRoots({});
+        seededRootOccurrenceId = roots.roots[0]?.occurrenceId;
+      }
+      init.parentOccurrenceId = seededRootOccurrenceId;
+    }
     return rpc.createPlainNode(init);
   }
 

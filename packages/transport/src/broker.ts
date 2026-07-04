@@ -21,8 +21,9 @@
 export type BrokerPeer = {
   /** Connection id (server-assigned, e.g. `c0`); NOT the dataRoot peerId. */
   readonly id: string;
-  /** Broker → peer: deliver a routed payload for `wsId`. */
-  deliver(wsId: string, payload: Uint8Array): void;
+  /** Broker → peer: deliver a routed payload for `wsId`, with the publisher's routing `fromPeerId`
+   *  ("" if the publisher declared none). Lets a responder direct its reply at the asker (§3c). */
+  deliver(wsId: string, payload: Uint8Array, fromPeerId: string): void;
 };
 
 export type Broker = {
@@ -118,10 +119,13 @@ export function createBroker(): Broker {
       if (!ch || !ch.conns.has(connId)) {
         throw new Error(`publish: ${connId} is not subscribed to workspace ${wsId}`);
       }
+      // The publisher's routing peerId rides the deliver so a responder can direct its reply at the
+      // asker (§3c directed response). "" when the publisher declared no peerId (broadcast-only).
+      const fromPeerId = ch.peerOf.get(connId) ?? "";
       if (toPeerId !== undefined && toPeerId !== "") {
         const target = ch.byPeer.get(toPeerId);
         if (target !== undefined && target !== connId) {
-          peers.get(target)?.deliver(wsId, payload);
+          peers.get(target)?.deliver(wsId, payload, fromPeerId);
         }
         return; // unknown / disconnected / self target → silent no-op (liveness is the client's job)
       }
@@ -129,7 +133,7 @@ export function createBroker(): Broker {
         if (id === connId) {
           continue; // sender-exclusion (no echo)
         }
-        peers.get(id)?.deliver(wsId, payload);
+        peers.get(id)?.deliver(wsId, payload, fromPeerId);
       }
     },
     peers(wsId: string): string[] {

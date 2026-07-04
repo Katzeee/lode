@@ -17,6 +17,11 @@ concepts.
 - `packages/protocol` (`@lode/protocol`) is the wire contract only: method names, schemas, DTOs,
   errors. It is the one package that must stay language-neutral — the contract a future rewrite in
   another language would have to preserve.
+- `packages/logger` (`@lode/logger`) is the cross-cutting logging facade — pino hidden behind a
+  `Logger` type, JSON to stderr, per-prefix `LODE_LOG` levels (`sync=debug;transport*=info;*=warn`).
+  A neutral leaf every package may import (mirrors any-sync's `app/logger`); component identity in
+  the logger name (`createLogger("sync.runner")`), runtime context in fields
+  (`wsId`/`peerId`/`docId`/`relay`/`err`).
 - `packages/ipc/client` (`@lode/client`) is the caller-facing RPC client (wraps
   `@connectrpc/connect-node`).
 - `packages/engine` (`@lode/engine`) is the transport-free core, layered one way (enforced by
@@ -113,6 +118,12 @@ files, old names, or temporary refactor paths.
 Avoid one-test-per-wrapper forwarding checks. Test wrappers only when they transform input, own
 error behavior, or expose a stable user-facing contract that is not already covered by integration
 tests or the type system.
+
+**Pre-commit verification.** The husky hook (`lint-staged` + `npm run typecheck`) is a fast per-commit
+backstop — it does NOT run the test suite, so `npm test`-green alone is NOT enough (a type error
+blocks the hook). Run `npm run verify` (typecheck + lint + test across workspaces) before pushing: it
+is a superset of the hook, so `verify`-green ⇒ no commit-time surprise. Both assume workspace `dist`
+is current — run `npm run build` after pulling or on a fresh clone.
 
 ## Documentation
 

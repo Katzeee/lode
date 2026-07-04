@@ -8,9 +8,21 @@ import {
   deriveActorKeypairFromMnemonic,
   generateActorKeypair,
   generateMnemonic,
+  signWithActor,
   unwrapKey,
+  wrapKey,
   type ActorKeypair,
 } from "../../utils/crypto/index.js";
+import { create, toBinary } from "@bufbuild/protobuf";
+import {
+  AddRecordSchema,
+  MemberWrapSchema,
+  MembershipRecordSchema,
+  RootRecordSchema,
+  RotateRecordSchema,
+  TransferRecordSchema,
+  type MembershipRecord,
+} from "@lode/protocol/proto";
 import { MembershipLog, type MemberPublicKeys } from "./membership-log.js";
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
@@ -190,5 +202,110 @@ describe("membership log — replay robustness + edge characterization", () => {
     log.doc.commit();
     const { state } = log.deriveState(); // must not throw
     expect(state.owner).toBe(owner.actorId); // the valid root still applied; the garbage was skipped
+  });
+});
+
+// ── helpers for probing replay-side invariants ──────────────────────────────────
+// Mirror the private bodyBytes/appendSigned from membership-log.ts so tests can append an owner-
+// signed record with an ARBITRARY body — bypassing the appendRotate/appendTransfer builders' self-
+// consistency guards, to exercise the replay guards directly (the invariant lives in deriveState).
+const bodyBytesFor = (body: MembershipRecord["body"]): Uint8Array => {
+  switch (body.case) {
+    case "root":
+      return toBinary(RootRecordSchema, body.value);
+    case "add":
+      return toBinary(AddRecordSchema, body.value);
+    case "rotate":
+      return toBinary(RotateRecordSchema, body.value);
+    case "transfer":
+      return toBinary(TransferRecordSchema, body.value);
+    case undefined:
+      return new Uint8Array(0);
+  }
+};
+
+const appendRawSigned = (
+  log: MembershipLog,
+  owner: ActorKeypair,
+  body: MembershipRecord["body"],
+): void => {
+  const sig = signWithActor(owner.privateKey, bodyBytesFor(body));
+  const rec = create(MembershipRecordSchema, { signer: owner.actorId, sig, body });
+  log.doc
+    .getList("membership_log")
+    .push(Buffer.from(toBinary(MembershipRecordSchema, rec)).toString("base64"));
+  log.doc.commit();
+};
+
+describe("membership log — replay-side invariants (authority-independent, any-sync-aligned)", () => {
+  it("a signed rotate that omits the owner is skipped (replay guard against governance brick)", () => {
+    const owner = generateActorKeypair();
+    const member = generateActorKeypair();
+    const k0 = newTransitKey();
+    const k1 = newTransitKey();
+    const log = new MembershipLog();
+    log.appendRoot(owner, k0);
+    log.appendAdd(owner, memberPub(member), k0, 0);
+    // A rotate, signed by the owner, that lists only the member (omits the owner). appendRotate
+    // refuses this at build time; bypass it to probe the REPLAY invariant. Without the guard, the
+    // owner would be deleted from `members` and no further governance record could ever verify.
+    appendRawSigned(log, owner, {
+      case: "rotate",
+      value: create(RotateRecordSchema, {
+        epoch: 1,
+        wrapped: [
+          create(MemberWrapSchema, {
+            actorId: member.actorId,
+            signPub: member.publicKey,
+            encPub: actorEncryptionPublic(member.publicKey),
+            wrappedTransit: wrapKey(actorEncryptionPublic(member.publicKey), k1),
+          }),
+        ],
+        encPrev: aeadEncrypt(k1, k0),
+      }),
+    });
+
+    const { state, skipped } = log.deriveState();
+    expect(state.owner).toBe(owner.actorId); // owner still governs
+    expect(state.members.has(owner.actorId)).toBe(true); // owner NOT revoked
+    expect(state.members.has(member.actorId)).toBe(true); // member still present (epoch 0)
+    expect(state.currentEpoch).toBe(0); // rotate skipped → epoch unchanged from root
+    expect(eq(log.unwrapCurrentTransitKey(state, owner), k0)).toBe(true); // k1 never applied
+    expect(skipped.some((r) => r.body.case === "rotate")).toBe(true);
+  });
+
+  it("a transfer to the current owner (self-transfer) is skipped", () => {
+    const owner = generateActorKeypair();
+    const tk = newTransitKey();
+    const log = new MembershipLog();
+    log.appendRoot(owner, tk);
+    log.appendTransfer(owner, owner.actorId); // owner → owner: a signed no-op
+
+    const { state, skipped } = log.deriveState();
+    expect(state.owner).toBe(owner.actorId);
+    expect(skipped.some((r) => r.body.case === "transfer")).toBe(true);
+  });
+
+  it("a root whose declared owner actorId ≠ actorIdFromPublicKey(ownerSignPub) is skipped", () => {
+    const owner = generateActorKeypair();
+    const tk = newTransitKey();
+    const log = new MembershipLog();
+    // A root body carrying a forged owner label, signed by the real owner key. actorId must be a
+    // pure function of the sign pubkey — the label must not diverge from the signing key.
+    appendRawSigned(log, owner, {
+      case: "root",
+      value: create(RootRecordSchema, {
+        owner: "bogus-actor-id",
+        ownerSignPub: owner.publicKey,
+        ownerEncPub: actorEncryptionPublic(owner.publicKey),
+        wrappedTransit: wrapKey(actorEncryptionPublic(owner.publicKey), tk),
+        epoch: 0,
+      }),
+    });
+
+    const { state, skipped } = log.deriveState();
+    expect(state.owner).toBe(""); // root rejected → no owner installed
+    expect(state.members.size).toBe(0);
+    expect(skipped.some((r) => r.body.case === "root")).toBe(true);
   });
 });

@@ -14,10 +14,13 @@ import { executeCommand } from "../../src/commands.js";
 // data root) are driven through the real `lode` CLI command layer (`parseCli` + `executeCommand`). Runs
 // under `npm test`; the binary variant (Test B) is opt-in via `npm run test:binary`.
 //
-// Each side holds ONE long-lived client (connect + authenticate once), not one per command: the sync
-// rounds run in the background, and churning a fresh client per command (with the notification stream +
-// HTTP/2 session opening and closing) races itself into "session destroyed" under polling. A long-lived
-// client is also closer to how a real UI surface behaves.
+// Each side holds ONE long-lived client (connect + authenticate once), not one per command. This is a
+// test-harness choice for the in-process shape, NOT a property of the per-command client pattern the
+// real `lode` binary uses: that pattern (one Node process per invocation) is immune because process
+// exit tears the HTTP/2 socket down before the next invocation opens one. But here, many clients live
+// in ONE process and `pollFor` cycles them while a background sync tick fires — their asynchronous
+// teardown (close → sessionManager.abort) can overlap the next open and surface "session destroyed." A
+// long-lived client sidesteps that and is also closer to how a real UI surface behaves.
 
 describe("two fresh machines — share→join→see (in-process)", () => {
   let relay: BrokerServer;
@@ -103,13 +106,15 @@ describe("two fresh machines — share→join→see (in-process)", () => {
     );
     const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
 
-    // A→B: member joins → sees the owner's node (Stage C auto-fires a content round; the 30ms tick is
-    // only the backstop).
+    // A→B: member joins → sees the owner's node. Stage C's auto-fire is the likely carrier, but with
+    // `syncIntervalMs: 30` the tick would also converge it — Test A locks the CLI flow end-to-end, it
+    // does NOT isolate Stage C (the starved-tick test in sync-secured-e2e.test.ts does that). Sync isn't
+    // instantaneous (the join's content round is fire-and-forget), so wait for it to land before reading
+    // — reading mid-round hits a child whose content shard hasn't arrived yet ("Node entity not found"),
+    // which is the correct "not here yet," not a bug.
     await memberBe("sync", "join", "--coordinate", coord);
-    const memberListing = await pollFor(
-      () => memberBe("node", "list", "--workspace", ws),
-      "Hello from A",
-    );
+    await sleep(1000);
+    const memberListing = await memberBe("node", "list", "--workspace", ws);
     expect(memberListing).toContain("Hello from A");
     const memberRoot = parseRootOcc(memberListing);
 
@@ -126,10 +131,8 @@ describe("two fresh machines — share→join→see (in-process)", () => {
     );
     await memberBe("sync", "now", "--workspace", ws);
     await ownerBe("sync", "now", "--workspace", ws);
-    const ownerListing = await pollFor(
-      () => ownerBe("node", "list", "--workspace", ws),
-      "Hello from B",
-    );
+    await sleep(1000);
+    const ownerListing = await ownerBe("node", "list", "--workspace", ws);
     expect(ownerListing).toContain("Hello from B");
   }, 30000);
 });
@@ -151,21 +154,8 @@ function parseRootOcc(out: string): string {
   return occ;
 }
 
-/** Poll an async producer until its output contains `needle` or the timeout elapses. */
-async function pollFor(
-  fn: () => Promise<string>,
-  needle: string,
-  timeoutMs = 10000,
-): Promise<string> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const out = await fn();
-    if (out.includes(needle)) {
-      return out;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for "${needle}" in:\n${out}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+/** Wait `ms` milliseconds. Used to let an asynchronous sync round (the join's fire-and-forget round,
+ *  or a just-triggered `sync now`) finish before the test reads — sync isn't instantaneous. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

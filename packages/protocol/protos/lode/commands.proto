@@ -435,7 +435,7 @@ message ActorPublicKeys {
 // Unauthenticated by design (it mints a new identity; it does not read or sign anything).
 message ActorMnemonic {
   string mnemonic = 1; // 12-word BIP-39 phrase (the user's recovery root; keep secret)
-  string actor_id = 2; // the id derived from the mnemonic — supply it back as `--actor`
+  string actor_id = 2; // the id derived from the mnemonic (display-only — identity is server-derived from the mnemonic, never supplied back by the client)
 }
 
 message ShareWorkspaceRequest {

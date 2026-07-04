@@ -3,14 +3,17 @@ import { createBroker, type BrokerPeer } from "./broker.js";
 import { create, toBinary } from "@bufbuild/protobuf";
 import { BrokerFrameSchema } from "@lode/protocol/proto";
 
-type Delivery = { wsId: string; payload: Uint8Array };
+type Delivery = { wsId: string; payload: Uint8Array; fromPeerId: string };
 
-/** A recording peer: collects delivered (wsId, payload) records. */
+/** A recording peer: collects delivered (wsId, payload, fromPeerId) records. */
 function recorder(id: string): { peer: BrokerPeer; delivered: Delivery[] } {
   const delivered: Delivery[] = [];
   return {
     delivered,
-    peer: { id, deliver: (wsId, payload) => delivered.push({ wsId, payload }) },
+    peer: {
+      id,
+      deliver: (wsId, payload, fromPeerId) => delivered.push({ wsId, payload, fromPeerId }),
+    },
   };
 }
 
@@ -159,6 +162,41 @@ describe("broker directed routing (§3c)", () => {
     expect(Buffer.from(at(c.delivered).payload).toString()).toBe("dm");
     expect(b.delivered).toHaveLength(0); // other subscriber not reached
     expect(a.delivered).toHaveLength(0); // sender never echoed
+  });
+
+  it("deliver carries the publisher's peerId as fromPeerId (so a responder can direct its reply)", () => {
+    // The relay knows the publisher's peerId from the route table; it rides the deliver so the responder
+    // can aim its reply at the asker (§3c directed response) instead of broadcasting.
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    const c = recorder("c");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.connect(c.peer);
+    broker.subscribe("a", "W", "peerA");
+    broker.subscribe("b", "W", "peerB");
+    broker.subscribe("c", "W", "peerC");
+
+    broker.publish("a", "W", bytes("directed-req"), "peerB"); // A directs a request at B
+    expect(at(b.delivered).fromPeerId).toBe("peerA"); // B learns the asker is peerA
+
+    broker.publish("a", "W", bytes("broadcast")); // A broadcasts
+    expect(at(b.delivered, 1).fromPeerId).toBe("peerA");
+    expect(at(c.delivered).fromPeerId).toBe("peerA");
+  });
+
+  it("deliver's fromPeerId is empty when the publisher declared no peerId (broadcast fallback)", () => {
+    const broker = createBroker();
+    const a = recorder("a");
+    const b = recorder("b");
+    broker.connect(a.peer);
+    broker.connect(b.peer);
+    broker.subscribe("a", "W"); // broadcast-only — no peerId declared
+    broker.subscribe("b", "W", "peerB");
+
+    broker.publish("a", "W", bytes("x"));
+    expect(at(b.delivered).fromPeerId).toBe(""); // responder can't direct → falls back to broadcast
   });
 
   it("a directed publish to an unknown peerId delivers nothing and does not throw", () => {

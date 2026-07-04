@@ -115,19 +115,11 @@ export function runLode(url, mnemonic, commandArgs) {
   });
 }
 
-/** Poll `fn` every ~50ms until it returns truthy or `timeoutMs` elapses; reject on timeout. */
-export async function poll(label, fn, timeoutMs = 10000) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const result = await fn();
-    if (result) {
-      return result;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(`Timed out waiting for ${label} (${timeoutMs}ms)`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
+/** Wait `ms` milliseconds. Used to let an asynchronous sync round (the join's fire-and-forget round,
+ *  or a just-triggered `sync now`) finish before the test reads — sync isn't instantaneous, and reading
+ *  mid-round hits a child whose content shard hasn't arrived yet. */
+export function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── output parsers ──────────────────────────────────────────────────────────────

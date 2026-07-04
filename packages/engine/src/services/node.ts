@@ -44,14 +44,20 @@ export function createNodeHandlers(ctx: AppContext) {
       req: CreatePlainNodeRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceWire> => {
-      // The service is a thin RPC adapter over the forest core (AGENTS.md: services own no domain
-      // semantics). Single-root is a PRODUCT policy, so it is enforced at the product surface (the
-      // CLI's `node create` requires `--parent-occ`); the owner-bootstrap root is seeded directly via
-      // the domain primitive in `createWorkspace`. This RPC stays a forest pass-through (null parent =
-      // root), which the engine/CRUD tests rely on.
-      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        createPlainNodeCore(doc, req.parentOccurrenceId ?? null, req.index, req.props),
-      );
+      // Single-root is a PRODUCT policy (one workspace = one content tree), enforced HERE — the one
+      // product-surface funnel for node creation. The engine core stays a forest (BlockSuite/Loro-
+      // faithful; engine tests build multi-root trees directly via the domain primitive). The sole
+      // sanctioned root is the one `createWorkspace` seeds at birth (owner-gated, directly via the
+      // domain primitive — it bypasses this RPC). A null parent means "the workspace's one root," legal
+      // only before that root exists; once rooted, every node must attach under it.
+      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) => {
+        if (!req.parentOccurrenceId && doc.getRootOccurrences().length > 0) {
+          throw new Error(
+            "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
+          );
+        }
+        return createPlainNodeCore(doc, req.parentOccurrenceId ?? null, req.index, req.props);
+      });
       return nodeToProto(node);
     },
 

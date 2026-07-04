@@ -9,8 +9,11 @@ import type {
   WireSecurity,
 } from "@lode/engine";
 import { decodeProfile, encodeProfile, open, seal } from "@lode/engine";
+import { createLogger } from "@lode/logger";
 import { type SyncMessage, SyncMessageSchema } from "@lode/protocol/proto";
 import { BrokerClient } from "./broker-client.js";
+
+const log = createLogger("transport.broker.sync");
 
 /**
  * When `security` is configured, every published payload carries a 1-byte envelope tag so the receiver
@@ -76,7 +79,7 @@ export class BrokerClientSyncTransport implements SyncTransport {
     this.peerId = opts.peerId;
     this.brokerClient = new BrokerClient({
       url: opts.url,
-      onDeliver: (_wsId, payload) => this.handle(payload),
+      onDeliver: (_wsId, payload, fromPeerId) => this.handle(payload, fromPeerId),
       onError: (err) => this.rejectPending(err),
     });
   }
@@ -185,7 +188,7 @@ export class BrokerClientSyncTransport implements SyncTransport {
 
   // ── responder: answer peers from the local store ────────────────────────────────
 
-  private handle(payload: Uint8Array): void {
+  private handle(payload: Uint8Array, fromPeerId: string): void {
     let msg: SyncMessage;
     try {
       if (!this.security) {
@@ -199,19 +202,23 @@ export class BrokerClientSyncTransport implements SyncTransport {
         } else if (tag === TAG_SEALED) {
           msg = fromBinary(SyncMessageSchema, open(this.security, body));
         } else {
+          log.debug("dropped frame with unknown envelope tag", { peerId: fromPeerId });
           return; // unknown tag — drop
         }
       }
-    } catch {
-      return; // drop malformed/undecryptable — never abort the responder
+    } catch (err) {
+      // drop malformed/undecryptable — never abort the responder. Debug because a bad/tampered frame
+      // is protocol noise; turn up transport=debug when diagnosing "why won't a peer's updates apply".
+      log.debug("dropped undecryptable sync frame", { peerId: fromPeerId, err });
+      return;
     }
     const k = msg.kind;
     switch (k.case) {
       case "profileReq":
-        this.respondProfile(k.value.reqId);
+        this.respondProfile(k.value.reqId, fromPeerId);
         break;
       case "updatesReq":
-        this.respondUpdates(k.value.reqId, k.value.docId, k.value.body);
+        this.respondUpdates(k.value.reqId, k.value.docId, k.value.body, fromPeerId);
         break;
       case "updatesPush":
         this.applyPush(k.value.docId, k.value.body);
@@ -224,38 +231,51 @@ export class BrokerClientSyncTransport implements SyncTransport {
         break;
       case undefined:
         // Empty/garbage payload — drop.
+        log.debug("dropped sync frame with empty/unknown kind", { peerId: fromPeerId });
         break;
     }
   }
 
-  private respondProfile(reqId: string): void {
+  private respondProfile(reqId: string, fromPeerId: string): void {
     // Profile is STORE-ONLY: extra docs (the membership log) are push-applied, never advertised —
     // otherwise SyncManager would treat the membership docId as a shard and materialize a bogus shard.
     const profile: SyncProfile = this.store
       .syncDocs()
       .map((d) => ({ docId: d.id, version: d.version() }));
-    this.brokerClient.publish(
-      this.workspaceId,
-      this.wireEncode(
-        encodeMessage({
-          kind: { case: "profileResp", value: { reqId, body: encodeProfile(profile) } },
-        }),
-        false,
-      ),
+    this.replyTo(
+      fromPeerId,
+      encodeMessage({
+        kind: { case: "profileResp", value: { reqId, body: encodeProfile(profile) } },
+      }),
+      false,
     );
   }
 
-  private respondUpdates(reqId: string, docId: string, fromVVBytes: Uint8Array): void {
+  private respondUpdates(
+    reqId: string,
+    docId: string,
+    fromVVBytes: Uint8Array,
+    fromPeerId: string,
+  ): void {
     const doc = this.lookupDoc(docId);
     const body = doc ? doc.exportUpdate(VersionVector.decode(fromVVBytes)) : new Uint8Array(0);
     // A public doc (the membership roster) is answered on the plaintext envelope so a joiner can
     // fetch it via `fetchUpdates("membership")` BEFORE it holds the transit key. Mirrors sendUpdates.
+    this.replyTo(
+      fromPeerId,
+      encodeMessage({ kind: { case: "updatesResp", value: { reqId, body } } }),
+      this.isPublicDoc(docId),
+    );
+  }
+
+  /** Publish a response directed at the asker when they declared a peerId — private (the sealed
+   *  response reaches only the initiator, not every subscriber) and avoids fanning it across the
+   *  channel for N>2. Falls back to broadcast when the asker declared no peerId. */
+  private replyTo(fromPeerId: string, msgBytes: Uint8Array, plaintext: boolean): void {
     this.brokerClient.publish(
       this.workspaceId,
-      this.wireEncode(
-        encodeMessage({ kind: { case: "updatesResp", value: { reqId, body } } }),
-        this.isPublicDoc(docId),
-      ),
+      this.wireEncode(msgBytes, plaintext),
+      fromPeerId || undefined,
     );
   }
 
@@ -266,9 +286,12 @@ export class BrokerClientSyncTransport implements SyncTransport {
     const doc = this.lookupDoc(docId);
     if (doc) {
       doc.importUpdate(bytes);
+    } else {
+      // An unknown-shard push with no local doc — SyncManager materializes shards via the treeDoc
+      // exchange before pushing them, so this only happens for genuinely foreign (often attacker
+      // -controlled) doc ids. Debug: protocol noise, not a normal cold-start path.
+      log.debug("dropped push for unknown doc", { docId });
     }
-    // An unknown-shard push with no local doc is dropped — SyncManager materializes shards via the
-    // treeDoc exchange before pushing them, so this only happens for genuinely foreign doc ids.
   }
 
   /** The local SyncDoc for `docId` across the store AND any extra docs (the membership log), if

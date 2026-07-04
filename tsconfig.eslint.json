@@ -11,6 +11,7 @@
     "packages/ipc/client/tests/**/*.ts",
     "packages/protocol/src/**/*.ts",
     "packages/protocol/tests/**/*.ts",
+    "packages/logger/src/**/*.ts",
     "packages/ipc/daemon/src/**/*.ts",
     "packages/ipc/daemon/tests/**/*.ts",
     "packages/engine/src/**/*.ts",

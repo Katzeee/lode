@@ -62,9 +62,14 @@ describe("AppServer sessions and notifications", () => {
     await hello(observer, "observer");
     await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
 
+    // createWorkspace seeds the single root; attach the broadcast-triggering node under it.
+    const seededRoot = await client.rpc.listRoots({ workspaceId: WORKSPACE_ID });
+    const seededRootOccurrenceId = seededRoot.roots.at(0)!.occurrenceId;
+
     const notifications = Promise.all([waitForNotification(client), waitForNotification(observer)]);
     const node = await client.rpc.createPlainNode({
       workspaceId: WORKSPACE_ID,
+      parentOccurrenceId: seededRootOccurrenceId,
     });
     const [writerNotification, observerNotification] = await notifications;
 
@@ -84,9 +89,16 @@ describe("AppServer sessions and notifications", () => {
     await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
     observer.close();
 
+    // createWorkspace seeds the single root; attach the broadcast-triggering node under it.
+    const seededRoot = await client.rpc.listRoots({ workspaceId: WORKSPACE_ID });
+    const seededRootOccurrenceId = seededRoot.roots.at(0)!.occurrenceId;
+
     await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
     const writerNotification = waitForNotification(client);
-    await client.rpc.createPlainNode({ workspaceId: WORKSPACE_ID });
+    await client.rpc.createPlainNode({
+      workspaceId: WORKSPACE_ID,
+      parentOccurrenceId: seededRootOccurrenceId,
+    });
     const notification = await writerNotification;
     expect(notification.workspaceId).toBe(WORKSPACE_ID);
   });

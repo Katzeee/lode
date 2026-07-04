@@ -35,9 +35,10 @@ export type RelayDaemon = {
 
 /** Parsed CLI args — a discriminated union of engine mode (`--listen` present) and relay-only. The
  *  bin switches on `mode` and feeds the matching starter; the discriminant makes the narrowing exact
- *  (no whole-object narrowing workaround). */
-export type EngineParsedArgs = AppServerDaemonOptions & { mode: "engine" };
-export type RelayParsedArgs = RelayDaemonOptions & { mode: "relay" };
+ *  (no whole-object narrowing workaround). `logFile` is a bin-level concern (the bin calls
+ *  `configureLogger` before starting) — not passed to the starters. */
+export type EngineParsedArgs = AppServerDaemonOptions & { mode: "engine"; logFile?: string };
+export type RelayParsedArgs = RelayDaemonOptions & { mode: "relay"; logFile?: string };
 export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 
 // Hosts the engine as a local gRPC (HTTP/2, h2c) daemon. The daemon IS the composition root: it

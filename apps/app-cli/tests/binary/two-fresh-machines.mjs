@@ -12,7 +12,7 @@ import {
   spawnRelay,
   spawnDaemon,
   runLode,
-  poll,
+  sleep,
   parseActorNew,
   parseSignPub,
   parseWorkspaceCreated,
@@ -60,12 +60,11 @@ try {
   await ownerBe("node", "create", "--workspace", ws, "--parent-occ", ownerRoot, "--text", "Hello from A");
   const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
 
-  // ── A→B: member joins → sees the owner's node (Stage C auto-fires a content round) ──
+  // ── A→B: member joins → sees the owner's node (Stage C auto-fires a content round). Sync isn't
+  //    instantaneous (the join's round is fire-and-forget), so wait for it to land before reading. ──
   await memberBe("sync", "join", "--coordinate", coord);
-  const memberListing = await poll("member to see 'Hello from A'", async () => {
-    const out = await memberBe("node", "list", "--workspace", ws);
-    return out.includes("Hello from A") ? out : undefined;
-  });
+  await sleep(1000);
+  const memberListing = await memberBe("node", "list", "--workspace", ws);
   assertContains(memberListing, "Hello from A", "member node list (A→B)");
   const memberRoot = parseRootOcc(memberListing);
 
@@ -73,10 +72,8 @@ try {
   await memberBe("node", "create", "--workspace", ws, "--parent-occ", memberRoot, "--text", "Hello from B");
   await memberBe("sync", "now", "--workspace", ws); // member pushes
   await ownerBe("sync", "now", "--workspace", ws); // owner pulls
-  const ownerListing = await poll("owner to see 'Hello from B'", async () => {
-    const out = await ownerBe("node", "list", "--workspace", ws);
-    return out.includes("Hello from B") ? out : undefined;
-  });
+  await sleep(1000);
+  const ownerListing = await ownerBe("node", "list", "--workspace", ws);
   assertContains(ownerListing, "Hello from B", "owner node list (B→A)");
 
   if (process.argv.includes("--quiet")) {

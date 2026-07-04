@@ -1,7 +1,10 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { WebSocketServer, type WebSocket } from "ws";
+import { createLogger } from "@lode/logger";
 import { type BrokerFrame, BrokerFrameSchema } from "@lode/protocol/proto";
 import { createBroker, type Broker, type BrokerPeer } from "./broker.js";
+
+const log = createLogger("transport.broker.server");
 
 /**
  * The broker WebSocket SERVER — the production relay's core (design sync-design.md §3). Hosts the
@@ -83,13 +86,13 @@ export class BrokerServer {
     const id = `c${this.nextId++}`;
     const peer: BrokerPeer = {
       id,
-      deliver: (wsId, payload) => {
+      deliver: (wsId, payload, fromPeerId) => {
         if (sock.readyState === sock.OPEN) {
           sock.send(
             toBinary(
               BrokerFrameSchema,
               create(BrokerFrameSchema, {
-                kind: { case: "deliver", value: { wsId, payload } },
+                kind: { case: "deliver", value: { wsId, payload, fromPeerId } },
               }),
             ),
           );
@@ -115,8 +118,14 @@ export class BrokerServer {
           // A non-subscriber publish throws in the core; swallow it (routing rule, not a crash).
           try {
             this.broker.publish(id, k.value.wsId, k.value.payload, k.value.toPeerId || undefined);
-          } catch {
-            // sender not subscribed — ignore
+          } catch (err) {
+            // sender not subscribed — a routing rule, not a crash. Debug: this is expected noise from
+            // a misbehaving or racing publisher, not a fault.
+            log.debug("publish from non-subscriber ignored", {
+              wsId: k.value.wsId,
+              peerId: id,
+              err,
+            });
           }
           break;
         case "peersReq": {
@@ -165,7 +174,8 @@ export class BrokerServer {
 function safeDecode(data: unknown): BrokerFrame | undefined {
   try {
     return fromBinary(BrokerFrameSchema, Buffer.from(data as Uint8Array));
-  } catch {
+  } catch (err) {
+    log.debug("dropped malformed broker frame", { err });
     return undefined;
   }
 }

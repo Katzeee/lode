@@ -10,6 +10,7 @@ describe("AppServer integration", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;
   let rpc: TestRpc;
+  let seededRootOccurrenceId: string | undefined;
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
@@ -18,6 +19,7 @@ describe("AppServer integration", () => {
     await hello(client);
     await createTestWorkspace(client);
     rpc = withDefaultWorkspace(client);
+    seededRootOccurrenceId = undefined;
   });
 
   afterEach(async () => {
@@ -26,6 +28,9 @@ describe("AppServer integration", () => {
   });
 
   it("creates and reads outline nodes through RPC", async () => {
+    // createWorkspace seeds the single root; nodes created via createPlainNode attach under it.
+    const seededRoot = await rpc.listRoots({});
+    expect(seededRoot.roots).toHaveLength(1);
     const node = await createNode({ props: { type: "task" } });
 
     const got = await getNode(node.occurrenceId);
@@ -35,7 +40,7 @@ describe("AppServer integration", () => {
       occurrenceProps: {},
       deltas: [],
     });
-    expect(got.parentOccurrenceId).toBeUndefined();
+    expect(got.parentOccurrenceId).toBe(seededRoot.roots.at(0)!.occurrenceId);
   });
 
   it("reads the canonical occurrence by node id through RPC", async () => {
@@ -191,8 +196,17 @@ describe("AppServer integration", () => {
     expect(redo.value).toBe(true);
   });
 
+  // createWorkspace always seeds the workspace's single root; nodes that don't specify a parent
+  // attach under it (single-root product policy enforced in services/node.ts).
   async function createNode(params: Record<string, unknown> = {}) {
     const init: Record<string, unknown> = { ...params };
+    if (!init.parentOccurrenceId) {
+      if (seededRootOccurrenceId === undefined) {
+        const roots = await rpc.listRoots({});
+        seededRootOccurrenceId = roots.roots[0]?.occurrenceId;
+      }
+      init.parentOccurrenceId = seededRootOccurrenceId;
+    }
     return rpc.createPlainNode(init);
   }
 

@@ -127,7 +127,13 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await memberClient.rpc.joinWorkspace({ coordinate });
 
     // Owner writes a node + text. The member converges membership (plaintext) THEN content (sealed).
-    const node = await ownerClient.rpc.createPlainNode({ workspaceId: WORKSPACE });
+    // createWorkspace seeds the single root; attach the secret-bearing content node under it.
+    const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
+    const ownerSeededRootOccurrenceId = ownerRoots.roots.at(0)!.occurrenceId;
+    const node = await ownerClient.rpc.createPlainNode({
+      workspaceId: WORKSPACE,
+      parentOccurrenceId: ownerSeededRootOccurrenceId,
+    });
     const SECRET = "secured-across-daemons";
     await ownerClient.rpc.replaceNodeText({
       workspaceId: WORKSPACE,
@@ -209,7 +215,13 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
     await memberClient.rpc.joinWorkspace({ coordinate });
 
-    const node = await ownerClient.rpc.createPlainNode({ workspaceId: WORKSPACE });
+    // createWorkspace seeds the single root; attach the secret-bearing content node under it.
+    const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
+    const ownerSeededRootOccurrenceId = ownerRoots.roots.at(0)!.occurrenceId;
+    const node = await ownerClient.rpc.createPlainNode({
+      workspaceId: WORKSPACE,
+      parentOccurrenceId: ownerSeededRootOccurrenceId,
+    });
     const SECRET = "driven-by-sync-now";
     await ownerClient.rpc.replaceNodeText({
       workspaceId: WORKSPACE,
@@ -273,7 +285,13 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
     await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
     await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
-    const node = await ownerClient.rpc.createPlainNode({ workspaceId: WORKSPACE });
+    // createWorkspace seeds the single root; attach the secret-bearing content node under it.
+    const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
+    const ownerSeededRootOccurrenceId = ownerRoots.roots.at(0)!.occurrenceId;
+    const node = await ownerClient.rpc.createPlainNode({
+      workspaceId: WORKSPACE,
+      parentOccurrenceId: ownerSeededRootOccurrenceId,
+    });
     const SECRET = "driven-by-join";
     await ownerClient.rpc.replaceNodeText({
       workspaceId: WORKSPACE,
