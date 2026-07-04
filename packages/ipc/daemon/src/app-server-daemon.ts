@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lode/engine";
 import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerComponent } from "./broker-server-component.js";
@@ -5,12 +6,27 @@ import { ConnectServerComponent } from "./connect-server-component.js";
 import { DaemonSyncRunner } from "./sync-runner.js";
 import { createSyncHandlers } from "./sync-handlers.js";
 
+/** Read the relay's TLS cert/key PEM files (from `--tls-cert`/`--tls-key` paths) for
+ *  `BrokerServerComponent`. Empty when TLS isn't configured (h2c plaintext — the default). */
+function readRelayTls(relay: { tlsCertPath?: string; tlsKeyPath?: string } | undefined): {
+  tlsCert?: string;
+  tlsKey?: string;
+} {
+  if (relay?.tlsCertPath === undefined || relay.tlsKeyPath === undefined) {
+    return {};
+  }
+  return {
+    tlsCert: readFileSync(relay.tlsCertPath, "utf8"),
+    tlsKey: readFileSync(relay.tlsKeyPath, "utf8"),
+  };
+}
+
 export type AppServerDaemonOptions = {
   listen: string;
   dataRoot?: string;
   persistence?: PersistenceOptions;
   /** Host the workspace-routing broker (relay) in-process (opt-in `--relay`, design §3). */
-  relay?: { port?: number; host?: string };
+  relay?: { port?: number; host?: string; tlsCertPath?: string; tlsKeyPath?: string };
   /** Sync round interval (default 20000ms); exposed for tests. The daemon has no sync identity —
    *  workspaces are registered at runtime by sessions (RegisterSync / JoinWorkspace). */
   syncIntervalMs?: number;
@@ -18,12 +34,13 @@ export type AppServerDaemonOptions = {
 
 /** Relay-only mode options (no engine, no gRPC — just the broker). */
 export type RelayDaemonOptions = {
-  relay?: { port?: number; host?: string };
+  relay?: { port?: number; host?: string; tlsCertPath?: string; tlsKeyPath?: string };
 };
 
 export type AppServerDaemon = {
   address: string;
-  /** The in-process relay's WebSocket URL, when `--relay` is set (for other devices to dial). */
+  /** The in-process relay's URL (HTTP/2, `http://` plaintext or `https://` with TLS), when `--relay`
+   *  is set (for other devices to dial). */
   relayUrl?: string;
   stop(): Promise<void>;
 };
@@ -70,7 +87,11 @@ export async function startAppServerDaemon(
   const relay =
     options.relay !== undefined
       ? runtime.app.register(
-          new BrokerServerComponent({ port: options.relay.port, host: options.relay.host }),
+          new BrokerServerComponent({
+            port: options.relay.port,
+            host: options.relay.host,
+            ...readRelayTls(options.relay),
+          }),
         )
       : undefined;
   // The sync runner stops FIRST (closes outbound transports before the relay/workspaces go).
@@ -85,13 +106,15 @@ export async function startAppServerDaemon(
   };
 }
 
-/** Relay-only mode: host just the workspace-routing broker — no engine, no gRPC, no identity. One
- *  binary, three modes (design sync-design.md §5); the bin picks this entry when `--listen` is
- *  absent. Uses `BrokerServerComponent` directly (single-component lifecycle needs no App wrapper). */
+/** Relay-only mode: host just the workspace-routing broker (BrokerService over h2) — no engine, no
+ *  LodeCommands client→core gRPC, no identity. One binary, three modes (design sync-design.md §5);
+ *  the bin picks this entry when `--listen` is absent. Uses `BrokerServerComponent` directly
+ *  (single-component lifecycle needs no App wrapper). */
 export async function startRelayDaemon(options: RelayDaemonOptions = {}): Promise<RelayDaemon> {
   const component = new BrokerServerComponent({
     port: options.relay?.port,
     host: options.relay?.host,
+    ...readRelayTls(options.relay),
   });
   await component.start();
   return { relayUrl: component.url, stop: () => component.stop() };

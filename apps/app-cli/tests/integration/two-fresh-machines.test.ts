@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { BrokerServer } from "@lode/transport";
+import { BrokerServer } from "@lode/engine";
 import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
 import { parseCli } from "../../src/args.js";
@@ -35,7 +35,7 @@ describe("two fresh machines — share→join→see (in-process)", () => {
   beforeEach(async () => {
     relay = new BrokerServer({ port: 0 });
     await relay.ready();
-    relayUrl = `ws://127.0.0.1:${relay.port}`;
+    relayUrl = `http://127.0.0.1:${relay.port}`;
     tmpA = await mkdtemp(join(tmpdir(), "lode-sync-inproc-a-"));
     tmpB = await mkdtemp(join(tmpdir(), "lode-sync-inproc-b-"));
     ownerD = await startAppServerDaemon({

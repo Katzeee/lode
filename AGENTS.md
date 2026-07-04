@@ -4,9 +4,10 @@
 
 This project is a local-first, Tana-like note management app. Plain nodes are the primary content
 units, refs are first-class product objects, and schema/fieldDef/field model supertag-like
-structure. Product services are exposed to multiple client surfaces by `@lode/engine`, a
-transport-free core library; `@lode/daemon` hosts that engine as a local AppServer process for
-out-of-process clients, while mobile/embedded clients may use the engine in-process.
+structure. Product services are exposed to multiple client surfaces by `@lode/engine`, the core
+library (block tree + CRDT + the peer-sync broker wire); `@lode/daemon` hosts that engine as a local
+AppServer process for out-of-process clients, while mobile/embedded clients may use the engine
+in-process.
 
 `Engine` is intentionally business-agnostic: it should stay close to BlockSuite's store layer,
 owning block tree, text, props, history, and CRDT sync primitives without knowing about Tana-like
@@ -18,14 +19,14 @@ concepts.
   errors. It is the one package that must stay language-neutral — the contract a future rewrite in
   another language would have to preserve.
 - `packages/logger` (`@lode/logger`) is the cross-cutting logging facade — pino hidden behind a
-  `Logger` type, JSON to stderr, per-prefix `LODE_LOG` levels (`sync=debug;transport*=info;*=warn`).
+  `Logger` type, JSON to stderr, per-prefix `LODE_LOG` levels (`sync=debug;engine.broker*=info;*=warn`).
   A neutral leaf every package may import (mirrors any-sync's `app/logger`); component identity in
   the logger name (`createLogger("sync.runner")`), runtime context in fields
   (`wsId`/`peerId`/`docId`/`relay`/`err`).
 - `packages/ipc/client` (`@lode/client`) is the caller-facing RPC client (wraps
   `@connectrpc/connect-node`).
-- `packages/engine` (`@lode/engine`) is the transport-free core, layered one way (enforced by
-  ESLint, see below): `src/core` owns block tree, text, props, history, and CRDT sync primitives;
+- `packages/engine` (`@lode/engine`) is the core library, layered one way (enforced by ESLint, see
+  below): `src/core` owns block tree, text, props, history, and CRDT sync primitives;
   `src/persistence` owns storage primitives (SQLite CRUD on bytes/records — no engine imports);
   `src/domain/model` is the pure value-type leaf (shared domain vocabulary, zero engine imports);
   `src/domain` owns product semantics and policies (functions over `core`); `src/bundle` is the
@@ -35,27 +36,24 @@ concepts.
   it is rebuilt as a Rust dynamic library); `src/event` owns notification primitives;
   `src/session` owns session/subscription/broadcast; `src/services` owns RPC adapters; `src/runtime`
   is the composition root (the `App`/`Component`/`ChildApp` graph, `createAppRuntime`, the
-  per-workspace registry, the in-process sync core, and the wire-security/SyncProfile content layer
-  the transport consumes). It must not import `@lode/client`.
-- `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with a transport
-  socket plus process lifecycle — the AppServer process. It owns transport connections and injects
-  the engine's notification sink.
-- `packages/transport` (`@lode/transport`) is the shared sync transport SHELL: the
-  workspace-routing broker (client + `--relay` server) over real WebSockets + the `SyncTransport`
-  adapter over it. It is a pure socket shell — the content/security layer (transit-key AEAD seal/
-  open, actor wire signing, the membership→wire bridge, the SyncProfile codec) lives in
-  `@lode/engine` now and is imported from there. It depends on `@lode/engine` and is used by BOTH
-  `@lode/daemon` and in-process mobile — mobile dials a relay directly, so the transport cannot
-  live daemon-only. The engine must not import it.
+  per-workspace registry, and the in-process sync core — `SyncManager` + `src/runtime/broker/`, the
+  peer-sync wire (`BrokerClient`/`BrokerServer` over a Connect gRPC bidi stream, HTTP/2) + the
+  it + the wire-security/SyncProfile content layer). The broker wire is engine-internal so it travels
+  with the engine into a future Rust port. It must not import `@lode/client`.
+- `packages/ipc/daemon` (`@lode/daemon`) is a thin host that wraps the engine with the gRPC IPC
+  socket (`@connectrpc/connect-node`) + hosts the relay (`BrokerServer`, in `--relay` mode) plus
+  process lifecycle — the AppServer process. It owns the client→core RPC connection and injects the
+  engine's notification sink. The peer-sync wire + protocol live in the engine, not here.
 - `apps/*` are deployable client surfaces (currently: `app-cli`). Out-of-process surfaces reach
   the engine through `@lode/client`/`@lode/daemon`; an in-process surface (e.g. mobile) may use
-  `@lode/engine` + `@lode/transport` directly.
+  `@lode/engine` directly (it dials a relay via the engine's broker client, no daemon).
 
-`@lode/engine` is the in-process service boundary; `@lode/daemon` exposes it as a local AppServer
-process. Out-of-process clients may use `@lode/client` and `@lode/protocol`, but must not import
-from `@lode/engine` source directly — to run a server they depend on `@lode/daemon`. In-process
-clients (mobile) may depend on `@lode/engine` + `@lode/transport` (mobile dials a relay directly via
-`@lode/transport`, with no daemon).
+`@lode/engine` is the in-process service boundary; it owns the peer-sync broker wire (Layer A —
+between peers) so that wire travels with the engine into a future Rust port. `@lode/daemon` exposes
+it as a local AppServer process. The client→core RPC (Layer B) is separate: out-of-process clients
+use `@lode/client` and `@lode/protocol`, and must not import from `@lode/engine` source directly —
+to run a server they depend on `@lode/daemon`. In-process clients (mobile) depend on `@lode/engine`
+alone (mobile dials a relay directly via the engine's broker client, with no daemon).
 
 The intended desktop runtime is one local AppServer daemon per user. Clients may render or cache
 local views, but workspace ownership and business logic stay behind the engine API.
@@ -78,8 +76,8 @@ event   -> protocol      session -> {event, protocol}
 `core` must not import from `domain`, `services`, `protocol`, or any product layer. `domain` may
 use `core`/`bundle`/`domain/model` but must not register RPC methods, send notifications, or shape
 wire DTOs. `services` is the RPC adapter layer; `runtime` is the composition root and may import
-every internal layer. `engine` must not import `@lode/client` or `@lode/transport` (the sync transport);
-transport responsibility lives in `@lode/daemon` and `@lode/transport`.
+every internal layer. `engine` must not import `@lode/client`. The peer-sync wire + protocol are
+engine-internal (`src/runtime/broker/`); the client→core RPC is `@lode/daemon`/`@lode/client`.
 
 `packages/engine/src/services` must not own domain semantics (those live in `domain`) nor
 connection/subscription lifecycle (that lives in `session`).
@@ -91,6 +89,15 @@ why something is non-obvious, not restate what the code does.
 
 Avoid `any`; use `unknown` and narrow it. Keep async handling explicit. Use type-only imports
 for type-only dependencies.
+
+## Dependencies
+
+Don't reinvent what a third-party library already covers. Adopt it when it does what we need
+**without modification** AND its scope matches the problem (introducing it doesn't drag in large
+unused surface). Hand-roll only when the library would need fork-level changes, or when its scope
+far exceeds the feature we need — paying the weight for little of the capability. The decision and
+rationale belong in `docs/design/`; current "adopt vs hand-roll" open questions belong in the
+relevant `_local/handoff/` doc.
 
 ## Refactoring
 

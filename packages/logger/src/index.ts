@@ -125,7 +125,7 @@ class PinoLoggerWrapper implements Logger {
 const registry = new Map<string, PinoLoggerWrapper>();
 
 /** Create a named logger. Component identity in `component` (e.g. `"sync.runner"`,
- *  `"transport.broker.client"`); level resolved from `LODE_LOG`. Sink is JSON to stderr, plus a
+ *  `"engine.broker.client"`); level resolved from `LODE_LOG`. Sink is JSON to stderr, plus a
  *  rotating file when the host has called `configureLogger({ file })`. stdout stays clean for command
  *  output (binary tests parse it). */
 export function createLogger(component: string): Logger {

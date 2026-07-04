@@ -29,19 +29,40 @@ export type SyncTransport = {
  * swept). Idempotent + safe to retry.
  */
 export class SyncManager {
+  /** The peer's last-advertised per-doc VV, captured at the start of each `sync()` round (right after
+   *  `remoteProfile`) so `pushOnly()` can export an incremental update without a profile round-trip.
+   *  Empty until the first successful round — push no-ops until then; the tick owns cold start.
+   *  A possibly-stale cached VV (the cache only advances on a `sync()` profile fetch, not on push) is
+   *  safe: `pushOnly` re-sends ops the peer may already have, which Loro's import applies idempotently
+   *  (in-version ops are ignored on apply) — redundant bandwidth, never corruption. That property is
+   *  load-bearing here; re-verify it on loro-crdt upgrades. */
+  private readonly lastRemoteVV = new Map<string, VersionVector>();
+
   constructor(
     private readonly store: ShardedBlockStore,
     private readonly transport: SyncTransport,
   ) {}
 
-  async sync(): Promise<void> {
+  async sync(): Promise<{ pulled: number; pushed: number }> {
     const remote = new Map((await this.transport.remoteProfile()).map((p) => [p.docId, p.version]));
+    // Cache the peer's VVs for `pushOnly` BEFORE the per-doc loop — `sync()` is the only path that
+    // learns remote VVs, so caching here means a round that throws partway still leaves push the
+    // freshest profile it fetched (rather than never writing it at the end).
+    this.lastRemoteVV.clear();
+    for (const [docId, vv] of remote) {
+      this.lastRemoteVV.set(docId, vv);
+    }
+
+    let pulled = 0;
+    let pushed = 0;
 
     // TreeDoc FIRST: it carries ownership, so syncing it reveals which shard ids exist on each
     // side. Exchange both directions in one round.
     const tree = this.localDoc(MAIN_SUBDOC);
     if (tree) {
-      await this.exchangeDoc(tree, remote.get(MAIN_SUBDOC));
+      const r = await this.exchangeDoc(tree, remote.get(MAIN_SUBDOC));
+      pulled += r.pulled ? 1 : 0;
+      pushed += r.pushed ? 1 : 0;
     }
 
     // Shards: the UNION of local + remote ids. Local ids are re-read AFTER the treeDoc sync so
@@ -66,7 +87,9 @@ export class SyncManager {
     for (const sid of shardIds) {
       const doc = local.get(sid);
       if (doc) {
-        await this.exchangeDoc(doc, remote.get(sid));
+        const r = await this.exchangeDoc(doc, remote.get(sid));
+        pulled += r.pulled ? 1 : 0;
+        pushed += r.pushed ? 1 : 0;
       }
     }
 
@@ -74,6 +97,34 @@ export class SyncManager {
     // X's hard-delete). sweepOrphans is ownership-based, so a shard merely pending (not yet
     // delivered) is NOT swept — partial delivery self-heals when the shard arrives.
     this.store.sweepOrphans();
+    return { pulled, pushed };
+  }
+
+  /** Send-only half of a round — the push fast-path, driven on a local mutation (the runner
+   *  subscribes to the engine's `nodeUpdated`). Skips the `remoteProfile` round-trip (that is what
+   *  `sync()` pays) and exports each local doc against the peer's last-known VV. No-op before the
+   *  first round populates `lastRemoteVV` (cold start is `sync()`'s job).
+   *
+   *  Safe to run concurrently with a `sync()` round and intentionally NOT gated out by one: Loro's
+   *  export/import are synchronous WASM (no mid-call interleave in single-threaded JS), and CRDT
+   *  import on the receiver is idempotent — so a stale `lastRemoteVV` only re-sends ops the peer
+   *  may already have, never corrupts. Gating push out during a round would drop pushes for
+   *  mutations that land AFTER the round already captured its push bytes (the round's push is a
+   *  frozen snapshot at export time); the small redundant bandwidth from a concurrent push is the
+   *  better trade than that latency hole. */
+  async pushOnly(): Promise<{ pushed: number }> {
+    if (this.lastRemoteVV.size === 0) {
+      return { pushed: 0 }; // cold start — wait for the first `sync()` to learn the peer's VVs
+    }
+    let pushed = 0;
+    for (const doc of this.store.syncDocs()) {
+      const bytes = doc.exportUpdate(this.lastRemoteVV.get(doc.id));
+      if (bytes.length > 0) {
+        await this.transport.sendUpdates(doc.id, bytes);
+        pushed++;
+      }
+    }
+    return { pushed };
   }
 
   private localDoc(id: string): SyncDoc | undefined {
@@ -81,8 +132,12 @@ export class SyncManager {
   }
 
   /** Exchange one doc both ways in a round: pull peer→local, push local→peer (captured before
-   *  import so the push never echoes the peer's own ops back). */
-  private async exchangeDoc(doc: SyncDoc, remoteVV: VersionVector | undefined): Promise<void> {
+   *  import so the push never echoes the peer's own ops back). Returns whether each side moved
+   *  bytes — the runner's round-summary log keys off it. */
+  private async exchangeDoc(
+    doc: SyncDoc,
+    remoteVV: VersionVector | undefined,
+  ): Promise<{ pulled: boolean; pushed: boolean }> {
     const localVV = doc.version();
     const pull =
       remoteVV === undefined
@@ -95,6 +150,7 @@ export class SyncManager {
     if (push.length > 0) {
       await this.transport.sendUpdates(doc.id, push);
     }
+    return { pulled: pull.length > 0, pushed: push.length > 0 };
   }
 }
 
@@ -102,7 +158,7 @@ export class SyncManager {
  * In-process transport backed by another store directly — the test substrate and the path for two
  * workspaces in one process. `syncPair` runs one round (both directions exchanged) then reconciles
  * both sides — each peer is its own good citizen in production; the helper models that for in-process
- * pairs. The real network transport lives in `@lode/transport` (`BrokerClientSyncTransport`).
+ * pairs. The real network transport is the engine's `BrokerSyncProtocol` (`runtime/broker/`).
  */
 export class InMemorySyncTransport implements SyncTransport {
   constructor(private readonly remote: ShardedBlockStore) {}

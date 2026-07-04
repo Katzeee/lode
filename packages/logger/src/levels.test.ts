@@ -11,9 +11,9 @@ describe("parseLevelSpec + resolveLevel", () => {
   });
 
   it("glob wildcard matches a dotted prefix", () => {
-    const rules = parseLevelSpec("sync*=debug;transport*=info;*=warn");
+    const rules = parseLevelSpec("sync*=debug;engine.broker*=info;*=warn");
     expect(resolveLevel("sync.runner", rules, "warn")).toBe("debug");
-    expect(resolveLevel("transport.broker.client", rules, "warn")).toBe("info");
+    expect(resolveLevel("engine.broker.client", rules, "warn")).toBe("info");
     expect(resolveLevel("engine.membership", rules, "warn")).toBe("warn");
   });
 

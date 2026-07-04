@@ -3,7 +3,7 @@ import { type ActorKeypair } from "../../utils/crypto/index.js";
 import type { WireSecurity } from "./wire-security.js";
 
 export type MembershipWireSecurity = {
-  /** The live `WireSecurity` to hand to a secured `BrokerClientSyncTransport`. Its `transitKey` field
+  /** The live `WireSecurity` to hand to a secured `BrokerSyncProtocol`. Its `transitKey` field
    *  is mutated in place by `refresh()` — the transport sees the new key without being rebuilt. */
   readonly security: WireSecurity;
   /** Re-derive the membership snapshot from the log and, if the local actor is a member, install the
@@ -25,7 +25,7 @@ export type MembershipWireSecurity = {
  * membership (plaintext) round still runs, which is exactly what lets the actor join.
  *
  * Reusable by both the daemon (`DaemonSyncRunner`) and an in-process mobile host that dials a relay
- * directly: the same three pieces (membership log + this security + `BrokerClientSyncTransport`).
+ * directly: the same three pieces (membership log + this security + `BrokerSyncProtocol`).
  */
 export function createMembershipWireSecurity(opts: {
   log: MembershipLog;

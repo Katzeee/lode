@@ -10,7 +10,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/client && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/transport && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/client && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",

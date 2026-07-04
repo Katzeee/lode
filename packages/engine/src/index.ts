@@ -32,9 +32,9 @@ export type { Component } from "./runtime/app.js";
 // transports can reach them without importing engine source directly.
 export { SyncManager, InMemorySyncTransport, syncPair } from "./runtime/sync.js";
 export type { SyncTransport, SyncProfile } from "./runtime/sync.js";
-// The sync-core store + doc + version types the transport layer reaches via
-// `runtime.workspaces.getEngine(wsId).getShardedStore()`. Exported as types/values so @lode/transport can
-// construct a SyncManager and serve/respond over the broker without importing engine source.
+// The sync-core store + doc + version types the daemon's sync runner reaches via
+// `runtime.workspaces.getEngine(wsId).getShardedStore()`. Exported as types/values so the daemon can
+// construct a SyncManager + BrokerSyncProtocol without importing engine source.
 export type { VersionVector } from "./core/types.js";
 export { Engine } from "./core/engine.js";
 export { ShardedBlockStore } from "./core/sharded-store.js";
@@ -64,3 +64,16 @@ export {
   type MembershipWireSecurity,
 } from "./runtime/membership/membership-security.js";
 export { encodeProfile, decodeProfile } from "./runtime/sync-message.js";
+
+// Broker — the workspace-routing relay wire (BrokerClient + BrokerServer) over a Connect gRPC bidi
+// stream (HTTP/2), formerly @lode/transport. Engine-internal now so the wire travels with the
+// @lode/transport. Engine-internal now so the wire travels with the engine. The daemon hosts the
+// server in --relay mode; daemons/mobile dial it via the client. The routing core (createBroker) is
+// engine-internal — not re-exported.
+export { BrokerClient } from "./runtime/broker/broker-client.js";
+export type { BrokerClientOptions } from "./runtime/broker/broker-client.js";
+export { BrokerServer } from "./runtime/broker/broker-server.js";
+export type { BrokerServerOptions } from "./runtime/broker/broker-server.js";
+// The broker sync protocol — `SyncTransport` over `BrokerClient` (CRDT-coupled: profile codec, seal/
+// open demux, request/response correlation). Formerly `@lode/transport`'s adapter; engine-internal now.
+export { BrokerSyncProtocol } from "./runtime/broker/broker-sync-transport.js";

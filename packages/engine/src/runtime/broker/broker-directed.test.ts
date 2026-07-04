@@ -54,11 +54,11 @@ function at(got: Delivery[], i = 0): Delivery {
 
 const bytes = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-describe("broker directed routing over real WebSocket (§3c)", () => {
+describe("broker directed routing over real HTTP/2 (§3c)", () => {
   it("a directed publish reaches only the target peerId", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     const c = makeClient(url);
@@ -80,7 +80,7 @@ describe("broker directed routing over real WebSocket (§3c)", () => {
   it("peers() lists the declared peerIds on the channel (includes self)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);
@@ -95,7 +95,7 @@ describe("broker directed routing over real WebSocket (§3c)", () => {
   it("a peers() query from a non-subscriber resolves empty (workspace isolation, observable)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     await a.client.open();
     // a has NOT subscribed to W → the relay answers with an empty roster (not a silent drop/timeout):
@@ -106,7 +106,7 @@ describe("broker directed routing over real WebSocket (§3c)", () => {
   it("a peer on ws1 cannot discover ws2's members (no cross-workspace enumeration)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const p1 = makeClient(url);
     const p2 = makeClient(url);
     const p3 = makeClient(url);
@@ -127,7 +127,7 @@ describe("broker directed routing over real WebSocket (§3c)", () => {
   it("a directed publish to an unknown peerId is a silent no-op (server keeps routing)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);

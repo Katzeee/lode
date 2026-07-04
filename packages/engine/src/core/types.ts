@@ -87,6 +87,10 @@ export type NodeUpdatedPayload =
 
 import type { Subject } from "rxjs";
 
+/** Engine notification slots. `nodeUpdated` is a synchronous RxJS Subject: `next` propagates to
+ *  every subscriber in line, and a throwing subscriber would break the rest (and the caller's own
+ *  post-emit work — e.g. `runMutation`'s broadcast capture). Subscribers MUST NOT throw — keep them
+ *  trivial (schedule/queue) and do the real work off the call site. */
 export type EngineSlots = {
   nodeUpdated: Subject<NodeUpdatedPayload>;
 };

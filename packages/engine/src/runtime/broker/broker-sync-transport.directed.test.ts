@@ -1,16 +1,18 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { LoroDoc } from "loro-crdt";
-import { MembershipLog, ShardedBlockStore, generateActorKeypair } from "@lode/engine";
-import { BrokerClientSyncTransport } from "./broker-sync-transport.js";
+import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { MembershipLog } from "../membership/membership-log.js";
 import { BrokerServer } from "./broker-server.js";
+import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 
 // Directed membership fetch (design §3c): a joiner asks ONE peer (by peerId) for the full membership
 // doc, reusing the `updatesReq/Resp` + `reqId` correlation with a directed publish. This is the first
 // real exercise of Phase 2's directed routing through the transport adapter.
 
 let server: BrokerServer | undefined;
-const transports: BrokerClientSyncTransport[] = [];
+const transports: BrokerSyncProtocol[] = [];
 
 afterEach(async () => {
   for (const t of transports) {
@@ -25,11 +27,11 @@ afterEach(async () => {
 
 const settle = (ms = 50): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-describe("BrokerClientSyncTransport — directed membership fetch (§3c)", () => {
+describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
   it("a joiner peers() then directed-fetches the owner's membership doc by peerId", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
 
     // Owner holds a rooted membership log; the joiner holds an empty one (no root — it'll fetch it).
     const ownerKp = generateActorKeypair();
@@ -45,14 +47,14 @@ describe("BrokerClientSyncTransport — directed membership fetch (§3c)", () =>
 
     // The membership doc is a public doc (plaintext roster); no transit key / security needed for this
     // fetch. A ShardedBlockStore is required by the constructor; membership-only here (no content sync).
-    const owner = new BrokerClientSyncTransport({
+    const owner = new BrokerSyncProtocol({
       url,
       store: new ShardedBlockStore({ numShards: 4 }),
       workspaceId: "W",
       publicDocs: () => [ownerDoc],
       peerId: "owner",
     });
-    const joiner = new BrokerClientSyncTransport({
+    const joiner = new BrokerSyncProtocol({
       url,
       store: new ShardedBlockStore({ numShards: 4 }),
       workspaceId: "W",
@@ -86,14 +88,14 @@ describe("BrokerClientSyncTransport — directed membership fetch (§3c)", () =>
   it("peers() excludes no one implicitly — the caller filters self (both peerIds are listed)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const a = new BrokerClientSyncTransport({
+    const url = `http://127.0.0.1:${server.port}`;
+    const a = new BrokerSyncProtocol({
       url,
       store: new ShardedBlockStore({ numShards: 4 }),
       workspaceId: "W",
       peerId: "A",
     });
-    const b = new BrokerClientSyncTransport({
+    const b = new BrokerSyncProtocol({
       url,
       store: new ShardedBlockStore({ numShards: 4 }),
       workspaceId: "W",

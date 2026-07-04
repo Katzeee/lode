@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { BrokerClient, BrokerServer } from "@lode/transport";
+import { BrokerClient, BrokerServer } from "@lode/engine";
 import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
 import { openAuthedSession } from "./authed-session.js";
@@ -84,7 +84,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
-    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     const owner = await bootDaemon();
     const member = await bootDaemon();
@@ -160,7 +160,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
-    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     const owner = await bootDaemon();
     const ownerClient = new AppServerClient({ url: owner.address });
@@ -193,7 +193,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
-    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     // 60s ticks → the periodic round CANNOT fire during this short test. The ONLY thing that can move
     // content is `syncNow` (`lode sync now`).
@@ -264,7 +264,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
     await relay.ready();
-    const syncUrl = `ws://127.0.0.1:${relay.port}`;
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     // 60s ticks → the periodic round CANNOT fire during this short test. The ONLY thing that can move
     // content is the round `joinWorkspace` auto-fires (Stage C) — no manual `syncNow` anywhere.
@@ -304,6 +304,72 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     // manual syncNow). If `joinWorkspace` didn't fire it, this polls 20s → the 60s tick never comes
     // → expectConverged throws → test fails.
     await memberClient.rpc.joinWorkspace({ coordinate });
+    await expectConverged(memberClient, node.occurrenceId, SECRET);
+
+    ownerClient.close();
+    memberClient.close();
+  }, 30000);
+
+  it("a local write pushes immediately — converges with the tick starved and NO manual sync on the write", async () => {
+    const relay = new BrokerServer({ port: 0 });
+    relays.push(relay);
+    await relay.ready();
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
+
+    // 60s ticks → the periodic round CANNOT fire during this short test. After a single warm-up round
+    // (so both sides have each other's profile cached + the member has the target shard materialized),
+    // the ONLY thing that can carry the owner's new write is the push fast-path (the runner's
+    // `nodeUpdated` subscription → debounced `pushOnly`). No post-warm-up `syncNow` anywhere.
+    const owner = await bootDaemon({ syncIntervalMs: 60000 });
+    const member = await bootDaemon({ syncIntervalMs: 60000 });
+
+    const ownerClient = new AppServerClient({ url: owner.address });
+    const memberClient = new AppServerClient({ url: member.address });
+    ownerClient.connect();
+    memberClient.connect();
+    await openAuthedSession(ownerClient);
+    await openAuthedSession(memberClient);
+
+    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+
+    await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
+    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
+    const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
+
+    // Owner writes a node + initial text BEFORE the member joins.
+    const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
+    const ownerSeededRootOccurrenceId = ownerRoots.roots.at(0)!.occurrenceId;
+    const node = await ownerClient.rpc.createPlainNode({
+      workspaceId: WORKSPACE,
+      parentOccurrenceId: ownerSeededRootOccurrenceId,
+    });
+    const BEFORE = "before-warmup";
+    await ownerClient.rpc.replaceNodeText({
+      workspaceId: WORKSPACE,
+      occurrenceId: node.occurrenceId,
+      deltas: [{ insert: BEFORE }],
+    });
+
+    // Member joins (Stage C round pulls the owner's current content), then ONE owner round warms the
+    // owner's `lastRemoteVV` (the cache pushOnly exports against) — the steady state the 20s tick would
+    // reach in production.
+    await memberClient.rpc.joinWorkspace({ coordinate });
+    await ownerClient.rpc.syncNow({ workspaceId: WORKSPACE });
+
+    // Sanity: the warm-up converged the member (it holds the target shard), so a later push to that
+    // shard is meaningful. expectConverged throws if it didn't.
+    await expectConverged(memberClient, node.occurrenceId, BEFORE);
+
+    // THE WRITE UNDER TEST — owner updates the existing node's text. With the tick starved and no
+    // post-warm-up `syncNow`, only the push fast-path can carry this. If the runner didn't subscribe
+    // (or pushOnly is broken), this polls 20s → the 60s tick never comes → expectConverged throws.
+    const SECRET = "pushed-on-mutation";
+    await ownerClient.rpc.replaceNodeText({
+      workspaceId: WORKSPACE,
+      occurrenceId: node.occurrenceId,
+      deltas: [{ insert: SECRET }],
+    });
     await expectConverged(memberClient, node.occurrenceId, SECRET);
 
     ownerClient.close();

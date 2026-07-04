@@ -58,7 +58,7 @@ function spawnServer(serverArgs) {
   });
 }
 
-/** Spawn a relay-only `app-server --relay 0` → `{ child, url }` (a `ws://` URL). */
+/** Spawn a relay-only `app-server --relay 0` → `{ child, url }` (an `http://` URL, plaintext h2c). */
 export const spawnRelay = () => spawnServer(["--relay", "0"]);
 
 /** Spawn an engine `app-server --listen … --data-root <dataRoot>` → `{ child, url }` (an `http://` URL). */

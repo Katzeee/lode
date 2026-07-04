@@ -1,26 +1,26 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  Engine,
-  MembershipLog,
-  MembershipSync,
-  ShardedBlockStore,
-  SyncManager,
   actorEncryptionPublic,
-  createMembershipWireSecurity,
   generateActorKeypair,
   type ActorKeypair,
-} from "@lode/engine";
+} from "../../utils/crypto/index.js";
+import { Engine } from "../../core/engine.js";
+import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { SyncManager } from "../sync.js";
+import { MembershipLog } from "../membership/membership-log.js";
+import { MembershipSync } from "../membership/membership-sync.js";
+import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
-import { BrokerClientSyncTransport } from "./broker-sync-transport.js";
 import { BrokerServer } from "./broker-server.js";
+import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 
 // Transport integration: one secured transport carries the membership doc over a PLAINTEXT
 // envelope (0x00 tag) and content docs over a SEALED envelope (0x01 tag). The membership doc converges
 // via gossip push BEFORE the member holds the transit key (bootstrap), then content converges sealed.
 
 let server: BrokerServer | undefined;
-const transports: BrokerClientSyncTransport[] = [];
+const transports: BrokerSyncProtocol[] = [];
 const eavesdroppers: BrokerClient[] = [];
 
 afterEach(async () => {
@@ -45,7 +45,7 @@ function newEngine(): { engine: Engine; store: ShardedBlockStore } {
   return { engine: new Engine({ store }), store };
 }
 
-describe("BrokerClientSyncTransport — membership-doc plaintext + content sealed", () => {
+describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () => {
   it("membership doc converges plaintext, content converges sealed; eavesdropper sees both tags but no plaintext content", async () => {
     const a = newEngine();
     const b = newEngine();
@@ -67,15 +67,15 @@ describe("BrokerClientSyncTransport — membership-doc plaintext + content seale
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({
       url,
       store: a.store,
       workspaceId: "W",
       security: secA.security,
       publicDocs: () => [logA.toSyncDoc()],
     });
-    const tb = new BrokerClientSyncTransport({
+    const tb = new BrokerSyncProtocol({
       url,
       store: b.store,
       workspaceId: "W",
@@ -145,15 +145,15 @@ describe("BrokerClientSyncTransport — membership-doc plaintext + content seale
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({
       url,
       store: a.store,
       workspaceId: "W",
       security: secA.security,
       publicDocs: () => [logA.toSyncDoc()],
     });
-    const tb = new BrokerClientSyncTransport({
+    const tb = new BrokerSyncProtocol({
       url,
       store: b.store,
       workspaceId: "W",

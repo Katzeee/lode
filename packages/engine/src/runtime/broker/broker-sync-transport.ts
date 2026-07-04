@@ -1,19 +1,21 @@
+/* eslint-disable max-lines -- one cohesive SyncTransport-over-broker impl: the initiator
+   (request/response correlation by reqId) + responder (profile/updates/push) + the per-doc recv
+   drainer share the protocol's private state (store/security/pending/docQueues); splitting would
+   force an awkward seam through them. */
 import { randomUUID } from "node:crypto";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { VersionVector } from "loro-crdt";
-import type {
-  ShardedBlockStore,
-  SyncDoc,
-  SyncProfile,
-  SyncTransport,
-  WireSecurity,
-} from "@lode/engine";
-import { decodeProfile, encodeProfile, open, seal } from "@lode/engine";
 import { createLogger } from "@lode/logger";
 import { type SyncMessage, SyncMessageSchema } from "@lode/protocol/proto";
 import { BrokerClient } from "./broker-client.js";
+import { BoundedAsyncQueue } from "./bounded-async-queue.js";
+import { decodeProfile, encodeProfile } from "../sync-message.js";
+import { open, seal } from "../membership/wire-security.js";
+import type { ShardedBlockStore, SyncDoc } from "../../core/sharded-store.js";
+import type { SyncProfile, SyncTransport } from "../sync.js";
+import type { WireSecurity } from "../membership/wire-security.js";
 
-const log = createLogger("transport.broker.sync");
+const log = createLogger("engine.broker.sync");
 
 /**
  * When `security` is configured, every published payload carries a 1-byte envelope tag so the receiver
@@ -24,6 +26,31 @@ const log = createLogger("transport.broker.sync");
  */
 const TAG_PLAIN = 0x00;
 const TAG_SEALED = 0x01;
+
+/**
+ * A per-doc recv task — an export-on-request (`respond`) or an import-on-push (`apply`). Both touch
+ * the same LoroDoc, so they serialize per-doc (Loro's WASM is single-threaded anyway); the per-doc
+ * ISOLATION is the win — a slow op on doc A only blocks doc A, not doc B nor the cheap responder path
+ * (profile advertisement, response resolve, which stay inline in `handle`). Dispatched off the recv
+ * pump so a slow WASM op (a large import/export) doesn't head-of-line block other frames. any-sync's
+ * `multiqueue` shape.
+ */
+type DocTask =
+  | {
+      readonly kind: "respond";
+      readonly reqId: string;
+      readonly fromVVBytes: Uint8Array;
+      readonly fromPeerId: string;
+    }
+  | { readonly kind: "apply"; readonly bytes: Uint8Array };
+
+/** Per-doc recv queue cap (bytes). A slow doc's queued tasks can't grow this without bound — the
+ *  tick reconverges dropped pushes; a dropped respond times out + retries on the asker. */
+const DEFAULT_MAX_RECV_PER_DOC_BYTES = 4 * 1024 * 1024;
+
+/** Approximate size of a per-doc recv task (its payload + small overhead) — the bound for the queue. */
+const taskBytes = (t: DocTask): number =>
+  (t.kind === "apply" ? t.bytes.length : t.fromVVBytes.length) + 64;
 
 /**
  * `SyncTransport` over the broker (design: request/response over the broker's pub/sub). Each peer
@@ -37,7 +64,7 @@ const TAG_SEALED = 0x01;
  * reaches the OTHER subscriber(s); for 2 peers there's exactly one responder. For N>2 the initiator
  * takes the first response (CRDT transitivity converges everyone from one up-to-date peer).
  */
-export class BrokerClientSyncTransport implements SyncTransport {
+export class BrokerSyncProtocol implements SyncTransport {
   private readonly store: ShardedBlockStore;
   private readonly workspaceId: string;
   private readonly responseTimeoutMs: number;
@@ -55,6 +82,10 @@ export class BrokerClientSyncTransport implements SyncTransport {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
+  /** Per-doc recv task queues — one drainer per doc, so a slow Loro import/export on one doc doesn't
+   *  head-of-line block the recv pump (and other docs). Bounded (drop-on-overflow). */
+  private readonly docQueues = new Map<string, BoundedAsyncQueue<DocTask>>();
+  private readonly maxRecvPerDocBytes: number;
 
   constructor(opts: {
     readonly url: string;
@@ -70,6 +101,9 @@ export class BrokerClientSyncTransport implements SyncTransport {
     /** This replica's routing peerId (the engine's numeric site id as a string). Declared at subscribe
      *  so the peer is reachable by a directed request + listed in `peers()`. Omit for broadcast-only. */
     readonly peerId?: string;
+    /** Per-doc recv queue cap (bytes); a slow doc's inbound tasks can't grow it without bound.
+     *  Default 4 MiB. */
+    readonly maxRecvPerDocBytes?: number;
   }) {
     this.store = opts.store;
     this.workspaceId = opts.workspaceId;
@@ -77,6 +111,7 @@ export class BrokerClientSyncTransport implements SyncTransport {
     this.security = opts.security;
     this.publicDocs = opts.publicDocs;
     this.peerId = opts.peerId;
+    this.maxRecvPerDocBytes = opts.maxRecvPerDocBytes ?? DEFAULT_MAX_RECV_PER_DOC_BYTES;
     this.brokerClient = new BrokerClient({
       url: opts.url,
       onDeliver: (_wsId, payload, fromPeerId) => this.handle(payload, fromPeerId),
@@ -105,6 +140,12 @@ export class BrokerClientSyncTransport implements SyncTransport {
     // Reject in-flight requests (don't leave SyncManager.sync() awaiting a promise that never
     // settles) before tearing down the socket.
     this.rejectPending(new Error("sync transport closed"));
+    // Close every per-doc recv queue → its drainer's `for await` completes (queued-but-unrun tasks
+    // are dropped; the tick reconverges). Before the socket so no new tasks arrive mid-teardown.
+    for (const q of this.docQueues.values()) {
+      q.close();
+    }
+    this.docQueues.clear();
     this.brokerClient.close();
   }
 
@@ -218,10 +259,15 @@ export class BrokerClientSyncTransport implements SyncTransport {
         this.respondProfile(k.value.reqId, fromPeerId);
         break;
       case "updatesReq":
-        this.respondUpdates(k.value.reqId, k.value.docId, k.value.body, fromPeerId);
+        this.enqueueDoc(k.value.docId, {
+          kind: "respond",
+          reqId: k.value.reqId,
+          fromVVBytes: k.value.body,
+          fromPeerId,
+        });
         break;
       case "updatesPush":
-        this.applyPush(k.value.docId, k.value.body);
+        this.enqueueDoc(k.value.docId, { kind: "apply", bytes: k.value.body });
         break;
       case "profileResp":
         this.resolve(k.value.reqId, k.value.body);
@@ -291,6 +337,53 @@ export class BrokerClientSyncTransport implements SyncTransport {
       // exchange before pushing them, so this only happens for genuinely foreign (often attacker
       // -controlled) doc ids. Debug: protocol noise, not a normal cold-start path.
       log.debug("dropped push for unknown doc", { docId });
+    }
+  }
+
+  /** Dispatch a per-doc recv task (export-on-request / import-on-push) onto that doc's queue. The
+   *  drainer runs the slow WASM op OFF the recv pump, so it doesn't head-of-line block other docs or
+   *  the cheap responder path (profile advertise / response resolve stay inline in `handle`). One
+   *  drainer per doc → slow ops on doc A only block doc A. */
+  private enqueueDoc(docId: string, task: DocTask): void {
+    let q = this.docQueues.get(docId);
+    if (q === undefined) {
+      q = new BoundedAsyncQueue<DocTask>(
+        this.maxRecvPerDocBytes,
+        taskBytes,
+        (item, bytes, buffered) => {
+          log.warn("broker recv per-doc queue over cap; dropping task", {
+            docId,
+            task: item.kind,
+            taskBytes: bytes,
+            buffered,
+            max: this.maxRecvPerDocBytes,
+          });
+        },
+      );
+      this.docQueues.set(docId, q);
+      void this.drainDoc(docId, q);
+    }
+    q.push(task);
+  }
+
+  /** One drainer per doc — runs its tasks serially (Loro ops on a doc must serialize anyway), off the
+   *  recv pump. Per-doc isolation: a slow op here blocks only THIS doc's queue. Ends when the queue
+   *  closes (transport close — queued-but-unrun tasks are dropped; the tick reconverges). */
+  private async drainDoc(docId: string, q: BoundedAsyncQueue<DocTask>): Promise<void> {
+    for await (const task of q) {
+      try {
+        if (task.kind === "respond") {
+          this.respondUpdates(task.reqId, docId, task.fromVVBytes, task.fromPeerId);
+        } else {
+          this.applyPush(docId, task.bytes);
+        }
+      } catch (err) {
+        // A throwing WASM op (corrupt bytes, a loro-crdt bug) must NOT kill this drainer — a dead
+        // drainer orphans its queue (enqueueDoc keeps pushing to it) → unbounded leak + that doc
+        // stalls forever. Log + continue; a failed respond times out on the asker, a failed apply is
+        // reconverged by the tick.
+        log.warn("per-doc recv task failed; continuing drainer", { docId, kind: task.kind, err });
+      }
     }
   }
 

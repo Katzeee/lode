@@ -6,7 +6,7 @@ import { decodeCoordinate, encodeCoordinate } from "./coordinate.js";
 describe("WorkspaceCoordinate codec", () => {
   it("round-trips through the base64 string form", () => {
     const coord = create(WorkspaceCoordinateSchema, {
-      relayUrl: "ws://1.2.3.4:4193",
+      relayUrl: "http://1.2.3.4:4193",
       workspaceId: "ws-abc",
     });
     const encoded = encodeCoordinate(coord);
@@ -16,14 +16,14 @@ describe("WorkspaceCoordinate codec", () => {
       relayUrl: decoded.relayUrl,
       workspaceId: decoded.workspaceId,
     }).toEqual({
-      relayUrl: "ws://1.2.3.4:4193",
+      relayUrl: "http://1.2.3.4:4193",
       workspaceId: "ws-abc",
     });
   });
 
   it("is deterministic: the same coordinate encodes identically", () => {
     const make = () =>
-      create(WorkspaceCoordinateSchema, { relayUrl: "ws://h:1", workspaceId: "w" });
+      create(WorkspaceCoordinateSchema, { relayUrl: "http://h:1", workspaceId: "w" });
     expect(encodeCoordinate(make())).toBe(encodeCoordinate(make()));
   });
 });

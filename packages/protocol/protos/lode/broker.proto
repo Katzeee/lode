@@ -29,3 +29,11 @@ message BrokerFrame {
     BrokerPeersResp peers_resp = 6;
   }
 }
+
+// The relay service. One bidi stream per peer connection: the client sends subscribe/unsubscribe/
+// publish/peers_req frames; the relay returns deliver/peers_resp frames. The relay is content-blind +
+// no-auth (sync-design.md §3) — this is the ONLY rpc it hosts (a separate ConnectServer from the
+// client→core LodeCommands server). Carried over HTTP/2 (h2c plaintext by default; TLS optional).
+service BrokerService {
+  rpc BrokerStream(stream BrokerFrame) returns (stream BrokerFrame);
+}

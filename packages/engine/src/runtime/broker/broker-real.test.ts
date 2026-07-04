@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
-import { create, toBinary } from "@bufbuild/protobuf";
-import { BrokerFrameSchema } from "@lode/protocol/proto";
 
 type Delivery = { wsId: string; payload: Uint8Array };
 
@@ -55,11 +52,11 @@ function at(got: Delivery[], i = 0): Delivery {
 
 const bytes = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-describe("broker over real WebSocket", () => {
+describe("broker over real HTTP/2", () => {
   it("routes a publish to a subscriber (minus sender) over a real kernel socket", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);
@@ -76,7 +73,7 @@ describe("broker over real WebSocket", () => {
   it("isolates workspaces: a client subscribed elsewhere never receives", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     const c = makeClient(url); // subscribed to a DIFFERENT workspace
@@ -96,7 +93,7 @@ describe("broker over real WebSocket", () => {
   it("delivers a publish to every other subscriber (multi-recipient broadcast)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const pub = makeClient(url);
     const m1 = makeClient(url);
     const m2 = makeClient(url);
@@ -118,7 +115,7 @@ describe("broker over real WebSocket", () => {
   it("a second publish on the same workspace reaches subscribers again", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);
@@ -136,7 +133,7 @@ describe("broker over real WebSocket", () => {
   it("does not backfill: a subscriber joining AFTER a publish receives nothing (no storage)", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     await a.client.open();
     a.client.subscribe("W");
@@ -158,7 +155,7 @@ describe("broker over real WebSocket", () => {
   it("cleans up a disconnected client (no delivery to it) and keeps routing others", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);
@@ -184,7 +181,7 @@ describe("broker over real WebSocket", () => {
   it("a publish before subscribing is silently dropped; the connection survives", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     const a = makeClient(url);
     const b = makeClient(url);
     await Promise.all([a.client.open(), b.client.open()]);
@@ -200,77 +197,69 @@ describe("broker over real WebSocket", () => {
     expect(Buffer.from(at(b.got).payload).toString()).toBe("now-subbed");
   });
 
-  it("a malformed frame from one client is dropped; others keep working (server survives)", async () => {
+  it("server.close() stops listening — a fresh client can no longer connect", async () => {
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const a = makeClient(url);
-    const b = makeClient(url);
-    await Promise.all([a.client.open(), b.client.open()]);
-    a.client.subscribe("W");
-    b.client.subscribe("W");
-    await settle();
-    // A raw socket injects garbage.
-    const raw = await openRaw(url);
-    raw.send(Buffer.from([255, 255, 255, 0, 1, 2])); // unknown tag + oversize wsIdLen, truncated
-    await settle();
-    raw.close();
-    // Server survived: a publishes, b receives.
-    a.client.publish("W", bytes("after-garbage"));
-    await waitFor(() => b.got.length > 0);
-    expect(Buffer.from(at(b.got).payload).toString()).toBe("after-garbage");
-  });
-
-  it("a `deliver` frame sent by a client is ignored (no echo); the server keeps routing", async () => {
-    server = new BrokerServer();
-    await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const a = makeClient(url);
-    const b = makeClient(url);
-    await Promise.all([a.client.open(), b.client.open()]);
-    a.client.subscribe("W");
-    b.client.subscribe("W");
-    await settle();
-    // A raw socket pretends to be the server and sends a `deliver` (clients must not originate it).
-    const raw = await openRaw(url);
-    raw.send(
-      toBinary(
-        BrokerFrameSchema,
-        create(BrokerFrameSchema, {
-          kind: { case: "deliver", value: { wsId: "W", payload: bytes("forged-deliver") } },
-        }),
-      ),
-    );
-    await settle();
-    expect(b.got).toHaveLength(0); // the forged deliver was ignored, not echoed to subscribers
-    raw.close();
-    a.client.publish("W", bytes("real"));
-    await waitFor(() => b.got.length > 0);
-    expect(Buffer.from(at(b.got).payload).toString()).toBe("real");
-  });
-
-  it("server.close() tears down connected clients (their sockets close)", async () => {
-    server = new BrokerServer();
-    await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    // A raw client so we can read readyState directly (BrokerClient hides the socket).
-    const raw = await openRaw(url);
+    const url = `http://127.0.0.1:${server.port}`;
     await server.close();
     server = undefined; // afterEach won't double-close
-    await waitFor(() => raw.readyState === raw.CLOSED);
-    expect(raw.readyState).toBe(raw.CLOSED);
-    raw.terminate();
+    // The relay is down: a new client's open() rejects (no HTTP/2 listener).
+    const probe = new BrokerClient({ url, onDeliver: () => {} });
+    clients.push(probe);
+    await expect(probe.open()).rejects.toThrow();
+  });
+
+  it("a relay mid-session close surfaces on connected clients' onError (no silent dead stream)", async () => {
+    server = new BrokerServer();
+    await server.ready();
+    const url = `http://127.0.0.1:${server.port}`;
+    let err: Error | undefined;
+    const c = new BrokerClient({ url, onDeliver: () => {}, onError: (e) => (err = e) });
+    clients.push(c);
+    await c.open();
+    c.subscribe("W");
+    await settle();
+    await server.close();
+    server = undefined; // afterEach won't double-close
+    // The relay hung up — a live relay never ends the bidi response mid-session. The client must
+    // surface it (onError + lastError) so callers fail fast instead of queueing into a dead stream.
+    await waitFor(() => err !== undefined);
+    expect(err).toBeInstanceOf(Error);
+    expect(c.error).not.toBeNull();
+  });
+
+  it("drops a publish over the send-buffer cap (no boundless queueing against a wedged relay)", async () => {
+    server = new BrokerServer();
+    await server.ready();
+    const url = `http://127.0.0.1:${server.port}`;
+    const sub = makeClient(url);
+    await sub.client.open();
+    sub.client.subscribe("W");
+    await settle();
+
+    // A 512-byte payload: its publish frame (~520 B) clears the default cap but exceeds a 64 B cap,
+    // while the tiny `subscribe` frame (~10 B) passes both. So the only variable between the two
+    // publishers below is whether the publish frame clears the cap.
+    const big = new TextEncoder().encode("x".repeat(512));
+
+    // Capped publisher: subscribe passes (registered on the relay), but the oversized publish is
+    // dropped at the wire — modeling a wedged-but-OPEN relay whose buffer the cap refuses to grow.
+    const pub = new BrokerClient({ url, maxSendBufferedBytes: 64, onDeliver: () => {} });
+    clients.push(pub);
+    await pub.open();
+    pub.subscribe("W");
+    await settle();
+    pub.publish("W", big);
+    await settle(80);
+    expect(sub.got).toHaveLength(0); // dropped at the publisher, never reached the relay
+
+    // Sanity — the cap was the reason, not a setup bug: a default-cap publisher's same frame lands.
+    const ok = makeClient(url);
+    await ok.client.open();
+    ok.client.subscribe("W");
+    await settle();
+    ok.client.publish("W", big);
+    await waitFor(() => sub.got.length > 0);
+    expect(Buffer.from(at(sub.got).payload).length).toBe(512);
   });
 });
-
-/** Open a raw `ws` WebSocket to a URL (for tests that need to send arbitrary frames / read state). */
-function openRaw(url: string): Promise<WebSocket> {
-  const sock = new WebSocket(url);
-  sock.on("error", () => {
-    // never crash on a socket error during a test
-  });
-  return new Promise((resolve, reject) => {
-    sock.once("open", () => resolve(sock));
-    sock.once("error", reject);
-  });
-}

@@ -1,19 +1,18 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
-import { Engine, ShardedBlockStore, SyncManager } from "@lode/engine";
-import { BrokerClientSyncTransport } from "./broker-sync-transport.js";
+import { Engine } from "../../core/engine.js";
+import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { SyncManager } from "../sync.js";
 import { BrokerServer } from "./broker-server.js";
-import { create, toBinary } from "@bufbuild/protobuf";
-import { SyncMessageSchema } from "@lode/protocol/proto";
+import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 
 /**
  * The earliest end-to-end milestone: two engine runtimes converge a workspace over a REAL broker
- * (real kernel WebSockets — no mock transport). Seeds content on A, drives a sync round both ways,
+ * (real kernel HTTP/2 — no mock transport). Seeds content on A, drives a sync round both ways,
  * and asserts B's engine reads back A's content.
  */
 
 let server: BrokerServer | undefined;
-const transports: BrokerClientSyncTransport[] = [];
+const transports: BrokerSyncProtocol[] = [];
 
 afterEach(async () => {
   for (const t of transports) {
@@ -34,7 +33,7 @@ function newEngine(): { engine: Engine; store: ShardedBlockStore } {
   return { engine: new Engine({ store }), store };
 }
 
-describe("BrokerClientSyncTransport — end-to-end sync over a real broker", () => {
+describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
   it("converges: content created on A is readable on B after a sync round both ways", async () => {
     const a = newEngine();
     const root = a.engine.createNode(null);
@@ -45,10 +44,10 @@ describe("BrokerClientSyncTransport — end-to-end sync over a real broker", () 
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
 
-    const ta = new BrokerClientSyncTransport({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerClientSyncTransport({ url, store: b.store, workspaceId: "W" });
+    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
+    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle(); // let both subscribes land on the server
@@ -71,9 +70,9 @@ describe("BrokerClientSyncTransport — end-to-end sync over a real broker", () 
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerClientSyncTransport({ url, store: b.store, workspaceId: "W" });
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
+    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
@@ -103,9 +102,9 @@ describe("BrokerClientSyncTransport — end-to-end sync over a real broker", () 
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerClientSyncTransport({ url, store: b.store, workspaceId: "W" });
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
+    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
@@ -121,14 +120,14 @@ describe("BrokerClientSyncTransport — end-to-end sync over a real broker", () 
   });
 });
 
-describe("BrokerClientSyncTransport — transport contract (timeouts, lifecycle, robustness)", () => {
+describe("BrokerSyncProtocol — transport contract (timeouts, lifecycle, robustness)", () => {
   it("rejects a request when no peer responds (timeout), with a short responseTimeoutMs", async () => {
     const a = newEngine();
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
+    const url = `http://127.0.0.1:${server.port}`;
     // A single transport, no other peer → its profileReq goes unanswered.
-    const ta = new BrokerClientSyncTransport({
+    const ta = new BrokerSyncProtocol({
       url,
       store: a.store,
       workspaceId: "W",
@@ -143,8 +142,8 @@ describe("BrokerClientSyncTransport — transport contract (timeouts, lifecycle,
     const a = newEngine();
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({
       url,
       store: a.store,
       workspaceId: "W",
@@ -157,50 +156,9 @@ describe("BrokerClientSyncTransport — transport contract (timeouts, lifecycle,
     ta.close();
     await expect(pending).rejects.toThrow(/closed/);
   });
-
-  it("a malformed sync payload is dropped; the responder survives and keeps syncing", async () => {
-    const a = newEngine();
-    const b = newEngine();
-    a.engine.createNode(null); // seed something on A
-    server = new BrokerServer();
-    await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerClientSyncTransport({ url, store: b.store, workspaceId: "W" });
-    transports.push(ta, tb);
-    await Promise.all([ta.open(), tb.open()]);
-    await settle();
-    // Inject a garbage sync payload from a raw socket.
-    const raw = new WebSocket(url);
-    raw.on("error", () => {});
-    await new Promise<void>((res, rej) => {
-      raw.once("open", () => res());
-      raw.once("error", rej);
-    });
-    raw.send(
-      toBinary(
-        SyncMessageSchema,
-        create(SyncMessageSchema, {
-          kind: { case: "profileReq", value: { reqId: "garbage-Ω-not-decodable-payload" } },
-        }),
-      ).subarray(0, 3),
-    );
-    raw.send(Buffer.from("!!!not a sync message!!!"));
-    await settle();
-    raw.close();
-    // B's responder survived: a normal sync still converges.
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
-    await ma.sync();
-    await mb.sync();
-    // B now mirrors A's treeDoc (root node present) — version vectors equal.
-    const aTree = a.store.syncDocs().find((d) => d.id === "main");
-    const bTree = b.store.syncDocs().find((d) => d.id === "main");
-    expect(aTree && bTree && aTree.version().compare(bTree.version()) === 0).toBe(true);
-  });
 });
 
-describe("BrokerClientSyncTransport — multi-shard convergence", () => {
+describe("BrokerSyncProtocol — multi-shard convergence", () => {
   it("syncs content spanning multiple shards; B's per-doc VVs converge to A's", async () => {
     const a = newEngine();
     const b = newEngine();
@@ -214,9 +172,9 @@ describe("BrokerClientSyncTransport — multi-shard convergence", () => {
 
     server = new BrokerServer();
     await server.ready();
-    const url = `ws://127.0.0.1:${server.port}`;
-    const ta = new BrokerClientSyncTransport({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerClientSyncTransport({ url, store: b.store, workspaceId: "W" });
+    const url = `http://127.0.0.1:${server.port}`;
+    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
+    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();

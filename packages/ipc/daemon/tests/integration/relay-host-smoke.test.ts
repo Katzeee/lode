@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BrokerClient } from "@lode/transport";
+import { BrokerClient } from "@lode/engine";
 import type { AppServerDaemon, RelayDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon, startRelayDaemon } from "../../src/app-server-daemon.js";
 
@@ -23,7 +23,7 @@ describe("daemon relay host (--relay)", () => {
     });
     handles.push(daemon);
 
-    expect(daemon.relayUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+    expect(daemon.relayUrl).toMatch(/^https?:\/\/127\.0\.0\.1:\d+$/);
 
     // A broker client can dial the hosted relay (open resolves once the socket is connected).
     const probe = new BrokerClient({ url: daemon.relayUrl!, onDeliver: () => {} });
@@ -39,7 +39,7 @@ describe("daemon relay host (--relay)", () => {
     const relay = await startRelayDaemon({ relay: { port: 0 } });
     handles.push(relay);
 
-    expect(relay.relayUrl).toMatch(/^ws:\/\/127\.0\.0\.1:\d+$/);
+    expect(relay.relayUrl).toMatch(/^https?:\/\/127\.0\.0\.1:\d+$/);
 
     const probe = new BrokerClient({ url: relay.relayUrl, onDeliver: () => {} });
     await probe.open();

@@ -1,6 +1,6 @@
 /**
  * The broker routing core (design sync-design.md §3) — the pure, socket-free routing layer; the
- * WebSocket server/client (`broker-server.ts`/`broker-client.ts`) are adapters around it.
+ * Connect bidi client/server (`broker-server.ts`/`broker-client.ts`) are adapters around it.
  *
  * The broker is **routing-aware + content-blind + no-auth + no content storage**:
  *   - routing-aware — two tables per channel: `conns` (subscriber connection ids) and `byPeer`

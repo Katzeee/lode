@@ -2,7 +2,7 @@
 
 The stable decisions for lode's real network sync. Each records **why**: the constraints, the
 alternatives rejected, the trade-offs. The in-process CRDT sync core (`SyncManager` /
-`sweepOrphans` in `@lode/engine`) is landed; this doc is about reaching it over a network.
+`sweepOrphans` in `@lode/engine`) is assumed; this doc is about reaching it over a network.
 
 Identity, membership, and persistence layer on top — see
 [`sync-identity-persistence.md`](./sync-identity-persistence.md); this doc focuses on topology,
@@ -90,11 +90,18 @@ sync design** — the relay is the same broker regardless. Options, increasing s
   cross-network option; the user provides the VPS (or Cloudflare Tunnel / port-forward). Pure Node.
 - **tunwg / hosted dumb pipe** — the relay runs on a NAT'd home machine exposed via a shared
   public dumb pipe (tunwg-style, auto-cert). Lets each user group self-host at home. **One
-  deployment option, not MVP, not part of the sync design** — it bundles a Go binary + WireGuard +
+  deployment option, out of scope for the sync design** — it bundles a Go binary + WireGuard +
   a hosted public server, and is only about reachability.
 
-**tunwg is not being built for MVP.** It is recorded here only to note "relay on a NAT'd home
-machine, exposed via a public pipe" is a deployment path available later.
+**tunwg is out of scope.** It is recorded here only to note "relay on a NAT'd home machine,
+exposed via a public pipe" is a deployment path available later.
+
+**TLS is the deployer's concern, not the relay's.** The relay serves HTTP/2 plaintext (h2c) by
+default — appropriate for the LAN / VPS-tunnel deployments above, where TLS terminates at the edge
+(the VPS's reverse proxy: Caddy, nginx, Cloudflare Tunnel all do this routinely). For users who want
+TLS termination _at the relay_ itself, `--tls-cert <path> --tls-key <path>` is the opt-in hook (PEM
+files; the relay then serves h2+TLS). lode does not provision or rotate certificates — that's the
+deployer's job. (gRPC requires HTTP/2, so there is no HTTP/1.1 fallback; h2c is the plaintext shape.)
 
 ## 3b. Relay migration — moving the relay to a new host
 
@@ -104,7 +111,7 @@ lightweight**: only the `relay address` field changes. Because the relay stores 
 content/identity/membership (§2/§3), there is **nothing to migrate** — every member already holds
 the full workspace locally.
 
-- **MVP migration = social re-share**: the owner exports the new coordinate; members import it and
+- **Migration = social re-share**: the owner exports the new coordinate; members import it and
   dial the new relay. Same flow as inviting a device.
 - **In-flight during migration**: members split across old/new relay temporarily; CRDT merge
   catches everyone up once they converge.
@@ -119,7 +126,7 @@ peerId), through the relay. This is what makes `join` clean (fetch membership on
 replaces broadcast-then-first-responder-wins for N>2.
 
 **The primitives already exist — no new RPC.** The `SyncTransport` interface + its broker adapter
-(`BrokerClientSyncTransport`) already have the broadcast/directed split any-sync uses:
+(`BrokerSyncProtocol`) already have the broadcast/directed split any-sync uses:
 
 |                                                         | our primitive                                                                 | anytype analog                                                                              |
 | ------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -155,9 +162,11 @@ storage; lode **full-replicates** (every member holds the whole doc), so _any_ p
 no sharding machinery.
 
 **Split (decided):** broadcast pushes changes (content `updatesPush` + membership-roster updates);
-directed pulls gaps (cold-start full doc + missing shards, via `fetchUpdates`/`remoteProfile`). MVP
-content sync is round-based directed (each round: profile-req + updates-req to a peer); push-on-
-mutation (the low-latency broadcast path) is the event-driven refinement, deferred.
+directed pulls gaps (cold-start full doc + missing shards, via `fetchUpdates`/`remoteProfile`).
+Content convergence is **two-layer** (any-sync-aligned): a periodic round (the anti-entropy backstop
+— a profile + updates exchange on an interval) and a push-on-mutation fast path (a write is
+broadcast to peers immediately, not held for the next round). The two compose: push trims latency to
+per-write, the round heals anything push missed (offline peer, lost frame) and serves cold start.
 
 ## 4. Membership, encryption, revocation
 
@@ -215,22 +224,19 @@ Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3�
   ciphertext.
 - Roles are owner + member(rw) only — no admin/reader/writer tiers (cannot hard-enforce without an
   authority).
-- Local at-rest disk encryption (stolen-device) is a separate, future feature unrelated to sync.
+- Local at-rest disk encryption (stolen-device) is a separate concern, out of scope for sync.
 
-## Roadmap
+## Structural decomposition
 
-> Live status lives in `_local/handoff/sync-handoff.md`. Design-time sequence (1–4 landed; 5 open):
+> Live status lives in `_local/handoff/sync-handoff.md`. The design decomposes (in dependency
+> order) into:
 
 1. **Directed client→client request capability** (§3c) — relay peerId tracking + directed routing +
-   peer-list query. The foundation; lands alongside without breaking existing code.
-2. **Identity refactor:** daemon has no identity (drops `--actor` / `--sync-workspace` /
-   `ownerWorkspaces` / `actors.sqlite`); sync becomes a client-registered service (in-memory);
-   `createWorkspace` inits the root with the session actor.
+   peer-list query. The transport foundation the rest builds on.
+2. **Identity model:** daemon has no identity (actors are client/session-side); sync is a
+   client-registered service (in-memory); `createWorkspace` inits the root with the session actor.
 3. **join/sync split:** join establishes membership (directed fetch); sync does content.
-4. **Relay-only mode** (`--listen` optional) + **tick → 20s** + CLI manual trigger.
-5. **Then:** N>2 usage of the directed capability; CLI e2e; hardening (merge-cycle policy,
-   `getNodeByID(ref)` guard, dirty-shard-only `persistMutation`, mid-sync-read gate breadth,
-   lazy shard LOAD).
+4. **Relay form** (`--listen` optional) + a periodic anti-entropy round + a manual trigger.
 
 ## What is borrowed from where
 

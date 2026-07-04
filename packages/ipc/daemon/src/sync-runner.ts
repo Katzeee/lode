@@ -1,4 +1,8 @@
+/* eslint-disable max-lines -- one cohesive secured-sync lifecycle: tick + materialize + join +
+   directed membership fetch + the push fast-path share the per-workspace Wired state and must reach
+   private fields (wired/busy/registrations); splitting would force an awkward seam through them. */
 import {
+  BrokerSyncProtocol,
   MEMBERSHIP_DOC_ID,
   MembershipSync,
   SyncManager,
@@ -6,15 +10,24 @@ import {
   type AppRuntime,
   type ActorKeypair,
   type Component,
+  type Engine,
   type MembershipLog,
   type MembershipWireSecurity,
   type ShardedBlockStore,
   type SyncDoc,
 } from "@lode/engine";
 import { createLogger } from "@lode/logger";
-import { BrokerClientSyncTransport } from "@lode/transport";
 
 const log = createLogger("sync.runner");
+
+/** Trailing debounce for the push fast-path. `nodeUpdated` fires per payload (a createNode emits
+ *  entityAdded + occurrenceAdded), so a burst would fire many pushes; this coalesces it into one push
+ *  round. any-sync pushes inline on every mutation (goroutines, built for that volume); lode MVP is
+ *  CLI-coarse ops + low peer count, so a short trailing debounce is the prudent shape and bounds the
+ *  push rate under a future typing surface. */
+const PUSH_DEBOUNCE_MS = 150;
+/** Rate-limit for idle round-summary logs (~every 10th 20s tick). Rounds that exchange ops always log. */
+const NO_OP_LOG_INTERVAL_MS = 200_000;
 
 export type DaemonSyncRunnerOptions = {
   readonly workspaces: AppRuntime["workspaces"];
@@ -31,12 +44,16 @@ export type WorkspaceCoordinateData = {
 };
 
 type Wired = {
-  readonly transport: BrokerClientSyncTransport;
+  readonly transport: BrokerSyncProtocol;
   readonly sync: SyncManager; // content docs (sealed)
   readonly membershipSync: MembershipSync; // the membership doc (plaintext)
   readonly sec: MembershipWireSecurity;
   readonly log: MembershipLog;
   readonly membershipDoc: SyncDoc; // the membership SyncDoc (engine-owned); directed-fetch target
+  /** Engine this Wired subscribed to — compared in `doMaterialize` to detect a reload + re-wire. */
+  readonly engine: Engine;
+  /** The `nodeUpdated` subscription driving push. Structurally typed (rxjs isn't a daemon dep). */
+  readonly sub: { unsubscribe(): void };
 };
 
 /**
@@ -56,9 +73,9 @@ type Wired = {
  * for a joiner.
  *
  * Host glue: composes the engine's per-workspace `ShardedBlockStore` + `MembershipLog` (peek-only via
- * `loadedEngine()` / `membershipLog()`) with `@lode/transport`'s broker transport and the engine's
- * `SyncManager`/`MembershipSync`. It lives in the daemon (the desktop host); mobile composes the same
- * pieces in-process.
+ * `loadedEngine()` / `membershipLog()`) with the engine's broker transport (`BrokerSyncProtocol`)
+ * and `SyncManager`/`MembershipSync`. It lives in the daemon (the desktop host); mobile composes the
+ * same pieces in-process.
  */
 export class DaemonSyncRunner implements Component {
   readonly name = "sync-runner";
@@ -73,6 +90,10 @@ export class DaemonSyncRunner implements Component {
   private timer?: ReturnType<typeof setInterval>;
   private busy = false;
   private stopped = false;
+  /** Outstanding push debounce timer per wsId. Cleared in stop() and on re-wire. */
+  private readonly pushTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Last wall-clock time (ms) an idle round-summary was logged per wsId — the no-op throttle. */
+  private readonly lastNoOpLog = new Map<string, number>();
 
   constructor(private readonly opts: DaemonSyncRunnerOptions) {
     this.intervalMs = opts.intervalMs ?? 20000;
@@ -93,8 +114,8 @@ export class DaemonSyncRunner implements Component {
     this.busy = true;
     try {
       await this.materialize();
-      for (const w of this.wired.values()) {
-        await this.roundWorkspace(w);
+      for (const [wsId, w] of this.wired) {
+        await this.roundWorkspace(w, wsId);
       }
     } catch (err) {
       // A round may fail transiently (relay blip, a peer mid-restart, a content round whose peer
@@ -111,16 +132,69 @@ export class DaemonSyncRunner implements Component {
     }
   }
 
-  /** One round for a single workspace: membership gossip → persist → refresh the wire security →
-   *  sealed content (only once the local actor is a member). Shared by the periodic `tick` and the
-   *  manual `syncNow`. */
-  private async roundWorkspace(w: Wired): Promise<void> {
+  /** One round: membership gossip → persist → refresh wire security → sealed content (only once a
+   *  member). Shared by `tick` and `syncNow`; the content counts feed `logRound`. */
+  private async roundWorkspace(w: Wired, wsId: string): Promise<void> {
     await w.membershipSync.sync();
     await w.log.persistIfDirty();
     w.sec.refresh();
     if (w.sec.isMember()) {
-      await w.sync.sync();
+      const { pulled, pushed } = await w.sync.sync();
+      this.logRound(wsId, pulled, pushed);
     }
+  }
+
+  /** Round-summary log: always log when ops were exchanged; rate-limit idle rounds (~1 / wsId /
+   *  NO_OP_LOG_INTERVAL_MS). Membership gossip is constant, so the change-signal is content only. */
+  private logRound(wsId: string, pulled: number, pushed: number): void {
+    if (pulled + pushed > 0) {
+      this.lastNoOpLog.delete(wsId);
+      log.info("sync round exchanged", { wsId, docsPulled: pulled, docsPushed: pushed });
+      return;
+    }
+    const now = Date.now();
+    const last = this.lastNoOpLog.get(wsId) ?? 0;
+    if (now - last >= NO_OP_LOG_INTERVAL_MS) {
+      this.lastNoOpLog.set(wsId, now);
+      log.info("sync round idle", { wsId });
+    }
+  }
+
+  /** Arm a trailing-debounced push on every local mutation. MUST stay trivial (no throw) — it runs
+   *  inside the Subject's `next`, whose error propagation would reach runMutation's broadcast sub. */
+  private schedulePush(wsId: string): void {
+    const existing = this.pushTimers.get(wsId);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    const t = setTimeout(() => {
+      this.pushTimers.delete(wsId);
+      void this.pushNow(wsId);
+    }, PUSH_DEBOUNCE_MS);
+    this.pushTimers.set(wsId, t);
+  }
+
+  /** Send-only push — no `busy` guard (must not serialize behind a slow tick). Errors caught + logged,
+   *  never thrown (fire-and-forget timer); the tick backstops drops. */
+  private async pushNow(wsId: string): Promise<void> {
+    if (this.stopped) {
+      return;
+    }
+    const w = this.wired.get(wsId);
+    if (!w) {
+      return; // not wired — the tick + next materialize cover it
+    }
+    try {
+      await w.sync.pushOnly();
+    } catch (err) {
+      log.warn("sync push failed", { wsId, err });
+    }
+  }
+
+  /** Release a Wired's transport + push subscription (re-wire + stop). */
+  private teardownWired(w: Wired): void {
+    w.sub.unsubscribe();
+    w.transport.close();
   }
 
   /** Run one round for `wsId` now instead of waiting for the next tick — `lode sync now`. Same `busy`
@@ -143,7 +217,7 @@ export class DaemonSyncRunner implements Component {
       await this.materialize();
       const w = this.wired.get(wsId);
       if (w) {
-        await this.roundWorkspace(w);
+        await this.roundWorkspace(w, wsId);
       }
     } catch (err) {
       // transient (relay blip, peer mid-restart) — never throw to the caller, same as tick. `stopped`
@@ -164,41 +238,54 @@ export class DaemonSyncRunner implements Component {
   private materializeChain: Promise<void> = Promise.resolve();
   private materialize(): Promise<void> {
     const run = () => this.doMaterialize();
-    // Defense-in-depth: `doMaterialize` catches per-workspace and never throws up (see below), so in
-    // practice this chain never rejects. But that is an unenforced load-bearing invariant — a future
-    // change outside its inner try must not reject the chain (a rejected chain never runs the handler
-    // again, permanently stalling materialize/registerSync/tick). Swallow defensively; callers (tick,
-    // syncNow) already swallow too. A rejection here is an operational alarm — warn loudly.
+    // Defense-in-depth: doMaterialize catches per-workspace and never throws up, so this chain never
+    // rejects in practice — but that's an unenforced invariant. Swallow defensively (an operational
+    // alarm); callers (tick, syncNow) already swallow too.
     this.materializeChain = this.materializeChain.then(run).catch((err) => {
       log.warn("materialize chain rejected", { err });
     });
     return this.materializeChain;
   }
 
-  /** Build a secured transport for any registered workspace that's now open but not yet wired. Uses
-   *  the peek-only `loadedEngine`/`membershipLog` (NOT the load path) so attaching here never races
-   *  with the doc-adding load — a workspace is wired only once it's already open with its doc. No-op
-   *  until a relay URL is set (before the first registration). */
+  /** Wire any registered workspace that's now open but not yet wired (peek-only `loadedEngine`, never
+   *  the load path — no race with the doc-adding load). Also re-wires a workspace whose Engine was
+   *  reloaded under us: the old Wired would hold a stale store/transport + a dead subscription. */
   private async doMaterialize(): Promise<void> {
     const url = this.url;
     if (url === undefined) {
       return;
     }
     for (const wsId of this.registrations.keys()) {
-      if (this.wired.has(wsId)) {
-        continue;
+      const engine = this.opts.workspaces.loadedEngine(wsId);
+      const existing = this.wired.get(wsId);
+      if (existing) {
+        if (engine === existing.engine) {
+          continue; // same engine — still valid
+        }
+        // Engine recreated — tear down the stale Wired (transport + subscription) + cancel any armed
+        // push timer (delete alone leaks the pending handle), then rebuild.
+        this.teardownWired(existing);
+        this.wired.delete(wsId);
+        const pendingTimer = this.pushTimers.get(wsId);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+        }
+        this.pushTimers.delete(wsId);
       }
-      const store = this.opts.workspaces.loadedEngine(wsId)?.getShardedStore() ?? null;
-      if (!store) {
+      if (!engine) {
         continue; // workspace not open yet — retry next tick
+      }
+      const store = engine.getShardedStore();
+      if (!store) {
+        continue;
       }
       // Catch per-workspace so one failing wire (transient relay/store error) never throws up to
       // the materialize caller — skip it this round, retry next. Keeps the chain on its success
       // path (see materialize()).
       try {
-        const wired = await this.build(wsId, store, url);
+        const wired = await this.build(wsId, store, url, engine);
         if (this.stopped) {
-          wired.transport.close(); // stop() ran while open() was in flight — don't leak the transport.
+          this.teardownWired(wired); // stop() ran while open() was in flight — don't leak.
           return;
         }
         this.wired.set(wsId, wired);
@@ -209,7 +296,12 @@ export class DaemonSyncRunner implements Component {
     }
   }
 
-  private async build(wsId: string, store: ShardedBlockStore, url: string): Promise<Wired> {
+  private async build(
+    wsId: string,
+    store: ShardedBlockStore,
+    url: string,
+    engine: Engine,
+  ): Promise<Wired> {
     const keypair = this.registrations.get(wsId);
     if (keypair === undefined) {
       throw new Error(`build: no actor registered for ${wsId}`);
@@ -224,7 +316,7 @@ export class DaemonSyncRunner implements Component {
     sec.refresh();
     const membershipDoc = log.toSyncDoc();
     const peerId = this.opts.workspaces.peerId;
-    const transport = new BrokerClientSyncTransport({
+    const transport = new BrokerSyncProtocol({
       url,
       store,
       workspaceId: wsId,
@@ -235,6 +327,10 @@ export class DaemonSyncRunner implements Component {
       ...(peerId === undefined ? {} : { peerId: String(peerId) }),
     });
     await transport.open();
+    // Push fast-path: subscribe AFTER open() (a mutation before wired.set still finds the transport
+    // open). The subscriber stays trivial — it must not throw into the engine's Subject (see
+    // schedulePush).
+    const sub = engine.slots.nodeUpdated.subscribe(() => this.schedulePush(wsId));
     return {
       transport,
       sync: new SyncManager(store, transport),
@@ -242,6 +338,8 @@ export class DaemonSyncRunner implements Component {
       sec,
       log,
       membershipDoc,
+      engine,
+      sub,
     };
   }
 
@@ -351,8 +449,12 @@ export class DaemonSyncRunner implements Component {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+    for (const t of this.pushTimers.values()) {
+      clearTimeout(t);
+    }
+    this.pushTimers.clear();
     for (const w of this.wired.values()) {
-      w.transport.close();
+      this.teardownWired(w);
     }
     this.wired.clear();
     this.registrations.clear();

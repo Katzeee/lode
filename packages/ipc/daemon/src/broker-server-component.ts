@@ -1,32 +1,46 @@
-import type { Component } from "@lode/engine";
-import { BrokerServer } from "@lode/transport";
+import { type Component, BrokerServer } from "@lode/engine";
 
 /**
  * Hosts the workspace-routing broker (the relay) as an App `Component` (design sync-design.md §3).
- * The relay is a stateless coordinate — content-blind, no-auth, no storage. Bind is async, so
- * `start()` awaits `ready()`; `url` is readable only after `start()` (the port is ephemeral until
- * bound). Registered before the sync runner so it stops after it (reverse teardown).
+ * The relay is a stateless coordinate — content-blind, no-auth, no storage, served as a Connect gRPC
+ * `BrokerService` over HTTP/2. Bind is async, so `start()` awaits `ready()`; `url` is readable only
+ * after `start()` (the port is ephemeral until bound). Registered before the sync runner so it stops
+ * after it (reverse teardown).
  */
 export type BrokerServerComponentOptions = {
   /** Bind port; 0 (default) = ephemeral. */
   readonly port?: number;
   /** Bind host; default 127.0.0.1. */
   readonly host?: string;
+  /** Optional TLS cert (PEM). With `tlsKey`, the relay serves gRPC over h2+TLS (`https://`); without
+   *  it, plaintext h2c (`http://`) — the default. TLS termination is the deployer's concern (a reverse
+   *  proxy like Caddy is the usual shape); this hook is the opt-in for users who want TLS at the relay. */
+  readonly tlsCert?: string;
+  /** Optional TLS key (PEM), paired with `tlsCert`. */
+  readonly tlsKey?: string;
 };
 
 export class BrokerServerComponent implements Component {
   readonly name = "relay";
   private readonly server: BrokerServer;
   private readonly host: string;
+  private readonly secure: boolean;
 
   constructor(opts: BrokerServerComponentOptions = {}) {
     this.host = opts.host ?? "127.0.0.1";
-    this.server = new BrokerServer({ port: opts.port, host: this.host });
+    this.secure = opts.tlsCert !== undefined && opts.tlsKey !== undefined;
+    this.server = new BrokerServer({
+      port: opts.port,
+      host: this.host,
+      ...(opts.tlsCert === undefined ? {} : { tlsCert: opts.tlsCert }),
+      ...(opts.tlsKey === undefined ? {} : { tlsKey: opts.tlsKey }),
+    });
   }
 
-  /** The relay's WebSocket URL (`ws://host:port`); readable after `start()`. */
+  /** The relay's URL — `http://host:port` (plaintext h2c) or `https://host:port` (h2+TLS); readable
+   *  after `start()`. */
   get url(): string {
-    return `ws://${this.host}:${this.server.port}`;
+    return `${this.secure ? "https" : "http"}://${this.host}:${this.server.port}`;
   }
 
   async start(): Promise<void> {
