@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "./engine.js";
-import { toJSON } from "./serializers/json.js";
-import { hardDeleteNode, removeOccurrenceOrHardDelete } from "../domain/node.js";
-import type { DocSnapshot } from "./types.js";
+import { Engine } from "../core/engine.js";
+import { toJSON } from "../core/serializers/json.js";
+import { hardDeleteNode, removeOccurrenceOrHardDelete } from "./node.js";
+import type { DocSnapshot } from "../core/types.js";
 
 /**
  * cascade-exhaustive — an INDEPENDENT truth for the remove/hard-delete cascade.

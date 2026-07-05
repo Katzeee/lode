@@ -168,17 +168,28 @@ export class AppWorkspaceRuntime {
      *  root converges over sync). */
     actorKeypair?: ActorKeypair;
   }): Promise<RuntimeWorkspaceInfo> {
-    let resolve!: (v: RuntimeWorkspaceInfo) => void;
+    // Serialized on `createChain` (see runSerialized) so the existence check in doCreateWorkspace is
+    // atomic w.r.t. a concurrent create — no TOCTOU into a duplicate insert.
+    return this.runSerialized(() => this.doCreateWorkspace(input));
+  }
+
+  private createChain: Promise<void> = Promise.resolve();
+
+  /** Run `work` serialized on `createChain` so workspace-creating ops (create, fork) are atomic w.r.t.
+   *  each other. `work` never throws up — it rejects the returned promise and leaves the chain
+   *  fulfilled, so a later op still runs. (createChain serializes only these ops; it does NOT guard
+   *  against a concurrent `persistMutation` or peer edits to a workspace — fork's source read relies
+   *  on `reconcileDurability` for that, see doForkWorkspace.) */
+  private runSerialized<T>(work: () => Promise<T>): Promise<T> {
+    let resolve!: (v: T) => void;
     let reject!: (e: unknown) => void;
-    const result = new Promise<RuntimeWorkspaceInfo>((res, rej) => {
+    const result = new Promise<T>((res, rej) => {
       resolve = res;
       reject = rej;
     });
-    // Serialize so the existence check below is atomic w.r.t. a concurrent create (no TOCTOU into a
-    // duplicate insert). `run` never throws up — it rejects `result` and leaves the chain fulfilled.
     const run = async () => {
       try {
-        resolve(await this.doCreateWorkspace(input));
+        resolve(await work());
       } catch (e) {
         reject(e);
       }
@@ -186,8 +197,6 @@ export class AppWorkspaceRuntime {
     this.createChain = this.createChain.then(run);
     return result;
   }
-
-  private createChain: Promise<void> = Promise.resolve();
 
   private async doCreateWorkspace(input: {
     workspaceId?: string;
@@ -266,6 +275,134 @@ export class AppWorkspaceRuntime {
       await this.persistMutation(info.workspaceId, beforeVersion);
     }
     return info;
+  }
+
+  /** Fork a workspace: copy the source's content (treeDoc + shards) into a NEW workspace (new wsId)
+   *  with an EMPTY membership log + a fresh owner root signed by the forker's actor (design §13 —
+   *  recovery for kicked / lost-owner / rogue-owner). The forker becomes the new owner at epoch 0;
+   *  the source's log + re-key chain do NOT carry over. Content at rest is plaintext (transit is
+   *  wire-only), so the copy has no decryption gap. Serialized on `createChain` like createWorkspace
+   *  (fork mints a ws). Does NOT share a helper with doCreateWorkspace: fork imports source content
+   *  and skips the empty-doc + root-seed, so a shared core would be a forced abstraction. */
+  async forkWorkspace(input: {
+    sourceWorkspaceId: string;
+    displayName: string;
+    /** The forker's peer label for the new root. Advisory, UI-only. */
+    peerName?: string;
+    /** The forker's actor keypair — signs the fresh root (forker = new owner). */
+    actorKeypair: ActorKeypair;
+  }): Promise<RuntimeWorkspaceInfo> {
+    return this.runSerialized(() => this.doForkWorkspace(input));
+  }
+
+  private async doForkWorkspace(input: {
+    sourceWorkspaceId: string;
+    displayName: string;
+    peerName?: string;
+    actorKeypair: ActorKeypair;
+  }): Promise<RuntimeWorkspaceInfo> {
+    // Fork needs the SOURCE doc + shards materialized to export them → trigger-load
+    // (requireWorkspace, not the peek-only membershipLog()). The source is read-only here — fork
+    // never mutates it; it leaves the forker's copy of the old ws intact.
+    const source = await this.requireWorkspace(input.sourceWorkspaceId);
+    const sourceDoc = source.workspace.getDoc(MAIN_SUBDOC);
+    if (sourceDoc === undefined) {
+      throw new Error(`forkWorkspace: source has no content doc: ${input.sourceWorkspaceId}`);
+    }
+    // Export the source's full current state: treeDoc snapshot + each materialized shard snapshot
+    // (the same primitives persistMutation uses). exportSnapshot captures in-memory state, so the
+    // fork includes the forker's latest — possibly unpersisted — edits.
+    const sourceTree = sourceDoc.exportSnapshot();
+    const shardSnaps = new Map<string, Uint8Array>();
+    const sourceSharded = sourceDoc.getShardedStore();
+    if (sourceSharded) {
+      for (const shardId of sourceSharded.shardIds()) {
+        shardSnaps.set(shardId, sourceSharded.getShardDoc(shardId).export({ mode: "snapshot" }));
+      }
+    }
+    if (this.peerId === undefined || this.peerKeypair === undefined) {
+      throw new Error("forkWorkspace: no peer identity on this dataRoot");
+    }
+    const local: LocalPeer = {
+      actor: input.actorKeypair,
+      peer: this.peerKeypair,
+      peerId: String(this.peerId),
+    };
+
+    let info: RuntimeWorkspaceInfo;
+    let loaded: LoadedWorkspace;
+    if (!this.options.registry) {
+      const workspaceId = randomUUID();
+      info = { workspaceId, displayName: input.displayName };
+      this.memoryCatalog.set(workspaceId, info);
+      const workspace = this.buildForkedWorkspace(workspaceId, sourceTree, shardSnaps);
+      loaded = await this.registerLoaded(workspaceId, workspace, null);
+    } else {
+      if (!this.options.dataRoot) {
+        throw new Error("Persistent workspace runtime missing data root");
+      }
+      const record = await this.options.registry.createWorkspace({
+        displayName: input.displayName,
+      });
+      info = recordToInfo(record);
+      const store = await WorkspaceStore.open(
+        workspaceDbPath(this.options.dataRoot, record.relativePath),
+      );
+      const workspace = this.buildForkedWorkspace(record.workspaceId, sourceTree, shardSnaps);
+      // Persist the copied content as pure snapshots — the same shape createDoc writes for a fresh
+      // doc (main snapshot at covered_update_seq 0) plus the per-shard snapshot writes persistMutation
+      // does. `sourceTree` IS the bytes the new doc imported, so it's exactly the new doc's state.
+      await store.createDoc({
+        docId: MAIN_SUBDOC,
+        displayName: "Main",
+        snapshotBytes: sourceTree,
+        kind: CONTENT_DOC_KIND,
+      });
+      for (const [shardId, snap] of shardSnaps) {
+        await store.writeSnapshot({
+          docId: MAIN_SUBDOC,
+          subDoc: shardId,
+          coveredUpdateSeq: 0,
+          snapshotBytes: snap,
+        });
+      }
+      loaded = await this.registerLoaded(record.workspaceId, workspace, store);
+    }
+
+    // Fresh owner root: the forker's actor self-signs; transit wrapped to the forker's peer (THIS
+    // dataRoot's peer — reused, not minted). The log is empty by construction (new wsId), so no
+    // empty-guard is needed (unlike createWorkspace's idempotent re-create path).
+    loaded.membershipLog.appendRoot(local, randomBytes(32), input.peerName ?? "");
+    await loaded.membershipLog.persistIfDirty();
+    return info;
+  }
+
+  /** Build the forked Workspace: one content doc (MAIN_SUBDOC) seeded from the source's exported
+   *  treeDoc snapshot + shard snapshots — the write-side mirror of loadShardedDoc. The new treeDoc
+   *  re-derives its ownership map from `sourceTree`, so its shardIds() match `shardSnaps`'s keys
+   *  (deterministic nodeId→bucket→shardId, same numShards on both sides). */
+  private buildForkedWorkspace(
+    workspaceId: string,
+    sourceTree: Uint8Array,
+    shardSnaps: Map<string, Uint8Array>,
+  ): Workspace {
+    const workspace = new Workspace({ id: workspaceId });
+    // peerId is defined here — doForkWorkspace threw above if it weren't — so no conditional spread.
+    const blockStore = new ShardedBlockStore({
+      initialTreeBytes: sourceTree,
+      peerId: this.peerId,
+      shardLoader: (shardId: string): Uint8Array | null => shardSnaps.get(shardId) ?? null,
+    });
+    const doc = workspace.createDoc(MAIN_SUBDOC, { store: blockStore });
+    // reconcileDurability self-heals create/delete orphans between treeDoc and shards; validateSnapshot
+    // rejects anything it cannot heal (mirrors loadShardedDoc's post-import checks). This is also
+    // fork's safety net for a concurrent write to the source: the treeDoc + shard snapshots are not
+    // taken atomically (createChain serializes fork only against other create/fork ops, not against
+    // persistMutation or peer edits), so reconcileDurability heals any tree↔shard skew a racing
+    // writer could introduce between the two exports.
+    blockStore.reconcileDurability();
+    validateSnapshot(toJSON(doc));
+    return workspace;
   }
 
   async listWorkspaces(): Promise<RuntimeWorkspaceInfo[]> {

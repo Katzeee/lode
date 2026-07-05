@@ -85,6 +85,29 @@ try {
   const memberRoster = await memberBe("member", "list", "--workspace", ws);
   assertContains(memberRoster, "Bob laptop", "member member list shows own peer name (roster replicated)");
 
+  // ── revoke: owner kicks the member by actor (atomic removeAndRotate); the owner's roster
+  //    converges to just the owner. The member's peer can no longer unwrap the new transit. ──
+  const memberActorId = (ownerRoster.match(/^  ([a-f0-9]{64})$/m) ?? [])[1];
+  if (!memberActorId) throw new Error("could not parse member actorId from owner roster");
+  await ownerBe("member", "remove", "--workspace", ws, "--actor", memberActorId);
+  await ownerBe("sync", "now", "--workspace", ws); // owner pushes the rotate
+  await sleep(1000);
+  const ownerRosterAfter = await ownerBe("member", "list", "--workspace", ws);
+  assertContains(ownerRosterAfter, "(owner)", "owner still flagged after revoke");
+  if (ownerRosterAfter.includes("Bob laptop")) {
+    throw new Error("member peer still in owner roster after revoke");
+  }
+  // The kicked member converges the same rotate (the membership log is public, so it still syncs)
+  // — its OWN roster no longer lists its peer. This is the meaningful security direction: the
+  // revoked peer sees itself gone. (It can no longer unwrap new-epoch content, by construction.)
+  await memberBe("sync", "now", "--workspace", ws);
+  await sleep(1000);
+  const memberRosterAfter = await memberBe("member", "list", "--workspace", ws);
+  if (memberRosterAfter.includes("Bob laptop")) {
+    throw new Error("kicked member still sees its own peer in the replicated roster");
+  }
+  assertContains(memberRosterAfter, "(owner)", "kicked member still sees the owner");
+
   if (process.argv.includes("--quiet")) {
     console.log("two-fresh-machines binary test: OK");
   }

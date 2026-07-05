@@ -159,6 +159,17 @@ message CreateWorkspaceRequest {
   optional string peer_name = 3; // the creator's peer label ("Alice's laptop"); stored on the root
 }
 
+// Fork a workspace: copy the source's content (treeDoc + shards) into a NEW workspace (new wsId)
+// with an EMPTY membership log + a fresh owner root signed by the forker's actor. Recovery for
+// kicked / lost-owner / rogue-owner (design sync-identity-persistence §13). The forker becomes the
+// new owner at epoch 0; the source's membership log + re-key chain do NOT carry over. Content is
+// plaintext at rest (the transit key is wire-only), so the copy has no decryption gap.
+message ForkWorkspaceRequest {
+  string workspace_id = 1;       // the SOURCE workspace to fork (its content is copied verbatim)
+  string display_name = 2;       // the new workspace's display name
+  optional string peer_name = 3; // the forker's peer label for the new workspace's root
+}
+
 message RemoveWorkspaceRequest {
   string workspace_id = 1;
 }
@@ -469,6 +480,36 @@ message ListMembersResponse {
   repeated ListedPeer peers = 1;
   string owner = 2;   // owner actorId
   int32 epoch = 3;    // current epoch
+}
+
+// Owner revokes a peer. Exactly one of peer_id / actor_id: peer_id revokes one peer; actor_id
+// revokes every peer of that actor (they leave the workspace). Owner-only (engine enforces).
+message RevokePeerRequest {
+  string workspace_id = 1;
+  optional string peer_id = 2;
+  optional string actor_id = 3;
+}
+
+// An actor self-adds their own further peer. The new peer (e.g. a phone) exported an identity token;
+// the actor pastes it here from an ADMITTED peer (e.g. their laptop). owning_actor_id is the session
+// actor — not in the request (the engine asserts it equals the new peer's owning actor).
+message AddPeerRequest {
+  string workspace_id = 1;
+  bytes peer_enc_pub = 2;
+  string peer_id = 3;
+  string peer_name = 4;
+  string owning_actor_id = 5; // the token's actorId — daemon asserts it equals the session actor
+}
+
+// Owner transfers governance to `new_owner_actor_id` (must already own ≥1 peer).
+message TransferOwnerRequest {
+  string workspace_id = 1;
+  string new_owner_actor_id = 2;
+}
+
+// Owner manually re-keys (forward-secrecy rotation, independent of a revoke; same roster).
+message RotateTransitRequest {
+  string workspace_id = 1;
 }
 
 message ActorPublicKeys {

@@ -77,7 +77,7 @@ export async function startAppServerDaemon(
     workspaces: runtime.workspaces,
     ...(options.syncIntervalMs === undefined ? {} : { intervalMs: options.syncIntervalMs }),
   });
-  const syncHandlers = createSyncHandlers(syncRunner, runtime.workspaces, runtime.sessions);
+  const syncHandlers = createSyncHandlers(syncRunner, runtime.sessions);
 
   // Register in start-order; the App stops them in reverse. createAppRuntime already registered the
   // workspace registry FIRST → it stops LAST (workspaces outlive everything that uses them).

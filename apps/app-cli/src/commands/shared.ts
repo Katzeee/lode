@@ -67,6 +67,9 @@ export const APPROVED_FLAGS = new Set([
   "--coordinate",
   "--relay",
   "--peer-name",
+  "--peer",
+  "--actor",
+  "--to",
 ]);
 
 export function assertAllowedFlags(

@@ -1,8 +1,9 @@
+import { randomBytes } from "node:crypto";
 import { encodeFrontiers, LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { createLogger } from "@lode/logger";
 import type { MembershipPersistence } from "./membership-persistence.js";
-import { bodyBytes, deriveMembershipState } from "./membership-replay.js";
+import { actorHasPeer, bodyBytes, deriveMembershipState } from "./membership-replay.js";
 import {
   aeadEncrypt,
   signWithActor,
@@ -300,6 +301,111 @@ export class MembershipLog {
     const transitKey = this.unwrapCurrentTransitKey(state, owner);
     this.appendAdd(owner.actor, newPeer, transitKey, state.currentEpoch);
   }
+
+  // ── governance conveniences (compose deriveState + a guard + unwrap + append*) ─────────
+  // Each throws a clear error on the wrong caller; the replay is the authority of last resort
+  // (its owner-guard / self-service rule re-checks). Callers flush via `persistIfDirty()`.
+
+  /** Owner re-keys to exactly `survivors` (the full new roster). Any peer omitted is revoked.
+   *  Owner-only. Generates a fresh transit key. */
+  private rotateTo(owner: LocalPeer, survivors: PeerPublicKeys[]): void {
+    const { state } = this.deriveState();
+    if (state.owner === "") {
+      throw new Error("rotateTo: workspace has no owner root");
+    }
+    if (state.owner !== owner.actor.actorId) {
+      throw new Error("rotateTo: only the owner can re-key");
+    }
+    if (!survivors.some((s) => s.owningActorId === owner.actor.actorId)) {
+      throw new Error("cannot drop every peer of the owner — governance would be bricked");
+    }
+    const oldKey = this.unwrapCurrentTransitKey(state, owner);
+    const newKey = randomBytes(32);
+    this.appendRotate(owner.actor, survivors, newKey, oldKey, state.currentEpoch + 1);
+  }
+
+  /** Owner revokes one peer (rotate omitting it). Throws if the peerId isn't admitted. */
+  revokePeer(owner: LocalPeer, peerId: string): void {
+    const { state } = this.deriveState();
+    const survivors = rosterSurvivors(state, (id) => id !== peerId);
+    if (survivors.length === state.peers.size) {
+      throw new Error(`revokePeer: peer not admitted: ${peerId}`);
+    }
+    this.rotateTo(owner, survivors);
+  }
+
+  /** Owner revokes every peer of an actor (they leave the workspace). Throws if the actor has no
+   *  admitted peers, or if revoking them would drop every owner peer (e.g. revoking the owner's own
+   *  actorId). */
+  revokeActor(owner: LocalPeer, actorId: string): void {
+    const { state } = this.deriveState();
+    const survivors = rosterSurvivors(state, (_, p) => p.owningActorId !== actorId);
+    if (survivors.length === state.peers.size) {
+      throw new Error(`revokeActor: actor has no admitted peers: ${actorId}`);
+    }
+    this.rotateTo(owner, survivors);
+  }
+
+  /** Owner manually re-keys (forward-secrecy rotation; same roster — no one revoked). */
+  rotateTransit(owner: LocalPeer): void {
+    const { state } = this.deriveState();
+    this.rotateTo(
+      owner,
+      rosterSurvivors(state, () => true),
+    );
+  }
+
+  /** An actor self-adds their own further peer (no owner round-trip). The signer is the session
+   *  actor; `local` must be admitted (it unwraps the transit key). The replay's self-service rule
+   *  authorizes (signer == owningActor AND owns ≥1 peer). */
+  addSelfPeer(local: LocalPeer, newPeer: PeerPublicKeys): void {
+    const { state } = this.deriveState();
+    if (newPeer.owningActorId !== local.actor.actorId) {
+      throw new Error("addSelfPeer: the new peer must be owned by the calling actor");
+    }
+    const transitKey = this.unwrapCurrentTransitKey(state, local);
+    this.appendAdd(local.actor, newPeer, transitKey, state.currentEpoch);
+  }
+
+  /** Owner transfers governance to an existing member actor. The target must already own ≥1 peer
+   *  (so they can unwrap transit) and must not be the current owner. Throws a clear error for an
+   *  empty / unknown / self target rather than silently appending a record the replay would skip. */
+  transferOwnership(owner: LocalPeer, newOwnerActorId: string): void {
+    const { state } = this.deriveState();
+    if (state.owner !== owner.actor.actorId) {
+      throw new Error("transferOwnership: only the owner can transfer");
+    }
+    if (newOwnerActorId === "") {
+      throw new Error("transferOwnership: target actor is empty");
+    }
+    if (newOwnerActorId === owner.actor.actorId) {
+      throw new Error("transferOwnership: target is already the owner");
+    }
+    if (!actorHasPeer(state, newOwnerActorId)) {
+      throw new Error(`transferOwnership: target is not a member: ${newOwnerActorId}`);
+    }
+    this.appendTransfer(owner.actor, newOwnerActorId);
+  }
+}
+
+/** Build the survivor roster (`PeerPublicKeys[]`) from the replayed state, keeping entries where
+ *  `keep` returns true. Carries `peerName` through (rotate re-attests each survivor's name). */
+function rosterSurvivors(
+  state: MembershipState,
+  keep: (peerId: string, peer: Peer) => boolean,
+): PeerPublicKeys[] {
+  const out: PeerPublicKeys[] = [];
+  for (const [peerId, p] of state.peers.entries()) {
+    if (keep(peerId, p)) {
+      out.push({
+        peerId,
+        owningActorId: p.owningActorId,
+        peerEncPub: p.peerEncPub,
+        peerName: p.peerName,
+      });
+    }
+  }
+  return out;
 }
 
 /** Constant-time-unconcerned byte equality for the dirty-check baseline (frontiers are not secret). */

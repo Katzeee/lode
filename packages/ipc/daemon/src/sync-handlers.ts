@@ -1,37 +1,31 @@
 import { create } from "@bufbuild/protobuf";
 import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
 import type {
-  AddMemberRequest,
-  GetPeerPublicKeysResponse,
   JoinWorkspaceRequest,
-  ListMembersRequest,
-  ListMembersResponse,
   RegisterSyncRequest,
   ShareWorkspaceRequest,
   SyncNowRequest,
   WorkspaceCoordinate,
 } from "@lode/protocol/proto";
-import {
-  GetPeerPublicKeysResponseSchema,
-  ListedPeerSchema,
-  ListMembersResponseSchema,
-  WorkspaceCoordinateSchema,
-} from "@lode/protocol/proto";
+import { WorkspaceCoordinateSchema } from "@lode/protocol/proto";
 import type { AppRuntime } from "@lode/engine";
 import type { DaemonSyncRunner } from "./sync-runner.js";
 
 const EMPTY: Empty = create(EmptySchema);
 
-/** The daemon-side RPC handlers for sync governance + register/share/join. They reach the
- *  `DaemonSyncRunner` — a host concern, so they live in the daemon, not the engine. The daemon merges
- *  them with the engine's `LodeCommands` in `connect-server.ts`. All are session-gated (writes require
- *  an origin); the actor keypair for register/join/addMember comes from the session (sessionHello),
- *  never re-sent by the client. `addMember` is relay-independent — it writes the membership log
- *  directly (no sync wiring needed); the others go through the runner. */
+/** The daemon-side RPC handlers that genuinely need the `DaemonSyncRunner` — i.e. relay-connection
+ *  lifecycle. They live in the daemon (the desktop host), not the engine, because the runner is a
+ *  host concern. The daemon merges them with the engine's `LodeCommands` (which now carries the
+ *  relay-independent governance handlers via `services/membership.ts`) in `connect-server.ts`.
+ *  All are session-gated (writes require an origin); the actor keypair comes from the session
+ *  (sessionHello), never re-sent by the client.
+ *
+ *  Why these four stay daemon-side: register/syncNow drive the runner's tick loop; join dials a
+ *  relay through the runner; share returns the daemon's OWN registered relay URL (a host→client
+ *  convenience — an in-process consumer like mobile already knows its relay). Governance
+ *  (addMember/list/revoke/addPeer/transfer/rotate/getPeerPublicKeys) is relay-independent and was
+ *  moved to the engine so mobile gets it too. */
 export type SyncHandlers = {
-  addMember: (req: AddMemberRequest, connectionId: string) => Promise<Empty>;
-  listMembers: (req: ListMembersRequest, connectionId: string) => ListMembersResponse;
-  getPeerPublicKeys: (req: Empty, connectionId: string) => GetPeerPublicKeysResponse;
   shareWorkspace: (req: ShareWorkspaceRequest, connectionId: string) => WorkspaceCoordinate;
   joinWorkspace: (req: JoinWorkspaceRequest, connectionId: string) => Promise<Empty>;
   registerSync: (req: RegisterSyncRequest, connectionId: string) => Promise<Empty>;
@@ -40,7 +34,6 @@ export type SyncHandlers = {
 
 export function createSyncHandlers(
   runner: DaemonSyncRunner,
-  workspaces: AppRuntime["workspaces"],
   sessions: AppRuntime["sessions"],
 ): SyncHandlers {
   return {
@@ -59,60 +52,9 @@ export function createSyncHandlers(
       await runner.syncNow(req.workspaceId);
       return EMPTY;
     },
-    // Owner-only governance: add a member to the workspace's membership log. Relay-independent —
-    // it writes the log directly via the registry + the calling session's keypair (the owner), with
-    // no sync wiring required. The owner guard lives in `MembershipLog.addMember`.
-    addMember: async (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
-      const { keypair: owner } = sessions.getActorKeypair(connectionId);
-      const log = workspaces.membershipLog(req.workspaceId);
-      if (!log) {
-        throw new Error(`addMember: workspace not loaded: ${req.workspaceId}`);
-      }
-      // The owner unwraps the current transit via its OWN peer, then re-wraps it to the joiner's peer.
-      log.addMember(workspaces.localPeerFor(owner), {
-        peerId: req.peerId,
-        owningActorId: req.owningActorId,
-        peerEncPub: req.peerEncPub,
-        peerName: req.peerName ?? "",
-      });
-      await log.persistIfDirty();
-      return EMPTY;
-    },
-    // Read-only roster: project the replayed membership state — peers (flat: peerId + peer_name +
-    // owning actor) + owner + epoch. Backs `lode member list` (the CLI groups by actor, owner flagged).
-    listMembers: (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
-      const log = workspaces.membershipLog(req.workspaceId);
-      if (!log) {
-        throw new Error(`listMembers: workspace not loaded: ${req.workspaceId}`);
-      }
-      const { state } = log.deriveState();
-      return create(ListMembersResponseSchema, {
-        owner: state.owner,
-        epoch: state.currentEpoch,
-        peers: [...state.peers.entries()].map(([peerId, p]) =>
-          create(ListedPeerSchema, {
-            peerId,
-            peerName: p.peerName,
-            owningActorId: p.owningActorId,
-          }),
-        ),
-      });
-    },
-    // This session's local peer identity — the tuple (peerId + X25519 enc pub + owning actor) a
-    // joiner hands to an owner out-of-band so the owner can `addMember` it. Session-gated (the owning
-    // actor is the session's).
-    getPeerPublicKeys: (_req, connectionId) => {
-      sessions.requireOrigin(connectionId);
-      const { keypair } = sessions.getActorKeypair(connectionId);
-      const local = workspaces.localPeerFor(keypair);
-      return create(GetPeerPublicKeysResponseSchema, {
-        peerId: local.peerId,
-        peerEncPub: local.peer.publicKey,
-        owningActorId: local.actor.actorId,
-      });
-    },
+    // Surface THIS daemon's registered relay URL + wsId as a share coordinate (host→client: the CLI
+    // talks to the daemon IPC, not the relay, so it doesn't know the relay absent this). Reads the
+    // URL the runner captured at registration.
     shareWorkspace: (req, connectionId) => {
       sessions.requireOrigin(connectionId);
       const c = runner.shareCoordinate(req.workspaceId);
@@ -121,6 +63,7 @@ export function createSyncHandlers(
         workspaceId: c.workspaceId,
       });
     },
+    // Join a workspace via a share coordinate: dial the relay through the runner and start syncing.
     joinWorkspace: async (req, connectionId) => {
       sessions.requireOrigin(connectionId);
       const c = req.coordinate;

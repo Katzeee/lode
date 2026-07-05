@@ -22,6 +22,7 @@ service LodeCommands {
 
   // workspace
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (WorkspaceInfo);
+  rpc ForkWorkspace(ForkWorkspaceRequest) returns (WorkspaceInfo);
   rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResponse);
   rpc RemoveWorkspace(RemoveWorkspaceRequest) returns (google.protobuf.BoolValue);
 
@@ -79,6 +80,14 @@ service LodeCommands {
   rpc AddMember(AddMemberRequest) returns (google.protobuf.Empty);
   // The current roster (peers + owner), projected from the membership log — backs `lode member list`.
   rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  // Owner revokes one peer (peer_id) or every peer of an actor (actor_id). Atomic removeAndRotate.
+  rpc RevokePeer(RevokePeerRequest) returns (google.protobuf.Empty);
+  // An actor self-adds their own further peer (signer == owning actor, owns ≥1 admitted peer).
+  rpc AddPeer(AddPeerRequest) returns (google.protobuf.Empty);
+  // Owner transfers governance to an existing member actor (must own ≥1 peer).
+  rpc TransferOwner(TransferOwnerRequest) returns (google.protobuf.Empty);
+  // Owner manually re-keys the workspace (forward-secrecy rotation, same roster).
+  rpc RotateTransit(RotateTransitRequest) returns (google.protobuf.Empty);
   rpc GetActorPublicKeys(google.protobuf.Empty) returns (ActorPublicKeys);
   // This session's local peer identity (peerId + X25519 enc pub + actor) — the tuple a joiner hands
   // to an owner out-of-band so the owner can AddMember it.
@@ -86,8 +95,8 @@ service LodeCommands {
   rpc ShareWorkspace(ShareWorkspaceRequest) returns (WorkspaceCoordinate);
   rpc JoinWorkspace(JoinWorkspaceRequest) returns (google.protobuf.Empty);
   // Register the session's actor to drive sync for a workspace via a relay. The daemon captures the
-  // actor keypair so the tick keeps running while the client is disconnected (Phase 3: the daemon has
-  // no identity of its own — every syncing workspace is registered by a session).
+  // actor keypair so the tick keeps running while the client is disconnected (the daemon has no
+  // identity of its own — every syncing workspace is registered by a session that supplies the actor).
   rpc RegisterSync(RegisterSyncRequest) returns (google.protobuf.Empty);
   // Manual trigger: run one sync round for `workspace_id` now (`lode sync now`) instead of waiting
   // for the next tick. Session-gated like the rest; reuses the registered actor keypair.

@@ -88,8 +88,9 @@ export function createLodeServer(
   server: http2.Http2Server;
   closeConnections: () => void;
 } {
-  // Merge the engine's handlers with the daemon-side sync handlers (governance/share/join). The
-  // engine is transport/host-free; the daemon is the composition root that owns the sync runner.
+  // Merge the engine's handlers (all RPC adapters incl. relay-independent governance) with the
+  // daemon-side sync handlers (the runner-dependent share/join/register/syncNow). The engine is
+  // transport/host-free; the daemon is the composition root that owns the sync runner.
   const commands = { ...runtime.commands, ...extraHandlers };
   const sessions = new Map<http2.Http2Session, string>();
 
@@ -122,6 +123,7 @@ export function createLodeServer(
         listenNotifications: serverStreaming(commands.listenNotifications),
 
         createWorkspace: unary(commands.createWorkspace),
+        forkWorkspace: unary(commands.forkWorkspace),
         listWorkspaces: unary(commands.listWorkspaces),
         removeWorkspace: unary(commands.removeWorkspace),
 
@@ -169,6 +171,10 @@ export function createLodeServer(
 
         addMember: unary(commands.addMember),
         listMembers: unary(commands.listMembers),
+        revokePeer: unary(commands.revokePeer),
+        addPeer: unary(commands.addPeer),
+        transferOwner: unary(commands.transferOwner),
+        rotateTransit: unary(commands.rotateTransit),
         getActorPublicKeys: unary(commands.getActorPublicKeys),
         getPeerPublicKeys: unary(commands.getPeerPublicKeys),
         shareWorkspace: unary(commands.shareWorkspace),

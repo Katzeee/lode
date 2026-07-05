@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
-    "test:binary": "npm run build --prefix ../.. && node tests/binary/two-fresh-machines.mjs --quiet && node tests/binary/anime-notes.mjs --quiet",
+    "test:binary": "npm run build --prefix ../.. && node tests/binary/two-fresh-machines.mjs --quiet && node tests/binary/two-fresh-machines-fork.mjs --quiet && node tests/binary/anime-notes.mjs --quiet",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",

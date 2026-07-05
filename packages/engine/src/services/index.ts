@@ -3,6 +3,7 @@ import { createEditingHandlers } from "./editing.js";
 import { createFieldDefHandlers } from "./field-def.js";
 import { createFieldHandlers } from "./field.js";
 import { createHistoryHandlers } from "./history.js";
+import { createMembershipHandlers } from "./membership.js";
 import { createNodeHandlers } from "./node.js";
 import { createRefHandlers } from "./ref.js";
 import { createSchemaHandlers } from "./schema.js";
@@ -16,6 +17,7 @@ export function createLodeCommands(ctx: AppContext) {
   return {
     ...createSessionHandlers(ctx),
     ...createWorkspaceHandlers(ctx),
+    ...createMembershipHandlers(ctx),
     ...createNodeHandlers(ctx),
     ...createEditingHandlers(ctx),
     ...createRefHandlers(ctx),

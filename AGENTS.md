@@ -58,6 +58,16 @@ alone (mobile dials a relay directly via the engine's broker client, with no dae
 The intended desktop runtime is one local AppServer daemon per user. Clients may render or cache
 local views, but workspace ownership and business logic stay behind the engine API.
 
+**Engine vs daemon — the deciding test.** Mobile/embedded consume `@lode/engine` in-process with no
+daemon, so anything a consumer needs to function MUST live in the engine. The daemon holds ONLY
+host-only concerns: process lifecycle, the IPC socket/connectionId, relay hosting (`--relay`), and
+RPC handlers that genuinely need the `DaemonSyncRunner` (relay-connection lifecycle:
+share/join/register/syncNow). For an RPC handler the test is: **does it need the runner or other
+host-only machinery? If not, it belongs in `engine/src/services/`** — relay-independent adapters
+(governance, identity, workspace lifecycle) go in the engine so an in-process host gets them too.
+Equivalently: delete the daemon; if an in-process consumer can no longer do something it should be
+able to, that something was wrongly placed in the daemon.
+
 Do not move product concepts into `packages/engine/src/core`. If a concept knows about product
 semantics, including supertags, fields, queries, sessions, subscriptions, or UI behavior, it
 belongs above the engine.

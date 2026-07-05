@@ -50,6 +50,46 @@ export async function executeMemberCommand(
       }
       return lines.join("\n");
     }
+    case "remove": {
+      assertAllowedFlags(command, commandKey, ["--workspace", "--peer", "--actor"]);
+      const workspaceId = getRequiredSingleFlag(command, "--workspace");
+      const peerFlag = command.flags["--peer"]?.[0];
+      const actorFlag = command.flags["--actor"]?.[0];
+      const hasPeer = peerFlag !== undefined;
+      const hasActor = actorFlag !== undefined;
+      if (hasPeer === hasActor) {
+        throw new Error(`Provide exactly one of --peer or --actor for "${commandKey}".`);
+      }
+      await client.revokePeer({
+        workspaceId,
+        ...(hasPeer ? { peerId: peerFlag } : { actorId: actorFlag }),
+      });
+      const target = hasPeer ? `peer ${peerFlag}` : `actor ${actorFlag} (all their peers)`;
+      return `Revoked ${target} from workspace ${workspaceId}.`;
+    }
+    case "add-peer": {
+      // Self-service: the actor adds their OWN further peer (the new peer exported this token; the
+      // actor pastes it from an ADMITTED peer). owningActorId is the session actor (set by the daemon).
+      assertAllowedFlags(command, commandKey, ["--workspace", "--identity"]);
+      const workspaceId = getRequiredSingleFlag(command, "--workspace");
+      const token = getRequiredSingleFlag(command, "--identity");
+      const identity = decodeIdentityToken(token);
+      await client.addPeer({
+        workspaceId,
+        peerEncPub: identity.peerEncPub,
+        peerId: identity.peerId,
+        peerName: identity.peerName,
+        owningActorId: identity.actorId,
+      });
+      return `Added peer ${identity.peerName || identity.peerId} to workspace ${workspaceId}.`;
+    }
+    case "transfer": {
+      assertAllowedFlags(command, commandKey, ["--workspace", "--to"]);
+      const workspaceId = getRequiredSingleFlag(command, "--workspace");
+      const newOwner = getRequiredSingleFlag(command, "--to");
+      await client.transferOwner({ workspaceId, newOwnerActorId: newOwner });
+      return `Transferred ownership of workspace ${workspaceId} to ${newOwner}.`;
+    }
     default:
       throw new Error(`Unknown command "${commandKey}".`);
   }
