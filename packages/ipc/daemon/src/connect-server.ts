@@ -168,7 +168,9 @@ export function createLodeServer(
         canRedoHistory: unary(commands.canRedoHistory),
 
         addMember: unary(commands.addMember),
+        listMembers: unary(commands.listMembers),
         getActorPublicKeys: unary(commands.getActorPublicKeys),
+        getPeerPublicKeys: unary(commands.getPeerPublicKeys),
         shareWorkspace: unary(commands.shareWorkspace),
         joinWorkspace: unary(commands.joinWorkspace),
         registerSync: unary(commands.registerSync),

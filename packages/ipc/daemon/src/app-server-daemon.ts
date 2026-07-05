@@ -40,7 +40,7 @@ export type RelayDaemonOptions = {
 export type AppServerDaemon = {
   address: string;
   /** The in-process relay's URL (HTTP/2, `http://` plaintext or `https://` with TLS), when `--relay`
-   *  is set (for other devices to dial). */
+   *  is set (for other peers to dial). */
   relayUrl?: string;
   stop(): Promise<void>;
 };

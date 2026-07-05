@@ -1,14 +1,17 @@
 // Public entry. Re-exports the runtime composition root + the cross-layer types the
 // daemon and in-process clients need. See runtime/app-runtime.ts for the composition.
 
-// Crypto leaf (Ed25519 / X25519 / AES-256-GCM / BIP-39 / SLIP-10) — see `utils/crypto/`.
+// Crypto leaf (Ed25519 actor signing / X25519 peer keys / AES-256-GCM / BIP-39 / SLIP-10) — see
+// `utils/crypto/`.
 export {
   deriveActorKeypairFromMnemonic,
   generateActorKeypair,
   generateMnemonic,
-  actorEncryptionPublic,
   actorIdFromPublicKey,
+  generatePeerKeypair,
+  peerKeypairFromPrivateKey,
   type ActorKeypair,
+  type PeerKeypair,
 } from "./utils/crypto/index.js";
 
 export type { PersistenceOptions } from "./runtime/workspace-registry.js";
@@ -46,9 +49,10 @@ export type { SyncDoc } from "./core/sharded-store.js";
 // the content transport's `WireSecurity` from its state.
 export { MembershipLog, MEMBERSHIP_DOC_ID } from "./runtime/membership/membership-log.js";
 export type {
-  Member,
+  Peer,
+  PeerPublicKeys,
+  LocalPeer,
   MembershipState,
-  MemberPublicKeys,
 } from "./runtime/membership/membership-log.js";
 export { MembershipSync } from "./runtime/membership/membership-sync.js";
 

@@ -22,6 +22,7 @@ export function createWorkspaceHandlers(ctx: AppContext) {
       const info = await ctx.workspaces.createWorkspace({
         displayName: req.displayName,
         ...(req.workspaceId === undefined ? {} : { workspaceId: req.workspaceId }),
+        ...(req.peerName === undefined ? {} : { peerName: req.peerName }),
         actorKeypair: keypair,
       });
       return create(WorkspaceInfoSchema, {

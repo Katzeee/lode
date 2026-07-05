@@ -1,14 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  actorEncryptionPublic,
-  generateActorKeypair,
-  type ActorKeypair,
-} from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
 import { SyncManager } from "../sync.js";
-import { MembershipLog } from "../membership/membership-log.js";
+import { MembershipLog, type LocalPeer } from "../membership/membership-log.js";
 import { MembershipSync } from "../membership/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
@@ -45,6 +41,20 @@ function newEngine(): { engine: Engine; store: ShardedBlockStore } {
   return { engine: new Engine({ store }), store };
 }
 
+let peerCounter = 1;
+const newPeerId = (): string => String(peerCounter++);
+const newLocal = (): LocalPeer => ({
+  actor: generateActorKeypair(),
+  peer: generatePeerKeypair(),
+  peerId: newPeerId(),
+});
+const peerPub = (local: LocalPeer) => ({
+  peerId: local.peerId,
+  owningActorId: local.actor.actorId,
+  peerEncPub: local.peer.publicKey,
+  peerName: "",
+});
+
 describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () => {
   it("membership doc converges plaintext, content converges sealed; eavesdropper sees both tags but no plaintext content", async () => {
     const a = newEngine();
@@ -54,16 +64,16 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const SECRET = "sealed-content-sentinel";
     a.engine.replaceDeltas(page.occurrenceId, [{ insert: SECRET }]);
 
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+    const owner = newLocal();
+    const member = newLocal();
     const tk = randomBytes(32);
     const logA = new MembershipLog();
-    logA.appendRoot(owner, tk);
-    logA.appendAdd(owner, memberPub(member), tk, 0);
+    logA.appendRoot(owner, tk, "");
+    logA.appendAdd(owner.actor, peerPub(member), tk, 0);
     const logB = new MembershipLog(); // member log EMPTY — converges via plaintext gossip
 
-    const secA = createMembershipWireSecurity({ log: logA, keypair: owner });
-    const secB = createMembershipWireSecurity({ log: logB, keypair: member });
+    const secA = createMembershipWireSecurity({ log: logA, local: owner });
+    const secB = createMembershipWireSecurity({ log: logB, local: member });
 
     server = new BrokerServer();
     await server.ready();
@@ -133,15 +143,15 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
     a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
 
-    const owner = generateActorKeypair();
-    const stranger = generateActorKeypair(); // NOT added to the membership
+    const owner = newLocal();
+    const stranger = newLocal(); // NOT added to the membership
     const tk = randomBytes(32);
     const logA = new MembershipLog();
-    logA.appendRoot(owner, tk); // owner only — stranger is not a member
+    logA.appendRoot(owner, tk, ""); // owner only — stranger is not a member
     const logB = new MembershipLog(); // stranger's log never receives an `add` for itself
 
-    const secA = createMembershipWireSecurity({ log: logA, keypair: owner });
-    const secB = createMembershipWireSecurity({ log: logB, keypair: stranger });
+    const secA = createMembershipWireSecurity({ log: logA, local: owner });
+    const secB = createMembershipWireSecurity({ log: logB, local: stranger });
 
     server = new BrokerServer();
     await server.ready();
@@ -184,7 +194,3 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toBeUndefined();
   });
 });
-
-function memberPub(m: ActorKeypair) {
-  return { actorId: m.actorId, signPub: m.publicKey, encPub: actorEncryptionPublic(m.publicKey) };
-}

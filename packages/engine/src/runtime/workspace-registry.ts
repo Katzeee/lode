@@ -1,6 +1,6 @@
 /* eslint-disable max-lines -- per-workspace lifecycle + sharded persistence composition root;
    the peerId/store/createDoc/load/persist wiring is cohesive in one place */
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import { LoroDoc } from "loro-crdt";
 import { Workspace, type Engine, type VersionVector } from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
@@ -10,8 +10,13 @@ import { createPlainNode } from "../domain/node.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
 import { CONTENT_DOC_KIND, MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
+import {
+  peerKeypairFromPrivateKey,
+  generatePeerKeypair,
+  type PeerKeypair,
+} from "../utils/crypto/index.js";
 import { WorkspaceMembershipPersistence } from "./membership/membership-persistence.js";
-import { MembershipLog } from "./membership/membership-log.js";
+import { MembershipLog, type LocalPeer } from "./membership/membership-log.js";
 import { App, type Component } from "./app.js";
 import type { ActorKeypair } from "../utils/crypto/index.js";
 
@@ -65,6 +70,7 @@ export class AppWorkspaceRuntime {
       dataRoot?: string;
       registry: RegistryStore | null;
       peerId?: number;
+      peerKeypair?: PeerKeypair;
       snapshotEveryUpdates: number;
     },
     private readonly createChildApp: () => App,
@@ -75,11 +81,29 @@ export class AppWorkspaceRuntime {
     return this.options.peerId;
   }
 
+  /** This dataRoot's peer X25519 keypair (the transit-wrap target / per-peer revocation unit,
+   *  design §13). Persisted per-dataRoot alongside peerId; ephemeral in in-memory mode. */
+  get peerKeypair(): PeerKeypair | undefined {
+    return this.options.peerKeypair;
+  }
+
+  /** The LocalPeer (session actor + per-dataRoot peer key + peerId) a host uses for wire security
+   *  + membership ops on this dataRoot. The actor is per-session; the peer key + peerId are this
+   *  dataRoot's. Throws if this runtime has no peer identity (only in odd non-persistent configs). */
+  localPeerFor(actor: ActorKeypair): LocalPeer {
+    if (this.peerId === undefined || this.peerKeypair === undefined) {
+      throw new Error("no peer identity on this dataRoot");
+    }
+    return { actor, peer: this.peerKeypair, peerId: String(this.peerId) };
+  }
+
   static inMemory(createChildApp: () => App = () => new App()): Promise<AppWorkspaceRuntime> {
     return Promise.resolve(
       new AppWorkspaceRuntime(
         {
           registry: null,
+          peerId: randomInt(1, 2 ** 48),
+          peerKeypair: generatePeerKeypair(),
           snapshotEveryUpdates: Number.POSITIVE_INFINITY,
         },
         createChildApp,
@@ -93,11 +117,13 @@ export class AppWorkspaceRuntime {
   ): Promise<AppWorkspaceRuntime> {
     const registry = await RegistryStore.open(options.dataRoot);
     const peerId = await registry.ensurePeerId();
+    const peerKeypair = await ensurePeerKey(registry);
     return new AppWorkspaceRuntime(
       {
         dataRoot: options.dataRoot,
         registry,
         peerId,
+        peerKeypair,
         snapshotEveryUpdates: options.snapshotEveryUpdates ?? 100,
       },
       createChildApp,
@@ -135,6 +161,8 @@ export class AppWorkspaceRuntime {
   async createWorkspace(input: {
     workspaceId?: string;
     displayName: string;
+    /** The creator's peer label ("Alice's laptop"); stored on the membership root. Advisory, UI-only. */
+    peerName?: string;
     /** The creator's keypair. Present ⇒ this create OWNS the workspace: append the membership root
      *  (creator = owner, ACL-at-birth). Absent ⇒ a local-only / joiner create with no root (the owner's
      *  root converges over sync). */
@@ -164,6 +192,7 @@ export class AppWorkspaceRuntime {
   private async doCreateWorkspace(input: {
     workspaceId?: string;
     displayName: string;
+    peerName?: string;
     actorKeypair?: ActorKeypair;
   }): Promise<RuntimeWorkspaceInfo> {
     // Idempotent: an existing ws is returned untouched (the serialization above guarantees this sees
@@ -193,10 +222,21 @@ export class AppWorkspaceRuntime {
       info = recordToInfo(record);
       loaded = await this.loadPersistentWorkspace(record);
     }
-    // Creator asserts ownership by supplying its keypair. Guarded on an empty log so a re-create over
-    // an already-rooted workspace is a no-op (never double-roots).
-    if (input.actorKeypair !== undefined && loaded.membershipLog.records().length === 0) {
-      loaded.membershipLog.appendRoot(input.actorKeypair, randomBytes(32));
+    // Creator asserts ownership by signing the membership root with its ACTOR key, seeding the owner's
+    // first PEER (the per-dataRoot peerId + X25519 enc pub) as the first admitted peer. Guarded on
+    // an empty log so a re-create over an already-rooted workspace is a no-op (never double-roots).
+    if (
+      input.actorKeypair !== undefined &&
+      this.peerId !== undefined &&
+      this.peerKeypair !== undefined &&
+      loaded.membershipLog.records().length === 0
+    ) {
+      const local: LocalPeer = {
+        actor: input.actorKeypair,
+        peer: this.peerKeypair,
+        peerId: String(this.peerId),
+      };
+      loaded.membershipLog.appendRoot(local, randomBytes(32), input.peerName ?? "");
       await loaded.membershipLog.persistIfDirty();
     }
     // A ws is one content tree: auto-init the single content doc ("main") at creation. Both owner-
@@ -466,4 +506,24 @@ function recordToInfo(record: WorkspaceRecord): RuntimeWorkspaceInfo {
     workspaceId: record.workspaceId,
     displayName: record.displayName,
   };
+}
+
+const PEER_PRIV_KEY_META = "peerPrivKey";
+
+/** Get-or-create this dataRoot's peer X25519 keypair (design §13). The private scalar is persisted
+ *  in registry_meta (opaque bytes — the registry leaf stores it without knowing it is a key); the
+ *  public is deterministic from the private. Random, NOT mnemonic-derived — a lost mnemonic must not
+ *  let a revoked peer re-derive its key. */
+async function ensurePeerKey(registry: RegistryStore): Promise<PeerKeypair> {
+  const stored = await registry.getMeta(PEER_PRIV_KEY_META);
+  if (stored !== null) {
+    try {
+      return peerKeypairFromPrivateKey(new Uint8Array(Buffer.from(stored, "hex")));
+    } catch {
+      // A corrupt/stale value — fall through and re-generate.
+    }
+  }
+  const kp = generatePeerKeypair();
+  await registry.setMeta(PEER_PRIV_KEY_META, Buffer.from(kp.privateKey).toString("hex"));
+  return kp;
 }

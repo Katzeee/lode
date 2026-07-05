@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { VersionVector } from "loro-crdt";
 import { Engine } from "../core/engine.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
 import { MAIN_SUBDOC } from "../persistence/workspace-store.js";
@@ -122,5 +123,41 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
     // pushOnly proceeds (cache populated by the partial round) and pushes A's docs.
     const r = await sm.pushOnly();
     expect(r.pushed).toBeGreaterThan(0);
+  });
+});
+
+describe("Engine.importUpdate — merge-path termination (no re-export pump)", () => {
+  it("re-importing already-known bytes is a no-op: fires no nodeUpdated, advances no VV", async () => {
+    // CRDT merge itself is Loro's job (in-version ops apply idempotently); this locks in that our
+    // integration doesn't turn import into a re-export pump. The load-bearing assertion is that
+    // import fires no `nodeUpdated`: DaemonSyncRunner.schedulePush subscribes to exactly that
+    // signal, so if import emitted it, every received update would re-trigger a push —
+    //   recv → import → nodeUpdated → schedulePush → export → send → recv → … (never halts).
+    // Guards against someone later adding an import-time callback that emits nodeUpdated.
+    const aStore = newStore();
+    const aEngine = new Engine({ store: aStore });
+    aEngine.createNode(null); // dirties the treeDoc ("main")
+    const bStore = newStore();
+    const { transport } = recording(bStore);
+    await new SyncManager(aStore, transport).sync(); // A ↔ B converge; A holds both peers' treeDoc ops
+
+    // A's full treeDoc update (every op A holds on "main"), fed straight back into A.
+    const aBytes = aEngine.exportUpdateFrom(new VersionVector(undefined));
+    expect(aBytes.length).toBeGreaterThan(0); // non-empty so the no-op below is meaningful
+
+    let fired = 0;
+    const sub = aEngine.slots.nodeUpdated.subscribe(() => {
+      fired++;
+    });
+    try {
+      const vvBefore = aEngine.getVersion().encode();
+      aEngine.importUpdate(aBytes);
+      const vvAfter = aEngine.getVersion().encode();
+
+      expect(fired).toBe(0); // import emits no nodeUpdated → nothing re-triggers a push
+      expect(vvAfter).toEqual(vvBefore); // Loro applies in-version ops idempotently → VV unchanged
+    } finally {
+      sub.unsubscribe();
+    }
   });
 });

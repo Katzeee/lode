@@ -96,17 +96,22 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await openAuthedSession(ownerClient);
     await openAuthedSession(memberClient);
 
-    // The owner needs the member's sign pub to add them (the social re-add). It comes from the member's
-    // OWN session — actors are session-side now, so the member's identity is whatever it authenticated
-    // with, read back via GetActorPublicKeys.
-    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+    // The owner needs the member's PEER tuple (peerId + X25519 enc pub + owning actor) to add them.
+    // It comes from the member's OWN session — the peer key is per-dataRoot, read back via
+    // GetPeerPublicKeys (the actor is the session's; the peer is the dataRoot's).
+    const memberPeer = await memberClient.rpc.getPeerPublicKeys({});
 
     // Owner creates the workspace — createWorkspace roots the membership log with the owner's session
     // actor (creator = owner). Membership governance is relay-independent: addMember writes the log
     // directly (registry + session keypair, no sync wiring), so it runs BEFORE registerSync — proving
     // the decoupling. registerSync then wires the relay + captures the owner keypair for the tick.
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
-    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.addMember({
+      workspaceId: WORKSPACE,
+      peerEncPub: memberPeer.peerEncPub,
+      peerId: memberPeer.peerId,
+      owningActorId: memberPeer.owningActorId,
+    });
     await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
 
     // Eavesdropper on the SAME workspace channel — the relay routes every publish to all subscribers,
@@ -207,11 +212,16 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await openAuthedSession(ownerClient);
     await openAuthedSession(memberClient);
 
-    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+    const memberPeer = await memberClient.rpc.getPeerPublicKeys({});
 
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
     await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
-    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.addMember({
+      workspaceId: WORKSPACE,
+      peerEncPub: memberPeer.peerEncPub,
+      peerId: memberPeer.peerId,
+      owningActorId: memberPeer.owningActorId,
+    });
     const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
     await memberClient.rpc.joinWorkspace({ coordinate });
 
@@ -278,12 +288,17 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await openAuthedSession(ownerClient);
     await openAuthedSession(memberClient);
 
-    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+    const memberPeer = await memberClient.rpc.getPeerPublicKeys({});
 
     // Owner sets up the workspace AND writes content BEFORE the member joins, so "join → content
     // visible immediately" is exactly the property under test.
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
-    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.addMember({
+      workspaceId: WORKSPACE,
+      peerEncPub: memberPeer.peerEncPub,
+      peerId: memberPeer.peerId,
+      owningActorId: memberPeer.owningActorId,
+    });
     await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
     // createWorkspace seeds the single root; attach the secret-bearing content node under it.
     const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
@@ -330,10 +345,15 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     await openAuthedSession(ownerClient);
     await openAuthedSession(memberClient);
 
-    const { signPub: memberSignPub } = await memberClient.rpc.getActorPublicKeys({});
+    const memberPeer = await memberClient.rpc.getPeerPublicKeys({});
 
     await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
-    await ownerClient.rpc.addMember({ workspaceId: WORKSPACE, memberSignPub });
+    await ownerClient.rpc.addMember({
+      workspaceId: WORKSPACE,
+      peerEncPub: memberPeer.peerEncPub,
+      peerId: memberPeer.peerId,
+      owningActorId: memberPeer.owningActorId,
+    });
     await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
     const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
 

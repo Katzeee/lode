@@ -11,13 +11,15 @@ import { deriveEd25519Seed } from "./slip10.js";
 
 /**
  * Actor identity signing core — a pure leaf (only `node:crypto` + sibling identity files). The actor
- * keypair is the membership/attribution principal (design sync-identity-persistence §3): an Ed25519
- * keypair whose public key is the actor's stable identity. It can be generated at random OR derived
- * deterministically from a BIP-39 mnemonic (recovery/continuity: same words → same key; the key does
- * not rotate, so the same mnemonic re-derives the same owner on a new device).
+ * keypair is the membership/attribution principal (design sync-identity-persistence §3 + §13): an
+ * Ed25519 keypair whose public key is the actor's stable identity. It can be generated at random OR
+ * derived deterministically from a BIP-39 mnemonic (recovery/continuity: same words → same key; the
+ * key does not rotate, so the same mnemonic re-derives the same owner on a new peer).
  *
- * The Ed25519→X25519 dual-use (transit-key wrapping) lives in actor-encryption.ts. This module owns
- * signing, serialization, and mnemonic→seed→key derivation.
+ * The actor key is SIGNING-ONLY (wire attribution + governance + self-service-add). Transit-key
+ * wrapping to a per-peer X25519 key lives in `transit-wrap.ts`; the Edwards↔Montgomery dual-use was
+ * dropped (each peer has its own random X25519 key, never derived from this Ed25519 key). This
+ * module owns signing, serialization, and mnemonic→seed→key derivation.
  */
 
 const ED25519_RAW_LEN = 32;
@@ -42,6 +44,17 @@ export type ActorKeypair = {
 /** The actor's stable identity = hex of its raw Ed25519 public key. */
 export function actorIdFromPublicKey(pub: ActorPublicKey): string {
   return Buffer.from(pub).toString("hex");
+}
+
+/** Recover the raw Ed25519 public key from an actorId — actorId is the hex of the pub, so this is the
+ *  exact inverse of `actorIdFromPublicKey`. Used to verify a signer's signature from its actorId alone
+ *  (membership records carry actorIds, not sign pubs). Throws on a malformed id. */
+export function actorPublicKeyFromId(actorId: string): ActorPublicKey {
+  const bytes = Buffer.from(actorId, "hex");
+  if (bytes.length !== ED25519_RAW_LEN) {
+    throw new Error(`actorId must be ${ED25519_RAW_LEN} hex-encoded bytes (got ${bytes.length})`);
+  }
+  return new Uint8Array(bytes);
 }
 
 /** Generate a fresh random Ed25519 actor keypair (random 32-byte seed). */

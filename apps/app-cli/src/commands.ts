@@ -1,6 +1,7 @@
 import type { ParsedCli } from "./args.js";
 import { executeActorCommand } from "./commands/actor.js";
 import { executeFieldCommand, executeFieldDefCommand } from "./commands/field.js";
+import { executeIdentityCommand } from "./commands/identity.js";
 import { executeMemberCommand } from "./commands/member.js";
 import { executeNodeCommand } from "./commands/node.js";
 import { executeRefCommand } from "./commands/ref.js";
@@ -31,6 +32,8 @@ export async function executeCommand(client: ClientLike, command: ParsedCli): Pr
       return executeFieldCommand(client, command, commandKey);
     case "actor":
       return executeActorCommand(client, command, commandKey);
+    case "identity":
+      return executeIdentityCommand(client, command, commandKey);
     case "member":
       return executeMemberCommand(client, command, commandKey);
     case "sync":

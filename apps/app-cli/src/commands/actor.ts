@@ -13,11 +13,6 @@ export async function executeActorCommand(
       const { actorId, mnemonic } = await client.generateActorMnemonic({});
       return [`actor ${actorId}`, `mnemonic ${mnemonic}`].join("\n");
     }
-    case "print-pub": {
-      assertAllowedFlags(command, commandKey, []);
-      const { actorId, signPub } = await client.getActorPublicKeys({});
-      return [`actor ${actorId}`, `signPub ${Buffer.from(signPub).toString("hex")}`].join("\n");
-    }
     default:
       throw new Error(`Unknown command "${commandKey}".`);
   }

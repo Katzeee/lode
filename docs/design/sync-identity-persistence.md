@@ -123,6 +123,12 @@ CRDT-skip replay rule (skip records with a bad signature, an unknown signer, or 
 — a stale epoch) is still needed to reject forged records, but the sharp conflict edges a
 multi-admin model creates (e.g. concurrent-rotate loser content loss) do not arise.
 
+> **One edge revised 2026-07-05 by §13.** Self-service peer-add (an actor signs `add` for its own
+> peers) reopens exactly one concurrent edge this paragraph disclaimed — an `add` racing a
+> `rotate`-that-omits-the-actor. It is closed by a `staleAdd` replay guard (skip an `add` whose
+> joinEpoch trails the current epoch), mirroring `staleRotate`. The owner stays the sole authority
+> for _dangerous_ ops (kick/rotate/transfer); peer-add is not dangerous.
+
 **What the log records (protobuf in `@lode/protocol` [`membership.proto`], stored base64 in a
 LoroList; signed over the canonical proto3 body encoding — the wrapped set is `repeated`, ordered):**
 
@@ -169,12 +175,12 @@ the transit key to survivors (O(members)); content is never re-encrypted.
 
 **Self-signed root, no masterKey.** The root is signed by the owner's actor key alone. The
 actor key **is** the mnemonic-derived key (§3), so "same actorId" is cryptographic continuity
-— a recovered owner on a new device re-derives the same key and signs as owner. any-sync's
+— a recovered owner on a new peer re-derives the same key and signs as owner. any-sync's
 masterKey co-signature exists to bind a _rotating_ sign key to a stable recovery key; lode's
 actor key doesn't rotate, so co-signing is redundant. (Self-sign chosen over co-sign.)
 
-**Owner continuity vs. node death.** A dead owner device with the mnemonic alive → owner
-re-derives the same key on a new device → continues as owner or transfers. If **both** the key
+**Owner continuity vs. node death.** A dead owner peer with the mnemonic alive → owner
+re-derives the same key on a new peer → continues as owner or transfers. If **both** the key
 and the mnemonic are lost, governance is frozen (members keep rw access to existing content but
 cannot add/remove/rotate/transfer) — the honest lower bound of a no-authority model.
 **Quorum-based owner succession is out of scope.**
@@ -186,12 +192,20 @@ membership log (not a separate read-key).
 
 ## 3. Identity — actor (client/session) + per-dataRoot peerId
 
+> **Partially superseded 2026-07-05 by §13 (peer-level membership).** The actor keypair's roles
+> split: **all signing (wire attribution + governance + self-service-add) stays with the actor**,
+> which is always present in-session (CLI carries it / GUI logs in) — "all of a user's peers share
+> the same actor keypair" still holds for signing, and that IS the cross-peer attribution payoff.
+> The **transit-wrap encryption role moves to a per-peer random X25519 key**; the actor's
+> Ed25519→X25519 dual-use is dropped (`curve.ts` deleted). peerId is additionally the membership/
+> revocation unit (the peer).
+
 Two distinct identities, do not conflate them:
 
 **Actor keypair** (Ed25519, per-user) — the membership/attribution principal. **The actor is
 client-side:** the client holds the mnemonic and supplies it at `sessionHello`; the daemon
 derives the keypair transiently per session (**local recognition, not attestation** — there is
-no challenge / no proof-of-possession beyond mnemonic possession). All of a user's devices share
+no challenge / no proof-of-possession beyond mnemonic possession). All of a user's peers share
 the same actor keypair (same mnemonic).
 
 - **The daemon holds no actor private key persistently — it has no identity of its own.** It acts
@@ -217,7 +231,7 @@ It is **not** the actor (attribution) and is **not** per-actor — see §6. It i
 identity** for directed client→client requests (`sync-design.md` §3c).
 
 **No password KDF** (no argon2/scrypt/bcrypt) — same as any-sync. The mnemonic is the secret,
-held by the client. At-rest disk encryption (stolen-device) is a separate concern, out of
+held by the client. At-rest disk encryption (stolen-peer) is a separate concern, out of
 scope (sync-design.md §4).
 
 ---
@@ -274,13 +288,18 @@ like not opening the same sqlite concurrently) — a process lock, unrelated to 
 
 ## 6. Permissions are per-actor; roles are owner + member
 
-The **actor is the principal/member**; the device is just a host. Membership-log records name
-actors (pubkeys), not devices. Rationale:
+> **Superseded 2026-07-05 by §13.** Membership is now per-**peer** (peerId), not per-actor. The
+> rationale below (per-actor isolation across actors sharing one peer) still holds for
+> **attribution** — but the membership/revocation unit is the peer, and the member list groups by
+> actor with peers nested beneath. See §13.
 
-- per-device membership would let all actors on a device share one membership — but actors
+The **actor is the principal/member**; the peer is just a host. Membership-log records name
+actors (pubkeys), not peers. Rationale:
+
+- per-peer membership would let all actors on a peer share one membership — but actors
   are meant to be isolated identities (personal vs work); you do not want one actor's
   membership to leak into another's view.
-- consistent with §3 (actor is the cross-device identity) and with any-sync (account =
+- consistent with §3 (actor is the cross-peer identity) and with any-sync (account =
   member).
 - the broker routes by `workspaceId`, so multiple actors' workspaces flowing through one
   relay are isolated by distinct wsIds.
@@ -318,7 +337,7 @@ convenience, that is a local daemon UX choice layered on top, not a membership f
 ```
 <dataRoot>/
   registry.sqlite              # workspace catalog: wsId → relativePath, displayName
-  device.peerId                # this dataRoot's Loro site id (non-secret)
+  peer.peerId                # this dataRoot's Loro site id (non-secret)
   workspaces/<wsId>/           # workspace stored ONCE
     workspace.sqlite           # docs + crdt_updates + crdt_snapshots + workspace_meta
                                #   + the membership log as one of its docs/shards (syncs like any doc)
@@ -332,7 +351,10 @@ Actor identity is client-held (mnemonic), not in the dataRoot.
 
 ## 9. Recovery model — re-add by the owner, then full history via the chain
 
-A lost device loses its local transit keys (and its peerId); the actor key is mnemonic-derived,
+> **Recovery primary story superseded 2026-07-05 by §13 (fork).** Re-add below remains the _normal_
+> new-peer flow; **recovery** from kicked / lost-owner / rogue-owner is now **fork** — see §13.
+
+A lost peer loses its local transit keys (and its peerId); the actor key is mnemonic-derived,
 so it survives if the mnemonic was backed up. Recovery is:
 
 1. Enter mnemonic → derive the actor Ed25519 key (same actor pubkey as before — the actor key
@@ -349,14 +371,13 @@ The win over a read-key-only model: re-add restores your current transit key (an
 re-key chain leaves the door open to full-history recovery once the walker ships). The bootstrap
 (finding/re-joining the workspace) stays social.
 
-**Owner continuity vs. node death** is the same mechanism: a dead owner device with the
-mnemonic alive → re-derive the same key on a new device → continue as owner or `transfer`. If
+**Owner continuity vs. node death** is the same mechanism: a dead owner peer with the
+mnemonic alive → re-derive the same key on a new peer → continue as owner or `transfer`. If
 both key and mnemonic are lost, governance is frozen (quorum succession is out of scope — see
-§2/§11).
+§2).
 
-**Open question:** self-service workspace _discovery_ on a fresh device (without a
-coordinator) is unsolved. The design relies on social re-add; a lightweight discovery path is
-out of scope. See §11.
+Recovery on a fresh peer is **social re-add** (§9 steps 1–3): the new peer enters its
+mnemonic + the owner re-adds its actor. There is no coordinator to self-discover workspaces.
 
 ---
 
@@ -369,16 +390,26 @@ transit-key wrapping + the re-key chain round-trip; the owner/member lifecycle (
 
 ---
 
-## 11. Supersessions & open questions
+## 11. Supersessions & stable decisions
 
 **Superseded by the current design pass:**
 
+- **Transit-wrap encryption → per-peer X25519 key (§13, supersedes parts of §3 and all of §6).**
+  The actor keypair KEEPS all signing (wire attribution + governance + self-service-add) and stays
+  always-present in-session; only the transit-wrap target moves from the actor's Ed25519→X25519
+  dual-use derivative to a per-peer random X25519 key. Membership is per-peer (peerId);
+  revocation = rotate omits the peer. The actor's Ed↔Montgomery conversion (`curve.ts`) is deleted.
+  (Corrects an earlier draft that moved wire signing to peer keys — retracted: it would break
+  cross-peer attribution.)
+- **Recovery = fork (§13).** Kicked / lost-owner / rogue-owner all recover by forking the local copy
+  into a new workspace. Supersedes the §9 "social re-add" framing as the primary recovery story
+  (re-add still exists for the normal new-peer case).
 - **No daemon identity / no daemon-side actor keystore.** The daemon does not pick an actor or
   persist actor keys. Actors are client/session-side (mnemonic at hello); sync uses the session
   actor's key in-memory. Supersedes the earlier `actors.sqlite` + per-actor keystore + daemon
   `--actor-mnemonic` design (§3, §4, §5).
 - **Membership auth = local recognition, no attestation.** mnemonic-at-hello, not challenge-response (§4).
-- **`device peerId`** is just **per-dataRoot peerId** (and now also the routing identity) — §3.
+- **`peerId`** is just **per-dataRoot peerId** (and now also the routing identity) — §3.
 - **Peer-sync wire folded into the engine** (§1, reversed 2026-07-05). The broker wire +
   `BrokerSyncProtocol` protocol moved from a separate `@lode/transport` package into
   `@lode/engine` (`src/runtime/broker/`); `@lode/transport` is deleted. Supersedes the earlier
@@ -395,16 +426,6 @@ transit-key wrapping + the re-key chain round-trip; the owner/member lifecycle (
 - **Record format = protobuf** in `@lode/protocol` (Loro stores the bytes); signing is over the
   deterministic protobuf encoding (wrapped set as `repeated`, not `map`, for canonical order).
 
-**Open questions:**
-
-- **Workspace discovery on a fresh device** without a coordinator (§9) — social re-add only.
-- **Owner succession when key + mnemonic are both lost** — governance frozen; quorum-based
-  succession is out of scope (§2, §9).
-- **Re-key-chain walker** (history-epoch transit recovery) — out of scope; the chain is stored
-  on each rotate record, but no walker is provided (§2, §9).
-- **Local default-access UX** (do all local actors open all local workspaces by default, or is
-  it gated everywhere?) — §7. A daemon UX choice, not a membership fact.
-
 ---
 
 ## 12. Structural decomposition
@@ -418,3 +439,147 @@ transit-key wrapping + the re-key chain round-trip; the owner/member lifecycle (
    client-registered service (in-memory); `createWorkspace` inits the root with the session actor.
 3. **join/sync split:** join establishes membership (directed fetch); sync does content.
 4. **Relay form** (`--listen` optional) + a periodic anti-entropy round + a manual trigger.
+
+---
+
+## 13. Peer-level membership & per-peer keys (2026-07-05 design pass)
+
+> Resolves the peer-revocation gap in §3/§6. Adds a per-peer X25519 key as the transit-wrap
+> target; the actor key KEEPS all signing and is always present in-session. Corrects an earlier
+> draft that moved wire signing to peer keys (retracted — it would break cross-peer attribution,
+> and member peers are always logged in anyway). Supersede markers sit inline at §2, §3, §6, §9;
+> [`sync-design.md`](./sync-design.md) §6; registered in §11.
+
+**The shift (corrected model).** A new **peer key** (random X25519, per-dataRoot) becomes the
+**transit-wrap target**, making each peer independently revocable. The **actor keypair**
+(mnemonic-derived Ed25519) **keeps all signing** — wire attribution, governance, self-service-add —
+and is **always present in-session** (CLI carries the actor; GUI logs in as an actor; background sync
+holds the registered actor's key in-memory). The peer key never signs. peerId stays the non-secret
+routing/CRDT id and is additionally the **membership unit** — the thing admitted and revoked.
+
+**Why the move (problem statement).** Today transit is wrapped to the actor's encPub, derived (via
+Ed25519→X25519 dual-use) from the mnemonic-derived signPub. Every peer of an actor shares one
+encPub/encPriv, so `rotate` re-wraps to the same encPub: a lost peer holding the mnemonic can always
+re-derive encPriv and unwrap every new transit key. **Per-peer revocation was impossible.** Moving
+only the transit-wrap target to a per-peer random X25519 key makes each peer independently
+revocable, while leaving attribution on the actor (so Alice's edits from any peer all show "Alice").
+
+**Identity, three layers — do not conflate:**
+
+- **peerId** (random, per-dataRoot, non-secret) — Loro replica site id + routing id + **the membership
+  unit** (admitted/revoked as one peer). Unchanged from §3 except it is now the revocation handle.
+- **peer key** (random X25519-only, generated on-peer, persisted per-dataRoot alongside peerId,
+  never mnemonic-derived) — the transit-wrap target (encPub). This is the key that gets revoked. It
+  never signs.
+- **actor** (mnemonic → Ed25519, always present in-session) — signs wire payloads (attribution,
+  cross-peer consistent), governance records (owner), and self-service-add records. The mnemonic is
+  the recovery root; the actor private key is derived at session hello and held in-session, not
+  persisted on disk by the daemon (unchanged from §3/§4).
+
+**Membership-log record shape (proto + state).** Records name **peers**, not bare actors:
+
+- Each admitted peer = `(peerId, owningActorId, peerEncPub, wrappedTransit, joinEpoch)`. The
+  `signPub` is the **actor's** signPub (peers don't sign); it lives on an **`actors` index**, set
+  when the owner first adds a peer of that actor.
+- `MembershipState` becomes `peers: Map<peerId, Peer>` + `actors: Map<actorId, { signPub }>`. The
+  member-list UI groups `peers` by `owningActorId`.
+- Proto reshape: `MemberWrap`→`PeerWrap` (renamed — it holds a peer) and `AddRecord` —
+  `actor_id`→`owning_actor_id`, `enc_pub`→`peer_enc_pub`, add `peer_id`. `RootRecord` —
+  `owner_enc_pub`→`owner_peer_enc_pub` + `owner_peer_id`. `RotateRecord.wrapped` is a peer list;
+  survivor comparison by peerId.
+
+**Signing rule + replay (the core change).** `MembershipRecord.signer` is an **actorId** throughout
+(no peer-key signing). Authorization broadens from "owner signs everything":
+
+- `root` / `rotate` / `transfer`: signed by the **owner actor** (governance), as today.
+- `add`: valid if `signer == owner` (owner adding anyone's peer) **OR** `signer == owningActor` AND
+  that actor already has ≥1 admitted peer (self-service).
+- `verifySignature` resolves signer (actorId) → signPub via the **`actors` index**, not the peer map.
+- **`staleAdd` guard (new, mirrors `staleRotate`)**: an `add` whose `joinEpoch` trails the current
+  epoch is skipped. This closes the concurrent edge self-service-add reopens (§2 amendment): an `add`
+  racing a `rotate`-that-omitted-the-actor cannot re-admit the actor on a stale transit. The replay's
+  skip-set gains `staleAdd`; determinism is preserved.
+
+**Adding peers (UX-confirmed).**
+
+- **Owner approves an actor's first peer** (signs the first `add`; establishes the actor in the
+  `actors` index). Owner-only governance.
+- **An actor self-adds further peers** (signs the `add` itself — actor-signed, not peer-signed;
+  no owner round-trip).
+- **The owner may also add** further peers to any actor. Adding is not a dangerous op; **kick is
+  owner-only**. Self-service is bounded by per-peer + per-actor revocation.
+
+**Revocation = rotate omits the peerId.** Reuses the atomic removeAndRotate: the omitted
+peer cannot unwrap the new transit key, so it can neither read new content nor produce a
+decryptable update (peers' `open()` fails AEAD first). The actor signing key it still holds is useless
+without transit. Wire `seal`/`open` are unchanged — the actor still signs; only the membership
+layer's wrap target moved. The `wrapped` set IS the owner-signed roster: a peer the owner LISTS is
+admitted (owner-signed onboarding via rotate is valid), a peer omitted is revoked. This admission
+semantics is required for CRDT convergence — a concurrent `add(X,epoch=N)` + `rotate([…,X],epoch=N+1)`
+lands X admitted at epoch N+1 in both merge orders (add-before-rotate re-keys X; rotate-before-add
+admits X from the roster and the stale add is skipped).
+
+**Kicked / lost-owner / rogue-owner — one recovery mechanism: fork.** Local-first means a kicked
+peer **keeps its local copy** (data already replicated cannot be recalled — accepted). Any surviving
+member can **fork**:
+
+- **Mint a new wsId** (same wsId on one relay would collide on the channel).
+- **Start from an EMPTY membership log + a fresh `root`** signed by the forker's actor (the forker is
+  logged in). Do NOT copy the old log — the old owner's root would rank first and brick governance.
+- The fresh `root` carries the forker's **peer** encPub + peerId (root reshaped per above); transit
+  wraps to it. The forker is the new owner; the new workspace starts at epoch 0 (the re-key chain
+  does NOT carry over — fork is a new workspace, no historical-epoch continuity).
+- Content (treeDoc + shards) is copied into the new workspace.
+
+One mechanism covers kicked-individual, lost-owner (governance frozen), and rogue-owner (kicked
+everyone) — no special cases. **Rogue-owner is not defended against**; fork is the symmetric answer
+("owner kicked us all" ≈ "we all forked away"). Re-add (§9) remains the _normal_ new-peer flow;
+fork is the _recovery_ flow.
+
+**Identity in the UI.**
+
+- The **member list groups by actor**, peers nested beneath: `Alice (owner) / [Alice's laptop,
+Alice's phone]`. Users see people, not peerIds.
+- **Actor name** is self-declared (first run), replicated with the actor — edits from any of Alice's
+  peers show "Alice" (the cross-peer attribution payoff, which is WHY signing stays on the actor).
+  Visible in: member list, edit attribution, @-mentions, owner badge.
+- **Peer name** is self-declared at install ("Alice's laptop"), stored on the peer record.
+  Visible in: the peer-management screen and the revoke picker.
+- **Same peer, multiple actors**: if Alice and Bob share one peerId, edits still attribute
+  per-actor — `edited by Alice` vs `edited by Bob` (attribution rides the actor signature). Rare; no
+  special UI.
+
+**Rename / reshape pass (no backward-compat — thorough refactor).**
+
+- **Crypto:** `actor-encryption.ts` → `transit-wrap.ts` (wrap/unwrap retargeted to peer X25519);
+  **delete `curve.ts`** (Ed↔Montgomery — zero consumers after the move); delete
+  `actorEncryptionPublic/Private`; update `actor-key.ts` docstring (Ed25519 signing-only); drop the
+  re-exports in `utils/crypto/index.ts` and `engine/src/index.ts`.
+- **State/types:** `Member` → `Peer`; `MemberPublicKeys` → `PeerPublicKeys`;
+  `MembershipState.members: Map<actorId>` → `peers: Map<peerId>` (no separate `actors` index — the
+  signer's signPub is recovered from its actorId via `actorPublicKeyFromId`, since actorId IS the hex
+  of the Ed25519 pub); `unwrapCurrentTransitKey` takes a `LocalPeer`.
+- **Proto:** `MemberWrap`→`PeerWrap`, `RootRecord`/`AddRecord` reshaped (above);
+  `AddMemberRequest.member_sign_pub` → `(peer_enc_pub, peer_id, owning_actor_id)`;
+  `MembershipRecord.signer` comment notes the owner-or-self-add cases.
+- **Daemon:** `sync-runner.ts registrations: Map<wsId, ActorKeypair>` STAYS actor-per-workspace (the
+  peer key + peerId are per-dataRoot, not per-registration); `AppWorkspaceRuntime.localPeerFor(actor)` bundles `{actor, peer, peerId}` for the daemon's wire-security + addMember sites.
+- **Docs:** §2/§3/§6/§9 markers, `sync-design.md` §6 marker, this section — drop all "actor encPub /
+  Ed25519→X25519 dual-use" language that no longer applies.
+
+**Decided (stable):**
+
+- Membership unit = peerId (peer). Peer key = random X25519, transit-wrap target only, never signs.
+- Actor key = all signing (wire attribution + governance + self-service-add); mnemonic-derived;
+  always present in-session.
+- Peer-add: owner first / actor self-service / owner may also add. Kick = owner-only rotate that
+  omits the peerId.
+- Replay: peer-keyed state + `actors` index + `staleAdd` guard.
+- Recovery (kicked / lost-owner / rogue-owner) = fork (new wsId, empty log, fresh forker-signed root,
+  copy content). No quorum/social-recovery machinery this pass.
+- Identity display: actor name (self-declared, replicated, groups the member list); peer name
+  (self-declared at install, on the peer record).
+
+**Still out of scope:** mnemonic-loss governance recovery beyond fork (quorum / social-recovery
+signing); walking the re-key chain backward for historical-epoch transit keys (§9); fork re-key-chain
+continuity (fork starts epoch 0).

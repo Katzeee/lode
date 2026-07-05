@@ -156,6 +156,7 @@ message UnsubscribeDocRequest {
 message CreateWorkspaceRequest {
   optional string workspace_id = 1;
   string display_name = 2;
+  optional string peer_name = 3; // the creator's peer label ("Alice's laptop"); stored on the root
 }
 
 message RemoveWorkspaceRequest {
@@ -420,9 +421,54 @@ message MoveSiblingRequest {
 // the owner identity); mobile wires its own equivalent in-process. The wire contract stays here so
 // every client surface speaks the same LodeCommands service.
 
+// Owner adds a peer (an actor's first peer, or a further peer the owner is admitting). The
+// joiner hands their peer tuple (peerId + X25519 enc pub) + owning actor to the owner out of band.
 message AddMemberRequest {
   string workspace_id = 1;
-  bytes member_sign_pub = 2; // 32-byte Ed25519 sign pub of the actor being added
+  bytes peer_enc_pub = 2;     // 32-byte X25519 of the peer being admitted
+  string peer_id = 3;         // the peerId
+  string owning_actor_id = 4; // hex Ed25519 pub of the actor owning this peer
+  optional string peer_name = 5; // the peer's human label (from the identity token)
+}
+
+// This session's local peer identity (per-dataRoot peerId + X25519 enc pub + the session's actor).
+// The tuple a joiner hands to an owner out-of-band so the owner can `AddMember` it.
+message GetPeerPublicKeysResponse {
+  string peer_id = 1;
+  bytes peer_enc_pub = 2;
+  string owning_actor_id = 3;
+}
+
+// A portable identity token — the ONE thing a user exports (`lode identity export`) and hands to an
+// owner out-of-band; the owner pastes it into `lode member add`. Bundles the (actor + peer) tuple so
+// the user never handles the individual cryptographic fields. Wire format: `lode-id1.<base64url(
+// PeerIdentityToken)>`. `display_name` is advisory (shown by the owner's CLI on add; the membership
+// log keys on `actor_id`). Defined here so the format is shared across every client surface.
+message PeerIdentityToken {
+  string actor_id = 1;
+  string peer_id = 2;
+  bytes peer_enc_pub = 3;
+  string display_name = 4;    // advisory actor display name (shown by the owner's CLI on add)
+  string peer_name = 5;       // the peer's human label ("Alice's laptop"); stored on the peer record
+}
+
+// `lode member list` — the current roster, projected from the membership log. Peers are returned
+// FLAT (the membership unit); the CLI groups them by `owning_actor_id` and flags the owner. No
+// transit material leaks here (this is a read-only roster view, not `PeerWrap`).
+message ListMembersRequest {
+  string workspace_id = 1;
+}
+
+message ListedPeer {
+  string peer_id = 1;
+  string peer_name = 2;
+  string owning_actor_id = 3;
+}
+
+message ListMembersResponse {
+  repeated ListedPeer peers = 1;
+  string owner = 2;   // owner actorId
+  int32 epoch = 3;    // current epoch
 }
 
 message ActorPublicKeys {

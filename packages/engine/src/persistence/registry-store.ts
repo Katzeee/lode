@@ -104,7 +104,7 @@ export class RegistryStore {
   }
 
   /**
-   * Get-or-create this dataRoot's stable device peerId — the Loro replica site id, set on
+   * Get-or-create this dataRoot's stable peerId — the Loro replica site id, set on
    * every LoroDoc (see ShardedBlockStore.peerId). Generated once and persisted in
    * registry_meta so the version vector stays stable across restarts. 48-bit random: only
    * collisions among concurrent editors of the SAME doc across replicas matter, and 2^48

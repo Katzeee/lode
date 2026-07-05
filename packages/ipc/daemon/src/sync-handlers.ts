@@ -2,13 +2,21 @@ import { create } from "@bufbuild/protobuf";
 import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
 import type {
   AddMemberRequest,
+  GetPeerPublicKeysResponse,
   JoinWorkspaceRequest,
+  ListMembersRequest,
+  ListMembersResponse,
   RegisterSyncRequest,
   ShareWorkspaceRequest,
   SyncNowRequest,
   WorkspaceCoordinate,
 } from "@lode/protocol/proto";
-import { WorkspaceCoordinateSchema } from "@lode/protocol/proto";
+import {
+  GetPeerPublicKeysResponseSchema,
+  ListedPeerSchema,
+  ListMembersResponseSchema,
+  WorkspaceCoordinateSchema,
+} from "@lode/protocol/proto";
 import type { AppRuntime } from "@lode/engine";
 import type { DaemonSyncRunner } from "./sync-runner.js";
 
@@ -22,6 +30,8 @@ const EMPTY: Empty = create(EmptySchema);
  *  directly (no sync wiring needed); the others go through the runner. */
 export type SyncHandlers = {
   addMember: (req: AddMemberRequest, connectionId: string) => Promise<Empty>;
+  listMembers: (req: ListMembersRequest, connectionId: string) => ListMembersResponse;
+  getPeerPublicKeys: (req: Empty, connectionId: string) => GetPeerPublicKeysResponse;
   shareWorkspace: (req: ShareWorkspaceRequest, connectionId: string) => WorkspaceCoordinate;
   joinWorkspace: (req: JoinWorkspaceRequest, connectionId: string) => Promise<Empty>;
   registerSync: (req: RegisterSyncRequest, connectionId: string) => Promise<Empty>;
@@ -59,9 +69,49 @@ export function createSyncHandlers(
       if (!log) {
         throw new Error(`addMember: workspace not loaded: ${req.workspaceId}`);
       }
-      log.addMember(owner, req.memberSignPub);
+      // The owner unwraps the current transit via its OWN peer, then re-wraps it to the joiner's peer.
+      log.addMember(workspaces.localPeerFor(owner), {
+        peerId: req.peerId,
+        owningActorId: req.owningActorId,
+        peerEncPub: req.peerEncPub,
+        peerName: req.peerName ?? "",
+      });
       await log.persistIfDirty();
       return EMPTY;
+    },
+    // Read-only roster: project the replayed membership state — peers (flat: peerId + peer_name +
+    // owning actor) + owner + epoch. Backs `lode member list` (the CLI groups by actor, owner flagged).
+    listMembers: (req, connectionId) => {
+      sessions.requireOrigin(connectionId);
+      const log = workspaces.membershipLog(req.workspaceId);
+      if (!log) {
+        throw new Error(`listMembers: workspace not loaded: ${req.workspaceId}`);
+      }
+      const { state } = log.deriveState();
+      return create(ListMembersResponseSchema, {
+        owner: state.owner,
+        epoch: state.currentEpoch,
+        peers: [...state.peers.entries()].map(([peerId, p]) =>
+          create(ListedPeerSchema, {
+            peerId,
+            peerName: p.peerName,
+            owningActorId: p.owningActorId,
+          }),
+        ),
+      });
+    },
+    // This session's local peer identity — the tuple (peerId + X25519 enc pub + owning actor) a
+    // joiner hands to an owner out-of-band so the owner can `addMember` it. Session-gated (the owning
+    // actor is the session's).
+    getPeerPublicKeys: (_req, connectionId) => {
+      sessions.requireOrigin(connectionId);
+      const { keypair } = sessions.getActorKeypair(connectionId);
+      const local = workspaces.localPeerFor(keypair);
+      return create(GetPeerPublicKeysResponseSchema, {
+        peerId: local.peerId,
+        peerEncPub: local.peer.publicKey,
+        owningActorId: local.actor.actorId,
+      });
     },
     shareWorkspace: (req, connectionId) => {
       sessions.requireOrigin(connectionId);

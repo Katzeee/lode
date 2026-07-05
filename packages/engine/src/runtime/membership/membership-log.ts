@@ -5,18 +5,16 @@ import type { MembershipPersistence } from "./membership-persistence.js";
 import { bodyBytes, deriveMembershipState } from "./membership-replay.js";
 import {
   aeadEncrypt,
-  actorEncryptionPrivate,
-  actorEncryptionPublic,
-  actorIdFromPublicKey,
   signWithActor,
   unwrapKey,
   wrapKey,
   type ActorKeypair,
+  type PeerKeypair,
 } from "../../utils/crypto/index.js";
 import type { SyncDoc } from "../../core/sharded-store.js";
 import {
   AddRecordSchema,
-  MemberWrapSchema,
+  PeerWrapSchema,
   MembershipRecordSchema,
   RootRecordSchema,
   RotateRecordSchema,
@@ -28,55 +26,73 @@ const log = createLogger("engine.membership");
 
 /**
  * The membership log — the in-process sync core's membership half (design sync-identity-persistence
- * §2). NOT an ACL: lode has no authoritative server, so this is a replicated, signed, append-only log
- * of who is in a workspace, who owns it, and each member's transit key. Two roles only: owner (the
- * single governance authority) + member(rw). The owner alone signs governance records; members are
- * full rw.
+ * §2 + §13). NOT an ACL: lode has no authoritative server, so this is a replicated, signed, append-only
+ * log of which PEERS are in a workspace, who owns it, and each peer's transit key. Two roles only:
+ * owner (the single governance authority) + member(rw).
+ *
+ * Peer model (§13): the membership unit is the peer (one peerId). Each admitted peer carries a
+ * random X25519 enc pub; the owner wraps the transit key to it; the peer unwraps with its private
+ * scalar. Revocation = rotate omits the peerId. The ACTOR key signs everything (wire
+ * attribution + governance + self-service-add); actorId is the hex of the Ed25519 sign pub, so the
+ * sign pub is recovered from the signer's actorId at verify time (records carry no sign pub field).
  *
  * Records are protobuf (MembershipRecord) bytes in a LoroList, so the log is itself a Loro doc that
- * syncs like any other. A record is
- * SKIPPED at replay (not fatal) if its signature fails, its signer is unknown, its signer isn't the
- * current owner, or (rotate) its epoch isn't strictly ahead of the current. Deterministic given the
- * merged list → every replica converges. Owner-only governance means there is no multi-admin
- * concurrent conflict to resolve.
+ * syncs like any other. A record is SKIPPED at replay (not fatal) if its signature fails, its signer
+ * isn't authorized (owner for governance; the owning actor for a self-service add), it's a `root`
+ * after the first, it's a `transfer` to a non-member actor or to the current owner, it's a `rotate`
+ * whose epoch isn't strictly ahead or that drops every owner peer, or it's an `add` whose join epoch
+ * trails the current (staleAdd). Deterministic given the merged list → every replica converges.
  *
- * Re-key chain: each rotate's enc_prev = AEAD(newTransitKey, oldTransitKey), so a current member
- * walks back to decrypt transit from any prior epoch; a revoked member cannot. Rotate only re-wraps
- * the transit key (O(members)); content is never re-encrypted (transport-only encryption).
- *
- * Signatures are the actor Ed25519 key; transit-key wrapping uses the dual-use X25519 derived from
- * each actor's Ed25519 key. Signatures cover the deterministic proto3 encoding of
- * the record's `body` (the wrapped set is `repeated MemberWrap`, ordered — so the signed bytes are
- * canonical). The actor key is mnemonic-derived and does not rotate, so the root is self-signed and
- * "same actorId" is cryptographic continuity (no masterKey co-sign).
+ * Signatures cover the deterministic proto3 encoding of the record's `body` (the wrapped set is
+ * `repeated PeerWrap`, ordered — so the signed bytes are canonical). The actor key is
+ * mnemonic-derived and does not rotate, so the root is self-signed and "same actorId" is cryptographic
+ * continuity (no masterKey co-sign).
  */
 
 /** The reserved sync docId for the membership log. The log is a PUBLIC signed roster (transit keys
- *  inside it are per-member wrapped, so the log itself isn't secret) → it rides the broker's plaintext
- *  envelope so a joining device can read it BEFORE it holds the transit key (bootstrap). */
+ *  inside it are per-peer wrapped, so the log itself isn't secret) → it rides the broker's plaintext
+ *  envelope so a joining peer can read it BEFORE it holds the transit key (bootstrap). */
 export const MEMBERSHIP_DOC_ID = "membership";
 
 const LOG_CONTAINER = "membership_log";
 
-export type Member = {
-  /** Raw 32-byte Ed25519 public key (verifies this member's signatures). */
-  signPub: Uint8Array;
-  /** Raw 32-byte X25519 public key (dual-use; the transit key is wrapped to this). */
-  encPub: Uint8Array;
+/** One admitted peer in the replayed state. The transit key is wrapped to `peerEncPub`. */
+export type Peer = {
+  /** Hex Ed25519 pub of the owning actor (attribution; the actor signs, the peer never does). */
+  owningActorId: string;
+  /** 32-byte X25519 — the transit key is wrapped to this. */
+  peerEncPub: Uint8Array;
   epoch: number;
-  /** The current-epoch transit key, sealed to encPub. */
+  /** The current-epoch transit key, sealed to peerEncPub. */
   wrappedTransit: Uint8Array;
+  /** Human label ("Alice's laptop"); set at admission, advisory (UI-only). */
+  peerName: string;
 };
 
 export type MembershipState = {
   owner: string;
-  members: Map<string, Member>;
+  /** Keyed by peerId — the membership/revocation unit. */
+  peers: Map<string, Peer>;
   currentEpoch: number;
 };
 
-/** A member's public identity — the owner knows each member's sign + enc pubkeys; the private key
- *  never leaves the member's device. The single input shape for `appendAdd` and `appendRotate`. */
-export type MemberPublicKeys = { actorId: string; signPub: Uint8Array; encPub: Uint8Array };
+/** A peer's public identity — the single input shape for `appendAdd` and `appendRotate`. The owner
+ *  knows each peer — peerId + owning actor + X25519 enc pub; the peer private key never leaves the
+ *  peer. */
+export type PeerPublicKeys = {
+  peerId: string;
+  owningActorId: string;
+  peerEncPub: Uint8Array;
+  peerName: string;
+};
+
+/** The local replica's identity bundle: the actor (signs) + the peer (unwraps transit) + peerId.
+ *  The actor is always present in-session (CLI/GUI login); the peer key is loaded per-dataRoot. */
+export type LocalPeer = {
+  readonly actor: ActorKeypair;
+  readonly peer: PeerKeypair;
+  readonly peerId: string;
+};
 
 export class MembershipLog {
   readonly doc: LoroDoc;
@@ -152,69 +168,74 @@ export class MembershipLog {
     };
   }
 
-  // ── record builders (owner signs + appends) ────────────────────────────────────
+  // ── record builders ────────────────────────────────────────────────────────────
 
-  /** Create the workspace: owner self-signs; the transit key wrapped to the owner. */
-  appendRoot(owner: ActorKeypair, transitKey: Uint8Array): void {
-    const ownerEncPub = actorEncryptionPublic(owner.publicKey);
-    this.appendSigned(owner, {
+  /** Create the workspace: the owner's actor self-signs; the transit key wrapped to the owner's FIRST
+   *  peer. Only the owner's actor key signs (governance); the owner's peer enc pub + peerId seed
+   *  the peer roster. `peerName` is the owner's first peer's human label (advisory, UI-only). */
+  appendRoot(owner: LocalPeer, transitKey: Uint8Array, peerName: string): void {
+    this.appendSigned(owner.actor, {
       case: "root",
       value: create(RootRecordSchema, {
-        owner: owner.actorId,
-        ownerSignPub: owner.publicKey,
-        ownerEncPub,
-        wrappedTransit: wrapKey(ownerEncPub, transitKey),
+        owner: owner.actor.actorId,
+        ownerPeerEncPub: owner.peer.publicKey,
+        ownerPeerId: owner.peerId,
+        wrappedTransit: wrapKey(owner.peer.publicKey, transitKey),
         epoch: 0,
+        peerName,
       }),
     });
   }
 
-  /** Owner adds a member; the current transit key wrapped to them. `epoch` should be the current
-   *  epoch (deriveState().state.currentEpoch) at add time — it records when the member joined. Only the
-   *  member's public identity is needed (their private key never leaves their device). */
+  /** Add a peer. `signer` is the actor signing: the OWNER (adding an actor's first peer or any
+   *  peer) OR the owning actor themselves (self-service — `signer.actorId === peer.owningActorId`).
+   *  The replay authorizes both. `transitKey` is the raw current-epoch transit key (the caller unwrapped
+   *  it); it is wrapped to the new peer's enc pub. `epoch` should be the current epoch. */
   appendAdd(
-    owner: ActorKeypair,
-    member: MemberPublicKeys,
+    signer: ActorKeypair,
+    peer: PeerPublicKeys,
     transitKey: Uint8Array,
     epoch: number,
   ): void {
-    this.appendSigned(owner, {
+    this.appendSigned(signer, {
       case: "add",
       value: create(AddRecordSchema, {
-        actor: member.actorId,
-        signPub: member.signPub,
-        encPub: member.encPub,
-        wrappedTransit: wrapKey(member.encPub, transitKey),
+        owningActor: peer.owningActorId,
+        peerEncPub: peer.peerEncPub,
+        peerId: peer.peerId,
+        wrappedTransit: wrapKey(peer.peerEncPub, transitKey),
         epoch,
+        peerName: peer.peerName,
       }),
     });
   }
 
-  /** Owner re-keys. `survivors` IS the new membership: listed members get the new transit key; anyone
-   *  omitted is revoked (atomic removeAndRotate). The owner must be a survivor — they cannot rotate
-   *  themselves out (the owner is always a member). encPrev chains the old key under the new (stored
-   *  on the rotate record for future history decryption; not projected into state until something
-   *  reads it). */
+  /** Owner re-keys. `survivors` IS the new peer roster: listed peers get the new transit key; any
+   *  peer omitted is revoked (atomic removeAndRotate). The owner must keep ≥1 surviving peer —
+   *  governance signs with the actor key (always held), but reading/producing content needs the peer
+   *  key to unwrap transit, so dropping every owner peer would brick the workspace. encPrev chains
+   *  the old key under the new. */
   appendRotate(
     owner: ActorKeypair,
-    survivors: MemberPublicKeys[],
+    survivors: PeerPublicKeys[],
     newKey: Uint8Array,
     oldKey: Uint8Array,
     newEpoch: number,
   ): void {
-    if (!survivors.some((s) => s.actorId === owner.actorId)) {
-      throw new Error("appendRotate: survivors must include the owner");
+    if (!survivors.some((s) => s.owningActorId === owner.actorId)) {
+      throw new Error("appendRotate: survivors must include a peer of the owner");
     }
     this.appendSigned(owner, {
       case: "rotate",
       value: create(RotateRecordSchema, {
         epoch: newEpoch,
         wrapped: survivors.map((s) =>
-          create(MemberWrapSchema, {
-            actorId: s.actorId,
-            signPub: s.signPub,
-            encPub: s.encPub,
-            wrappedTransit: wrapKey(s.encPub, newKey),
+          create(PeerWrapSchema, {
+            peerId: s.peerId,
+            owningActorId: s.owningActorId,
+            peerEncPub: s.peerEncPub,
+            wrappedTransit: wrapKey(s.peerEncPub, newKey),
+            peerName: s.peerName,
           }),
         ),
         encPrev: aeadEncrypt(newKey, oldKey),
@@ -222,8 +243,8 @@ export class MembershipLog {
     });
   }
 
-  /** Owner transfers ownership to an existing member. The new owner already holds the transit key;
-   *  only governance authority moves. The old owner stays on as a member. */
+  /** Owner transfers ownership to an actor that already owns ≥1 peer (so the new owner already holds
+   *  the transit key). Only governance authority moves; the old owner's peers stay admitted. */
   appendTransfer(owner: ActorKeypair, newOwnerActorId: string): void {
     this.appendSigned(owner, {
       case: "transfer",
@@ -231,16 +252,16 @@ export class MembershipLog {
     });
   }
 
-  /** Sign a record body with the owner's key and append the full MembershipRecord. */
-  private appendSigned(owner: ActorKeypair, body: MembershipRecord["body"]): void {
-    const sig = signWithActor(owner.privateKey, bodyBytes(body));
-    this.append(create(MembershipRecordSchema, { signer: owner.actorId, sig, body }));
+  /** Sign a record body with the signer actor's key and append the full MembershipRecord. */
+  private appendSigned(signer: ActorKeypair, body: MembershipRecord["body"]): void {
+    const sig = signWithActor(signer.privateKey, bodyBytes(body));
+    this.append(create(MembershipRecordSchema, { signer: signer.actorId, sig, body }));
   }
 
   // ── state derivation / decryption ───────────────────────────────────────────────
 
   /** Replay every record into a membership state + the records that were skipped. The replay rules
-   *  (signature + owner authorization + the authority-independent invariants) live in
+   *  (signature + authorization + the authority-independent invariants) live in
    *  `membership-replay.ts`. Deterministic given the merged list → every replica converges. */
   deriveState(): { state: MembershipState; skipped: MembershipRecord[] } {
     const result = deriveMembershipState(this.list.toArray());
@@ -256,38 +277,28 @@ export class MembershipLog {
     return result;
   }
 
-  /** A member unwraps its current-epoch transit key. */
-  unwrapCurrentTransitKey(state: MembershipState, member: ActorKeypair): Uint8Array {
-    const m = state.members.get(member.actorId);
-    if (!m) {
-      throw new Error(`not a member: ${member.actorId}`);
+  /** The local peer unwraps its current-epoch transit key. Throws if this peer isn't admitted. */
+  unwrapCurrentTransitKey(state: MembershipState, local: LocalPeer): Uint8Array {
+    const d = state.peers.get(local.peerId);
+    if (!d) {
+      throw new Error(`peer not admitted: ${local.peerId}`);
     }
-    return unwrapKey(actorEncryptionPrivate(member.privateKey), m.wrappedTransit);
+    return unwrapKey(local.peer.privateKey, d.wrappedTransit);
   }
 
-  /** Owner-only governance: add a member (their raw Ed25519 sign pub) at the current epoch. Composes
-   *  `deriveState` + the owner guard + transit-key unwrap + `appendAdd`. Throws if `owner` isn't the
-   *  workspace owner. Only the member's public identity is needed; their private key never leaves their
-   *  device. Does NOT persist — the caller flushes via `persistIfDirty()`, like the raw appends. */
-  addMember(owner: ActorKeypair, memberSignPub: Uint8Array): void {
+  /** Owner-only governance: add a peer at the current epoch. Composes `deriveState` + the owner
+   *  guard + transit-key unwrap (via the owner's own peer) + `appendAdd`. Throws if `owner` isn't
+   *  the workspace owner. Does NOT persist — the caller flushes via `persistIfDirty()`. */
+  addMember(owner: LocalPeer, newPeer: PeerPublicKeys): void {
     const { state } = this.deriveState();
     if (state.owner === "") {
       throw new Error("addMember: workspace has no owner root");
     }
-    if (state.owner !== owner.actorId) {
+    if (state.owner !== owner.actor.actorId) {
       throw new Error("addMember: only the owner can add members");
     }
     const transitKey = this.unwrapCurrentTransitKey(state, owner);
-    this.appendAdd(
-      owner,
-      {
-        actorId: actorIdFromPublicKey(memberSignPub),
-        signPub: memberSignPub,
-        encPub: actorEncryptionPublic(memberSignPub),
-      },
-      transitKey,
-      state.currentEpoch,
-    );
+    this.appendAdd(owner.actor, newPeer, transitKey, state.currentEpoch);
   }
 }
 

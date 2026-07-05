@@ -132,14 +132,6 @@ export function parseActorNew(out) {
   return { actorId: m.groups.actorId, mnemonic: m.groups.mnemonic };
 }
 
-export function parseSignPub(out) {
-  const m = /^signPub (?<signPub>\S+)$/m.exec(out);
-  if (!m?.groups) {
-    throw new Error(`parseSignPub failed: ${out}`);
-  }
-  return m.groups.signPub;
-}
-
 export function parseWorkspaceCreated(out) {
   const m = /^Created workspace .* \((?<ws>.+)\)\.$/m.exec(out);
   if (!m?.groups) {

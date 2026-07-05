@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   aeadDecrypt,
   aeadEncrypt,
-  actorEncryptionPublic,
   generateActorKeypair,
+  generatePeerKeypair,
   signWithActor,
   type ActorKeypair,
 } from "../../utils/crypto/index.js";
@@ -14,32 +14,39 @@ import {
   MembershipRecordSchema,
   type MembershipRecord,
 } from "@lode/protocol/proto";
-import { MembershipLog, type MemberPublicKeys } from "./membership-log.js";
+import { MembershipLog, type LocalPeer } from "./membership-log.js";
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-/** A member's public identity from their keypair (the owner knows each member's public keys). */
-const memberPub = (m: ActorKeypair): MemberPublicKeys => ({
-  actorId: m.actorId,
-  signPub: m.publicKey,
-  encPub: actorEncryptionPublic(m.publicKey),
+let peerCounter = 1;
+const newPeerId = (): string => String(peerCounter++);
+const newLocal = (): LocalPeer => ({
+  actor: generateActorKeypair(),
+  peer: generatePeerKeypair(),
+  peerId: newPeerId(),
+});
+const peerPub = (local: LocalPeer) => ({
+  peerId: local.peerId,
+  owningActorId: local.actor.actorId,
+  peerEncPub: local.peer.publicKey,
+  peerName: "",
 });
 
 describe("membership log — lifecycle", () => {
-  it("root + add: owner and member both unwrap the transit key and decrypt transit content", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+  it("root + add: owner and member peers both unwrap the transit key and decrypt transit content", () => {
+    const owner = newLocal();
+    const member = newLocal();
     const tk = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, tk);
-    log.appendAdd(owner, memberPub(member), tk, 0);
+    log.appendRoot(owner, tk, "");
+    log.appendAdd(owner.actor, peerPub(member), tk, 0);
 
     const { state, skipped } = log.deriveState();
     expect(skipped).toHaveLength(0);
-    expect(state.owner).toBe(owner.actorId);
-    expect([...state.members.keys()].sort()).toEqual([member.actorId, owner.actorId].sort());
+    expect(state.owner).toBe(owner.actor.actorId);
+    expect([...state.peers.keys()].sort()).toEqual([member.peerId, owner.peerId].sort());
 
     expect(eq(log.unwrapCurrentTransitKey(state, owner), tk)).toBe(true);
     expect(eq(log.unwrapCurrentTransitKey(state, member), tk)).toBe(true);
@@ -54,19 +61,19 @@ describe("membership log — lifecycle", () => {
     ).toBe(true);
   });
 
-  it("rotate omits a member → they are revoked and cannot read the new epoch (forward secrecy)", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+  it("rotate omits a peer → it is revoked and cannot read the new epoch (forward secrecy)", () => {
+    const owner = newLocal();
+    const member = newLocal();
     const k0 = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, k0);
-    log.appendAdd(owner, memberPub(member), k0, 0);
+    log.appendRoot(owner, k0, "");
+    log.appendAdd(owner.actor, peerPub(member), k0, 0);
     const k1 = newTransitKey();
-    // Owner re-keys wrapping only themselves → member omitted → revoked (atomic removeAndRotate).
-    log.appendRotate(owner, [memberPub(owner)], k1, k0, 1);
+    // Owner re-keys wrapping only their own peer → member's peer omitted → revoked.
+    log.appendRotate(owner.actor, [peerPub(owner)], k1, k0, 1);
 
     const { state } = log.deriveState();
-    expect(state.members.has(member.actorId)).toBe(false);
+    expect(state.peers.has(member.peerId)).toBe(false);
     expect(state.currentEpoch).toBe(1);
     expect(eq(log.unwrapCurrentTransitKey(state, owner), k1)).toBe(true);
     expect(() => log.unwrapCurrentTransitKey(state, member)).toThrow();
@@ -74,55 +81,66 @@ describe("membership log — lifecycle", () => {
 });
 
 describe("membership log — owner-only governance", () => {
-  it("transfer: the new owner can govern; the old owner (now a member) cannot", () => {
-    const owner = generateActorKeypair();
-    const successor = generateActorKeypair();
-    const newMember = generateActorKeypair();
+  it("transfer: the new owner can govern; the old owner (now a member) cannot add for another actor", () => {
+    const owner = newLocal();
+    const successor = newLocal();
+    const newMember = newLocal();
     const tk = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, tk);
-    log.appendAdd(owner, memberPub(successor), tk, 0);
+    log.appendRoot(owner, tk, "");
+    log.appendAdd(owner.actor, peerPub(successor), tk, 0);
 
-    log.appendTransfer(owner, successor.actorId);
-    expect(log.deriveState().state.owner).toBe(successor.actorId);
+    log.appendTransfer(owner.actor, successor.actor.actorId);
+    expect(log.deriveState().state.owner).toBe(successor.actor.actorId);
 
-    // The new owner adds a member — applies.
-    log.appendAdd(successor, memberPub(newMember), tk, 0);
-    expect(log.deriveState().state.members.has(newMember.actorId)).toBe(true);
+    // The new owner adds a peer — applies.
+    log.appendAdd(successor.actor, peerPub(newMember), tk, 0);
+    expect(log.deriveState().state.peers.has(newMember.peerId)).toBe(true);
 
-    // The OLD owner (now a member) tries to add someone — skipped (not the owner).
-    const intruder = generateActorKeypair();
-    log.appendAdd(owner, memberPub(intruder), tk, 0);
+    // The OLD owner (now a member) tries to add a peer for a different actor — skipped (not owner,
+    // and not the owning actor self-adding).
+    const intruder = newLocal();
+    log.appendAdd(owner.actor, peerPub(intruder), tk, 0);
     const { state, skipped } = log.deriveState();
-    expect(state.members.has(intruder.actorId)).toBe(false);
+    expect(state.peers.has(intruder.peerId)).toBe(false);
     expect(skipped.some((r) => r.body.case === "add")).toBe(true);
   });
 
-  it("a member (non-owner) cannot rotate or add — the records are skipped", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
-    const intruder = generateActorKeypair();
+  it("a member can self-add their own peer, but cannot add for another actor or rotate", () => {
+    const owner = newLocal();
+    const member = newLocal();
+    const intruder = newLocal();
     const k0 = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, k0);
-    log.appendAdd(owner, memberPub(member), k0, 0);
-    // Member forges an add and a rotate (signing as themselves, not the owner).
-    log.appendAdd(member, memberPub(intruder), k0, 0);
-    log.appendRotate(member, [memberPub(member)], newTransitKey(), k0, 1);
+    log.appendRoot(owner, k0, "");
+    log.appendAdd(owner.actor, peerPub(member), k0, 0);
+    // Member self-adds their own SECOND peer — authorized (self-service, §13).
+    const memberSecond: LocalPeer = {
+      actor: member.actor,
+      peer: generatePeerKeypair(),
+      peerId: newPeerId(),
+    };
+    log.appendAdd(member.actor, peerPub(memberSecond), k0, 0);
+    expect(log.deriveState().state.peers.has(memberSecond.peerId)).toBe(true);
+
+    // Member forges an add for a DIFFERENT actor (intruder) — skipped.
+    log.appendAdd(member.actor, peerPub(intruder), k0, 0);
+    // Member forges a rotate — skipped (owner-only).
+    log.appendRotate(member.actor, [peerPub(member)], newTransitKey(), k0, 1);
 
     const { state, skipped } = log.deriveState();
-    expect(state.members.has(intruder.actorId)).toBe(false);
+    expect(state.peers.has(intruder.peerId)).toBe(false);
     expect(state.currentEpoch).toBe(0); // forged rotate rejected
     expect(skipped).toHaveLength(2);
   });
 
-  it("a tampered signature is skipped, and an unknown signer (not a member) is skipped", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+  it("a tampered signature is skipped, and an unknown signer (owns no peer) is skipped", () => {
+    const owner = newLocal();
+    const member = newLocal();
     const k0 = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, k0);
-    log.appendAdd(owner, memberPub(member), k0, 0);
+    log.appendRoot(owner, k0, "");
+    log.appendAdd(owner.actor, peerPub(member), k0, 0);
 
     // Rebuild a log with the add record's signature zeroed.
     const tampered = new MembershipLog();
@@ -135,17 +153,18 @@ describe("membership log — owner-only governance", () => {
     }
     tampered.doc.commit();
     const t = tampered.deriveState();
-    expect(t.state.members.has(member.actorId)).toBe(false);
+    expect(t.state.peers.has(member.peerId)).toBe(false);
     expect(t.skipped.length).toBeGreaterThan(0);
 
-    // An unknown signer (not in the membership at all) self-signs an add → skipped (no signPub).
-    const stranger = generateActorKeypair();
+    // An unknown signer (owns no peer anywhere) self-signs an add for themselves → skipped: the
+    // self-service rule requires the signer to already own ≥1 admitted peer.
+    const stranger: ActorKeypair = generateActorKeypair();
     const strangerLog = new MembershipLog();
-    strangerLog.appendRoot(owner, k0);
+    strangerLog.appendRoot(owner, k0, "");
     const body = create(AddRecordSchema, {
-      actor: stranger.actorId,
-      signPub: stranger.publicKey,
-      encPub: actorEncryptionPublic(stranger.publicKey),
+      owningActor: stranger.actorId,
+      peerEncPub: generatePeerKeypair().publicKey,
+      peerId: newPeerId(),
       wrappedTransit: new Uint8Array(0),
       epoch: 0,
     });
@@ -160,58 +179,55 @@ describe("membership log — owner-only governance", () => {
     strangerLog.doc.commit();
 
     const { state, skipped } = strangerLog.deriveState();
-    expect(state.members.has(stranger.actorId)).toBe(false);
+    expect([...state.peers.values()].some((d) => d.owningActorId === stranger.actorId)).toBe(false);
     expect(skipped.some((r) => r.body.case === "add")).toBe(true);
   });
 });
 
 describe("membership log — addMember (owner-guarded composition)", () => {
-  it("the owner adds a member: they join at the current epoch and unwrap the transit key", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+  it("the owner adds a peer: it joins at the current epoch and unwraps the transit key", () => {
+    const owner = newLocal();
+    const member = newLocal();
     const tk = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, tk);
+    log.appendRoot(owner, tk, "");
 
-    log.addMember(owner, member.publicKey);
+    log.addMember(owner, peerPub(member));
 
     const { state, skipped } = log.deriveState();
     expect(skipped).toHaveLength(0);
-    expect(state.members.has(member.actorId)).toBe(true);
-    // The added member's public identity is derived from just their sign pub.
-    const m = state.members.get(member.actorId)!;
-    expect(eq(m.signPub, member.publicKey)).toBe(true);
-    expect(eq(m.encPub, actorEncryptionPublic(member.publicKey))).toBe(true);
-    expect(m.epoch).toBe(state.currentEpoch);
-    // The wrapped transit key decrypts — addMember wrapped the current key to the member.
+    expect(state.peers.has(member.peerId)).toBe(true);
+    const d = state.peers.get(member.peerId)!;
+    expect(eq(d.peerEncPub, member.peer.publicKey)).toBe(true);
+    expect(d.owningActorId).toBe(member.actor.actorId);
+    expect(d.epoch).toBe(state.currentEpoch);
+    // The wrapped transit key decrypts — addMember wrapped the current key to the peer.
     expect(eq(log.unwrapCurrentTransitKey(state, member), tk)).toBe(true);
   });
 
   it("a non-owner is refused and the log is unchanged", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
-    const outsider = generateActorKeypair();
+    const owner = newLocal();
+    const member = newLocal();
+    const outsider = newLocal();
     const tk = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, tk);
-    log.appendAdd(owner, memberPub(member), tk, 0);
+    log.appendRoot(owner, tk, "");
+    log.appendAdd(owner.actor, peerPub(member), tk, 0);
     const before = log.records().length;
 
-    expect(() => log.addMember(outsider, generateActorKeypair().publicKey)).toThrow(
+    expect(() => log.addMember(outsider, peerPub(newLocal()))).toThrow(
       "addMember: only the owner can add members",
     );
 
     expect(log.records().length).toBe(before);
     const { state } = log.deriveState();
-    expect(state.owner).toBe(owner.actorId);
-    expect(state.members.has(outsider.actorId)).toBe(false);
+    expect(state.owner).toBe(owner.actor.actorId);
   });
 
   it("refuses on a workspace with no owner root yet (e.g. an unrooted log)", () => {
     const log = new MembershipLog();
-    // No appendRoot — even the actor who would be the owner cannot add before a root exists.
-    const owner = generateActorKeypair();
-    expect(() => log.addMember(owner, generateActorKeypair().publicKey)).toThrow(
+    const owner = newLocal();
+    expect(() => log.addMember(owner, peerPub(newLocal()))).toThrow(
       "addMember: workspace has no owner root",
     );
     expect(log.records()).toHaveLength(0);
@@ -219,23 +235,23 @@ describe("membership log — addMember (owner-guarded composition)", () => {
 });
 
 describe("membership log — recovery (re-add → current transit key)", () => {
-  it("a re-added member regains the current transit key", () => {
-    const owner = generateActorKeypair();
-    const member = generateActorKeypair();
+  it("a re-added peer regains the current transit key", () => {
+    const owner = newLocal();
+    const member = newLocal();
     const k0 = newTransitKey();
     const k1 = newTransitKey();
     const k2 = newTransitKey();
     const log = new MembershipLog();
-    log.appendRoot(owner, k0);
-    log.appendAdd(owner, memberPub(member), k0, 0);
-    log.appendRotate(owner, [memberPub(owner), memberPub(member)], k1, k0, 1);
-    // Member loses access: revoked (omitted from a rotate), key rotated beyond them.
-    log.appendRotate(owner, [memberPub(owner)], k2, k1, 2);
-    // Owner re-adds the member (same recovered actor) at the current epoch with the current key.
-    log.appendAdd(owner, memberPub(member), k2, 2);
+    log.appendRoot(owner, k0, "");
+    log.appendAdd(owner.actor, peerPub(member), k0, 0);
+    log.appendRotate(owner.actor, [peerPub(owner), peerPub(member)], k1, k0, 1);
+    // Member's peer loses access: revoked (omitted from a rotate), key rotated beyond them.
+    log.appendRotate(owner.actor, [peerPub(owner)], k2, k1, 2);
+    // Owner re-adds the SAME peer at the current epoch with the current key.
+    log.appendAdd(owner.actor, peerPub(member), k2, 2);
 
     const { state } = log.deriveState();
-    expect(state.members.has(member.actorId)).toBe(true);
+    expect(state.peers.has(member.peerId)).toBe(true);
     expect(eq(log.unwrapCurrentTransitKey(state, member), k2)).toBe(true);
   });
 });

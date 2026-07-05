@@ -9,12 +9,16 @@ export async function executeWorkspaceCommand(
 ): Promise<string> {
   switch (command.action) {
     case "create": {
-      assertAllowedFlags(command, commandKey, ["--name"]);
+      assertAllowedFlags(command, commandKey, ["--name", "--peer-name"]);
       const displayName = getRequiredSingleFlag(command, "--name");
+      const peerNameFlag = command.flags["--peer-name"]?.[0];
       // The workspace id is the sync channel id (the broker routes by it; a joiner inherits it via the
       // share coordinate), so it must be system-generated — never user-chosen (two users picking the
       // same id on one relay would cross-talk). The RPC generates it when omitted.
-      const workspace = await client.createWorkspace({ displayName });
+      const workspace = await client.createWorkspace({
+        displayName,
+        ...(peerNameFlag !== undefined ? { peerName: peerNameFlag } : {}),
+      });
       return `Created workspace ${workspace.displayName} (${workspace.workspaceId}).`;
     }
 

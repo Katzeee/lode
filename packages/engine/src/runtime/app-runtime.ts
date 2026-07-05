@@ -49,7 +49,7 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
     ? await AppWorkspaceRuntime.persistent(options.persistence, () => app.child())
     : await AppWorkspaceRuntime.inMemory(() => app.child());
   // Persistent mode: the session/notification nodeId is the stable per-dataRoot peerId, so a
-  // restart keeps the same device identity (the session origin label matches the Loro site id).
+  // restart keeps the same peer identity (the session origin label matches the Loro site id).
   // In-memory mode: a fresh randomUUID (Loro auto-assigns peer ids; tests don't need stability).
   const nodeId =
     options.nodeId ?? (workspaces.peerId !== undefined ? String(workspaces.peerId) : randomUUID());

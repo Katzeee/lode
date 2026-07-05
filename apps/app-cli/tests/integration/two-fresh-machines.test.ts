@@ -3,8 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient } from "@lode/client";
-import { BrokerServer } from "@lode/engine";
-import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
+import { BrokerServer, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
 import { parseCli } from "../../src/args.js";
 import { executeCommand } from "../../src/commands.js";
@@ -80,19 +79,16 @@ describe("two fresh machines — share→join→see (in-process)", () => {
     await memberClient.authenticate({ actorMnemonic: memberMnemonic });
     const ownerBe = run(ownerClient, ownerD.address, ownerMnemonic);
     const memberBe = run(memberClient, memberD.address, memberMnemonic);
-    // The owner needs the member's sign pub to add them (the social re-add). Derived client-side from
-    // the member's mnemonic — the same value `actor print-pub` returns over the wire.
-    const memberSignPub = Buffer.from(
-      deriveActorKeypairFromMnemonic(memberMnemonic).publicKey,
-    ).toString("hex");
+    // The member exports their identity as ONE opaque token, hands it to the owner out-of-band.
+    const memberToken = await memberBe("identity", "export");
 
     // Owner: workspace (system-generated id) + its seeded root.
     const wsOut = await ownerBe("workspace", "create", "--name", "Shared");
     const ws = parseWorkspaceId(wsOut);
     const ownerRoot = parseRootOcc(await ownerBe("node", "list", "--workspace", ws));
 
-    // Owner: add member, dial the relay, write a node, share the coordinate.
-    await ownerBe("member", "add", "--workspace", ws, "--sign-pub", memberSignPub);
+    // Owner: add member from the token, dial the relay, write a node, share the coordinate.
+    await ownerBe("member", "add", "--workspace", ws, "--identity", memberToken.trim());
     await ownerBe("sync", "register", "--workspace", ws, "--relay", relayUrl);
     await ownerBe(
       "node",

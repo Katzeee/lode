@@ -21,7 +21,7 @@ const log = createLogger("engine.broker.sync");
  * When `security` is configured, every published payload carries a 1-byte envelope tag so the receiver
  * can demux plaintext vs sealed WITHOUT decoding (the `docId` lives inside the message, which is the
  * sealed plaintext — unreadable until opened). `0x00` = plaintext (the membership doc — a public roster
- * that must be readable before a device holds the transit key); `0x01` = sealed (everything else). When
+ * that must be readable before a peer holds the transit key); `0x01` = sealed (everything else). When
  * `security` is OFF the transport is raw/untagged.
  */
 const TAG_PLAIN = 0x00;
@@ -95,7 +95,7 @@ export class BrokerSyncProtocol implements SyncTransport {
     /** Optional transit-key AEAD + actor wire signing. Omit for plaintext. */
     readonly security?: WireSecurity;
     /** Docs that ride the PLAINTEXT envelope AND are served on the push-apply path — the membership
-     *  log, a public roster a joining device reads BEFORE it holds the transit key. One option covers
+     *  log, a public roster a joining peer reads BEFORE it holds the transit key. One option covers
      *  both concerns (they are the same set): the plaintext-exemption set is derived from these ids. */
     readonly publicDocs?: () => SyncDoc[];
     /** This replica's routing peerId (the engine's numeric site id as a string). Declared at subscribe

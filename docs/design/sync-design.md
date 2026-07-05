@@ -21,16 +21,16 @@ of the sync layer and onto the CRDT + social trust.
 
 ## 1. Topology — dedicated central relay (star)
 
-Every device connects (outbound) to **one relay**; devices never connect to each other directly.
+Every peer connects (outbound) to **one relay**; peers never connect to each other directly.
 
-- **Rejected: mesh / device-to-device P2P.** Mesh requires every device to know all peers'
-  addresses (unacceptable configuration burden at 3+ devices) AND needs NAT traversal per device
+- **Rejected: mesh / peer-to-peer P2P.** Mesh requires every peer to know all peers'
+  addresses (unacceptable configuration burden at 3+ peers) AND needs NAT traversal per peer
   (overlay/STUN/TURN) — a network-setup dependency lode refuses to place on the user. Star needs
-  only outbound from each device, so per-device NAT is a non-issue.
+  only outbound from each peer, so per-peer NAT is a non-issue.
 - **Rejected: vendor-operated relay (anytype network).** Centralizes and requires infra lode does
   not want to run. The relay is **user-self-deployed** (their always-on machine or a VPS), address
   configurable. Who-operates is not the concern; reachability is.
-- The relay is the single meeting point. LAN case: one machine is the relay, all devices sync to it.
+- The relay is the single meeting point. LAN case: one machine is the relay, all peers sync to it.
 
 ## 2. Relay — pure transport, no data, untrusted
 
@@ -49,7 +49,7 @@ identity**, and is **untrusted**.
 The relay is **not** a dumb byte pipe. Clients register the workspaces they hold (subscribe), and
 the relay **routes messages by workspace** to the subscribed clients — and, within a workspace,
 can **address a specific peer** so one client can request data directly from another. Worked
-example (devices A/B/C, relay on B): A, B, C each subscribe their workspaces. A edits shared
+example (peers A/B/C, relay on B): A, B, C each subscribe their workspaces. A edits shared
 workspace W → relay forwards that message **only** to B and C (W's other subscribers). A's private
 workspace W_A (A is the only subscriber) → relay does **not** forward it to B/C. A dumb broadcast
 would leak private workspaces' metadata/traffic to non-subscribers; routing by subscription is
@@ -63,14 +63,18 @@ The relay's scope:
 - **Content-blind (where it matters)** — it cannot read sealed content. Clients encrypt
   end-to-end (transit-key AEAD, §4); the relay routes opaque ciphertext. It sees peerIds and
   channel membership (public routing info) but never plaintext.
-- **Auth — open question.** Today the relay is **no-auth** (forwards anything; admission is
-  transit-key-based + cooperative). Whether to add relay-side admission is undecided; current
-  leaning is no. **Address-awareness is routing, NOT admission** — do not let it slide into
-  enforcement. A non-member can request data but cannot decrypt the sealed response.
+- **Auth — no-auth; wsId is the admission token (capability model).** The relay forwards anything
+  and does not admit or reject. Possession of a workspace's wsId is the capability that lets a peer
+  subscribe + see its public metadata (the membership roster rides plaintext so newcomers can
+  bootstrap before holding the transit key); sealed **content** stays unreadable without the transit
+  key. This is deliberate: **no coordinator + wsId-as-capability is what keeps relay-swapping
+  frictionless** — a workspace is `(relay address(es), wsId, transit key)`, so moving relays is just
+  re-sharing the coordinate. Self-service workspace _discovery_ (finding workspaces without someone
+  sharing the coordinate) is consequently out of scope — it would require a coordinator, which
+  conflicts with this stance. **Address-awareness is routing, NOT admission** — do not let it slide
+  into enforcement.
 - **No persistence (hard)** — routing tables are in-memory, rebuilt on connect; the relay never
-  persists workspace content or identity (§2). Its in-memory state may grow beyond a bare routing
-  table (e.g., hints like "which peer holds membership for a newcomer"); that is undecided and the
-  next discussion.
+  persists workspace content or identity (§2).
 
 > The relay is neither a "dumb byte pipe" nor a "sync-aware router": it is **routing-aware** (by
 > workspace subscription + peerId) but **content-blind** (no CRDT/plaintext/auth semantics). It
@@ -112,7 +116,7 @@ content/identity/membership (§2/§3), there is **nothing to migrate** — every
 the full workspace locally.
 
 - **Migration = social re-share**: the owner exports the new coordinate; members import it and
-  dial the new relay. Same flow as inviting a device.
+  dial the new relay. Same flow as inviting a peer.
 - **In-flight during migration**: members split across old/new relay temporarily; CRDT merge
   catches everyone up once they converge.
 - A workspace may register **multiple relays**; each member dials all of them (no inter-relay
@@ -181,7 +185,7 @@ Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §2.
   removeAndRotate — no forward-secrecy window); a re-key chain (`encPrev`) lets current members
   walk back to prior epochs.
 
-The membership doc rides the relay's **plaintext envelope** (a public roster) so a joining device
+The membership doc rides the relay's **plaintext envelope** (a public roster) so a joining peer
 can read it _before_ it holds the transit key; content docs ride **sealed**.
 
 ## 5. Relay form — one binary, three modes
@@ -205,6 +209,11 @@ The relay is one role of the **AppServer binary**, not a separate process. `--li
 
 Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3–§5. Summary:
 
+> **Partially superseded 2026-07-05** by [sync-identity-persistence §13](./sync-identity-persistence.md):
+> the actor keypair's transit-wrap role moved to a per-peer random X25519 key; the actor KEEPS all
+> signing (always present in-session). The "Ed25519→X25519 dual-use / wraps the transit key to members"
+> clause in the actor-keypair bullet below no longer applies; `curve.ts` is deleted.
+
 - **The daemon has no identity.** Actors are **client-side**: declared per session (mnemonic at
   `sessionHello`; the daemon derives the keypair transiently, no attestation). One daemon, many
   actors, many sessions. Permissions follow the actor.
@@ -224,7 +233,7 @@ Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3�
   ciphertext.
 - Roles are owner + member(rw) only — no admin/reader/writer tiers (cannot hard-enforce without an
   authority).
-- Local at-rest disk encryption (stolen-device) is a separate concern, out of scope for sync.
+- Local at-rest disk encryption (stolen-peer) is a separate concern, out of scope for sync.
 
 ## Structural decomposition
 

@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { LoroDoc } from "loro-crdt";
-import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { MembershipLog } from "../membership/membership-log.js";
+import { MembershipLog, type LocalPeer } from "../membership/membership-log.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 
@@ -34,10 +34,14 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     const url = `http://127.0.0.1:${server.port}`;
 
     // Owner holds a rooted membership log; the joiner holds an empty one (no root — it'll fetch it).
-    const ownerKp = generateActorKeypair();
+    const ownerLocal: LocalPeer = {
+      actor: generateActorKeypair(),
+      peer: generatePeerKeypair(),
+      peerId: "owner",
+    };
     const ownerLog = new MembershipLog(new LoroDoc(), undefined);
     await ownerLog.load();
-    ownerLog.appendRoot(ownerKp, randomBytes(32));
+    ownerLog.appendRoot(ownerLocal, randomBytes(32), "");
     const ownerDoc = ownerLog.toSyncDoc();
 
     const joinerLog = new MembershipLog(new LoroDoc(), undefined);
@@ -82,7 +86,7 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     // Import → the joiner's log now mirrors the owner's root (it "joined" the roster).
     joinerDoc.importUpdate(bytes);
     const { state } = joinerLog.deriveState();
-    expect(state.owner).toBe(ownerKp.actorId);
+    expect(state.owner).toBe(ownerLocal.actor.actorId);
   });
 
   it("peers() excludes no one implicitly — the caller filters self (both peerIds are listed)", async () => {

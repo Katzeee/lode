@@ -14,7 +14,6 @@ import {
   runLode,
   sleep,
   parseActorNew,
-  parseSignPub,
   parseWorkspaceCreated,
   parseRootOcc,
   assertContains,
@@ -47,15 +46,17 @@ try {
   const ownerBe = be(ownerUrl, ownerMnemonic);
   const memberBe = be(memberUrl, memberMnemonic);
 
-  // member's sign pub → owner (out-of-band): the owner needs it to add the member.
-  const memberSignPub = parseSignPub(await memberBe("actor", "print-pub"));
+  // member exports their identity as one opaque token → owner (out-of-band).
+  const memberToken = (await memberBe("identity", "export", "--peer-name", "Bob laptop")).trim();
 
   // ── owner: workspace (system-generated id) + its seeded root ──
-  const ws = parseWorkspaceCreated(await ownerBe("workspace", "create", "--name", "Shared"));
+  const ws = parseWorkspaceCreated(
+    await ownerBe("workspace", "create", "--name", "Shared", "--peer-name", "Alice laptop"),
+  );
   const ownerRoot = parseRootOcc(await ownerBe("node", "list", "--workspace", ws));
 
-  // ── owner: add member, dial the relay, write a node, share the coordinate ──
-  await ownerBe("member", "add", "--workspace", ws, "--sign-pub", memberSignPub);
+  // ── owner: add member from the token, dial the relay, write a node, share the coordinate ──
+  await ownerBe("member", "add", "--workspace", ws, "--identity", memberToken);
   await ownerBe("sync", "register", "--workspace", ws, "--relay", relayUrl);
   await ownerBe("node", "create", "--workspace", ws, "--parent-occ", ownerRoot, "--text", "Hello from A");
   const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
@@ -75,6 +76,14 @@ try {
   await sleep(1000);
   const ownerListing = await ownerBe("node", "list", "--workspace", ws);
   assertContains(ownerListing, "Hello from B", "owner node list (B→A)");
+
+  // ── member list: both peers replicated, owner flagged, peer_name shown ──
+  const ownerRoster = await ownerBe("member", "list", "--workspace", ws);
+  assertContains(ownerRoster, "(owner)", "owner member list flags owner");
+  assertContains(ownerRoster, "Alice laptop", "owner member list shows owner peer name");
+  assertContains(ownerRoster, "Bob laptop", "owner member list shows member peer name");
+  const memberRoster = await memberBe("member", "list", "--workspace", ws);
+  assertContains(memberRoster, "Bob laptop", "member member list shows own peer name (roster replicated)");
 
   if (process.argv.includes("--quiet")) {
     console.log("two-fresh-machines binary test: OK");

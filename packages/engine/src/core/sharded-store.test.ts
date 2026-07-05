@@ -12,10 +12,11 @@ import type { Delta } from "./types.js";
  * surface is covered independently by `tests/correctness.test.ts` (the truth fuzz); this
  * file is the sharded store's own data-model + cycle-guard + fan-out witness.
  *
- * NOTE on a pre-existing Loro issue (NOT sharding-specific): `occurrenceTree.getNodeByID(ref)`
- * panics for certain reference-occurrence shapes. The scenarios below create references
- * (they appear in `toJSON`) but only READ via original occurrences and compare via
- * `toJSON` (which traverses with `.children()`, not getNodeByID).
+ * NOTE on a pre-existing Loro sharp-edge (NOT sharding-specific): `LoroTree.getNodeByID` PANICS
+ * (loro-common unwrap-on-None) when given a TreeID OBJECT for a node that doesn't exist, but
+ * returns undefined for a missing STRING id. Production always passes string ids (see
+ * `treeNodeOf`), so this is unreachable in normal flow; the scenarios below traverse via
+ * `toJSON` (`.children()`) regardless, which never touches getNodeByID.
  */
 
 const textToDelta = (s: string): Delta => [{ insert: s }];

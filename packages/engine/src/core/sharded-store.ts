@@ -634,6 +634,12 @@ export class ShardedBlockStore implements BlockStore {
   }
 
   private treeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {
+    // `occurrenceId` is always the STRING form of a Loro TreeID (callers carry strings across
+    // the engine/RPC/snapshot boundary). Keep it that way: Loro's getNodeByID returns undefined
+    // for a missing STRING id but PANICS (loro-common unwrap-on-None → WASM RuntimeError) for a
+    // missing TreeID OBJECT. A missing id is a legitimate runtime state (stale client ref,
+    // concurrent delete) and is handled by the `!node` check below — but only because we pass a
+    // string. Don't refactor this to construct a real TreeID object.
     const node = this.occurrenceTree.getNodeByID(occurrenceId as TreeID);
     if (!node || node.isDeleted()) {
       return null;

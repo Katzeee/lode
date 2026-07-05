@@ -13,6 +13,7 @@ import {
   type Engine,
   type MembershipLog,
   type MembershipWireSecurity,
+  type LocalPeer,
   type ShardedBlockStore,
   type SyncDoc,
 } from "@lode/engine";
@@ -312,10 +313,12 @@ export class DaemonSyncRunner implements Component {
     if (!log) {
       throw new Error(`build: no membership log for ${wsId} (workspace not loaded)`);
     }
-    const sec = createMembershipWireSecurity({ log, keypair });
+    // The actor is per-workspace (the registered session); the peer key + peerId are per-dataRoot
+    // (the machine's identity). Together they are this replica's LocalPeer for wire security.
+    const local: LocalPeer = this.opts.workspaces.localPeerFor(keypair);
+    const sec = createMembershipWireSecurity({ log, local });
     sec.refresh();
     const membershipDoc = log.toSyncDoc();
-    const peerId = this.opts.workspaces.peerId;
     const transport = new BrokerSyncProtocol({
       url,
       store,
@@ -324,7 +327,7 @@ export class DaemonSyncRunner implements Component {
       // The membership doc rides the plaintext envelope (a public roster) AND is served on push-apply.
       publicDocs: () => [membershipDoc],
       // Declare this replica's site id so it's a directed target + discoverable via peers().
-      ...(peerId === undefined ? {} : { peerId: String(peerId) }),
+      peerId: local.peerId,
     });
     await transport.open();
     // Push fast-path: subscribe AFTER open() (a mutation before wired.set still finds the transport
