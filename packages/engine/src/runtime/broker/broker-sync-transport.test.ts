@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { SyncManager } from "../sync.js";
+import { SyncManager } from "../sync/sync-manager.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 

@@ -7,12 +7,12 @@ describe("parseLevelSpec + resolveLevel", () => {
     const rules = parseLevelSpec("sync=debug;*=warn");
     expect(resolveLevel("sync", rules, "warn")).toBe("debug");
     // "sync" is exact-only (no `*`), so a dotted child falls through to the glob.
-    expect(resolveLevel("sync.runner", rules, "warn")).toBe("warn");
+    expect(resolveLevel("sync.registry", rules, "warn")).toBe("warn");
   });
 
   it("glob wildcard matches a dotted prefix", () => {
     const rules = parseLevelSpec("sync*=debug;engine.broker*=info;*=warn");
-    expect(resolveLevel("sync.runner", rules, "warn")).toBe("debug");
+    expect(resolveLevel("sync.registry", rules, "warn")).toBe("debug");
     expect(resolveLevel("engine.broker.client", rules, "warn")).toBe("info");
     expect(resolveLevel("engine.membership", rules, "warn")).toBe("warn");
   });

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateActorKeypair } from "../../utils/crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { SyncManager } from "../sync.js";
+import { SyncManager } from "../sync/sync-manager.js";
 import { open, type WireSecurity } from "../membership/wire-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";

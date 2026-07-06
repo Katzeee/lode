@@ -3,7 +3,6 @@ import { createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lod
 import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerComponent } from "./broker-server-component.js";
 import { ConnectServerComponent } from "./connect-server-component.js";
-import { DaemonSyncRunner } from "./sync-runner.js";
 import { createSyncHandlers } from "./sync-handlers.js";
 
 /** Read the relay's TLS cert/key PEM files (from `--tls-cert`/`--tls-key` paths) for
@@ -59,28 +58,29 @@ export type RelayParsedArgs = RelayDaemonOptions & { mode: "relay"; logFile?: st
 export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 
 // Hosts the engine as a local gRPC (HTTP/2, h2c) daemon. The daemon IS the composition root: it
-// builds the runtime, registers the connect server (+ optional relay + sync runner) on the runtime's
-// App, then starts them in registration order. `stop()` is the App's reverse-order teardown — no
-// hand-ordered closure. Mirrors anytype-heart's cmd/grpcserver bootstrap shape.
+// builds the runtime (which registers the workspace registry + the engine-owned SyncRegistry
+// on the App), then registers the connect server (+ optional relay) and starts everything in
+// registration order. `stop()` is the App's reverse-order teardown. Mirrors anytype-heart's
+// cmd/grpcserver bootstrap shape.
 export async function startAppServerDaemon(
   options: AppServerDaemonOptions,
 ): Promise<AppServerDaemon> {
   const { host, port } = parseListenUrl(options.listen);
   const persistence =
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
-  const runtime: AppRuntime = await createAppRuntime(persistence ? { persistence } : {});
-
-  // The sync runner has no identity of its own — every syncing workspace is registered by a session
-  // (RegisterSync / JoinWorkspace), which captures that session's actor keypair. Built unconditionally:
-  // any daemon can sync once a client registers.
-  const syncRunner = new DaemonSyncRunner({
-    workspaces: runtime.workspaces,
-    ...(options.syncIntervalMs === undefined ? {} : { intervalMs: options.syncIntervalMs }),
+  const runtime: AppRuntime = await createAppRuntime({
+    ...(persistence ? { persistence } : {}),
+    // The registry has no identity of its own — every syncing workspace is registered by a session
+    // (RegisterSync / JoinWorkspace), which captures that session's actor keypair.
+    ...(options.syncIntervalMs === undefined
+      ? {}
+      : { sync: { roundIntervalMs: options.syncIntervalMs } }),
   });
-  const syncHandlers = createSyncHandlers(syncRunner, runtime.sessions);
+  const syncHandlers = createSyncHandlers(runtime.sync, runtime.sessions);
 
   // Register in start-order; the App stops them in reverse. createAppRuntime already registered the
-  // workspace registry FIRST → it stops LAST (workspaces outlive everything that uses them).
+  // workspace registry + the SyncRegistry → they stop LAST (sync + workspaces outlive the
+  // connect/relay components that sit on top of them).
   const connect = runtime.app.register(
     new ConnectServerComponent(runtime, host, port, syncHandlers),
   );
@@ -94,8 +94,6 @@ export async function startAppServerDaemon(
           }),
         )
       : undefined;
-  // The sync runner stops FIRST (closes outbound transports before the relay/workspaces go).
-  runtime.app.register(syncRunner);
 
   await runtime.app.start();
 

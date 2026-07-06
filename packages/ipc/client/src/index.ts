@@ -5,3 +5,4 @@ export type {
   LodeCommandsClient,
   NotificationHandler,
 } from "./app-server-client.js";
+export { describeError } from "./errors.js";

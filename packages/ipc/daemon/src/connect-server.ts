@@ -13,6 +13,9 @@ import {
   DomainInvalidInputError,
   DocNotFoundError,
   SessionRequiredError,
+  AuthenticationError,
+  PreconditionFailedError,
+  NotOwnerError,
   type AppRuntime,
 } from "@lode/engine";
 import type { SyncHandlers } from "./sync-handlers.js";
@@ -38,11 +41,20 @@ export function toConnectError(error: unknown): ConnectError {
   if (error instanceof SessionRequiredError) {
     return new ConnectError(error.message, Code.Unauthenticated);
   }
+  if (error instanceof AuthenticationError) {
+    return new ConnectError(error.message, Code.Unauthenticated);
+  }
+  if (error instanceof NotOwnerError) {
+    return new ConnectError(error.message, Code.PermissionDenied);
+  }
   if (error instanceof DocNotFoundError) {
     return new ConnectError(error.message, Code.NotFound);
   }
   if (error instanceof DomainInvalidInputError) {
     return new ConnectError(error.message, Code.InvalidArgument);
+  }
+  if (error instanceof PreconditionFailedError) {
+    return new ConnectError(error.message, Code.FailedPrecondition);
   }
   const message = error instanceof Error ? error.message : String(error);
   return new ConnectError(message, Code.Internal);

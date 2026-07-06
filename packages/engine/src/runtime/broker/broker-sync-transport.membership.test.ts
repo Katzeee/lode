@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { SyncManager } from "../sync.js";
+import { SyncManager } from "../sync/sync-manager.js";
 import { MembershipLog, type LocalPeer } from "../membership/membership-log.js";
 import { MembershipSync } from "../membership/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";

@@ -13,6 +13,7 @@ import {
   type NodeOccurrenceRef,
   type NodeRef,
 } from "@lode/protocol/proto";
+import { DomainInvalidInputError } from "../domain/errors.js";
 import type { DomainChange } from "../domain/model/changes.js";
 import type {
   FieldAddMode,
@@ -121,6 +122,6 @@ export function fieldValueInputFromProto(value: ProtoFieldValueInput): DomainFie
     case "move":
       return { type: "move", occurrenceId: value.value.value.occurrenceId };
     case undefined:
-      throw new Error("FieldValueInput variant not set");
+      throw new DomainInvalidInputError("FieldValueInput variant not set");
   }
 }

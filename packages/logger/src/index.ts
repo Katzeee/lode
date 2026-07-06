@@ -3,7 +3,7 @@
 // pino directly — swapping the engine later is one package, not a sweep.
 //
 // Component identity lives in the NAME (any-sync's `var log = NewNamed("...")` convention), not in
-// fields: `createLogger("sync.runner")`. Per-ws / per-peer context flows as fields via `child(...)`.
+// fields: `createLogger("sync.registry")`. Per-ws / per-peer context flows as fields via `child(...)`.
 // Levels come from the `LODE_LOG` env var (per-prefix glob; see `levels.ts`). Default `*=warn`.
 //
 // Sink: JSON to **stderr** by default. The host (daemon) calls `configureLogger({ file })` at
@@ -124,7 +124,7 @@ class PinoLoggerWrapper implements Logger {
 
 const registry = new Map<string, PinoLoggerWrapper>();
 
-/** Create a named logger. Component identity in `component` (e.g. `"sync.runner"`,
+/** Create a named logger. Component identity in `component` (e.g. `"sync.registry"`,
  *  `"engine.broker.client"`); level resolved from `LODE_LOG`. Sink is JSON to stderr, plus a
  *  rotating file when the host has called `configureLogger({ file })`. stdout stays clean for command
  *  output (binary tests parse it). */

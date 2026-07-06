@@ -13,6 +13,7 @@ import {
   type PeerKeypair,
 } from "../../utils/crypto/index.js";
 import type { SyncDoc } from "../../core/sharded-store.js";
+import { NotOwnerError, PreconditionFailedError } from "../../services/errors.js";
 import {
   AddRecordSchema,
   PeerWrapSchema,
@@ -154,7 +155,7 @@ export class MembershipLog {
 
   /** The log as a `SyncDoc` (id `MEMBERSHIP_DOC_ID`) so a transport can exchange it like any doc.
    *  Mirrors `ShardedBlockStore`'s per-doc adapter. The transport serves this on the push-apply path
-   *  only (never in its profile — see DaemonSyncRunner), so SyncManager never mistakes the membership
+   *  only (never in its profile — see the sync sub-graph), so SyncManager never mistakes the membership
    *  doc for a shard. */
   toSyncDoc(): SyncDoc {
     const doc = this.doc;
@@ -224,7 +225,7 @@ export class MembershipLog {
     newEpoch: number,
   ): void {
     if (!survivors.some((s) => s.owningActorId === owner.actorId)) {
-      throw new Error("appendRotate: survivors must include a peer of the owner");
+      throw new PreconditionFailedError("appendRotate: survivors must include a peer of the owner");
     }
     this.appendSigned(owner, {
       case: "rotate",
@@ -282,7 +283,7 @@ export class MembershipLog {
   unwrapCurrentTransitKey(state: MembershipState, local: LocalPeer): Uint8Array {
     const d = state.peers.get(local.peerId);
     if (!d) {
-      throw new Error(`peer not admitted: ${local.peerId}`);
+      throw new PreconditionFailedError(`peer not admitted: ${local.peerId}`);
     }
     return unwrapKey(local.peer.privateKey, d.wrappedTransit);
   }
@@ -293,10 +294,10 @@ export class MembershipLog {
   addMember(owner: LocalPeer, newPeer: PeerPublicKeys): void {
     const { state } = this.deriveState();
     if (state.owner === "") {
-      throw new Error("addMember: workspace has no owner root");
+      throw new PreconditionFailedError("addMember: workspace has no owner root");
     }
     if (state.owner !== owner.actor.actorId) {
-      throw new Error("addMember: only the owner can add members");
+      throw new NotOwnerError("addMember: only the owner can add members");
     }
     const transitKey = this.unwrapCurrentTransitKey(state, owner);
     this.appendAdd(owner.actor, newPeer, transitKey, state.currentEpoch);
@@ -311,13 +312,15 @@ export class MembershipLog {
   private rotateTo(owner: LocalPeer, survivors: PeerPublicKeys[]): void {
     const { state } = this.deriveState();
     if (state.owner === "") {
-      throw new Error("rotateTo: workspace has no owner root");
+      throw new PreconditionFailedError("rotateTo: workspace has no owner root");
     }
     if (state.owner !== owner.actor.actorId) {
-      throw new Error("rotateTo: only the owner can re-key");
+      throw new NotOwnerError("rotateTo: only the owner can re-key");
     }
     if (!survivors.some((s) => s.owningActorId === owner.actor.actorId)) {
-      throw new Error("cannot drop every peer of the owner — governance would be bricked");
+      throw new PreconditionFailedError(
+        "cannot drop every peer of the owner — governance would be bricked",
+      );
     }
     const oldKey = this.unwrapCurrentTransitKey(state, owner);
     const newKey = randomBytes(32);
@@ -329,7 +332,7 @@ export class MembershipLog {
     const { state } = this.deriveState();
     const survivors = rosterSurvivors(state, (id) => id !== peerId);
     if (survivors.length === state.peers.size) {
-      throw new Error(`revokePeer: peer not admitted: ${peerId}`);
+      throw new PreconditionFailedError(`revokePeer: peer not admitted: ${peerId}`);
     }
     this.rotateTo(owner, survivors);
   }
@@ -341,7 +344,7 @@ export class MembershipLog {
     const { state } = this.deriveState();
     const survivors = rosterSurvivors(state, (_, p) => p.owningActorId !== actorId);
     if (survivors.length === state.peers.size) {
-      throw new Error(`revokeActor: actor has no admitted peers: ${actorId}`);
+      throw new PreconditionFailedError(`revokeActor: actor has no admitted peers: ${actorId}`);
     }
     this.rotateTo(owner, survivors);
   }
@@ -361,7 +364,9 @@ export class MembershipLog {
   addSelfPeer(local: LocalPeer, newPeer: PeerPublicKeys): void {
     const { state } = this.deriveState();
     if (newPeer.owningActorId !== local.actor.actorId) {
-      throw new Error("addSelfPeer: the new peer must be owned by the calling actor");
+      throw new PreconditionFailedError(
+        "addSelfPeer: the new peer must be owned by the calling actor",
+      );
     }
     const transitKey = this.unwrapCurrentTransitKey(state, local);
     this.appendAdd(local.actor, newPeer, transitKey, state.currentEpoch);
@@ -373,16 +378,18 @@ export class MembershipLog {
   transferOwnership(owner: LocalPeer, newOwnerActorId: string): void {
     const { state } = this.deriveState();
     if (state.owner !== owner.actor.actorId) {
-      throw new Error("transferOwnership: only the owner can transfer");
+      throw new NotOwnerError("transferOwnership: only the owner can transfer");
     }
     if (newOwnerActorId === "") {
-      throw new Error("transferOwnership: target actor is empty");
+      throw new PreconditionFailedError("transferOwnership: target actor is empty");
     }
     if (newOwnerActorId === owner.actor.actorId) {
-      throw new Error("transferOwnership: target is already the owner");
+      throw new PreconditionFailedError("transferOwnership: target is already the owner");
     }
     if (!actorHasPeer(state, newOwnerActorId)) {
-      throw new Error(`transferOwnership: target is not a member: ${newOwnerActorId}`);
+      throw new PreconditionFailedError(
+        `transferOwnership: target is not a member: ${newOwnerActorId}`,
+      );
     }
     this.appendTransfer(owner.actor, newOwnerActorId);
   }

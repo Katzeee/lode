@@ -31,8 +31,9 @@ export type MembershipWireSecurity = {
  * holds the actor signing key — is the AEAD gate under the receiver's current transit key in `open()`:
  * a revoked peer cannot unwrap the new transit, so its sealed blobs fail AEAD on every current peer.
  *
- * Reusable by both the daemon (`DaemonSyncRunner`) and an in-process mobile host that dials a relay
- * directly: the same three pieces (membership log + this security + `BrokerSyncProtocol`).
+ * Reusable by the engine's sync sub-graph (the per-workspace `SyncContext`) and by
+ * an in-process mobile host that dials a relay directly: the same three pieces (membership log +
+ * this security + `BrokerSyncProtocol`).
  */
 export function createMembershipWireSecurity(opts: {
   log: MembershipLog;

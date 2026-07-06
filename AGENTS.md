@@ -94,8 +94,15 @@ connection/subscription lifecycle (that lives in `session`).
 
 ## Code Style
 
-Prefer small, explicit code over abstractions that only organize names. Comments should explain
-why something is non-obvious, not restate what the code does.
+Design for the long-term health of the architecture: a codebase that stays clean, coherent, and
+economical to extend as it grows large. Get there through sound software design — fitting
+abstractions, appropriate design patterns, clear module boundaries, high cohesion, and low
+accidental coupling — applied with deliberate engineering judgment. Optimize for the cost of future
+change, not the cost of writing today. The bar for any structural decision is whether it leaves the
+architecture genuinely better — more comprehensible, more extensible, cheaper to maintain — not
+whether it is more or less abstract.
+
+Comments should explain why something is non-obvious, not restate what the code does.
 
 Avoid `any`; use `unknown` and narrow it. Keep async handling explicit. Use type-only imports
 for type-only dependencies.
@@ -111,15 +118,13 @@ relevant `_local/handoff/` doc.
 
 ## Refactoring
 
+- Refactor toward a better architecture: high cohesion, low coupling, abstractions and seams that
+  make future change cheap. Judge each change by whether the design is genuinely improved — not by
+  how much or how little it abstracts; either can be right. The goal is the cleaner architecture.
 - No compat shims, alias re-exports, dual paths, or deprecated wrappers for moved internal code.
   Update callers and tests directly.
-- No production scaffolding without callers (debug modes, metrics, speculative generalization,
-  helpers with no consumer). Delete what isn't exercised today. This restrains building AHEAD of
-  need, not fixing what's already wrong.
 - Smells are fixed when found, never deferred — properly, with the right mechanism, not a stopgap.
-  "No scaffolding without callers" never justifies postponing a smell fix: scaffolding is speculative
-  structure; a fix targets code that already runs. Deferral compounds — more code accretes around
-  the smell, the fix only gets harder.
+  Deferral compounds — more code accretes around the smell, the fix only gets harder.
 
 ## Testing
 

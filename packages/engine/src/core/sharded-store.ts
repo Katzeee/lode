@@ -181,7 +181,7 @@ export class ShardedBlockStore implements BlockStore {
     // cycle-forming move (caught synchronously but also delivered as an uncaught
     // exception that kills a long-running host). Reject it cleanly first.
     if (parentOccurrenceId != null) {
-      let cur = this.liveTreeNodeOf(parentOccurrenceId);
+      let cur = this.treeNodeOf(parentOccurrenceId);
       while (cur) {
         if (String(cur.id) === occurrenceId) {
           throw new Error(`Move would create a cycle: ${occurrenceId} → ${parentOccurrenceId}`);
@@ -645,10 +645,6 @@ export class ShardedBlockStore implements BlockStore {
       return null;
     }
     return node;
-  }
-
-  private liveTreeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {
-    return this.treeNodeOf(occurrenceId);
   }
 
   private mapToRecord(map: LoroMap): Record<string, unknown> {

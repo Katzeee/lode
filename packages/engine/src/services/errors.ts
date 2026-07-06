@@ -13,3 +13,32 @@ export class DocNotFoundError extends Error {
     this.workspaceId = workspaceId;
   }
 }
+
+/** An authentication failure — bad credentials (e.g. an unparseable/invalid mnemonic at
+ *  `sessionHello`). The daemon maps this to Connect `Code.Unauthenticated`. */
+export class AuthenticationError extends Error {
+  constructor(message = "authentication failed") {
+    super(message);
+    this.name = "AuthenticationError";
+  }
+}
+
+/** A precondition for the operation is not met (workspace not loaded, sync not registered / stopped,
+ *  a conflicting relay, a governance rule that blocks the op). The daemon maps this to Connect
+ *  `Code.FailedPrecondition`. */
+export class PreconditionFailedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PreconditionFailedError";
+  }
+}
+
+/** The caller is authenticated but lacks governance authority for the op — i.e. a non-owner tried
+ *  an owner-only workspace operation. The daemon maps this to Connect `Code.PermissionDenied`
+ *  (distinct from `AuthenticationError` → `Unauthenticated`, which is an identity failure). */
+export class NotOwnerError extends Error {
+  constructor(message = "only the workspace owner may perform this operation") {
+    super(message);
+    this.name = "NotOwnerError";
+  }
+}

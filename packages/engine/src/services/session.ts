@@ -17,6 +17,7 @@ import {
   type ActorKeypair,
 } from "../utils/crypto/index.js";
 import { getEngine, type AppContext } from "./context.js";
+import { AuthenticationError } from "./errors.js";
 import { EMPTY } from "./empty.js";
 
 export function createSessionHandlers(ctx: AppContext) {
@@ -33,7 +34,7 @@ export function createSessionHandlers(ctx: AppContext) {
         keypair = undefined;
       }
       if (keypair === undefined) {
-        throw new Error("sessionHello: actor authentication failed (bad mnemonic)");
+        throw new AuthenticationError("sessionHello: actor authentication failed (bad mnemonic)");
       }
       return ctx.sessions.createSession(connectionId, req, keypair);
     },

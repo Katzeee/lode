@@ -12,7 +12,7 @@ import { BoundedAsyncQueue } from "./bounded-async-queue.js";
 import { decodeProfile, encodeProfile } from "../sync-message.js";
 import { open, seal } from "../membership/wire-security.js";
 import type { ShardedBlockStore, SyncDoc } from "../../core/sharded-store.js";
-import type { SyncProfile, SyncTransport } from "../sync.js";
+import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
 import type { WireSecurity } from "../membership/wire-security.js";
 
 const log = createLogger("engine.broker.sync");

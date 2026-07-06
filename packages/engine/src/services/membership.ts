@@ -16,13 +16,15 @@ import {
   ListMembersResponseSchema,
 } from "@lode/protocol/proto";
 import type { AppContext } from "./context.js";
+import { PreconditionFailedError } from "./errors.js";
+import { DomainInvalidInputError } from "../domain/errors.js";
 
 const EMPTY: Empty = create(EmptySchema);
 
 /** Membership / peer-governance RPC handlers — relay-independent adapters over the engine's
  *  membership log (design sync-identity-persistence §2 + §13). They live in the ENGINE (not the
  *  daemon) because they reach only the workspace registry + session manager, never the
- *  DaemonSyncRunner — so an in-process consumer (mobile/embedded) gets them too, with no daemon.
+ *  SyncRegistry — so an in-process consumer (mobile/embedded) gets them too, with no daemon.
  *  The daemon merges these with its host-only sync handlers (share/join/register/syncNow, which DO
  *  need the runner) in connect-server.ts. All are session-gated (writes require an origin); the
  *  actor keypair comes from the session (sessionHello), never re-sent by the client. The domain
@@ -35,7 +37,7 @@ export function createMembershipHandlers(ctx: AppContext) {
     ctx.sessions.requireOrigin(connectionId);
     const log = ctx.workspaces.membershipLog(workspaceId);
     if (!log) {
-      throw new Error(`${op}: workspace not loaded: ${workspaceId}`);
+      throw new PreconditionFailedError(`${op}: workspace not loaded: ${workspaceId}`);
     }
     return log;
   };
@@ -85,13 +87,17 @@ export function createMembershipHandlers(ctx: AppContext) {
       const actorId = req.actorId?.trim();
       if (peerId !== undefined && peerId !== "") {
         if (actorId !== undefined && actorId !== "") {
-          throw new Error("revokePeer: set exactly one of peer_id or actor_id (both provided)");
+          throw new DomainInvalidInputError(
+            "revokePeer: set exactly one of peer_id or actor_id (both provided)",
+          );
         }
         log.revokePeer(local, peerId);
       } else if (actorId !== undefined && actorId !== "") {
         log.revokeActor(local, actorId);
       } else {
-        throw new Error("revokePeer: set exactly one of peer_id or actor_id (neither provided)");
+        throw new DomainInvalidInputError(
+          "revokePeer: set exactly one of peer_id or actor_id (neither provided)",
+        );
       }
       await log.persistIfDirty();
       return EMPTY;
@@ -105,7 +111,7 @@ export function createMembershipHandlers(ctx: AppContext) {
       const { keypair } = ctx.sessions.getActorKeypair(connectionId);
       const local = ctx.workspaces.localPeerFor(keypair);
       if (req.owningActorId !== local.actor.actorId) {
-        throw new Error("addPeer: identity token belongs to a different actor");
+        throw new DomainInvalidInputError("addPeer: identity token belongs to a different actor");
       }
       log.addSelfPeer(local, {
         peerId: req.peerId,

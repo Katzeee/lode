@@ -1,6 +1,6 @@
-import type { ShardedBlockStore, SyncDoc } from "../core/sharded-store.js";
-import type { VersionVector } from "../core/types.js";
-import { MAIN_SUBDOC } from "../persistence/workspace-store.js";
+import type { ShardedBlockStore, SyncDoc } from "../../core/sharded-store.js";
+import type { VersionVector } from "../../core/types.js";
+import { MAIN_SUBDOC } from "../../persistence/workspace-store.js";
 
 /** A peer's per-doc version vectors — the cheap metadata exchanged first to find what differs.
  *  Loro VVs are bounded (Map<peer,count>) and directly comparable, so — unlike any-sync's

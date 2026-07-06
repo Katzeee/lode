@@ -33,6 +33,7 @@ import {
   promoteCanonicalOccurrence,
 } from "../domain/node.js";
 import { getEngine, type AppContext } from "./context.js";
+import { DomainInvalidInputError } from "../domain/errors.js";
 import { EMPTY } from "./empty.js";
 import { runMutation } from "./mutation.js";
 import { fromValue } from "./struct.js";
@@ -52,7 +53,7 @@ export function createNodeHandlers(ctx: AppContext) {
       // only before that root exists; once rooted, every node must attach under it.
       const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) => {
         if (!req.parentOccurrenceId && doc.getRootOccurrences().length > 0) {
-          throw new Error(
+          throw new DomainInvalidInputError(
             "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
           );
         }

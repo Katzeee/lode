@@ -18,7 +18,12 @@ export type { PersistenceOptions } from "./runtime/workspace-registry.js";
 export type { AppContext } from "./services/index.js";
 export type { EngineOrigin } from "./session/session-manager.js";
 export { SessionRequiredError } from "./session/session-manager.js";
-export { DocNotFoundError } from "./services/errors.js";
+export {
+  DocNotFoundError,
+  AuthenticationError,
+  PreconditionFailedError,
+  NotOwnerError,
+} from "./services/errors.js";
 export { DomainInvalidInputError } from "./domain/errors.js";
 
 export type { AppRuntime, AppRuntimeOptions, LodeCommands } from "./runtime/app-runtime.js";
@@ -29,24 +34,21 @@ export { createAppRuntime } from "./runtime/app-runtime.js";
 export { App } from "./runtime/app.js";
 export type { Component } from "./runtime/app.js";
 
-// Sync — the in-process CRDT sync core. SyncManager + the SyncTransport seam are the
-// engine's whole sync surface; the daemon/transport layer implements SyncTransport over the
-// broker (design: docs/design/sync-identity-persistence.md §1). Exported so out-of-process
-// transports can reach them without importing engine source directly.
-export { SyncManager, InMemorySyncTransport, syncPair } from "./runtime/sync.js";
-export type { SyncTransport, SyncProfile } from "./runtime/sync.js";
-// The sync-core store + doc + version types the daemon's sync runner reaches via
-// `runtime.workspaces.getEngine(wsId).getShardedStore()`. Exported as types/values so the daemon can
-// construct a SyncManager + BrokerSyncProtocol without importing engine source.
+// Sync — the in-process CRDT sync primitives. `SyncManager` + the `SyncTransport` seam are
+// engine-internal now (consumed by the SyncRegistry sub-graph); `InMemorySyncTransport` +
+// `syncPair` remain exported as test helpers. The store/doc/version types are core vocabulary.
+export { InMemorySyncTransport, syncPair } from "./runtime/sync/sync-manager.js";
+export type { SyncTransport, SyncProfile } from "./runtime/sync/sync-manager.js";
 export type { VersionVector } from "./core/types.js";
 export { Engine } from "./core/engine.js";
 export { ShardedBlockStore } from "./core/sharded-store.js";
 export type { SyncDoc } from "./core/sharded-store.js";
 
 // Membership log — the replicated, signed owner+member log (the membership half of the in-process
-// sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc that
-// `MembershipSync` gossip-pushes over a transport (plaintext — it's a public roster); a host derives
-// the content transport's `WireSecurity` from its state.
+// sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc that the engine's
+// sync sub-graph gossip-pushes over the broker's plaintext envelope (a public roster); the
+// sub-graph derives the content transport's wire security from its state. `MembershipLog` is the
+// governance surface; the gossip + wire-security pieces are engine-internal to the sub-graph.
 export { MembershipLog, MEMBERSHIP_DOC_ID } from "./runtime/membership/membership-log.js";
 export type {
   Peer,
@@ -54,7 +56,6 @@ export type {
   LocalPeer,
   MembershipState,
 } from "./runtime/membership/membership-log.js";
-export { MembershipSync } from "./runtime/membership/membership-sync.js";
 
 // Wire security + the SyncProfile codec — the content/security layer the transport consumes.
 export { seal, open } from "./runtime/membership/wire-security.js";
@@ -63,10 +64,6 @@ export type {
   WireSealContext,
   WireOpenContext,
 } from "./runtime/membership/wire-security.js";
-export {
-  createMembershipWireSecurity,
-  type MembershipWireSecurity,
-} from "./runtime/membership/membership-security.js";
 export { encodeProfile, decodeProfile } from "./runtime/sync-message.js";
 
 // Broker — the workspace-routing relay wire (BrokerClient + BrokerServer) over a Connect gRPC bidi
@@ -78,6 +75,13 @@ export { BrokerClient } from "./runtime/broker/broker-client.js";
 export type { BrokerClientOptions } from "./runtime/broker/broker-client.js";
 export { BrokerServer } from "./runtime/broker/broker-server.js";
 export type { BrokerServerOptions } from "./runtime/broker/broker-server.js";
-// The broker sync protocol — `SyncTransport` over `BrokerClient` (CRDT-coupled: profile codec, seal/
-// open demux, request/response correlation). Formerly `@lode/transport`'s adapter; engine-internal now.
-export { BrokerSyncProtocol } from "./runtime/broker/broker-sync-transport.js";
+// The broker sync protocol (`SyncTransport` over `BrokerClient`) is engine-internal now — consumed
+// only by the SyncRegistry sub-graph.
+
+// Sync — the engine-owned per-workspace sync composition (the successor to the daemon-side
+// DaemonSyncRunner). Hosts (daemon, mobile, embedded) drive register/share/join/syncNow through
+// `AppRuntime.sync` (a SyncRegistry) without importing engine sync internals. The sub-graph
+// itself (context + round driver + push path + round bodies) is engine-internal — not re-exported.
+export { SyncRegistry } from "./runtime/sync/registry.js";
+export type { SyncRegistryOptions, WorkspaceCoordinateData } from "./runtime/sync/registry.js";
+export type { SyncDeps, RoundSummary } from "./runtime/sync/deps.js";

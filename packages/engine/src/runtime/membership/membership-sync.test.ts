@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { MembershipLog, type LocalPeer } from "./membership-log.js";
 import { MembershipSync } from "./membership-sync.js";
-import type { SyncProfile, SyncTransport } from "../sync.js";
+import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
 
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
 

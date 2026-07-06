@@ -2,7 +2,7 @@ import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore, type SyncDoc } from "../../src/core/sharded-store.js";
 import { toJSON } from "../../src/core/serializers/json.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
-import { syncPair } from "../../src/runtime/sync.js";
+import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { MAIN_SUBDOC } from "../../src/persistence/workspace-store.js";
 import { stableStringify } from "../truth-model.js";
 

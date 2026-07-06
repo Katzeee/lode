@@ -3,10 +3,18 @@ import { App, type Component } from "./app.js";
 import { AppWorkspaceRuntime, type PersistenceOptions } from "./workspace-registry.js";
 import { SessionManager } from "../session/session-manager.js";
 import { createLodeCommands, type AppContext } from "../services/index.js";
+import { SyncRegistry } from "./sync/registry.js";
+import type { SyncDeps } from "./sync/deps.js";
 
 export type AppRuntimeOptions = {
   nodeId?: string;
   persistence?: PersistenceOptions;
+  /** Secured-sync configuration: host policy hooks + the round interval. Omit for an in-memory/test
+   *  runtime that never syncs. */
+  sync?: {
+    deps?: SyncDeps;
+    roundIntervalMs?: number;
+  };
 };
 
 export type LodeCommands = ReturnType<typeof createLodeCommands>;
@@ -20,6 +28,10 @@ export type AppRuntime = {
   // The LodeCommands service implementation (typed handlers keyed by RPC name). The daemon
   // binds this to a Connect server; in-process callers invoke handlers directly.
   readonly commands: LodeCommands;
+  /** The sync coordinator — per-workspace sync sub-graphs over a relay. Exposed so the host
+   *  (daemon/mobile) can drive register/share/join/syncNow through it without importing engine sync
+   *  internals. In-process hosts get the same surface. */
+  readonly sync: SyncRegistry;
   /** The composition root. The engine registers its subsystems here but does NOT start them — the
    *  host (daemon/mobile) registers its own components (sync, relay, http) and drives lifecycle via
    *  `app.start()` (registration order) / `app.stop()` (reverse). Anytype-ideal: assemble-then-start. */
@@ -56,14 +68,24 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
   const sessions = new SessionManager(nodeId);
   const ctx: AppContext = { workspaces, sessions };
   const commands = createLodeCommands(ctx);
+  const sync = new SyncRegistry({
+    workspaces,
+    app,
+    ...(options.sync?.deps === undefined ? {} : { deps: options.sync.deps }),
+    ...(options.sync?.roundIntervalMs === undefined
+      ? {}
+      : { roundIntervalMs: options.sync.roundIntervalMs }),
+  });
 
   app.register(new WorkspaceRegistryComponent(workspaces));
+  app.register(sync);
 
   return {
     nodeId,
     workspaces,
     sessions,
     commands,
+    sync,
     app,
     removeConnection: (connectionId) => sessions.removeConnection(connectionId),
   };

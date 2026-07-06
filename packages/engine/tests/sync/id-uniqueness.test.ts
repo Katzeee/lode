@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore } from "../../src/core/sharded-store.js";
 import { createPlainNode } from "../../src/domain/node.js";
-import { syncPair } from "../../src/runtime/sync.js";
+import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, cloneReplica, replica } from "./harness.js";
 
 /**

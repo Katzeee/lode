@@ -1,5 +1,5 @@
 import type { SyncDoc } from "../../core/sharded-store.js";
-import type { SyncTransport } from "../sync.js";
+import type { SyncTransport } from "../sync/sync-manager.js";
 
 /**
  * Drives one membership-doc gossip round over a transport (design sync-identity-persistence §2/§9).

@@ -57,7 +57,7 @@ export function resolveLevel(name: string, rules: readonly LevelRule[], fallback
 }
 
 /** Convert a glob (`*` → any chars) into an anchored RegExp. Escapes regex metacharacters so a
- *  dotted component name like `sync.runner` matches literally. */
+ *  dotted component name like `sync.registry` matches literally. */
 function globToRegExp(glob: string): RegExp {
   const escaped = glob.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`);

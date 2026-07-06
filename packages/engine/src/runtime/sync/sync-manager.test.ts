@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { VersionVector } from "loro-crdt";
-import { Engine } from "../core/engine.js";
-import { ShardedBlockStore } from "../core/sharded-store.js";
-import { MAIN_SUBDOC } from "../persistence/workspace-store.js";
-import { InMemorySyncTransport, SyncManager, type SyncTransport } from "./sync.js";
+import { Engine } from "../../core/engine.js";
+import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { MAIN_SUBDOC } from "../../persistence/workspace-store.js";
+import { InMemorySyncTransport, SyncManager, type SyncTransport } from "./sync-manager.js";
 
 const newStore = (): ShardedBlockStore => new ShardedBlockStore({ numShards: 4 });
 
@@ -130,7 +130,7 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
   it("re-importing already-known bytes is a no-op: fires no nodeUpdated, advances no VV", async () => {
     // CRDT merge itself is Loro's job (in-version ops apply idempotently); this locks in that our
     // integration doesn't turn import into a re-export pump. The load-bearing assertion is that
-    // import fires no `nodeUpdated`: DaemonSyncRunner.schedulePush subscribes to exactly that
+    // import fires no `nodeUpdated`: PushFastPath subscribes to exactly that
     // signal, so if import emitted it, every received update would re-trigger a push —
     //   recv → import → nodeUpdated → schedulePush → export → send → recv → … (never halts).
     // Guards against someone later adding an import-time callback that emits nodeUpdated.

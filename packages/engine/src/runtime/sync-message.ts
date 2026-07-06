@@ -1,6 +1,6 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { VersionVector } from "loro-crdt";
-import type { SyncProfile } from "./sync.js";
+import type { SyncProfile } from "./sync/sync-manager.js";
 import { SyncProfileEntrySchema, SyncProfileSchema } from "@lode/protocol/proto";
 
 /**

@@ -8,23 +8,18 @@ import type {
   WorkspaceCoordinate,
 } from "@lode/protocol/proto";
 import { WorkspaceCoordinateSchema } from "@lode/protocol/proto";
-import type { AppRuntime } from "@lode/engine";
-import type { DaemonSyncRunner } from "./sync-runner.js";
+import type { AppRuntime, SyncRegistry } from "@lode/engine";
 
 const EMPTY: Empty = create(EmptySchema);
 
-/** The daemon-side RPC handlers that genuinely need the `DaemonSyncRunner` — i.e. relay-connection
- *  lifecycle. They live in the daemon (the desktop host), not the engine, because the runner is a
- *  host concern. The daemon merges them with the engine's `LodeCommands` (which now carries the
- *  relay-independent governance handlers via `services/membership.ts`) in `connect-server.ts`.
- *  All are session-gated (writes require an origin); the actor keypair comes from the session
- *  (sessionHello), never re-sent by the client.
- *
- *  Why these four stay daemon-side: register/syncNow drive the runner's tick loop; join dials a
- *  relay through the runner; share returns the daemon's OWN registered relay URL (a host→client
- *  convenience — an in-process consumer like mobile already knows its relay). Governance
- *  (addMember/list/revoke/addPeer/transfer/rotate/getPeerPublicKeys) is relay-independent and was
- *  moved to the engine so mobile gets it too. */
+/** The daemon-side RPC handlers for relay-connection lifecycle (share/join/register/syncNow). They
+ *  are thin, session-gated forwards to the engine-owned `SyncRegistry` (`AppRuntime.sync`) —
+ *  the sync composition (transport + round driver + push path + lazy-wire poll) lives in the engine
+ *  now, so an in-process host (mobile/embedded) gets the same surface with no daemon. The daemon
+ *  adds only the connectionId-aware session gate (the engine never sees connectionIds); the actor
+ *  keypair comes from the session (sessionHello), never re-sent by the client. Relay-independent
+ *  governance (addMember/list/revoke/addPeer/transfer/rotate/getPeerPublicKeys) is in the engine's
+ *  own handlers, merged with these in `connect-server.ts`. */
 export type SyncHandlers = {
   shareWorkspace: (req: ShareWorkspaceRequest, connectionId: string) => WorkspaceCoordinate;
   joinWorkspace: (req: JoinWorkspaceRequest, connectionId: string) => Promise<Empty>;
@@ -33,37 +28,36 @@ export type SyncHandlers = {
 };
 
 export function createSyncHandlers(
-  runner: DaemonSyncRunner,
+  registry: SyncRegistry,
   sessions: AppRuntime["sessions"],
 ): SyncHandlers {
   return {
-    // Register the session's actor to drive sync for a workspace via a relay. The runner captures the
-    // keypair so the tick keeps signing after the client disconnects.
+    // Register the session's actor to drive sync for a workspace via a relay. The registry captures
+    // the keypair so rounds keep signing after the client disconnects.
     registerSync: async (req, connectionId) => {
       sessions.requireOrigin(connectionId);
       const { keypair } = sessions.getActorKeypair(connectionId);
-      await runner.registerSync(req.workspaceId, req.relayUrl, keypair);
+      await registry.registerSync(req.workspaceId, req.relayUrl, keypair);
       return EMPTY;
     },
-    // Manual trigger: run one sync round for the workspace now (`lode sync now`), instead of waiting
-    // for the next tick. The actor is the registered one — origin-gated like every sync write.
+    // Manual trigger: run one sync round for the workspace now (`lode sync now`).
     syncNow: async (req, connectionId) => {
       sessions.requireOrigin(connectionId);
-      await runner.syncNow(req.workspaceId);
+      await registry.syncNow(req.workspaceId);
       return EMPTY;
     },
-    // Surface THIS daemon's registered relay URL + wsId as a share coordinate (host→client: the CLI
-    // talks to the daemon IPC, not the relay, so it doesn't know the relay absent this). Reads the
-    // URL the runner captured at registration.
+    // Surface the relay URL this daemon registered + the wsId as a share coordinate (host→client: the
+    // CLI talks to the daemon IPC, not the relay, so it doesn't know the relay absent this).
     shareWorkspace: (req, connectionId) => {
       sessions.requireOrigin(connectionId);
-      const c = runner.shareCoordinate(req.workspaceId);
+      const c = registry.shareCoordinate(req.workspaceId);
       return create(WorkspaceCoordinateSchema, {
         relayUrl: c.relayUrl,
         workspaceId: c.workspaceId,
       });
     },
-    // Join a workspace via a share coordinate: dial the relay through the runner and start syncing.
+    // Join a workspace via a share coordinate: ensure it exists locally, register, directed-fetch the
+    // membership roster, and auto-fire a content round.
     joinWorkspace: async (req, connectionId) => {
       sessions.requireOrigin(connectionId);
       const c = req.coordinate;
@@ -71,7 +65,7 @@ export function createSyncHandlers(
         throw new Error("joinWorkspace: missing coordinate");
       }
       const { keypair } = sessions.getActorKeypair(connectionId);
-      await runner.joinWorkspace(c.workspaceId, c.relayUrl, keypair);
+      await registry.joinWorkspace(c.workspaceId, c.relayUrl, keypair);
       return EMPTY;
     },
   };
