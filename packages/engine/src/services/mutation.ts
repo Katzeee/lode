@@ -12,33 +12,57 @@ import {
   OccurrenceUpdatedSchema,
   type NodeUpdatedPayload as ProtoNodeUpdatedPayload,
 } from "@lode/protocol/proto";
-import type { Engine, NodeUpdatedPayload as CoreNodeUpdatedPayload } from "../core/index.js";
+import type {
+  Engine,
+  NodeId,
+  NodeUpdatedPayload as CoreNodeUpdatedPayload,
+} from "../core/index.js";
 import { getEngine, type AppContext } from "./context.js";
 
 // Runs a mutating doc operation within the session/persist/broadcast envelope:
-// requireOrigin → load doc → capture nodeUpdated payloads → run → persist → broadcast.
-// DomainInvalidInputError thrown by `fn` propagates (the daemon maps it to InvalidArgument).
+// requireOrigin → load doc → [pin working set] → capture nodeUpdated payloads → run → persist →
+// broadcast → [release working set]. DomainInvalidInputError thrown by `fn` propagates (the daemon
+// maps it to InvalidArgument).
+//
+// `workingSet`, when supplied, pins the shards the mutation touches resident for the op's duration
+// (operation-internal consistency + no fault/evict thrash under capacity pressure). Supply it only
+// when the set is COMPLETELY knowable tree-only from the request — the residency assertion throws
+// if `fn` later touches a shard not in the set. Omit for discovery ops (working set not statically
+// knowable — createPlainNode's new id, the cascade, paste, schema reconcile): they fall back to the
+// Phase 1 per-read async fault path. Single-shard ops are also covered by shardForWrite's dirty-pin;
+// the working-set pin here is the upfront, declared variant.
 export async function runMutation<T>(
   ctx: AppContext,
   connectionId: string,
   workspaceId: string,
-  fn: (doc: Engine) => T,
+  fn: (doc: Engine) => T | Promise<T>,
+  workingSet?: (doc: Engine) => readonly NodeId[],
 ): Promise<T> {
   const origin = ctx.sessions.requireOrigin(connectionId);
   const doc = await getEngine(ctx, workspaceId);
+  const outliner = doc.asOutliner();
   // Capture the tree's pre-mutation version so persistMutation can export just this mutation's delta.
-  const beforeVersion = doc.asOutliner().treeSyncDoc().version();
+  const beforeVersion = await outliner.treeSyncDoc().version();
+  const resident = workingSet?.(doc) ?? [];
+  let pinned = false;
+  if (resident.length > 0) {
+    await outliner.ensureResident(resident);
+    pinned = true;
+  }
   const payloads: ProtoNodeUpdatedPayload[] = [];
   const sub = doc.slots.nodeUpdated.subscribe((payload) => {
     payloads.push(payloadToProto(payload));
   });
   try {
-    const result = fn(doc);
+    const result = await fn(doc);
     await ctx.workspaces.persistMutation(workspaceId, beforeVersion);
     ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
     return result;
   } finally {
     sub.unsubscribe();
+    if (pinned) {
+      outliner.release();
+    }
   }
 }
 

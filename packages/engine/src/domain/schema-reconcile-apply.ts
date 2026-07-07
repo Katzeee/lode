@@ -10,23 +10,19 @@ import {
   provenanceKeyOf,
 } from "./model/reconcile.js";
 
-export function applyDesiredManagedChildren(
+export async function applyDesiredManagedChildren(
   doc: Engine,
   target: NodeOccurrence,
   desired: DesiredManagedChild[],
-): AppliedManagedChildren {
+): Promise<AppliedManagedChildren> {
   const changes: AppliedManagedChildren["changes"] = [];
   const reserved = new Set<string>();
   const assignedProvenanceByOccurrence = new Map<string, DesiredManagedChild["provenance"]>();
   const managedOrder: string[] = [];
 
   for (const desiredChild of desired) {
-    const existing = findMatchingChild(
-      doc,
-      doc.getOccurrenceChildren(target.occurrenceId),
-      desiredChild,
-      reserved,
-    );
+    const targetChildren = await doc.getOccurrenceChildren(target.occurrenceId);
+    const existing = await findMatchingChild(doc, targetChildren, desiredChild, reserved);
     if (!existing && !desiredChild.createIfMissing) {
       continue;
     }
@@ -41,7 +37,7 @@ export function applyDesiredManagedChildren(
         occurrenceId: child.occurrenceId,
       });
     } else {
-      child = createManagedChild(doc, target, desiredChild);
+      child = await createManagedChild(doc, target, desiredChild);
       reserved.add(child.occurrenceId);
       changes.push({
         kind: desiredChild.managedKind,
@@ -51,14 +47,14 @@ export function applyDesiredManagedChildren(
       });
     }
 
-    if (updateProvenance(doc, child, desiredChild)) {
+    if (await updateProvenance(doc, child, desiredChild)) {
       changes.push({
         kind: desiredChild.managedKind,
         reason: "provenanceUpdated",
         nodeId: child.nodeId,
         occurrenceId: child.occurrenceId,
       });
-      child = doc.mustGetOccurrence(child.occurrenceId);
+      child = await doc.mustGetOccurrence(child.occurrenceId);
     }
     assignedProvenanceByOccurrence.set(
       child.occurrenceId,
@@ -70,49 +66,56 @@ export function applyDesiredManagedChildren(
   return { changes, assignedProvenanceByOccurrence, managedOrder };
 }
 
-function createManagedChild(
+async function createManagedChild(
   doc: Engine,
   target: NodeOccurrence,
   desired: DesiredManagedChild,
-): NodeOccurrence {
+): Promise<NodeOccurrence> {
   if (desired.managedKind === ManagedKind.FieldSlot) {
-    const field = createPlainNode(doc, target.occurrenceId);
-    markField(doc, field.occurrenceId, desired.fieldDefNodeId);
+    const field = await createPlainNode(doc, target.occurrenceId);
+    await markField(doc, field.occurrenceId, desired.fieldDefNodeId);
     return field;
   }
   return createReference(doc, desired.templateNodeId, target.occurrenceId);
 }
 
-function updateProvenance(
+async function updateProvenance(
   doc: Engine,
   child: NodeOccurrence,
   desired: DesiredManagedChild,
-): boolean {
+): Promise<boolean> {
   const oldManaged = readManagedChildState(doc, child.occurrenceId);
   const oldManagedKind = oldManaged.status === "valid" ? oldManaged.kind : null;
   const oldManagedBy = oldManaged.status === "valid" ? oldManaged.provenance : [];
   const nextManagedBy = desired.provenance.map((entry) => ({ ...entry }));
 
-  let updated = false;
   if (oldManagedKind !== desired.managedKind || !isSameProvenance(oldManagedBy, nextManagedBy)) {
-    writeManagedChildState(doc, child.occurrenceId, desired.managedKind, nextManagedBy);
-    updated = true;
+    await writeManagedChildState(doc, child.occurrenceId, desired.managedKind, nextManagedBy);
+    return true;
   }
-  return updated;
+  return false;
 }
 
-function findMatchingChild(
+async function findMatchingChild(
   doc: Engine,
   children: NodeOccurrence[],
   desired: DesiredManagedChild,
   reserved: Set<string>,
-): NodeOccurrence | undefined {
-  const candidates = children.filter(
-    (child) =>
-      !reserved.has(child.occurrenceId) &&
-      matchesDesiredTarget(doc, child, desired) &&
-      isReusableCandidate(doc, child, desired),
-  );
+): Promise<NodeOccurrence | undefined> {
+  // Async predicates (matchesDesiredTarget / isReusableCandidate fault shards) — gather
+  // candidates sequentially, then the provenance lookup is a sync readManagedChildState.
+  const candidates: NodeOccurrence[] = [];
+  for (const child of children) {
+    if (reserved.has(child.occurrenceId)) {
+      continue;
+    }
+    if (
+      (await matchesDesiredTarget(doc, child, desired)) &&
+      (await isReusableCandidate(doc, child, desired))
+    ) {
+      candidates.push(child);
+    }
+  }
 
   const desiredProvenanceKeys = new Set(desired.provenance.map(provenanceKeyOf));
   const provenanceMatch = candidates.find((child) => {
@@ -129,24 +132,26 @@ function findMatchingChild(
   return candidates.find(() => true);
 }
 
-function isReusableCandidate(
+async function isReusableCandidate(
   doc: Engine,
   child: NodeOccurrence,
   desired: DesiredManagedChild,
-): boolean {
+): Promise<boolean> {
   if (desired.managedKind !== ManagedKind.FieldSlot || desired.createIfMissing) {
     return true;
   }
-  return getSemanticChildren(doc, child.occurrenceId).length > 0;
+  return (await getSemanticChildren(doc, child.occurrenceId)).length > 0;
 }
 
-function matchesDesiredTarget(
+async function matchesDesiredTarget(
   doc: Engine,
   child: NodeOccurrence,
   desired: DesiredManagedChild,
-): boolean {
+): Promise<boolean> {
   if (desired.managedKind === ManagedKind.FieldSlot) {
-    return isField(doc, child) && readFieldDefId(doc, child) === desired.fieldDefNodeId;
+    return (
+      (await isField(doc, child)) && (await readFieldDefId(doc, child)) === desired.fieldDefNodeId
+    );
   }
   return child.nodeId === desired.templateNodeId;
 }

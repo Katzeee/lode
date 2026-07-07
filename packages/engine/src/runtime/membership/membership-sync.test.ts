@@ -33,9 +33,8 @@ function pipe(a: MembershipLog, b: MembershipLog): { ta: SyncTransport; tb: Sync
   const make = (target: MembershipLog): SyncTransport => ({
     remoteProfile: () => Promise.resolve([] as SyncProfile),
     fetchUpdates: () => Promise.resolve(new Uint8Array(0)),
-    sendUpdates: (_docId, bytes) => {
-      target.metaDoc.importUpdate(bytes);
-      return Promise.resolve();
+    sendUpdates: async (_docId, bytes) => {
+      await target.metaDoc.importUpdate(bytes);
     },
   });
   return { ta: make(b), tb: make(a) }; // A pushes → into B; B pushes → into A

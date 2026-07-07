@@ -9,27 +9,32 @@ import { collectDesiredManagedChildren } from "./schema-reconcile-desired.js";
 import { reorderTargetChildren, trimStaleManagedProvenance } from "./schema-reconcile-order.js";
 import { requireCanonicalOccurrence } from "./lookup.js";
 
-export function reconcileTargetSchemas(doc: Engine, targetOccurrenceId: string): DomainChange[] {
-  const target = requireCanonicalOccurrence(doc, targetOccurrenceId);
-  const desired = collectDesiredManagedChildren(doc, target);
-  const applied = applyDesiredManagedChildren(doc, target, desired);
+export async function reconcileTargetSchemas(
+  doc: Engine,
+  targetOccurrenceId: string,
+): Promise<DomainChange[]> {
+  const target = await requireCanonicalOccurrence(doc, targetOccurrenceId);
+  const desired = await collectDesiredManagedChildren(doc, target);
+  const applied = await applyDesiredManagedChildren(doc, target, desired);
   const changes = [...applied.changes];
 
-  changes.push(...trimStaleManagedProvenance(doc, target, applied.assignedProvenanceByOccurrence));
-  changes.push(...reorderTargetChildren(doc, target, applied.managedOrder));
+  changes.push(
+    ...(await trimStaleManagedProvenance(doc, target, applied.assignedProvenanceByOccurrence)),
+  );
+  changes.push(...(await reorderTargetChildren(doc, target, applied.managedOrder)));
 
   return changes;
 }
 
-export function cleanupInactiveManagedChildren(
+export async function cleanupInactiveManagedChildren(
   doc: Engine,
   targetOccurrenceId: string,
-): DomainChange[] {
-  const target = doc.mustGetOccurrence(targetOccurrenceId);
+): Promise<DomainChange[]> {
+  const target = await doc.mustGetOccurrence(targetOccurrenceId);
   const changes: DomainChange[] = [];
 
-  for (const child of doc.getOccurrenceChildren(targetOccurrenceId)) {
-    if (isActiveManagedChild(doc, target, child)) {
+  for (const child of await doc.getOccurrenceChildren(targetOccurrenceId)) {
+    if (await isActiveManagedChild(doc, target, child)) {
       continue;
     }
     const managedKind = managedKindValue(doc, child);
@@ -37,8 +42,8 @@ export function cleanupInactiveManagedChildren(
       continue;
     }
 
-    if (managedKind === ManagedKind.FieldSlot && isField(doc, child)) {
-      changes.push(cleanupInactiveFieldSlot(doc, child));
+    if (managedKind === ManagedKind.FieldSlot && (await isField(doc, child))) {
+      changes.push(await cleanupInactiveFieldSlot(doc, child));
       continue;
     }
 
@@ -53,8 +58,8 @@ export function cleanupInactiveManagedChildren(
   return changes;
 }
 
-function cleanupInactiveFieldSlot(doc: Engine, child: NodeOccurrence): DomainChange {
-  const hasValues = getSemanticChildren(doc, child.occurrenceId).length > 0;
+async function cleanupInactiveFieldSlot(doc: Engine, child: NodeOccurrence): Promise<DomainChange> {
+  const hasValues = (await getSemanticChildren(doc, child.occurrenceId)).length > 0;
   if (hasValues) {
     return {
       kind: ManagedKind.FieldSlot,
@@ -63,7 +68,7 @@ function cleanupInactiveFieldSlot(doc: Engine, child: NodeOccurrence): DomainCha
       occurrenceId: child.occurrenceId,
     };
   }
-  removeOccurrenceOrHardDelete(doc, child.occurrenceId);
+  await removeOccurrenceOrHardDelete(doc, child.occurrenceId);
   return {
     kind: ManagedKind.FieldSlot,
     reason: "deleted",

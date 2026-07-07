@@ -4,50 +4,53 @@ import { requireOccurrence } from "./lookup.js";
 import { isActiveManagedChild } from "./managed-child-state.js";
 import { isFieldDef, readFieldDefId, readFieldDefPresence } from "./system-entity.js";
 
-export function assertNotActiveManagedChild(doc: Engine, occurrenceId: string): void {
-  const child = requireOccurrence(doc, occurrenceId);
+export async function assertNotActiveManagedChild(
+  doc: Engine,
+  occurrenceId: string,
+): Promise<void> {
+  const child = await requireOccurrence(doc, occurrenceId);
   if (!child.parentOccurrenceId) {
     return;
   }
-  const parent = doc.getOccurrence(child.parentOccurrenceId);
+  const parent = await doc.getOccurrence(child.parentOccurrenceId);
   if (!parent) {
     return;
   }
-  if (isActiveManagedChild(doc, parent, child)) {
+  if (await isActiveManagedChild(doc, parent, child)) {
     throwActiveManagedChild(occurrenceId, parent.occurrenceId);
   }
 }
 
-export function assertFieldRemoveAllowed(doc: Engine, field: NodeOccurrence): void {
+export async function assertFieldRemoveAllowed(doc: Engine, field: NodeOccurrence): Promise<void> {
   if (!field.parentOccurrenceId) {
     return;
   }
-  const parent = doc.getOccurrence(field.parentOccurrenceId);
+  const parent = await doc.getOccurrence(field.parentOccurrenceId);
   if (!parent) {
     return;
   }
-  if (!isActiveManagedChild(doc, parent, field) || !isNormalFieldSlot(doc, field)) {
+  if (!(await isActiveManagedChild(doc, parent, field)) || !(await isNormalFieldSlot(doc, field))) {
     return;
   }
   throwActiveManagedChild(field.occurrenceId, parent.occurrenceId);
 }
 
-function isNormalFieldSlot(doc: Engine, field: NodeOccurrence): boolean {
-  const fieldDefNodeId = readFieldDefId(doc, field);
+async function isNormalFieldSlot(doc: Engine, field: NodeOccurrence): Promise<boolean> {
+  const fieldDefNodeId = await readFieldDefId(doc, field);
   if (!fieldDefNodeId) {
     return false;
   }
   let fieldDefOccurrenceId: string;
   try {
-    fieldDefOccurrenceId = doc.getCanonicalOccurrenceId(fieldDefNodeId);
+    fieldDefOccurrenceId = await doc.getCanonicalOccurrenceId(fieldDefNodeId);
   } catch {
     return false;
   }
-  const fieldDef = doc.getOccurrence(fieldDefOccurrenceId);
-  if (!fieldDef || !isFieldDef(doc, fieldDef)) {
+  const fieldDef = await doc.getOccurrence(fieldDefOccurrenceId);
+  if (!fieldDef || !(await isFieldDef(doc, fieldDef))) {
     return false;
   }
-  return readFieldDefPresence(doc, fieldDef.occurrenceId) !== "optional";
+  return (await readFieldDefPresence(doc, fieldDef.occurrenceId)) !== "optional";
 }
 
 function throwActiveManagedChild(occurrenceId: string, parentOccurrenceId: string): never {

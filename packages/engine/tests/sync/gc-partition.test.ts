@@ -14,16 +14,16 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 describe("sync gc: no resurrection under partition", () => {
   it("a hard-deleted node stays gone when a partitioned replica reconnects", async () => {
     const base = replica(8);
-    const root = createPlainNode(base, null);
-    const target = createPlainNode(base, root.occurrenceId);
+    const root = await createPlainNode(base, null);
+    const target = await createPlainNode(base, root.occurrenceId);
     const targetOcc = target.occurrenceId;
 
-    const a = cloneReplica(base);
-    const b = cloneReplica(base); // partitioned: still has target live
-    hardDeleteNode(a, target.nodeId); // majority deletes while b is partitioned
+    const a = await cloneReplica(base);
+    const b = await cloneReplica(base); // partitioned: still has target live
+    await hardDeleteNode(a, target.nodeId); // majority deletes while b is partitioned
 
     await syncPair(a.asOutliner(), b.asOutliner()); // b reconnects
-    assertConverged([a, b], "reconnect after delete");
+    await assertConverged([a, b], "reconnect after delete");
     // Truth: delete is authoritative — target gone on both, no resurrection.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).not.toContain(targetOcc);
     expect(b.getChildOccurrenceIds(root.occurrenceId)).not.toContain(targetOcc);
@@ -31,17 +31,17 @@ describe("sync gc: no resurrection under partition", () => {
 
   it("a NEW reference made during partition is swept on reconnect (no resurrection)", async () => {
     const base = replica(8);
-    const root = createPlainNode(base, null);
-    const target = createPlainNode(base, root.occurrenceId);
+    const root = await createPlainNode(base, null);
+    const target = await createPlainNode(base, root.occurrenceId);
 
-    const a = cloneReplica(base);
-    const b = cloneReplica(base); // partitioned, target still live here
-    hardDeleteNode(a, target.nodeId); // a deletes
+    const a = await cloneReplica(base);
+    const b = await cloneReplica(base); // partitioned, target still live here
+    await hardDeleteNode(a, target.nodeId); // a deletes
     // b, unaware, makes a fresh ref to the still-live-on-b target
-    const ref = createReference(b, target.nodeId, root.occurrenceId);
+    const ref = await createReference(b, target.nodeId, root.occurrenceId);
 
     await syncPair(a.asOutliner(), b.asOutliner()); // reconnect
-    assertConverged([a, b], "ref-during-partition swept");
+    await assertConverged([a, b], "ref-during-partition swept");
     // Truth: delete wins; b's new ref points at a node whose ownership is gone → swept.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).not.toContain(ref.occurrenceId);
     expect(b.getChildOccurrenceIds(root.occurrenceId)).not.toContain(ref.occurrenceId);

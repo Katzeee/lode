@@ -222,18 +222,18 @@ describe("membership log — replay robustness + edge characterization", () => {
     expect(() => log.appendRotate(owner.actor, [peerPub(member)], k0, k0, 1)).toThrow();
   });
 
-  it("re-importing the same snapshot is idempotent (no error, no membership change)", () => {
+  it("re-importing the same snapshot is idempotent (no error, no membership change)", async () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
     const a = newLog();
     a.appendRoot(owner, tk, "");
     a.appendAdd(owner.actor, peerPub(member), tk, 0);
-    const snap = a.metaDoc.exportSnapshot();
+    const snap = await a.metaDoc.exportSnapshot();
     const b = newLog();
-    b.metaDoc.importUpdate(snap);
+    await b.metaDoc.importUpdate(snap);
     const before = [...b.deriveState().state.peers.keys()].sort();
-    b.metaDoc.importUpdate(snap); // again — must not throw or duplicate
+    await b.metaDoc.importUpdate(snap); // again — must not throw or duplicate
     const after = [...b.deriveState().state.peers.keys()].sort();
     expect(after).toEqual(before);
   });

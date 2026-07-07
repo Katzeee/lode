@@ -37,9 +37,9 @@ function newEngine(): { engine: Engine; store: ShardedBlockStore } {
 describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
   it("converges: content created on A is readable on B after a sync round both ways", async () => {
     const a = newEngine();
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: "hello world" }]);
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "hello world" }]);
 
     const b = newEngine(); // empty — will receive A's content via sync
 
@@ -67,15 +67,17 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await mb.sync();
 
     // B's engine now reads back A's content (the page text crossed the real broker + CRDT-merged).
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toEqual([{ insert: "hello world" }]);
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([
+      { insert: "hello world" },
+    ]);
   });
 
   it("a second edit on A re-syncs to B (incremental convergence)", async () => {
     const a = newEngine();
     const b = newEngine();
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: "first" }]);
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "first" }]);
 
     server = new BrokerServer();
     await server.ready();
@@ -98,24 +100,28 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     const mb = new SyncManager(b.store, tb);
     await ma.sync();
     await mb.sync();
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toEqual([{ insert: "first" }]);
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([
+      { insert: "first" },
+    ]);
 
     // A edits again; another round propagates the change.
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: "second" }]);
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "second" }]);
     await ma.sync();
     await mb.sync();
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toEqual([{ insert: "second" }]);
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([
+      { insert: "second" },
+    ]);
   });
 
   it("two peers each seeding different content converge to the union (CRDT merge)", async () => {
     const a = newEngine();
     const b = newEngine();
-    const aRoot = a.engine.createNode(null);
-    const aPage = a.engine.createNode(aRoot.occurrenceId, undefined, { kind: "page" });
-    a.engine.replaceDeltas(aPage.occurrenceId, [{ insert: "from A" }]);
-    const bRoot = b.engine.createNode(null);
-    const bPage = b.engine.createNode(bRoot.occurrenceId, undefined, { kind: "page" });
-    b.engine.replaceDeltas(bPage.occurrenceId, [{ insert: "from B" }]);
+    const aRoot = await a.engine.createNode(null);
+    const aPage = await a.engine.createNode(aRoot.occurrenceId, undefined, { kind: "page" });
+    await a.engine.replaceDeltas(aPage.occurrenceId, [{ insert: "from A" }]);
+    const bRoot = await b.engine.createNode(null);
+    const bPage = await b.engine.createNode(bRoot.occurrenceId, undefined, { kind: "page" });
+    await b.engine.replaceDeltas(bPage.occurrenceId, [{ insert: "from B" }]);
 
     server = new BrokerServer();
     await server.ready();
@@ -140,8 +146,12 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await mb.sync();
 
     // Both peers see BOTH pages after merge.
-    expect(a.engine.getOccurrence(bPage.occurrenceId)?.deltas).toEqual([{ insert: "from B" }]);
-    expect(b.engine.getOccurrence(aPage.occurrenceId)?.deltas).toEqual([{ insert: "from A" }]);
+    expect((await a.engine.getOccurrence(bPage.occurrenceId))?.deltas).toEqual([
+      { insert: "from B" },
+    ]);
+    expect((await b.engine.getOccurrence(aPage.occurrenceId))?.deltas).toEqual([
+      { insert: "from A" },
+    ]);
   });
 });
 
@@ -188,10 +198,10 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     const a = newEngine();
     const b = newEngine();
     // Seed enough nodes that they fan out across >1 shard (numShards:4).
-    const root = a.engine.createNode(null);
+    const root = await a.engine.createNode(null);
     for (let i = 0; i < 12; i++) {
-      const node = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
-      a.engine.replaceDeltas(node.occurrenceId, [{ insert: `page-${i}` }]);
+      const node = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+      await a.engine.replaceDeltas(node.occurrenceId, [{ insert: `page-${i}` }]);
     }
     expect(a.store.docs().length).toBeGreaterThan(1); // ≥ treeDoc + a shard
 
@@ -220,7 +230,9 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     expect(b.store.docs().length).toBe(a.store.docs().length);
     for (const ad of a.store.docs()) {
       const bd = b.store.docs().find((d) => d.id === ad.id);
-      expect(bd && Buffer.from(ad.version()).equals(Buffer.from(bd.version()))).toBe(true);
+      expect(bd && Buffer.from(await ad.version()).equals(Buffer.from(await bd.version()))).toBe(
+        true,
+      );
     }
   });
 });

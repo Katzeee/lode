@@ -89,7 +89,9 @@ function* shapes(sizes: number[]): Generator<Shape> {
 }
 
 /** Build the tree in a fresh engine; return position → occurrenceId and label → nodeId. */
-function build(shape: Shape): { e: Engine; occIds: string[]; labelByNodeId: Map<string, string> } {
+async function build(
+  shape: Shape,
+): Promise<{ e: Engine; occIds: string[]; labelByNodeId: Map<string, string> }> {
   const { k, parent, label } = shape;
   const e = new Engine();
   const occIds: string[] = [];
@@ -102,14 +104,14 @@ function build(shape: Shape): { e: Engine; occIds: string[]; labelByNodeId: Map<
     let occ;
     if (!firstOf.has(lab)) {
       firstOf.set(lab, i);
-      occ = e.createNode(parentOcc);
+      occ = await e.createNode(parentOcc);
       labelByNodeId.set(String(lab), occ.nodeId);
     } else {
       const nid = labelByNodeId.get(String(lab));
       if (nid === undefined) {
         throw new Error("label missing");
       }
-      occ = e.createOccurrence(nid, parentOcc);
+      occ = await e.createOccurrence(nid, parentOcc);
     }
     occIds.push(occ.occurrenceId);
   }
@@ -281,30 +283,30 @@ const same = (a: Equiv, b: Equiv): void => {
 };
 
 describe("cascade-exhaustive: production cascade == independent brute-force truth", () => {
-  it("every enumerated shape builds to the all-live truth (build sanity)", () => {
+  it("every enumerated shape builds to the all-live truth (build sanity)", async () => {
     let n = 0;
     for (const s of shapes(SIZES)) {
-      const { e, labelByNodeId } = build(s);
+      const { e, labelByNodeId } = await build(s);
       const allLive = new Set<number>();
       for (let i = 0; i < s.k; i++) {
         allLive.add(i);
       }
-      same(equivOf(toJSON(e), labelByNodeId), expected(s, allLive));
+      same(equivOf(await toJSON(e), labelByNodeId), expected(s, allLive));
       n++;
     }
     expect(n).toBe(2 + 10 + 90); // B(2)·1! + B(3)·2! + B(4)·3!
   });
 
-  it("every removeOccurrenceOrHardDelete on every shape matches the brute-force survivor set", () => {
+  it("every removeOccurrenceOrHardDelete on every shape matches the brute-force survivor set", async () => {
     let matched = 0;
     let total = 0;
     for (const s of shapes(SIZES)) {
       for (let p = 0; p < s.k; p++) {
         total++;
-        const { e, occIds, labelByNodeId } = build(s);
-        removeOccurrenceOrHardDelete(e, at(occIds, p));
+        const { e, occIds, labelByNodeId } = await build(s);
+        await removeOccurrenceOrHardDelete(e, at(occIds, p));
         same(
-          equivOf(toJSON(e), labelByNodeId),
+          equivOf(await toJSON(e), labelByNodeId),
           expected(s, survive(s, { kind: "remove", pos: p })),
         );
         matched++;
@@ -313,20 +315,20 @@ describe("cascade-exhaustive: production cascade == independent brute-force trut
     expect(matched).toBe(total); // every enumerated case matches the spec — no throws
   });
 
-  it("every hardDeleteNode on every shape matches the brute-force survivor set", () => {
+  it("every hardDeleteNode on every shape matches the brute-force survivor set", async () => {
     let matched = 0;
     let total = 0;
     for (const s of shapes(SIZES)) {
       for (const n of new Set(s.label)) {
-        const { e, labelByNodeId } = build(s);
+        const { e, labelByNodeId } = await build(s);
         const target = labelByNodeId.get(String(n));
         if (target === undefined) {
           continue;
         }
         total++;
-        hardDeleteNode(e, target);
+        await hardDeleteNode(e, target);
         same(
-          equivOf(toJSON(e), labelByNodeId),
+          equivOf(await toJSON(e), labelByNodeId),
           expected(s, survive(s, { kind: "hardDelete", node: n })),
         );
         matched++;

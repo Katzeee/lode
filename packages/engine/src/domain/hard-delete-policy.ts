@@ -5,30 +5,39 @@ import { isActiveManagedChild, readManagedChildState } from "./managed-child-sta
 import { readSchemaIds } from "./schema-membership.js";
 import { isField, isFieldDef, isSchema } from "./system-entity.js";
 
-export function assertNodeHardDeleteAllowed(doc: Engine, nodeId: string): void {
-  const canonical = requireNodeById(doc, nodeId);
-  assertOccurrenceHardDeleteAllowed(doc, canonical);
+export async function assertNodeHardDeleteAllowed(doc: Engine, nodeId: string): Promise<void> {
+  const canonical = await requireNodeById(doc, nodeId);
+  await assertOccurrenceHardDeleteAllowed(doc, canonical);
 
-  for (const occurrence of doc.getOccurrences(nodeId)) {
-    assertOccurrenceHardDeleteAllowed(doc, occurrence);
+  for (const occurrence of await doc.getOccurrences(nodeId)) {
+    await assertOccurrenceHardDeleteAllowed(doc, occurrence);
   }
 
-  for (const descendant of collectOccurrenceSubtree(doc, canonical.occurrenceId)) {
-    assertOccurrenceHardDeleteAllowed(doc, descendant);
+  for (const descendant of await collectOccurrenceSubtree(doc, canonical.occurrenceId)) {
+    await assertOccurrenceHardDeleteAllowed(doc, descendant);
   }
 }
 
-function collectOccurrenceSubtree(doc: Engine, occurrenceId: string): NodeOccurrence[] {
+async function collectOccurrenceSubtree(
+  doc: Engine,
+  occurrenceId: string,
+): Promise<NodeOccurrence[]> {
   const out: NodeOccurrence[] = [];
-  for (const child of doc.getOccurrenceChildren(occurrenceId)) {
+  for (const child of await doc.getOccurrenceChildren(occurrenceId)) {
     out.push(child);
-    out.push(...collectOccurrenceSubtree(doc, child.occurrenceId));
+    out.push(...(await collectOccurrenceSubtree(doc, child.occurrenceId)));
   }
   return out;
 }
 
-function assertOccurrenceHardDeleteAllowed(doc: Engine, occurrence: NodeOccurrence): void {
-  if (isSystemEntity(doc, occurrence) || readSchemaIds(doc, occurrence.occurrenceId).length > 0) {
+async function assertOccurrenceHardDeleteAllowed(
+  doc: Engine,
+  occurrence: NodeOccurrence,
+): Promise<void> {
+  if (
+    (await isSystemEntity(doc, occurrence)) ||
+    (await readSchemaIds(doc, occurrence.occurrenceId)).length > 0
+  ) {
     throwProtectedHardDelete(occurrence.nodeId, occurrence.occurrenceId);
   }
 
@@ -40,17 +49,17 @@ function assertOccurrenceHardDeleteAllowed(doc: Engine, occurrence: NodeOccurren
   if (!occurrence.parentOccurrenceId) {
     return;
   }
-  const parent = doc.getOccurrence(occurrence.parentOccurrenceId);
+  const parent = await doc.getOccurrence(occurrence.parentOccurrenceId);
   if (!parent) {
     return;
   }
-  if (isSchema(doc, parent) || isActiveManagedChild(doc, parent, occurrence)) {
+  if ((await isSchema(doc, parent)) || (await isActiveManagedChild(doc, parent, occurrence))) {
     throwProtectedHardDelete(occurrence.nodeId, occurrence.occurrenceId);
   }
 }
 
-function isSystemEntity(doc: Engine, node: NodeOccurrence): boolean {
-  return isSchema(doc, node) || isFieldDef(doc, node) || isField(doc, node);
+async function isSystemEntity(doc: Engine, node: NodeOccurrence): Promise<boolean> {
+  return (await isSchema(doc, node)) || (await isFieldDef(doc, node)) || (await isField(doc, node));
 }
 
 function throwProtectedHardDelete(nodeId: string, occurrenceId: string): never {

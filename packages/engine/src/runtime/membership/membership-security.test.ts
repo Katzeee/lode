@@ -28,7 +28,7 @@ const peerPub = (local: LocalPeer) => ({
 });
 
 describe("createMembershipWireSecurity — transit key + member set from a membership log", () => {
-  it("installs the transit key + flips isMember on refresh() once the log converges the peer", () => {
+  it("installs the transit key + flips isMember on refresh() once the log converges the peer", async () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = randomBytes(32);
@@ -44,7 +44,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     const ownerLog = newLog();
     ownerLog.appendRoot(owner, tk, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
-    log.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot()); // member "receives" the roster
+    await log.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot()); // member "receives" the roster
 
     ms.refresh();
     expect(ms.isMember()).toBe(true);
@@ -56,7 +56,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     );
   });
 
-  it("the derived security round-trips a sealed payload between owner and member", () => {
+  it("the derived security round-trips a sealed payload between owner and member", async () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = randomBytes(32);
@@ -64,7 +64,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     ownerLog.appendRoot(owner, tk, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
     const memberLog = newLog();
-    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
+    await memberLog.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot());
 
     const ownerSec = createMembershipWireSecurity({ log: ownerLog, local: owner });
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
@@ -76,7 +76,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     expect(Buffer.from(open(ownerSec.security, blob)).toString()).toBe("members-only payload");
   });
 
-  it("refresh() reflects a governance rotation (the installed transit key changes)", () => {
+  it("refresh() reflects a governance rotation (the installed transit key changes)", async () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = randomBytes(32);
@@ -85,7 +85,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     ownerLog.appendRoot(owner, k0, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), k0, 0);
     const memberLog = newLog();
-    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
+    await memberLog.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot());
 
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
     memberSec.refresh();
@@ -93,7 +93,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
 
     // Owner rotates the transit key (owner + member peers survive). Member converges + refreshes.
     ownerLog.appendRotate(owner.actor, [peerPub(owner), peerPub(member)], k1, k0, 1);
-    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
+    await memberLog.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot());
     memberSec.refresh();
     expect(eq(memberSec.security.transitKey, k1)).toBe(true);
   });

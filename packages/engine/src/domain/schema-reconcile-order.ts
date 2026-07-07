@@ -11,20 +11,24 @@ import { readSchemaIds } from "./schema-membership.js";
 import { moveOccurrence } from "./node.js";
 import { isSameProvenance } from "./model/reconcile.js";
 
-export function reorderTargetChildren(
+export async function reorderTargetChildren(
   doc: Engine,
   target: NodeOccurrence,
   managedOrder: string[],
-): DomainChange[] {
+): Promise<DomainChange[]> {
   const changes: DomainChange[] = [];
-  const placementChildren = doc.getOccurrenceChildren(target.occurrenceId);
+  const placementChildren = await doc.getOccurrenceChildren(target.occurrenceId);
   const managedOrderSet = new Set(managedOrder);
-  const activeManagedRemainder = placementChildren
-    .filter(
-      (child) =>
-        !managedOrderSet.has(child.occurrenceId) && isActiveManagedChild(doc, target, child),
-    )
-    .map((child) => child.occurrenceId);
+  // Async predicate (isActiveManagedChild faults a shard) — gather sequentially.
+  const activeManagedRemainder: string[] = [];
+  for (const child of placementChildren) {
+    if (
+      !managedOrderSet.has(child.occurrenceId) &&
+      (await isActiveManagedChild(doc, target, child))
+    ) {
+      activeManagedRemainder.push(child.occurrenceId);
+    }
+  }
   const managedAll = [...managedOrder, ...activeManagedRemainder];
   const managedAllSet = new Set(managedAll);
   const unmanaged = placementChildren
@@ -33,13 +37,13 @@ export function reorderTargetChildren(
   const finalOrder = [...managedAll, ...unmanaged];
 
   for (const [index, occurrenceId] of finalOrder.entries()) {
-    const current = doc.getOccurrenceChildren(target.occurrenceId);
+    const current = await doc.getOccurrenceChildren(target.occurrenceId);
     const atIndex = current[index];
     if (!atIndex || atIndex.occurrenceId === occurrenceId) {
       continue;
     }
-    moveOccurrence(doc, occurrenceId, target.occurrenceId, index);
-    const moved = doc.mustGetOccurrence(occurrenceId);
+    await moveOccurrence(doc, occurrenceId, target.occurrenceId, index);
+    const moved = await doc.mustGetOccurrence(occurrenceId);
     changes.push({
       kind: managedAllSet.has(occurrenceId) ? requireManagedKind(doc, moved) : "templateRef",
       reason: "moved",
@@ -51,15 +55,15 @@ export function reorderTargetChildren(
   return changes;
 }
 
-export function trimStaleManagedProvenance(
+export async function trimStaleManagedProvenance(
   doc: Engine,
   target: NodeOccurrence,
   assignedProvenanceByOccurrence: Map<string, SchemaProvenance[]>,
-): DomainChange[] {
-  const activeSchemaIds = new Set(readSchemaIds(doc, target.occurrenceId));
+): Promise<DomainChange[]> {
+  const activeSchemaIds = new Set(await readSchemaIds(doc, target.occurrenceId));
   const changes: DomainChange[] = [];
 
-  for (const child of doc.getOccurrenceChildren(target.occurrenceId)) {
+  for (const child of await doc.getOccurrenceChildren(target.occurrenceId)) {
     const managed = readManagedChildState(doc, child.occurrenceId);
     const managedKind = managed.status === "valid" ? managed.kind : null;
     if (!managedKind) {
@@ -71,7 +75,7 @@ export function trimStaleManagedProvenance(
       ? assigned.map((entry) => ({ ...entry }))
       : current.filter((entry) => !activeSchemaIds.has(entry.schemaId));
     if (!isSameProvenance(current, next)) {
-      writeManagedProvenance(doc, child.occurrenceId, next);
+      await writeManagedProvenance(doc, child.occurrenceId, next);
       changes.push({
         kind: managedKind,
         reason: "provenanceUpdated",

@@ -15,24 +15,24 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 describe("id uniqueness contract", () => {
   it("default randomUUID: concurrent creates on two replicas never collide", async () => {
     const base = replica(8);
-    const root = createPlainNode(base, null);
-    const a = cloneReplica(base);
-    const b = cloneReplica(base);
-    const ax = createPlainNode(a, root.occurrenceId);
-    const bx = createPlainNode(b, root.occurrenceId);
+    const root = await createPlainNode(base, null);
+    const a = await cloneReplica(base);
+    const b = await cloneReplica(base);
+    const ax = await createPlainNode(a, root.occurrenceId);
+    const bx = await createPlainNode(b, root.occurrenceId);
 
     // Independently minted ids are globally unique across the two replicas.
     expect(ax.nodeId).not.toBe(bx.nodeId);
     expect(ax.occurrenceId).not.toBe(bx.occurrenceId);
 
     await syncPair(a.asOutliner(), b.asOutliner());
-    assertConverged([a, b], "no collision");
+    await assertConverged([a, b], "no collision");
     // Both replicas hold both nodes, no duplicate ids in the converged state.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(2);
     expect(b.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(2);
   });
 
-  it("an injected duplicate-producing generator is the only collision path", () => {
+  it("an injected duplicate-producing generator is the only collision path", async () => {
     // Two engines share a generator that always returns the same id — a caller-contract
     // violation. Each creates one node; both end up with the same nodeId+occId.
     const fixed = () => "colliding-id";
@@ -46,8 +46,8 @@ describe("id uniqueness contract", () => {
       nodeIdGenerator: fixed,
       occIdGenerator: fixed,
     });
-    const na = createPlainNode(a, null);
-    const nb = createPlainNode(b, null);
+    const na = await createPlainNode(a, null);
+    const nb = await createPlainNode(b, null);
     // nodeId + the permanent occId both come from the duplicate generator. (occurrenceId is the
     // live Loro tree id `index@peer`, which differs per replica peer — not the permanent id.)
     expect(na.nodeId).toBe("colliding-id");

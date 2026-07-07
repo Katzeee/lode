@@ -7,8 +7,10 @@ import type {
   Delta,
   EngineSlots,
   MarkRange,
+  NodeEntitySnapshot,
   NodeId,
   NodeOccurrence,
+  NodeOccurrenceSnapshot,
   NodeUpdatedPayload,
   OccurrenceId,
 } from "./types.js";
@@ -49,6 +51,12 @@ export class Engine {
   private readonly nodeIdGenerator: () => NodeId;
   private readonly occIdGenerator: () => string;
   private inTransaction = false;
+  /** Before-image capture for incremental undo (Phase 2): when non-null, each entity-mutating
+   *  mutator records its target's pre-mutation entity snapshot here (first-touch-wins per nodeId).
+   *  Installed by ActionHistory around a group so the capture reads ONLY touched nodes' shards
+   *  instead of the full tree. Null during undo/redo reconcile (reconciliation must not record). */
+  private entityCapture: ((nodeId: NodeId, before: NodeEntitySnapshot | null) => void) | null =
+    null;
 
   constructor(options: EngineOptions = {}) {
     this.id = options.id ?? randomUUID();
@@ -82,7 +90,7 @@ export class Engine {
 
   // ── Node / occurrence CRUD ────────────────────────────────────────────────
 
-  createNode(
+  async createNode(
     parentOccurrenceId?: OccurrenceId | null,
     index?: number,
     props?: Record<string, unknown>,
@@ -92,10 +100,11 @@ export class Engine {
     /** Override the generated occId (used by undo to re-create with the original occId so
      * snapshot reconciliation is stable across churn). Undefined → generate. */
     occIdOverride?: string,
-  ): NodeOccurrence {
+  ): Promise<NodeOccurrence> {
     this.requireWritable();
-    return this.runAutoGrouped(() => {
+    return this.runAutoGrouped(async () => {
       const nodeId = nodeIdOverride ?? this.nodeIdGenerator();
+      await this.captureEntityBeforeIfRecording(nodeId); // before-image null (entity is being created)
       const occId = occIdOverride ?? this.occIdGenerator();
       const occurrenceId = this.store.createOccurrenceRecord(
         nodeId,
@@ -103,7 +112,7 @@ export class Engine {
         parentOccurrenceId,
         index,
       );
-      this.store.createEntity(nodeId, occurrenceId, props);
+      await this.store.createEntity(nodeId, occurrenceId, props);
       this.commitIfNeeded();
       this.emit([
         { type: "entityAdded", nodeId, occurrenceId },
@@ -118,15 +127,15 @@ export class Engine {
     });
   }
 
-  createOccurrence(
+  async createOccurrence(
     nodeId: NodeId,
     parentOccurrenceId?: OccurrenceId | null,
     index?: number,
     occIdOverride?: string,
-  ): NodeOccurrence {
+  ): Promise<NodeOccurrence> {
     this.requireWritable();
-    return this.runAutoGrouped(() => {
-      this.store.requireEntity(nodeId);
+    return this.runAutoGrouped(async () => {
+      await this.store.requireEntity(nodeId);
       const occId = occIdOverride ?? this.occIdGenerator();
       const occurrenceId = this.store.createOccurrenceRecord(
         nodeId,
@@ -147,13 +156,13 @@ export class Engine {
     });
   }
 
-  moveOccurrence(
+  async moveOccurrence(
     occurrenceId: OccurrenceId,
     parentOccurrenceId: OccurrenceId | null,
     index?: number,
-  ): void {
+  ): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(() => {
       const nodeId = this.store.nodeIdOf(occurrenceId);
       this.store.moveOccurrenceRecord(occurrenceId, parentOccurrenceId, index);
       this.commitIfNeeded();
@@ -161,11 +170,11 @@ export class Engine {
     });
   }
 
-  removeOccurrence(occurrenceId: OccurrenceId): void {
+  async removeOccurrence(occurrenceId: OccurrenceId): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(async () => {
       const nodeId = this.store.nodeIdOf(occurrenceId);
-      if (occurrenceId === this.store.canonicalOccurrenceIdOf(nodeId)) {
+      if (occurrenceId === (await this.store.canonicalOccurrenceIdOf(nodeId))) {
         throw new Error(`Cannot remove canonical occurrence: ${occurrenceId}`);
       }
       if (this.getChildOccurrenceIds(occurrenceId).length > 0) {
@@ -178,30 +187,34 @@ export class Engine {
     });
   }
 
-  setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): void {
+  async setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(async () => {
+      await this.captureEntityBeforeIfRecording(nodeId);
       const promotedNodeId = this.store.nodeIdOf(occurrenceId);
       if (promotedNodeId !== nodeId) {
         throw new Error(`Occurrence does not belong to node: ${occurrenceId}`);
       }
-      if (this.store.canonicalOccurrenceIdOf(nodeId) === occurrenceId) {
+      if ((await this.store.canonicalOccurrenceIdOf(nodeId)) === occurrenceId) {
         return;
       }
-      this.store.setCanonicalOccurrence(nodeId, occurrenceId);
+      await this.store.setCanonicalOccurrence(nodeId, occurrenceId);
       this.commitIfNeeded();
       this.emit([{ type: "canonicalChanged", nodeId, occurrenceId }]);
     });
   }
 
-  deleteNode(nodeId: NodeId): void {
+  async deleteNode(nodeId: NodeId): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.requireEntity(nodeId);
-      const occurrenceIds = this.store.getOccurrenceIdsForNode(nodeId).map((occurrenceId) => ({
-        occurrenceId,
-        parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
-      }));
+    await this.runAutoGrouped(async () => {
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.requireEntity(nodeId);
+      const occurrenceIds = (await this.store.getOccurrenceIdsForNode(nodeId)).map(
+        (occurrenceId) => ({
+          occurrenceId,
+          parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
+        }),
+      );
       const occurrenceWithChildren = occurrenceIds.find(
         ({ occurrenceId }) => this.getChildOccurrenceIds(occurrenceId).length > 0,
       );
@@ -211,7 +224,7 @@ export class Engine {
       for (const { occurrenceId } of occurrenceIds) {
         this.store.deleteOccurrenceRecord(occurrenceId);
       }
-      this.store.deleteEntity(nodeId);
+      await this.store.deleteEntity(nodeId);
       this.commitIfNeeded();
       this.emit([
         ...occurrenceIds.map(({ occurrenceId, parentOccurrenceId }) => ({
@@ -225,12 +238,12 @@ export class Engine {
     });
   }
 
-  getOccurrence(occurrenceId: OccurrenceId): NodeOccurrence | undefined {
+  async getOccurrence(occurrenceId: OccurrenceId): Promise<NodeOccurrence | undefined> {
     if (!this.store.occurrenceExists(occurrenceId)) {
       return undefined;
     }
     const nodeId = this.store.nodeIdOf(occurrenceId);
-    const canonicalOccurrenceId = this.store.canonicalOccurrenceIdOf(nodeId);
+    const canonicalOccurrenceId = await this.store.canonicalOccurrenceIdOf(nodeId);
     return {
       nodeId,
       occurrenceId,
@@ -238,117 +251,158 @@ export class Engine {
       parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
       canonicalOccurrenceId,
       canonicalChildOccurrenceIds: this.getChildOccurrenceIds(canonicalOccurrenceId),
-      props: this.getProps(occurrenceId),
-      entityMeta: this.getEntityMetaRecord(occurrenceId),
+      props: await this.getProps(occurrenceId),
+      entityMeta: await this.getEntityMetaRecord(occurrenceId),
       occurrenceProps: this.getOccurrenceProps(occurrenceId),
       occurrenceMeta: this.getOccurrenceMetaRecord(occurrenceId),
-      deltas: this.getDeltas(occurrenceId),
+      deltas: await this.getDeltas(occurrenceId),
     };
   }
 
-  mustGetOccurrence(occurrenceId: OccurrenceId): NodeOccurrence {
-    const node = this.getOccurrence(occurrenceId);
+  /** treeDoc-only occurrence snapshot — structure + occurrence props/meta, NO entity reads. The
+   *  occurrence fields all live on the tree node's `data` container (the entity's deltas/props/meta
+   *  live in the shard and are deliberately absent). The incremental-undo capture walks this so it
+   *  never faults shards. Mirrors the `NodeOccurrenceSnapshot` subset `getOccurrence` produces. */
+  getOccurrenceStruct(occurrenceId: OccurrenceId): NodeOccurrenceSnapshot | undefined {
+    if (!this.store.occurrenceExists(occurrenceId)) {
+      return undefined;
+    }
+    return {
+      occurrenceId,
+      occId: this.store.occIdOf(occurrenceId),
+      nodeId: this.store.nodeIdOf(occurrenceId),
+      parentOccurrenceId: this.getParentOccurrenceId(occurrenceId),
+      physicalChildOccurrenceIds: this.getChildOccurrenceIds(occurrenceId),
+      occurrenceProps: this.getOccurrenceProps(occurrenceId),
+      occurrenceMeta: this.getOccurrenceMetaRecord(occurrenceId),
+    };
+  }
+
+  async mustGetOccurrence(occurrenceId: OccurrenceId): Promise<NodeOccurrence> {
+    const node = await this.getOccurrence(occurrenceId);
     if (!node) {
       throw new Error(`Node occurrence not found: ${occurrenceId}`);
     }
     return node;
   }
 
-  getOccurrences(nodeId: NodeId): NodeOccurrence[] {
-    return this.store
-      .getOccurrenceIdsForNode(nodeId)
-      .map((id) => this.getOccurrence(id))
-      .filter((node): node is NodeOccurrence => node != null);
+  async getOccurrences(nodeId: NodeId): Promise<NodeOccurrence[]> {
+    const ids = await this.store.getOccurrenceIdsForNode(nodeId);
+    const out: NodeOccurrence[] = [];
+    for (const id of ids) {
+      const occ = await this.getOccurrence(id);
+      if (occ != null) {
+        out.push(occ);
+      }
+    }
+    return out;
   }
 
-  getCanonicalOccurrenceId(nodeId: NodeId): OccurrenceId {
+  async getCanonicalOccurrenceId(nodeId: NodeId): Promise<OccurrenceId> {
     return this.store.canonicalOccurrenceIdOf(nodeId);
   }
 
-  getRootOccurrences(): NodeOccurrence[] {
-    return this.getRootOccurrenceIds()
-      .map((id) => this.getOccurrence(id))
-      .filter((node): node is NodeOccurrence => node != null);
+  async getRootOccurrences(): Promise<NodeOccurrence[]> {
+    const out: NodeOccurrence[] = [];
+    for (const id of this.getRootOccurrenceIds()) {
+      const occ = await this.getOccurrence(id);
+      if (occ != null) {
+        out.push(occ);
+      }
+    }
+    return out;
   }
 
-  getOccurrenceChildren(occurrenceId: OccurrenceId): NodeOccurrence[] {
-    return this.getChildOccurrenceIds(occurrenceId)
-      .map((id) => this.getOccurrence(id))
-      .filter((node): node is NodeOccurrence => node != null);
+  async getOccurrenceChildren(occurrenceId: OccurrenceId): Promise<NodeOccurrence[]> {
+    const out: NodeOccurrence[] = [];
+    for (const id of this.getChildOccurrenceIds(occurrenceId)) {
+      const occ = await this.getOccurrence(id);
+      if (occ != null) {
+        out.push(occ);
+      }
+    }
+    return out;
   }
 
-  getDeltas(occurrenceId: OccurrenceId): Delta {
+  getDeltas(occurrenceId: OccurrenceId): Promise<Delta> {
     return this.store.getDeltas(occurrenceId);
   }
 
-  replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): void {
+  async replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.replaceDeltas(occurrenceId, deltas);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.replaceDeltas(occurrenceId, deltas);
       this.commitIfNeeded();
-      this.emit([
-        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-      ]);
+      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
-  mark(occurrenceId: OccurrenceId, range: MarkRange, key: string, value: unknown): void {
+  async mark(
+    occurrenceId: OccurrenceId,
+    range: MarkRange,
+    key: string,
+    value: unknown,
+  ): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.mark(occurrenceId, range, key, value);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.mark(occurrenceId, range, key, value);
       this.commitIfNeeded();
-      this.emit([
-        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-      ]);
+      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
-  unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): void {
+  async unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.unmark(occurrenceId, range, key);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.unmark(occurrenceId, range, key);
       this.commitIfNeeded();
-      this.emit([
-        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "text" },
-      ]);
+      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
-  getProp(occurrenceId: OccurrenceId, key: string): unknown {
+  getProp(occurrenceId: OccurrenceId, key: string): Promise<unknown> {
     return this.store.getProp(occurrenceId, key);
   }
 
-  setProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+  async setProp(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.setProp(occurrenceId, key, value);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.setProp(occurrenceId, key, value);
       this.commitIfNeeded();
-      this.emit([
-        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
-      ]);
+      this.emit([{ type: "entityUpdated", nodeId, field: "props", key }]);
     });
   }
 
-  unsetProp(occurrenceId: OccurrenceId, key: string): void {
+  async unsetProp(occurrenceId: OccurrenceId, key: string): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.unsetProp(occurrenceId, key);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.unsetProp(occurrenceId, key);
       this.commitIfNeeded();
-      this.emit([
-        { type: "entityUpdated", nodeId: this.store.nodeIdOf(occurrenceId), field: "props", key },
-      ]);
+      this.emit([{ type: "entityUpdated", nodeId, field: "props", key }]);
     });
   }
 
-  setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): void {
+  async setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.setProps(occurrenceId, props);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.setProps(occurrenceId, props);
       this.commitIfNeeded();
       this.emit(
         Object.keys(props).map((key) => ({
           type: "entityUpdated" as const,
-          nodeId: this.store.nodeIdOf(occurrenceId),
+          nodeId,
           field: "props" as const,
           key,
         })),
@@ -356,31 +410,35 @@ export class Engine {
     });
   }
 
-  getProps(occurrenceId: OccurrenceId): Record<string, unknown> {
+  getProps(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
     return this.store.getProps(occurrenceId);
   }
 
-  getEntityMeta(occurrenceId: OccurrenceId, key: string): unknown {
+  getEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<unknown> {
     return this.store.getEntityMeta(occurrenceId, key);
   }
 
-  setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+  async setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.setEntityMeta(occurrenceId, key, value);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.setEntityMeta(occurrenceId, key, value);
       this.commitIfNeeded();
     });
   }
 
-  unsetEntityMeta(occurrenceId: OccurrenceId, key: string): void {
+  async unsetEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
-      this.store.unsetEntityMeta(occurrenceId, key);
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await this.store.unsetEntityMeta(occurrenceId, key);
       this.commitIfNeeded();
     });
   }
 
-  getEntityMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
+  getEntityMetaRecord(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
     return this.store.getEntityMetaRecord(occurrenceId);
   }
 
@@ -388,9 +446,9 @@ export class Engine {
     return this.store.getOccurrenceProp(occurrenceId, key);
   }
 
-  setOccurrenceProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+  async setOccurrenceProp(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(() => {
       this.store.setOccurrenceProp(occurrenceId, key, value);
       this.commitIfNeeded();
       this.emit([
@@ -405,9 +463,9 @@ export class Engine {
     });
   }
 
-  unsetOccurrenceProp(occurrenceId: OccurrenceId, key: string): void {
+  async unsetOccurrenceProp(occurrenceId: OccurrenceId, key: string): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(() => {
       this.store.unsetOccurrenceProp(occurrenceId, key);
       this.commitIfNeeded();
       this.emit([
@@ -430,17 +488,17 @@ export class Engine {
     return this.store.getOccurrenceMeta(occurrenceId, key);
   }
 
-  setOccurrenceMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
+  async setOccurrenceMeta(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(() => {
       this.store.setOccurrenceMeta(occurrenceId, key, value);
       this.commitIfNeeded();
     });
   }
 
-  unsetOccurrenceMeta(occurrenceId: OccurrenceId, key: string): void {
+  async unsetOccurrenceMeta(occurrenceId: OccurrenceId, key: string): Promise<void> {
     this.requireWritable();
-    this.runAutoGrouped(() => {
+    await this.runAutoGrouped(() => {
       this.store.unsetOccurrenceMeta(occurrenceId, key);
       this.commitIfNeeded();
     });
@@ -466,51 +524,51 @@ export class Engine {
 
   // ── History ──────────────────────────────────────────────────────────────
 
-  transact<T>(fn: () => T): T {
+  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
     // Re-entrant: a batch inside a batch joins the outer group (one undo step) instead of
     // throwing. This lets a composite op group itself while calling other grouped primitives
     // (e.g. setFieldValues → removeOccurrenceOrHardDelete, or paste → cloneOccurrence). Only
     // the outermost transact owns begin/end; inner calls run fn bare against the open group.
     if (this.inTransaction) {
-      return fn();
+      return await fn();
     }
     this.actionHistory.begin();
     this.inTransaction = true;
     this.historyActive = true; // suppress per-op auto-grouping; the transaction is the group
     try {
-      const result = fn();
+      const result = await fn();
       this.store.commit();
       return result;
     } finally {
       this.historyActive = false;
       this.inTransaction = false;
-      this.actionHistory.end();
+      await this.actionHistory.end();
     }
   }
 
-  batch<T>(fn: () => T): T {
+  batch<T>(fn: () => T | Promise<T>): Promise<T> {
     return this.transact(fn);
   }
 
-  undo(): boolean {
+  async undo(): Promise<boolean> {
     if (this._readonly) {
       return false;
     }
     this.historyActive = true;
     try {
-      return this.actionHistory.undo();
+      return await this.actionHistory.undo();
     } finally {
       this.historyActive = false;
     }
   }
 
-  redo(): boolean {
+  async redo(): Promise<boolean> {
     if (this._readonly) {
       return false;
     }
     this.historyActive = true;
     try {
-      return this.actionHistory.redo();
+      return await this.actionHistory.redo();
     } finally {
       this.historyActive = false;
     }
@@ -532,6 +590,40 @@ export class Engine {
 
   resetHistory(): void {
     this.actionHistory.clear();
+  }
+
+  /** Install/uninstall the before-image capture callback. ActionHistory drives this around a group
+   *  so entity-mutating mutators record their pre-mutation state into its (first-touch-wins) map. */
+  setEntityCapture(cb: ((nodeId: NodeId, before: NodeEntitySnapshot | null) => void) | null): void {
+    this.entityCapture = cb;
+  }
+
+  /** Record `nodeId`'s pre-mutation entity if a capture is active (no-op otherwise). Called at the
+   *  top of every entity-mutating mutator. Reads ONLY the touched node's shard — which the mutation
+   *  is about to touch anyway, so it adds no fault-in beyond what the mutation already incurs. */
+  private async captureEntityBeforeIfRecording(nodeId: NodeId): Promise<void> {
+    if (this.entityCapture !== null) {
+      this.entityCapture(nodeId, await this.getEntitySnapshot(nodeId));
+    }
+  }
+
+  /** The entity snapshot of `nodeId` (canonical + deltas/props/meta), or null if the node is absent.
+   *  Resolves nodeId → its one owning shard; never scans other shards. Public so ActionHistory can
+   *  read the matching after-image at `end()` for the same touched set. */
+  async getEntitySnapshot(nodeId: NodeId): Promise<NodeEntitySnapshot | null> {
+    try {
+      const canonicalOccurrenceId = await this.store.canonicalOccurrenceIdOf(nodeId);
+      return {
+        nodeId,
+        canonicalOccurrenceId,
+        deltas: await this.store.getDeltas(canonicalOccurrenceId),
+        props: await this.store.getProps(canonicalOccurrenceId),
+        meta: await this.store.getEntityMetaRecord(canonicalOccurrenceId),
+      };
+    } catch {
+      // Node absent (e.g. createNode's target before it exists) — the snapshot is null.
+      return null;
+    }
   }
 
   captureSync(): void {
@@ -559,18 +651,21 @@ export class Engine {
   }
 
   /** Run a store-mutation thunk. Auto-groups as its own undo step when no group is open
-   *  (top-level call); runs bare when a group is already open (transact) or during
-   *  undo/redo application (historyActive set by undo()/redo()/transact). */
-  private runAutoGrouped<T>(fn: () => T): T {
-    if (this.historyActive) {
-      return fn();
+   *  (top-level call); runs bare when a group is already open. Two "outer owns it" signals:
+   *   - `historyActive` — a transact/batch or undo/redo application is driving (the established path).
+   *   - `entityCapture` active — a (possibly standalone) ActionHistory began a group and installed
+   *     its before-image callback; that outer owns the grouping + capture, so this mutator runs bare
+   *     and its before-image is recorded into the outer's action. */
+  private async runAutoGrouped<T>(fn: () => T | Promise<T>): Promise<T> {
+    if (this.historyActive || this.entityCapture !== null) {
+      return await fn();
     }
     this.historyActive = true;
     this.actionHistory.begin();
     try {
-      return fn();
+      return await fn();
     } finally {
-      this.actionHistory.end();
+      await this.actionHistory.end();
       this.historyActive = false;
     }
   }

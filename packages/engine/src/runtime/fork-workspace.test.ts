@@ -37,10 +37,10 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       // Write content beyond the auto-created root so the copy exercises shards, not just the
       // treeDoc root node. persistMutation is a no-op in-memory, but keeps the doc state current.
       const src = (await rt.getEngine("src"))!;
-      const before = src.asOutliner().treeSyncDoc().version();
-      const root = src.getRootOccurrences().at(0)!;
+      const before = await src.asOutliner().treeSyncDoc().version();
+      const root = (await src.getRootOccurrences()).at(0)!;
       for (let i = 0; i < 5; i++) {
-        src.createNode(root.occurrenceId);
+        await src.createNode(root.occurrenceId);
       }
       await rt.persistMutation("src", before);
 
@@ -54,7 +54,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       expect(forked.workspaceId).not.toBe("src");
       expect(forked.displayName).toBe("Fork");
       const forkedDoc = (await rt.getEngine(forked.workspaceId))!;
-      expect(toJSON(forkedDoc)).toEqual(toJSON(src));
+      expect(await toJSON(forkedDoc)).toEqual(await toJSON(src));
 
       // Fresh governance: exactly one record (a root), forker = owner, epoch 0, one peer (the
       // forker's, on this dataRoot). The source's log + re-key chain did NOT carry over.
@@ -83,10 +83,10 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
         actorKeypair: owner,
       });
       const src = (await rt.getEngine("src"))!;
-      const before = src.asOutliner().treeSyncDoc().version();
-      src.createNode(src.getRootOccurrences().at(0)!.occurrenceId);
+      const before = await src.asOutliner().treeSyncDoc().version();
+      await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
       await rt.persistMutation("src", before);
-      const srcSnapshot = toJSON(src);
+      const srcSnapshot = await toJSON(src);
       const srcLogLen = rt.membershipLog("src")!.records().length;
 
       await rt.forkWorkspace({
@@ -95,7 +95,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
         actorKeypair: owner,
       });
 
-      expect(toJSON(src)).toEqual(srcSnapshot);
+      expect(await toJSON(src)).toEqual(srcSnapshot);
       expect(rt.membershipLog("src")!.records().length).toBe(srcLogLen);
     } finally {
       await rt.close();
@@ -111,10 +111,10 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       actorKeypair: owner,
     });
     const src = (await rt.getEngine("src"))!;
-    const before = src.asOutliner().treeSyncDoc().version();
-    src.createNode(src.getRootOccurrences().at(0)!.occurrenceId);
+    const before = await src.asOutliner().treeSyncDoc().version();
+    await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
     await rt.persistMutation("src", before);
-    const expected = toJSON(src);
+    const expected = await toJSON(src);
     const forked = await rt.forkWorkspace({
       sourceWorkspaceId: "src",
       displayName: "Fork",
@@ -127,7 +127,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
     const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     try {
       const forkedDoc = (await rt2.getEngine(forked.workspaceId))!;
-      expect(toJSON(forkedDoc)).toEqual(expected);
+      expect(await toJSON(forkedDoc)).toEqual(expected);
       const log = rt2.membershipLog(forked.workspaceId)!;
       expect(log.records()).toHaveLength(1);
       expect(log.deriveState().state.owner).toBe(owner.actorId);

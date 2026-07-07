@@ -121,7 +121,7 @@ export class MembershipLog {
     if (!bytes) {
       return false;
     }
-    this.metaDoc.importUpdate(bytes);
+    await this.metaDoc.importUpdate(bytes);
     this.lastPersisted = this.metaDoc.frontiers();
     return true;
   }
@@ -136,7 +136,7 @@ export class MembershipLog {
     if (this.lastPersisted && sameBytes(frontiers, this.lastPersisted)) {
       return;
     }
-    await this.persistence.save(this.metaDoc.exportSnapshot());
+    await this.persistence.save(await this.metaDoc.exportSnapshot());
     this.lastPersisted = frontiers;
   }
 

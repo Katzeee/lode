@@ -5,26 +5,29 @@ import { readSchemaIds } from "./schema-membership.js";
 import { isFieldDef, readFieldDefPresence, requireSchema } from "./system-entity.js";
 import type { DesiredManagedChild, DesiredManagedChildInput } from "./model/reconcile.js";
 
-export function collectDesiredManagedChildren(
+export async function collectDesiredManagedChildren(
   doc: Engine,
   target: NodeOccurrence,
-): DesiredManagedChild[] {
+): Promise<DesiredManagedChild[]> {
   const desiredByKey = new Map<string, DesiredManagedChild>();
 
-  for (const schemaId of readSchemaIds(doc, target.occurrenceId)) {
-    const schema = requireNodeById(doc, schemaId);
-    requireSchema(doc, schema, schemaId);
+  for (const schemaId of await readSchemaIds(doc, target.occurrenceId)) {
+    const schema = await requireNodeById(doc, schemaId);
+    await requireSchema(doc, schema, schemaId);
 
-    const schemaCanonical = doc.mustGetOccurrence(doc.getCanonicalOccurrenceId(schema.nodeId));
-    for (const schemaChild of doc.getOccurrenceChildren(schemaCanonical.occurrenceId)) {
+    const schemaCanonical = await doc.mustGetOccurrence(
+      await doc.getCanonicalOccurrenceId(schema.nodeId),
+    );
+    for (const schemaChild of await doc.getOccurrenceChildren(schemaCanonical.occurrenceId)) {
       const provenance: SchemaProvenance = {
         schemaId,
         schemaChildNodeId: schemaChild.nodeId,
         schemaChildOccurrenceId: schemaChild.occurrenceId,
       };
-      if (isFieldDef(doc, schemaChild)) {
+      if (await isFieldDef(doc, schemaChild)) {
         const key = `field:${schemaChild.nodeId}`;
-        const createIfMissing = readFieldDefPresence(doc, schemaChild.occurrenceId) !== "optional";
+        const createIfMissing =
+          (await readFieldDefPresence(doc, schemaChild.occurrenceId)) !== "optional";
         upsertDesired(desiredByKey, key, {
           key,
           managedKind: ManagedKind.FieldSlot,

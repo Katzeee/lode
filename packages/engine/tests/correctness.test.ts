@@ -110,8 +110,12 @@ function extractBoldIntervals(
 /** Assert the engine's observable state equals the model's truth, after structural
  *  validation. Structure/content/props/meta/marks all compared via one string-equal
  *  projection (marks as normalized intervals, so unmark's range arithmetic is checked). */
-function assertEngineMatchesTruth(engine: Engine, model: TruthModel, label: string): void {
-  const snap = toJSON(engine);
+async function assertEngineMatchesTruth(
+  engine: Engine,
+  model: TruthModel,
+  label: string,
+): Promise<void> {
+  const snap = await toJSON(engine);
   validateSnapshot(snap); // structural correctness contract (cycles, parent↔child, …)
 
   const engineViewStr = stableStringify(engineView(snap));
@@ -124,15 +128,15 @@ function assertEngineMatchesTruth(engine: Engine, model: TruthModel, label: stri
 }
 
 /** Apply a script to one engine, asserting the independent truth after every op. */
-function runTruth(ops: Op[], makeEngine: () => Engine, label: string): void {
+async function runTruth(ops: Op[], makeEngine: () => Engine, label: string): Promise<void> {
   const e = makeEngine();
   const occIds: string[] = [];
   const nodeIds: string[] = [];
   const model = new TruthModel();
   for (const [i, op] of ops.entries()) {
-    applyOp(e, op, occIds, nodeIds);
+    await applyOp(e, op, occIds, nodeIds);
     model.step(op);
-    assertEngineMatchesTruth(e, model, `${label} op#${i} ${op.t}`);
+    await assertEngineMatchesTruth(e, model, `${label} op#${i} ${op.t}`);
   }
   e.captureSync();
 }
@@ -166,23 +170,23 @@ const shardedEngine =
     new Engine({ store: new ShardedBlockStore({ numShards }), nodeIdGenerator: counterGen() });
 
 describe("correctness fuzz: the sharded Engine satisfies the independent truth", () => {
-  it("a hand-written script across the full mutator surface matches the truth", () => {
+  it("a hand-written script across the full mutator surface matches the truth", async () => {
     for (const ns of SHARD_COUNTS) {
-      runTruth(HAND_WRITTEN, shardedEngine(ns), `sharded×${ns}`);
+      await runTruth(HAND_WRITTEN, shardedEngine(ns), `sharded×${ns}`);
     }
   });
 
-  it(`${RUNS} seeded random scripts — every op, all shard counts — match the truth`, () => {
+  it(`${RUNS} seeded random scripts — every op, all shard counts — match the truth`, async () => {
     for (let seed = 0; seed < RUNS; seed++) {
       const rng = mulberry32(seed * 7919 + 13);
       const ops = generateScript(rng, 14 + (seed % 22));
       for (const ns of SHARD_COUNTS) {
-        runTruth(ops, shardedEngine(ns), `sharded×${ns} seed=${seed}`);
+        await runTruth(ops, shardedEngine(ns), `sharded×${ns} seed=${seed}`);
       }
     }
   }, 600000);
 
-  it("negative control: a stale model is caught (oracle is non-vacuous)", () => {
+  it("negative control: a stale model is caught (oracle is non-vacuous)", async () => {
     // Apply the script to the engine but SKIP model.step on the replaceDeltas op, so
     // the model still believes node 1's text is "" while the engine has "hello". The
     // truth assertion MUST fire — proving the content check actually binds the engine.
@@ -192,12 +196,12 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
     const model = new TruthModel();
     let caught = false;
     for (const [i, op] of HAND_WRITTEN.entries()) {
-      applyOp(e, op, occIds, nodeIds);
+      await applyOp(e, op, occIds, nodeIds);
       if (op.t !== "replaceDeltas") {
         model.step(op);
       }
       try {
-        assertEngineMatchesTruth(e, model, `neg op#${i}`);
+        await assertEngineMatchesTruth(e, model, `neg op#${i}`);
       } catch {
         caught = true;
         break;
@@ -212,7 +216,7 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
   // fixed. This fuzz has earned its keep across the undo mechanism's life: it found four
   // real bugs (createOccurrence undo no-op, root-index-always-zero, self-transclusion
   // cycle crash, and the node-stable move-index mismatch), all now resolved.
-  it(`${RUNS} seeded undoable scripts — undo reverts each op, redo restores it, invariants hold`, () => {
+  it(`${RUNS} seeded undoable scripts — undo reverts each op, redo restores it, invariants hold`, async () => {
     // Undo/redo is a sharded-only contract (single-doc redo is a known loro limitation).
     // For every undoable-only script: capture state after each op, then undo back to the
     // initial state and redo forward — each step must match the captured snapshot and
@@ -221,7 +225,7 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
     for (let seed = 0; seed < RUNS; seed++) {
       const rng = mulberry32(seed * 7919 + 13);
       const ops = generateScript(rng, 10 + (seed % 16), true);
-      runUndoRedo(ops, shardedEngine(8), `seed=${seed}`);
+      await runUndoRedo(ops, shardedEngine(8), `seed=${seed}`);
     }
   }, 600000);
 });
@@ -230,20 +234,20 @@ describe("correctness fuzz: the sharded Engine satisfies the independent truth",
  *  forward to each after snapshot — all while the doc stays structurally valid. Snapshots
  *  are compared via the occ-id-normalized engineView (undo re-creates occurrences with
  *  new opaque ids; structure/content must match regardless). */
-function runUndoRedo(ops: Op[], makeEngine: () => Engine, label: string): void {
+async function runUndoRedo(ops: Op[], makeEngine: () => Engine, label: string): Promise<void> {
   const e = makeEngine();
   const occIds: string[] = [];
   const nodeIds: string[] = [];
   const states: string[] = [];
-  const capture = (): void => {
-    const snap = toJSON(e);
+  const capture = async (): Promise<void> => {
+    const snap = await toJSON(e);
     validateSnapshot(snap);
     states.push(stableStringify(engineView(snap)));
   };
-  capture(); // initial state (states[0])
+  await capture(); // initial state (states[0])
   for (const op of ops) {
-    applyOp(e, op, occIds, nodeIds);
-    capture();
+    await applyOp(e, op, occIds, nodeIds);
+    await capture();
   }
 
   for (let i = ops.length - 1; i >= 0; i--) {
@@ -251,13 +255,13 @@ function runUndoRedo(ops: Op[], makeEngine: () => Engine, label: string): void {
       throw new Error(`expected canUndo (${label}) before undo #${i}`);
     }
     try {
-      e.undo();
+      await e.undo();
     } catch (err) {
       throw new Error(`undo threw (${label}) at i=${i}, op=${ops[i]?.t}: ${String(err)}`, {
         cause: err,
       });
     }
-    const got = stableStringify(engineView(toJSON(e)));
+    const got = stableStringify(engineView(await toJSON(e)));
     if (got !== states[i]) {
       throw new Error(
         `undo did not revert to before-op state (${label}) at i=${i}\n  got: ${got}\n  exp: ${states[i]}`,
@@ -269,13 +273,13 @@ function runUndoRedo(ops: Op[], makeEngine: () => Engine, label: string): void {
       throw new Error(`expected canRedo (${label}) before redo #${i}`);
     }
     try {
-      e.redo();
+      await e.redo();
     } catch (err) {
       throw new Error(`redo threw (${label}) at i=${i}, op=${ops[i]?.t}: ${String(err)}`, {
         cause: err,
       });
     }
-    const got = stableStringify(engineView(toJSON(e)));
+    const got = stableStringify(engineView(await toJSON(e)));
     if (got !== states[i + 1]) {
       throw new Error(
         `redo did not restore after-op state (${label}) at i=${i}\n  got: ${got}\n  exp: ${states[i + 1]}`,

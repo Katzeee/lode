@@ -19,7 +19,7 @@ export function createHistoryHandlers(ctx: AppContext) {
     req: UndoHistoryRequest | RedoHistoryRequest,
     connectionId: string,
     can: (doc: Engine) => boolean,
-    apply: (doc: Engine) => boolean,
+    apply: (doc: Engine) => Promise<boolean>,
   ): Promise<BoolValue> => {
     ctx.sessions.requireOrigin(connectionId);
     const doc = await getEngine(ctx, req.workspaceId);

@@ -228,11 +228,11 @@ export class SyncRegistry implements Component {
       }
       const bytes = await ctx.transport.directedFetchUpdates(
         MEMBERSHIP_DOC_ID,
-        ctx.membershipDoc.version(), // the joiner's current membership version (empty → full doc)
+        await ctx.membershipDoc.version(), // the joiner's current membership version (empty → full doc)
         target,
       );
       if (bytes.length > 0) {
-        ctx.membershipDoc.importUpdate(bytes);
+        await ctx.membershipDoc.importUpdate(bytes);
         await ctx.log.persistIfDirty();
         ctx.security.refresh();
       }

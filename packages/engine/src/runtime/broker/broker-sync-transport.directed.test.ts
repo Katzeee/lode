@@ -90,13 +90,13 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     // version → the full roster.
     const bytes = await joiner.directedFetchUpdates(
       "membership",
-      joinerDoc.version(),
+      await joinerDoc.version(),
       target as string,
     );
     expect(bytes.length).toBeGreaterThan(0);
 
     // Import → the joiner's log now mirrors the owner's root (it "joined" the roster).
-    joinerDoc.importUpdate(bytes);
+    await joinerDoc.importUpdate(bytes);
     const { state } = joinerLog.deriveState();
     expect(state.owner).toBe(ownerLocal.actor.actorId);
   });

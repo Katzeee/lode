@@ -22,6 +22,6 @@ export class MembershipSync {
 
   /** Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge). */
   async sync(): Promise<void> {
-    await this.transport.sendUpdates(this.doc.id, this.doc.exportSnapshot());
+    await this.transport.sendUpdates(this.doc.id, await this.doc.exportSnapshot());
   }
 }

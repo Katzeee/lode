@@ -74,10 +74,10 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
   it("membership doc converges plaintext, content converges sealed; eavesdropper sees both tags but no plaintext content", async () => {
     const a = newEngine();
     const b = newEngine();
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
     const SECRET = "sealed-content-sentinel";
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: SECRET }]);
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: SECRET }]);
 
     const owner = newLocal();
     const member = newLocal();
@@ -137,7 +137,7 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const mb = new SyncManager(b.store, tb);
     await ma.sync();
     await mb.sync();
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toEqual([{ insert: SECRET }]);
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([{ insert: SECRET }]);
 
     // (3) The eavesdropper saw BOTH envelopes on the wire...
     expect(wiretap.some((p) => p[0] === 0x00)).toBe(true); // plaintext membership push (public roster)
@@ -152,9 +152,9 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
   it("a non-member (no transit key) cannot make content converge even if it somehow subscribes", async () => {
     const a = newEngine();
     const b = newEngine();
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
 
     const owner = newLocal();
     const stranger = newLocal(); // NOT added to the membership
@@ -202,6 +202,6 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     const mb = new SyncManager(b.store, tb);
     await expect(mb.sync()).rejects.toThrow(); // sealed exchange can't succeed without the transit key
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toBeUndefined();
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toBeUndefined();
   });
 });

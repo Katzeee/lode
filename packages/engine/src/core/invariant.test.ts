@@ -42,28 +42,32 @@ const validSnapshot = (): DocSnapshot => ({
 });
 
 describe("validateSnapshot: the current single-doc Engine is always structurally valid", () => {
-  it("an empty engine produces a valid (empty) snapshot", () => {
-    expect(() => validateSnapshot(toJSON(new Engine()))).not.toThrow();
+  it("an empty engine produces a valid (empty) snapshot", async () => {
+    const snap = await toJSON(new Engine());
+    expect(() => validateSnapshot(snap)).not.toThrow();
   });
 
-  it("after a build with children + a transclusion, the snapshot validates", () => {
+  it("after a build with children + a transclusion, the snapshot validates", async () => {
     const e = freshEngine();
-    const root = e.createNode(null);
-    e.createNode(root.occurrenceId);
-    e.createOccurrence(root.nodeId, root.occurrenceId); // a second occurrence (transclusion) of root
-    e.setProp(root.occurrenceId, "kind", "page");
-    expect(() => validateSnapshot(toJSON(e))).not.toThrow();
+    const root = await e.createNode(null);
+    await e.createNode(root.occurrenceId);
+    await e.createOccurrence(root.nodeId, root.occurrenceId); // a second occurrence (transclusion) of root
+    await e.setProp(root.occurrenceId, "kind", "page");
+    const snap = await toJSON(e);
+    expect(() => validateSnapshot(snap)).not.toThrow();
   });
 
-  it("after moves and deletes, the snapshot still validates", () => {
+  it("after moves and deletes, the snapshot still validates", async () => {
     const e = freshEngine();
-    const root = e.createNode(null);
-    const a = e.createNode(root.occurrenceId);
-    const b = e.createNode(root.occurrenceId);
-    e.moveOccurrence(b.occurrenceId, a.occurrenceId); // b under a
-    expect(() => validateSnapshot(toJSON(e))).not.toThrow();
-    e.deleteNode(b.nodeId); // core removeOccurrence throws on canonical; deleteNode removes the node
-    expect(() => validateSnapshot(toJSON(e))).not.toThrow();
+    const root = await e.createNode(null);
+    const a = await e.createNode(root.occurrenceId);
+    const b = await e.createNode(root.occurrenceId);
+    await e.moveOccurrence(b.occurrenceId, a.occurrenceId); // b under a
+    let snap = await toJSON(e);
+    expect(() => validateSnapshot(snap)).not.toThrow();
+    await e.deleteNode(b.nodeId); // core removeOccurrence throws on canonical; deleteNode removes the node
+    snap = await toJSON(e);
+    expect(() => validateSnapshot(snap)).not.toThrow();
   });
 });
 

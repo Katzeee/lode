@@ -31,18 +31,18 @@ const buildAndMutate = async (dataRoot: string) => {
   const doc = (await rt.getEngine("ws"))!;
   expect(doc.asOutliner()).not.toBeNull();
 
-  const before = doc.asOutliner().treeSyncDoc().version();
-  const root = doc.createNode(null);
+  const before = await doc.asOutliner().treeSyncDoc().version();
+  const root = await doc.createNode(null);
   for (let i = 0; i < 30; i++) {
-    doc.createNode(root.occurrenceId, undefined, { i });
+    await doc.createNode(root.occurrenceId, undefined, { i });
   }
-  doc.replaceDeltas(root.occurrenceId, [{ insert: "persist me across shards" }]);
-  doc.mark(root.occurrenceId, { start: 0, end: 4 }, "bold", true);
+  await doc.replaceDeltas(root.occurrenceId, [{ insert: "persist me across shards" }]);
+  await doc.mark(root.occurrenceId, { start: 0, end: 4 }, "bold", true);
   // Persist the whole batch (runMutation does this per-call; here one explicit persist).
   await rt.persistMutation("ws", before);
 
   const rootOcc = root.occurrenceId;
-  const rootText = doc.getOccurrence(rootOcc)?.deltas;
+  const rootText = (await doc.getOccurrence(rootOcc))?.deltas;
   await rt.close();
   return { rootOcc, rootText };
 };
@@ -56,11 +56,11 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
       const doc2 = (await rt2.getEngine("ws"))!;
       expect(doc2.asOutliner()).not.toBeNull();
       // Structure survived (the root + 30 children).
-      const root2 = doc2.getOccurrence(rootOcc);
+      const root2 = await doc2.getOccurrence(rootOcc);
       expect(root2).toBeDefined();
       expect(doc2.getChildOccurrenceIds(rootOcc).length).toBe(30);
       // Shard content survived (resolved from the lazy-loaded shard on read).
-      expect(doc2.getOccurrence(rootOcc)?.deltas).toEqual(rootText);
+      expect((await doc2.getOccurrence(rootOcc))?.deltas).toEqual(rootText);
     } finally {
       await rt2.close();
     }
@@ -83,9 +83,11 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     expect(peerId!).toBeGreaterThan(0);
     // The peerId reached the treeDoc: an op lands under it in the version vector. (Decodes the
     // opaque version bytes here purely to observe the peer set — production code never does this.)
-    doc.createNode(null);
+    await doc.createNode(null);
     const vvPeers = [
-      ...VersionVector.decode(doc.asOutliner().treeSyncDoc().version()).toJSON().keys(),
+      ...VersionVector.decode(await doc.asOutliner().treeSyncDoc().version())
+        .toJSON()
+        .keys(),
     ];
     expect(vvPeers).toContain(String(peerId));
     await rt.close();
@@ -101,9 +103,9 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
     // createNode writes an entity into the owning shard, materializing that shard lazily.
-    const node = doc.createNode(null);
+    const node = await doc.createNode(null);
     const store = doc.asOutliner() as ShardedBlockStore;
-    const shard = store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
+    const shard = await store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
     const shardPeers = [...shard.version().toJSON().keys()];
     expect(shardPeers).toContain(String(rt.peerId));
     await rt.close();
@@ -117,17 +119,18 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
-    const before = doc.asOutliner().treeSyncDoc().version();
-    const root = doc.createNode(null);
+    const before = await doc.asOutliner().treeSyncDoc().version();
+    const root = await doc.createNode(null);
 
     const store = doc.asOutliner() as ShardedBlockStore;
-    const shard = store.getShardDoc(shardIdOf(root.nodeId, store.numShards));
+    const shard = await store.getShardDoc(shardIdOf(root.nodeId, store.numShards));
     const entity = shard.getMap("entities").get(root.nodeId);
     expect(entity).toBeInstanceOf(LoroMap);
     (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
     shard.commit();
     await rt.persistMutation("ws", before);
-    await rt.close();
+    // Crash-close (no clean marker) so the reload runs validate, which rejects the unhealable break.
+    await rt.crashClose();
 
     const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     try {
@@ -167,12 +170,11 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
       actorKeypair: owner,
     });
     const doc = (await rt.getEngine("ws"))!;
-    const roots = doc.getRootOccurrences();
+    const roots = await doc.getRootOccurrences();
     expect(roots).toHaveLength(1);
     for (const root of roots) {
-      const text = doc
-        .getOccurrence(root.occurrenceId)
-        ?.deltas.map((d) => d.insert)
+      const text = (await doc.getOccurrence(root.occurrenceId))?.deltas
+        .map((d) => d.insert)
         .join("");
       expect(text).toBe("My Workspace");
     }
@@ -183,7 +185,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
-    expect(doc.getRootOccurrences()).toHaveLength(0);
+    expect(await doc.getRootOccurrences()).toHaveLength(0);
     await rt.close();
   });
 
@@ -196,12 +198,11 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     try {
       const doc = (await rt2.getEngine("ws"))!;
-      const roots = doc.getRootOccurrences();
+      const roots = await doc.getRootOccurrences();
       expect(roots).toHaveLength(1);
       for (const root of roots) {
-        const text = doc
-          .getOccurrence(root.occurrenceId)
-          ?.deltas.map((d) => d.insert)
+        const text = (await doc.getOccurrence(root.occurrenceId))?.deltas
+          .map((d) => d.insert)
           .join("");
         expect(text).toBe("Persisted");
       }

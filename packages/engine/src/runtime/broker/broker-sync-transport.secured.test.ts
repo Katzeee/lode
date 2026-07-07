@@ -39,10 +39,10 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
   it("two secured transports converge; an eavesdropper on the workspace cannot decode the traffic", async () => {
     const a = newEngine();
     const b = newEngine();
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
     const SECRET = "top-secret-page-text";
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: SECRET }]);
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: SECRET }]);
 
     // Two members share a transit key + mutually know each other's actor pubkey.
     const tk = randomBytes(32);
@@ -95,7 +95,7 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     eavesdropper.close();
 
     // (1) Members still converge over the encrypted channel.
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toEqual([{ insert: SECRET }]);
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([{ insert: SECRET }]);
 
     // (2) The relay/eavesdropper saw traffic (the broker routed sealed blobs to all subscribers)...
     expect(wiretap.length).toBeGreaterThan(0);
@@ -156,9 +156,9 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     await Promise.all([ta.open(), tb.open()]);
     await settle();
 
-    const root = a.engine.createNode(null);
-    const page = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
-    a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
+    const root = await a.engine.createNode(null);
+    const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
+    await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
 
     const ma = new SyncManager(a.store, ta);
     const mb = new SyncManager(b.store, tb);
@@ -167,6 +167,6 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     await expect(mb.sync()).rejects.toThrow(/timeout|closed/);
 
     // No content crossed — B did not converge.
-    expect(b.engine.getOccurrence(page.occurrenceId)?.deltas).toBeUndefined();
+    expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toBeUndefined();
   });
 });

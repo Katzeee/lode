@@ -12,16 +12,16 @@ import { getSemanticChildren, moveOccurrence } from "../node.js";
  * of its previous sibling (the anchor); the rest append under that anchor in order. Returns
  * false (no-op) when the first occurrence has no previous sibling or is a root.
  */
-export function indent(doc: Engine, occurrenceIds: string[]): boolean {
+export async function indent(doc: Engine, occurrenceIds: string[]): Promise<boolean> {
   if (occurrenceIds.length === 0) {
     return false;
   }
-  return doc.batch(() => {
+  return doc.batch(async () => {
     const firstId = occurrenceIds[0];
     if (firstId === undefined) {
       return false;
     }
-    const first = doc.getOccurrence(firstId);
+    const first = await doc.getOccurrence(firstId);
     if (!first || first.parentOccurrenceId === null) {
       return false;
     }
@@ -37,8 +37,8 @@ export function indent(doc: Engine, occurrenceIds: string[]): boolean {
     // Append each selected occurrence under the anchor in order. As each leaves the parent the
     // next is moved by id, so parent-side shifts don't matter; the anchor's child count grows.
     for (const id of occurrenceIds) {
-      const appendIndex = getSemanticChildren(doc, anchor).length;
-      moveOccurrence(doc, id, anchor, appendIndex);
+      const appendIndex = (await getSemanticChildren(doc, anchor)).length;
+      await moveOccurrence(doc, id, anchor, appendIndex);
     }
     return true;
   });
@@ -48,9 +48,9 @@ export function indent(doc: Engine, occurrenceIds: string[]): boolean {
  * Outdent an occurrence one level: it becomes the sibling immediately after its parent (under
  * the grandparent, or a root if the parent is a root). Returns false (no-op) for a root.
  */
-export function outdent(doc: Engine, occurrenceId: string): boolean {
-  return doc.batch(() => {
-    const occ = doc.getOccurrence(occurrenceId);
+export async function outdent(doc: Engine, occurrenceId: string): Promise<boolean> {
+  return doc.batch(async () => {
+    const occ = await doc.getOccurrence(occurrenceId);
     if (!occ || occ.parentOccurrenceId === null) {
       return false;
     }
@@ -60,7 +60,7 @@ export function outdent(doc: Engine, occurrenceId: string): boolean {
       ? doc.getChildOccurrenceIds(grandparent)
       : doc.getRootOccurrenceIds();
     const parentIndex = parentSiblings.indexOf(parent);
-    moveOccurrence(doc, occurrenceId, grandparent, parentIndex + 1);
+    await moveOccurrence(doc, occurrenceId, grandparent, parentIndex + 1);
     return true;
   });
 }
@@ -70,11 +70,15 @@ export function outdent(doc: Engine, occurrenceId: string): boolean {
  * (no-op) at the ends, for roots, or for an invalid direction. A single underlying move, so it
  * is already one undo step (no batch needed).
  */
-export function moveSibling(doc: Engine, occurrenceId: string, direction: -1 | 1): boolean {
+export async function moveSibling(
+  doc: Engine,
+  occurrenceId: string,
+  direction: -1 | 1,
+): Promise<boolean> {
   if (direction !== -1 && direction !== 1) {
     return false;
   }
-  const occ = doc.getOccurrence(occurrenceId);
+  const occ = await doc.getOccurrence(occurrenceId);
   if (!occ || occ.parentOccurrenceId === null) {
     return false;
   }
@@ -84,6 +88,6 @@ export function moveSibling(doc: Engine, occurrenceId: string, direction: -1 | 1
   if (target < 0 || target >= siblings.length) {
     return false;
   }
-  moveOccurrence(doc, occurrenceId, occ.parentOccurrenceId, target);
+  await moveOccurrence(doc, occurrenceId, occ.parentOccurrenceId, target);
   return true;
 }

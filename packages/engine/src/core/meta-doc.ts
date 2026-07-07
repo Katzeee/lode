@@ -35,21 +35,26 @@ export class LoroMetaDoc implements MetaDoc {
     this.list = doc.getList("log");
   }
 
-  // ── SyncableDoc (opaque bytes; the VV round-trip is internal to this impl) ───
+  // ── SyncableDoc (opaque bytes; the VV round-trip is internal to this impl). The meta doc is
+  //    always resident, so these resolve immediately — the Promise shape only conforms to the
+  //    SyncableDoc contract shared with lazily-faulted shard docs. ───
 
-  version(): SyncBytes {
-    return this.doc.version().encode();
+  version(): Promise<SyncBytes> {
+    return Promise.resolve(this.doc.version().encode());
   }
-  exportUpdate(from?: SyncBytes): SyncBytes {
-    return this.doc.export(
-      from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" },
+  exportUpdate(from?: SyncBytes): Promise<SyncBytes> {
+    return Promise.resolve(
+      this.doc.export(
+        from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" },
+      ),
     );
   }
-  exportSnapshot(): SyncBytes {
-    return this.doc.export({ mode: "snapshot" });
+  exportSnapshot(): Promise<SyncBytes> {
+    return Promise.resolve(this.doc.export({ mode: "snapshot" }));
   }
-  importUpdate(bytes: SyncBytes): void {
+  importUpdate(bytes: SyncBytes): Promise<void> {
     this.doc.import(bytes);
+    return Promise.resolve();
   }
 
   // ── record log ───

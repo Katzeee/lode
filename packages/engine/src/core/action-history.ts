@@ -2,7 +2,7 @@
 import type { Delta, NodeId, OccurrenceId } from "./types.js";
 import type { DocSnapshot, NodeEntitySnapshot, NodeOccurrenceSnapshot } from "./types.js";
 import type { Engine } from "./engine.js";
-import { toJSON } from "./serializers/json.js";
+import { toJSONOccurrences } from "./serializers/json.js";
 
 /**
  * ENGINE-layer undo/redo (business-agnostic). Snapshot-diff style (anytype-heart's
@@ -62,37 +62,85 @@ type Action = { before: AffectedState; after: AffectedState };
 export class ActionHistory {
   private readonly stack: Action[] = [];
   private readonly redoStack: Action[] = [];
-  private beforeSnap: DocSnapshot | null = null;
+  /** Incremental capture state for the in-flight action (null between actions). Occurrences are
+   *  captured treeDoc-only (no shard reads); entities are captured only for nodeIds whose entity
+   *  mutates during the action (first-touch-wins before-images). Replaces the old full-toJSON
+   *  snapshot — undo no longer faults untouched shards. */
+  private beforeOcc: {
+    occurrences: NodeOccurrenceSnapshot[];
+    rootOccurrenceIds: OccurrenceId[];
+  } | null = null;
+  private entityBefore: Map<NodeId, NodeEntitySnapshot | null> | null = null;
 
   constructor(private readonly engine: Engine) {}
 
   // ── action grouping ────────────────────────────────────────────────────────
   begin(): void {
-    if (this.beforeSnap) {
+    if (this.beforeOcc) {
       throw new Error("nested begin() — end the current action first");
     }
-    this.beforeSnap = toJSON(this.engine);
+    this.entityBefore = new Map();
+    // Each entity-mutating mutator records its pre-mutation entity here (first-touch-wins).
+    this.engine.setEntityCapture((nodeId, before) => {
+      if (!this.entityBefore!.has(nodeId)) {
+        this.entityBefore!.set(nodeId, before);
+      }
+    });
+    this.beforeOcc = toJSONOccurrences(this.engine);
   }
-  end(): void {
-    if (!this.beforeSnap) {
+  async end(): Promise<void> {
+    if (!this.beforeOcc || !this.entityBefore) {
       throw new Error("end() without begin()");
     }
-    const before = this.beforeSnap;
-    const after = toJSON(this.engine);
-    const action = { before: diffState(before, after), after: diffState(after, before) };
+    this.engine.setEntityCapture(null); // stop capturing before the after-read
+    const beforeOcc = this.beforeOcc;
+    const entityBefore = this.entityBefore;
+    this.beforeOcc = null;
+    this.entityBefore = null;
+
+    const afterOcc = toJSONOccurrences(this.engine);
+    // After-image: each touched nodeId's CURRENT entity, or absent (the action deleted it — covered
+    // by the before-side diff). Reads only the touched set's shards.
+    const entityAfterList: NodeEntitySnapshot[] = [];
+    for (const nodeId of entityBefore.keys()) {
+      const after = await this.engine.getEntitySnapshot(nodeId);
+      if (after) {
+        entityAfterList.push(after);
+      }
+    }
+    const entityBeforeList = [...entityBefore.values()].filter(
+      (s): s is NodeEntitySnapshot => s !== null,
+    );
+    // Reuse the unchanged `diffState` by synthesizing DocSnapshots from the targeted pieces. The
+    // resulting AffectedState is byte-equivalent to the old full-snapshot diff.
+    const beforeSnap: DocSnapshot = {
+      version: 4,
+      occurrences: beforeOcc.occurrences,
+      entities: entityBeforeList,
+      rootOccurrenceIds: beforeOcc.rootOccurrenceIds,
+    };
+    const afterSnap: DocSnapshot = {
+      version: 4,
+      occurrences: afterOcc.occurrences,
+      entities: entityAfterList,
+      rootOccurrenceIds: afterOcc.rootOccurrenceIds,
+    };
+    const action = {
+      before: diffState(beforeSnap, afterSnap),
+      after: diffState(afterSnap, beforeSnap),
+    };
     // Always push, even for an empty diff (a no-op op like moving a root to root). This
     // keeps the 1:1 op↔undo-step contract callers expect: each top-level op is one undo,
     // and undoing a no-op is itself a no-op (reconcile of empty before/after does nothing).
     this.stack.push(action);
     this.redoStack.length = 0;
-    this.beforeSnap = null;
     this.engine.captureSync();
   }
   /** Run a thunk as one undoable action. */
-  run<T>(fn: () => T): T {
+  async run<T>(fn: () => T | Promise<T>): Promise<T> {
     this.begin();
-    const r = fn();
-    this.end();
+    const r = await fn();
+    await this.end();
     return r;
   }
 
@@ -105,29 +153,31 @@ export class ActionHistory {
   clear(): void {
     this.stack.length = 0;
     this.redoStack.length = 0;
-    this.beforeSnap = null;
+    this.beforeOcc = null;
+    this.entityBefore = null;
+    this.engine.setEntityCapture(null);
   }
 
   // ── undo / redo ────────────────────────────────────────────────────────────
-  undo(): boolean {
+  async undo(): Promise<boolean> {
     const a = this.stack.pop();
     if (!a) {
       return false;
     }
     // Restore the before-state. `after` is the reference (what the action changed) so
     // reconcile knows the changed-item boundary and won't touch unrelated occurrences.
-    reconcile(this.engine, a.before, a.after);
+    await reconcile(this.engine, a.before, a.after);
     this.redoStack.push(a);
     this.engine.captureSync();
     return true;
   }
 
-  redo(): boolean {
+  async redo(): Promise<boolean> {
     const a = this.redoStack.pop();
     if (!a) {
       return false;
     }
-    reconcile(this.engine, a.after, a.before);
+    await reconcile(this.engine, a.after, a.before);
     this.stack.push(a);
     this.engine.captureSync();
     return true;
@@ -283,8 +333,12 @@ function sameDelta(a: Delta, b: Delta): boolean {
  *    4. IN-PLACE occurrence updates for survivors: move/reparent, child order,
  *       occurrence props/meta.
  *    5. CANONICAL restoration (entity-level; after occurrences exist). */
-function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedState): void {
-  const live = toJSON(engine);
+async function reconcile(
+  engine: Engine,
+  wanted: AffectedState,
+  reference: AffectedState,
+): Promise<void> {
+  const live = toJSONOccurrences(engine); // treeDoc-only walk; the targeted engineNodeLive checks below fault only touched shards, never the full set
   const liveOccIdByOccId = new Map<string, OccurrenceId>(); // occId → live occurrenceId
   for (const o of live.occurrences) {
     liveOccIdByOccId.set(o.occId, o.occurrenceId);
@@ -302,22 +356,21 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
 
   // ── Phase 1: in-place entity updates (content/props/meta) ────────────────────
   for (const ent of wanted.entities) {
-    const liveEnt = live.entities.find((e) => e.nodeId === ent.nodeId);
-    if (!liveEnt) {
-      continue; // entity absent — created in Phase 3
+    if (!(await engineNodeLive(engine, ent.nodeId))) {
+      continue; // entity absent — created in Phase 3 (targeted check, not a full entity scan)
     }
-    const occ = engine.getCanonicalOccurrenceId(ent.nodeId);
-    if (!sameDelta(engine.getDeltas(occ), ent.deltas)) {
-      engine.replaceDeltas(occ, ent.deltas);
+    const occ = await engine.getCanonicalOccurrenceId(ent.nodeId);
+    if (!sameDelta(await engine.getDeltas(occ), ent.deltas)) {
+      await engine.replaceDeltas(occ, ent.deltas);
     }
-    applyRecordDelta(
-      engine.getProps(occ),
+    await applyRecordDelta(
+      await engine.getProps(occ),
       ent.props,
       (key) => engine.unsetProp(occ, key),
       (key, value) => engine.setProp(occ, key, value),
     );
-    applyRecordDelta(
-      engine.getEntityMetaRecord(occ),
+    await applyRecordDelta(
+      await engine.getEntityMetaRecord(occ),
       ent.meta,
       (key) => engine.unsetEntityMeta(occ, key),
       (key, value) => engine.setEntityMeta(occ, key, value),
@@ -339,22 +392,22 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
     if (engine.getChildOccurrenceIds(occ).length > 0) {
       continue; // still has live children (deleted later, deeper-first)
     }
-    const liveCanonOcc = engine.getCanonicalOccurrenceId(o.nodeId);
+    const liveCanonOcc = await engine.getCanonicalOccurrenceId(o.nodeId);
     const isCanon = liveCanonOcc === occ;
-    const liveOccsOfNode = engine.getOccurrences(o.nodeId).map((x) => x.occurrenceId);
+    const liveOccsOfNode = (await engine.getOccurrences(o.nodeId)).map((x) => x.occurrenceId);
     const isLastOfNode = liveOccsOfNode.length === 1;
     const entityUnwanted = !wantedEntityNodeIds.has(o.nodeId);
     if (isCanon) {
       const otherOcc = liveOccsOfNode.find((id) => id !== occ);
       if (otherOcc !== undefined) {
-        engine.setCanonicalOccurrence(o.nodeId, otherOcc);
-        engine.removeOccurrence(occ);
+        await engine.setCanonicalOccurrence(o.nodeId, otherOcc);
+        await engine.removeOccurrence(occ);
       } else if (isLastOfNode && entityUnwanted) {
-        engine.deleteNode(o.nodeId);
+        await engine.deleteNode(o.nodeId);
       }
       // else: canonical-of-still-wanted-entity with no alternative — leave; Phase 4 fixes canon.
     } else {
-      engine.removeOccurrence(occ);
+      await engine.removeOccurrence(occ);
     }
   }
   // Entities unwanted (in reference, not wanted) whose node is now leaf & still live:
@@ -363,10 +416,10 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
     if (wantedEntityNodeIds.has(ent.nodeId)) {
       continue;
     }
-    if (!engineNodeLive(engine, ent.nodeId)) {
+    if (!(await engineNodeLive(engine, ent.nodeId))) {
       continue;
     }
-    const occs = engine.getOccurrences(ent.nodeId);
+    const occs = await engine.getOccurrences(ent.nodeId);
     if (
       occs.length === 0 ||
       occs.every((o) => engine.getChildOccurrenceIds(o.occurrenceId).length === 0)
@@ -375,7 +428,7 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
       // are leaf; if any occurrence remains, removeOccurrence each first (they're all leaf
       // here per the check, but deleteNode itself removes leftover occurrences).
       try {
-        engine.deleteNode(ent.nodeId);
+        await engine.deleteNode(ent.nodeId);
       } catch {
         // If a leftover occurrence blocks it, leave it — the structural invariant test
         // will flag a real bug; we don't crash undo mid-restore.
@@ -396,26 +449,33 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
     const parentOcc = o.parentOccId === null ? null : (liveOrCreated(o.parentOccId) ?? null);
     const index = wantedChildIndex(o);
     const entityWanted = wantedEntities.get(o.nodeId);
-    const nodeLive = engineNodeLive(engine, o.nodeId);
+    const nodeLive = await engineNodeLive(engine, o.nodeId);
     let occurrenceId: OccurrenceId;
     if (!nodeLive && entityWanted) {
       // First occurrence of a (re)created node — createNode carries props/content/meta.
-      const created = engine.createNode(parentOcc, index, entityWanted.props, o.nodeId, o.occId);
+      const created = await engine.createNode(
+        parentOcc,
+        index,
+        entityWanted.props,
+        o.nodeId,
+        o.occId,
+      );
       occurrenceId = created.occurrenceId;
       if (entityWanted.deltas.length > 0) {
-        engine.replaceDeltas(occurrenceId, entityWanted.deltas);
+        await engine.replaceDeltas(occurrenceId, entityWanted.deltas);
       }
       for (const [key, value] of Object.entries(entityWanted.meta)) {
-        engine.setEntityMeta(occurrenceId, key, value);
+        await engine.setEntityMeta(occurrenceId, key, value);
       }
     } else {
-      occurrenceId = engine.createOccurrence(o.nodeId, parentOcc, index, o.occId).occurrenceId;
+      occurrenceId = (await engine.createOccurrence(o.nodeId, parentOcc, index, o.occId))
+        .occurrenceId;
     }
     for (const [key, value] of Object.entries(o.occurrenceProps)) {
-      engine.setOccurrenceProp(occurrenceId, key, value);
+      await engine.setOccurrenceProp(occurrenceId, key, value);
     }
     for (const [key, value] of Object.entries(o.occurrenceMeta)) {
-      engine.setOccurrenceMeta(occurrenceId, key, value);
+      await engine.setOccurrenceMeta(occurrenceId, key, value);
     }
     createdOccByOccId.set(o.occId, occurrenceId);
   }
@@ -429,19 +489,17 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
     // Parent / position.
     const wantedParentOcc = o.parentOccId === null ? null : (liveOrCreated(o.parentOccId) ?? null);
     const liveParent = engine.getParentOccurrenceId(occ);
-    if (wantedParentOcc !== liveParent) {
-      engine.moveOccurrence(occ, wantedParentOcc, wantedChildIndex(o));
-    } else {
-      ensureChildOrder(engine, occ, wantedParentOcc, o);
-    }
+    await (wantedParentOcc !== liveParent
+      ? engine.moveOccurrence(occ, wantedParentOcc, wantedChildIndex(o))
+      : ensureChildOrder(engine, occ, wantedParentOcc, o));
     // Per-occurrence props/meta.
-    applyRecordDelta(
+    await applyRecordDelta(
       engine.getOccurrenceProps(occ),
       o.occurrenceProps,
       (key) => engine.unsetOccurrenceProp(occ, key),
       (key, value) => engine.setOccurrenceProp(occ, key, value),
     );
-    applyRecordDelta(
+    await applyRecordDelta(
       engine.getOccurrenceMetaRecord(occ),
       o.occurrenceMeta,
       (key) => engine.unsetOccurrenceMeta(occ, key),
@@ -459,28 +517,28 @@ function reconcile(engine: Engine, wanted: AffectedState, reference: AffectedSta
     if (targetOcc === undefined) {
       continue;
     }
-    if (engine.getCanonicalOccurrenceId(ent.nodeId) !== targetOcc) {
-      engine.setCanonicalOccurrence(ent.nodeId, targetOcc);
+    if ((await engine.getCanonicalOccurrenceId(ent.nodeId)) !== targetOcc) {
+      await engine.setCanonicalOccurrence(ent.nodeId, targetOcc);
     }
   }
 }
 
 /** Apply a target record onto the live state: unset keys present live but not wanted;
  *  set keys whose value differs. */
-function applyRecordDelta(
+async function applyRecordDelta(
   live: Record<string, unknown>,
   target: Record<string, unknown>,
-  unset: (key: string) => void,
-  set: (key: string, value: unknown) => void,
-): void {
+  unset: (key: string) => Promise<void>,
+  set: (key: string, value: unknown) => Promise<void>,
+): Promise<void> {
   for (const key of Object.keys(live)) {
     if (!Object.prototype.hasOwnProperty.call(target, key)) {
-      unset(key);
+      await unset(key);
     }
   }
   for (const [key, value] of Object.entries(target)) {
     if (JSON.stringify(live[key]) !== JSON.stringify(value)) {
-      set(key, value);
+      await set(key, value);
     }
   }
 }
@@ -532,25 +590,27 @@ function wantedChildIndex(o: AffectedOccurrence): number {
 }
 
 /** Ensure an occurrence sits at the right index among its parent's live children. */
-function ensureChildOrder(
+async function ensureChildOrder(
   engine: Engine,
   occ: OccurrenceId,
   parentOcc: OccurrenceId | null,
   o: AffectedOccurrence,
-): void {
+): Promise<void> {
   const wantedIndex = wantedChildIndex(o);
   const liveChildren = parentOcc
     ? engine.getChildOccurrenceIds(parentOcc)
     : engine.getRootOccurrenceIds();
   if (liveChildren[wantedIndex] !== occ) {
-    engine.moveOccurrence(occ, parentOcc, wantedIndex);
+    await engine.moveOccurrence(occ, parentOcc, wantedIndex);
   }
 }
 
-function engineNodeLive(engine: Engine, nodeId: NodeId): boolean {
+async function engineNodeLive(engine: Engine, nodeId: NodeId): Promise<boolean> {
+  // "Entity present AND reachable via a live occurrence" — byte-equivalent to the old
+  // `live.entities.find` (toJSON only carries entities reached by walking the occurrence tree).
+  // Reconcile reads this per-wanted-entity, so it faults only the touched node's shard, not all.
   try {
-    engine.getOccurrences(nodeId);
-    return true;
+    return (await engine.getOccurrences(nodeId)).length > 0;
   } catch {
     return false;
   }

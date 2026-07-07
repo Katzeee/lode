@@ -9,39 +9,39 @@ import { requireSchema } from "./system-entity.js";
 import { createPlainNode } from "./node.js";
 import { cleanupInactiveManagedChildren, reconcileTargetSchemas } from "./schema-reconcile.js";
 
-export function createSchema(
+export async function createSchema(
   doc: Engine,
   name: string,
   parentOccurrenceId?: string | null,
-): SchemaIdentity {
-  if (parentOccurrenceId != null && !doc.getOccurrence(parentOccurrenceId)) {
+): Promise<SchemaIdentity> {
+  if (parentOccurrenceId != null && !(await doc.getOccurrence(parentOccurrenceId))) {
     invalidDomainInput(`Occurrence not found: ${parentOccurrenceId}`, {
       reason: "occurrence_not_found",
       occurrenceId: parentOccurrenceId,
     });
   }
-  const schema = createPlainNode(doc, parentOccurrenceId ?? null);
-  doc.setEntityMeta(schema.occurrenceId, SystemEntityMeta.SystemKind, SystemKind.Schema);
-  doc.replaceDeltas(schema.occurrenceId, textToDelta(name));
+  const schema = await createPlainNode(doc, parentOccurrenceId ?? null);
+  await doc.setEntityMeta(schema.occurrenceId, SystemEntityMeta.SystemKind, SystemKind.Schema);
+  await doc.replaceDeltas(schema.occurrenceId, textToDelta(name));
   return { nodeId: schema.nodeId, occurrenceId: schema.occurrenceId };
 }
 
-export function applySchema(
+export async function applySchema(
   doc: Engine,
   targetOccurrenceId: string,
   schemaNodeId: string,
-): SchemaChangeResult {
-  const target = requireCanonicalOccurrence(doc, targetOccurrenceId);
-  const schema = requireNodeById(doc, schemaNodeId);
-  requireSchema(doc, schema, schemaNodeId);
+): Promise<SchemaChangeResult> {
+  const target = await requireCanonicalOccurrence(doc, targetOccurrenceId);
+  const schema = await requireNodeById(doc, schemaNodeId);
+  await requireSchema(doc, schema, schemaNodeId);
 
   let changes: DomainChange[] = [];
-  doc.batch(() => {
-    const schemaIds = readSchemaIds(doc, target.occurrenceId);
+  await doc.batch(async () => {
+    const schemaIds = await readSchemaIds(doc, target.occurrenceId);
     if (!schemaIds.includes(schema.nodeId)) {
-      writeSchemaIds(doc, target.occurrenceId, [...schemaIds, schema.nodeId]);
+      await writeSchemaIds(doc, target.occurrenceId, [...schemaIds, schema.nodeId]);
     }
-    changes = reconcileAndCleanup(doc, target.occurrenceId);
+    changes = await reconcileAndCleanup(doc, target.occurrenceId);
   });
 
   return {
@@ -51,23 +51,23 @@ export function applySchema(
   };
 }
 
-export function removeSchema(
+export async function removeSchema(
   doc: Engine,
   targetOccurrenceId: string,
   schemaNodeId: string,
-): SchemaChangeResult {
-  const target = requireCanonicalOccurrence(doc, targetOccurrenceId);
-  const schema = requireNodeById(doc, schemaNodeId);
-  requireSchema(doc, schema, schemaNodeId);
+): Promise<SchemaChangeResult> {
+  const target = await requireCanonicalOccurrence(doc, targetOccurrenceId);
+  const schema = await requireNodeById(doc, schemaNodeId);
+  await requireSchema(doc, schema, schemaNodeId);
 
   let changes: DomainChange[] = [];
-  doc.batch(() => {
-    const schemaIds = readSchemaIds(doc, target.occurrenceId);
+  await doc.batch(async () => {
+    const schemaIds = await readSchemaIds(doc, target.occurrenceId);
     const nextSchemaIds = schemaIds.filter((id) => id !== schema.nodeId);
     if (nextSchemaIds.length !== schemaIds.length) {
-      writeSchemaIds(doc, target.occurrenceId, nextSchemaIds);
+      await writeSchemaIds(doc, target.occurrenceId, nextSchemaIds);
     }
-    changes = reconcileAndCleanup(doc, target.occurrenceId);
+    changes = await reconcileAndCleanup(doc, target.occurrenceId);
   });
 
   return {
@@ -77,11 +77,14 @@ export function removeSchema(
   };
 }
 
-export function reconcileSchema(doc: Engine, targetOccurrenceId: string): SchemaChangeResult {
-  const target = requireCanonicalOccurrence(doc, targetOccurrenceId);
+export async function reconcileSchema(
+  doc: Engine,
+  targetOccurrenceId: string,
+): Promise<SchemaChangeResult> {
+  const target = await requireCanonicalOccurrence(doc, targetOccurrenceId);
   let changes: DomainChange[] = [];
-  doc.batch(() => {
-    changes = reconcileAndCleanup(doc, target.occurrenceId);
+  await doc.batch(async () => {
+    changes = await reconcileAndCleanup(doc, target.occurrenceId);
   });
   return {
     target: { nodeId: target.nodeId, occurrenceId: target.occurrenceId },
@@ -89,9 +92,12 @@ export function reconcileSchema(doc: Engine, targetOccurrenceId: string): Schema
   };
 }
 
-function reconcileAndCleanup(doc: Engine, targetOccurrenceId: string): DomainChange[] {
+async function reconcileAndCleanup(
+  doc: Engine,
+  targetOccurrenceId: string,
+): Promise<DomainChange[]> {
   return [
-    ...reconcileTargetSchemas(doc, targetOccurrenceId),
-    ...cleanupInactiveManagedChildren(doc, targetOccurrenceId),
+    ...(await reconcileTargetSchemas(doc, targetOccurrenceId)),
+    ...(await cleanupInactiveManagedChildren(doc, targetOccurrenceId)),
   ];
 }

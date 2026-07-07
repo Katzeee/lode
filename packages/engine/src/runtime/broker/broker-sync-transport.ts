@@ -111,7 +111,10 @@ export class BrokerSyncProtocol implements SyncTransport {
     this.maxRecvPerDocBytes = opts.maxRecvPerDocBytes ?? DEFAULT_MAX_RECV_PER_DOC_BYTES;
     this.brokerClient = new BrokerClient({
       url: opts.url,
-      onDeliver: (_wsId, payload, fromPeerId) => this.handle(payload, fromPeerId),
+      onDeliver: (_wsId, payload, fromPeerId) =>
+        void this.handle(payload, fromPeerId).catch((err) =>
+          log.warn("recv handle failed", { err }),
+        ),
       onError: (err) => this.rejectPending(err),
     });
   }
@@ -227,7 +230,7 @@ export class BrokerSyncProtocol implements SyncTransport {
 
   // ── responder: answer peers from the local store ────────────────────────────────
 
-  private handle(payload: Uint8Array, fromPeerId: string): void {
+  private async handle(payload: Uint8Array, fromPeerId: string): Promise<void> {
     let msg: SyncMessage;
     try {
       if (!this.security) {
@@ -254,7 +257,7 @@ export class BrokerSyncProtocol implements SyncTransport {
     const k = msg.kind;
     switch (k.case) {
       case "profileReq":
-        this.respondProfile(k.value.reqId, fromPeerId);
+        await this.respondProfile(k.value.reqId, fromPeerId);
         break;
       case "updatesReq":
         this.enqueueDoc(k.value.subDocId, {
@@ -280,14 +283,16 @@ export class BrokerSyncProtocol implements SyncTransport {
     }
   }
 
-  private respondProfile(reqId: string, fromPeerId: string): void {
+  private async respondProfile(reqId: string, fromPeerId: string): Promise<void> {
     // Profile is COMPOSITE-ONLY (the outliner's docs): the membership doc rides push-gossip, not
     // req/resp, so it is deliberately excluded from the profile and can never leak here. The docSet's
-    // composite is the outliner; meta docs (membership) are NOT in it.
-    const profile: SyncProfile = this.docSet
-      .composite()
-      .docs()
-      .map((d) => ({ subDocId: d.id, version: d.version() }));
+    // composite is the outliner; meta docs (membership) are NOT in it. Sequential version reads so two
+    // parallel profile builds don't double-fault the same shard.
+    const docs = this.docSet.composite().docs();
+    const profile: SyncProfile = [];
+    for (const d of docs) {
+      profile.push({ subDocId: d.id, version: await d.version() });
+    }
     this.replyTo(
       fromPeerId,
       encodeMessage({
@@ -297,14 +302,14 @@ export class BrokerSyncProtocol implements SyncTransport {
     );
   }
 
-  private respondUpdates(
+  private async respondUpdates(
     reqId: string,
     subDocId: string,
     fromBytes: Uint8Array,
     fromPeerId: string,
-  ): void {
+  ): Promise<void> {
     const doc = this.lookupDoc(subDocId);
-    const body = doc ? doc.exportUpdate(fromBytes) : new Uint8Array(0);
+    const body = doc ? await doc.exportUpdate(fromBytes) : new Uint8Array(0);
     // A public doc (the membership roster) is answered on the plaintext envelope so a joiner can
     // fetch it via `fetchUpdates("membership")` BEFORE it holds the transit key. Mirrors sendUpdates.
     this.replyTo(
@@ -325,13 +330,13 @@ export class BrokerSyncProtocol implements SyncTransport {
     );
   }
 
-  private applyPush(subDocId: string, bytes: Uint8Array): void {
+  private async applyPush(subDocId: string, bytes: Uint8Array): Promise<void> {
     if (bytes.length === 0) {
       return;
     }
     const doc = this.lookupDoc(subDocId);
     if (doc) {
-      doc.importUpdate(bytes);
+      await doc.importUpdate(bytes);
     } else {
       // An unknown-shard push with no local doc — the composite materializes shards via `docs()`
       // (treeDoc ownership reveals them), so this only happens for genuinely foreign (often attacker
@@ -372,11 +377,9 @@ export class BrokerSyncProtocol implements SyncTransport {
   private async drainDoc(subDocId: string, q: BoundedAsyncQueue<DocTask>): Promise<void> {
     for await (const task of q) {
       try {
-        if (task.kind === "respond") {
-          this.respondUpdates(task.reqId, subDocId, task.fromBytes, task.fromPeerId);
-        } else {
-          this.applyPush(subDocId, task.bytes);
-        }
+        await (task.kind === "respond"
+          ? this.respondUpdates(task.reqId, subDocId, task.fromBytes, task.fromPeerId)
+          : this.applyPush(subDocId, task.bytes));
       } catch (err) {
         // A throwing WASM op (corrupt bytes, a loro-crdt bug) must NOT kill this drainer — a dead
         // drainer orphans its queue (enqueueDoc keeps pushing to it) → unbounded leak + that doc

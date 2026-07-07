@@ -21,15 +21,15 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 
 // Shared base: root → {x, y}. Built once; each test clones it (ids preserved across clones).
 const base = replica(8);
-const rootOcc = createPlainNode(base, null).occurrenceId;
-const x = createPlainNode(base, rootOcc);
-const y = createPlainNode(base, rootOcc);
+const rootOcc = (await createPlainNode(base, null)).occurrenceId;
+const x = await createPlainNode(base, rootOcc);
+const y = await createPlainNode(base, rootOcc);
 const xOcc = x.occurrenceId;
 const xNode = x.nodeId;
 const yOcc = y.occurrenceId;
 const yNode = y.nodeId;
 
-type Op = { name: string; apply: (e: Engine) => void };
+type Op = { name: string; apply: (e: Engine) => Promise<unknown> };
 
 const OPS: Op[] = [
   { name: "create", apply: (e) => createPlainNode(e, rootOcc) },
@@ -46,12 +46,12 @@ describe("sync exhaustive concurrent op-pairs (every pair converges to a valid e
   for (const opA of OPS) {
     for (const opB of OPS) {
       it(`${opA.name} ∥ ${opB.name}`, async () => {
-        const a = cloneReplica(base);
-        const b = cloneReplica(base);
-        opA.apply(a);
-        opB.apply(b);
+        const a = await cloneReplica(base);
+        const b = await cloneReplica(base);
+        await opA.apply(a);
+        await opB.apply(b);
         await syncPair(a.asOutliner(), b.asOutliner());
-        assertConverged([a, b], `${opA.name} ∥ ${opB.name}`);
+        await assertConverged([a, b], `${opA.name} ∥ ${opB.name}`);
       });
     }
   }

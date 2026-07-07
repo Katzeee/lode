@@ -35,10 +35,10 @@ export const SYS_PREFIX = "sys:";
  */
 export type SyncableDoc = {
   readonly id: string;
-  version(): SyncBytes;
-  exportUpdate(from?: SyncBytes): SyncBytes;
-  exportSnapshot(): SyncBytes;
-  importUpdate(bytes: SyncBytes): void;
+  version(): Promise<SyncBytes>;
+  exportUpdate(from?: SyncBytes): Promise<SyncBytes>;
+  exportSnapshot(): Promise<SyncBytes>;
+  importUpdate(bytes: SyncBytes): Promise<void>;
 };
 
 /**
@@ -66,5 +66,10 @@ export type SyncableComposite = {
    *  composite this is `docs()`; a lazy composite (the outliner) returns only its already-materialized
    *  docs so a push doesn't force-load every owned doc. */
   pushDocs(): SyncableDoc[];
-  heal(): void;
+  heal(): Promise<void>;
+  /** Per-doc monotonic revision (the change marker), keyed by SyncableDoc.id, or undefined for docs
+   *  that don't track one (the tree). Enables INCREMENTAL sync: a round skips docs whose revision
+   *  hasn't advanced since the last exchange AND whose peer version is unchanged. Omit entirely for a
+   *  composite that doesn't support it → the driver falls back to exchanging every doc every round. */
+  revisions?(): Map<string, number>;
 };

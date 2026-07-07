@@ -7,44 +7,46 @@ import type {
   OccurrenceId,
 } from "../types.js";
 
-export function toJSON(engine: Engine, rootOccurrenceId?: OccurrenceId): DocSnapshot {
+export async function toJSON(
+  engine: Engine,
+  rootOccurrenceId?: OccurrenceId,
+): Promise<DocSnapshot> {
   const roots =
     rootOccurrenceId != null
-      ? [engine.getOccurrence(rootOccurrenceId)].filter(
+      ? [await engine.getOccurrence(rootOccurrenceId)].filter(
           (node): node is NodeOccurrence => node != null,
         )
-      : engine.getRootOccurrences();
+      : await engine.getRootOccurrences();
   const entities = new Map<string, NodeEntitySnapshot>();
   const occurrences = new Map<string, NodeOccurrenceSnapshot>();
 
-  const visit = (node: NodeOccurrence): void => {
+  const visit = async (node: NodeOccurrence): Promise<void> => {
     entities.set(node.nodeId, {
       nodeId: node.nodeId,
       canonicalOccurrenceId: node.canonicalOccurrenceId,
       deltas: node.deltas,
       props: { ...node.props },
-      meta: engine.getEntityMetaRecord(node.occurrenceId),
+      meta: await engine.getEntityMetaRecord(node.occurrenceId),
     });
+    const children = await engine.getOccurrenceChildren(node.occurrenceId);
     occurrences.set(node.occurrenceId, {
       occurrenceId: node.occurrenceId,
       occId: node.occId,
       nodeId: node.nodeId,
       parentOccurrenceId: node.parentOccurrenceId,
-      physicalChildOccurrenceIds: engine
-        .getOccurrenceChildren(node.occurrenceId)
-        .map((child) => child.occurrenceId),
+      physicalChildOccurrenceIds: children.map((child) => child.occurrenceId),
       occurrenceProps: { ...node.occurrenceProps },
       occurrenceMeta: engine.getOccurrenceMetaRecord(node.occurrenceId),
     });
-    for (const child of engine.getOccurrenceChildren(node.occurrenceId)) {
+    for (const child of children) {
       if (!occurrences.has(child.occurrenceId)) {
-        visit(child);
+        await visit(child);
       }
     }
   };
 
   for (const root of roots) {
-    visit(root);
+    await visit(root);
   }
 
   return {
@@ -55,11 +57,43 @@ export function toJSON(engine: Engine, rootOccurrenceId?: OccurrenceId): DocSnap
   };
 }
 
-export function fromJSON(
+/**
+ * treeDoc-only occurrence snapshot — the structural half of `toJSON` with ZERO shard reads.
+ * Occurrence props/meta/structure all live on the tree node's `data` container; entities (deltas/
+ * props/entityMeta/canonical — the shard-resident fields) are deliberately absent. Used by
+ * `ActionHistory`'s incremental capture so undo snapshotting never faults untouched shards. Walks
+ * the same reachability as `toJSON` (roots → physical children) but via `getOccurrenceStruct`.
+ */
+export function toJSONOccurrences(
+  engine: Engine,
+  rootOccurrenceId?: OccurrenceId,
+): { occurrences: NodeOccurrenceSnapshot[]; rootOccurrenceIds: OccurrenceId[] } {
+  const roots = rootOccurrenceId != null ? [rootOccurrenceId] : engine.getRootOccurrenceIds();
+  const occurrences = new Map<string, NodeOccurrenceSnapshot>();
+  const visit = (occurrenceId: OccurrenceId): void => {
+    if (occurrences.has(occurrenceId)) {
+      return;
+    }
+    const snap = engine.getOccurrenceStruct(occurrenceId);
+    if (!snap) {
+      return;
+    }
+    occurrences.set(occurrenceId, snap);
+    for (const child of snap.physicalChildOccurrenceIds) {
+      visit(child);
+    }
+  };
+  for (const root of roots) {
+    visit(root);
+  }
+  return { occurrences: [...occurrences.values()], rootOccurrenceIds: roots };
+}
+
+export async function fromJSON(
   engine: Engine,
   snapshot: DocSnapshot,
   parentOccurrenceId?: OccurrenceId | null,
-): OccurrenceId[] {
+): Promise<OccurrenceId[]> {
   const entityById = new Map(snapshot.entities.map((entity) => [entity.nodeId, entity]));
   const occurrenceById = new Map(
     snapshot.occurrences.map((occurrence) => [occurrence.occurrenceId, occurrence]),
@@ -67,11 +101,11 @@ export function fromJSON(
   const newNodeByOldNode = new Map<string, string>();
   const createdRoots: OccurrenceId[] = [];
 
-  engine.batch(() => {
-    const importOccurrence = (
+  await engine.batch(async () => {
+    const importOccurrence = async (
       oldOccurrenceId: string,
       newParentOccurrenceId?: OccurrenceId | null,
-    ): NodeOccurrence => {
+    ): Promise<NodeOccurrence> => {
       const occurrence = occurrenceById.get(oldOccurrenceId);
       if (!occurrence) {
         throw new Error(`Occurrence snapshot not found: ${oldOccurrenceId}`);
@@ -79,33 +113,33 @@ export function fromJSON(
       const existingNodeId = newNodeByOldNode.get(occurrence.nodeId);
       let created: NodeOccurrence;
       if (existingNodeId) {
-        created = engine.createOccurrence(existingNodeId, newParentOccurrenceId ?? null);
+        created = await engine.createOccurrence(existingNodeId, newParentOccurrenceId ?? null);
       } else {
         const entity = entityById.get(occurrence.nodeId);
         if (!entity) {
           throw new Error(`Entity snapshot not found: ${occurrence.nodeId}`);
         }
-        created = engine.createNode(newParentOccurrenceId ?? null, undefined, entity.props);
-        engine.replaceDeltas(created.occurrenceId, entity.deltas);
+        created = await engine.createNode(newParentOccurrenceId ?? null, undefined, entity.props);
+        await engine.replaceDeltas(created.occurrenceId, entity.deltas);
         for (const [key, value] of Object.entries(entity.meta)) {
-          engine.setEntityMeta(created.occurrenceId, key, value);
+          await engine.setEntityMeta(created.occurrenceId, key, value);
         }
         newNodeByOldNode.set(occurrence.nodeId, created.nodeId);
       }
       for (const [key, value] of Object.entries(occurrence.occurrenceProps)) {
-        engine.setOccurrenceProp(created.occurrenceId, key, value);
+        await engine.setOccurrenceProp(created.occurrenceId, key, value);
       }
       for (const [key, value] of Object.entries(occurrence.occurrenceMeta)) {
-        engine.setOccurrenceMeta(created.occurrenceId, key, value);
+        await engine.setOccurrenceMeta(created.occurrenceId, key, value);
       }
       for (const childId of occurrence.physicalChildOccurrenceIds) {
-        importOccurrence(childId, created.occurrenceId);
+        await importOccurrence(childId, created.occurrenceId);
       }
       return created;
     };
 
     for (const rootId of snapshot.rootOccurrenceIds) {
-      const created = importOccurrence(rootId, parentOccurrenceId ?? null);
+      const created = await importOccurrence(rootId, parentOccurrenceId ?? null);
       createdRoots.push(created.occurrenceId);
     }
   });

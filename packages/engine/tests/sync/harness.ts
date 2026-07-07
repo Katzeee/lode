@@ -1,8 +1,10 @@
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore, type Outliner } from "../../src/core/sharded-store.js";
 import type { SyncableDoc } from "../../src/core/syncable.js";
+import { SYS_PREFIX } from "../../src/core/syncable.js";
 import type { LoadedDocBytes } from "../../src/core/index.js";
 import { toJSON } from "../../src/core/serializers/json.js";
+import type { DocSnapshot } from "../../src/core/types.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { stableStringify } from "../truth-model.js";
@@ -15,28 +17,42 @@ import { stableStringify } from "../truth-model.js";
  * so two converged replicas project to identical canonical strings.
  */
 
-export type DocSnapshot = ReturnType<typeof toJSON>;
+export type { DocSnapshot };
+
+/** A tight shard-cache capacity so convergence/chaos exercise eviction (fault→evict→re-fault)
+ *  during sync — verifies the buffer pool is transparent to CRDT convergence. */
+const SYNC_TEST_SHARD_CAPACITY = 2;
 
 export function replica(numShards = 8): Engine {
-  return new Engine({ store: new ShardedBlockStore({ numShards }) });
+  return new Engine({
+    store: new ShardedBlockStore({ numShards, capacity: SYNC_TEST_SHARD_CAPACITY }),
+  });
 }
 
 /** Seed a fresh engine from snapshots of src (tree + every shard) via the `SyncableDoc` surface —
  *  no raw `LoroDoc` reach. The snapshot bytes carry the full CRDT history, so the clone converges
  *  identically with src after sync. */
-export function cloneReplica(src: Engine): Engine {
+export async function cloneReplica(src: Engine): Promise<Engine> {
   // Clone needs the sharding config (numShards), so reach the concrete impl — test-only cast;
-  // src is always a ShardedBlockStore. The residentBytes map is keyed by outward SyncableDoc ids.
+  // src is always a ShardedBlockStore. In-memory clone: tree eager + shards seeded into shardSnaps.
   const s = src.asOutliner() as ShardedBlockStore;
-  const residentBytes = new Map<string, LoadedDocBytes>();
-  residentBytes.set(s.treeSyncDoc().id, {
-    snapshot: s.treeSyncDoc().exportSnapshot(),
+  const treeBytes: LoadedDocBytes = {
+    snapshot: await s.treeSyncDoc().exportSnapshot(),
     updates: [],
-  });
+  };
+  const shardSnaps = new Map<string, LoadedDocBytes>();
   for (const d of s.shardSyncDocs()) {
-    residentBytes.set(d.id, { snapshot: d.exportSnapshot(), updates: [] });
+    shardSnaps.set(d.id.slice(SYS_PREFIX.length), {
+      snapshot: await d.exportSnapshot(),
+      updates: [],
+    });
   }
-  const dst = new ShardedBlockStore({ numShards: s.numShards, residentBytes });
+  const dst = new ShardedBlockStore({
+    numShards: s.numShards,
+    treeBytes,
+    shardSnaps,
+    capacity: SYNC_TEST_SHARD_CAPACITY,
+  });
   return new Engine({ store: dst });
 }
 
@@ -93,37 +109,37 @@ export function normalizeSnapshot(snap: DocSnapshot): unknown {
   };
 }
 
-export function canonical(e: Engine): string {
-  return stableStringify(normalizeSnapshot(toJSON(e)));
+export async function canonical(e: Engine): Promise<string> {
+  return stableStringify(normalizeSnapshot(await toJSON(e)));
 }
 
 /** Independent witness: the engine satisfies structural invariants right now. */
-export function assertValid(e: Engine, _label = ""): void {
-  validateSnapshot(toJSON(e));
+export async function assertValid(e: Engine, _label = ""): Promise<void> {
+  validateSnapshot(await toJSON(e));
 }
 
 /** Assert two engines are behaviorally equivalent (valid + occId-normalized equal). */
-export function assertEquiv(a: Engine, b: Engine, label = ""): void {
-  assertValid(a, label);
-  assertValid(b, label);
-  if (canonical(a) !== canonical(b)) {
+export async function assertEquiv(a: Engine, b: Engine, label = ""): Promise<void> {
+  await assertValid(a, label);
+  await assertValid(b, label);
+  if ((await canonical(a)) !== (await canonical(b))) {
     throw new Error(`Replicas diverged${label ? ` (${label})` : ""}`);
   }
 }
 
 /** Assert all replicas converged to one valid state. */
-export function assertConverged(replicas: Engine[], label = ""): void {
+export async function assertConverged(replicas: Engine[], label = ""): Promise<void> {
   for (const r of replicas) {
-    assertValid(r, label);
+    await assertValid(r, label);
   }
   const firstReplica = replicas[0];
   if (firstReplica === undefined) {
     throw new Error(`assertConverged requires at least one replica${label ? ` (${label})` : ""}`);
   }
-  const first = canonical(firstReplica);
+  const first = await canonical(firstReplica);
   for (let i = 1; i < replicas.length; i++) {
     const r = replicas[i];
-    if (r !== undefined && canonical(r) !== first) {
+    if (r !== undefined && (await canonical(r)) !== first) {
       throw new Error(`Replica ${i} diverged${label ? ` (${label})` : ""}`);
     }
   }
@@ -138,18 +154,18 @@ function docOf(e: Engine, id: string): SyncableDoc | undefined {
     .find((d) => d.id === id);
 }
 
-function twoWaySyncDoc(da: SyncableDoc, db: SyncableDoc): void {
-  const va = da.version();
-  const vb = db.version();
-  const aToB = da.exportUpdate(vb);
-  const bToA = db.exportUpdate(va);
-  da.importUpdate(bToA);
-  db.importUpdate(aToB);
+async function twoWaySyncDoc(da: SyncableDoc, db: SyncableDoc): Promise<void> {
+  const va = await da.version();
+  const vb = await db.version();
+  const aToB = await da.exportUpdate(vb);
+  const bToA = await db.exportUpdate(va);
+  await da.importUpdate(bToA);
+  await db.importUpdate(aToB);
 }
 
 /** Sync ONLY the treeDoc between two replicas; content shards stay undelivered.
  *  Models a mid-sync or partitioned-shard state. The treeDoc is the composite's first doc. */
-export function syncTreeOnly(a: Engine, b: Engine): void {
+export async function syncTreeOnly(a: Engine, b: Engine): Promise<void> {
   const treeId = storeOf(a).treeSyncDoc().id;
   if (!treeId) {
     return;
@@ -157,6 +173,6 @@ export function syncTreeOnly(a: Engine, b: Engine): void {
   const da = docOf(a, treeId);
   const db = docOf(b, treeId);
   if (da && db) {
-    twoWaySyncDoc(da, db);
+    await twoWaySyncDoc(da, db);
   }
 }

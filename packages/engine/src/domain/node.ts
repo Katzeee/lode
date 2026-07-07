@@ -1,91 +1,107 @@
 import type { Engine, NodeOccurrence } from "../core/index.js";
 
-export function createPlainNode(
+export async function createPlainNode(
   doc: Engine,
   parentOccurrenceId?: string | null,
   index?: number,
   props?: Record<string, unknown>,
-): NodeOccurrence {
-  return doc.createNode(canonicalChildOwnerOf(doc, parentOccurrenceId), index, props);
+): Promise<NodeOccurrence> {
+  return doc.createNode(await canonicalChildOwnerOf(doc, parentOccurrenceId), index, props);
 }
 
-export function createReference(
+export async function createReference(
   doc: Engine,
   targetNodeId: string,
   parentOccurrenceId?: string | null,
   index?: number,
-): NodeOccurrence {
-  return doc.createOccurrence(targetNodeId, canonicalChildOwnerOf(doc, parentOccurrenceId), index);
+): Promise<NodeOccurrence> {
+  return doc.createOccurrence(
+    targetNodeId,
+    await canonicalChildOwnerOf(doc, parentOccurrenceId),
+    index,
+  );
 }
 
-export function moveOccurrence(
+export async function moveOccurrence(
   doc: Engine,
   occurrenceId: string,
   parentOccurrenceId: string | null,
   index?: number,
-): void {
-  doc.moveOccurrence(occurrenceId, canonicalChildOwnerOf(doc, parentOccurrenceId), index);
+): Promise<void> {
+  await doc.moveOccurrence(
+    occurrenceId,
+    await canonicalChildOwnerOf(doc, parentOccurrenceId),
+    index,
+  );
 }
 
-export function cloneOccurrence(
+export async function cloneOccurrence(
   doc: Engine,
   occurrenceId: string,
   parentOccurrenceId?: string | null,
   index?: number,
-): NodeOccurrence {
+): Promise<NodeOccurrence> {
   // One undo step for the whole subtree clone. The recursion uses the inner fn so it does
   // not open its own group (transact is re-entrant anyway, but this avoids redundant snapshots).
-  return doc.batch(() =>
+  return doc.batch(async () =>
     cloneOccurrenceInner(doc, occurrenceId, parentOccurrenceId ?? null, index),
   );
 }
 
-function cloneOccurrenceInner(
+async function cloneOccurrenceInner(
   doc: Engine,
   occurrenceId: string,
   parentOccurrenceId: string | null,
   index?: number,
-): NodeOccurrence {
-  const clone = createPlainNode(doc, parentOccurrenceId, index, doc.getProps(occurrenceId));
-  doc.replaceDeltas(clone.occurrenceId, doc.getDeltas(occurrenceId));
-  for (const child of getSemanticChildren(doc, occurrenceId)) {
-    cloneOccurrenceInner(doc, child.occurrenceId, clone.occurrenceId);
+): Promise<NodeOccurrence> {
+  const clone = await createPlainNode(
+    doc,
+    parentOccurrenceId,
+    index,
+    await doc.getProps(occurrenceId),
+  );
+  await doc.replaceDeltas(clone.occurrenceId, await doc.getDeltas(occurrenceId));
+  for (const child of await getSemanticChildren(doc, occurrenceId)) {
+    await cloneOccurrenceInner(doc, child.occurrenceId, clone.occurrenceId);
   }
   return doc.mustGetOccurrence(clone.occurrenceId);
 }
 
-export function promoteCanonicalOccurrence(
+export async function promoteCanonicalOccurrence(
   doc: Engine,
   nodeId: string,
   occurrenceId: string,
-): void {
-  const oldCanonicalId = doc.getCanonicalOccurrenceId(nodeId);
+): Promise<void> {
+  const oldCanonicalId = await doc.getCanonicalOccurrenceId(nodeId);
   if (oldCanonicalId === occurrenceId) {
     return;
   }
   const childIds = doc.getChildOccurrenceIds(oldCanonicalId);
-  doc.batch(() => {
+  await doc.batch(async () => {
     for (const [index, childId] of childIds.entries()) {
-      doc.moveOccurrence(childId, occurrenceId, index);
+      await doc.moveOccurrence(childId, occurrenceId, index);
     }
-    doc.setCanonicalOccurrence(nodeId, occurrenceId);
+    await doc.setCanonicalOccurrence(nodeId, occurrenceId);
   });
 }
 
-export function removeOccurrenceOrHardDelete(doc: Engine, occurrenceId: string): void {
+export async function removeOccurrenceOrHardDelete(
+  doc: Engine,
+  occurrenceId: string,
+): Promise<void> {
   // One undo step for the whole cascade (joins an outer batch if called inside one, e.g.
   // setFieldValues).
-  doc.batch(() => {
-    const { removed, deletedNodes } = cascadeClosure(doc, [occurrenceId]);
-    applyCascade(doc, removed, deletedNodes);
+  await doc.batch(async () => {
+    const { removed, deletedNodes } = await cascadeClosure(doc, [occurrenceId]);
+    await applyCascade(doc, removed, deletedNodes);
   });
 }
 
-export function hardDeleteNode(doc: Engine, nodeId: string): void {
-  doc.batch(() => {
-    const seeds = doc.getOccurrences(nodeId).map((occurrence) => occurrence.occurrenceId);
-    const { removed, deletedNodes } = cascadeClosure(doc, seeds);
-    applyCascade(doc, removed, deletedNodes);
+export async function hardDeleteNode(doc: Engine, nodeId: string): Promise<void> {
+  await doc.batch(async () => {
+    const seeds = (await doc.getOccurrences(nodeId)).map((occurrence) => occurrence.occurrenceId);
+    const { removed, deletedNodes } = await cascadeClosure(doc, seeds);
+    await applyCascade(doc, removed, deletedNodes);
   });
 }
 
@@ -97,10 +113,10 @@ export function hardDeleteNode(doc: Engine, nodeId: string): void {
  * that IS its node's canonical drags every occurrence of that node (and their subtrees).
  * A node is deleted iff its canonical ends up removed.
  */
-function cascadeClosure(
+async function cascadeClosure(
   doc: Engine,
   seeds: string[],
-): { removed: Set<string>; deletedNodes: Set<string> } {
+): Promise<{ removed: Set<string>; deletedNodes: Set<string> }> {
   const removed = new Set<string>();
   const work = [...seeds];
   while (work.length > 0) {
@@ -108,23 +124,23 @@ function cascadeClosure(
     if (removed.has(occId)) {
       continue;
     }
-    const occ = doc.getOccurrence(occId);
+    const occ = await doc.getOccurrence(occId);
     if (!occ) {
       continue;
     }
     removed.add(occId);
-    for (const child of doc.getOccurrenceChildren(occId)) {
+    for (const child of await doc.getOccurrenceChildren(occId)) {
       work.push(child.occurrenceId);
     }
     if (occId === occ.canonicalOccurrenceId) {
-      for (const sibling of doc.getOccurrences(occ.nodeId)) {
+      for (const sibling of await doc.getOccurrences(occ.nodeId)) {
         work.push(sibling.occurrenceId);
       }
     }
   }
   const deletedNodes = new Set<string>();
   for (const occId of removed) {
-    const occ = doc.getOccurrence(occId);
+    const occ = await doc.getOccurrence(occId);
     if (occ && occId === occ.canonicalOccurrenceId) {
       deletedNodes.add(occ.nodeId);
     }
@@ -141,7 +157,11 @@ function cascadeClosure(
  * construction (surviving occurrences are non-canonical; killed nodes' occurrences are
  * all in the closure, so their children clear first).
  */
-function applyCascade(doc: Engine, removed: Set<string>, deletedNodes: Set<string>): void {
+async function applyCascade(
+  doc: Engine,
+  removed: Set<string>,
+  deletedNodes: Set<string>,
+): Promise<void> {
   const appliedOcc = new Set<string>();
   const appliedNode = new Set<string>();
   let progress = true;
@@ -151,7 +171,7 @@ function applyCascade(doc: Engine, removed: Set<string>, deletedNodes: Set<strin
       if (appliedOcc.has(occId)) {
         continue;
       }
-      const occ = doc.getOccurrence(occId);
+      const occ = await doc.getOccurrence(occId);
       if (!occ) {
         appliedOcc.add(occId);
         progress = true;
@@ -165,7 +185,7 @@ function applyCascade(doc: Engine, removed: Set<string>, deletedNodes: Set<strin
         continue;
       }
       if (doc.getChildOccurrenceIds(occId).length === 0) {
-        doc.removeOccurrence(occId);
+        await doc.removeOccurrence(occId);
         appliedOcc.add(occId);
         progress = true;
       }
@@ -174,12 +194,12 @@ function applyCascade(doc: Engine, removed: Set<string>, deletedNodes: Set<strin
       if (appliedNode.has(nodeId)) {
         continue;
       }
-      const occs = doc.getOccurrences(nodeId);
+      const occs = await doc.getOccurrences(nodeId);
       if (
         occs.length === 0 ||
         occs.every((occ) => doc.getChildOccurrenceIds(occ.occurrenceId).length === 0)
       ) {
-        doc.deleteNode(nodeId);
+        await doc.deleteNode(nodeId);
         appliedNode.add(nodeId);
         for (const occ of occs) {
           appliedOcc.add(occ.occurrenceId);
@@ -190,14 +210,20 @@ function applyCascade(doc: Engine, removed: Set<string>, deletedNodes: Set<strin
   }
 }
 
-export function getSemanticChildren(doc: Engine, occurrenceId: string): NodeOccurrence[] {
-  const ownerId = canonicalChildOwnerOf(doc, occurrenceId);
+export async function getSemanticChildren(
+  doc: Engine,
+  occurrenceId: string,
+): Promise<NodeOccurrence[]> {
+  const ownerId = await canonicalChildOwnerOf(doc, occurrenceId);
   return ownerId == null ? [] : doc.getOccurrenceChildren(ownerId);
 }
 
-function canonicalChildOwnerOf(doc: Engine, occurrenceId?: string | null): string | null {
+async function canonicalChildOwnerOf(
+  doc: Engine,
+  occurrenceId?: string | null,
+): Promise<string | null> {
   if (occurrenceId == null) {
     return null;
   }
-  return doc.getCanonicalOccurrenceId(doc.mustGetOccurrence(occurrenceId).nodeId);
+  return doc.getCanonicalOccurrenceId((await doc.mustGetOccurrence(occurrenceId)).nodeId);
 }

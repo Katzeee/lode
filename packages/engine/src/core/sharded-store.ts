@@ -8,19 +8,17 @@ import {
   type TreeID,
   VersionVector,
 } from "loro-crdt";
-import type { SyncableComposite, SyncableDoc } from "./syncable.js";
+import type { SyncableComposite, SyncableDoc, SyncBytes } from "./syncable.js";
 import { SYS_PREFIX } from "./syncable.js";
-import type { LoadedDocBytes } from "./doc-store.js";
+import type { DocStore, LoadedDocBytes } from "./doc-store.js";
+import { ShardCache } from "./shard-cache.js";
 import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
 import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
 
 /**
  * The treeDoc's bare internal key. The OUTWARD id (what `SyncableDoc.id` returns, what persistence
- * keys bytes by, what the wire carries) is `SYS_PREFIX + TREE_SUBDOC` = `"sys:tree"`. The load path
- * no longer references this constant: `ShardedBlockStore` takes a `residentBytes` map and
- * `partitionResident` identifies the tree by its outward id internally. File-exported only so the
- * partition (and the rare benchmark that builds a map from a raw snapshot) can name it — it is NOT
- * in the public `core` API and production orchestration never references it.
+ * keys bytes by, what the wire carries) is `SYS_PREFIX + TREE_SUBDOC` = `"sys:tree"`. Exported so the
+ * runtime load path (`loadOutliner` reads `sys:tree` eagerly) and the fork copy can name it.
  */
 export const TREE_SUBDOC = "tree";
 
@@ -34,10 +32,45 @@ export const TREE_SUBDOC = "tree";
 export type Outliner = SyncableComposite & {
   /** The structure doc — synced first, persisted incrementally. */
   treeSyncDoc(): SyncableDoc;
-  /** The content shards — persisted as snapshots, materialized lazily. */
+  /** The content shards — materialized lazily, persisted incrementally (delta + periodic snapshot). */
   shardSyncDocs(): SyncableDoc[];
-  /** Crash-restart lifecycle heal (create/delete orphans between tree + shards). */
-  reconcileDurability(): void;
+  /** Crash-restart lifecycle heal (create/delete orphans between tree + shards). Async — the orphan
+   *  sweep faults shards through the async cache. */
+  reconcileDurability(): Promise<void>;
+  /** Persist only the dirty shards (revision > persisted) to the store's DocStore as incremental
+   *  updates (`exportUpdate(lastPersistedVersion)`) with periodic snapshot compaction — the same path
+   *  the tree uses. Advances each flushed shard's persist cursor + unpins it. No-op for a clean store
+   *  or in-memory mode (no DocStore). */
+  persistDirtyShards(): Promise<void>;
+  /**
+   * Pin the operation's working set: fault each shard holding `nodeIds` into the cache + pin it, and
+   * arm the residency assertion — any later shard access NOT in this set throws (a dev-aid that
+   * catches an operation touching a shard it didn't declare). `release()` ends the session. Async so
+   * Phase 5 can fault from the async DocStore port (today the fault is sync from pre-read shardSnaps,
+   * so this resolves immediately). nodeIds may include not-yet-created nodes — `shardIdOf` is the hash,
+   * not an ownership lookup. Opt-in: outside a session, shard access faults freely (today's behavior).
+   */
+  ensureResident(nodeIds: readonly NodeId[]): Promise<void>;
+  /** End the working-set session: unpin the declared shards, disarm the assertion. Idempotent. */
+  release(): void;
+};
+
+/** Resident per-shard persistence metadata. Always resident (survives shard LoroDoc eviction) and
+ *  local-only (never synced — each replica has its own persist cursor). The single source of truth
+ *  for shard dirty-tracking + the incremental-persist delta cursor.
+ *
+ *  - `revision` bumps on every local write OR remote import — monotonic per shard.
+ *  - `persistedRevision` is the revision at the last persist flush. Dirty iff `revision > persistedRevision`.
+ *  - `lastPersistedVersion` is the encoded Loro version at the last persist — the `exportUpdate` "from"
+ *    cursor so the next persist exports only the delta.
+ *  - `pinned` records the write-pin a `shardForWrite` placed on a clean→dirty shard; `persistDirtyShards`
+ *    unpins it after flushing. Import-dirty shards are NOT pinned (they may evict; a re-fault reads the
+ *    evict-flushed bytes back), so the flag gates the balanced unpin. */
+type ShardMeta = {
+  revision: number;
+  persistedRevision: number;
+  lastPersistedVersion?: SyncBytes;
+  pinned: boolean;
 };
 
 /**
@@ -72,12 +105,26 @@ export class ShardedBlockStore implements Outliner {
   private readonly treeDoc: LoroDoc;
   private readonly occurrenceTree: LoroTree;
   private readonly ownership: LoroMap;
-  private readonly shards = new Map<string, LoroDoc>();
-  /** Pre-read shard snapshots keyed by their BARE internal id (`s{k}`), seeded by `partitionResident`
-   *  from the residentBytes map. A shard faults its snapshot in on first access; absent → empty. */
-  private readonly shardSnaps = new Map<string, Uint8Array>();
+  /** The shard buffer pool — shards fault in here on first access (lazily from the DocStore, or from
+   *  `shardSnaps` in in-memory mode), with pin/unpin + LRU eviction + write-back. The runtime passes
+   *  a finite capacity so resident LoroDocs are capped; a dirty evicted shard is flushed before drop.
+   *  The treeDoc is NOT in the cache — it is always resident (the load-path invariant), owned here. */
+  private readonly shardCache: ShardCache<LoroDoc>;
+  /** In-memory shard bytes (BARE id → full persisted bytes), used ONLY in in-memory mode (no
+   *  DocStore): seeded by clones/tests, and the onEvict write-back target so an evicted shard's
+   *  mutation survives a re-fault. Persistent mode leaves this empty — shards fault from the
+   *  DocStore and evict back to it (bounded memory). */
+  private readonly shardSnaps = new Map<string, LoadedDocBytes>();
+  /** Resident per-shard persistence metadata — ALWAYS resident (survives shard LoroDoc eviction),
+   *  NOT in the treeDoc (these are local-replica concerns that must not sync to peers). The single
+   *  source of truth for "did this shard change?" + the incremental-persist cursor. */
+  private readonly shardMeta = new Map<string, ShardMeta>();
   /** Shard count (config readout — not a CRDT handle). Read by tests that clone the sharding. */
   readonly numShards: number;
+  /** The active working-set session (null outside `ensureResident`…`release`). When set, `shard()`
+   *  asserts every touched shard is in it — the dev-aid that catches an operation reaching beyond its
+   *  declared working set. Null during load / heal / sync (no session → fault-in, today's behavior). */
+  private residentSession: Set<string> | null = null;
   /**
    * Stable per-dataRoot peer id set on every LoroDoc this store creates. Without it, Loro
    * auto-assigns a fresh random peer per `new LoroDoc()` per process, so every restart
@@ -88,25 +135,49 @@ export class ShardedBlockStore implements Outliner {
    * the SAME doc, i.e. across replicas, which carry different per-dataRoot peerIds).
    */
   private readonly peerId?: number;
+  /** The DocStore port — the lazy fault source AND the write-back target (a dirty shard evicted
+   *  before persist is flushed here). Undefined in in-memory mode (tests / ephemeral): shards fault
+   *  from `shardSnaps` and evict back to it. The cache's whole reason to exist is lazy load from
+   *  this port, so the store owns the reference (core→core; the runtime supplies the adapter). */
+  private readonly docStore?: DocStore;
+  /** Snapshot-compaction cadence (every N appended updates → writeSnapshot). Passed by the runtime
+   *  (persistent mode); Infinity for in-memory (no durable writes). Used by `flushShard`. */
+  private readonly snapshotEveryUpdates: number;
 
   constructor(
     options: {
       numShards?: number;
-      /** Pre-read persisted docs (tree + shards), keyed by their OUTWARD SyncableDoc id (the
-       *  `sys:`-prefixed form). `partitionResident` splits them — the single place that parses the
-       *  structure prefix. Omit for a fresh empty outliner. */
-      residentBytes?: Map<string, LoadedDocBytes>;
+      /** The tree doc's persisted bytes — eagerly imported (the tree is the ONE always-resident doc,
+       *  the load-path invariant). Shards are NOT pre-read; they fault lazily from `docStore`. */
+      treeBytes?: LoadedDocBytes;
+      /** The DocStore port shards fault from + evict back to (write-back). Omit for in-memory mode:
+       *  shards then fault from `shardSnaps` and evict back to it (tests / ephemeral clones). */
+      docStore?: DocStore;
+      /** In-memory shard bytes seed (BARE shardId → bytes), for clones/tests with no DocStore. Each
+       *  entry is the doc's full persisted bytes (snapshot + post-snapshot updates). */
+      shardSnaps?: Map<string, LoadedDocBytes>;
+      /** Snapshot-compaction cadence for `flushShard` (every N appended updates → writeSnapshot).
+       *  Default ∞ (no compaction; in-memory). */
+      snapshotEveryUpdates?: number;
       /** Stable peer id for every LoroDoc (see field doc). Omit to let Loro auto-assign. */
       peerId?: number;
+      /** Diagnostic/test seam: called each time a shard LoroDoc is materialized. Lets a test assert
+       *  an operation (e.g. undo) materializes only the shards it touches. */
+      onFault?: (shardId: string) => void;
+      /** Max resident shard LoroDocs. Default ∞ (tests/in-memory — no eviction). The runtime passes a
+       *  finite bound so the parsed CRDTs (the heavy memory) are capped. */
+      capacity?: number;
     } = {},
   ) {
     this.numShards = options.numShards ?? 256;
     this.peerId = options.peerId;
+    this.docStore = options.docStore;
+    this.snapshotEveryUpdates = options.snapshotEveryUpdates ?? Number.POSITIVE_INFINITY;
     this.treeDoc = new LoroDoc();
     if (this.peerId !== undefined) {
       this.treeDoc.setPeerId(this.peerId);
     }
-    const { treeBytes, shardSnaps } = partitionResident(options.residentBytes);
+    const treeBytes = options.treeBytes;
     if (treeBytes) {
       if (treeBytes.snapshot && treeBytes.snapshot.length > 0) {
         this.treeDoc.import(treeBytes.snapshot);
@@ -115,9 +186,35 @@ export class ShardedBlockStore implements Outliner {
         this.treeDoc.import(updateBytes);
       }
     }
-    for (const [id, snap] of shardSnaps) {
-      this.shardSnaps.set(id, snap);
+    if (options.shardSnaps) {
+      for (const [id, bytes] of options.shardSnaps) {
+        this.shardSnaps.set(id, bytes);
+      }
     }
+    this.shardCache = new ShardCache<LoroDoc>({
+      // faultIn: prefer an in-memory shardSnaps entry (a clone seed / an evict-flush in in-memory
+      // mode), else read the DocStore lazily (the lazy-load path — no pre-read of every shard).
+      faultIn: async (id) => {
+        const snapped = this.shardSnaps.get(id);
+        if (snapped) {
+          return snapped;
+        }
+        return this.docStore ? await this.docStore.load(SYS_PREFIX + id) : null;
+      },
+      createDoc: (bytes) => this.createShardDoc(bytes),
+      capacity: options.capacity ?? Number.POSITIVE_INFINITY,
+      onFault: options.onFault,
+      // Write-back: a dirty shard evicted before persist is flushed so its bytes survive; a clean
+      // shard (already persisted) is just dropped. In-memory mode (no docStore) snapshots every
+      // evict — shardSnaps is the only store, so a re-fault reads it back.
+      onEvict: async (id, doc) => {
+        if (this.docStore) {
+          await this.flushShard(id, doc);
+        } else {
+          this.shardSnaps.set(id, { snapshot: doc.export({ mode: "snapshot" }), updates: [] });
+        }
+      },
+    });
     this.occurrenceTree = this.treeDoc.getTree("occurrences");
     this.ownership = this.treeDoc.getMap("ownership");
   }
@@ -126,25 +223,63 @@ export class ShardedBlockStore implements Outliner {
 
   commit(): void {
     this.treeDoc.commit();
-    for (const s of this.shards.values()) {
+    for (const [, s] of this.shardCache.residentEntries()) {
       s.commit();
     }
   }
 
+  // ── working-set session (operation boundary) ───────────────────────────────
+
+  async ensureResident(nodeIds: readonly NodeId[]): Promise<void> {
+    if (this.residentSession !== null) {
+      throw new Error("ensureResident: a working-set session is already active — release it first");
+    }
+    // shardIdOf is the hash (not an ownership lookup), so this covers not-yet-created nodes too —
+    // the exact shard createEntity will write to. Dedupe; fault each in + pin atomically (getAndPin
+    // pins BEFORE evictToFit, so a capacity-bound cache full of session-pinned shards can't evict
+    // the shard faulted just before its pin). If a later fault throws, unpin the partial set so no
+    // pin leaks (the session isn't armed until the whole set is pinned).
+    const shardIds = new Set(nodeIds.map((n) => shardIdOf(n, this.numShards)));
+    const pinned: string[] = [];
+    try {
+      for (const id of shardIds) {
+        await this.shardCache.getAndPin(id);
+        pinned.push(id);
+      }
+    } catch (err) {
+      for (const id of pinned) {
+        this.shardCache.unpin(id);
+      }
+      throw err;
+    }
+    this.residentSession = shardIds;
+  }
+
+  release(): void {
+    const session = this.residentSession;
+    if (session === null) {
+      return; // idempotent — releasing without a session is a no-op
+    }
+    for (const id of session) {
+      this.shardCache.unpin(id);
+    }
+    this.residentSession = null;
+  }
+
   // ── entity (node content) CRUD — content lives in the owning shard ──────────
 
-  createEntity(
+  async createEntity(
     nodeId: NodeId,
     canonicalOccurrenceId: OccurrenceId,
     props?: Record<string, unknown>,
-  ): void {
+  ): Promise<void> {
     if (this.ownership.get(nodeId) !== undefined) {
       throw new Error(`Node already exists: ${nodeId}`);
     }
     // Record immutable ownership (the permanent bucket, not the shardId).
     this.ownership.set(nodeId, bucketOf(nodeId));
     // Entity lives in the shard.
-    const entity = this.shard(shardIdOf(nodeId, this.numShards))
+    const entity = (await this.shardForWrite(shardIdOf(nodeId, this.numShards)))
       .getMap("entities")
       .setContainer(nodeId, new LoroMap());
     entity.set("canonicalOccurrenceId", canonicalOccurrenceId);
@@ -156,26 +291,27 @@ export class ShardedBlockStore implements Outliner {
     }
   }
 
-  requireEntity(nodeId: NodeId): void {
-    this.entityOf(nodeId);
+  async requireEntity(nodeId: NodeId): Promise<void> {
+    await this.entityOf(nodeId);
   }
 
-  deleteEntity(nodeId: NodeId): void {
+  async deleteEntity(nodeId: NodeId): Promise<void> {
     // Idempotent if already gone (the domain cascade may call after the occurrence
     // side is already deleted).
     if (this.ownership.get(nodeId) === undefined) {
       return;
     }
-    this.shard(this.shardIdOfNode(nodeId)).getMap("entities").delete(nodeId);
+    (await this.shardForWrite(this.shardIdOfNode(nodeId))).getMap("entities").delete(nodeId);
     this.ownership.delete(nodeId);
   }
 
-  setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): void {
-    this.entityOf(nodeId).set("canonicalOccurrenceId", occurrenceId);
+  async setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(nodeId));
+    (await this.entityOf(nodeId)).set("canonicalOccurrenceId", occurrenceId);
   }
 
-  canonicalOccurrenceIdOf(nodeId: NodeId): OccurrenceId {
-    const id = this.entityOf(nodeId).get("canonicalOccurrenceId");
+  async canonicalOccurrenceIdOf(nodeId: NodeId): Promise<OccurrenceId> {
+    const id = (await this.entityOf(nodeId)).get("canonicalOccurrenceId");
     if (typeof id !== "string") {
       throw new Error(`Canonical occurrence not found: ${nodeId}`);
     }
@@ -247,13 +383,12 @@ export class ShardedBlockStore implements Outliner {
     return this.treeNodeOf(occurrenceId) != null;
   }
 
-  getOccurrenceIdsForNode(nodeId: NodeId): OccurrenceId[] {
+  async getOccurrenceIdsForNode(nodeId: NodeId): Promise<OccurrenceId[]> {
     // `entityOf` is the guard: it throws if the node's content shard is not present.
     // Mid-sync this is reachable when ownership has arrived via the treeDoc but the owning
-    // content shard has not been delivered yet (a pending-shard state). Sync is synchronous
-    // today so reads never interleave a half-delivered node; this throw is the Phase-D async
+    // content shard has not been delivered yet (a pending-shard state). This throw is the async
     // gate — real network transport must not surface a node for reading before its shard lands.
-    this.entityOf(nodeId);
+    await this.entityOf(nodeId);
     return this.occurrenceTree
       .getNodes({ withDeleted: false })
       .filter((node) => node.data.get("nodeId") === nodeId)
@@ -283,8 +418,8 @@ export class ShardedBlockStore implements Outliner {
 
   // ── rich text (resolve nodeId from occurrence, content from shard) ──────────
 
-  getDeltas(occurrenceId: OccurrenceId): Delta {
-    const raw = this.contentOf(occurrenceId).toDelta() as Record<string, unknown>[];
+  async getDeltas(occurrenceId: OccurrenceId): Promise<Delta> {
+    const raw = (await this.contentOf(occurrenceId)).toDelta() as Record<string, unknown>[];
     return raw
       .filter(
         (d): d is { insert: string; attributes?: Record<string, unknown> } =>
@@ -299,8 +434,9 @@ export class ShardedBlockStore implements Outliner {
       });
   }
 
-  replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): void {
-    const text = this.contentOf(occurrenceId);
+  async replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    const text = await this.contentOf(occurrenceId);
     const len = text.length;
     if (len > 0) {
       text.delete(0, len);
@@ -321,45 +457,57 @@ export class ShardedBlockStore implements Outliner {
     }
   }
 
-  mark(occurrenceId: OccurrenceId, range: MarkRange, key: string, value: unknown): void {
-    this.contentOf(occurrenceId).mark({ start: range.start, end: range.end }, key, value);
+  async mark(
+    occurrenceId: OccurrenceId,
+    range: MarkRange,
+    key: string,
+    value: unknown,
+  ): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.contentOf(occurrenceId)).mark({ start: range.start, end: range.end }, key, value);
   }
 
-  unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): void {
-    this.contentOf(occurrenceId).unmark({ start: range.start, end: range.end }, key);
+  async unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.contentOf(occurrenceId)).unmark({ start: range.start, end: range.end }, key);
   }
 
   // ── entity props + meta (resolve nodeId from occurrence) ────────────────────
 
-  getProp(occurrenceId: OccurrenceId, key: string): unknown {
-    return this.propsOf(occurrenceId).get(key);
+  async getProp(occurrenceId: OccurrenceId, key: string): Promise<unknown> {
+    return (await this.propsOf(occurrenceId)).get(key);
   }
-  setProp(occurrenceId: OccurrenceId, key: string, value: unknown): void {
-    this.propsOf(occurrenceId).set(key, value as never);
+  async setProp(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.propsOf(occurrenceId)).set(key, value as never);
   }
-  unsetProp(occurrenceId: OccurrenceId, key: string): void {
-    this.propsOf(occurrenceId).delete(key);
+  async unsetProp(occurrenceId: OccurrenceId, key: string): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.propsOf(occurrenceId)).delete(key);
   }
-  setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): void {
-    const propsMap = this.propsOf(occurrenceId);
+  async setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    const propsMap = await this.propsOf(occurrenceId);
     for (const [key, value] of Object.entries(props)) {
       propsMap.set(key, value as never);
     }
   }
-  getProps(occurrenceId: OccurrenceId): Record<string, unknown> {
-    return this.mapToRecord(this.propsOf(occurrenceId));
+  async getProps(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
+    return this.mapToRecord(await this.propsOf(occurrenceId));
   }
-  getEntityMeta(occurrenceId: OccurrenceId, key: string): unknown {
-    return this.entityMetaOf(occurrenceId).get(key);
+  async getEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<unknown> {
+    return (await this.entityMetaOf(occurrenceId)).get(key);
   }
-  setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): void {
-    this.entityMetaOf(occurrenceId).set(key, value as never);
+  async setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.entityMetaOf(occurrenceId)).set(key, value as never);
   }
-  unsetEntityMeta(occurrenceId: OccurrenceId, key: string): void {
-    this.entityMetaOf(occurrenceId).delete(key);
+  async unsetEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<void> {
+    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.entityMetaOf(occurrenceId)).delete(key);
   }
-  getEntityMetaRecord(occurrenceId: OccurrenceId): Record<string, unknown> {
-    return this.mapToRecord(this.entityMetaOf(occurrenceId));
+  async getEntityMetaRecord(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
+    return this.mapToRecord(await this.entityMetaOf(occurrenceId));
   }
 
   // ── occurrence props + meta (on the tree node's `data`) ─────────────────────
@@ -394,12 +542,14 @@ export class ShardedBlockStore implements Outliner {
   /** The structure doc — the single structural authority (carries ownership, so it reveals which
    *  shards exist). Persisted incrementally; synced first. */
   treeSyncDoc(): SyncableDoc {
-    return this.syncableDoc(this.treeDoc, TREE_SUBDOC);
+    // The tree is always resident — its getDoc resolves immediately (no fault). Still a Promise so
+    // the SyncableDoc method shape is uniform with shard docs (no dual sync/async path).
+    return this.syncableDoc(() => Promise.resolve(this.treeDoc), TREE_SUBDOC);
   }
 
-  /** The content shards — one per owned shard id, materialized lazily. Persisted as snapshots. */
+  /** The content shards — one per owned shard id, materialized lazily. Persisted incrementally. */
   shardSyncDocs(): SyncableDoc[] {
-    return this.shardIds().map((id) => this.syncableDoc(this.shard(id), id));
+    return this.shardIds().map((id) => this.shardSyncableDoc(id));
   }
 
   /** The per-doc sync surface: tree first, then every owned shard. Each entry is an independent
@@ -416,28 +566,104 @@ export class ShardedBlockStore implements Outliner {
   pushDocs(): SyncableDoc[] {
     return [
       this.treeSyncDoc(),
-      ...[...this.shards.entries()].map(([id, doc]) => this.syncableDoc(doc, id)),
+      ...this.shardCache.residentEntries().map(([id]) => this.shardSyncableDoc(id)),
     ];
   }
 
   /** Post-exchange sync heal — delegates to the ownership-based orphan sweep. */
-  heal(): void {
-    this.sweepOrphans();
+  async heal(): Promise<void> {
+    await this.sweepOrphans();
   }
 
-  private syncableDoc(doc: LoroDoc, id: string): SyncableDoc {
+  async persistDirtyShards(): Promise<void> {
+    if (this.docStore === undefined) {
+      return; // in-memory mode: no durable sink (shards evict to shardSnaps instead)
+    }
+    // Only dirty shards (revision > persistedRevision) — a clean store faults nothing. Iterating the
+    // resident meta map (not shardSyncDocs) avoids faulting clean shards just to skip them.
+    for (const [shardId, meta] of this.shardMeta) {
+      if (meta.revision === meta.persistedRevision) {
+        continue;
+      }
+      // Resident if write-pinned; else re-faults from the DocStore (evict-flush kept it current).
+      const doc = await this.shardForRead(shardId);
+      await this.flushShard(shardId, doc);
+      if (meta.pinned) {
+        this.shardCache.unpin(shardId);
+        meta.pinned = false;
+      }
+    }
+    // Reclaim now-evictable shards so resident stays ≤ capacity at the quiescent point (unpinning
+    // alone doesn't evict — eviction fires on the next fault otherwise).
+    await this.shardCache.evictToFit();
+  }
+
+  /** Flush one shard's delta to the DocStore + advance its persist cursor. Shared by
+   *  `persistDirtyShards` (the explicit post-mutation flush) and `onEvict` (write-back before
+   *  dropping a dirty shard). No-op if the shard is clean. `doc` is the shard's current LoroDoc
+   *  (passed in so the evict path need not re-fault). */
+  private async flushShard(shardId: string, doc: LoroDoc): Promise<void> {
+    if (this.docStore === undefined) {
+      return;
+    }
+    const meta = this.metaFor(shardId);
+    if (meta.revision === meta.persistedRevision) {
+      return; // clean — the DocStore already has its state
+    }
+    const outwardId = SYS_PREFIX + shardId;
+    const currentVersion = doc.version().encode();
+    const delta =
+      meta.lastPersistedVersion === undefined
+        ? doc.export({ mode: "update" })
+        : doc.export({ mode: "update", from: VersionVector.decode(meta.lastPersistedVersion) });
+    if (delta.length > 0) {
+      const seq = await this.docStore.appendUpdate(outwardId, delta);
+      if (seq % this.snapshotEveryUpdates === 0) {
+        await this.docStore.writeSnapshot(outwardId, doc.export({ mode: "snapshot" }));
+      }
+    }
+    meta.lastPersistedVersion = currentVersion;
+    meta.persistedRevision = meta.revision;
+  }
+
+  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). `importUpdate`
+   *  pins around the fault+import — a capacity-bound cache full of pinned-dirty shards would
+   *  otherwise evict a cold imported shard between fault and the bytes landing, silently dropping
+   *  the import on an orphaned doc. */
+  private shardSyncableDoc(id: string): SyncableDoc {
+    const base = this.syncableDoc(() => this.shardForRead(id), id);
+    return {
+      ...base,
+      importUpdate: async (bytes) => {
+        await this.shardCache.getAndPin(id);
+        try {
+          (await this.shardForRead(id)).import(bytes);
+          this.markImport(id);
+        } finally {
+          this.shardCache.unpin(id);
+        }
+      },
+    };
+  }
+
+  private syncableDoc(getDoc: () => Promise<LoroDoc>, id: string): SyncableDoc {
     // The VV ↔ bytes round-trip is internal to this loro-backed adapter; callers see SyncBytes. The
     // outward id carries the structure prefix; the internal map keys stay bare (`s{k}`).
+    //
+    // `getDoc` RE-RESOLVES the LoroDoc on each access (not a captured reference) so the doc is
+    // eviction-safe: a shard evicted between sync accesses re-faults from shardSnaps (which an
+    // evict-flush keeps current). The tree uses `() => Promise.resolve(this.treeDoc)` (always
+    // resident); shards override `importUpdate` to pin around the import (see shardSyncableDoc).
     return {
       id: SYS_PREFIX + id,
-      version: () => doc.version().encode(),
-      exportUpdate: (from) =>
-        doc.export(
+      version: async () => (await getDoc()).version().encode(),
+      exportUpdate: async (from) =>
+        (await getDoc()).export(
           from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" },
         ),
-      exportSnapshot: () => doc.export({ mode: "snapshot" }),
-      importUpdate: (bytes) => {
-        doc.import(bytes);
+      exportSnapshot: async () => (await getDoc()).export({ mode: "snapshot" }),
+      importUpdate: async (bytes) => {
+        (await getDoc()).import(bytes);
       },
     };
   }
@@ -445,8 +671,13 @@ export class ShardedBlockStore implements Outliner {
   /** Get (lazily creating) a shard's raw `LoroDoc` by id. INTERNAL/test-seam — production reaches
    *  shards through the `SyncableDoc`s from `docs()`. Exposed for the durability unit test, which
    *  inspects shard entity maps to verify `reconcileDurability` / `sweepOrphans` directly. */
-  getShardDoc(shardId: string): LoroDoc {
-    return this.shard(shardId);
+  async getShardDoc(shardId: string): Promise<LoroDoc> {
+    return this.shardForRead(shardId);
+  }
+
+  /** Number of shard LoroDocs currently resident (diagnostic — the buffer-pool bound check). */
+  get residentShardCount(): number {
+    return this.shardCache.size;
   }
 
   /** Every shard id referenced by the ownership map. */
@@ -460,6 +691,17 @@ export class ShardedBlockStore implements Outliner {
     return [...out];
   }
 
+  /** Per-shard revision (the change marker), keyed by OUTWARD SyncableDoc id. The tree is absent
+   *  (no revision → the sync driver always exchanges it). Drives incremental sync: a round skips
+   *  shards whose revision hasn't advanced since the last exchange AND whose peer version is unchanged. */
+  revisions(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const [shardId, meta] of this.shardMeta) {
+      out.set(SYS_PREFIX + shardId, meta.revision);
+    }
+    return out;
+  }
+
   /**
    * Crash recovery: reconcile treeDoc ↔ shards after a non-atomic restart. The tree
    * doc and each shard are independent LoroDocs (persisted separately in Step 5), so
@@ -468,14 +710,14 @@ export class ShardedBlockStore implements Outliner {
    *   DELETE-direction: shard entity present, ownership already gone.
    * Run to a fixpoint; deterministic given tree-doc + shard state.
    */
-  reconcileDurability(): void {
+  async reconcileDurability(): Promise<void> {
     for (let iter = 0; iter < 100; iter++) {
       let changed = false;
       // CREATE-direction: drop live occurrences pointing at a missing entity.
       const occsToDrop: TreeID[] = [];
       for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
         const nid = node.data.get("nodeId");
-        if (typeof nid === "string" && !this.entityPresent(nid)) {
+        if (typeof nid === "string" && !(await this.entityPresent(nid))) {
           occsToDrop.push(node.id);
         }
       }
@@ -492,14 +734,18 @@ export class ShardedBlockStore implements Outliner {
         }
       }
       for (const nid of [...(this.ownership.keys() as string[])]) {
-        if (!liveOccNodeIds.has(nid) && !this.entityPresent(nid)) {
+        if (!liveOccNodeIds.has(nid) && !(await this.entityPresent(nid))) {
           this.ownership.delete(nid);
           changed = true;
         }
       }
-      // DELETE-direction: orphan shard entities whose ownership is gone (scan every shard).
+      // DELETE-direction: orphan shard entities whose ownership is gone. Streaming — fault each shard
+      // one at a time under the normal capacity (empty shards fault null + evict; a shard with an
+      // orphan deletion is marked dirty so onEvict/persist preserves it). Gated to non-clean restart,
+      // so this full scan only runs after a crash.
       for (let i = 0; i < this.numShards; i++) {
-        const ents = this.shard(`s${i}`).getMap("entities");
+        const shardId = `s${i}`;
+        const ents = (await this.shardForRead(shardId)).getMap("entities");
         const stale: NodeId[] = [];
         for (const [nid] of ents.entries()) {
           if (typeof nid === "string" && this.ownership.get(nid) === undefined) {
@@ -510,13 +756,17 @@ export class ShardedBlockStore implements Outliner {
           ents.delete(nid);
           changed = true;
         }
+        if (stale.length > 0) {
+          // Mark the shard dirty so the orphan deletion persists (else it reappears on reload).
+          await this.shardForWrite(shardId);
+        }
       }
       if (!changed) {
         break;
       }
     }
     this.treeDoc.commit();
-    for (const s of this.shards.values()) {
+    for (const [, s] of this.shardCache.residentEntries()) {
       s.commit();
     }
   }
@@ -534,7 +784,7 @@ export class ShardedBlockStore implements Outliner {
    * Deterministic given tree-doc state, so every replica that exchanges the same bytes
    * converges identically.
    */
-  sweepOrphans(): void {
+  async sweepOrphans(): Promise<void> {
     for (let iter = 0; iter < 100; iter++) {
       let changed = false;
       const occToRemove: TreeID[] = [];
@@ -557,7 +807,9 @@ export class ShardedBlockStore implements Outliner {
       }
       for (const nid of [...(this.ownership.keys() as string[])]) {
         if (!liveOccNodeIds.has(nid)) {
-          this.shard(this.shardIdOfNode(nid)).getMap("entities").delete(nid);
+          const shardId = this.shardIdOfNode(nid);
+          (await this.shardForRead(shardId)).getMap("entities").delete(nid);
+          await this.shardForWrite(shardId); // mark dirty so the orphan deletion persists
           this.ownership.delete(nid);
           changed = true;
         }
@@ -567,30 +819,75 @@ export class ShardedBlockStore implements Outliner {
       }
     }
     this.treeDoc.commit();
-    for (const s of this.shards.values()) {
+    for (const [, s] of this.shardCache.residentEntries()) {
       s.commit();
     }
   }
 
   // ── internals ───────────────────────────────────────────────────────────────
 
-  private shard(shardId: string): LoroDoc {
-    let s = this.shards.get(shardId);
-    if (!s) {
-      s = new LoroDoc();
-      if (this.peerId !== undefined) {
-        s.setPeerId(this.peerId);
+  /** Fault a shard for READ: working-set session check + cache get. No dirty marking. */
+  private async shardForRead(shardId: string): Promise<LoroDoc> {
+    if (this.residentSession !== null && !this.residentSession.has(shardId)) {
+      throw new Error(
+        `Shard "${shardId}" touched outside its declared working set — ensureResident must cover every node the operation touches (undeclared operation boundary).`,
+      );
+    }
+    const doc = await this.shardCache.get(shardId);
+    return doc;
+  }
+
+  /** Fault a shard for WRITE, atomically pinning it on the clean→dirty transition so it stays
+   *  resident until `persistDirtyShards` flushes + unpins. The atomic fault+pin (via `getAndPin`) is
+   *  load-bearing: a capacity-bound cache full of pinned-dirty shards would otherwise evict a
+   *  newly-faulted write target the moment it faults. Bumps revision (the dirty marker). On an
+   *  already-dirty shard this is a cache hit (no fault, no extra pin). */
+  private async shardForWrite(shardId: string): Promise<LoroDoc> {
+    const meta = this.metaFor(shardId);
+    const firstDirty = meta.revision === meta.persistedRevision && !meta.pinned;
+    const doc = firstDirty
+      ? await this.shardCache.getAndPin(shardId)
+      : await this.shardForRead(shardId);
+    if (firstDirty) {
+      meta.pinned = true;
+    }
+    meta.revision++;
+    return doc;
+  }
+
+  private metaFor(shardId: string): ShardMeta {
+    let m = this.shardMeta.get(shardId);
+    if (m === undefined) {
+      m = { revision: 0, persistedRevision: 0, pinned: false };
+      this.shardMeta.set(shardId, m);
+    }
+    return m;
+  }
+
+  /** Mark a shard dirty after a remote import (bump revision only — no pin: an import-only shard may
+   *  evict between sync rounds, re-faulting from the evict-flushed bytes). Persisted on the next
+   *  local-edit-triggered flush. */
+  private markImport(shardId: string): void {
+    this.metaFor(shardId).revision++;
+  }
+
+  /** Build a fresh shard LoroDoc (peerId + text styles + entities container), replaying `bytes`
+   *  (snapshot + post-snapshot updates) if present. The cache's `createDoc` factory — Loro-specific,
+   *  so it lives here (not in the generic ShardCache, which imports no CRDT backend). */
+  private createShardDoc(bytes: LoadedDocBytes | null): LoroDoc {
+    const s = new LoroDoc();
+    if (this.peerId !== undefined) {
+      s.setPeerId(this.peerId);
+    }
+    s.configTextStyle({ bold: { expand: "after" }, italic: { expand: "after" } });
+    s.getMap("entities"); // ensure container exists
+    if (bytes) {
+      if (bytes.snapshot && bytes.snapshot.length > 0) {
+        s.import(bytes.snapshot);
       }
-      s.configTextStyle({
-        bold: { expand: "after" },
-        italic: { expand: "after" },
-      });
-      s.getMap("entities"); // ensure container exists
-      const bytes = this.shardSnaps.get(shardId);
-      if (bytes && bytes.length > 0) {
-        s.import(bytes);
+      for (const updateBytes of bytes.updates) {
+        s.import(updateBytes);
       }
-      this.shards.set(shardId, s);
     }
     return s;
   }
@@ -603,40 +900,40 @@ export class ShardedBlockStore implements Outliner {
     return shardIdOfBucket(bucket, this.numShards);
   }
 
-  private entityOf(nodeId: NodeId): LoroMap {
-    const entity = this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
+  private async entityOf(nodeId: NodeId): Promise<LoroMap> {
+    const entity = await this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
     if (!(entity instanceof LoroMap)) {
       throw new Error(`Node entity not found: ${nodeId}`);
     }
     return entity;
   }
 
-  private entityInShard(nodeId: NodeId, shardId: string): LoroMap | null {
-    const entity = this.shard(shardId).getMap("entities").get(nodeId);
+  private async entityInShard(nodeId: NodeId, shardId: string): Promise<LoroMap | null> {
+    const entity = (await this.shardForRead(shardId)).getMap("entities").get(nodeId);
     return entity instanceof LoroMap ? entity : null;
   }
 
   /** True iff the node's entity currently exists in its owning shard. */
-  private entityPresent(nodeId: NodeId): boolean {
+  private async entityPresent(nodeId: NodeId): Promise<boolean> {
     const bucket = this.ownership.get(nodeId);
-    return (
-      typeof bucket === "number" &&
-      this.entityInShard(nodeId, shardIdOfBucket(bucket, this.numShards)) !== null
-    );
+    if (typeof bucket !== "number") {
+      return false;
+    }
+    return (await this.entityInShard(nodeId, shardIdOfBucket(bucket, this.numShards))) !== null;
   }
 
-  private contentOf(occurrenceId: OccurrenceId): LoroText {
+  private async contentOf(occurrenceId: OccurrenceId): Promise<LoroText> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const text = this.entityOf(nodeId).get("content");
+    const text = (await this.entityOf(nodeId)).get("content");
     if (!(text instanceof LoroText)) {
       throw new Error(`Node content not found: ${nodeId}`);
     }
     return text;
   }
 
-  private propsOf(occurrenceId: OccurrenceId): LoroMap {
+  private async propsOf(occurrenceId: OccurrenceId): Promise<LoroMap> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const props = this.entityOf(nodeId).get("props");
+    const props = (await this.entityOf(nodeId)).get("props");
     if (!(props instanceof LoroMap)) {
       throw new Error(`Node entity props not found: ${nodeId}`);
     }
@@ -644,9 +941,9 @@ export class ShardedBlockStore implements Outliner {
     return narrowed;
   }
 
-  private entityMetaOf(occurrenceId: OccurrenceId): LoroMap {
+  private async entityMetaOf(occurrenceId: OccurrenceId): Promise<LoroMap> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const meta = this.entityOf(nodeId).get("meta");
+    const meta = (await this.entityOf(nodeId)).get("meta");
     if (!(meta instanceof LoroMap)) {
       throw new Error(`Node entity meta not found: ${nodeId}`);
     }
@@ -695,38 +992,4 @@ export class ShardedBlockStore implements Outliner {
     }
     return out;
   }
-}
-
-/**
- * Partition pre-read resident docs into the tree's bytes + bare-keyed shard snapshots. This is the
- * SINGLE place that parses the `sys:` structure prefix:
- *   - the entry whose outward id is `SYS_PREFIX + TREE_SUBDOC` (`"sys:tree"`) → the tree;
- *   - every other `sys:`-prefixed entry (`sys:s{k}`) → a shard, keyed internally by its BARE id
- *     (the prefix stripped);
- *   - non-`sys:` entries (a meta doc like `"membership"`) → NOT structure, ignored.
- *
- * Ids stay opaque everywhere else — equality-matched, never parsed. Centralizing the strip here is
- * the namespace-discipline payoff: the load path loads all docs and hands them over without knowing
- * which is the tree, and a meta doc persisted alongside structure (membership folding into the same
- * table) is naturally excluded without hardcoding its name.
- */
-export function partitionResident(residentBytes: Map<string, LoadedDocBytes> | undefined): {
-  treeBytes: LoadedDocBytes | null;
-  shardSnaps: Map<string, Uint8Array>;
-} {
-  const shardSnaps = new Map<string, Uint8Array>();
-  let treeBytes: LoadedDocBytes | null = null;
-  if (residentBytes) {
-    for (const [id, bytes] of residentBytes) {
-      if (id === SYS_PREFIX + TREE_SUBDOC) {
-        treeBytes = bytes;
-      } else if (id.startsWith(SYS_PREFIX)) {
-        const snapshot = bytes.snapshot;
-        if (snapshot) {
-          shardSnaps.set(id.slice(SYS_PREFIX.length), snapshot);
-        }
-      }
-    }
-  }
-  return { treeBytes, shardSnaps };
 }

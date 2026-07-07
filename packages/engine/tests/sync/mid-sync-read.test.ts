@@ -11,31 +11,33 @@ import { replica, syncTreeOnly } from "./harness.js";
  * respect — never surface a node for reading before its owning shard has landed.
  */
 describe("sync mid-partial-sync read contract", () => {
-  it("a node whose content shard has not arrived throws on read (not silent partial)", () => {
+  it("a node whose content shard has not arrived throws on read (not silent partial)", async () => {
     const a = replica(8);
-    const root = createPlainNode(a, null);
-    const child = createPlainNode(a, root.occurrenceId);
+    const root = await createPlainNode(a, null);
+    const child = await createPlainNode(a, root.occurrenceId);
 
     const b = replica(8); // fresh, empty
-    syncTreeOnly(a, b); // treeDoc only: ownership arrives, the content shard does NOT
+    await syncTreeOnly(a, b); // treeDoc only: ownership arrives, the content shard does NOT
 
     // Ownership arrived via the treeDoc, so the node is structurally known; its content shard
     // was never delivered → the read is undefined and must throw.
-    expect(() => b.getOccurrences(child.nodeId)).toThrow(/entity not found/);
+    await expect(b.getOccurrences(child.nodeId)).rejects.toThrow(/entity not found/);
   });
 
   it("once the missing shard is delivered the read succeeds (self-heal)", async () => {
     const { syncPair } = await import("../../src/runtime/sync/sync-manager.js");
     const a = replica(8);
-    const root = createPlainNode(a, null);
-    const child = createPlainNode(a, root.occurrenceId);
+    const root = await createPlainNode(a, null);
+    const child = await createPlainNode(a, root.occurrenceId);
 
     const b = replica(8);
-    syncTreeOnly(a, b);
-    expect(() => b.getOccurrences(child.nodeId)).toThrow(/entity not found/);
+    await syncTreeOnly(a, b);
+    await expect(b.getOccurrences(child.nodeId)).rejects.toThrow(/entity not found/);
 
     // A full sync delivers the shard; the pending read now resolves.
     await syncPair(a.asOutliner(), b.asOutliner());
-    expect(b.getOccurrences(child.nodeId).map((o) => o.occurrenceId)).toContain(child.occurrenceId);
+    expect((await b.getOccurrences(child.nodeId)).map((o) => o.occurrenceId)).toContain(
+      child.occurrenceId,
+    );
   });
 });

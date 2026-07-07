@@ -10,15 +10,15 @@ beforeEach(() => {
 });
 
 describe("toJSON / fromJSON", () => {
-  it("exports entities and occurrences separately", () => {
-    const root = engine.createNode();
-    engine.replaceDeltas(root.occurrenceId, textToDelta("root"));
-    const child = engine.createNode(root.occurrenceId, undefined, { type: "heading" });
-    engine.setOccurrenceProp(child.occurrenceId, "collapsed", true);
-    engine.setEntityMeta(child.occurrenceId, "systemKind", "schema");
-    engine.setOccurrenceMeta(child.occurrenceId, "managedKind", "fieldSlot");
+  it("exports entities and occurrences separately", async () => {
+    const root = await engine.createNode();
+    await engine.replaceDeltas(root.occurrenceId, textToDelta("root"));
+    const child = await engine.createNode(root.occurrenceId, undefined, { type: "heading" });
+    await engine.setOccurrenceProp(child.occurrenceId, "collapsed", true);
+    await engine.setEntityMeta(child.occurrenceId, "systemKind", "schema");
+    await engine.setOccurrenceMeta(child.occurrenceId, "managedKind", "fieldSlot");
 
-    const snap = toJSON(engine);
+    const snap = await toJSON(engine);
 
     expect(snap.version).toBe(4);
     expect(snap.entities.map((entity) => entity.nodeId).sort()).toEqual(
@@ -41,22 +41,22 @@ describe("toJSON / fromJSON", () => {
     expect(snap.rootOccurrenceIds).toEqual([root.occurrenceId]);
   });
 
-  it("round-trips shared entities with multiple occurrences", () => {
-    const source = engine.createNode();
-    const holder = engine.createNode();
-    engine.replaceDeltas(source.occurrenceId, textToDelta("shared"));
-    engine.createOccurrence(source.nodeId, holder.occurrenceId);
+  it("round-trips shared entities with multiple occurrences", async () => {
+    const source = await engine.createNode();
+    const holder = await engine.createNode();
+    await engine.replaceDeltas(source.occurrenceId, textToDelta("shared"));
+    await engine.createOccurrence(source.nodeId, holder.occurrenceId);
 
-    const snap = toJSON(engine);
+    const snap = await toJSON(engine);
     const engine2 = new Engine();
-    fromJSON(engine2, snap);
+    await fromJSON(engine2, snap);
 
-    const roots = engine2.getRootOccurrences();
+    const roots = await engine2.getRootOccurrences();
     const importedHolder = roots.find((node) => node.deltas.length === 0);
     if (!importedHolder) {
       throw new Error("Imported holder not found");
     }
-    const importedRef = engine2.getOccurrenceChildren(importedHolder.occurrenceId)[0];
+    const importedRef = (await engine2.getOccurrenceChildren(importedHolder.occurrenceId))[0];
     if (!importedRef) {
       throw new Error("Imported ref not found");
     }
@@ -70,13 +70,13 @@ describe("toJSON / fromJSON", () => {
     engine2.dispose();
   });
 
-  it("serializes reference occurrence children as physical children only", () => {
-    const source = engine.createNode();
-    const child = engine.createNode(source.occurrenceId);
-    const holder = engine.createNode();
-    const ref = engine.createOccurrence(source.nodeId, holder.occurrenceId);
+  it("serializes reference occurrence children as physical children only", async () => {
+    const source = await engine.createNode();
+    const child = await engine.createNode(source.occurrenceId);
+    const holder = await engine.createNode();
+    const ref = await engine.createOccurrence(source.nodeId, holder.occurrenceId);
 
-    const snap = toJSON(engine);
+    const snap = await toJSON(engine);
     const sourceOccurrence = snap.occurrences.find(
       (occurrence) => occurrence.occurrenceId === source.occurrenceId,
     );

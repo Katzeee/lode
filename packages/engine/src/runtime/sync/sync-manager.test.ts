@@ -33,9 +33,9 @@ function recording(peer: ShardedBlockStore): {
 describe("SyncManager.sync() — return shape", () => {
   it("reports pulled/pushed doc counts (both directions exchange when both sides have content)", async () => {
     const aStore = newStore();
-    new Engine({ store: aStore }).createNode(null);
+    await new Engine({ store: aStore }).createNode(null);
     const bStore = newStore();
-    new Engine({ store: bStore }).createNode(null);
+    await new Engine({ store: bStore }).createNode(null);
 
     const r = await new SyncManager(aStore, new InMemorySyncTransport(bStore)).sync();
 
@@ -48,7 +48,7 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
   it("is a no-op before the first round populates the remote-VV cache (cold start)", async () => {
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
-    aEngine.createNode(null); // A has content
+    await aEngine.createNode(null); // A has content
     const { transport } = recording(newStore());
     const sm = new SyncManager(aStore, transport);
 
@@ -60,12 +60,12 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
   it("is idempotent: a second call with no further mutation re-exports the same bytes (no growth)", async () => {
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
-    const root = aEngine.createNode(null);
+    const root = await aEngine.createNode(null);
     const bStore = newStore();
     const { transport, sent } = recording(bStore);
     const sm = new SyncManager(aStore, transport);
     await sm.sync(); // populate lastRemoteVV
-    aEngine.createNode(root.occurrenceId); // a mutation
+    await aEngine.createNode(root.occurrenceId); // a mutation
     sent.clear(); // drop the sync() round's sends — measure pushOnly alone
 
     const totalBytes = () => [...sent.values()].flat().reduce((n, b) => n + b.length, 0);
@@ -84,15 +84,15 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
   it("pushes a post-convergence mutation: pushed > 0, and the dirtied treeDoc is in the send log", async () => {
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
-    const root = aEngine.createNode(null);
-    aEngine.createNode(root.occurrenceId);
+    const root = await aEngine.createNode(null);
+    await aEngine.createNode(root.occurrenceId);
     const bStore = newStore();
     const { transport, sent } = recording(bStore);
     const sm = new SyncManager(aStore, transport);
     await sm.sync(); // converge → lastRemoteVV populated
     sent.clear();
 
-    aEngine.createNode(root.occurrenceId); // a NEW local mutation after convergence
+    await aEngine.createNode(root.occurrenceId); // a NEW local mutation after convergence
     const r = await sm.pushOnly();
 
     expect(r.pushed).toBeGreaterThan(0);
@@ -105,10 +105,10 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
   it("the remote-VV cache survives a mid-round throw: a failed sync() still leaves push able to run", async () => {
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
-    aEngine.createNode(null);
+    await aEngine.createNode(null);
     const bStore = newStore();
     const bEngine = new Engine({ store: bStore });
-    bEngine.createNode(null); // B non-empty → remoteProfile returns entries (non-empty cache)
+    await bEngine.createNode(null); // B non-empty → remoteProfile returns entries (non-empty cache)
     const inner = new InMemorySyncTransport(bStore);
     const throwing: SyncTransport = {
       remoteProfile: () => inner.remoteProfile(),
@@ -136,7 +136,7 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     // Guards against someone later adding an import-time callback that emits nodeUpdated.
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
-    aEngine.createNode(null); // dirties the treeDoc ("main")
+    await aEngine.createNode(null); // dirties the treeDoc ("main")
     const bStore = newStore();
     const { transport } = recording(bStore);
     await new SyncManager(aStore, transport).sync(); // A ↔ B converge; A holds both peers' treeDoc ops
@@ -144,7 +144,7 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     // A's full treeDoc update (every op A holds), fed straight back into A via the composite's tree
     // SyncableDoc — the surface sync/persist use (Engine no longer exposes export/import).
     const treeDoc = aStore.treeSyncDoc();
-    const aBytes = treeDoc.exportUpdate();
+    const aBytes = await treeDoc.exportUpdate();
     expect(aBytes.length).toBeGreaterThan(0); // non-empty so the no-op below is meaningful
 
     let fired = 0;
@@ -152,9 +152,9 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
       fired++;
     });
     try {
-      const vvBefore = treeDoc.version();
-      treeDoc.importUpdate(aBytes);
-      const vvAfter = treeDoc.version();
+      const vvBefore = await treeDoc.version();
+      await treeDoc.importUpdate(aBytes);
+      const vvAfter = await treeDoc.version();
 
       expect(fired).toBe(0); // import emits no nodeUpdated → nothing re-triggers a push
       // CRDT applies in-version ops idempotently → the opaque version bytes are unchanged.

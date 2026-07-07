@@ -9,20 +9,23 @@ function fakeOutliner(docs: SyncableDoc[]): Outliner {
   return {
     docs: () => docs,
     pushDocs: () => docs,
-    heal: () => undefined,
+    heal: () => Promise.resolve(),
     treeSyncDoc: () => docs.at(0)!,
     shardSyncDocs: () => docs.slice(1),
-    reconcileDurability: () => undefined,
+    reconcileDurability: () => Promise.resolve(),
+    persistDirtyShards: () => Promise.resolve(),
+    ensureResident: () => Promise.resolve(),
+    release: () => undefined,
   };
 }
 
 function fakeDoc(id: string): SyncableDoc {
   return {
     id,
-    version: () => new Uint8Array(0),
-    exportUpdate: () => new Uint8Array(0),
-    exportSnapshot: () => new Uint8Array(0),
-    importUpdate: () => undefined,
+    version: () => Promise.resolve(new Uint8Array(0)),
+    exportUpdate: () => Promise.resolve(new Uint8Array(0)),
+    exportSnapshot: () => Promise.resolve(new Uint8Array(0)),
+    importUpdate: () => Promise.resolve(),
   };
 }
 

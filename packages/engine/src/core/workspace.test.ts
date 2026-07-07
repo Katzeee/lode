@@ -9,14 +9,14 @@ beforeEach(() => {
 });
 
 describe("Workspace (one outliner engine)", () => {
-  it("creates an engine and exposes it via .engine", () => {
+  it("creates an engine and exposes it via .engine", async () => {
     const ws = new Workspace({ id: "ws-main" });
     expect(ws.engine).toBeNull();
     const engine = ws.createEngine();
     expect(ws.id).toBe("ws-main");
     expect(engine).toBeInstanceOf(Engine);
     expect(ws.engine).toBe(engine);
-    expect(engine.createNode().nodeId.length).toBeGreaterThan(0);
+    expect((await engine.createNode()).nodeId.length).toBeGreaterThan(0);
     ws.dispose();
   });
 

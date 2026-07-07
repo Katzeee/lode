@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../src/core/engine.js";
-import { ShardedBlockStore } from "../src/core/sharded-store.js";
+import { ShardedBlockStore, TREE_SUBDOC } from "../src/core/sharded-store.js";
 import { shardIdOf } from "../src/core/sharding.js";
 import { SYS_PREFIX, type LoadedDocBytes } from "../src/core/index.js";
 import { validateSnapshot } from "../src/core/invariant.js";
@@ -16,8 +16,8 @@ import { toJSON } from "../src/core/serializers/json.js";
  *
  * Node ids "root" (→ s1) and "child" (→ s7 at numShards=8) are in DIFFERENT shards — the orphan
  * scenarios need a lost shard distinct from a kept one, which co-located ids can't express.
- * Crashes are simulated by which shard snapshots the residentBytes map carries (omitted = lost,
- * stale = leaked), exactly the restart path of a real replica.
+ * Crashes are simulated by which shard snapshots the restart carries (omitted = lost, stale =
+ * leaked) — exactly the restart path of a real replica (tree eager, shards fault lazily).
  */
 
 const build = (numShards: number): { e: Engine; store: ShardedBlockStore } => {
@@ -29,89 +29,95 @@ const build = (numShards: number): { e: Engine; store: ShardedBlockStore } => {
   return { e: new Engine({ store, nodeIdGenerator: gen }), store };
 };
 
-/** Build a residentBytes map from [outwardId, snapshot] pairs (no incremental updates — these
- *  scenarios persist snapshots only, mirroring how shards persist). */
-const resident = (entries: [string, Uint8Array][]): Map<string, LoadedDocBytes> => {
-  const map = new Map<string, LoadedDocBytes>();
+/** Restart into a fresh store from [outwardId, snapshot] pairs: the tree entry → eager treeBytes,
+ *  each `sys:s{k}` entry → a shardSnaps seed (others omitted = the lost shard). Snapshots only —
+ *  mirrors how shards persist. */
+const restart = (numShards: number, entries: [string, Uint8Array][]): ShardedBlockStore => {
+  let treeBytes: LoadedDocBytes | undefined;
+  const shardSnaps = new Map<string, LoadedDocBytes>();
   for (const [id, snapshot] of entries) {
-    map.set(id, { snapshot, updates: [] });
+    if (id === SYS_PREFIX + TREE_SUBDOC) {
+      treeBytes = { snapshot, updates: [] };
+    } else if (id.startsWith(SYS_PREFIX)) {
+      shardSnaps.set(id.slice(SYS_PREFIX.length), { snapshot, updates: [] });
+    }
   }
-  return map;
+  return new ShardedBlockStore({ numShards, treeBytes, shardSnaps });
 };
 
 describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", () => {
-  it("CREATE-direction orphan (entity missing) → reconcile drops the orphan", () => {
+  it("CREATE-direction orphan (entity missing) → reconcile drops the orphan", async () => {
     const numShards = 8;
     const { e, store } = build(numShards);
-    const root = e.createNode(null); // "root" → s1
-    const child = e.createNode(root.occurrenceId); // "child" → s7
+    const root = await e.createNode(null); // "root" → s1
+    const child = await e.createNode(root.occurrenceId); // "child" → s7
     e.captureSync();
 
-    const treeBytes = store.treeSyncDoc().exportSnapshot();
+    const treeBytes = await store.treeSyncDoc().exportSnapshot();
     const rootShard = shardIdOf("root", numShards);
-    const rootShardBytes = store.getShardDoc(rootShard).export({ mode: "snapshot" });
+    const rootShardBytes = (await store.getShardDoc(rootShard)).export({ mode: "snapshot" });
 
-    // Restart losing child's shard (entity never flushed) → child is a create-orphan. The map carries
-    // the tree + root's shard; child's shard is omitted (a missing entry = the lost shard).
-    const restarted = new ShardedBlockStore({
-      numShards,
-      residentBytes: resident([
-        [store.treeSyncDoc().id, treeBytes],
-        [SYS_PREFIX + rootShard, rootShardBytes],
-      ]),
-    });
-    expect(() => validateSnapshot(toJSON(new Engine({ store: restarted })))).toThrow(); // child orphaned
+    // Restart losing child's shard (entity never flushed) → child is a create-orphan. The restart
+    // carries the tree + root's shard; child's shard is omitted (a missing seed = the lost shard).
+    const restarted = restart(numShards, [
+      [store.treeSyncDoc().id, treeBytes],
+      [SYS_PREFIX + rootShard, rootShardBytes],
+    ]);
+    await expect(async () =>
+      validateSnapshot(await toJSON(new Engine({ store: restarted }))),
+    ).rejects.toThrow(); // child orphaned
 
-    restarted.reconcileDurability();
+    await restarted.reconcileDurability();
     const e2 = new Engine({ store: restarted });
-    expect(() => validateSnapshot(toJSON(e2))).not.toThrow();
-    expect(e2.getOccurrence(child.occurrenceId)).toBeUndefined(); // child's occurrence dropped
+    validateSnapshot(await toJSON(e2)); // invariant-valid after reconcile
+    expect(await e2.getOccurrence(child.occurrenceId)).toBeUndefined(); // child's occurrence dropped
     expect(e2.getChildOccurrenceIds(root.occurrenceId)).toEqual([]); // root has no children
   });
 
-  it("DELETE-direction orphan (entity leaked) → reconcile cleans the stale shard", () => {
+  it("DELETE-direction orphan (entity leaked) → reconcile cleans the stale shard", async () => {
     const numShards = 8;
     const { e, store } = build(numShards);
-    const root = e.createNode(null); // "root" → s1
-    e.createNode(root.occurrenceId); // "child" → s7
+    const root = await e.createNode(null); // "root" → s1
+    await e.createNode(root.occurrenceId); // "child" → s7
     e.captureSync();
     const childShard = shardIdOf("child", numShards);
-    const childShardBytes = store.getShardDoc(childShard).export({ mode: "snapshot" }); // entity present
+    const childShardBytes = (await store.getShardDoc(childShard)).export({
+      mode: "snapshot",
+    }); // entity present
 
     // Hard-delete child (ownership gone, occurrence gone) — then snapshot treeDoc.
-    e.deleteNode("child");
+    await e.deleteNode("child");
     e.captureSync();
-    const treeBytes = store.treeSyncDoc().exportSnapshot();
-    const rootShardBytes = store
-      .getShardDoc(shardIdOf("root", numShards))
-      .export({ mode: "snapshot" });
+    const treeBytes = await store.treeSyncDoc().exportSnapshot();
+    const rootShardBytes = (await store.getShardDoc(shardIdOf("root", numShards))).export({
+      mode: "snapshot",
+    });
 
     // Restart: treeDoc flushed (child deleted), but child's shard served STALE (entity leaked).
-    const restarted = new ShardedBlockStore({
-      numShards,
-      residentBytes: resident([
-        [store.treeSyncDoc().id, treeBytes],
-        [SYS_PREFIX + shardIdOf("root", numShards), rootShardBytes],
-        [SYS_PREFIX + childShard, childShardBytes],
-      ]),
-    });
+    const restarted = restart(numShards, [
+      [store.treeSyncDoc().id, treeBytes],
+      [SYS_PREFIX + shardIdOf("root", numShards), rootShardBytes],
+      [SYS_PREFIX + childShard, childShardBytes],
+    ]);
     // The leaked entity is an orphan (ownership gone); reconcile must clean it.
-    expect(restarted.getShardDoc(childShard).getMap("entities").get("child")).toBeDefined(); // leaked
+    expect((await restarted.getShardDoc(childShard)).getMap("entities").get("child")).toBeDefined(); // leaked
 
-    restarted.reconcileDurability();
-    expect(restarted.getShardDoc(childShard).getMap("entities").get("child")).toBeUndefined(); // cleaned
-    expect(() => validateSnapshot(toJSON(new Engine({ store: restarted })))).not.toThrow();
+    await restarted.reconcileDurability();
+    expect(
+      (await restarted.getShardDoc(childShard)).getMap("entities").get("child"),
+    ).toBeUndefined(); // cleaned
+    validateSnapshot(await toJSON(new Engine({ store: restarted }))); // invariant-valid after reconcile
   });
 
-  it("reconcileDurability is idempotent — a second call changes nothing", () => {
+  it("reconcileDurability is idempotent — a second call changes nothing", async () => {
     const numShards = 8;
     const { e, store } = build(numShards);
-    e.createNode(null);
+    await e.createNode(null);
     e.captureSync();
-    store.reconcileDurability();
-    const before = store.treeSyncDoc().exportSnapshot().length;
-    store.reconcileDurability();
-    const after = store.treeSyncDoc().exportSnapshot().length;
+    await store.reconcileDurability();
+    const before = (await store.treeSyncDoc().exportSnapshot()).length;
+    await store.reconcileDurability();
+    const after = (await store.treeSyncDoc().exportSnapshot()).length;
     expect(after).toBe(before); // no change
   });
 });

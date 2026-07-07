@@ -22,17 +22,17 @@ describe("sync convergence fuzz", () => {
         const e = replica(8);
         const k = 1 + Math.floor(rng() * 4); // 1–4 nodes per replica
         for (let i = 0; i < k; i++) {
-          const n = createPlainNode(e, null);
-          e.replaceDeltas(n.occurrenceId, [{ insert: `r${r}-n${i}` }]);
+          const n = await createPlainNode(e, null);
+          await e.replaceDeltas(n.occurrenceId, [{ insert: `r${r}-n${i}` }]);
           created.push(n.occurrenceId);
         }
         replicas.push(e);
       }
       await syncAll(replicas);
-      assertConverged(replicas, `seed ${seed}`);
+      await assertConverged(replicas, `seed ${seed}`);
       for (const e of replicas) {
         for (const occ of created) {
-          expect(e.getOccurrence(occ)).toBeDefined();
+          expect(await e.getOccurrence(occ)).toBeDefined();
         }
       }
     }
@@ -42,22 +42,22 @@ describe("sync convergence fuzz", () => {
     for (const seed of [10, 11, 12]) {
       const rng = mulberry32(seed * 7);
       const base = replica(8);
-      const root = createPlainNode(base, null);
-      const baseChild = createPlainNode(base, root.occurrenceId);
+      const root = await createPlainNode(base, null);
+      const baseChild = await createPlainNode(base, root.occurrenceId);
 
       const n = 2 + Math.floor(rng() * 3); // 2–4 divergent replicas
-      const replicas = [cloneReplica(base)];
+      const replicas = [await cloneReplica(base)];
       for (let r = 1; r < n; r++) {
-        const e = cloneReplica(base);
-        createPlainNode(e, root.occurrenceId); // each diverges with an independent create
+        const e = await cloneReplica(base);
+        await createPlainNode(e, root.occurrenceId); // each diverges with an independent create
         replicas.push(e);
       }
       await syncAll(replicas);
-      assertConverged(replicas, `seed ${seed}`);
+      await assertConverged(replicas, `seed ${seed}`);
       // base state (root + baseChild) preserved on every replica; each divergence present on all
       for (const e of replicas) {
-        expect(e.getOccurrence(root.occurrenceId)).toBeDefined();
-        expect(e.getOccurrence(baseChild.occurrenceId)).toBeDefined();
+        expect(await e.getOccurrence(root.occurrenceId)).toBeDefined();
+        expect(await e.getOccurrence(baseChild.occurrenceId)).toBeDefined();
       }
       // root has baseChild + (n-1) divergent creates
       expect(replicas[0]?.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(n);

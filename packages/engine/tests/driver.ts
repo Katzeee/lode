@@ -37,13 +37,18 @@ const textToDelta = (s: string): Delta => [{ insert: s }];
 
 /** Apply ONE op to an engine, resolving occurrence/node indices via the id arrays
  *  (mutated in place). Mirrors the restrictions the generator guarantees. */
-export function applyOp(e: Engine, op: Op, occIds: string[], nodeIds: string[]): void {
+export async function applyOp(
+  e: Engine,
+  op: Op,
+  occIds: string[],
+  nodeIds: string[],
+): Promise<void> {
   const resolveOcc = (idx: number | null): string | null =>
     idx == null ? null : (occIds[idx] ?? null);
   const occ = (i: number): string | undefined => occIds[i];
   switch (op.t) {
     case "createNode": {
-      const o = e.createNode(resolveOcc(op.parent), op.index, op.props);
+      const o = await e.createNode(resolveOcc(op.parent), op.index, op.props);
       occIds.push(o.occurrenceId);
       nodeIds.push(o.nodeId);
       break;
@@ -53,28 +58,28 @@ export function applyOp(e: Engine, op: Op, occIds: string[], nodeIds: string[]):
       if (target === undefined) {
         break;
       }
-      const o = e.createOccurrence(target, resolveOcc(op.parent), op.index);
+      const o = await e.createOccurrence(target, resolveOcc(op.parent), op.index);
       occIds.push(o.occurrenceId);
       break;
     }
     case "move": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.moveOccurrence(o, resolveOcc(op.parent), op.index);
+        await e.moveOccurrence(o, resolveOcc(op.parent), op.index);
       }
       break;
     }
     case "remove": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.removeOccurrence(o);
+        await e.removeOccurrence(o);
       }
       break;
     }
     case "deleteNode": {
       const n = nodeIds[op.node];
       if (n !== undefined) {
-        e.deleteNode(n);
+        await e.deleteNode(n);
       }
       break;
     }
@@ -82,91 +87,91 @@ export function applyOp(e: Engine, op: Op, occIds: string[], nodeIds: string[]):
       const n = nodeIds[op.node];
       const o = occ(op.occ);
       if (n !== undefined && o !== undefined) {
-        e.setCanonicalOccurrence(n, o);
+        await e.setCanonicalOccurrence(n, o);
       }
       break;
     }
     case "replaceDeltas": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.replaceDeltas(o, textToDelta(op.text));
+        await e.replaceDeltas(o, textToDelta(op.text));
       }
       break;
     }
     case "mark": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.mark(o, { start: op.start, end: op.end }, MARK_KEY, MARK_VALUE);
+        await e.mark(o, { start: op.start, end: op.end }, MARK_KEY, MARK_VALUE);
       }
       break;
     }
     case "unmark": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.unmark(o, { start: op.start, end: op.end }, MARK_KEY);
+        await e.unmark(o, { start: op.start, end: op.end }, MARK_KEY);
       }
       break;
     }
     case "setProp": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.setProp(o, op.key, op.val);
+        await e.setProp(o, op.key, op.val);
       }
       break;
     }
     case "unsetProp": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.unsetProp(o, op.key);
+        await e.unsetProp(o, op.key);
       }
       break;
     }
     case "setProps": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.setProps(o, op.props);
+        await e.setProps(o, op.props);
       }
       break;
     }
     case "setEntityMeta": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.setEntityMeta(o, op.key, op.val);
+        await e.setEntityMeta(o, op.key, op.val);
       }
       break;
     }
     case "unsetEntityMeta": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.unsetEntityMeta(o, op.key);
+        await e.unsetEntityMeta(o, op.key);
       }
       break;
     }
     case "setOccurrenceProp": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.setOccurrenceProp(o, op.key, op.val);
+        await e.setOccurrenceProp(o, op.key, op.val);
       }
       break;
     }
     case "unsetOccurrenceProp": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.unsetOccurrenceProp(o, op.key);
+        await e.unsetOccurrenceProp(o, op.key);
       }
       break;
     }
     case "setOccurrenceMeta": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.setOccurrenceMeta(o, op.key, op.val);
+        await e.setOccurrenceMeta(o, op.key, op.val);
       }
       break;
     }
     case "unsetOccurrenceMeta": {
       const o = occ(op.occ);
       if (o !== undefined) {
-        e.unsetOccurrenceMeta(o, op.key);
+        await e.unsetOccurrenceMeta(o, op.key);
       }
       break;
     }

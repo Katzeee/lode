@@ -11,134 +11,141 @@ import {
 } from "./node.js";
 
 describe("domain node semantics", () => {
-  it("creates plain and reference children through the canonical child owner", () => {
+  it("creates plain and reference children through the canonical child owner", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const refParent = createReference(doc, source.nodeId, holder.occurrenceId);
-    const target = createPlainNode(doc);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const refParent = await createReference(doc, source.nodeId, holder.occurrenceId);
+    const target = await createPlainNode(doc);
 
-    const plainChild = createPlainNode(doc, refParent.occurrenceId);
-    const refChild = createReference(doc, target.nodeId, refParent.occurrenceId);
+    const plainChild = await createPlainNode(doc, refParent.occurrenceId);
+    const refChild = await createReference(doc, target.nodeId, refParent.occurrenceId);
 
-    expect(doc.getOccurrence(plainChild.occurrenceId)?.parentOccurrenceId).toBe(
+    expect((await doc.getOccurrence(plainChild.occurrenceId))?.parentOccurrenceId).toBe(
       source.occurrenceId,
     );
-    expect(doc.getOccurrence(refChild.occurrenceId)?.parentOccurrenceId).toBe(source.occurrenceId);
-    expect(getSemanticChildren(doc, source.occurrenceId).map((node) => node.occurrenceId)).toEqual([
-      plainChild.occurrenceId,
-      refChild.occurrenceId,
-    ]);
+    expect((await doc.getOccurrence(refChild.occurrenceId))?.parentOccurrenceId).toBe(
+      source.occurrenceId,
+    );
     expect(
-      getSemanticChildren(doc, refParent.occurrenceId).map((node) => node.occurrenceId),
+      (await getSemanticChildren(doc, source.occurrenceId)).map((node) => node.occurrenceId),
+    ).toEqual([plainChild.occurrenceId, refChild.occurrenceId]);
+    expect(
+      (await getSemanticChildren(doc, refParent.occurrenceId)).map((node) => node.occurrenceId),
     ).toEqual([plainChild.occurrenceId, refChild.occurrenceId]);
   });
 
-  it("promotes canonical occurrence and moves semantic children to the new owner", () => {
+  it("promotes canonical occurrence and moves semantic children to the new owner", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const ref = createReference(doc, source.nodeId, holder.occurrenceId);
-    const child = createPlainNode(doc, source.occurrenceId);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
+    const child = await createPlainNode(doc, source.occurrenceId);
 
-    promoteCanonicalOccurrence(doc, source.nodeId, ref.occurrenceId);
+    await promoteCanonicalOccurrence(doc, source.nodeId, ref.occurrenceId);
 
-    expect(doc.getOccurrence(source.occurrenceId)?.canonicalOccurrenceId).toBe(ref.occurrenceId);
-    expect(doc.getOccurrenceChildren(source.occurrenceId)).toEqual([]);
-    expect(doc.getOccurrenceChildren(ref.occurrenceId).map((node) => node.occurrenceId)).toEqual([
-      child.occurrenceId,
-    ]);
-    expect(getSemanticChildren(doc, source.occurrenceId).map((node) => node.occurrenceId)).toEqual([
-      child.occurrenceId,
-    ]);
+    expect((await doc.getOccurrence(source.occurrenceId))?.canonicalOccurrenceId).toBe(
+      ref.occurrenceId,
+    );
+    expect(await doc.getOccurrenceChildren(source.occurrenceId)).toEqual([]);
+    expect(
+      (await doc.getOccurrenceChildren(ref.occurrenceId)).map((node) => node.occurrenceId),
+    ).toEqual([child.occurrenceId]);
+    expect(
+      (await getSemanticChildren(doc, source.occurrenceId)).map((node) => node.occurrenceId),
+    ).toEqual([child.occurrenceId]);
   });
 
-  it("clones an occurrence into an independent semantic subtree", () => {
+  it("clones an occurrence into an independent semantic subtree", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const ref = createReference(doc, source.nodeId, holder.occurrenceId);
-    const child = createPlainNode(doc, source.occurrenceId);
-    doc.replaceDeltas(source.occurrenceId, [{ insert: "source" }]);
-    doc.replaceDeltas(child.occurrenceId, [{ insert: "child" }]);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
+    const child = await createPlainNode(doc, source.occurrenceId);
+    await doc.replaceDeltas(source.occurrenceId, [{ insert: "source" }]);
+    await doc.replaceDeltas(child.occurrenceId, [{ insert: "child" }]);
 
-    const clone = cloneOccurrence(doc, ref.occurrenceId, holder.occurrenceId);
-    doc.replaceDeltas(clone.occurrenceId, [{ insert: "clone" }]);
+    const clone = await cloneOccurrence(doc, ref.occurrenceId, holder.occurrenceId);
+    await doc.replaceDeltas(clone.occurrenceId, [{ insert: "clone" }]);
 
     expect(clone.nodeId).not.toBe(source.nodeId);
-    expect(doc.getOccurrence(source.occurrenceId)?.deltas).toEqual([{ insert: "source" }]);
-    expect(doc.getOccurrence(clone.occurrenceId)?.deltas).toEqual([{ insert: "clone" }]);
-    expect(getSemanticChildren(doc, clone.occurrenceId).map((node) => node.deltas)).toEqual([
-      [{ insert: "child" }],
-    ]);
+    expect((await doc.getOccurrence(source.occurrenceId))?.deltas).toEqual([{ insert: "source" }]);
+    expect((await doc.getOccurrence(clone.occurrenceId))?.deltas).toEqual([{ insert: "clone" }]);
+    expect((await getSemanticChildren(doc, clone.occurrenceId)).map((node) => node.deltas)).toEqual(
+      [[{ insert: "child" }]],
+    );
   });
 
-  it("removes a non-canonical occurrence without deleting the entity", () => {
+  it("removes a non-canonical occurrence without deleting the entity", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const ref = createReference(doc, source.nodeId, holder.occurrenceId);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
 
-    removeOccurrenceOrHardDelete(doc, ref.occurrenceId);
+    await removeOccurrenceOrHardDelete(doc, ref.occurrenceId);
 
-    expect(doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(source.occurrenceId)?.nodeId).toBe(source.nodeId);
+    expect(await doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
+    expect((await doc.getOccurrence(source.occurrenceId))?.nodeId).toBe(source.nodeId);
   });
 
-  it("removes physical children before removing a non-canonical occurrence", () => {
+  it("removes physical children before removing a non-canonical occurrence", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const ref = createReference(doc, source.nodeId, holder.occurrenceId);
-    const refChild = doc.createNode(ref.occurrenceId);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
+    const refChild = await doc.createNode(ref.occurrenceId);
 
-    removeOccurrenceOrHardDelete(doc, ref.occurrenceId);
+    await removeOccurrenceOrHardDelete(doc, ref.occurrenceId);
 
-    expect(doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
-    expect(() => doc.getCanonicalOccurrenceId(refChild.nodeId)).toThrow(/Node entity not found/);
-    expect(doc.getOccurrence(source.occurrenceId)?.nodeId).toBe(source.nodeId);
+    expect(await doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
+    await expect(doc.getCanonicalOccurrenceId(refChild.nodeId)).rejects.toThrow(
+      /Node entity not found/,
+    );
+    expect((await doc.getOccurrence(source.occurrenceId))?.nodeId).toBe(source.nodeId);
   });
 
-  it("hard deletes semantic child subtrees recursively", () => {
+  it("hard deletes semantic child subtrees recursively", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const child = createPlainNode(doc, source.occurrenceId);
-    const grandchild = createPlainNode(doc, child.occurrenceId);
-    const holder = createPlainNode(doc);
-    const childRef = createReference(doc, child.nodeId, holder.occurrenceId);
+    const source = await createPlainNode(doc);
+    const child = await createPlainNode(doc, source.occurrenceId);
+    const grandchild = await createPlainNode(doc, child.occurrenceId);
+    const holder = await createPlainNode(doc);
+    const childRef = await createReference(doc, child.nodeId, holder.occurrenceId);
 
-    hardDeleteNode(doc, source.nodeId);
+    await hardDeleteNode(doc, source.nodeId);
 
-    expect(doc.getOccurrence(source.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(child.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(grandchild.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(childRef.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(source.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(child.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(grandchild.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(childRef.occurrenceId)).toBeUndefined();
   });
 
-  it("hard deletes physical children under every occurrence before deleting the entity", () => {
+  it("hard deletes physical children under every occurrence before deleting the entity", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const holder = createPlainNode(doc);
-    const ref = createReference(doc, source.nodeId, holder.occurrenceId);
-    const refChild = doc.createNode(ref.occurrenceId);
+    const source = await createPlainNode(doc);
+    const holder = await createPlainNode(doc);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
+    const refChild = await doc.createNode(ref.occurrenceId);
 
-    hardDeleteNode(doc, source.nodeId);
+    await hardDeleteNode(doc, source.nodeId);
 
-    expect(doc.getOccurrence(source.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
-    expect(() => doc.getCanonicalOccurrenceId(refChild.nodeId)).toThrow(/Node entity not found/);
+    expect(await doc.getOccurrence(source.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
+    await expect(doc.getCanonicalOccurrenceId(refChild.nodeId)).rejects.toThrow(
+      /Node entity not found/,
+    );
   });
 
-  it("hard deletes a node when removing its canonical occurrence", () => {
+  it("hard deletes a node when removing its canonical occurrence", async () => {
     const doc = new Engine();
-    const source = createPlainNode(doc);
-    const child = createPlainNode(doc, source.occurrenceId);
+    const source = await createPlainNode(doc);
+    const child = await createPlainNode(doc, source.occurrenceId);
 
-    removeOccurrenceOrHardDelete(doc, source.occurrenceId);
+    await removeOccurrenceOrHardDelete(doc, source.occurrenceId);
 
-    expect(doc.getOccurrence(source.occurrenceId)).toBeUndefined();
-    expect(doc.getOccurrence(child.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(source.occurrenceId)).toBeUndefined();
+    expect(await doc.getOccurrence(child.occurrenceId)).toBeUndefined();
   });
 });
