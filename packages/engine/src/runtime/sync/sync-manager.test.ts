@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { VersionVector } from "loro-crdt";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { MAIN_SUBDOC } from "../../persistence/workspace-store.js";
 import { InMemorySyncTransport, SyncManager, type SyncTransport } from "./sync-manager.js";
 
 const newStore = (): ShardedBlockStore => new ShardedBlockStore({ numShards: 4 });
@@ -98,8 +96,10 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
     const r = await sm.pushOnly();
 
     expect(r.pushed).toBeGreaterThan(0);
-    expect(sent.has(MAIN_SUBDOC)).toBe(true); // a createNode always dirties the treeDoc
-    expect(sent.get(MAIN_SUBDOC)!.length).toBeGreaterThan(0);
+    // A createNode always dirties the tree; assert it's in the push log.
+    const treeId = aStore.treeSyncDoc().id;
+    expect(sent.has(treeId)).toBe(true);
+    expect(sent.get(treeId)!.length).toBeGreaterThan(0);
   });
 
   it("the remote-VV cache survives a mid-round throw: a failed sync() still leaves push able to run", async () => {
@@ -141,8 +141,10 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     const { transport } = recording(bStore);
     await new SyncManager(aStore, transport).sync(); // A ↔ B converge; A holds both peers' treeDoc ops
 
-    // A's full treeDoc update (every op A holds on "main"), fed straight back into A.
-    const aBytes = aEngine.exportUpdateFrom(new VersionVector(undefined));
+    // A's full treeDoc update (every op A holds), fed straight back into A via the composite's tree
+    // SyncableDoc — the surface sync/persist use (Engine no longer exposes export/import).
+    const treeDoc = aStore.treeSyncDoc();
+    const aBytes = treeDoc.exportUpdate();
     expect(aBytes.length).toBeGreaterThan(0); // non-empty so the no-op below is meaningful
 
     let fired = 0;
@@ -150,12 +152,13 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
       fired++;
     });
     try {
-      const vvBefore = aEngine.getVersion().encode();
-      aEngine.importUpdate(aBytes);
-      const vvAfter = aEngine.getVersion().encode();
+      const vvBefore = treeDoc.version();
+      treeDoc.importUpdate(aBytes);
+      const vvAfter = treeDoc.version();
 
       expect(fired).toBe(0); // import emits no nodeUpdated → nothing re-triggers a push
-      expect(vvAfter).toEqual(vvBefore); // Loro applies in-version ops idempotently → VV unchanged
+      // CRDT applies in-version ops idempotently → the opaque version bytes are unchanged.
+      expect(Buffer.from(vvAfter).equals(Buffer.from(vvBefore))).toBe(true);
     } finally {
       sub.unsubscribe();
     }

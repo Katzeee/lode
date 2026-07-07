@@ -7,7 +7,8 @@ import {
 } from "../membership/membership-security.js";
 import type { MembershipLog, LocalPeer } from "../membership/membership-log.js";
 import type { Engine } from "../../core/engine.js";
-import type { ShardedBlockStore, SyncDoc } from "../../core/sharded-store.js";
+import type { SyncableDoc } from "../../core/syncable.js";
+import { WorkspaceDocSet } from "../../core/doc-set.js";
 import type { Component } from "../app.js";
 
 /**
@@ -24,7 +25,6 @@ import type { Component } from "../app.js";
 export type SyncContextInput = {
   readonly wsId: string;
   readonly url: string;
-  readonly store: ShardedBlockStore;
   readonly log: MembershipLog;
   readonly local: LocalPeer;
   readonly engine: Engine;
@@ -36,28 +36,31 @@ export class SyncContext implements Component {
   readonly syncManager: SyncManager;
   readonly membershipSync: MembershipSync;
   readonly security: MembershipWireSecurity;
-  readonly membershipDoc: SyncDoc;
+  readonly membershipDoc: SyncableDoc;
 
   constructor(private readonly input: SyncContextInput) {
-    const { store, log, local, url, wsId } = this.input;
+    const { log, local, url, wsId, engine } = this.input;
     // The actor is per-workspace (the registered session); the peer key + peerId are per-dataRoot.
     // Together they are this replica's LocalPeer for wire security.
     const security = createMembershipWireSecurity({ log, local });
     security.refresh();
-    const membershipDoc = log.toSyncDoc();
+    const membershipDoc = log.metaDoc;
+    // The unified doc set: the outliner (sealed content) + the membership log (public roster). The
+    // broker reads visibility + the doc lookup from this single source — the publicDocs side-thunk
+    // and its isPublicDoc array scan are gone.
+    const docSet = new WorkspaceDocSet(engine.asOutliner());
+    docSet.registerMeta(membershipDoc, "public");
     this.security = security;
     this.membershipDoc = membershipDoc;
     this.transport = new BrokerSyncProtocol({
       url,
-      store,
+      docSet,
       workspaceId: wsId,
       security: security.security,
-      // The membership doc rides the plaintext envelope (a public roster) AND is served on push-apply.
-      publicDocs: () => [membershipDoc],
       // Declare this replica's site id so it's a directed target + discoverable via peers().
       peerId: local.peerId,
     });
-    this.syncManager = new SyncManager(store, this.transport);
+    this.syncManager = new SyncManager(docSet.composite(), this.transport);
     this.membershipSync = new MembershipSync(this.transport, membershipDoc);
   }
 

@@ -34,9 +34,9 @@ import type { MembershipState } from "./membership-log.js";
  * merged list → every replica converges to the same membership.
  */
 
-/** Replay every record in `rawRecords` (base64-encoded `MembershipRecord` bytes, as stored in the Loro
- *  list) into a membership state + the records that were skipped. */
-export function deriveMembershipState(rawRecords: unknown[]): {
+/** Replay every record in `records` (opaque `MembershipRecord` bytes from a `LoroMetaDoc`'s log) into a
+ *  membership state + the records that were skipped. */
+export function deriveMembershipState(records: Uint8Array[]): {
   state: MembershipState;
   skipped: MembershipRecord[];
 } {
@@ -46,10 +46,10 @@ export function deriveMembershipState(rawRecords: unknown[]): {
     currentEpoch: -1,
   };
   const skipped: MembershipRecord[] = [];
-  for (const raw of rawRecords) {
+  for (const bytes of records) {
     let rec: MembershipRecord;
     try {
-      rec = fromBinary(MembershipRecordSchema, Buffer.from(raw as string, "base64"));
+      rec = fromBinary(MembershipRecordSchema, bytes);
     } catch {
       // An undecodable entry (e.g. a malformed/garbage push from a bad replica) can't be a valid
       // record — skip it, never let it abort the replay.

@@ -26,7 +26,8 @@ export async function runMutation<T>(
 ): Promise<T> {
   const origin = ctx.sessions.requireOrigin(connectionId);
   const doc = await getEngine(ctx, workspaceId);
-  const beforeVersion = doc.getVersion();
+  // Capture the tree's pre-mutation version so persistMutation can export just this mutation's delta.
+  const beforeVersion = doc.asOutliner().treeSyncDoc().version();
   const payloads: ProtoNodeUpdatedPayload[] = [];
   const sub = doc.slots.nodeUpdated.subscribe((payload) => {
     payloads.push(payloadToProto(payload));

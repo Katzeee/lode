@@ -17,7 +17,17 @@ import {
   type MembershipRecord,
 } from "@lode/protocol/proto";
 import { bodyBytes } from "./membership-replay.js";
-import { MembershipLog, type PeerPublicKeys, type LocalPeer } from "./membership-log.js";
+import {
+  MembershipLog,
+  MEMBERSHIP_DOC_ID,
+  type PeerPublicKeys,
+  type LocalPeer,
+} from "./membership-log.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 // Authority-independent replay guards (the invariants that hold regardless of who signed): exercised
 // by appending a signed record with an ARBITRARY body, bypassing the appendRotate/appendTransfer
@@ -47,10 +57,8 @@ function appendRawSigned(
 ): void {
   const sig = signWithActor(signer.privateKey, bodyBytes(body));
   const rec = create(MembershipRecordSchema, { signer: signer.actorId, sig, body });
-  log.doc
-    .getList("membership_log")
-    .push(Buffer.from(toBinary(MembershipRecordSchema, rec)).toString("base64"));
-  log.doc.commit();
+  log.metaDoc.appendRecord(toBinary(MembershipRecordSchema, rec));
+  log.metaDoc.commit();
 }
 
 describe("membership log — replay-side invariants (authority-independent, any-sync-aligned)", () => {
@@ -59,7 +67,7 @@ describe("membership log — replay-side invariants (authority-independent, any-
     const member = newLocal();
     const k0 = newTransitKey();
     const k1 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     // A rotate, signed by the owner, that lists only the member's peer (drops every owner peer).
@@ -92,7 +100,7 @@ describe("membership log — replay-side invariants (authority-independent, any-
   it("a transfer to the current owner (self-transfer) is skipped", () => {
     const owner = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendTransfer(owner.actor, owner.actor.actorId); // owner → owner: a signed no-op
 
@@ -104,7 +112,7 @@ describe("membership log — replay-side invariants (authority-independent, any-
   it("a root whose declared owner ≠ signer is skipped", () => {
     const owner = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     // A root body carrying a forged owner label, signed by the real owner key. The owner self-signs,
     // so the declared owner must equal the signer (else the label diverges from the signing key).
     appendRawSigned(log, owner.actor, {

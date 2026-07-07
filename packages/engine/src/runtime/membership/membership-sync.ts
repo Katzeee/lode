@@ -1,4 +1,4 @@
-import type { SyncDoc } from "../../core/sharded-store.js";
+import type { SyncableDoc } from "../../core/syncable.js";
 import type { SyncTransport } from "../sync/sync-manager.js";
 
 /**
@@ -9,7 +9,7 @@ import type { SyncTransport } from "../sync/sync-manager.js";
  * the roster BEFORE it holds the transit key (the bootstrap chicken-and-egg), and pushing every round
  * IS the heartbeat that reaches a peer that subscribed late.
  *
- * `doc` is the membership log's `SyncDoc` (id `MEMBERSHIP_DOC_ID`) — the same adapter the transport
+ * `doc` is the membership log's `SyncableDoc` (id `MEMBERSHIP_DOC_ID`) — the same adapter the transport
  * serves on its push-apply path, so send and receive share one API. Sibling of `SyncManager`
  * (content docs, sealed): a host runs both over one transport each round — membership first, so the
  * security context the content round uses is fresh.
@@ -17,7 +17,7 @@ import type { SyncTransport } from "../sync/sync-manager.js";
 export class MembershipSync {
   constructor(
     private readonly transport: SyncTransport,
-    private readonly doc: SyncDoc,
+    private readonly doc: SyncableDoc,
   ) {}
 
   /** Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge). */

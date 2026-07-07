@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateActorKeypair } from "../../utils/crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { WorkspaceDocSet } from "../../core/doc-set.js";
 import { SyncManager } from "../sync/sync-manager.js";
 import { open, type WireSecurity } from "../membership/wire-security.js";
 import { BrokerClient } from "./broker-client.js";
@@ -63,13 +64,13 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
       security: sec(actorA),
     });
     const tb = new BrokerSyncProtocol({
       url,
-      store: b.store,
+      docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
       security: sec(actorB),
     });
@@ -139,14 +140,14 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
       security: secA,
       responseTimeoutMs: 80,
     });
     const tb = new BrokerSyncProtocol({
       url,
-      store: b.store,
+      docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
       security: secB,
       responseTimeoutMs: 80,

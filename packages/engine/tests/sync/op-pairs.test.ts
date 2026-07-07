@@ -50,7 +50,7 @@ describe("sync exhaustive concurrent op-pairs (every pair converges to a valid e
         const b = cloneReplica(base);
         opA.apply(a);
         opB.apply(b);
-        await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+        await syncPair(a.asOutliner(), b.asOutliner());
         assertConverged([a, b], `${opA.name} ∥ ${opB.name}`);
       });
     }

@@ -6,6 +6,20 @@ export type { EngineOptions } from "./engine.js";
 export { Workspace } from "./workspace.js";
 export type { WorkspaceOptions, DocOptions } from "./workspace.js";
 
+// Syncable — the opaque CRDT sync/persistence contract (closes the CRDT backend behind bytes).
+export type { SyncBytes, SyncableDoc, SyncableComposite } from "./syncable.js";
+export { SYS_PREFIX } from "./syncable.js";
+export type { Outliner } from "./sharded-store.js";
+export type { MetaDoc } from "./meta-doc.js";
+export { LoroMetaDoc } from "./meta-doc.js";
+
+// DocStore port — the persistence contract core owns; the runtime adapts the persistence leaf to it.
+export type { DocStore, LoadedDocBytes } from "./doc-store.js";
+
+// WorkspaceDocSet — the unified per-workspace doc collection (outliner + meta docs) the broker reads.
+export { WorkspaceDocSet } from "./doc-set.js";
+export type { DocSetEntry, SecurityClass } from "./doc-set.js";
+
 // Types
 export type {
   Delta,
@@ -23,7 +37,6 @@ export type {
   Selection,
   NodeUpdatedPayload,
   EngineSlots,
-  VersionVector,
 } from "./types.js";
 
 // Delta utilities

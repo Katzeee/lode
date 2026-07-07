@@ -6,29 +6,42 @@ import {
   type LoroTree,
   type LoroTreeNode,
   type TreeID,
-  type VersionVector,
+  VersionVector,
 } from "loro-crdt";
-import type { BlockStore } from "./block-store.js";
+import type { SyncableComposite, SyncableDoc } from "./syncable.js";
+import { SYS_PREFIX } from "./syncable.js";
+import type { LoadedDocBytes } from "./doc-store.js";
 import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
 import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
 
 /**
- * One syncable LoroDoc within a sharded store, with its stable sync id ("main" for the
- * treeDoc, the shardId for shards). Each is an independent CRDT with its own version vector;
- * a SyncManager exchanges per-doc updates — treeDoc first (it carries ownership, so it reveals
- * which shardIds exist), then shards. This is the Loro-native analog of any-sync's per-object
- * sync channel, using direct version-vector comparison instead of a head/bloom diff.
+ * The treeDoc's bare internal key. The OUTWARD id (what `SyncableDoc.id` returns, what persistence
+ * keys bytes by, what the wire carries) is `SYS_PREFIX + TREE_SUBDOC` = `"sys:tree"`. The load path
+ * no longer references this constant: `ShardedBlockStore` takes a `residentBytes` map and
+ * `partitionResident` identifies the tree by its outward id internally. File-exported only so the
+ * partition (and the rare benchmark that builds a map from a raw snapshot) can name it — it is NOT
+ * in the public `core` API and production orchestration never references it.
  */
-export type SyncDoc = {
-  readonly id: string;
-  version(): VersionVector;
-  exportUpdate(from?: VersionVector): Uint8Array;
-  exportSnapshot(): Uint8Array;
-  importUpdate(bytes: Uint8Array): void;
+export const TREE_SUBDOC = "tree";
+
+/**
+ * The sync/persist surface of a sharded outliner — a `SyncableComposite` (generic sync: docs/heal)
+ * plus the structural tree/shards accessors persistence orchestration needs, and the crash-restart
+ * lifecycle heal. The single impl is `ShardedBlockStore`; orchestration depends on THIS abstraction
+ * (via `Engine.asOutliner()`), not the concrete class — so `ShardedBlockStore`'s ~50 CRUD methods
+ * stay out of the orchestration call sites' view.
+ */
+export type Outliner = SyncableComposite & {
+  /** The structure doc — synced first, persisted incrementally. */
+  treeSyncDoc(): SyncableDoc;
+  /** The content shards — persisted as snapshots, materialized lazily. */
+  shardSyncDocs(): SyncableDoc[];
+  /** Crash-restart lifecycle heal (create/delete orphans between tree + shards). */
+  reconcileDurability(): void;
 };
 
 /**
- * Sharded storage: the production `BlockStore` implementation. State is split across
+ * Sharded storage: the production outliner store (an `Outliner`). State is split across
  * many LoroDocs so structure and content can load/sync independently.
  *
  *   treeDoc  → occurrenceTree (full structure: nodeId + per-occ props/meta)
@@ -38,28 +51,33 @@ export type SyncDoc = {
  *
  * The tree doc is the single structural authority; a node's owning shard is derived
  * from the immutable bucket in `ownership`, so it converges with the tree doc and
- * never splits. Shards load lazily (`shardLoader`). Ported from the verified
+ * never splits. Shards fault their pre-read snapshot in lazily from `residentBytes`
+ * (via `partitionResident`'s shardSnaps). Ported from the verified
  * prototype (`experiments/multi-shard-tree/src/sharded-engine.ts`), adapted to the
- * FULL production data model (entity meta + per-occurrence props/meta) and the
- * `BlockStore` interface.
+ * FULL production data model (entity meta + per-occurrence props/meta).
  *
  * The cascade is NOT here (production keeps it domain-level); this store offers only
  * the low-level `deleteOccurrenceRecord` / `deleteEntity` the domain cascade drives.
  *
- * PERSISTENCE (transitional): `exportSnapshot` / `exportUpdateFrom` / `importUpdate`
- * / `getVersion` operate on the treeDoc ONLY. Real multi-doc persistence (treeDoc +
- * per-shard streams, lazy shard load) is Step 5; until then a single-doc persistence
- * model would lose shard content on restart. Step 3 tests read/write correctness via
- * the Engine (toJSON), not via these bytes.
+ * SYNC/PERSIST SURFACE: the class implements `SyncableComposite`; byte movement (version /
+ * export / import / snapshot) lives on the `SyncableDoc`s — the tree via `treeSyncDoc()`, each
+ * owned shard via `shardSyncDocs()`. `docs()` is their concatenation (tree first) for the generic
+ * sync driver, which iterates without knowing which is the tree. Persistence orchestration that
+ * treats the tree specially (incremental) vs shards (snapshots) uses the structural accessors
+ * instead of indexing `docs()`.
  */
-export class ShardedBlockStore implements BlockStore {
-  readonly treeDoc: LoroDoc;
+export class ShardedBlockStore implements Outliner {
+  /** The structure CRDT — private; reach it through `treeSyncDoc()` (the opaque `SyncableDoc`).
+   *  The raw `LoroDoc` is an impl detail, not part of the public surface. */
+  private readonly treeDoc: LoroDoc;
   private readonly occurrenceTree: LoroTree;
   private readonly ownership: LoroMap;
   private readonly shards = new Map<string, LoroDoc>();
+  /** Pre-read shard snapshots keyed by their BARE internal id (`s{k}`), seeded by `partitionResident`
+   *  from the residentBytes map. A shard faults its snapshot in on first access; absent → empty. */
+  private readonly shardSnaps = new Map<string, Uint8Array>();
+  /** Shard count (config readout — not a CRDT handle). Read by tests that clone the sharding. */
   readonly numShards: number;
-  /** Optional lazy loader: returns persisted shard bytes on first access. */
-  readonly shardLoader?: (shardId: string) => Uint8Array | null;
   /**
    * Stable per-dataRoot peer id set on every LoroDoc this store creates. Without it, Loro
    * auto-assigns a fresh random peer per `new LoroDoc()` per process, so every restart
@@ -74,21 +92,31 @@ export class ShardedBlockStore implements BlockStore {
   constructor(
     options: {
       numShards?: number;
-      initialTreeBytes?: Uint8Array;
-      shardLoader?: (shardId: string) => Uint8Array | null;
+      /** Pre-read persisted docs (tree + shards), keyed by their OUTWARD SyncableDoc id (the
+       *  `sys:`-prefixed form). `partitionResident` splits them — the single place that parses the
+       *  structure prefix. Omit for a fresh empty outliner. */
+      residentBytes?: Map<string, LoadedDocBytes>;
       /** Stable peer id for every LoroDoc (see field doc). Omit to let Loro auto-assign. */
       peerId?: number;
     } = {},
   ) {
     this.numShards = options.numShards ?? 256;
-    this.shardLoader = options.shardLoader;
     this.peerId = options.peerId;
     this.treeDoc = new LoroDoc();
     if (this.peerId !== undefined) {
       this.treeDoc.setPeerId(this.peerId);
     }
-    if (options.initialTreeBytes && options.initialTreeBytes.length > 0) {
-      this.treeDoc.import(options.initialTreeBytes);
+    const { treeBytes, shardSnaps } = partitionResident(options.residentBytes);
+    if (treeBytes) {
+      if (treeBytes.snapshot && treeBytes.snapshot.length > 0) {
+        this.treeDoc.import(treeBytes.snapshot);
+      }
+      for (const updateBytes of treeBytes.updates) {
+        this.treeDoc.import(updateBytes);
+      }
+    }
+    for (const [id, snap] of shardSnaps) {
+      this.shardSnaps.set(id, snap);
     }
     this.occurrenceTree = this.treeDoc.getTree("occurrences");
     this.ownership = this.treeDoc.getMap("ownership");
@@ -361,39 +389,52 @@ export class ShardedBlockStore implements BlockStore {
     return this.mapToRecord(this.occurrenceMetaOf(occurrenceId));
   }
 
-  // ── persistence / sync bytes (transitional: treeDoc only — see class doc) ───
+  // ── SyncableComposite ────────────────────────────────────────────────────────
 
-  exportSnapshot(): Uint8Array {
-    return this.treeDoc.export({ mode: "snapshot" });
-  }
-  exportUpdateFrom(from: VersionVector): Uint8Array {
-    return this.treeDoc.export({ mode: "update", from });
-  }
-  importUpdate(bytes: Uint8Array): void {
-    this.treeDoc.import(bytes);
-  }
-  getVersion(): VersionVector {
-    return this.treeDoc.version();
+  /** The structure doc — the single structural authority (carries ownership, so it reveals which
+   *  shards exist). Persisted incrementally; synced first. */
+  treeSyncDoc(): SyncableDoc {
+    return this.syncableDoc(this.treeDoc, TREE_SUBDOC);
   }
 
-  // ── sharded-specific (not in BlockStore; for Step 5 persistence/sync) ───────
+  /** The content shards — one per owned shard id, materialized lazily. Persisted as snapshots. */
+  shardSyncDocs(): SyncableDoc[] {
+    return this.shardIds().map((id) => this.syncableDoc(this.shard(id), id));
+  }
 
-  /** The per-doc sync surface: treeDoc first, then every referenced shard. Each entry is an
-   *  independent CRDT; a SyncManager diffs version vectors and exchanges updates per id. The treeDoc
-   *  id ("main") mirrors `persistence/workspace-store.ts MAIN_SUBDOC` — the layer DAG forbids sharing
-   *  the constant across core↔persistence, so update both together. */
-  syncDocs(): SyncDoc[] {
+  /** The per-doc sync surface: tree first, then every owned shard. Each entry is an independent
+   *  CRDT; the sync engine diffs opaque versions and exchanges updates per id, re-reading `docs()`
+   *  after each exchange so shards revealed by the tree sync are picked up. Generic sync iterates
+   *  this; callers that need the tree or shards specifically use `treeSyncDoc()` / `shardSyncDocs()`. */
+  docs(): SyncableDoc[] {
+    return [this.treeSyncDoc(), ...this.shardSyncDocs()];
+  }
+
+  /** Push fast-path: the tree (always materialized) + already-materialized shards only — a shard
+   *  never touched locally has no local ops to push, so don't force-load every owned shard on each
+   *  push (preserves lazy shard load between restart and the first full sync round). */
+  pushDocs(): SyncableDoc[] {
     return [
-      this.syncDoc(this.treeDoc, "main"),
-      ...this.shardIds().map((id) => this.syncDoc(this.shard(id), id)),
+      this.treeSyncDoc(),
+      ...[...this.shards.entries()].map(([id, doc]) => this.syncableDoc(doc, id)),
     ];
   }
 
-  private syncDoc(doc: LoroDoc, id: string): SyncDoc {
+  /** Post-exchange sync heal — delegates to the ownership-based orphan sweep. */
+  heal(): void {
+    this.sweepOrphans();
+  }
+
+  private syncableDoc(doc: LoroDoc, id: string): SyncableDoc {
+    // The VV ↔ bytes round-trip is internal to this loro-backed adapter; callers see SyncBytes. The
+    // outward id carries the structure prefix; the internal map keys stay bare (`s{k}`).
     return {
-      id,
-      version: () => doc.version(),
-      exportUpdate: (from) => doc.export(from ? { mode: "update", from } : { mode: "update" }),
+      id: SYS_PREFIX + id,
+      version: () => doc.version().encode(),
+      exportUpdate: (from) =>
+        doc.export(
+          from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" },
+        ),
       exportSnapshot: () => doc.export({ mode: "snapshot" }),
       importUpdate: (bytes) => {
         doc.import(bytes);
@@ -401,7 +442,9 @@ export class ShardedBlockStore implements BlockStore {
     };
   }
 
-  /** Get (lazily creating) a shard doc by id. */
+  /** Get (lazily creating) a shard's raw `LoroDoc` by id. INTERNAL/test-seam — production reaches
+   *  shards through the `SyncableDoc`s from `docs()`. Exposed for the durability unit test, which
+   *  inspects shard entity maps to verify `reconcileDurability` / `sweepOrphans` directly. */
   getShardDoc(shardId: string): LoroDoc {
     return this.shard(shardId);
   }
@@ -543,11 +586,9 @@ export class ShardedBlockStore implements BlockStore {
         italic: { expand: "after" },
       });
       s.getMap("entities"); // ensure container exists
-      if (this.shardLoader) {
-        const bytes = this.shardLoader(shardId);
-        if (bytes && bytes.length > 0) {
-          s.import(bytes);
-        }
+      const bytes = this.shardSnaps.get(shardId);
+      if (bytes && bytes.length > 0) {
+        s.import(bytes);
       }
       this.shards.set(shardId, s);
     }
@@ -654,4 +695,38 @@ export class ShardedBlockStore implements BlockStore {
     }
     return out;
   }
+}
+
+/**
+ * Partition pre-read resident docs into the tree's bytes + bare-keyed shard snapshots. This is the
+ * SINGLE place that parses the `sys:` structure prefix:
+ *   - the entry whose outward id is `SYS_PREFIX + TREE_SUBDOC` (`"sys:tree"`) → the tree;
+ *   - every other `sys:`-prefixed entry (`sys:s{k}`) → a shard, keyed internally by its BARE id
+ *     (the prefix stripped);
+ *   - non-`sys:` entries (a meta doc like `"membership"`) → NOT structure, ignored.
+ *
+ * Ids stay opaque everywhere else — equality-matched, never parsed. Centralizing the strip here is
+ * the namespace-discipline payoff: the load path loads all docs and hands them over without knowing
+ * which is the tree, and a meta doc persisted alongside structure (membership folding into the same
+ * table) is naturally excluded without hardcoding its name.
+ */
+export function partitionResident(residentBytes: Map<string, LoadedDocBytes> | undefined): {
+  treeBytes: LoadedDocBytes | null;
+  shardSnaps: Map<string, Uint8Array>;
+} {
+  const shardSnaps = new Map<string, Uint8Array>();
+  let treeBytes: LoadedDocBytes | null = null;
+  if (residentBytes) {
+    for (const [id, bytes] of residentBytes) {
+      if (id === SYS_PREFIX + TREE_SUBDOC) {
+        treeBytes = bytes;
+      } else if (id.startsWith(SYS_PREFIX)) {
+        const snapshot = bytes.snapshot;
+        if (snapshot) {
+          shardSnaps.set(id.slice(SYS_PREFIX.length), snapshot);
+        }
+      }
+    }
+  }
+  return { treeBytes, shardSnaps };
 }

@@ -4,17 +4,9 @@ import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-no
 import { type BrokerFrame, BrokerFrameSchema, BrokerService } from "@lode/protocol/proto";
 import { createLogger } from "@lode/logger";
 import { BoundedAsyncQueue } from "./bounded-async-queue.js";
+import { DEFAULT_MAX_SEND_BUFFERED_BYTES, estimateFrameBytes } from "./broker-wire.js";
 
 const log = createLogger("engine.broker.client");
-
-/** Approximate wire size of a frame (payload + small overhead) — the bound for the send queue. */
-const frameBytes = (f: BrokerFrame): number => {
-  const k = f.kind;
-  if ((k.case === "publish" || k.case === "deliver") && k.value.payload !== undefined) {
-    return k.value.payload.length + 64;
-  }
-  return 64;
-};
 
 /**
  * The broker CLIENT — dials a relay (`BrokerServer`) over a Connect gRPC bidi stream
@@ -43,9 +35,6 @@ export type BrokerClientOptions = {
 
 /** How long `peers()` waits for the relay's roster before rejecting (best-effort, no-auth relay). */
 const PEER_QUERY_TIMEOUT_MS = 2000;
-/** Default send-buffer cap per connection — generous for normal burst (a Loro update blob is KB–MB),
- *  tight enough that a wedged relay can't leak the daemon to OOM. */
-const DEFAULT_MAX_SEND_BUFFERED_BYTES = 4 * 1024 * 1024;
 
 export class BrokerClient {
   private readonly onDeliver: BrokerClientOptions["onDeliver"];
@@ -77,7 +66,7 @@ export class BrokerClient {
     });
     this.out = new BoundedAsyncQueue<BrokerFrame>(
       this.maxSendBufferedBytes,
-      frameBytes,
+      estimateFrameBytes,
       (frame, bytes, buffered) => {
         log.warn("broker send buffer over cap; dropping frame", {
           kind: frame.kind.case,

@@ -1,9 +1,8 @@
 /* eslint-disable max-lines -- the business-agnostic Engine store is intentionally kept in one file */
 import { randomUUID } from "node:crypto";
 import { Subject } from "rxjs";
-import { ShardedBlockStore } from "./sharded-store.js";
+import { ShardedBlockStore, type Outliner } from "./sharded-store.js";
 import { ActionHistory } from "./action-history.js";
-import type { BlockStore } from "./block-store.js";
 import type {
   Delta,
   EngineSlots,
@@ -12,17 +11,16 @@ import type {
   NodeOccurrence,
   NodeUpdatedPayload,
   OccurrenceId,
-  VersionVector,
 } from "./types.js";
 
 export type EngineOptions = {
   id?: string;
   readonly?: boolean;
-  /** Inject a custom BlockStore. Defaults to ShardedBlockStore. To restore a sharded
-   * engine from persisted state, inject `new ShardedBlockStore({ initialTreeBytes, shardLoader })`
-   * — a single `initialBytes` blob can't carry the lazy-loaded shards, so there is no
-   * constructor-bytes option (the persistence runtime is the full restore path). */
-  store?: BlockStore;
+  /** Inject a custom ShardedBlockStore. Defaults to a fresh one. To restore a sharded engine from
+   * persisted state, inject `new ShardedBlockStore({ residentBytes })` keyed by outward SyncableDoc
+   * ids — a single bytes blob can't carry the lazy-loaded shards, so there is no constructor-bytes
+   * option (the persistence runtime is the full restore path). */
+  store?: ShardedBlockStore;
   /** NodeId generator (test seam; defaults to randomUUID). CONTRACT: must return globally-
    *  unique ids across all replicas and sessions. The engine assumes global uniqueness, so
    *  concurrent createNode on different replicas never collide (randomUUID makes a collision
@@ -39,7 +37,7 @@ export type EngineOptions = {
 export class Engine {
   readonly id: string;
   readonly slots: EngineSlots;
-  private readonly store: BlockStore;
+  private readonly store: ShardedBlockStore;
   /** Cross-doc undo/redo (snapshot-diff): captures before/after per action and restores
    *  the wanted side forward through these mutators (store-agnostic). */
   private readonly actionHistory: ActionHistory;
@@ -540,28 +538,12 @@ export class Engine {
     this.commitIfNeeded();
   }
 
-  // ── Persistence / Sync primitives ────────────────────────────────────────
-
-  exportSnapshot(): Uint8Array {
-    return this.store.exportSnapshot();
-  }
-
-  exportUpdateFrom(from: VersionVector): Uint8Array {
-    return this.store.exportUpdateFrom(from);
-  }
-
-  importUpdate(bytes: Uint8Array): void {
-    this.store.importUpdate(bytes);
-  }
-
-  getVersion(): VersionVector {
-    return this.store.getVersion();
-  }
-
-  /** The ShardedBlockStore if this engine is sharded, else null. (Runtime uses this to
-   * persist/load across the treeDoc + shard sub-docs.) */
-  getShardedStore(): ShardedBlockStore | null {
-    return this.store instanceof ShardedBlockStore ? this.store : null;
+  /** The outliner sync/persist surface. `ShardedBlockStore` is the only store, so the engine is
+   *  always sharded — this never returns undefined. Orchestration (persistence, the version capture
+   *  in `runMutation`) depends on this `Outliner` abstraction, not the concrete `ShardedBlockStore`,
+   *  so the ~50 CRUD methods stay out of those call sites' view. */
+  asOutliner(): Outliner {
+    return this.store;
   }
 
   // ── Events ───────────────────────────────────────────────────────────────

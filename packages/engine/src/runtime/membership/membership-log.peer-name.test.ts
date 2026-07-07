@@ -1,7 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
-import { MembershipLog, type PeerPublicKeys, type LocalPeer } from "./membership-log.js";
+import {
+  MembershipLog,
+  MEMBERSHIP_DOC_ID,
+  type PeerPublicKeys,
+  type LocalPeer,
+} from "./membership-log.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 
@@ -27,7 +37,7 @@ describe("membership log — peer_name rides on the record through replay", () =
     const owner = newLocal();
     const member = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "owner-laptop");
     log.appendAdd(owner.actor, namedPeer(member, "member-phone"), k0, 0);
 
@@ -42,7 +52,7 @@ describe("membership log — peer_name rides on the record through replay", () =
     const novel = newLocal();
     const k0 = newTransitKey();
     const k1 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "owner-laptop");
     log.appendAdd(owner.actor, namedPeer(member, "member-phone"), k0, 0);
 

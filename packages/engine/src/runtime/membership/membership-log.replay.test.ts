@@ -8,7 +8,17 @@ import {
   generatePeerKeypair,
   unwrapKey,
 } from "../../utils/crypto/index.js";
-import { MembershipLog, type PeerPublicKeys, type LocalPeer } from "./membership-log.js";
+import {
+  MembershipLog,
+  MEMBERSHIP_DOC_ID,
+  type PeerPublicKeys,
+  type LocalPeer,
+} from "./membership-log.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
@@ -39,7 +49,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const k0 = newTransitKey();
     const k1 = newTransitKey();
     const k0b = newTransitKey(); // would-be stale rotate key
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendRotate(owner.actor, [peerPub(owner)], k1, k0, 1);
     // A second rotate claiming epoch 1 (not strictly ahead of current=1) → skipped.
@@ -55,7 +65,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(member), tk, 0);
     log.appendTransfer(member.actor, member.actor.actorId); // member forges ownership to themselves
@@ -69,7 +79,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const owner = newLocal();
     const successor = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(successor), tk, 0);
     log.appendTransfer(owner.actor, successor.actor.actorId);
@@ -84,7 +94,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const owner = newLocal();
     const stranger = newLocal(); // never added — owns no peer
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendTransfer(owner.actor, stranger.actor.actorId); // stranger was never added
 
@@ -100,7 +110,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const member = newLocal();
     const k0 = newTransitKey();
     const k1 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0); // member joins at epoch 0
     log.appendRotate(owner.actor, [peerPub(owner)], k1, k0, 1); // member revoked at epoch 1
@@ -117,7 +127,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(member), tk, 0); // owner admits member's first peer
     // The member self-signs adding their own second peer — no owner round-trip.
@@ -138,7 +148,7 @@ describe("membership log — replay rejection rules (CRDT-skip thesis)", () => {
     const owner = newLocal();
     const member = newLocal(); // never added — owns no peer yet
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     // member tries to self-add before the owner has admitted any peer of theirs → rejected.
     log.appendAdd(member.actor, peerPub(member), tk, 0);
@@ -154,7 +164,7 @@ describe("membership log — peer-key crypto invariants", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(member), tk, 0);
     const { state } = log.deriveState();
@@ -188,7 +198,7 @@ describe("membership log — replay robustness + edge characterization", () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     const k1 = newTransitKey();
@@ -205,7 +215,7 @@ describe("membership log — replay robustness + edge characterization", () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     // The owner cannot rotate away every owner peer — build-time invariant.
@@ -216,14 +226,14 @@ describe("membership log — replay robustness + edge characterization", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const a = new MembershipLog();
+    const a = newLog();
     a.appendRoot(owner, tk, "");
     a.appendAdd(owner.actor, peerPub(member), tk, 0);
-    const snap = a.toSyncDoc().exportSnapshot();
-    const b = new MembershipLog();
-    b.toSyncDoc().importUpdate(snap);
+    const snap = a.metaDoc.exportSnapshot();
+    const b = newLog();
+    b.metaDoc.importUpdate(snap);
     const before = [...b.deriveState().state.peers.keys()].sort();
-    b.toSyncDoc().importUpdate(snap); // again — must not throw or duplicate
+    b.metaDoc.importUpdate(snap); // again — must not throw or duplicate
     const after = [...b.deriveState().state.peers.keys()].sort();
     expect(after).toEqual(before);
   });
@@ -231,10 +241,11 @@ describe("membership log — replay robustness + edge characterization", () => {
   it("a malformed entry in the list is skipped, not fatal (CRDT-skip contract)", () => {
     const owner = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
-    log.doc.getList("membership_log").push("!!!not valid protobuf!!!"); // a bad replica could push anything
-    log.doc.commit();
+    // A bad replica could push anything; inject garbage bytes that protobuf can't decode.
+    log.metaDoc.appendRecord(Buffer.from("!!!not valid protobuf!!!"));
+    log.metaDoc.commit();
     const { state } = log.deriveState(); // must not throw
     expect(state.owner).toBe(owner.actor.actorId); // the valid root still applied; the garbage was skipped
   });
@@ -251,13 +262,13 @@ describe("membership log — CRDT convergence across merge orders", () => {
     const k1 = newTransitKey();
 
     // Order 1: root → add → rotate (add applies at epoch 0; rotate re-keys X to epoch 1).
-    const logA = new MembershipLog();
+    const logA = newLog();
     logA.appendRoot(owner, k0, "");
     logA.appendAdd(owner.actor, peerPub(x), k0, 0);
     logA.appendRotate(owner.actor, [peerPub(owner), peerPub(x)], k1, k0, 1);
 
     // Order 2: root → rotate → add (rotate admits X from its roster; the add is then staleAdd-skipped).
-    const logB = new MembershipLog();
+    const logB = newLog();
     logB.appendRoot(owner, k0, "");
     logB.appendRotate(owner.actor, [peerPub(owner), peerPub(x)], k1, k0, 1);
     logB.appendAdd(owner.actor, peerPub(x), k0, 0);

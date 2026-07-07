@@ -36,7 +36,6 @@ export type AppRuntime = {
    *  host (daemon/mobile) registers its own components (sync, relay, http) and drives lifecycle via
    *  `app.start()` (registration order) / `app.stop()` (reverse). Anytype-ideal: assemble-then-start. */
   readonly app: App;
-  removeConnection(connectionId: string): void;
 };
 
 // Adapts the workspace registry to the Component lifecycle: stop tears down every loaded
@@ -87,6 +86,5 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
     commands,
     sync,
     app,
-    removeConnection: (connectionId) => sessions.removeConnection(connectionId),
   };
 }

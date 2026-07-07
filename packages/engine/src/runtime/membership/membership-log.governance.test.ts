@@ -1,7 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
-import { MembershipLog, type PeerPublicKeys, type LocalPeer } from "./membership-log.js";
+import {
+  MembershipLog,
+  MEMBERSHIP_DOC_ID,
+  type PeerPublicKeys,
+  type LocalPeer,
+} from "./membership-log.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 let counter = 1;
@@ -34,7 +44,7 @@ const furtherPeer = (local: LocalPeer, peerName = ""): PeerPublicKeys => ({
 const boot = () => {
   const owner = newLocal();
   const member = newLocal();
-  const log = new MembershipLog();
+  const log = newLog();
   log.appendRoot(owner, newTransitKey(), "owner-peer");
   log.addMember(owner, ownPeerPub(member, "member-peer"));
   return { owner, member, log };
@@ -126,7 +136,7 @@ describe("addSelfPeer", () => {
   it("refuses when the local peer isn't admitted (can't unwrap transit)", () => {
     const owner = newLocal();
     const outsider = newLocal();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, newTransitKey(), "owner-peer");
     expect(() => log.addSelfPeer(outsider, furtherPeer(outsider))).toThrow(/peer not admitted/);
   });

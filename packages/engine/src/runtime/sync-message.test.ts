@@ -3,20 +3,20 @@ import { describe, expect, it } from "vitest";
 import { decodeProfile, encodeProfile } from "./sync-message.js";
 
 describe("sync-message profile codec", () => {
-  it("encodeProfile / decodeProfile round-trip a real version vector", () => {
+  it("encodeProfile / decodeProfile round-trip a real doc version (opaque bytes)", () => {
     const doc = new LoroDoc();
     doc.getText("t").insert(0, "hello");
     doc.commit();
-    const version = doc.version();
-    const profile = [{ docId: "main", version }];
+    const version = doc.version().encode();
+    const profile = [{ subDocId: "sys:tree", version }];
     const decoded = decodeProfile(encodeProfile(profile));
     expect(decoded).toHaveLength(1);
     const entry = decoded.at(0);
     if (!entry) {
       throw new Error("expected a decoded entry");
     }
-    expect(entry.docId).toBe("main");
-    expect(entry.version.compare(version)).toBe(0); // VV equal
+    expect(entry.subDocId).toBe("sys:tree");
+    expect(Buffer.from(entry.version).equals(Buffer.from(version))).toBe(true);
   });
 
   it("encodeProfile round-trips a multi-doc profile", () => {
@@ -26,16 +26,18 @@ describe("sync-message profile codec", () => {
     const b = new LoroDoc();
     b.getText("t").insert(0, "bb");
     b.commit();
+    const versionA = a.version().encode();
+    const versionB = b.version().encode();
     const profile = [
-      { docId: "main", version: a.version() },
-      { docId: "s1", version: b.version() },
+      { subDocId: "sys:tree", version: versionA },
+      { subDocId: "sys:s1", version: versionB },
     ];
     const decoded = decodeProfile(encodeProfile(profile));
-    expect(decoded.map((p) => p.docId)).toEqual(["main", "s1"]);
+    expect(decoded.map((p) => p.subDocId)).toEqual(["sys:tree", "sys:s1"]);
     const s1 = decoded.at(1);
     if (!s1) {
       throw new Error("expected a second decoded entry");
     }
-    expect(s1.version.compare(b.version())).toBe(0);
+    expect(Buffer.from(s1.version).equals(Buffer.from(versionB))).toBe(true);
   });
 });

@@ -4,14 +4,14 @@
    force an awkward seam through them. */
 import { randomUUID } from "node:crypto";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import { VersionVector } from "loro-crdt";
 import { createLogger } from "@lode/logger";
 import { type SyncMessage, SyncMessageSchema } from "@lode/protocol/proto";
 import { BrokerClient } from "./broker-client.js";
 import { BoundedAsyncQueue } from "./bounded-async-queue.js";
 import { decodeProfile, encodeProfile } from "../sync-message.js";
 import { open, seal } from "../membership/wire-security.js";
-import type { ShardedBlockStore, SyncDoc } from "../../core/sharded-store.js";
+import type { SyncBytes, SyncableDoc } from "../../core/syncable.js";
+import type { WorkspaceDocSet } from "../../core/doc-set.js";
 import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
 import type { WireSecurity } from "../membership/wire-security.js";
 
@@ -19,7 +19,7 @@ const log = createLogger("engine.broker.sync");
 
 /**
  * When `security` is configured, every published payload carries a 1-byte envelope tag so the receiver
- * can demux plaintext vs sealed WITHOUT decoding (the `docId` lives inside the message, which is the
+ * can demux plaintext vs sealed WITHOUT decoding (the `subDocId` lives inside the message, which is the
  * sealed plaintext — unreadable until opened). `0x00` = plaintext (the membership doc — a public roster
  * that must be readable before a peer holds the transit key); `0x01` = sealed (everything else). When
  * `security` is OFF the transport is raw/untagged.
@@ -39,7 +39,7 @@ type DocTask =
   | {
       readonly kind: "respond";
       readonly reqId: string;
-      readonly fromVVBytes: Uint8Array;
+      readonly fromBytes: Uint8Array;
       readonly fromPeerId: string;
     }
   | { readonly kind: "apply"; readonly bytes: Uint8Array };
@@ -50,7 +50,7 @@ const DEFAULT_MAX_RECV_PER_DOC_BYTES = 4 * 1024 * 1024;
 
 /** Approximate size of a per-doc recv task (its payload + small overhead) — the bound for the queue. */
 const taskBytes = (t: DocTask): number =>
-  (t.kind === "apply" ? t.bytes.length : t.fromVVBytes.length) + 64;
+  (t.kind === "apply" ? t.bytes.length : t.fromBytes.length) + 64;
 
 /**
  * `SyncTransport` over the broker (design: request/response over the broker's pub/sub). Each peer
@@ -58,19 +58,18 @@ const taskBytes = (t: DocTask): number =>
  *   - **Initiator** (the `SyncTransport` methods, driven by the engine's `SyncManager`): publish a
  *     correlated request and await the matching response (by `reqId`).
  *   - **Responder** (every incoming payload): answer profile/updates requests from the local
- *     `ShardedBlockStore`, and import pushed updates.
+ *     composite, and import pushed updates.
  *
  * Sender-exclusion in the broker means a peer never receives its own request, so a request always
  * reaches the OTHER subscriber(s); for 2 peers there's exactly one responder. For N>2 the initiator
  * takes the first response (CRDT transitivity converges everyone from one up-to-date peer).
  */
 export class BrokerSyncProtocol implements SyncTransport {
-  private readonly store: ShardedBlockStore;
+  private readonly docSet: WorkspaceDocSet;
   private readonly workspaceId: string;
   private readonly responseTimeoutMs: number;
   private readonly brokerClient: BrokerClient;
   private readonly security?: WireSecurity;
-  private readonly publicDocs?: () => SyncDoc[];
   /** This replica's per-dataRoot routing peerId (declared at subscribe so the peer is a directed
    *  target + appears in `peers()`). The engine's numeric site id, stringified for the broker. */
   private readonly peerId?: string;
@@ -89,15 +88,14 @@ export class BrokerSyncProtocol implements SyncTransport {
 
   constructor(opts: {
     readonly url: string;
-    readonly store: ShardedBlockStore;
+    /** The workspace's unified doc set — the broker reads doc visibility (sealed/public) and the
+     *  doc lookup from it. Replaces the old (composite + publicDocs-thunk) pair: visibility is the
+     *  doc's `securityClass`, not an array scan. */
+    readonly docSet: WorkspaceDocSet;
     readonly workspaceId: string;
     readonly responseTimeoutMs?: number;
     /** Optional transit-key AEAD + actor wire signing. Omit for plaintext. */
     readonly security?: WireSecurity;
-    /** Docs that ride the PLAINTEXT envelope AND are served on the push-apply path — the membership
-     *  log, a public roster a joining peer reads BEFORE it holds the transit key. One option covers
-     *  both concerns (they are the same set): the plaintext-exemption set is derived from these ids. */
-    readonly publicDocs?: () => SyncDoc[];
     /** This replica's routing peerId (the engine's numeric site id as a string). Declared at subscribe
      *  so the peer is reachable by a directed request + listed in `peers()`. Omit for broadcast-only. */
     readonly peerId?: string;
@@ -105,11 +103,10 @@ export class BrokerSyncProtocol implements SyncTransport {
      *  Default 4 MiB. */
     readonly maxRecvPerDocBytes?: number;
   }) {
-    this.store = opts.store;
+    this.docSet = opts.docSet;
     this.workspaceId = opts.workspaceId;
     this.responseTimeoutMs = opts.responseTimeoutMs ?? 2000;
     this.security = opts.security;
-    this.publicDocs = opts.publicDocs;
     this.peerId = opts.peerId;
     this.maxRecvPerDocBytes = opts.maxRecvPerDocBytes ?? DEFAULT_MAX_RECV_PER_DOC_BYTES;
     this.brokerClient = new BrokerClient({
@@ -169,15 +166,15 @@ export class BrokerSyncProtocol implements SyncTransport {
     return decodeProfile(body);
   }
 
-  async fetchUpdates(docId: string, from: VersionVector): Promise<Uint8Array> {
+  async fetchUpdates(subDocId: string, from: SyncBytes): Promise<Uint8Array> {
     const reqId = randomUUID();
     return this.request(
       reqId,
       encodeMessage({
-        kind: { case: "updatesReq", value: { reqId, docId, body: from.encode() } },
+        kind: { case: "updatesReq", value: { reqId, subDocId, body: from } },
       }),
       undefined,
-      this.isPublicDoc(docId),
+      this.isPublicDoc(subDocId),
     );
   }
 
@@ -189,18 +186,18 @@ export class BrokerSyncProtocol implements SyncTransport {
    *  also plaintext for a public doc. Not on the `SyncTransport` interface — the engine's SyncManager
    *  broadcasts; only the daemon's join path directs. */
   async directedFetchUpdates(
-    docId: string,
-    from: VersionVector,
+    subDocId: string,
+    from: SyncBytes,
     toPeerId: string,
   ): Promise<Uint8Array> {
     const reqId = randomUUID();
     return this.request(
       reqId,
       encodeMessage({
-        kind: { case: "updatesReq", value: { reqId, docId, body: from.encode() } },
+        kind: { case: "updatesReq", value: { reqId, subDocId, body: from } },
       }),
       toPeerId,
-      this.isPublicDoc(docId),
+      this.isPublicDoc(subDocId),
     );
   }
 
@@ -210,18 +207,19 @@ export class BrokerSyncProtocol implements SyncTransport {
     return this.brokerClient.peers(this.workspaceId);
   }
 
-  /** Whether `docId` is a public doc (rides the plaintext envelope). The membership roster is public so
-   *  a joiner can fetch + read it BEFORE it holds the transit key. */
-  private isPublicDoc(docId: string): boolean {
-    return this.publicDocs?.().some((d) => d.id === docId) ?? false;
+  /** Whether `subDocId` is a public doc (rides the plaintext envelope). The membership roster is
+   *  public so a joiner can fetch + read it BEFORE it holds the transit key. Read off the doc's
+   *  securityClass — no array scan. */
+  private isPublicDoc(subDocId: string): boolean {
+    return this.docSet.entry(subDocId)?.securityClass === "public";
   }
 
-  sendUpdates(docId: string, bytes: Uint8Array): Promise<void> {
+  sendUpdates(subDocId: string, bytes: Uint8Array): Promise<void> {
     this.brokerClient.publish(
       this.workspaceId,
       this.wireEncode(
-        encodeMessage({ kind: { case: "updatesPush", value: { docId, body: bytes } } }),
-        this.isPublicDoc(docId),
+        encodeMessage({ kind: { case: "updatesPush", value: { subDocId, body: bytes } } }),
+        this.isPublicDoc(subDocId),
       ),
     );
     return Promise.resolve();
@@ -259,15 +257,15 @@ export class BrokerSyncProtocol implements SyncTransport {
         this.respondProfile(k.value.reqId, fromPeerId);
         break;
       case "updatesReq":
-        this.enqueueDoc(k.value.docId, {
+        this.enqueueDoc(k.value.subDocId, {
           kind: "respond",
           reqId: k.value.reqId,
-          fromVVBytes: k.value.body,
+          fromBytes: k.value.body,
           fromPeerId,
         });
         break;
       case "updatesPush":
-        this.enqueueDoc(k.value.docId, { kind: "apply", bytes: k.value.body });
+        this.enqueueDoc(k.value.subDocId, { kind: "apply", bytes: k.value.body });
         break;
       case "profileResp":
         this.resolve(k.value.reqId, k.value.body);
@@ -283,11 +281,13 @@ export class BrokerSyncProtocol implements SyncTransport {
   }
 
   private respondProfile(reqId: string, fromPeerId: string): void {
-    // Profile is STORE-ONLY: extra docs (the membership log) are push-applied, never advertised —
-    // otherwise SyncManager would treat the membership docId as a shard and materialize a bogus shard.
-    const profile: SyncProfile = this.store
-      .syncDocs()
-      .map((d) => ({ docId: d.id, version: d.version() }));
+    // Profile is COMPOSITE-ONLY (the outliner's docs): the membership doc rides push-gossip, not
+    // req/resp, so it is deliberately excluded from the profile and can never leak here. The docSet's
+    // composite is the outliner; meta docs (membership) are NOT in it.
+    const profile: SyncProfile = this.docSet
+      .composite()
+      .docs()
+      .map((d) => ({ subDocId: d.id, version: d.version() }));
     this.replyTo(
       fromPeerId,
       encodeMessage({
@@ -299,18 +299,18 @@ export class BrokerSyncProtocol implements SyncTransport {
 
   private respondUpdates(
     reqId: string,
-    docId: string,
-    fromVVBytes: Uint8Array,
+    subDocId: string,
+    fromBytes: Uint8Array,
     fromPeerId: string,
   ): void {
-    const doc = this.lookupDoc(docId);
-    const body = doc ? doc.exportUpdate(VersionVector.decode(fromVVBytes)) : new Uint8Array(0);
+    const doc = this.lookupDoc(subDocId);
+    const body = doc ? doc.exportUpdate(fromBytes) : new Uint8Array(0);
     // A public doc (the membership roster) is answered on the plaintext envelope so a joiner can
     // fetch it via `fetchUpdates("membership")` BEFORE it holds the transit key. Mirrors sendUpdates.
     this.replyTo(
       fromPeerId,
       encodeMessage({ kind: { case: "updatesResp", value: { reqId, body } } }),
-      this.isPublicDoc(docId),
+      this.isPublicDoc(subDocId),
     );
   }
 
@@ -325,18 +325,18 @@ export class BrokerSyncProtocol implements SyncTransport {
     );
   }
 
-  private applyPush(docId: string, bytes: Uint8Array): void {
+  private applyPush(subDocId: string, bytes: Uint8Array): void {
     if (bytes.length === 0) {
       return;
     }
-    const doc = this.lookupDoc(docId);
+    const doc = this.lookupDoc(subDocId);
     if (doc) {
       doc.importUpdate(bytes);
     } else {
-      // An unknown-shard push with no local doc — SyncManager materializes shards via the treeDoc
-      // exchange before pushing them, so this only happens for genuinely foreign (often attacker
+      // An unknown-shard push with no local doc — the composite materializes shards via `docs()`
+      // (treeDoc ownership reveals them), so this only happens for genuinely foreign (often attacker
       // -controlled) doc ids. Debug: protocol noise, not a normal cold-start path.
-      log.debug("dropped push for unknown doc", { docId });
+      log.debug("dropped push for unknown doc", { subDocId });
     }
   }
 
@@ -344,15 +344,15 @@ export class BrokerSyncProtocol implements SyncTransport {
    *  drainer runs the slow WASM op OFF the recv pump, so it doesn't head-of-line block other docs or
    *  the cheap responder path (profile advertise / response resolve stay inline in `handle`). One
    *  drainer per doc → slow ops on doc A only block doc A. */
-  private enqueueDoc(docId: string, task: DocTask): void {
-    let q = this.docQueues.get(docId);
+  private enqueueDoc(subDocId: string, task: DocTask): void {
+    let q = this.docQueues.get(subDocId);
     if (q === undefined) {
       q = new BoundedAsyncQueue<DocTask>(
         this.maxRecvPerDocBytes,
         taskBytes,
         (item, bytes, buffered) => {
           log.warn("broker recv per-doc queue over cap; dropping task", {
-            docId,
+            subDocId,
             task: item.kind,
             taskBytes: bytes,
             buffered,
@@ -360,8 +360,8 @@ export class BrokerSyncProtocol implements SyncTransport {
           });
         },
       );
-      this.docQueues.set(docId, q);
-      void this.drainDoc(docId, q);
+      this.docQueues.set(subDocId, q);
+      void this.drainDoc(subDocId, q);
     }
     q.push(task);
   }
@@ -369,34 +369,38 @@ export class BrokerSyncProtocol implements SyncTransport {
   /** One drainer per doc — runs its tasks serially (Loro ops on a doc must serialize anyway), off the
    *  recv pump. Per-doc isolation: a slow op here blocks only THIS doc's queue. Ends when the queue
    *  closes (transport close — queued-but-unrun tasks are dropped; the tick reconverges). */
-  private async drainDoc(docId: string, q: BoundedAsyncQueue<DocTask>): Promise<void> {
+  private async drainDoc(subDocId: string, q: BoundedAsyncQueue<DocTask>): Promise<void> {
     for await (const task of q) {
       try {
         if (task.kind === "respond") {
-          this.respondUpdates(task.reqId, docId, task.fromVVBytes, task.fromPeerId);
+          this.respondUpdates(task.reqId, subDocId, task.fromBytes, task.fromPeerId);
         } else {
-          this.applyPush(docId, task.bytes);
+          this.applyPush(subDocId, task.bytes);
         }
       } catch (err) {
         // A throwing WASM op (corrupt bytes, a loro-crdt bug) must NOT kill this drainer — a dead
         // drainer orphans its queue (enqueueDoc keeps pushing to it) → unbounded leak + that doc
         // stalls forever. Log + continue; a failed respond times out on the asker, a failed apply is
         // reconverged by the tick.
-        log.warn("per-doc recv task failed; continuing drainer", { docId, kind: task.kind, err });
+        log.warn("per-doc recv task failed; continuing drainer", {
+          subDocId,
+          kind: task.kind,
+          err,
+        });
       }
     }
   }
 
-  /** The local SyncDoc for `docId` across the store AND any extra docs (the membership log), if
-   *  present. Does NOT materialize shards on demand — the engine's `SyncManager` owns shard
-   *  materialization (via the treeDoc exchange), so answering from existing docs is correct AND avoids
-   *  creating empty shards for arbitrary attacker-controlled docIds (which would pollute the profile). */
-  private lookupDoc(docId: string): SyncDoc | undefined {
-    return this.lookupDocs().find((d) => d.id === docId);
+  /** The local `SyncableDoc` for `subDocId` from the docSet, if present. Does NOT materialize shards
+   *  on demand — the docSet's composite owns shard materialization (via treeDoc ownership), so
+   *  answering from existing docs is correct AND avoids creating empty shards for arbitrary
+   *  attacker-controlled docIds (which would pollute the profile). */
+  private lookupDoc(subDocId: string): SyncableDoc | undefined {
+    return this.lookupDocs().find((d) => d.id === subDocId);
   }
 
-  private lookupDocs(): SyncDoc[] {
-    return [...this.store.syncDocs(), ...(this.publicDocs?.() ?? [])];
+  private lookupDocs(): SyncableDoc[] {
+    return this.docSet.docs();
   }
 
   // ── request/response correlation ────────────────────────────────────────────────

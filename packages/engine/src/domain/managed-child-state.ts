@@ -8,12 +8,12 @@ import { invalidDomainInput } from "./errors.js";
 import { readSchemaIds } from "./schema-membership.js";
 
 const ManagedOccurrenceMeta = {
-  ManagedKind: "managedKind",
+  KindKey: "managedKind",
   ManagedBySchemas: "managedBySchemas",
 } as const;
 
 export function readManagedChildState(doc: Engine, occurrenceId: string): ManagedChildState {
-  const kindValue = doc.getOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.ManagedKind);
+  const kindValue = doc.getOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey);
   const provenanceValue = doc.getOccurrenceMeta(
     occurrenceId,
     ManagedOccurrenceMeta.ManagedBySchemas,
@@ -34,20 +34,6 @@ export function readManagedChildState(doc: Engine, occurrenceId: string): Manage
   return { status: "valid", kind: kindValue, provenance: provenance.value };
 }
 
-export function writeManagedChildState(
-  doc: Engine,
-  occurrenceId: string,
-  kind: ManagedKind,
-  provenance: SchemaProvenance[],
-): void {
-  doc.setOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.ManagedKind, kind);
-  doc.setOccurrenceMeta(
-    occurrenceId,
-    ManagedOccurrenceMeta.ManagedBySchemas,
-    provenance.map((entry) => ({ ...entry })),
-  );
-}
-
 export function writeManagedProvenance(
   doc: Engine,
   occurrenceId: string,
@@ -58,6 +44,16 @@ export function writeManagedProvenance(
     ManagedOccurrenceMeta.ManagedBySchemas,
     provenance.map((entry) => ({ ...entry })),
   );
+}
+
+export function writeManagedChildState(
+  doc: Engine,
+  occurrenceId: string,
+  kind: ManagedKind,
+  provenance: SchemaProvenance[],
+): void {
+  doc.setOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey, kind);
+  writeManagedProvenance(doc, occurrenceId, provenance);
 }
 
 export function isActiveManagedChild(
@@ -78,10 +74,7 @@ export function isActiveManagedChild(
   return managed.provenance.some((entry) => parentSchemaIds.has(entry.schemaId));
 }
 
-export function requireManagedKind(
-  doc: Engine,
-  child: NodeOccurrence,
-): "fieldSlot" | "templateRef" {
+export function requireManagedKind(doc: Engine, child: NodeOccurrence): ManagedKind {
   const managed = readManagedChildState(doc, child.occurrenceId);
   if (managed.status === "valid") {
     return managed.kind;
@@ -92,10 +85,7 @@ export function requireManagedKind(
   });
 }
 
-export function managedKindValue(
-  doc: Engine,
-  child: NodeOccurrence,
-): "fieldSlot" | "templateRef" | null {
+export function managedKindValue(doc: Engine, child: NodeOccurrence): ManagedKind | null {
   const managed = readManagedChildState(doc, child.occurrenceId);
   return managed.status === "valid" ? managed.kind : null;
 }

@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { MembershipLog, type LocalPeer } from "./membership-log.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { createMembershipWireSecurity } from "./membership-security.js";
 import { open, seal } from "./wire-security.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
@@ -29,17 +34,17 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     const tk = randomBytes(32);
 
     // The member's log starts EMPTY — it converges the roster separately (here, by importing it).
-    const log = new MembershipLog();
+    const log = newLog();
     const ms = createMembershipWireSecurity({ log, local: member });
 
     ms.refresh();
     expect(ms.isMember()).toBe(false); // peer not admitted yet → host skips the sealed content round
     expect(ms.security.resolveActorPub(owner.actor.actorId)).toBeUndefined();
 
-    const ownerLog = new MembershipLog();
+    const ownerLog = newLog();
     ownerLog.appendRoot(owner, tk, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
-    log.toSyncDoc().importUpdate(ownerLog.toSyncDoc().exportSnapshot()); // member "receives" the roster
+    log.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot()); // member "receives" the roster
 
     ms.refresh();
     expect(ms.isMember()).toBe(true);
@@ -55,11 +60,11 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     const owner = newLocal();
     const member = newLocal();
     const tk = randomBytes(32);
-    const ownerLog = new MembershipLog();
+    const ownerLog = newLog();
     ownerLog.appendRoot(owner, tk, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
-    const memberLog = new MembershipLog();
-    memberLog.toSyncDoc().importUpdate(ownerLog.toSyncDoc().exportSnapshot());
+    const memberLog = newLog();
+    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
 
     const ownerSec = createMembershipWireSecurity({ log: ownerLog, local: owner });
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
@@ -76,11 +81,11 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     const member = newLocal();
     const k0 = randomBytes(32);
     const k1 = randomBytes(32);
-    const ownerLog = new MembershipLog();
+    const ownerLog = newLog();
     ownerLog.appendRoot(owner, k0, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), k0, 0);
-    const memberLog = new MembershipLog();
-    memberLog.toSyncDoc().importUpdate(ownerLog.toSyncDoc().exportSnapshot());
+    const memberLog = newLog();
+    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
 
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
     memberSec.refresh();
@@ -88,7 +93,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
 
     // Owner rotates the transit key (owner + member peers survive). Member converges + refreshes.
     ownerLog.appendRotate(owner.actor, [peerPub(owner), peerPub(member)], k1, k0, 1);
-    memberLog.toSyncDoc().importUpdate(ownerLog.toSyncDoc().exportSnapshot());
+    memberLog.metaDoc.importUpdate(ownerLog.metaDoc.exportSnapshot());
     memberSec.refresh();
     expect(eq(memberSec.security.transitKey, k1)).toBe(true);
   });

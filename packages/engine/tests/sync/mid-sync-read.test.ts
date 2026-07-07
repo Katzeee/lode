@@ -19,10 +19,9 @@ describe("sync mid-partial-sync read contract", () => {
     const b = replica(8); // fresh, empty
     syncTreeOnly(a, b); // treeDoc only: ownership arrives, the content shard does NOT
 
-    const store = b.getShardedStore()!;
     // Ownership arrived via the treeDoc, so the node is structurally known; its content shard
     // was never delivered → the read is undefined and must throw.
-    expect(() => store.getOccurrenceIdsForNode(child.nodeId)).toThrow(/entity not found/);
+    expect(() => b.getOccurrences(child.nodeId)).toThrow(/entity not found/);
   });
 
   it("once the missing shard is delivered the read succeeds (self-heal)", async () => {
@@ -33,11 +32,10 @@ describe("sync mid-partial-sync read contract", () => {
 
     const b = replica(8);
     syncTreeOnly(a, b);
-    const store = b.getShardedStore()!;
-    expect(() => store.getOccurrenceIdsForNode(child.nodeId)).toThrow(/entity not found/);
+    expect(() => b.getOccurrences(child.nodeId)).toThrow(/entity not found/);
 
     // A full sync delivers the shard; the pending read now resolves.
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
-    expect(store.getOccurrenceIdsForNode(child.nodeId)).toContain(child.occurrenceId);
+    await syncPair(a.asOutliner(), b.asOutliner());
+    expect(b.getOccurrences(child.nodeId).map((o) => o.occurrenceId)).toContain(child.occurrenceId);
   });
 });

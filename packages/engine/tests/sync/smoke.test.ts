@@ -22,7 +22,7 @@ describe("sync smoke", () => {
     b.replaceDeltas(shared.occurrenceId, [{ insert: "from B" }]); // B edits shared content (shard)
     createPlainNode(b, root.occurrenceId); // B adds a child
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     assertConverged([a, b], "divergent edits");
     expect(a.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(3);
     expect(b.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(3);
@@ -38,7 +38,7 @@ describe("sync smoke", () => {
     hardDeleteNode(a, targetNode); // A deletes target
     createReference(b, targetNode, root.occurrenceId); // B concurrently refs it
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     // B's ref points at a node whose ownership the delete won — sweepOrphans must drop it,
     // and validateSnapshot (inside assertConverged) must not throw.
     assertConverged([a, b], "ref + delete");
@@ -71,15 +71,15 @@ describe("sync smoke", () => {
     const b = cloneReplica(a);
     createPlainNode(b, root.occurrenceId);
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     const after = JSON.stringify([
-      a.getShardedStore()!.getVersion(),
-      b.getShardedStore()!.getVersion(),
+      a.asOutliner().treeSyncDoc().version(),
+      b.asOutliner().treeSyncDoc().version(),
     ]);
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!); // again
+    await syncPair(a.asOutliner(), b.asOutliner()); // again
     const again = JSON.stringify([
-      a.getShardedStore()!.getVersion(),
-      b.getShardedStore()!.getVersion(),
+      a.asOutliner().treeSyncDoc().version(),
+      b.asOutliner().treeSyncDoc().version(),
     ]);
     expect(again).toBe(after);
     assertConverged([a, b], "re-sync");

@@ -1,6 +1,8 @@
 import { create } from "@bufbuild/protobuf";
 import {
   type DomainChange,
+  DomainChangeKind,
+  DomainChangeReason,
   FieldPresence,
   FieldType,
   FieldValueInputSchema,
@@ -206,19 +208,21 @@ export function formatNodeBlock(
   return lines.join("\n");
 }
 
-const CHANGE_KIND_NAME: Record<number, string> = {
-  0: "fieldSlot",
-  1: "templateRef",
-  2: "fieldValue",
+// Keyed by enum member (not raw ordinal) so a proto reorder can't silently shift the mapping, and
+// Record<Enum, string> makes a new member a compile error here.
+const CHANGE_KIND_NAME: Record<DomainChangeKind, string> = {
+  [DomainChangeKind.FIELD_SLOT]: "fieldSlot",
+  [DomainChangeKind.TEMPLATE_REF]: "templateRef",
+  [DomainChangeKind.FIELD_VALUE]: "fieldValue",
 };
 
-const CHANGE_REASON_NAME: Record<number, string> = {
-  0: "created",
-  1: "reused",
-  2: "moved",
-  3: "deleted",
-  4: "kept",
-  5: "provenanceUpdated",
+const CHANGE_REASON_NAME: Record<DomainChangeReason, string> = {
+  [DomainChangeReason.CREATED]: "created",
+  [DomainChangeReason.REUSED]: "reused",
+  [DomainChangeReason.MOVED]: "moved",
+  [DomainChangeReason.DELETED]: "deleted",
+  [DomainChangeReason.KEPT]: "kept",
+  [DomainChangeReason.PROVENANCE_UPDATED]: "provenanceUpdated",
 };
 
 export function formatChangeResult(header: string, changes: DomainChange[]): string {

@@ -39,10 +39,9 @@ export type { Component } from "./runtime/app.js";
 // `syncPair` remain exported as test helpers. The store/doc/version types are core vocabulary.
 export { InMemorySyncTransport, syncPair } from "./runtime/sync/sync-manager.js";
 export type { SyncTransport, SyncProfile } from "./runtime/sync/sync-manager.js";
-export type { VersionVector } from "./core/types.js";
+export type { SyncBytes, SyncableDoc, SyncableComposite } from "./core/syncable.js";
 export { Engine } from "./core/engine.js";
 export { ShardedBlockStore } from "./core/sharded-store.js";
-export type { SyncDoc } from "./core/sharded-store.js";
 
 // Membership log — the replicated, signed owner+member log (the membership half of the in-process
 // sync core; design sync-identity-persistence §2). Protobuf records in a Loro doc that the engine's

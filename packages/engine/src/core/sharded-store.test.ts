@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "./engine.js";
-import { ShardedBlockStore } from "./sharded-store.js";
+import { ShardedBlockStore, partitionResident, TREE_SUBDOC } from "./sharded-store.js";
+import { SYS_PREFIX } from "./syncable.js";
+import type { LoadedDocBytes } from "./doc-store.js";
 import { validateSnapshot } from "./invariant.js";
 import { toJSON } from "./serializers/json.js";
 import type { Delta } from "./types.js";
@@ -60,5 +62,37 @@ describe("ShardedBlockStore smoke: full production data model round-trips, struc
     const b = e.createNode(a.occurrenceId);
     expect(() => e.moveOccurrence(a.occurrenceId, b.occurrenceId)).toThrow(/cycle/i);
     validateSnapshot(toJSON(e));
+  });
+});
+
+describe("partitionResident: the single place `sys:` is parsed", () => {
+  const bytes = (s: string): Uint8Array => new Uint8Array(Buffer.from(s));
+
+  it("tree identified by its outward id; shards keyed by their BARE id; non-sys entries ignored", () => {
+    const map = new Map<string, LoadedDocBytes>([
+      [SYS_PREFIX + TREE_SUBDOC, { snapshot: bytes("tree"), updates: [bytes("u1")] }],
+      [`${SYS_PREFIX}s3`, { snapshot: bytes("s3bytes"), updates: [] }],
+      [`${SYS_PREFIX}s17`, { snapshot: bytes("s17bytes"), updates: [] }],
+      // A meta doc persisted alongside structure (membership, later) is NOT structure: ignored.
+      ["membership", { snapshot: bytes("roster"), updates: [] }],
+    ]);
+    const { treeBytes, shardSnaps } = partitionResident(map);
+    expect(treeBytes?.snapshot).toEqual(bytes("tree"));
+    expect(treeBytes?.updates).toEqual([bytes("u1")]);
+    expect(shardSnaps.get("s3")).toEqual(bytes("s3bytes"));
+    expect(shardSnaps.get("s17")).toEqual(bytes("s17bytes"));
+    expect(shardSnaps.has("membership")).toBe(false); // non-sys ignored
+  });
+
+  it("empty input → no tree, no shards", () => {
+    expect(partitionResident(undefined)).toEqual({ treeBytes: null, shardSnaps: new Map() });
+    expect(partitionResident(new Map())).toEqual({ treeBytes: null, shardSnaps: new Map() });
+  });
+
+  it("a shard entry with a null snapshot contributes nothing (no empty key)", () => {
+    const map = new Map<string, LoadedDocBytes>([
+      [`${SYS_PREFIX}s0`, { snapshot: null, updates: [] }],
+    ]);
+    expect(partitionResident(map).shardSnaps.has("s0")).toBe(false);
   });
 });

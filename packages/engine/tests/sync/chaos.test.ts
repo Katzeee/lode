@@ -29,7 +29,7 @@ describe("sync chaos: partial delivery + partition heal", () => {
     // Truth: a partial exchange must not crash. (B may temporarily reference an undelivered
     // entity — that's the incomplete state a heal fixes.)
     // Full heal:
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     assertConverged([a, b], "partial → full heal");
     expect(b.getOccurrence(added.occurrenceId)).toBeDefined(); // A's added node reached B
   });
@@ -42,7 +42,7 @@ describe("sync chaos: partial delivery + partition heal", () => {
     const c = cloneReplica(base);
 
     // A↔B converge while C is partitioned (diverges on its own).
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     const onC = createPlainNode(c, root.occurrenceId);
     const onA = createPlainNode(a, root.occurrenceId);
 
@@ -63,10 +63,10 @@ describe("sync chaos: partial delivery + partition heal", () => {
     const b = cloneReplica(a);
     createPlainNode(b, root.occurrenceId);
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     const after = canonical(a);
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
+    await syncPair(a.asOutliner(), b.asOutliner());
     expect(canonical(a)).toBe(after);
     expect(canonical(b)).toBe(after);
     assertConverged([a, b], "re-delivery");

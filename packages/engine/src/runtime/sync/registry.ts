@@ -4,7 +4,6 @@ import { PreconditionFailedError } from "../../services/errors.js";
 import type { AppWorkspaceRuntime } from "../workspace-registry.js";
 import type { ActorKeypair } from "../../utils/crypto/index.js";
 import type { Engine } from "../../core/engine.js";
-import type { ShardedBlockStore } from "../../core/sharded-store.js";
 import type { App, Component } from "../app.js";
 import { SyncContext } from "./context.js";
 import { MembershipRound, ContentRound } from "./round.js";
@@ -273,12 +272,8 @@ export class SyncRegistry implements Component {
     if (!engine) {
       return; // workspace not open yet — the poll retries
     }
-    const store = engine.getShardedStore();
-    if (!store) {
-      return;
-    }
     try {
-      const handle = await this.buildSyncApp(wsId, store, engine);
+      const handle = await this.buildSyncApp(wsId, engine);
       if (this.stopped) {
         await handle.app.stop(); // stop() ran while build was in flight — don't leak.
         return;
@@ -293,11 +288,7 @@ export class SyncRegistry implements Component {
   /** Build the per-workspace sync sub-graph: a child App of the root, with the context (transport),
    *  the round driver (tick), and the push fast-path. Round bodies (membership + content) are plain
    *  collaborators held by the driver — they have no lifecycle of their own. */
-  private async buildSyncApp(
-    wsId: string,
-    store: ShardedBlockStore,
-    engine: Engine,
-  ): Promise<SyncAppHandle> {
+  private async buildSyncApp(wsId: string, engine: Engine): Promise<SyncAppHandle> {
     const keypair = this.registrations.get(wsId);
     if (keypair === undefined) {
       throw new Error(`buildSyncApp: no actor registered for ${wsId}`);
@@ -311,7 +302,6 @@ export class SyncRegistry implements Component {
     const ctx = new SyncContext({
       wsId,
       url: this.url ?? "",
-      store,
       log: log_,
       local,
       engine,

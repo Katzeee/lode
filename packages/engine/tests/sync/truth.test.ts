@@ -22,7 +22,7 @@ import { assertConverged, assertEquiv, cloneReplica, replica } from "./harness.j
  */
 
 function stores(a: ReturnType<typeof replica>, b: ReturnType<typeof replica>) {
-  return [a.getShardedStore()!, b.getShardedStore()!] as const;
+  return [a.asOutliner(), b.asOutliner()] as const;
 }
 
 describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {

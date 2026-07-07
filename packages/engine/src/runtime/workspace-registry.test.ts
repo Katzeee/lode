@@ -2,9 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LoroMap } from "loro-crdt";
+import { LoroMap, VersionVector } from "loro-crdt";
 import { generateActorKeypair } from "../utils/crypto/index.js";
 import { AppWorkspaceRuntime } from "./workspace-registry.js";
+import type { ShardedBlockStore } from "../core/sharded-store.js";
 import { shardIdOf } from "../core/sharding.js";
 
 /**
@@ -28,9 +29,9 @@ const buildAndMutate = async (dataRoot: string) => {
   const rt = await AppWorkspaceRuntime.persistent({ dataRoot });
   await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
   const doc = (await rt.getEngine("ws"))!;
-  expect(doc.getShardedStore()).not.toBeNull();
+  expect(doc.asOutliner()).not.toBeNull();
 
-  const before = doc.getVersion();
+  const before = doc.asOutliner().treeSyncDoc().version();
   const root = doc.createNode(null);
   for (let i = 0; i < 30; i++) {
     doc.createNode(root.occurrenceId, undefined, { i });
@@ -53,7 +54,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     try {
       const doc2 = (await rt2.getEngine("ws"))!;
-      expect(doc2.getShardedStore()).not.toBeNull();
+      expect(doc2.asOutliner()).not.toBeNull();
       // Structure survived (the root + 30 children).
       const root2 = doc2.getOccurrence(rootOcc);
       expect(root2).toBeDefined();
@@ -69,7 +70,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
-    expect(doc.getShardedStore()).not.toBeNull(); // always sharded
+    expect(doc.asOutliner()).not.toBeNull(); // always sharded
     await rt.close();
   });
 
@@ -80,9 +81,12 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const peerId = rt.peerId;
     expect(typeof peerId).toBe("number");
     expect(peerId!).toBeGreaterThan(0);
-    // The peerId reached the treeDoc: an op lands under it in the version vector.
+    // The peerId reached the treeDoc: an op lands under it in the version vector. (Decodes the
+    // opaque version bytes here purely to observe the peer set — production code never does this.)
     doc.createNode(null);
-    const vvPeers = [...doc.getVersion().toJSON().keys()];
+    const vvPeers = [
+      ...VersionVector.decode(doc.asOutliner().treeSyncDoc().version()).toJSON().keys(),
+    ];
     expect(vvPeers).toContain(String(peerId));
     await rt.close();
 
@@ -98,7 +102,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const doc = (await rt.getEngine("ws"))!;
     // createNode writes an entity into the owning shard, materializing that shard lazily.
     const node = doc.createNode(null);
-    const store = doc.getShardedStore()!;
+    const store = doc.asOutliner() as ShardedBlockStore;
     const shard = store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
     const shardPeers = [...shard.version().toJSON().keys()];
     expect(shardPeers).toContain(String(rt.peerId));
@@ -113,10 +117,10 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
-    const before = doc.getVersion();
+    const before = doc.asOutliner().treeSyncDoc().version();
     const root = doc.createNode(null);
 
-    const store = doc.getShardedStore()!;
+    const store = doc.asOutliner() as ShardedBlockStore;
     const shard = store.getShardDoc(shardIdOf(root.nodeId, store.numShards));
     const entity = shard.getMap("entities").get(root.nodeId);
     expect(entity).toBeInstanceOf(LoroMap);

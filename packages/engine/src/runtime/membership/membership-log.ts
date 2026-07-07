@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { encodeFrontiers, LoroDoc, type LoroList } from "loro-crdt";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { createLogger } from "@lode/logger";
 import type { MembershipPersistence } from "./membership-persistence.js";
@@ -12,7 +11,7 @@ import {
   type ActorKeypair,
   type PeerKeypair,
 } from "../../utils/crypto/index.js";
-import type { SyncDoc } from "../../core/sharded-store.js";
+import type { MetaDoc } from "../../core/meta-doc.js";
 import { NotOwnerError, PreconditionFailedError } from "../../services/errors.js";
 import {
   AddRecordSchema,
@@ -38,8 +37,8 @@ const log = createLogger("engine.membership");
  * attribution + governance + self-service-add); actorId is the hex of the Ed25519 sign pub, so the
  * sign pub is recovered from the signer's actorId at verify time (records carry no sign pub field).
  *
- * Records are protobuf (MembershipRecord) bytes in a LoroList, so the log is itself a Loro doc that
- * syncs like any other. A record is SKIPPED at replay (not fatal) if its signature fails, its signer
+ * Records are protobuf (MembershipRecord) bytes in a `MetaDoc`'s append-only log, so the log is
+ * itself a syncable doc (a CRDT whose loro backing lives in core). A record is SKIPPED at replay
  * isn't authorized (owner for governance; the owning actor for a self-service add), it's a `root`
  * after the first, it's a `transfer` to a non-member actor or to the current owner, it's a `rotate`
  * whose epoch isn't strictly ahead or that drops every owner peer, or it's an `add` whose join epoch
@@ -55,8 +54,6 @@ const log = createLogger("engine.membership");
  *  inside it are per-peer wrapped, so the log itself isn't secret) → it rides the broker's plaintext
  *  envelope so a joining peer can read it BEFORE it holds the transit key (bootstrap). */
 export const MEMBERSHIP_DOC_ID = "membership";
-
-const LOG_CONTAINER = "membership_log";
 
 /** One admitted peer in the replayed state. The transit key is wrapped to `peerEncPub`. */
 export type Peer = {
@@ -97,8 +94,10 @@ export type LocalPeer = {
 };
 
 export class MembershipLog {
-  readonly doc: LoroDoc;
-  private readonly list: LoroList;
+  /** The backing CRDT doc (a `MetaDoc`: an append-only record log that is itself a `SyncableDoc`).
+   *  Injected by the composition root so this module names no CRDT backend. Public so tests can
+   *  inject raw/forged records to probe replay; production goes through the builders below. */
+  readonly metaDoc: MetaDoc;
   private readonly persistence?: MembershipPersistence;
   /** Encoded frontiers of the last persisted snapshot — the dirty-check baseline. */
   private lastPersisted?: Uint8Array;
@@ -107,9 +106,8 @@ export class MembershipLog {
    *  change", not a per-instance boolean that would hide a second, later corruption. */
   private skipLastCount = 0;
 
-  constructor(doc: LoroDoc = new LoroDoc(), persistence?: MembershipPersistence) {
-    this.doc = doc;
-    this.list = doc.getList(LOG_CONTAINER);
+  constructor(metaDoc: MetaDoc, persistence?: MembershipPersistence) {
+    this.metaDoc = metaDoc;
     this.persistence = persistence;
   }
 
@@ -123,8 +121,8 @@ export class MembershipLog {
     if (!bytes) {
       return false;
     }
-    this.doc.import(bytes);
-    this.lastPersisted = encodeFrontiers(this.doc.oplogFrontiers());
+    this.metaDoc.importUpdate(bytes);
+    this.lastPersisted = this.metaDoc.frontiers();
     return true;
   }
 
@@ -134,40 +132,21 @@ export class MembershipLog {
     if (!this.persistence) {
       return;
     }
-    const frontiers = encodeFrontiers(this.doc.oplogFrontiers());
+    const frontiers = this.metaDoc.frontiers();
     if (this.lastPersisted && sameBytes(frontiers, this.lastPersisted)) {
       return;
     }
-    await this.persistence.save(this.doc.export({ mode: "snapshot" }));
+    await this.persistence.save(this.metaDoc.exportSnapshot());
     this.lastPersisted = frontiers;
   }
 
   records(): MembershipRecord[] {
-    return this.list
-      .toArray()
-      .map((s) => fromBinary(MembershipRecordSchema, Buffer.from(s as string, "base64")));
+    return this.metaDoc.records().map((bytes) => fromBinary(MembershipRecordSchema, bytes));
   }
 
   private append(rec: MembershipRecord): void {
-    this.list.push(Buffer.from(toBinary(MembershipRecordSchema, rec)).toString("base64"));
-    this.doc.commit();
-  }
-
-  /** The log as a `SyncDoc` (id `MEMBERSHIP_DOC_ID`) so a transport can exchange it like any doc.
-   *  Mirrors `ShardedBlockStore`'s per-doc adapter. The transport serves this on the push-apply path
-   *  only (never in its profile — see the sync sub-graph), so SyncManager never mistakes the membership
-   *  doc for a shard. */
-  toSyncDoc(): SyncDoc {
-    const doc = this.doc;
-    return {
-      id: MEMBERSHIP_DOC_ID,
-      version: () => doc.version(),
-      exportUpdate: (from) => doc.export(from ? { mode: "update", from } : { mode: "update" }),
-      exportSnapshot: () => doc.export({ mode: "snapshot" }),
-      importUpdate: (bytes) => {
-        doc.import(bytes);
-      },
-    };
+    this.metaDoc.appendRecord(toBinary(MembershipRecordSchema, rec));
+    this.metaDoc.commit();
   }
 
   // ── record builders ────────────────────────────────────────────────────────────
@@ -266,7 +245,7 @@ export class MembershipLog {
    *  (signature + authorization + the authority-independent invariants) live in
    *  `membership-replay.ts`. Deterministic given the merged list → every replica converges. */
   deriveState(): { state: MembershipState; skipped: MembershipRecord[] } {
-    const result = deriveMembershipState(this.list.toArray());
+    const result = deriveMembershipState(this.metaDoc.records());
     if (result.skipped.length > this.skipLastCount) {
       // New corruption appeared since the last round — surface it. A stable count stays quiet
       // (per-round dedup); a heal (count falling) updates silently. Turn up engine=debug for every

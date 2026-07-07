@@ -1,9 +1,10 @@
 import { Engine } from "../../src/core/engine.js";
-import { ShardedBlockStore, type SyncDoc } from "../../src/core/sharded-store.js";
+import { ShardedBlockStore, type Outliner } from "../../src/core/sharded-store.js";
+import type { SyncableDoc } from "../../src/core/syncable.js";
+import type { LoadedDocBytes } from "../../src/core/index.js";
 import { toJSON } from "../../src/core/serializers/json.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
-import { MAIN_SUBDOC } from "../../src/persistence/workspace-store.js";
 import { stableStringify } from "../truth-model.js";
 
 /**
@@ -20,23 +21,27 @@ export function replica(numShards = 8): Engine {
   return new Engine({ store: new ShardedBlockStore({ numShards }) });
 }
 
-/** Seed a fresh engine from snapshots of src (treeDoc + every shard). The snapshot bytes carry
- *  the full CRDT history, so the clone converges identically with src after sync. */
+/** Seed a fresh engine from snapshots of src (tree + every shard) via the `SyncableDoc` surface —
+ *  no raw `LoroDoc` reach. The snapshot bytes carry the full CRDT history, so the clone converges
+ *  identically with src after sync. */
 export function cloneReplica(src: Engine): Engine {
-  const s = src.getShardedStore();
-  if (!s) {
-    throw new Error("cloneReplica: src is not a sharded engine");
+  // Clone needs the sharding config (numShards), so reach the concrete impl — test-only cast;
+  // src is always a ShardedBlockStore. The residentBytes map is keyed by outward SyncableDoc ids.
+  const s = src.asOutliner() as ShardedBlockStore;
+  const residentBytes = new Map<string, LoadedDocBytes>();
+  residentBytes.set(s.treeSyncDoc().id, {
+    snapshot: s.treeSyncDoc().exportSnapshot(),
+    updates: [],
+  });
+  for (const d of s.shardSyncDocs()) {
+    residentBytes.set(d.id, { snapshot: d.exportSnapshot(), updates: [] });
   }
-  const dst = new ShardedBlockStore({ numShards: s.numShards });
-  dst.treeDoc.import(s.treeDoc.export({ mode: "snapshot" }));
-  for (const sid of s.shardIds()) {
-    dst.getShardDoc(sid).import(s.getShardDoc(sid).export({ mode: "snapshot" }));
-  }
+  const dst = new ShardedBlockStore({ numShards: s.numShards, residentBytes });
   return new Engine({ store: dst });
 }
 
-function storeOf(e: Engine): ShardedBlockStore {
-  const s = e.getShardedStore();
+function storeOf(e: Engine): Outliner {
+  const s = e.asOutliner();
   if (!s) {
     throw new Error("not a sharded engine");
   }
@@ -126,14 +131,14 @@ export function assertConverged(replicas: Engine[], label = ""): void {
 
 // ── chaos primitives (port of the prototype simulator's partial-delivery shapes) ──────────
 
-function docOf(e: Engine, id: string): SyncDoc | undefined {
+function docOf(e: Engine, id: string): SyncableDoc | undefined {
   return e
-    .getShardedStore()
-    ?.syncDocs()
+    .asOutliner()
+    ?.docs()
     .find((d) => d.id === id);
 }
 
-function twoWaySyncDoc(da: SyncDoc, db: SyncDoc): void {
+function twoWaySyncDoc(da: SyncableDoc, db: SyncableDoc): void {
   const va = da.version();
   const vb = db.version();
   const aToB = da.exportUpdate(vb);
@@ -142,11 +147,15 @@ function twoWaySyncDoc(da: SyncDoc, db: SyncDoc): void {
   db.importUpdate(aToB);
 }
 
-/** Sync ONLY the treeDoc ("main") between two replicas; content shards stay undelivered.
- *  Models a mid-sync or partitioned-shard state. */
+/** Sync ONLY the treeDoc between two replicas; content shards stay undelivered.
+ *  Models a mid-sync or partitioned-shard state. The treeDoc is the composite's first doc. */
 export function syncTreeOnly(a: Engine, b: Engine): void {
-  const da = docOf(a, MAIN_SUBDOC);
-  const db = docOf(b, MAIN_SUBDOC);
+  const treeId = storeOf(a).treeSyncDoc().id;
+  if (!treeId) {
+    return;
+  }
+  const da = docOf(a, treeId);
+  const db = docOf(b, treeId);
   if (da && db) {
     twoWaySyncDoc(da, db);
   }

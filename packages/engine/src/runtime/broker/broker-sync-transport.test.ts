@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { WorkspaceDocSet } from "../../core/doc-set.js";
 import { SyncManager } from "../sync/sync-manager.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
@@ -46,8 +47,16 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
 
-    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
+    const ta = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(a.store),
+      workspaceId: "W",
+    });
+    const tb = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(b.store),
+      workspaceId: "W",
+    });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle(); // let both subscribes land on the server
@@ -71,8 +80,16 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     server = new BrokerServer();
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
-    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
+    const ta = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(a.store),
+      workspaceId: "W",
+    });
+    const tb = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(b.store),
+      workspaceId: "W",
+    });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
@@ -103,8 +120,16 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     server = new BrokerServer();
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
-    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
+    const ta = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(a.store),
+      workspaceId: "W",
+    });
+    const tb = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(b.store),
+      workspaceId: "W",
+    });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
@@ -129,7 +154,7 @@ describe("BrokerSyncProtocol — transport contract (timeouts, lifecycle, robust
     // A single transport, no other peer → its profileReq goes unanswered.
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
       responseTimeoutMs: 60,
     });
@@ -145,7 +170,7 @@ describe("BrokerSyncProtocol — transport contract (timeouts, lifecycle, robust
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
       responseTimeoutMs: 5000,
     });
@@ -168,13 +193,21 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
       const node = a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
       a.engine.replaceDeltas(node.occurrenceId, [{ insert: `page-${i}` }]);
     }
-    expect(a.store.syncDocs().length).toBeGreaterThan(1); // ≥ treeDoc + a shard
+    expect(a.store.docs().length).toBeGreaterThan(1); // ≥ treeDoc + a shard
 
     server = new BrokerServer();
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
-    const ta = new BrokerSyncProtocol({ url, store: a.store, workspaceId: "W" });
-    const tb = new BrokerSyncProtocol({ url, store: b.store, workspaceId: "W" });
+    const ta = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(a.store),
+      workspaceId: "W",
+    });
+    const tb = new BrokerSyncProtocol({
+      url,
+      docSet: new WorkspaceDocSet(b.store),
+      workspaceId: "W",
+    });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
@@ -183,11 +216,11 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     await ma.sync();
     await mb.sync();
 
-    // B materialized the same shards and every doc's VV converged.
-    expect(b.store.syncDocs().length).toBe(a.store.syncDocs().length);
-    for (const ad of a.store.syncDocs()) {
-      const bd = b.store.syncDocs().find((d) => d.id === ad.id);
-      expect(bd && ad.version().compare(bd.version()) === 0).toBe(true);
+    // B materialized the same shards and every doc's opaque version converged.
+    expect(b.store.docs().length).toBe(a.store.docs().length);
+    for (const ad of a.store.docs()) {
+      const bd = b.store.docs().find((d) => d.id === ad.id);
+      expect(bd && Buffer.from(ad.version()).equals(Buffer.from(bd.version()))).toBe(true);
     }
   });
 });

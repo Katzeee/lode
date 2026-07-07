@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
-import { MembershipLog, type LocalPeer } from "./membership-log.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
 import { MembershipSync } from "./membership-sync.js";
 import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
 
@@ -29,7 +34,7 @@ function pipe(a: MembershipLog, b: MembershipLog): { ta: SyncTransport; tb: Sync
     remoteProfile: () => Promise.resolve([] as SyncProfile),
     fetchUpdates: () => Promise.resolve(new Uint8Array(0)),
     sendUpdates: (_docId, bytes) => {
-      target.toSyncDoc().importUpdate(bytes);
+      target.metaDoc.importUpdate(bytes);
       return Promise.resolve();
     },
   });
@@ -43,14 +48,14 @@ describe("MembershipSync — plaintext gossip convergence", () => {
     const tk = randomBytes(32);
 
     // Owner bootstraps; the member's log starts EMPTY — it must learn everything via gossip.
-    const ownerLog = new MembershipLog();
+    const ownerLog = newLog();
     ownerLog.appendRoot(owner, tk, "");
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
-    const memberLog = new MembershipLog();
+    const memberLog = newLog();
 
     const { ta, tb } = pipe(ownerLog, memberLog);
-    const ownerSync = new MembershipSync(ta, ownerLog.toSyncDoc());
-    const memberSync = new MembershipSync(tb, memberLog.toSyncDoc());
+    const ownerSync = new MembershipSync(ta, ownerLog.metaDoc);
+    const memberSync = new MembershipSync(tb, memberLog.metaDoc);
 
     // Gossip rounds: owner pushes → member imports; member pushes back → owner imports (no-op).
     await ownerSync.sync();
@@ -67,12 +72,12 @@ describe("MembershipSync — plaintext gossip convergence", () => {
   it("is idempotent across repeated rounds (CRDT merge of the same records)", async () => {
     const owner = newLocal();
     const tk = randomBytes(32);
-    const a = new MembershipLog();
+    const a = newLog();
     a.appendRoot(owner, tk, "");
-    const b = new MembershipLog();
+    const b = newLog();
     const { ta, tb } = pipe(a, b);
-    const sa = new MembershipSync(ta, a.toSyncDoc());
-    const sb = new MembershipSync(tb, b.toSyncDoc());
+    const sa = new MembershipSync(ta, a.metaDoc);
+    const sb = new MembershipSync(tb, b.metaDoc);
     for (let i = 0; i < 5; i++) {
       await sa.sync();
       await sb.sync();

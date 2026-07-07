@@ -199,17 +199,4 @@ describe("Engine entity and occurrence semantics", () => {
 
     expect(completed).toBe(true);
   });
-
-  it("export APIs move bytes (full round-trip is covered by runtime.test)", () => {
-    const source = new Engine();
-    const root = source.createNode();
-    const version = source.getVersion();
-    source.replaceDeltas(root.occurrenceId, [{ insert: "persisted" }]);
-
-    // exportSnapshot/exportUpdateFrom are the sync/persistence primitives (treeDoc-scope
-    // on the sharded store). They must produce bytes; the full persist+reload round-trip
-    // (structure + shard content) is exercised by runtime.test.ts + the daemon suite.
-    expect(source.exportSnapshot().length).toBeGreaterThan(0);
-    expect(source.exportUpdateFrom(version).length).toBeGreaterThan(0);
-  });
 });

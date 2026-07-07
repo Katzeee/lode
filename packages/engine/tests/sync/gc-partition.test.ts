@@ -22,7 +22,7 @@ describe("sync gc: no resurrection under partition", () => {
     const b = cloneReplica(base); // partitioned: still has target live
     hardDeleteNode(a, target.nodeId); // majority deletes while b is partitioned
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!); // b reconnects
+    await syncPair(a.asOutliner(), b.asOutliner()); // b reconnects
     assertConverged([a, b], "reconnect after delete");
     // Truth: delete is authoritative — target gone on both, no resurrection.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).not.toContain(targetOcc);
@@ -40,7 +40,7 @@ describe("sync gc: no resurrection under partition", () => {
     // b, unaware, makes a fresh ref to the still-live-on-b target
     const ref = createReference(b, target.nodeId, root.occurrenceId);
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!); // reconnect
+    await syncPair(a.asOutliner(), b.asOutliner()); // reconnect
     assertConverged([a, b], "ref-during-partition swept");
     // Truth: delete wins; b's new ref points at a node whose ownership is gone → swept.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).not.toContain(ref.occurrenceId);

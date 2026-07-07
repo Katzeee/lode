@@ -1,64 +1,40 @@
-import { Subject } from "rxjs";
 import { Engine, type EngineOptions } from "./engine.js";
 
 export type WorkspaceOptions = {
   id?: string;
-  idGenerator?: () => string;
 };
 
 export type DocOptions = Omit<EngineOptions, "id">;
 
+/**
+ * A workspace holds exactly one outliner engine — its content. Formerly modeled as a `Map` of docs
+ * (a speculative N-doc generality hardwired to 1); collapsed to the single outliner the product
+ * actually has. Membership is workspace-level metadata, not a doc here.
+ */
 export class Workspace {
   readonly id: string;
-  private readonly _idGenerator: () => string;
-  private readonly _docs = new Map<string, Engine>();
-
-  readonly slots = {
-    docListUpdated: new Subject<void>(),
-  };
+  private _engine: Engine | null = null;
 
   constructor(options: WorkspaceOptions = {}) {
     this.id = options.id ?? crypto.randomUUID();
-    this._idGenerator = options.idGenerator ?? (() => crypto.randomUUID());
   }
 
-  get docs(): ReadonlyMap<string, Engine> {
-    return this._docs;
+  /** The single outliner engine, or null before `createEngine`. */
+  get engine(): Engine | null {
+    return this._engine;
   }
 
-  createDoc(docId?: string, options?: DocOptions): Engine {
-    if (this._docs.size > 0) {
-      throw new Error("Workspace already has a doc — one engine per workspace");
+  /** Create the workspace's single outliner engine. Throws if already created. */
+  createEngine(options?: DocOptions): Engine {
+    if (this._engine !== null) {
+      throw new Error("Workspace already has an engine");
     }
-    const id = docId ?? this._idGenerator();
-    if (this._docs.has(id)) {
-      throw new Error(`Doc already exists: ${id}`);
-    }
-    const engine = new Engine({ ...options, id });
-    this._docs.set(id, engine);
-    this.slots.docListUpdated.next();
-    return engine;
-  }
-
-  getDoc(id: string): Engine | undefined {
-    return this._docs.get(id);
-  }
-
-  removeDoc(id: string): void {
-    const engine = this._docs.get(id);
-    if (!engine) {
-      return;
-    }
-    engine.dispose();
-    this._docs.delete(id);
-    this.slots.docListUpdated.next();
+    this._engine = new Engine(options ?? {});
+    return this._engine;
   }
 
   dispose(): void {
-    for (const engine of this._docs.values()) {
-      engine.dispose();
-    }
-    this._docs.clear();
-    this.slots.docListUpdated.complete();
+    this._engine?.dispose();
+    this._engine = null;
   }
 }

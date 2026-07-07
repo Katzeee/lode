@@ -121,7 +121,3 @@ export type DocSnapshot = {
   occurrences: NodeOccurrenceSnapshot[];
   rootOccurrenceIds: OccurrenceId[];
 };
-
-// ── Sync ──────────────────────────────────────────────────────────────────────
-
-export type { VersionVector } from "loro-crdt";

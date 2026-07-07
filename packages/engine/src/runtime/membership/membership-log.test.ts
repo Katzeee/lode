@@ -14,7 +14,12 @@ import {
   MembershipRecordSchema,
   type MembershipRecord,
 } from "@lode/protocol/proto";
-import { MembershipLog, type LocalPeer } from "./membership-log.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
 
 const newTransitKey = (): Uint8Array => randomBytes(32);
 const eq = (a: Uint8Array, b: Uint8Array): boolean => Buffer.from(a).equals(Buffer.from(b));
@@ -39,7 +44,7 @@ describe("membership log — lifecycle", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(member), tk, 0);
 
@@ -65,7 +70,7 @@ describe("membership log — lifecycle", () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     const k1 = newTransitKey();
@@ -86,7 +91,7 @@ describe("membership log — owner-only governance", () => {
     const successor = newLocal();
     const newMember = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(successor), tk, 0);
 
@@ -111,7 +116,7 @@ describe("membership log — owner-only governance", () => {
     const member = newLocal();
     const intruder = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     // Member self-adds their own SECOND peer — authorized (self-service, §13).
@@ -138,20 +143,18 @@ describe("membership log — owner-only governance", () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
 
     // Rebuild a log with the add record's signature zeroed.
-    const tampered = new MembershipLog();
+    const tampered = newLog();
     for (const r of log.records()) {
       const mutated: MembershipRecord =
         r.body.case === "add" ? { ...r, sig: new Uint8Array(64) } : r;
-      tampered.doc
-        .getList("membership_log")
-        .push(Buffer.from(toBinary(MembershipRecordSchema, mutated)).toString("base64"));
+      tampered.metaDoc.appendRecord(toBinary(MembershipRecordSchema, mutated));
     }
-    tampered.doc.commit();
+    tampered.metaDoc.commit();
     const t = tampered.deriveState();
     expect(t.state.peers.has(member.peerId)).toBe(false);
     expect(t.skipped.length).toBeGreaterThan(0);
@@ -159,7 +162,7 @@ describe("membership log — owner-only governance", () => {
     // An unknown signer (owns no peer anywhere) self-signs an add for themselves → skipped: the
     // self-service rule requires the signer to already own ≥1 admitted peer.
     const stranger: ActorKeypair = generateActorKeypair();
-    const strangerLog = new MembershipLog();
+    const strangerLog = newLog();
     strangerLog.appendRoot(owner, k0, "");
     const body = create(AddRecordSchema, {
       owningActor: stranger.actorId,
@@ -173,10 +176,8 @@ describe("membership log — owner-only governance", () => {
       sig: signWithActor(stranger.privateKey, toBinary(AddRecordSchema, body)),
       body: { case: "add", value: body },
     });
-    strangerLog.doc
-      .getList("membership_log")
-      .push(Buffer.from(toBinary(MembershipRecordSchema, forged)).toString("base64"));
-    strangerLog.doc.commit();
+    strangerLog.metaDoc.appendRecord(toBinary(MembershipRecordSchema, forged));
+    strangerLog.metaDoc.commit();
 
     const { state, skipped } = strangerLog.deriveState();
     expect([...state.peers.values()].some((d) => d.owningActorId === stranger.actorId)).toBe(false);
@@ -189,7 +190,7 @@ describe("membership log — addMember (owner-guarded composition)", () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
 
     log.addMember(owner, peerPub(member));
@@ -210,7 +211,7 @@ describe("membership log — addMember (owner-guarded composition)", () => {
     const member = newLocal();
     const outsider = newLocal();
     const tk = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, tk, "");
     log.appendAdd(owner.actor, peerPub(member), tk, 0);
     const before = log.records().length;
@@ -225,7 +226,7 @@ describe("membership log — addMember (owner-guarded composition)", () => {
   });
 
   it("refuses on a workspace with no owner root yet (e.g. an unrooted log)", () => {
-    const log = new MembershipLog();
+    const log = newLog();
     const owner = newLocal();
     expect(() => log.addMember(owner, peerPub(newLocal()))).toThrow(
       "addMember: workspace has no owner root",
@@ -241,7 +242,7 @@ describe("membership log — recovery (re-add → current transit key)", () => {
     const k0 = newTransitKey();
     const k1 = newTransitKey();
     const k2 = newTransitKey();
-    const log = new MembershipLog();
+    const log = newLog();
     log.appendRoot(owner, k0, "");
     log.appendAdd(owner.actor, peerPub(member), k0, 0);
     log.appendRotate(owner.actor, [peerPub(owner), peerPub(member)], k1, k0, 1);

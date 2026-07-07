@@ -5,21 +5,9 @@ import { BrokerService, type BrokerFrame, BrokerFrameSchema } from "@lode/protoc
 import { createLogger } from "@lode/logger";
 import { createBroker, type Broker, type BrokerPeer } from "./broker.js";
 import { BoundedAsyncQueue } from "./bounded-async-queue.js";
+import { DEFAULT_MAX_SEND_BUFFERED_BYTES, estimateFrameBytes } from "./broker-wire.js";
 
 const log = createLogger("engine.broker.server");
-
-/** Approximate wire size of a frame (payload + small overhead) — the bound for the send queue. */
-const frameBytes = (f: BrokerFrame): number => {
-  const k = f.kind;
-  if ((k.case === "publish" || k.case === "deliver") && k.value.payload !== undefined) {
-    return k.value.payload.length + 64;
-  }
-  return 64;
-};
-
-/** Per-connection send-buffer cap — generous for normal burst (a Loro update blob is KB–MB), tight
- *  enough that a wedged peer can't leak the relay to OOM. */
-const DEFAULT_MAX_SEND_BUFFERED_BYTES = 4 * 1024 * 1024;
 
 /**
  * The broker relay — the production relay's core (design sync-design.md §3), now hosted as a Connect
@@ -120,7 +108,7 @@ export class BrokerServer {
     const id = `c${this.nextId++}`;
     const out = new BoundedAsyncQueue<BrokerFrame>(
       DEFAULT_MAX_SEND_BUFFERED_BYTES,
-      frameBytes,
+      estimateFrameBytes,
       (frame, bytes, buffered) => {
         log.warn("broker send buffer over cap; dropping frame", {
           kind: frame.kind.case,

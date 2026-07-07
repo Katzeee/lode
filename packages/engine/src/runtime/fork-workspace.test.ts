@@ -37,7 +37,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       // Write content beyond the auto-created root so the copy exercises shards, not just the
       // treeDoc root node. persistMutation is a no-op in-memory, but keeps the doc state current.
       const src = (await rt.getEngine("src"))!;
-      const before = src.getVersion();
+      const before = src.asOutliner().treeSyncDoc().version();
       const root = src.getRootOccurrences().at(0)!;
       for (let i = 0; i < 5; i++) {
         src.createNode(root.occurrenceId);
@@ -83,7 +83,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
         actorKeypair: owner,
       });
       const src = (await rt.getEngine("src"))!;
-      const before = src.getVersion();
+      const before = src.asOutliner().treeSyncDoc().version();
       src.createNode(src.getRootOccurrences().at(0)!.occurrenceId);
       await rt.persistMutation("src", before);
       const srcSnapshot = toJSON(src);
@@ -111,7 +111,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       actorKeypair: owner,
     });
     const src = (await rt.getEngine("src"))!;
-    const before = src.getVersion();
+    const before = src.asOutliner().treeSyncDoc().version();
     src.createNode(src.getRootOccurrences().at(0)!.occurrenceId);
     await rt.persistMutation("src", before);
     const expected = toJSON(src);

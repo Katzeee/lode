@@ -1,11 +1,25 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { LoroDoc } from "loro-crdt";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { MembershipLog, type LocalPeer } from "../membership/membership-log.js";
+import { WorkspaceDocSet } from "../../core/doc-set.js";
+import type { MetaDoc } from "../../core/meta-doc.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
+
+/** A docSet wrapping a (membership-only) outliner + the membership meta doc registered `public` —
+ *  the production shape SyncContext builds; the broker reads visibility from the docSet. */
+const docSetWith = (store: ShardedBlockStore, meta: MetaDoc): WorkspaceDocSet => {
+  const ds = new WorkspaceDocSet(store);
+  ds.registerMeta(meta, "public");
+  return ds;
+};
 
 // Directed membership fetch (design §3c): a joiner asks ONE peer (by peerId) for the full membership
 // doc, reusing the `updatesReq/Resp` + `reqId` correlation with a directed publish. This is the first
@@ -39,30 +53,28 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
       peer: generatePeerKeypair(),
       peerId: "owner",
     };
-    const ownerLog = new MembershipLog(new LoroDoc(), undefined);
+    const ownerLog = newLog();
     await ownerLog.load();
     ownerLog.appendRoot(ownerLocal, randomBytes(32), "");
-    const ownerDoc = ownerLog.toSyncDoc();
+    const ownerDoc = ownerLog.metaDoc;
 
-    const joinerLog = new MembershipLog(new LoroDoc(), undefined);
+    const joinerLog = newLog();
     await joinerLog.load();
-    const joinerDoc = joinerLog.toSyncDoc();
+    const joinerDoc = joinerLog.metaDoc;
     expect(joinerLog.records()).toHaveLength(0); // joiner starts with no root
 
     // The membership doc is a public doc (plaintext roster); no transit key / security needed for this
     // fetch. A ShardedBlockStore is required by the constructor; membership-only here (no content sync).
     const owner = new BrokerSyncProtocol({
       url,
-      store: new ShardedBlockStore({ numShards: 4 }),
+      docSet: docSetWith(new ShardedBlockStore({ numShards: 4 }), ownerDoc),
       workspaceId: "W",
-      publicDocs: () => [ownerDoc],
       peerId: "owner",
     });
     const joiner = new BrokerSyncProtocol({
       url,
-      store: new ShardedBlockStore({ numShards: 4 }),
+      docSet: docSetWith(new ShardedBlockStore({ numShards: 4 }), joinerDoc),
       workspaceId: "W",
-      publicDocs: () => [joinerDoc],
       peerId: "joiner",
     });
     transports.push(owner, joiner);
@@ -95,13 +107,13 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     const url = `http://127.0.0.1:${server.port}`;
     const a = new BrokerSyncProtocol({
       url,
-      store: new ShardedBlockStore({ numShards: 4 }),
+      docSet: new WorkspaceDocSet(new ShardedBlockStore({ numShards: 4 })),
       workspaceId: "W",
       peerId: "A",
     });
     const b = new BrokerSyncProtocol({
       url,
-      store: new ShardedBlockStore({ numShards: 4 }),
+      docSet: new WorkspaceDocSet(new ShardedBlockStore({ numShards: 4 })),
       workspaceId: "W",
       peerId: "B",
     });

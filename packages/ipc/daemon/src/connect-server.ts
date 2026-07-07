@@ -121,7 +121,7 @@ export function createLodeServer(
         sessions.set(session, id);
         session.on("close", () => {
           sessions.delete(session);
-          runtime.removeConnection(id as string);
+          runtime.sessions.removeConnection(id as string);
         });
       }
       return createContextValues().set(connectionIdKey, id);

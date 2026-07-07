@@ -1,22 +1,29 @@
 /* eslint-disable max-lines -- per-workspace lifecycle + sharded persistence composition root;
    the peerId/store/createDoc/load/persist wiring is cohesive in one place */
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
-import { LoroDoc } from "loro-crdt";
-import { Workspace, type Engine, type VersionVector } from "../core/index.js";
+import {
+  LoroMetaDoc,
+  Workspace,
+  type DocStore,
+  type Engine,
+  type LoadedDocBytes,
+  type SyncBytes,
+} from "../core/index.js";
 import { ShardedBlockStore } from "../core/sharded-store.js";
+import { WorkspaceDocStore } from "./workspace-doc-store.js";
 import { validateSnapshot } from "../core/invariant.js";
 import { toJSON } from "../core/serializers/json.js";
 import { createPlainNode } from "../domain/node.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
-import { CONTENT_DOC_KIND, MAIN_SUBDOC, WorkspaceStore } from "../persistence/workspace-store.js";
+import { WorkspaceStore } from "../persistence/workspace-store.js";
 import {
   peerKeypairFromPrivateKey,
   generatePeerKeypair,
   type PeerKeypair,
 } from "../utils/crypto/index.js";
-import { WorkspaceMembershipPersistence } from "./membership/membership-persistence.js";
-import { MembershipLog, type LocalPeer } from "./membership/membership-log.js";
+import { DocStoreMembershipPersistence } from "./membership/membership-persistence.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership/membership-log.js";
 import { App, type Component } from "./app.js";
 import type { ActorKeypair } from "../utils/crypto/index.js";
 
@@ -37,6 +44,9 @@ type LoadedWorkspace = {
   app: App;
   workspace: Workspace;
   store: WorkspaceStore | null;
+  // The DocStore port (core's id→bytes contract) the runtime adapts the persistence leaf into.
+  // Null in in-memory mode. loadOutliner/persistMutation/initOutliner speak this, not the leaf.
+  docStore: DocStore | null;
   // The membership log is workspace state — owned by the engine, consumed by the sync runner via
   // membershipLog(). Created + loaded in registerLoaded; rooted at createWorkspace for an owner.
   membershipLog: MembershipLog;
@@ -144,13 +154,15 @@ export class AppWorkspaceRuntime {
     await app.start();
     // The engine owns the membership log (workspace state). Loaded from persistence here — empty on
     // a first create; an owner's root is appended in createWorkspace. The sync runner consumes it via
-    // membershipLog() and never constructs one of its own.
+    // membershipLog() and never constructs one of its own. Membership persists via the DocStore port
+    // (a content sub-doc under its own id), not a dedicated table.
+    const docStore = store ? new WorkspaceDocStore(store) : null;
     const membershipLog = new MembershipLog(
-      new LoroDoc(),
-      store ? new WorkspaceMembershipPersistence(store) : undefined,
+      new LoroMetaDoc(MEMBERSHIP_DOC_ID),
+      docStore ? new DocStoreMembershipPersistence(docStore, MEMBERSHIP_DOC_ID) : undefined,
     );
     await membershipLog.load();
-    const loaded = { app, workspace, store, membershipLog };
+    const loaded = { app, workspace, store, docStore, membershipLog };
     this.loaded.set(workspaceId, loaded);
     return loaded;
   }
@@ -248,28 +260,24 @@ export class AppWorkspaceRuntime {
       loaded.membershipLog.appendRoot(local, randomBytes(32), input.peerName ?? "");
       await loaded.membershipLog.persistIfDirty();
     }
-    // A ws is one content tree: auto-init the single content doc ("main") at creation. Both owner-
-    // create (keypair present) and joiner-create (no keypair) get it, so the joiner converges the
-    // owner's content into it. (The existence check above means this only runs on a genuine new ws.)
-    await this.createDoc({
-      workspaceId: info.workspaceId,
-      docId: MAIN_SUBDOC,
-      displayName: "Main",
-    });
-    // Single-root tree: the owner's createWorkspace creates the one root node (named = the workspace's
-    // display name), gated on the owner keypair exactly like the membership root above. The joiner (no
-    // keypair) creates no root — it converges the owner's root over sync. Guarded on an empty tree so a
-    // re-create never double-roots. The runtime calls the domain primitive directly (parent = null),
-    // bypassing the service-layer parent-required guard the RPC path enforces.
-    const doc = loaded.workspace.getDoc(MAIN_SUBDOC);
-    if (
-      doc !== undefined &&
-      input.actorKeypair !== undefined &&
-      doc.getRootOccurrences().length === 0
-    ) {
-      // Persist alongside createDoc's empty snapshot — capture the pre-create version so the root
-      // op (node + its name text) is appended as one update; otherwise a restart reloads an empty tree.
-      const beforeVersion = doc.getVersion();
+    // A ws is one outliner: auto-init the single content engine at creation. Both owner-create
+    // (keypair present) and joiner-create (no keypair) get it, so the joiner converges the owner's
+    // content into it. (The existence check above means this only runs on a genuine new ws.)
+    const doc = await this.initOutliner(info.workspaceId);
+    // Single-root tree: the owner's createWorkspace creates the one root node (named = the
+    // workspace's display name), gated on the owner keypair exactly like the membership root above.
+    // The joiner (no keypair) creates no root — it converges the owner's root over sync. Guarded on
+    // an empty tree so a re-create never double-roots. The runtime calls the domain primitive
+    // directly (parent = null), bypassing the service-layer parent-required guard the RPC path
+    // enforces.
+    if (input.actorKeypair !== undefined && doc.getRootOccurrences().length === 0) {
+      // Capture the pre-create version (via the tree SyncableDoc) so the root op is appended as one
+      // update; otherwise a restart reloads an empty tree.
+      const tree = doc.asOutliner().treeSyncDoc();
+      if (!tree) {
+        throw new Error("createWorkspace: outliner has no syncable tree");
+      }
+      const beforeVersion = tree.version();
       const root = createPlainNode(doc, null);
       doc.replaceDeltas(root.occurrenceId, [{ insert: input.displayName }]);
       await this.persistMutation(info.workspaceId, beforeVersion);
@@ -305,20 +313,18 @@ export class AppWorkspaceRuntime {
     // (requireWorkspace, not the peek-only membershipLog()). The source is read-only here — fork
     // never mutates it; it leaves the forker's copy of the old ws intact.
     const source = await this.requireWorkspace(input.sourceWorkspaceId);
-    const sourceDoc = source.workspace.getDoc(MAIN_SUBDOC);
-    if (sourceDoc === undefined) {
-      throw new Error(`forkWorkspace: source has no content doc: ${input.sourceWorkspaceId}`);
+    const sourceEngine = source.workspace.engine;
+    if (sourceEngine === null) {
+      throw new Error(`forkWorkspace: source has no outliner: ${input.sourceWorkspaceId}`);
     }
-    // Export the source's full current state: treeDoc snapshot + each materialized shard snapshot
-    // (the same primitives persistMutation uses). exportSnapshot captures in-memory state, so the
-    // fork includes the forker's latest — possibly unpersisted — edits.
-    const sourceTree = sourceDoc.exportSnapshot();
-    const shardSnaps = new Map<string, Uint8Array>();
-    const sourceSharded = sourceDoc.getShardedStore();
-    if (sourceSharded) {
-      for (const shardId of sourceSharded.shardIds()) {
-        shardSnaps.set(shardId, sourceSharded.getShardDoc(shardId).export({ mode: "snapshot" }));
-      }
+    const sourceSharded = sourceEngine.asOutliner();
+    // Export the source's full current state as a residentBytes map keyed by outward SyncableDoc ids
+    // — the same shape the load path produces. The store's partition identifies tree + shards from it.
+    const residentBytes = new Map<string, LoadedDocBytes>();
+    const sourceTree = sourceSharded.treeSyncDoc().exportSnapshot();
+    residentBytes.set(sourceSharded.treeSyncDoc().id, { snapshot: sourceTree, updates: [] });
+    for (const doc of sourceSharded.shardSyncDocs()) {
+      residentBytes.set(doc.id, { snapshot: doc.exportSnapshot(), updates: [] });
     }
     if (this.peerId === undefined || this.peerKeypair === undefined) {
       throw new Error("forkWorkspace: no peer identity on this dataRoot");
@@ -335,7 +341,7 @@ export class AppWorkspaceRuntime {
       const workspaceId = randomUUID();
       info = { workspaceId, displayName: input.displayName };
       this.memoryCatalog.set(workspaceId, info);
-      const workspace = this.buildForkedWorkspace(workspaceId, sourceTree, shardSnaps);
+      const workspace = this.buildForkedWorkspace(workspaceId, residentBytes);
       loaded = await this.registerLoaded(workspaceId, workspace, null);
     } else {
       if (!this.options.dataRoot) {
@@ -348,23 +354,15 @@ export class AppWorkspaceRuntime {
       const store = await WorkspaceStore.open(
         workspaceDbPath(this.options.dataRoot, record.relativePath),
       );
-      const workspace = this.buildForkedWorkspace(record.workspaceId, sourceTree, shardSnaps);
-      // Persist the copied content as pure snapshots — the same shape createDoc writes for a fresh
-      // doc (main snapshot at covered_update_seq 0) plus the per-shard snapshot writes persistMutation
-      // does. `sourceTree` IS the bytes the new doc imported, so it's exactly the new doc's state.
-      await store.createDoc({
-        docId: MAIN_SUBDOC,
-        displayName: "Main",
-        snapshotBytes: sourceTree,
-        kind: CONTENT_DOC_KIND,
-      });
-      for (const [shardId, snap] of shardSnaps) {
-        await store.writeSnapshot({
-          docId: MAIN_SUBDOC,
-          subDoc: shardId,
-          coveredUpdateSeq: 0,
-          snapshotBytes: snap,
-        });
+      const workspace = this.buildForkedWorkspace(record.workspaceId, residentBytes);
+      // Persist the copied content as pure snapshots via the DocStore port — the residentBytes map IS
+      // the new outliner's state, so this is exactly what reload reconstructs. The port is the
+      // canonical write surface; each doc keyed by its outward SyncableDoc id.
+      const forkDocStore = new WorkspaceDocStore(store);
+      for (const [id, bytes] of residentBytes) {
+        if (bytes.snapshot) {
+          await forkDocStore.writeSnapshot(id, bytes.snapshot);
+        }
       }
       loaded = await this.registerLoaded(record.workspaceId, workspace, store);
     }
@@ -377,25 +375,23 @@ export class AppWorkspaceRuntime {
     return info;
   }
 
-  /** Build the forked Workspace: one content doc (MAIN_SUBDOC) seeded from the source's exported
-   *  treeDoc snapshot + shard snapshots — the write-side mirror of loadShardedDoc. The new treeDoc
-   *  re-derives its ownership map from `sourceTree`, so its shardIds() match `shardSnaps`'s keys
-   *  (deterministic nodeId→bucket→shardId, same numShards on both sides). */
+  /** Build the forked Workspace: one outliner seeded from the source's exported residentBytes map —
+   *  the write-side mirror of loadOutliner. The new treeDoc re-derives its ownership map from the
+   *  imported tree bytes, so its shardIds() match the map's shard keys (deterministic
+   *  nodeId→bucket→shardId, same numShards on both sides). */
   private buildForkedWorkspace(
     workspaceId: string,
-    sourceTree: Uint8Array,
-    shardSnaps: Map<string, Uint8Array>,
+    residentBytes: Map<string, LoadedDocBytes>,
   ): Workspace {
     const workspace = new Workspace({ id: workspaceId });
     // peerId is defined here — doForkWorkspace threw above if it weren't — so no conditional spread.
     const blockStore = new ShardedBlockStore({
-      initialTreeBytes: sourceTree,
+      residentBytes,
       peerId: this.peerId,
-      shardLoader: (shardId: string): Uint8Array | null => shardSnaps.get(shardId) ?? null,
     });
-    const doc = workspace.createDoc(MAIN_SUBDOC, { store: blockStore });
+    const doc = workspace.createEngine({ store: blockStore });
     // reconcileDurability self-heals create/delete orphans between treeDoc and shards; validateSnapshot
-    // rejects anything it cannot heal (mirrors loadShardedDoc's post-import checks). This is also
+    // rejects anything it cannot heal (mirrors loadOutliner's post-import checks). This is also
     // fork's safety net for a concurrent write to the source: the treeDoc + shard snapshots are not
     // taken atomically (createChain serializes fork only against other create/fork ops, not against
     // persistMutation or peer edits), so reconcileDurability heals any tree↔shard skew a racing
@@ -424,40 +420,37 @@ export class AppWorkspaceRuntime {
     return this.options.registry.removeWorkspace(workspaceId);
   }
 
-  async createDoc(input: {
-    workspaceId: string;
-    docId?: string;
-    displayName?: string;
-  }): Promise<string> {
-    const loaded = await this.requireWorkspace(input.workspaceId);
-    const doc = loaded.workspace.createDoc(input.docId, {
-      store: new ShardedBlockStore(this.peerId !== undefined ? { peerId: this.peerId } : {}),
-    });
-    if (loaded.store) {
+  /** Create the workspace's single outliner engine (empty) + persist its initial empty snapshot via
+   *  the DocStore port (the canonical write surface), keyed by the tree SyncableDoc id — not a raw
+   *  store.writeSnapshot with a literal sub_doc. */
+  private async initOutliner(workspaceId: string): Promise<Engine> {
+    const loaded = await this.requireWorkspace(workspaceId);
+    const blockStore = new ShardedBlockStore(
+      this.peerId !== undefined ? { peerId: this.peerId } : {},
+    );
+    const engine = loaded.workspace.createEngine({ store: blockStore });
+    if (loaded.docStore) {
       try {
-        await loaded.store.createDoc({
-          docId: doc.id,
-          displayName: input.displayName ?? doc.id,
-          snapshotBytes: doc.exportSnapshot(),
-        });
+        const tree = blockStore.treeSyncDoc();
+        await loaded.docStore.writeSnapshot(tree.id, tree.exportSnapshot());
       } catch (error) {
-        loaded.workspace.removeDoc(doc.id);
+        loaded.workspace.dispose();
         throw error;
       }
     }
-    return doc.id;
+    return engine;
   }
 
   async getEngine(workspaceId: string): Promise<Engine | null> {
     const loaded = await this.getWorkspace(workspaceId);
-    return this.singleEngine(loaded?.workspace);
+    return loaded?.workspace?.engine ?? null;
   }
 
   /** The engine for an ALREADY-loaded workspace, WITHOUT triggering a load. Sync attaches to open
    *  workspaces; calling the load path here would race with the doc-adding load (a concurrent reload
    *  can overwrite the `loaded` entry and lose a just-added doc). Null if the workspace isn't open. */
   loadedEngine(workspaceId: string): Engine | null {
-    return this.singleEngine(this.loaded.get(workspaceId)?.workspace);
+    return this.loaded.get(workspaceId)?.workspace?.engine ?? null;
   }
 
   /** The membership log for an ALREADY-loaded workspace (null if not open yet). Peek-only — never
@@ -467,73 +460,27 @@ export class AppWorkspaceRuntime {
     return this.loaded.get(workspaceId)?.membershipLog ?? null;
   }
 
-  async persistMutation(workspaceId: string, beforeVersion: VersionVector): Promise<void> {
+  async persistMutation(workspaceId: string, beforeVersion: SyncBytes): Promise<void> {
     const loaded = await this.requireWorkspace(workspaceId);
-    if (!loaded.store) {
+    if (!loaded.docStore) {
       return;
     }
-    const workspace = loaded.workspace;
-    const docId = this.singleDocId(workspace);
-    const doc = workspace.getDoc(docId);
-    if (!doc) {
-      throw new Error(`Doc not found: ${docId}`);
+    const engine = loaded.workspace.engine;
+    if (!engine) {
+      throw new Error("Workspace has no engine");
     }
-    const sharded = doc.getShardedStore();
-    if (sharded) {
-      // treeDoc persists incrementally via the main sub-doc (exportUpdateFrom/getVersion
-      // are treeDoc-only on the sharded store, so beforeVersion is the treeDoc's VV).
-      const seq = await loaded.store.appendUpdate({
-        docId,
-        updateBytes: doc.exportUpdateFrom(beforeVersion),
-      });
-      if (seq % this.options.snapshotEveryUpdates === 0) {
-        await loaded.store.writeSnapshot({
-          docId,
-          coveredUpdateSeq: seq,
-          snapshotBytes: doc.exportSnapshot(),
-        });
-      }
-      // Each loaded shard persists as its latest snapshot (snapshot-only; shards are
-      // small, lazy-load is the win). Correctness over incremental shard updates.
-      for (const shardId of sharded.shardIds()) {
-        await loaded.store.writeSnapshot({
-          docId,
-          subDoc: shardId,
-          coveredUpdateSeq: 0,
-          snapshotBytes: sharded.getShardDoc(shardId).export({ mode: "snapshot" }),
-        });
-      }
-      return;
-    }
-    const seq = await loaded.store.appendUpdate({
-      docId,
-      updateBytes: doc.exportUpdateFrom(beforeVersion),
-    });
+    const sharded = engine.asOutliner();
+    // Persist via the structural SyncableDoc accessors over the DocStore port: the tree persists
+    // incrementally (update stream + periodic snapshot); shards persist as their latest snapshot
+    // only (overwritten — shards are small, lazy-load is the win). The port hides coveredUpdateSeq.
+    const tree = sharded.treeSyncDoc();
+    const seq = await loaded.docStore.appendUpdate(tree.id, tree.exportUpdate(beforeVersion));
     if (seq % this.options.snapshotEveryUpdates === 0) {
-      await loaded.store.writeSnapshot({
-        docId,
-        coveredUpdateSeq: seq,
-        snapshotBytes: doc.exportSnapshot(),
-      });
+      await loaded.docStore.writeSnapshot(tree.id, tree.exportSnapshot());
     }
-  }
-
-  // One doc per workspace — the engine accessor + the storage key derive from its single entry
-  // (auto-created at createWorkspace; no doc-lifecycle RPC).
-  private singleEngine(workspace: Workspace | undefined): Engine | null {
-    if (!workspace) {
-      return null;
+    for (const doc of sharded.shardSyncDocs()) {
+      await loaded.docStore.writeSnapshot(doc.id, doc.exportSnapshot());
     }
-    return [...workspace.docs.values()][0] ?? null;
-  }
-
-  private singleDocId(workspace: Workspace): string {
-    const ids = [...workspace.docs.keys()];
-    const id = ids[0];
-    if (id === undefined) {
-      throw new Error("Workspace has no doc");
-    }
-    return id;
   }
 
   async close(): Promise<void> {
@@ -576,17 +523,11 @@ export class AppWorkspaceRuntime {
     );
     let workspace: Workspace;
     try {
-      // Load only CONTENT docs. Non-content docs (the membership log) share this sqlite but are
-      // engine-owned sync state loaded in registerLoaded — not sharded engine docs.
-      const docIds = await store.listDocs(CONTENT_DOC_KIND);
       workspace = new Workspace({ id: record.workspaceId });
-      for (const docId of docIds) {
-        await this.loadShardedDoc(store, workspace, docId);
-      }
+      await this.loadOutliner(new WorkspaceDocStore(store), workspace);
     } catch (error) {
-      // loadShardedDoc can reject a corrupt persisted state (validateSnapshot after
-      // reconcile). No ChildApp is registered yet, so close the store directly to
-      // avoid leaking the SQLite handle.
+      // loadOutliner can reject a corrupt persisted state (validateSnapshot after reconcile).
+      // No ChildApp is registered yet, so close the store directly to avoid leaking the handle.
       await store.close();
       throw error;
     }
@@ -594,47 +535,38 @@ export class AppWorkspaceRuntime {
   }
 
   /**
-   * Load a sharded doc: the treeDoc (main sub-doc) eagerly (snapshot + updates), and
-   * shard snapshots pre-loaded into the sync `shardLoader` map. The shard LoroDocs
-   * themselves still materialize lazily on first access; full lazy shard LOAD (not
-   * even reading the bytes until touched) needs an async shardLoader and is deferred.
-   * reconcileDurability runs for cross-doc crash recovery.
+   * Load the workspace's outliner: read every persisted doc via the DocStore port into a
+   * residentBytes map and hand it to the store. The store's `partitionResident` identifies the tree
+   * + shards by the `sys:` prefix, so this load path carries no structure-id literal (and a
+   * non-structure doc persisted alongside, like membership later, is naturally excluded). Shards
+   * still materialize lazily on first access; true lazy disk read (not pre-reading every doc) is
+   * deferred to the buffer-pool phase. reconcileDurability runs for cross-doc crash recovery.
    */
-  private async loadShardedDoc(
-    store: WorkspaceStore,
-    workspace: Workspace,
-    docId: string,
-  ): Promise<void> {
-    const main = await store.loadDocBytes(docId);
-    if (!main) {
-      return;
+  private async loadOutliner(docStore: DocStore, workspace: Workspace): Promise<void> {
+    const ids = await docStore.listIds();
+    if (ids.length === 0) {
+      return; // nothing persisted (a fresh workspace inits its empty snapshot via initOutliner)
     }
-    const shardSnaps = new Map<string, Uint8Array>();
-    for (const subDoc of await store.listSubDocs(docId)) {
-      if (subDoc === MAIN_SUBDOC) {
-        continue;
-      }
-      const shardBytes = await store.loadDocBytes(docId, subDoc);
-      if (shardBytes?.snapshotBytes) {
-        shardSnaps.set(subDoc, shardBytes.snapshotBytes);
+    // Load every persisted doc and hand the store the full map — the store's partition identifies
+    // the tree + shards by the sys: prefix, so the load path carries no structure-id literal and a
+    // non-structure doc persisted alongside (membership, later) is naturally excluded.
+    const residentBytes = new Map<string, LoadedDocBytes>();
+    for (const id of ids) {
+      const bytes = await docStore.load(id);
+      if (bytes) {
+        residentBytes.set(id, bytes);
       }
     }
-    const shardLoader = (shardId: string): Uint8Array | null => shardSnaps.get(shardId) ?? null;
     const blockStore = new ShardedBlockStore({
-      ...(main.snapshotBytes ? { initialTreeBytes: main.snapshotBytes } : {}),
       ...(this.peerId !== undefined ? { peerId: this.peerId } : {}),
-      shardLoader,
+      residentBytes,
     });
-    const doc = workspace.createDoc(docId, { store: blockStore });
-    for (const updateBytes of main.updateBytes) {
-      doc.importUpdate(updateBytes);
-    }
+    const engine = workspace.createEngine({ store: blockStore });
     // reconcileDurability self-heals create/delete orphans between treeDoc and shards;
-    // validateSnapshot then rejects anything it CANNOT heal (a broken canonical ref, a
-    // detached subtree, bytes from an incompatible version). This is the sharded analog
-    // of the old single-doc constructor import validation.
+    // validateSnapshot then rejects anything it CANNOT heal (a broken canonical ref, a detached
+    // subtree, bytes from an incompatible version).
     blockStore.reconcileDurability();
-    validateSnapshot(toJSON(doc));
+    validateSnapshot(toJSON(engine));
   }
 }
 

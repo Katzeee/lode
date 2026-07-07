@@ -3,13 +3,28 @@ import { afterEach, describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { WorkspaceDocSet } from "../../core/doc-set.js";
+import type { MetaDoc } from "../../core/meta-doc.js";
 import { SyncManager } from "../sync/sync-manager.js";
-import { MembershipLog, type LocalPeer } from "../membership/membership-log.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { MembershipSync } from "../membership/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { LoroMetaDoc } from "../../core/meta-doc.js";
+
+/** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
+const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>
+  new MembershipLog(new LoroMetaDoc(MEMBERSHIP_DOC_ID), persistence);
+
+/** A docSet wrapping the outliner + the membership meta doc registered `public` — the production
+ *  shape SyncContext builds. The broker reads visibility from the docSet, not a publicDocs thunk. */
+const docSetWith = (store: ShardedBlockStore, meta: MetaDoc): WorkspaceDocSet => {
+  const ds = new WorkspaceDocSet(store);
+  ds.registerMeta(meta, "public");
+  return ds;
+};
 
 // Transport integration: one secured transport carries the membership doc over a PLAINTEXT
 // envelope (0x00 tag) and content docs over a SEALED envelope (0x01 tag). The membership doc converges
@@ -67,10 +82,10 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const owner = newLocal();
     const member = newLocal();
     const tk = randomBytes(32);
-    const logA = new MembershipLog();
+    const logA = newLog();
     logA.appendRoot(owner, tk, "");
     logA.appendAdd(owner.actor, peerPub(member), tk, 0);
-    const logB = new MembershipLog(); // member log EMPTY — converges via plaintext gossip
+    const logB = newLog(); // member log EMPTY — converges via plaintext gossip
 
     const secA = createMembershipWireSecurity({ log: logA, local: owner });
     const secB = createMembershipWireSecurity({ log: logB, local: member });
@@ -80,17 +95,15 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: docSetWith(a.store, logA.metaDoc),
       workspaceId: "W",
       security: secA.security,
-      publicDocs: () => [logA.toSyncDoc()],
     });
     const tb = new BrokerSyncProtocol({
       url,
-      store: b.store,
+      docSet: docSetWith(b.store, logB.metaDoc),
       workspaceId: "W",
       security: secB.security,
-      publicDocs: () => [logB.toSyncDoc()],
     });
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
@@ -104,8 +117,8 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // (1) Membership gossip (plaintext): owner pushes → member imports. Refresh so the member's
     //     security installs the transit key before the sealed content round.
-    const syncA = new MembershipSync(ta, logA.toSyncDoc());
-    const syncB = new MembershipSync(tb, logB.toSyncDoc());
+    const syncA = new MembershipSync(ta, logA.metaDoc);
+    const syncB = new MembershipSync(tb, logB.metaDoc);
     await syncA.sync();
     await settle();
     await syncB.sync();
@@ -146,9 +159,9 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const owner = newLocal();
     const stranger = newLocal(); // NOT added to the membership
     const tk = randomBytes(32);
-    const logA = new MembershipLog();
+    const logA = newLog();
     logA.appendRoot(owner, tk, ""); // owner only — stranger is not a member
-    const logB = new MembershipLog(); // stranger's log never receives an `add` for itself
+    const logB = newLog(); // stranger's log never receives an `add` for itself
 
     const secA = createMembershipWireSecurity({ log: logA, local: owner });
     const secB = createMembershipWireSecurity({ log: logB, local: stranger });
@@ -158,17 +171,15 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
       url,
-      store: a.store,
+      docSet: docSetWith(a.store, logA.metaDoc),
       workspaceId: "W",
       security: secA.security,
-      publicDocs: () => [logA.toSyncDoc()],
     });
     const tb = new BrokerSyncProtocol({
       url,
-      store: b.store,
+      docSet: docSetWith(b.store, logB.metaDoc),
       workspaceId: "W",
       security: secB.security, // stranger resolves pubs but holds no transit key (not a member)
-      publicDocs: () => [logB.toSyncDoc()],
       responseTimeoutMs: 80,
     });
     transports.push(ta, tb);
@@ -177,8 +188,8 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // The stranger converges the PUBLIC roster (plaintext) — it sees the owner — but it is not a
     // member, so secB never installs a transit key and content sync (sealed) fails every round.
-    const syncA = new MembershipSync(ta, logA.toSyncDoc());
-    const syncB = new MembershipSync(tb, logB.toSyncDoc());
+    const syncA = new MembershipSync(ta, logA.metaDoc);
+    const syncB = new MembershipSync(tb, logB.metaDoc);
     await syncA.sync();
     await settle();
     await syncB.sync();

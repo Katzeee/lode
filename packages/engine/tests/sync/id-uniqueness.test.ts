@@ -25,7 +25,7 @@ describe("id uniqueness contract", () => {
     expect(ax.nodeId).not.toBe(bx.nodeId);
     expect(ax.occurrenceId).not.toBe(bx.occurrenceId);
 
-    await syncPair(a.getShardedStore()!, b.getShardedStore()!);
+    await syncPair(a.asOutliner(), b.asOutliner());
     assertConverged([a, b], "no collision");
     // Both replicas hold both nodes, no duplicate ids in the converged state.
     expect(a.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(2);
