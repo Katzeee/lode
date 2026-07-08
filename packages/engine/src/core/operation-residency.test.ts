@@ -73,7 +73,7 @@ describe("operation-level residency (Phase 4): ensureResident pins the working s
       }
     }
     e.captureSync();
-    await store.persistDirtyShards(); // unpin the create-pins so the working-set pin is the only pin
+    await store.flushDirty(); // unpin the create-pins so the working-set pin is the only pin
     await store.ensureResident(nodeIds);
     const pinned = faults.length;
     // Interleave 5 rounds of edits across both shards — pinned ⇒ all cache hits, no re-faults.
@@ -83,5 +83,42 @@ describe("operation-level residency (Phase 4): ensureResident pins the working s
     }
     store.release();
     expect(faults.length).toBe(pinned); // no thrash: zero re-faults across 10 cross-shard edits
+  });
+});
+
+/**
+ * Mid-burst residency — the Phase 3 regression net. Before Phase 3, `shardForWrite` pinned every
+ * clean→dirty shard until `flushDirty`; a write burst over many shards with NO mid-flush therefore
+ * pinned each one, and resident spiked past capacity. Phase 3 removed the write-pin (a dirty shard
+ * is freely evictable — `onEvict` flushes it). This test samples `residentShardCount` on every cold
+ * fault during an un-flushed multi-shard burst and asserts it stays bounded (≤ capacity + 1, the
+ * documented per-fault transient before `evictToFit` reclaims). A re-introduced write-pin would
+ * push the max far past that.
+ */
+describe("mid-burst residency (Phase 3): an un-flushed multi-shard write burst stays bounded", () => {
+  it("residentShardCount never spikes past capacity during a no-flush write burst", async () => {
+    const numShards = 32;
+    const capacity = 2;
+    const samples: number[] = [];
+    const store = new ShardedBlockStore({
+      numShards,
+      capacity,
+      docStore: recordingDocStore(),
+      snapshotEveryUpdates: Number.POSITIVE_INFINITY,
+      onFault: () => samples.push(store.residentShardCount),
+    });
+    const e = new Engine({ store });
+    const root = await e.createNode(null);
+    // Create nodes until > capacity shards are touched (random ids fan across the shard space).
+    const touched = new Set<string>();
+    while (touched.size <= capacity) {
+      const n = await e.createNode(root.occurrenceId);
+      touched.add(shardIdOf(n.nodeId, numShards));
+    }
+    e.captureSync();
+    // NO flushDirty between creates — the burst. Every dirty shard was written without being pinned.
+    expect(samples.length).toBeGreaterThan(capacity); // the burst faulted more shards than capacity
+    expect(Math.max(...samples)).toBeLessThanOrEqual(capacity + 1); // no spike; +1 is the per-fault transient
+    expect(store.residentShardCount).toBeLessThanOrEqual(capacity); // quiescent after the burst
   });
 });

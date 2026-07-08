@@ -1,4 +1,10 @@
-import type { DocSnapshot, NodeId, OccurrenceId } from "./types.js";
+import type {
+  DocSnapshot,
+  NodeId,
+  NodeEntitySnapshot,
+  NodeOccurrenceSnapshot,
+  OccurrenceId,
+} from "./types.js";
 
 /**
  * Structural invariants over a serializable `DocSnapshot` — the engine's
@@ -10,20 +16,23 @@ import type { DocSnapshot, NodeId, OccurrenceId } from "./types.js";
  * Checks no-cycle / no-detached-subtree / full parent↔child / canonical-membership /
  * orphan-entity. Throws on the first violation with a precise message. Pure function —
  * safe at runtime (e.g. after import/restart) and in tests.
+ *
+ * `validateOccurrenceStructure` is the tree-only half (zero entity reads): it checks the
+ * occurrence graph reachable from roots is acyclic, fully parent↔child linked, and every
+ * occurrence is reachable. `validateSnapshot` adds the entity-dependent checks (every
+ * occurrence's entity exists; canonical membership) on top.
  */
-export function validateSnapshot(snap: DocSnapshot): void {
-  const entityById = new Map<NodeId, (typeof snap.entities)[number]>();
-  for (const entity of snap.entities) {
-    if (entityById.has(entity.nodeId)) {
-      throw new Error(`Duplicate entity: ${entity.nodeId}`);
-    }
-    entityById.set(entity.nodeId, entity);
-  }
 
-  const occById = new Map<OccurrenceId, (typeof snap.occurrences)[number]>();
+/** Index `occurrences` by id + by node, checking occurrence-level uniqueness along the way. Shared
+ *  by the tree-only + full validators so the indexing isn't done twice. */
+function indexOccurrences(occurrences: readonly NodeOccurrenceSnapshot[]): {
+  occById: Map<OccurrenceId, NodeOccurrenceSnapshot>;
+  occsByNode: Map<NodeId, OccurrenceId[]>;
+} {
+  const occById = new Map<OccurrenceId, NodeOccurrenceSnapshot>();
   const occsByNode = new Map<NodeId, OccurrenceId[]>();
   const occIdsSeen = new Set<string>();
-  for (const occ of snap.occurrences) {
+  for (const occ of occurrences) {
     if (occById.has(occ.occurrenceId)) {
       throw new Error(`Duplicate occurrence: ${occ.occurrenceId}`);
     }
@@ -40,9 +49,22 @@ export function validateSnapshot(snap: DocSnapshot): void {
     list.push(occ.occurrenceId);
     occsByNode.set(occ.nodeId, list);
   }
+  return { occById, occsByNode };
+}
+
+/** The tree-only structural checks over an occurrence graph: roots exist + have no parent; every
+ *  occurrence's parent exists; full parent↔child linkage; no cycles / no detached subtrees (every
+ *  occurrence reachable from a root exactly once). NO entity reads — usable on the tree-only
+ *  `toJSONOccurrences` snapshot (e.g. the fork's post-reconcile safety check, which avoids a second
+ *  full-shard walk). */
+export function validateOccurrenceStructure(
+  occurrences: readonly NodeOccurrenceSnapshot[],
+  rootOccurrenceIds: readonly OccurrenceId[],
+): void {
+  const { occById } = indexOccurrences(occurrences);
 
   // 1. Roots exist and have no parent.
-  for (const rootId of snap.rootOccurrenceIds) {
+  for (const rootId of rootOccurrenceIds) {
     const occ = occById.get(rootId);
     if (!occ) {
       throw new Error(`Root ${rootId} not in occurrences`);
@@ -52,11 +74,8 @@ export function validateSnapshot(snap: DocSnapshot): void {
     }
   }
 
-  // 2. Every occurrence is well-formed; its entity exists; its parent exists.
-  for (const occ of snap.occurrences) {
-    if (!entityById.has(occ.nodeId)) {
-      throw new Error(`Occurrence ${occ.occurrenceId} references missing node ${occ.nodeId}`);
-    }
+  // 2. Every occurrence's parent exists.
+  for (const occ of occurrences) {
     if (occ.parentOccurrenceId !== null && !occById.has(occ.parentOccurrenceId)) {
       throw new Error(
         `Occurrence ${occ.occurrenceId} has missing parent ${occ.parentOccurrenceId}`,
@@ -65,7 +84,7 @@ export function validateSnapshot(snap: DocSnapshot): void {
   }
 
   // 3. Parent ↔ child consistency.
-  for (const occ of snap.occurrences) {
+  for (const occ of occurrences) {
     for (const childId of occ.physicalChildOccurrenceIds) {
       const child = occById.get(childId);
       if (!child) {
@@ -82,7 +101,7 @@ export function validateSnapshot(snap: DocSnapshot): void {
   // 4. No cycles and no detached subtrees: DFS from roots visits every occurrence
   //    exactly once. An occurrence unreachable from any root is structurally invalid.
   const visited = new Set<OccurrenceId>();
-  const stack: OccurrenceId[] = [...snap.rootOccurrenceIds];
+  const stack: OccurrenceId[] = [...rootOccurrenceIds];
   while (stack.length > 0) {
     const cur = stack.pop()!;
     if (visited.has(cur)) {
@@ -96,13 +115,33 @@ export function validateSnapshot(snap: DocSnapshot): void {
       }
     }
   }
-  for (const occ of snap.occurrences) {
+  for (const occ of occurrences) {
     if (!visited.has(occ.occurrenceId)) {
       throw new Error(`Detached occurrence ${occ.occurrenceId} (unreachable from roots)`);
     }
   }
+}
 
-  // 5. Canonical validity: canonical ∈ the node's occurrences and points back.
+export function validateSnapshot(snap: DocSnapshot): void {
+  const entityById = new Map<NodeId, NodeEntitySnapshot>();
+  for (const entity of snap.entities) {
+    if (entityById.has(entity.nodeId)) {
+      throw new Error(`Duplicate entity: ${entity.nodeId}`);
+    }
+    entityById.set(entity.nodeId, entity);
+  }
+
+  const { occById, occsByNode } = indexOccurrences(snap.occurrences);
+  validateOccurrenceStructure(snap.occurrences, snap.rootOccurrenceIds);
+
+  // 5. Every occurrence references an entity that exists.
+  for (const occ of snap.occurrences) {
+    if (!entityById.has(occ.nodeId)) {
+      throw new Error(`Occurrence ${occ.occurrenceId} references missing node ${occ.nodeId}`);
+    }
+  }
+
+  // 6. Canonical validity: canonical ∈ the node's occurrences and points back.
   //    (This also subsumes the orphan-entity check: an entity with no occurrences
   //    has a canonical that is not in its empty occurrence list.)
   for (const entity of snap.entities) {

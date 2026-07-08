@@ -15,6 +15,7 @@ export { LoroMetaDoc } from "./meta-doc.js";
 
 // DocStore port — the persistence contract core owns; the runtime adapts the persistence leaf to it.
 export type { DocStore, LoadedDocBytes } from "./doc-store.js";
+export { InMemoryDocStore } from "./in-memory-doc-store.js";
 
 // WorkspaceDocSet — the unified per-workspace doc collection (outliner + meta docs) the broker reads.
 export { WorkspaceDocSet } from "./doc-set.js";

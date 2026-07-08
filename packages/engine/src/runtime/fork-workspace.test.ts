@@ -35,14 +35,13 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
         actorKeypair: owner,
       });
       // Write content beyond the auto-created root so the copy exercises shards, not just the
-      // treeDoc root node. persistMutation is a no-op in-memory, but keeps the doc state current.
+      // treeDoc root node. (flushDirty is a no-op in-memory; content lives in the resident docs.)
       const src = (await rt.getEngine("src"))!;
-      const before = await src.asOutliner().treeSyncDoc().version();
       const root = (await src.getRootOccurrences()).at(0)!;
       for (let i = 0; i < 5; i++) {
         await src.createNode(root.occurrenceId);
       }
-      await rt.persistMutation("src", before);
+      await rt.flushDirty("src");
 
       const forked = await rt.forkWorkspace({
         sourceWorkspaceId: "src",
@@ -83,9 +82,8 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
         actorKeypair: owner,
       });
       const src = (await rt.getEngine("src"))!;
-      const before = await src.asOutliner().treeSyncDoc().version();
       await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
-      await rt.persistMutation("src", before);
+      await rt.flushDirty("src");
       const srcSnapshot = await toJSON(src);
       const srcLogLen = rt.membershipLog("src")!.records().length;
 
@@ -111,9 +109,8 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       actorKeypair: owner,
     });
     const src = (await rt.getEngine("src"))!;
-    const before = await src.asOutliner().treeSyncDoc().version();
     await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
-    await rt.persistMutation("src", before);
+    await rt.flushDirty("src");
     const expected = await toJSON(src);
     const forked = await rt.forkWorkspace({
       sourceWorkspaceId: "src",

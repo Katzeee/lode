@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Engine } from "./engine.js";
 import { ShardedBlockStore } from "./sharded-store.js";
 import { shardIdOf } from "./sharding.js";
-import { SYS_PREFIX } from "./syncable.js";
+import { InMemoryDocStore } from "./in-memory-doc-store.js";
 import type { LoadedDocBytes } from "./doc-store.js";
 import { ActionHistory } from "./action-history.js";
 import type { Delta } from "./types.js";
@@ -190,16 +190,16 @@ describe("incremental capture: undo materializes only the touched shard", () => 
     seedEngine.captureSync();
     expect(seed.shardIds().length).toBeGreaterThan(1); // fanned across >1 shard
 
-    // Reload into a fresh store: tree eager, shards seeded into shardSnaps (in-memory clone — the
-    // shard LoroDocs are NOT resident until faulted).
+    // Reload into a fresh store: tree eager, shards seeded into an InMemoryDocStore (in-memory clone
+    // — the shard LoroDocs are NOT resident until faulted).
     const treeDoc = seed.treeSyncDoc();
     const treeBytes: LoadedDocBytes = {
       snapshot: await treeDoc.exportSnapshot(),
       updates: [],
     };
-    const shardSnaps = new Map<string, LoadedDocBytes>();
+    const shardSeed = new Map<string, LoadedDocBytes>();
     for (const d of seed.shardSyncDocs()) {
-      shardSnaps.set(d.id.slice(SYS_PREFIX.length), {
+      shardSeed.set(d.id, {
         snapshot: await d.exportSnapshot(),
         updates: [],
       });
@@ -208,7 +208,7 @@ describe("incremental capture: undo materializes only the touched shard", () => 
     const store = new ShardedBlockStore({
       numShards,
       treeBytes,
-      shardSnaps,
+      docStore: new InMemoryDocStore(shardSeed),
       onFault: (id) => faults.push(id),
     });
     const e = new Engine({ store });

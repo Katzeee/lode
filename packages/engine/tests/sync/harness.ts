@@ -1,8 +1,7 @@
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore, type Outliner } from "../../src/core/sharded-store.js";
 import type { SyncableDoc } from "../../src/core/syncable.js";
-import { SYS_PREFIX } from "../../src/core/syncable.js";
-import type { LoadedDocBytes } from "../../src/core/index.js";
+import { InMemoryDocStore, type LoadedDocBytes } from "../../src/core/index.js";
 import { toJSON } from "../../src/core/serializers/json.js";
 import type { DocSnapshot } from "../../src/core/types.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
@@ -34,15 +33,16 @@ export function replica(numShards = 8): Engine {
  *  identically with src after sync. */
 export async function cloneReplica(src: Engine): Promise<Engine> {
   // Clone needs the sharding config (numShards), so reach the concrete impl — test-only cast;
-  // src is always a ShardedBlockStore. In-memory clone: tree eager + shards seeded into shardSnaps.
+  // src is always a ShardedBlockStore. In-memory clone: tree eager + shards seeded into an
+  // InMemoryDocStore (the clone faults lazily from it).
   const s = src.asOutliner() as ShardedBlockStore;
   const treeBytes: LoadedDocBytes = {
     snapshot: await s.treeSyncDoc().exportSnapshot(),
     updates: [],
   };
-  const shardSnaps = new Map<string, LoadedDocBytes>();
+  const shardSeed = new Map<string, LoadedDocBytes>();
   for (const d of s.shardSyncDocs()) {
-    shardSnaps.set(d.id.slice(SYS_PREFIX.length), {
+    shardSeed.set(d.id, {
       snapshot: await d.exportSnapshot(),
       updates: [],
     });
@@ -50,7 +50,7 @@ export async function cloneReplica(src: Engine): Promise<Engine> {
   const dst = new ShardedBlockStore({
     numShards: s.numShards,
     treeBytes,
-    shardSnaps,
+    docStore: new InMemoryDocStore(shardSeed),
     capacity: SYNC_TEST_SHARD_CAPACITY,
   });
   return new Engine({ store: dst });

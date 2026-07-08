@@ -40,17 +40,17 @@ describe("terminal acceptance: residentShardCount ≤ capacity across load / edi
     for (let i = 0; i < 40; i++) {
       occs.push((await doc.createNode(root.occurrenceId)).occurrenceId);
     }
-    await storeOf(doc).persistDirtyShards(); // flush + unpin + evictToFit
+    await storeOf(doc).flushDirty(); // flush + unpin + evictToFit
     expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Edit a node, flush → resident still bounded.
     await doc.replaceDeltas(occs.at(0)!, [{ insert: "edited" }]);
-    await storeOf(doc).persistDirtyShards();
+    await storeOf(doc).flushDirty();
     expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Undo the edit, flush → resident still bounded.
     await doc.undo();
-    await storeOf(doc).persistDirtyShards();
+    await storeOf(doc).flushDirty();
     expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
 
     // close + reopen (load): only the tree is eager → shards fault lazily, resident bounded.

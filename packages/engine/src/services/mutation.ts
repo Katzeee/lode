@@ -41,8 +41,6 @@ export async function runMutation<T>(
   const origin = ctx.sessions.requireOrigin(connectionId);
   const doc = await getEngine(ctx, workspaceId);
   const outliner = doc.asOutliner();
-  // Capture the tree's pre-mutation version so persistMutation can export just this mutation's delta.
-  const beforeVersion = await outliner.treeSyncDoc().version();
   const resident = workingSet?.(doc) ?? [];
   let pinned = false;
   if (resident.length > 0) {
@@ -55,7 +53,9 @@ export async function runMutation<T>(
   });
   try {
     const result = await fn(doc);
-    await ctx.workspaces.persistMutation(workspaceId, beforeVersion);
+    // Persist what changed (tree + dirty shards) through the single flushDirty entry point — each
+    // doc exports its own delta from the persister's cursor, no external version capture needed.
+    await ctx.workspaces.flushDirty(workspaceId);
     ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
     return result;
   } finally {

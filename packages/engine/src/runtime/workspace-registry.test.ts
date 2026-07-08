@@ -31,15 +31,14 @@ const buildAndMutate = async (dataRoot: string) => {
   const doc = (await rt.getEngine("ws"))!;
   expect(doc.asOutliner()).not.toBeNull();
 
-  const before = await doc.asOutliner().treeSyncDoc().version();
   const root = await doc.createNode(null);
   for (let i = 0; i < 30; i++) {
     await doc.createNode(root.occurrenceId, undefined, { i });
   }
   await doc.replaceDeltas(root.occurrenceId, [{ insert: "persist me across shards" }]);
   await doc.mark(root.occurrenceId, { start: 0, end: 4 }, "bold", true);
-  // Persist the whole batch (runMutation does this per-call; here one explicit persist).
-  await rt.persistMutation("ws", before);
+  // Persist the whole batch (runMutation does this per-call; here one explicit flush).
+  await rt.flushDirty("ws");
 
   const rootOcc = root.occurrenceId;
   const rootText = (await doc.getOccurrence(rootOcc))?.deltas;
@@ -119,7 +118,6 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     const doc = (await rt.getEngine("ws"))!;
-    const before = await doc.asOutliner().treeSyncDoc().version();
     const root = await doc.createNode(null);
 
     const store = doc.asOutliner() as ShardedBlockStore;
@@ -128,7 +126,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     expect(entity).toBeInstanceOf(LoroMap);
     (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
     shard.commit();
-    await rt.persistMutation("ws", before);
+    await rt.flushDirty("ws");
     // Crash-close (no clean marker) so the reload runs validate, which rejects the unhealable break.
     await rt.crashClose();
 

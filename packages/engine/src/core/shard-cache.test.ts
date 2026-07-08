@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LoadedDocBytes } from "./doc-store.js";
-import { ShardCache } from "./shard-cache.js";
+import { LruShardCache, type EvictionPolicy } from "./shard-cache.js";
 
 /** A fake shard doc — the cache is generic, so the unit tests need no CRDT backend. Carries the
  *  bytes it was built from so a test can assert what the fault fed to `createDoc`. */
@@ -10,6 +10,7 @@ const newCache = (opts: {
   capacity?: number;
   onEvict?: (id: string, doc: FakeDoc) => void;
   snaps?: Map<string, LoadedDocBytes>;
+  policy?: EvictionPolicy;
 }) => {
   const snaps = opts.snaps ?? new Map<string, LoadedDocBytes>();
   let counter = 0;
@@ -17,11 +18,12 @@ const newCache = (opts: {
     Promise.resolve(snaps.get(id) ?? null),
   );
   const createDoc = vi.fn((bytes: LoadedDocBytes | null): FakeDoc => ({ id: ++counter, bytes }));
-  const cache = new ShardCache<FakeDoc>({
+  const cache = new LruShardCache<FakeDoc>({
     faultIn,
     createDoc,
     capacity: opts.capacity,
     onEvict: opts.onEvict,
+    policy: opts.policy,
   });
   return { cache, faultIn, createDoc, snaps };
 };
@@ -31,7 +33,7 @@ const snap = (bytes: number[]): LoadedDocBytes => ({
   updates: [],
 });
 
-describe("ShardCache", () => {
+describe("LruShardCache", () => {
   it("faults a shard in once; later gets reuse the cached doc (faultIn + createDoc called once)", async () => {
     const { cache, faultIn, createDoc } = newCache({});
     const first = await cache.get("s0");
@@ -118,5 +120,45 @@ describe("ShardCache", () => {
   it("pin requires the shard to be resident", () => {
     const { cache } = newCache({});
     expect(() => cache.pin("absent")).toThrow(/not resident/);
+  });
+});
+
+/** FIFO eviction: the OLDEST resident (insertion order, ignoring later accesses) is the victim.
+ *  Substituted into LruShardCache to prove EvictionPolicy is a real seam, not structurally coupled. */
+class FifoEvictionPolicy implements EvictionPolicy {
+  private readonly inserted: string[] = [];
+  onAccess(): void {
+    // FIFO ignores accesses — only insertion order matters.
+  }
+  onInsert(id: string): void {
+    this.inserted.push(id);
+  }
+  onRemove(id: string): void {
+    const i = this.inserted.indexOf(id);
+    if (i >= 0) {
+      this.inserted.splice(i, 1);
+    }
+  }
+  selectVictim(candidates: Iterable<string>): string | null {
+    const set = candidates instanceof Set ? candidates : new Set(candidates);
+    return this.inserted.find((id) => set.has(id)) ?? null;
+  }
+}
+
+describe("EvictionPolicy seam: a substitute policy changes eviction behavior", () => {
+  it("FIFO evicts the oldest resident even if it was accessed most recently (unlike LRU)", async () => {
+    const evicted: string[] = [];
+    const { cache } = newCache({
+      capacity: 2,
+      policy: new FifoEvictionPolicy(),
+      onEvict: (id) => evicted.push(id),
+    });
+    await cache.get("s0");
+    await cache.get("s1");
+    await cache.get("s0"); // LRU would promote s0; FIFO must NOT — s0 stays oldest by insertion
+    await cache.get("s2"); // over capacity → FIFO evicts s0 (first inserted), not s1
+    expect(cache.has("s0")).toBe(false);
+    expect(cache.has("s1")).toBe(true);
+    expect(evicted).toEqual(["s0"]);
   });
 });

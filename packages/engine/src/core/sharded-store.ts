@@ -8,10 +8,12 @@ import {
   type TreeID,
   VersionVector,
 } from "loro-crdt";
-import type { SyncableComposite, SyncableDoc, SyncBytes } from "./syncable.js";
+import type { SyncableComposite, SyncableDoc } from "./syncable.js";
 import { SYS_PREFIX } from "./syncable.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
-import { ShardCache } from "./shard-cache.js";
+import { InMemoryDocStore } from "./in-memory-doc-store.js";
+import { LruShardCache, type EvictionPolicy, type ShardCache } from "./shard-cache.js";
+import { ShardPersister } from "./shard-persister.js";
 import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
 import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
 
@@ -37,40 +39,40 @@ export type Outliner = SyncableComposite & {
   /** Crash-restart lifecycle heal (create/delete orphans between tree + shards). Async — the orphan
    *  sweep faults shards through the async cache. */
   reconcileDurability(): Promise<void>;
-  /** Persist only the dirty shards (revision > persisted) to the store's DocStore as incremental
-   *  updates (`exportUpdate(lastPersistedVersion)`) with periodic snapshot compaction — the same path
-   *  the tree uses. Advances each flushed shard's persist cursor + unpins it. No-op for a clean store
-   *  or in-memory mode (no DocStore). */
-  persistDirtyShards(): Promise<void>;
+  /** Flush every change since the last call to the DocStore: the tree (always — its `exportUpdate`
+   *  cursor IS its dirty check) plus every dirty shard (revision > the persister's persisted cursor),
+   *  each as an incremental delta with periodic snapshot compaction. Advances each flushed doc's
+   *  cursor, and reclaims evictable shards so resident ≤ capacity. The
+   *  single "persist what changed" entry point — local mutations, sync rounds, and lifecycle heal all
+   *  route through it. In-memory mode flushes into the injected `InMemoryDocStore` (same path). */
+  flushDirty(): Promise<void>;
   /**
    * Pin the operation's working set: fault each shard holding `nodeIds` into the cache + pin it, and
    * arm the residency assertion — any later shard access NOT in this set throws (a dev-aid that
    * catches an operation touching a shard it didn't declare). `release()` ends the session. Async so
-   * Phase 5 can fault from the async DocStore port (today the fault is sync from pre-read shardSnaps,
-   * so this resolves immediately). nodeIds may include not-yet-created nodes — `shardIdOf` is the hash,
-   * not an ownership lookup. Opt-in: outside a session, shard access faults freely (today's behavior).
+   * the fault can read from the async DocStore port. nodeIds may include not-yet-created nodes —
+   * `shardIdOf` is the hash, not an ownership lookup. Opt-in: outside a session, shard access faults
+   * freely (today's behavior).
    */
   ensureResident(nodeIds: readonly NodeId[]): Promise<void>;
   /** End the working-set session: unpin the declared shards, disarm the assertion. Idempotent. */
   release(): void;
 };
 
-/** Resident per-shard persistence metadata. Always resident (survives shard LoroDoc eviction) and
- *  local-only (never synced — each replica has its own persist cursor). The single source of truth
- *  for shard dirty-tracking + the incremental-persist delta cursor.
+/** Resident per-shard dirty-tracking state. Always resident (survives shard LoroDoc eviction) and
+ *  local-only (never synced). The persist CURSORS (`lastPersistedVersion` + `persistedRevision`) live
+ *  on the `ShardPersister` — this holds only the dirty marker the write/import path mutates
+ *  synchronously:
  *
- *  - `revision` bumps on every local write OR remote import — monotonic per shard.
- *  - `persistedRevision` is the revision at the last persist flush. Dirty iff `revision > persistedRevision`.
- *  - `lastPersistedVersion` is the encoded Loro version at the last persist — the `exportUpdate` "from"
- *    cursor so the next persist exports only the delta.
- *  - `pinned` records the write-pin a `shardForWrite` placed on a clean→dirty shard; `persistDirtyShards`
- *    unpins it after flushing. Import-dirty shards are NOT pinned (they may evict; a re-fault reads the
- *    evict-flushed bytes back), so the flag gates the balanced unpin. */
+ *  - `revision` bumps on every local write OR remote import (via `markDirty`, the single inlet) — the
+ *    monotonic dirty marker. Dirty iff `revision > persister.persistedRevisionOf(id)` (the persister's
+ *    record of the last-flushed revision).
+ *
+ *  No pin here. Pinning is the OPERATION working set's concern (`ensureResident`); a dirty shard not
+ *  in a session is freely evictable — `onEvict` flushes it through the persister first (the universal
+ *  durability safety net), so a write never needs to hold the shard resident itself. */
 type ShardMeta = {
   revision: number;
-  persistedRevision: number;
-  lastPersistedVersion?: SyncBytes;
-  pinned: boolean;
 };
 
 /**
@@ -84,10 +86,10 @@ type ShardMeta = {
  *
  * The tree doc is the single structural authority; a node's owning shard is derived
  * from the immutable bucket in `ownership`, so it converges with the tree doc and
- * never splits. Shards fault their pre-read snapshot in lazily from `residentBytes`
- * (via `partitionResident`'s shardSnaps). Ported from the verified
- * prototype (`experiments/multi-shard-tree/src/sharded-engine.ts`), adapted to the
- * FULL production data model (entity meta + per-occurrence props/meta).
+ * never splits. Shards fault their bytes in lazily from the `DocStore` (the runtime
+ * adapter in persistent mode, an `InMemoryDocStore` in tests / ephemeral clones).
+ * Ported from the verified prototype (`experiments/multi-shard-tree/src/sharded-engine.ts`),
+ * adapted to the FULL production data model (entity meta + per-occurrence props/meta).
  *
  * The cascade is NOT here (production keeps it domain-level); this store offers only
  * the low-level `deleteOccurrenceRecord` / `deleteEntity` the domain cascade drives.
@@ -105,16 +107,11 @@ export class ShardedBlockStore implements Outliner {
   private readonly treeDoc: LoroDoc;
   private readonly occurrenceTree: LoroTree;
   private readonly ownership: LoroMap;
-  /** The shard buffer pool — shards fault in here on first access (lazily from the DocStore, or from
-   *  `shardSnaps` in in-memory mode), with pin/unpin + LRU eviction + write-back. The runtime passes
+  /** The shard buffer pool — shards fault in here on first access (lazily from the `DocStore`),
+   *  with pin/unpin + LRU eviction + write-back. The runtime passes
    *  a finite capacity so resident LoroDocs are capped; a dirty evicted shard is flushed before drop.
    *  The treeDoc is NOT in the cache — it is always resident (the load-path invariant), owned here. */
   private readonly shardCache: ShardCache<LoroDoc>;
-  /** In-memory shard bytes (BARE id → full persisted bytes), used ONLY in in-memory mode (no
-   *  DocStore): seeded by clones/tests, and the onEvict write-back target so an evicted shard's
-   *  mutation survives a re-fault. Persistent mode leaves this empty — shards fault from the
-   *  DocStore and evict back to it (bounded memory). */
-  private readonly shardSnaps = new Map<string, LoadedDocBytes>();
   /** Resident per-shard persistence metadata — ALWAYS resident (survives shard LoroDoc eviction),
    *  NOT in the treeDoc (these are local-replica concerns that must not sync to peers). The single
    *  source of truth for "did this shard change?" + the incremental-persist cursor. */
@@ -136,13 +133,17 @@ export class ShardedBlockStore implements Outliner {
    */
   private readonly peerId?: number;
   /** The DocStore port — the lazy fault source AND the write-back target (a dirty shard evicted
-   *  before persist is flushed here). Undefined in in-memory mode (tests / ephemeral): shards fault
-   *  from `shardSnaps` and evict back to it. The cache's whole reason to exist is lazy load from
-   *  this port, so the store owns the reference (core→core; the runtime supplies the adapter). */
-  private readonly docStore?: DocStore;
-  /** Snapshot-compaction cadence (every N appended updates → writeSnapshot). Passed by the runtime
-   *  (persistent mode); Infinity for in-memory (no durable writes). Used by `flushShard`. */
+   *  before persist is flushed here). ALWAYS present: persistent mode injects the runtime adapter
+   *  (sqlite today); in-memory mode injects an `InMemoryDocStore` (tests / ephemeral clones). The
+   *  store never branches on "is there a sink?" — that distinction lives in which impl is injected. */
+  private readonly docStore: DocStore;
+  /** Snapshot-compaction cadence (every N appended updates → writeSnapshot). Default ∞ (no
+   *  compaction; the in-memory default). Forwarded to the persister. */
   private readonly snapshotEveryUpdates: number;
+  /** The persistence-strategy seam — owns the per-doc persist cursors (`lastPersistedVersion` +
+   *  `persistedRevision`) and flushes a doc's incremental delta to the DocStore. CRDT-agnostic.
+   *  Always present (a `docStore` always is); in-memory mode flushes into the `InMemoryDocStore`. */
+  private readonly persister: ShardPersister;
 
   constructor(
     options: {
@@ -150,12 +151,11 @@ export class ShardedBlockStore implements Outliner {
       /** The tree doc's persisted bytes — eagerly imported (the tree is the ONE always-resident doc,
        *  the load-path invariant). Shards are NOT pre-read; they fault lazily from `docStore`. */
       treeBytes?: LoadedDocBytes;
-      /** The DocStore port shards fault from + evict back to (write-back). Omit for in-memory mode:
-       *  shards then fault from `shardSnaps` and evict back to it (tests / ephemeral clones). */
+      /** The DocStore port shards fault from + evict back to (write-back). Default: an
+       *  `InMemoryDocStore` (tests / ephemeral clones) — so the store always has exactly one byte
+       *  owner. The runtime injects its persistence adapter for persistent mode. Keyed by OUTWARD
+       *  SyncableDoc id (`sys:s{k}`), same as the persister writes. */
       docStore?: DocStore;
-      /** In-memory shard bytes seed (BARE shardId → bytes), for clones/tests with no DocStore. Each
-       *  entry is the doc's full persisted bytes (snapshot + post-snapshot updates). */
-      shardSnaps?: Map<string, LoadedDocBytes>;
       /** Snapshot-compaction cadence for `flushShard` (every N appended updates → writeSnapshot).
        *  Default ∞ (no compaction; in-memory). */
       snapshotEveryUpdates?: number;
@@ -167,12 +167,23 @@ export class ShardedBlockStore implements Outliner {
       /** Max resident shard LoroDocs. Default ∞ (tests/in-memory — no eviction). The runtime passes a
        *  finite bound so the parsed CRDTs (the heavy memory) are capped. */
       capacity?: number;
+      /** Eviction policy for the default shard cache (ignored if `shardCache` is injected). Default:
+       *  LRU. Test seam — swap in FIFO etc. without touching the cache. */
+      evictionPolicy?: EvictionPolicy;
+      /** Inject a custom shard cache (test seam). Default: a capacity-bounded `LruShardCache` over
+       *  this store's fault/create/evict closures. The field type is the `ShardCache` interface, so a
+       *  test double satisfies it; production uses the LRU impl. */
+      shardCache?: ShardCache<LoroDoc>;
     } = {},
   ) {
     this.numShards = options.numShards ?? 256;
     this.peerId = options.peerId;
-    this.docStore = options.docStore;
+    this.docStore = options.docStore ?? new InMemoryDocStore();
     this.snapshotEveryUpdates = options.snapshotEveryUpdates ?? Number.POSITIVE_INFINITY;
+    this.persister = new ShardPersister({
+      docStore: this.docStore,
+      snapshotEveryUpdates: this.snapshotEveryUpdates,
+    });
     this.treeDoc = new LoroDoc();
     if (this.peerId !== undefined) {
       this.treeDoc.setPeerId(this.peerId);
@@ -186,35 +197,34 @@ export class ShardedBlockStore implements Outliner {
         this.treeDoc.import(updateBytes);
       }
     }
-    if (options.shardSnaps) {
-      for (const [id, bytes] of options.shardSnaps) {
-        this.shardSnaps.set(id, bytes);
-      }
-    }
-    this.shardCache = new ShardCache<LoroDoc>({
-      // faultIn: prefer an in-memory shardSnaps entry (a clone seed / an evict-flush in in-memory
-      // mode), else read the DocStore lazily (the lazy-load path — no pre-read of every shard).
-      faultIn: async (id) => {
-        const snapped = this.shardSnaps.get(id);
-        if (snapped) {
-          return snapped;
-        }
-        return this.docStore ? await this.docStore.load(SYS_PREFIX + id) : null;
-      },
-      createDoc: (bytes) => this.createShardDoc(bytes),
-      capacity: options.capacity ?? Number.POSITIVE_INFINITY,
-      onFault: options.onFault,
-      // Write-back: a dirty shard evicted before persist is flushed so its bytes survive; a clean
-      // shard (already persisted) is just dropped. In-memory mode (no docStore) snapshots every
-      // evict — shardSnaps is the only store, so a re-fault reads it back.
-      onEvict: async (id, doc) => {
-        if (this.docStore) {
-          await this.flushShard(id, doc);
-        } else {
-          this.shardSnaps.set(id, { snapshot: doc.export({ mode: "snapshot" }), updates: [] });
-        }
-      },
-    });
+    // Seed the tree's persist cursor to its current (just-imported, or fresh-empty) state. The tree is
+    // the one always-resident doc loaded eagerly from persistence, so its version is known here; without
+    // seeding, the first post-(re)start flushDirty would re-export the entire tree oplog instead of the
+    // delta. Shards need no seeding — they fault lazily and seed their cursor on first flush.
+    this.persister.seedCursor(SYS_PREFIX + TREE_SUBDOC, this.treeDoc.version().encode());
+    this.shardCache =
+      options.shardCache ??
+      new LruShardCache<LoroDoc>({
+        // faultIn: read the DocStore lazily (the lazy-load path — no pre-read of every shard). The
+        // InMemoryDocStore default serves an in-memory clone's seeded shards the same way the runtime
+        // adapter serves a persistent replica's.
+        faultIn: async (id) => this.docStore.load(SYS_PREFIX + id),
+        createDoc: (bytes) => this.createShardDoc(bytes),
+        capacity: options.capacity ?? Number.POSITIVE_INFINITY,
+        onFault: options.onFault,
+        policy: options.evictionPolicy,
+        // Write-back: a dirty shard evicted before persist is flushed through the persister so its
+        // bytes survive AND its cursor advances (a later flushDirty then sees it clean — no re-fault);
+        // a clean shard flushes an empty delta (no write). The doc is wrapped in a transient SyncableDoc
+        // (resolve to the in-hand LoroDoc) so the persister stays CRDT-agnostic; its id (sys:s{k})
+        // matches the shard's normal flush id, so they share a cursor.
+        onEvict: async (id, doc) => {
+          await this.persister.flushDoc(
+            this.syncableDoc(() => Promise.resolve(doc), id),
+            this.metaFor(id).revision,
+          );
+        },
+      });
     this.occurrenceTree = this.treeDoc.getTree("occurrences");
     this.ownership = this.treeDoc.getMap("ownership");
   }
@@ -575,73 +585,40 @@ export class ShardedBlockStore implements Outliner {
     await this.sweepOrphans();
   }
 
-  async persistDirtyShards(): Promise<void> {
-    if (this.docStore === undefined) {
-      return; // in-memory mode: no durable sink (shards evict to shardSnaps instead)
-    }
-    // Only dirty shards (revision > persistedRevision) — a clean store faults nothing. Iterating the
-    // resident meta map (not shardSyncDocs) avoids faulting clean shards just to skip them.
+  async flushDirty(): Promise<void> {
+    // Tree: always-resident, so always flushed. Its `exportUpdate` cursor IS the dirty check — an
+    // unchanged tree yields an empty delta (no write), and always-flush can never miss a dirty path
+    // (the failure mode a per-method revision counter would risk if a bump site were forgotten). The
+    // tree passes no revision: it isn't gated, so it tracks a cursor but no persistedRevision.
+    await this.persister.flushDoc(this.treeSyncDoc());
+    // Shards: revision-gated — a clean shard is skipped WITHOUT faulting it. Iterating the resident
+    // meta map (not shardSyncDocs) avoids faulting clean shards just to skip them; the persister owns
+    // the persistedRevision cursor so the gate stays out of the store.
     for (const [shardId, meta] of this.shardMeta) {
-      if (meta.revision === meta.persistedRevision) {
+      if (meta.revision <= this.persister.persistedRevisionOf(SYS_PREFIX + shardId)) {
         continue;
       }
-      // Resident if write-pinned; else re-faults from the DocStore (evict-flush kept it current).
-      const doc = await this.shardForRead(shardId);
-      await this.flushShard(shardId, doc);
-      if (meta.pinned) {
-        this.shardCache.unpin(shardId);
-        meta.pinned = false;
-      }
+      // Resident, or re-faults from the DocStore (an evict-flush kept it current AND advanced its
+      // cursor, so a dirty-then-evicted shard reads clean here — no re-fault, no double flush).
+      await this.persister.flushDoc(this.shardSyncableDoc(shardId), meta.revision);
     }
-    // Reclaim now-evictable shards so resident stays ≤ capacity at the quiescent point (unpinning
-    // alone doesn't evict — eviction fires on the next fault otherwise).
+    // Reclaim now-evictable shards so resident stays ≤ capacity at the quiescent point. Writes no
+    // longer pin (durability is onEvict's job), so a dirty shard left resident by a write burst is
+    // evictable here without any unpinning.
     await this.shardCache.evictToFit();
   }
 
-  /** Flush one shard's delta to the DocStore + advance its persist cursor. Shared by
-   *  `persistDirtyShards` (the explicit post-mutation flush) and `onEvict` (write-back before
-   *  dropping a dirty shard). No-op if the shard is clean. `doc` is the shard's current LoroDoc
-   *  (passed in so the evict path need not re-fault). */
-  private async flushShard(shardId: string, doc: LoroDoc): Promise<void> {
-    if (this.docStore === undefined) {
-      return;
-    }
-    const meta = this.metaFor(shardId);
-    if (meta.revision === meta.persistedRevision) {
-      return; // clean — the DocStore already has its state
-    }
-    const outwardId = SYS_PREFIX + shardId;
-    const currentVersion = doc.version().encode();
-    const delta =
-      meta.lastPersistedVersion === undefined
-        ? doc.export({ mode: "update" })
-        : doc.export({ mode: "update", from: VersionVector.decode(meta.lastPersistedVersion) });
-    if (delta.length > 0) {
-      const seq = await this.docStore.appendUpdate(outwardId, delta);
-      if (seq % this.snapshotEveryUpdates === 0) {
-        await this.docStore.writeSnapshot(outwardId, doc.export({ mode: "snapshot" }));
-      }
-    }
-    meta.lastPersistedVersion = currentVersion;
-    meta.persistedRevision = meta.revision;
-  }
-
-  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). `importUpdate`
-   *  pins around the fault+import — a capacity-bound cache full of pinned-dirty shards would
-   *  otherwise evict a cold imported shard between fault and the bytes landing, silently dropping
-   *  the import on an orphaned doc. */
+  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). `importUpdate` is
+   *  just fault + import + markDirty — no pin: a dirty imported shard is freely evictable (onEvict
+   *  flushes it), and the import is a sync call on an already-resolved doc, so there is no eviction
+   *  window between fault and the bytes landing. */
   private shardSyncableDoc(id: string): SyncableDoc {
     const base = this.syncableDoc(() => this.shardForRead(id), id);
     return {
       ...base,
       importUpdate: async (bytes) => {
-        await this.shardCache.getAndPin(id);
-        try {
-          (await this.shardForRead(id)).import(bytes);
-          this.markImport(id);
-        } finally {
-          this.shardCache.unpin(id);
-        }
+        (await this.shardForRead(id)).import(bytes);
+        this.markDirty(id);
       },
     };
   }
@@ -651,7 +628,7 @@ export class ShardedBlockStore implements Outliner {
     // outward id carries the structure prefix; the internal map keys stay bare (`s{k}`).
     //
     // `getDoc` RE-RESOLVES the LoroDoc on each access (not a captured reference) so the doc is
-    // eviction-safe: a shard evicted between sync accesses re-faults from shardSnaps (which an
+    // eviction-safe: a shard evicted between sync accesses re-faults from the DocStore (which an
     // evict-flush keeps current). The tree uses `() => Promise.resolve(this.treeDoc)` (always
     // resident); shards override `importUpdate` to pin around the import (see shardSyncableDoc).
     return {
@@ -837,37 +814,28 @@ export class ShardedBlockStore implements Outliner {
     return doc;
   }
 
-  /** Fault a shard for WRITE, atomically pinning it on the clean→dirty transition so it stays
-   *  resident until `persistDirtyShards` flushes + unpins. The atomic fault+pin (via `getAndPin`) is
-   *  load-bearing: a capacity-bound cache full of pinned-dirty shards would otherwise evict a
-   *  newly-faulted write target the moment it faults. Bumps revision (the dirty marker). On an
-   *  already-dirty shard this is a cache hit (no fault, no extra pin). */
+  /** Fault a shard for WRITE: mark it dirty (the single dirty-mark inlet) + fault for read. No pin —
+   *  a write does not need to hold the shard resident; if it is evicted before `flushDirty`, `onEvict`
+   *  flushes the dirty bytes through the persister (the durability safety net). The working-set pin
+   *  (`ensureResident`) is what holds a shard resident across an operation, not the write. */
   private async shardForWrite(shardId: string): Promise<LoroDoc> {
-    const meta = this.metaFor(shardId);
-    const firstDirty = meta.revision === meta.persistedRevision && !meta.pinned;
-    const doc = firstDirty
-      ? await this.shardCache.getAndPin(shardId)
-      : await this.shardForRead(shardId);
-    if (firstDirty) {
-      meta.pinned = true;
-    }
-    meta.revision++;
-    return doc;
+    this.markDirty(shardId);
+    return this.shardForRead(shardId);
   }
 
   private metaFor(shardId: string): ShardMeta {
     let m = this.shardMeta.get(shardId);
     if (m === undefined) {
-      m = { revision: 0, persistedRevision: 0, pinned: false };
+      m = { revision: 0 };
       this.shardMeta.set(shardId, m);
     }
     return m;
   }
 
-  /** Mark a shard dirty after a remote import (bump revision only — no pin: an import-only shard may
-   *  evict between sync rounds, re-faulting from the evict-flushed bytes). Persisted on the next
-   *  local-edit-triggered flush. */
-  private markImport(shardId: string): void {
+  /** The single dirty-mark inlet — bumps revision (the monotonic dirty marker) for a local write OR
+   *  a remote import. Dirty iff `revision > persister.persistedRevisionOf(id)`. Persisted on the next
+   *  `flushDirty` (or on eviction via `onEvict`, whichever comes first). */
+  private markDirty(shardId: string): void {
     this.metaFor(shardId).revision++;
   }
 

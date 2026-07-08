@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { LoroDoc } from "loro-crdt";
 import { Engine } from "./engine.js";
 import { ShardedBlockStore } from "./sharded-store.js";
 import { shardIdOf } from "./sharding.js";
 import { SYS_PREFIX } from "./syncable.js";
+import type { ShardCache } from "./shard-cache.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
+import { InMemoryDocStore } from "./in-memory-doc-store.js";
 import { validateSnapshot } from "./invariant.js";
 import { toJSON } from "./serializers/json.js";
 
@@ -100,22 +103,19 @@ describe("Outliner working-set session: ensureResident + the residency assertion
     seedEngine.captureSync();
     expect(seed.shardIds().length).toBeGreaterThan(1); // fanned across shards
 
-    // Reload cold: tree eager, shards seeded into shardSnaps (in-memory clone — LoroDocs NOT resident
-    // until faulted).
+    // Reload cold: tree eager, shards seeded into an InMemoryDocStore (in-memory clone — LoroDocs
+    // NOT resident until faulted).
     const treeDoc = seed.treeSyncDoc();
     const treeBytes: LoadedDocBytes = { snapshot: await treeDoc.exportSnapshot(), updates: [] };
-    const shardSnaps = new Map<string, LoadedDocBytes>();
+    const shardSeed = new Map<string, LoadedDocBytes>();
     for (const d of seed.shardSyncDocs()) {
-      shardSnaps.set(d.id.slice(SYS_PREFIX.length), {
-        snapshot: await d.exportSnapshot(),
-        updates: [],
-      });
+      shardSeed.set(d.id, { snapshot: await d.exportSnapshot(), updates: [] });
     }
     const faults: string[] = [];
     const store = new ShardedBlockStore({
       numShards,
       treeBytes,
-      shardSnaps,
+      docStore: new InMemoryDocStore(shardSeed),
       onFault: (id) => faults.push(id),
     });
     const e = new Engine({ store });
@@ -192,12 +192,12 @@ describe("eviction (Phase 5): finite capacity bounds resident LoroDocs; re-fault
     e.captureSync();
     // Flush the create-batch's dirty shards (the real lifecycle persists after each op) so the
     // cache can reclaim before the edit storm.
-    await store.persistDirtyShards();
+    await store.flushDirty();
     // Edit nodes whose entities live across the shard space; persist+evict after each so resident ≤ capacity.
     for (const occ of occs) {
       await e.replaceDeltas(occ, [{ insert: "x" }]);
       e.captureSync();
-      await store.persistDirtyShards();
+      await store.flushDirty();
       expect(store.residentShardCount).toBeLessThanOrEqual(capacity);
     }
     expect(store.residentShardCount).toBeGreaterThan(0);
@@ -221,8 +221,10 @@ describe("eviction (Phase 5): finite capacity bounds resident LoroDocs; re-fault
     const child = await e.createNode(root.occurrenceId); // s7
     await e.replaceDeltas(child.occurrenceId, [{ insert: "kept" }]); // mutate s7
     e.captureSync();
-    // Flush so s7 unpins (a dirty shard is pinned resident until persist) and can be evicted next.
-    await store.persistDirtyShards();
+    // Flush s7's mutation so it's clean — the subsequent s1 fault then evicts s7 with an empty onEvict
+    // delta (no extra write). Post-Phase-3 a dirty shard isn't pinned, so it COULD evict via onEvict
+    // flush too; flushing first just keeps the test's eviction a clean one.
+    await store.flushDirty();
     // Touch root (s1) → fault s1 → evict s7 (onEvict flushes "kept" to the DocStore). Only s1 resident.
     await e.replaceDeltas(root.occurrenceId, [{ insert: "root-text" }]);
     e.captureSync();
@@ -250,7 +252,7 @@ describe("incremental persistence (Phase 2): dirty-only + delta writes + replay"
     const b = await e.createNode(null);
     await e.replaceDeltas(b.occurrenceId, [{ insert: "b" }]);
     e.captureSync();
-    await store.persistDirtyShards();
+    await store.flushDirty();
     const aShard = shardOf(a.nodeId, numShards);
     const bShard = shardOf(b.nodeId, numShards);
     // a + b were both dirty on first persist → both written once.
@@ -259,7 +261,7 @@ describe("incremental persistence (Phase 2): dirty-only + delta writes + replay"
     // Edit ONLY a → only a's shard advances on the next persist; b's is untouched.
     await e.replaceDeltas(a.occurrenceId, [{ insert: "a2" }]);
     e.captureSync();
-    await store.persistDirtyShards();
+    await store.flushDirty();
     expect(spy.recs.get(aShard)?.updates).toHaveLength(2);
     expect(spy.recs.get(bShard)?.updates).toHaveLength(1);
   });
@@ -276,13 +278,13 @@ describe("incremental persistence (Phase 2): dirty-only + delta writes + replay"
     const node = await e.createNode(null);
     await e.replaceDeltas(node.occurrenceId, [{ insert: "x".repeat(50_000) }]);
     e.captureSync();
-    await store.persistDirtyShards(); // full first write (sets cursor)
+    await store.flushDirty(); // full first write (sets cursor)
     const shard = shardOf(node.nodeId, numShards);
     const fullSize = spy.recs.get(shard)?.updates.at(-1)?.length ?? 0;
     // One-char edit → the next persist exports only the delta from the last cursor.
     await e.replaceDeltas(node.occurrenceId, [{ insert: "y" }]);
     e.captureSync();
-    await store.persistDirtyShards();
+    await store.flushDirty();
     const deltaSize = spy.recs.get(shard)?.updates.at(-1)?.length ?? 0;
     expect(deltaSize).toBeGreaterThan(0);
     expect(deltaSize).toBeLessThan(fullSize / 100); // delta ≪ full (no write amplification)
@@ -300,7 +302,7 @@ describe("incremental persistence (Phase 2): dirty-only + delta writes + replay"
     e.captureSync();
     // snapshotEveryUpdates=1 → a snapshot is taken every persist (compaction), exercising both the
     // snapshot + the post-snapshot update stream on reload.
-    await store.persistDirtyShards();
+    await store.flushDirty();
     // Reload: tree eager from the source tree snapshot, shards fault LAZILY from the spy (which now
     // holds each shard's last snapshot + appended updates — exactly what a real DocStore persists).
     const treeBytes: LoadedDocBytes = {
@@ -315,5 +317,34 @@ describe("incremental persistence (Phase 2): dirty-only + delta writes + replay"
     });
     const e2 = new Engine({ store: reloaded });
     expect((await e2.getOccurrence(node.occurrenceId))?.deltas).toEqual([{ insert: "world" }]);
+  });
+});
+
+describe("ShardCache seam: the store depends on the interface, not the LRU impl", () => {
+  it("an injected ShardCache double is used in place of the default LruShardCache", async () => {
+    // A hand-rolled ShardCache double records getAndPin + returns a throwaway doc. The store accepts
+    // it via `shardCache` (typed against the ShardCache interface) — a different implementation slots
+    // in with zero caller change, proving the cache axis is a nominal seam.
+    const calls: string[] = [];
+    const rec = (tag: string, id: string): Promise<LoroDoc> => {
+      calls.push(`${tag}:${id}`);
+      return Promise.resolve(new LoroDoc());
+    };
+    const fake: ShardCache<LoroDoc> = {
+      get: (id) => rec("get", id),
+      getAndPin: (id) => rec("getAndPin", id),
+      has: () => true,
+      residentEntries: () => [],
+      pin: () => undefined,
+      unpin: () => undefined,
+      size: 0,
+      evictToFit: () => Promise.resolve(),
+    };
+    const numShards = 8;
+    const store = new ShardedBlockStore({ numShards, shardCache: fake });
+    await store.ensureResident(["anyNode"]);
+    store.release();
+    // ensureResident faulted+Pinned the node's shard through the injected cache, not a real one.
+    expect(calls).toContain(`getAndPin:${shardIdOf("anyNode", numShards)}`);
   });
 });

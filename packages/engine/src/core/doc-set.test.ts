@@ -13,7 +13,7 @@ function fakeOutliner(docs: SyncableDoc[]): Outliner {
     treeSyncDoc: () => docs.at(0)!,
     shardSyncDocs: () => docs.slice(1),
     reconcileDurability: () => Promise.resolve(),
-    persistDirtyShards: () => Promise.resolve(),
+    flushDirty: () => Promise.resolve(),
     ensureResident: () => Promise.resolve(),
     release: () => undefined,
   };

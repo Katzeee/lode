@@ -6,7 +6,7 @@ import type { WorkspaceStore } from "../persistence/workspace-store.js";
  * future PG) to the core `DocStore` port. This is the dependency-inversion hinge: core owns the
  * `id → bytes` contract, the runtime adapts the leaf to it, and the leaf imports nothing from core.
  * The adapter is the only place that knows the leaf's concrete method names — everything above it
- * (`loadOutliner`, `persistMutation`) speaks `DocStore`, so swapping the leaf touches only this file.
+ * (`loadOutliner`, `flushDirty`) speaks `DocStore`, so swapping the leaf touches only this file.
  *
  * Field-name translation lives here too: persistence's `LoadedDocBytes` (`snapshotBytes`/`updateBytes`)
  * becomes core's (`snapshot`/`updates`). The leaf's `coveredUpdateSeq` (its snapshot-PK version) is

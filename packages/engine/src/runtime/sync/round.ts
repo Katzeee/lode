@@ -34,6 +34,11 @@ export class ContentRound {
       return;
     }
     const { pulled, pushed } = await this.ctx.syncManager.sync();
+    // Persist what the round delivered (tree edits + imported shards) — the content analog of
+    // MembershipRound's log.persistIfDirty. Without this a pure receiver that crashes after a round
+    // loses the synced content on restart (the round landed only in memory): tree always, plus any
+    // resident shard not already write-backed by an eviction.
+    await this.ctx.engine.asOutliner().flushDirty();
     this.report(this.ctx.wsId, { pulled, pushed });
   }
 }
