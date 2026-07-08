@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateActorKeypair } from "../src/utils/crypto/index.js";
 import { AppWorkspaceRuntime } from "../src/runtime/workspace-registry.js";
-import type { ShardedBlockStore } from "../src/core/sharded-store.js";
+import type { ShardedBlockStore } from "../src/core/store/sharded-store.js";
 
 /**
  * Terminal acceptance for the lazy shard cache: residentShardCount ≤ the configured capacity

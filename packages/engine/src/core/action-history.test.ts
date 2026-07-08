@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "./engine.js";
-import { ShardedBlockStore } from "./sharded-store.js";
-import { shardIdOf } from "./sharding.js";
-import { InMemoryDocStore } from "./in-memory-doc-store.js";
-import type { LoadedDocBytes } from "./doc-store.js";
+import { ShardedBlockStore } from "./store/sharded-store.js";
+import { shardIdOf } from "./store/sharding.js";
+import { InMemoryDocStore } from "./store/in-memory-doc-store.js";
+import type { LoadedDocBytes } from "./store/doc-store.js";
 import { ActionHistory } from "./action-history.js";
 import type { Delta } from "./types.js";
 

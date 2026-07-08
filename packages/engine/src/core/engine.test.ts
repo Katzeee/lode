@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "./engine.js";
-import { textToDelta } from "./delta/utils.js";
+import { textToDelta } from "./delta.js";
 
 describe("Engine entity and occurrence semantics", () => {
   it("creates nodes and exposes root occurrences", async () => {

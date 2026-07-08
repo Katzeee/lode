@@ -7,8 +7,8 @@ import {
 } from "../membership/membership-security.js";
 import type { MembershipLog, LocalPeer } from "../membership/membership-log.js";
 import type { Engine } from "../../core/engine.js";
-import type { SyncableDoc } from "../../core/syncable.js";
-import { WorkspaceDocSet } from "../../core/doc-set.js";
+import type { SyncableDoc } from "../../core/store/syncable.js";
+import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { Component } from "../app.js";
 
 /**

@@ -15,7 +15,7 @@ import {
   type MembershipRecord,
 } from "@lode/protocol/proto";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
-import { LoroMetaDoc } from "../../core/meta-doc.js";
+import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
 const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>

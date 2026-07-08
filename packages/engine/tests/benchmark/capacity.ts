@@ -16,8 +16,8 @@
  */
 
 import { Engine } from "../../src/core/engine.js";
-import { ShardedBlockStore } from "../../src/core/sharded-store.js";
-import { textToDelta } from "../../src/core/delta/utils.js";
+import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
+import { textToDelta } from "../../src/core/delta.js";
 import type { OccurrenceId } from "../../src/core/types.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../src/core/engine.js";
-import { ShardedBlockStore, TREE_SUBDOC } from "../src/core/sharded-store.js";
-import { shardIdOf } from "../src/core/sharding.js";
+import { ShardedBlockStore, TREE_SUBDOC } from "../src/core/store/sharded-store.js";
+import { shardIdOf } from "../src/core/store/sharding.js";
 import {
   SYS_PREFIX,
   InMemoryDocStore,
@@ -9,7 +9,7 @@ import {
   type LoadedDocBytes,
 } from "../src/core/index.js";
 import { validateSnapshot } from "../src/core/invariant.js";
-import { toJSON } from "../src/core/serializers/json.js";
+import { toJSON } from "../src/core/serialize.js";
 
 /**
  * Crash recovery — `ShardedBlockStore.reconcileDurability()`. The treeDoc and each shard

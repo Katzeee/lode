@@ -80,6 +80,22 @@ export default tseslint.config(
       "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
     },
   },
+  // Per-function length backstop (primary complexity signal; max-lines above is the per-file one).
+  // Relaxed from the draft's 80 to 100 — at 80 the engine had 21 violations, almost all cohesive-
+  // but-exhaustive (undo algorithm, RPC handler registration, recursive serializers, integration
+  // tests), not the low-cohesion "one function doing too much" smell the rule targets. Tests are
+  // exempt (integration scenarios run long); production src over 100 must justify itself with an
+  // inline `eslint-disable-next-line max-lines-per-function -- <reason>` debt marker.
+  {
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 100, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
   // Architecture boundaries (AGENTS.md: services -> domain -> core; engine ↛ client).
   // Enforced automatically so a future PR can't silently cross them. Tests may cross layers
   // (e.g. cascade-exhaustive drives the domain cascade from a core test), so *.test.ts is exempt.

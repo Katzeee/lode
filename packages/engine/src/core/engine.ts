@@ -1,7 +1,7 @@
 /* eslint-disable max-lines -- the business-agnostic Engine store is intentionally kept in one file */
 import { randomUUID } from "node:crypto";
 import { Subject } from "rxjs";
-import { ShardedBlockStore, type Outliner } from "./sharded-store.js";
+import { ShardedBlockStore, type Outliner } from "./store/sharded-store.js";
 import { ActionHistory } from "./action-history.js";
 import type {
   Delta,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../core/engine.js";
-import { toJSON } from "../core/serializers/json.js";
+import { toJSON } from "../core/serialize.js";
 import { hardDeleteNode, removeOccurrenceOrHardDelete } from "./node.js";
 import type { DocSnapshot } from "../core/types.js";
 

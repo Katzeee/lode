@@ -4,7 +4,7 @@ import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-l
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
 import { createMembershipWireSecurity } from "./membership-security.js";
 import { open, seal } from "./wire-security.js";
-import { LoroMetaDoc } from "../../core/meta-doc.js";
+import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
 const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>

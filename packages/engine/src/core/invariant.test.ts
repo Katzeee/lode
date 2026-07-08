@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "./engine.js";
 import { validateSnapshot } from "./invariant.js";
-import { toJSON } from "./serializers/json.js";
+import { toJSON } from "./serialize.js";
 import type { DocSnapshot } from "./types.js";
 
 /**

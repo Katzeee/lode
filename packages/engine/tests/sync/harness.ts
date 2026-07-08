@@ -1,8 +1,8 @@
 import { Engine } from "../../src/core/engine.js";
-import { ShardedBlockStore, type Outliner } from "../../src/core/sharded-store.js";
-import type { SyncableDoc } from "../../src/core/syncable.js";
+import { ShardedBlockStore, type Outliner } from "../../src/core/store/sharded-store.js";
+import type { SyncableDoc } from "../../src/core/store/syncable.js";
 import { InMemoryDocStore, type LoadedDocBytes } from "../../src/core/index.js";
-import { toJSON } from "../../src/core/serializers/json.js";
+import { toJSON } from "../../src/core/serialize.js";
 import type { DocSnapshot } from "../../src/core/types.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";

@@ -30,6 +30,7 @@ const EMPTY: Empty = create(EmptySchema);
  *  actor keypair comes from the session (sessionHello), never re-sent by the client. The domain
  *  logic + owner/self-service guards live in `MembershipLog`; these are thin adapters: origin-gate
  *  → fetch the log → call the engine method → persist. */
+// eslint-disable-next-line max-lines-per-function -- registers the full membership RPC handler set; each handler is a thin adapter over MembershipLog.
 export function createMembershipHandlers(ctx: AppContext) {
   /** Origin-gate + load the membership log for `workspaceId`, or throw. Shared opening of every
    *  governance handler — origin check then a peek-only log fetch (never triggers a load). */

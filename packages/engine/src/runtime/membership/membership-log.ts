@@ -11,7 +11,7 @@ import {
   type ActorKeypair,
   type PeerKeypair,
 } from "../../utils/crypto/index.js";
-import type { MetaDoc } from "../../core/meta-doc.js";
+import type { MetaDoc } from "../../core/store/meta-doc.js";
 import { NotOwnerError, PreconditionFailedError } from "../../services/errors.js";
 import {
   AddRecordSchema,

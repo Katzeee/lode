@@ -1,4 +1,4 @@
-import type { SyncableDoc } from "../../core/syncable.js";
+import type { SyncableDoc } from "../../core/store/syncable.js";
 import type { SyncTransport } from "../sync/sync-manager.js";
 
 /**

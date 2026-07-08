@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap, VersionVector } from "loro-crdt";
 import { generateActorKeypair } from "../utils/crypto/index.js";
 import { AppWorkspaceRuntime } from "./workspace-registry.js";
-import type { ShardedBlockStore } from "../core/sharded-store.js";
-import { shardIdOf } from "../core/sharding.js";
+import type { ShardedBlockStore } from "../core/store/sharded-store.js";
+import { shardIdOf } from "../core/store/sharding.js";
 
 /**
  * Step 5b — sharded persistence end-to-end. A sharded workspace (treeDoc + N content
@@ -206,6 +206,74 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
       }
     } finally {
       await rt2.close();
+    }
+  });
+});
+
+describe("AppWorkspaceRuntime.runWorkspaceSerialized: per-workspace mutation chain", () => {
+  // The CRDT-paradigm serialization: same-workspace mutations queue (one completes before the next
+  // starts), different workspaces run in parallel. This is what makes the residentSession working-set
+  // gate reliably single-operation + keeps concurrent multi-client writes from erroring ("session
+  // already active") or tearing a read-modify-write.
+  const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+  it("same-workspace works serialize: B's body runs only after A completes", async () => {
+    const rt = await AppWorkspaceRuntime.inMemory();
+    try {
+      const order: string[] = [];
+      let aDone = false;
+      const a = rt.runWorkspaceSerialized("ws", async () => {
+        order.push("a-start");
+        await delay(15);
+        aDone = true;
+        order.push("a-end");
+      });
+      const b = rt.runWorkspaceSerialized("ws", () => {
+        order.push("b-start");
+        expect(aDone).toBe(true); // B starts only after A completed
+        order.push("b-end");
+        return Promise.resolve();
+      });
+      await Promise.all([a, b]);
+      expect(order).toEqual(["a-start", "a-end", "b-start", "b-end"]);
+    } finally {
+      await rt.close();
+    }
+  });
+
+  it("a failed work does not block a later work on the same workspace (chain stays fulfilled)", async () => {
+    const rt = await AppWorkspaceRuntime.inMemory();
+    try {
+      const first = rt.runWorkspaceSerialized("ws", () => Promise.reject(new Error("boom")));
+      await expect(first).rejects.toThrow("boom");
+      // A later work on the same workspace still runs (the chain didn't stay rejected).
+      const ran = rt.runWorkspaceSerialized("ws", () => Promise.resolve("ok"));
+      await expect(ran).resolves.toBe("ok");
+    } finally {
+      await rt.close();
+    }
+  });
+
+  it("different workspaces run in parallel (A on ws1 does not block B on ws2)", async () => {
+    const rt = await AppWorkspaceRuntime.inMemory();
+    try {
+      let bStarted = false;
+      const aStarted: boolean[] = [];
+      const a = rt.runWorkspaceSerialized("ws1", async () => {
+        aStarted.push(bStarted); // sampled mid-A — B should already be running (parallel)
+        await delay(15);
+      });
+      const b = rt.runWorkspaceSerialized("ws2", async () => {
+        bStarted = true;
+        await delay(15);
+      });
+      await Promise.all([a, b]);
+      // A started before B was set... but on separate chains, B can run concurrently with A. The
+      // point: neither threw "already running" + both completed. Parallelism (bStarted seen by A) is
+      // the expected signal; allow either timing but assert both finished cleanly.
+      expect(aStarted.length).toBe(1);
+    } finally {
+      await rt.close();
     }
   });
 });

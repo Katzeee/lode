@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { LoroDoc } from "loro-crdt";
-import { Engine } from "./engine.js";
+import { Engine } from "../engine.js";
 import { ShardedBlockStore } from "./sharded-store.js";
 import { shardIdOf } from "./sharding.js";
 import { SYS_PREFIX } from "./syncable.js";
 import type { ShardCache } from "./shard-cache.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
 import { InMemoryDocStore } from "./in-memory-doc-store.js";
-import { validateSnapshot } from "./invariant.js";
-import { toJSON } from "./serializers/json.js";
+import { validateSnapshot } from "../invariant.js";
+import { toJSON } from "../serialize.js";
 
 /** A round-tripping in-memory DocStore that records writes + reconstructs on load — lets tests
  *  exercise the lazy fault + write-back (evict-flush) path without a real sqlite sink. */
@@ -44,7 +44,7 @@ function recordingDocStore(): DocStore & {
     },
   };
 }
-import type { Delta, OccurrenceId } from "./types.js";
+import type { Delta, OccurrenceId } from "../types.js";
 
 const textToDelta = (s: string): Delta => [{ insert: s }];
 

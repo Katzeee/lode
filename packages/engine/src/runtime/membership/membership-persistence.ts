@@ -1,4 +1,4 @@
-import type { DocStore } from "../../core/doc-store.js";
+import type { DocStore } from "../../core/store/doc-store.js";
 
 /**
  * Persists the membership log's snapshot to the per-workspace store (design

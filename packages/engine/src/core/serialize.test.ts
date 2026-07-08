@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { textToDelta } from "../delta/utils.js";
-import { Engine } from "../engine.js";
-import { fromJSON, toJSON } from "./json.js";
+import { textToDelta } from "./delta.js";
+import { Engine } from "./engine.js";
+import { fromJSON, toJSON } from "./serialize.js";
 
 let engine: Engine;
 

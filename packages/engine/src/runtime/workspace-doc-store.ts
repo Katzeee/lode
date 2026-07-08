@@ -1,4 +1,4 @@
-import type { DocStore, LoadedDocBytes } from "../core/doc-store.js";
+import type { DocStore, LoadedDocBytes } from "../core/store/doc-store.js";
 import type { WorkspaceStore } from "../persistence/workspace-store.js";
 
 /**

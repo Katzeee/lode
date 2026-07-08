@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  VIRTUAL_BUCKETS,
-  bucketOf,
-  hashOfNodeId,
-  shardIdOf,
-  shardIdOfBucket,
-} from "../src/core/sharding.js";
+import { VIRTUAL_BUCKETS, bucketOf, hashOfNodeId, shardIdOf, shardIdOfBucket } from "./sharding.js";
 
 /**
  * Virtual-bucket sharding math — numShards is reversible. Ported from the prototype's

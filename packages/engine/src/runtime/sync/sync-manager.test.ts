@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../core/engine.js";
-import { ShardedBlockStore } from "../../core/sharded-store.js";
+import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { InMemorySyncTransport, SyncManager, type SyncTransport } from "./sync-manager.js";
 
 const newStore = (): ShardedBlockStore => new ShardedBlockStore({ numShards: 4 });

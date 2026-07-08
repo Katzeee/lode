@@ -1,11 +1,11 @@
-import type { Engine } from "../engine.js";
+import type { Engine } from "./engine.js";
 import type {
   DocSnapshot,
   NodeEntitySnapshot,
   NodeOccurrence,
   NodeOccurrenceSnapshot,
   OccurrenceId,
-} from "../types.js";
+} from "./types.js";
 
 export async function toJSON(
   engine: Engine,

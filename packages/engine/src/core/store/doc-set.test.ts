@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SyncableDoc } from "./syncable.js";
 import type { Outliner } from "./sharded-store.js";
-import { WorkspaceDocSet, SYS_PREFIX } from "./index.js";
+import { WorkspaceDocSet, SYS_PREFIX } from "../index.js";
 import type { MetaDoc } from "./meta-doc.js";
 
 /** A minimal outliner fake — the docSet only reads `docs()`, so we don't need the loro backing. */

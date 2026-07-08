@@ -2,7 +2,7 @@
 import type { Delta, NodeId, OccurrenceId } from "./types.js";
 import type { DocSnapshot, NodeEntitySnapshot, NodeOccurrenceSnapshot } from "./types.js";
 import type { Engine } from "./engine.js";
-import { toJSONOccurrences } from "./serializers/json.js";
+import { toJSONOccurrences } from "./serialize.js";
 
 /**
  * ENGINE-layer undo/redo (business-agnostic). Snapshot-diff style (anytype-heart's
@@ -333,6 +333,7 @@ function sameDelta(a: Delta, b: Delta): boolean {
  *    4. IN-PLACE occurrence updates for survivors: move/reparent, child order,
  *       occurrence props/meta.
  *    5. CANONICAL restoration (entity-level; after occurrences exist). */
+// eslint-disable-next-line max-lines-per-function -- one undo algorithm: a single fixpoint pass over the op log in 5 sequential phases.
 async function reconcile(
   engine: Engine,
   wanted: AffectedState,

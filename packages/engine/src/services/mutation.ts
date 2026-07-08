@@ -38,32 +38,40 @@ export async function runMutation<T>(
   fn: (doc: Engine) => T | Promise<T>,
   workingSet?: (doc: Engine) => readonly NodeId[],
 ): Promise<T> {
-  const origin = ctx.sessions.requireOrigin(connectionId);
-  const doc = await getEngine(ctx, workspaceId);
-  const outliner = doc.asOutliner();
-  const resident = workingSet?.(doc) ?? [];
-  let pinned = false;
-  if (resident.length > 0) {
-    await outliner.ensureResident(resident);
-    pinned = true;
-  }
-  const payloads: ProtoNodeUpdatedPayload[] = [];
-  const sub = doc.slots.nodeUpdated.subscribe((payload) => {
-    payloads.push(payloadToProto(payload));
-  });
-  try {
-    const result = await fn(doc);
-    // Persist what changed (tree + dirty shards) through the single flushDirty entry point — each
-    // doc exports its own delta from the persister's cursor, no external version capture needed.
-    await ctx.workspaces.flushDirty(workspaceId);
-    ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
-    return result;
-  } finally {
-    sub.unsubscribe();
-    if (pinned) {
-      outliner.release();
+  // Serialize same-workspace mutations: one completes before the next starts (CRDT paradigm —
+  // same-replica operations are serial; cross-replica concurrency is expressed via sync + merge, not
+  // parallel mutation). This keeps the residentSession working-set gate reliably single-operation +
+  // ActionHistory begin/end grouping non-interleaving, so concurrent multi-client writes to one
+  // workspace QUEUE (ms, invisible) instead of erroring ("session already active") or tearing a
+  // read-modify-write. Different workspaces run in parallel (per-workspace chain).
+  return ctx.workspaces.runWorkspaceSerialized(workspaceId, async () => {
+    const origin = ctx.sessions.requireOrigin(connectionId);
+    const doc = await getEngine(ctx, workspaceId);
+    const outliner = doc.asOutliner();
+    const resident = workingSet?.(doc) ?? [];
+    let pinned = false;
+    if (resident.length > 0) {
+      await outliner.ensureResident(resident);
+      pinned = true;
     }
-  }
+    const payloads: ProtoNodeUpdatedPayload[] = [];
+    const sub = doc.slots.nodeUpdated.subscribe((payload) => {
+      payloads.push(payloadToProto(payload));
+    });
+    try {
+      const result = await fn(doc);
+      // Persist what changed (tree + dirty shards) through the single flushDirty entry point — each
+      // doc exports its own delta from the persister's cursor, no external version capture needed.
+      await ctx.workspaces.flushDirty(workspaceId);
+      ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
+      return result;
+    } finally {
+      sub.unsubscribe();
+      if (pinned) {
+        outliner.release();
+      }
+    }
+  });
 }
 
 export function payloadToProto(payload: CoreNodeUpdatedPayload): ProtoNodeUpdatedPayload {

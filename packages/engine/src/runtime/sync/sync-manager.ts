@@ -1,4 +1,4 @@
-import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/syncable.js";
+import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/store/syncable.js";
 
 /** A peer's per-doc versions — the cheap metadata exchanged first to find what differs. Opaque
  *  version bytes per sub-doc id; the CRDT backend is closed behind `SyncableDoc`, so this type (and

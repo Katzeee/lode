@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { Engine } from "../src/core/engine.js";
-import { ShardedBlockStore } from "../src/core/sharded-store.js";
-import { toJSON } from "../src/core/serializers/json.js";
+import { ShardedBlockStore } from "../src/core/store/sharded-store.js";
+import { toJSON } from "../src/core/serialize.js";
 import { validateSnapshot } from "../src/core/invariant.js";
-import { deltaToText } from "../src/core/delta/utils.js";
+import { deltaToText } from "../src/core/delta.js";
 import type { DocSnapshot } from "../src/core/types.js";
 import { applyOp, generateScript, mulberry32, type Op } from "./driver.js";
 import {

@@ -50,6 +50,7 @@ const shardOfOcc =
     return nodeId ? [nodeId] : [];
   };
 
+// eslint-disable-next-line max-lines-per-function -- registers the full node RPC handler set; each handler is a thin adapter over Engine.
 export function createNodeHandlers(ctx: AppContext) {
   return {
     createPlainNode: async (

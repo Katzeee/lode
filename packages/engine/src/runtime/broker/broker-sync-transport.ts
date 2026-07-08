@@ -10,8 +10,8 @@ import { BrokerClient } from "./broker-client.js";
 import { BoundedAsyncQueue } from "./bounded-async-queue.js";
 import { decodeProfile, encodeProfile } from "../sync-message.js";
 import { open, seal } from "../membership/wire-security.js";
-import type { SyncBytes, SyncableDoc } from "../../core/syncable.js";
-import type { WorkspaceDocSet } from "../../core/doc-set.js";
+import type { SyncBytes, SyncableDoc } from "../../core/store/syncable.js";
+import type { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
 import type { WireSecurity } from "../membership/wire-security.js";
 

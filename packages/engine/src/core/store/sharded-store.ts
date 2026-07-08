@@ -1,4 +1,5 @@
-/* eslint-disable max-lines -- one internal storage boundary */
+/* eslint-disable max-lines -- one cohesive sharded-storage class: the full CRUD (~40 methods) +
+   Outliner/sync surface over a sharded LoroDoc tree. The heal algorithms live in sharded-heal.ts. */
 import {
   LoroDoc,
   LoroMap,
@@ -15,7 +16,8 @@ import { InMemoryDocStore } from "./in-memory-doc-store.js";
 import { LruShardCache, type EvictionPolicy, type ShardCache } from "./shard-cache.js";
 import { ShardPersister } from "./shard-persister.js";
 import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
-import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "./types.js";
+import { runReconcileDurability, runSweepOrphans, type HealContext } from "./sharded-heal.js";
+import type { Delta, DeltaInsert, MarkRange, NodeId, OccurrenceId } from "../types.js";
 
 /**
  * The treeDoc's bare internal key. The OUTWARD id (what `SyncableDoc.id` returns, what persistence
@@ -580,9 +582,9 @@ export class ShardedBlockStore implements Outliner {
     ];
   }
 
-  /** Post-exchange sync heal — delegates to the ownership-based orphan sweep. */
+  /** Post-exchange sync heal — delegates to `runSweepOrphans` (sharded-heal.ts). */
   async heal(): Promise<void> {
-    await this.sweepOrphans();
+    await runSweepOrphans(this.healContext());
   }
 
   async flushDirty(): Promise<void> {
@@ -608,16 +610,21 @@ export class ShardedBlockStore implements Outliner {
     await this.shardCache.evictToFit();
   }
 
-  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). `importUpdate` is
-   *  just fault + import + markDirty — no pin: a dirty imported shard is freely evictable (onEvict
-   *  flushes it), and the import is a sync call on an already-resolved doc, so there is no eviction
-   *  window between fault and the bytes landing. */
+  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). Sync's shard access
+   *  is SESSION-EXEMPT: it faults via `shardCache.get` directly, NOT `shardForRead`, so it is not gated
+   *  by a concurrent operation's `ensureResident` working-set session. Sync (push/import) is not an
+   *  operation — the push fast-path can fire while a mutation's session is armed, and it legitimately
+   *  exports resident shards beyond that one operation's declared set. `importUpdate` is fault + import
+   *  + markDirty — no pin: a dirty imported shard is freely evictable (onEvict flushes it), and the
+   *  import is a sync call on an already-resolved doc, so there is no eviction window between fault
+   *  and the bytes landing. */
   private shardSyncableDoc(id: string): SyncableDoc {
-    const base = this.syncableDoc(() => this.shardForRead(id), id);
+    const sessionExemptGet = () => this.shardCache.get(id);
+    const base = this.syncableDoc(sessionExemptGet, id);
     return {
       ...base,
       importUpdate: async (bytes) => {
-        (await this.shardForRead(id)).import(bytes);
+        (await sessionExemptGet()).import(bytes);
         this.markDirty(id);
       },
     };
@@ -679,126 +686,34 @@ export class ShardedBlockStore implements Outliner {
     return out;
   }
 
-  /**
-   * Crash recovery: reconcile treeDoc ↔ shards after a non-atomic restart. The tree
-   * doc and each shard are independent LoroDocs (persisted separately in Step 5), so
-   * a crash between their writes leaves two kinds of incompleteness:
-   *   CREATE-direction: occurrence + ownership present, shard entity absent.
-   *   DELETE-direction: shard entity present, ownership already gone.
-   * Run to a fixpoint; deterministic given tree-doc + shard state.
-   */
+  // ── heal (delegates to sharded-heal.ts — the algorithms live there) ─────────
+
+  /** Crash-restart heal: reconcile treeDoc ↔ shards after a non-atomic restart. Algorithm in
+   *  `runReconcileDurability` (sharded-heal.ts); this binds the store's heal-relevant surface. */
   async reconcileDurability(): Promise<void> {
-    for (let iter = 0; iter < 100; iter++) {
-      let changed = false;
-      // CREATE-direction: drop live occurrences pointing at a missing entity.
-      const occsToDrop: TreeID[] = [];
-      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
-        const nid = node.data.get("nodeId");
-        if (typeof nid === "string" && !(await this.entityPresent(nid))) {
-          occsToDrop.push(node.id);
-        }
-      }
-      for (const id of occsToDrop) {
-        this.occurrenceTree.delete(id);
-        changed = true;
-      }
-      // Ownership with neither a live occurrence nor an entity: crashed-create residue.
-      const liveOccNodeIds = new Set<NodeId>();
-      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
-        const nid = node.data.get("nodeId");
-        if (typeof nid === "string") {
-          liveOccNodeIds.add(nid);
-        }
-      }
-      for (const nid of [...(this.ownership.keys() as string[])]) {
-        if (!liveOccNodeIds.has(nid) && !(await this.entityPresent(nid))) {
-          this.ownership.delete(nid);
-          changed = true;
-        }
-      }
-      // DELETE-direction: orphan shard entities whose ownership is gone. Streaming — fault each shard
-      // one at a time under the normal capacity (empty shards fault null + evict; a shard with an
-      // orphan deletion is marked dirty so onEvict/persist preserves it). Gated to non-clean restart,
-      // so this full scan only runs after a crash.
-      for (let i = 0; i < this.numShards; i++) {
-        const shardId = `s${i}`;
-        const ents = (await this.shardForRead(shardId)).getMap("entities");
-        const stale: NodeId[] = [];
-        for (const [nid] of ents.entries()) {
-          if (typeof nid === "string" && this.ownership.get(nid) === undefined) {
-            stale.push(nid);
-          }
-        }
-        for (const nid of stale) {
-          ents.delete(nid);
-          changed = true;
-        }
-        if (stale.length > 0) {
-          // Mark the shard dirty so the orphan deletion persists (else it reappears on reload).
-          await this.shardForWrite(shardId);
-        }
-      }
-      if (!changed) {
-        break;
-      }
-    }
-    this.treeDoc.commit();
-    for (const [, s] of this.shardCache.residentEntries()) {
-      s.commit();
-    }
+    await runReconcileDurability(this.healContext());
   }
 
-  /**
-   * Sync heal (ownership-based). After exchanging treeDoc + shards, a live occurrence may
-   * reference a node whose ownership was hard-deleted on another replica (a ref to X created
-   * concurrently with X's deletion); such orphan occurrences are swept, and the entity +
-   * ownership of any node left with no live occurrence are dropped. Ownership-based on purpose:
-   * an occurrence whose shard is merely PENDING (ownership present, entity not yet delivered)
-   * is NOT swept, so partial delivery self-heals when the shard arrives. (No-resurrection
-   * rests on the CRDT permanence of `ownership.delete`, not on a tombstone — the tombstone
-   * machinery was removed once verified not to carry correctness.) This is distinct from
-   * `reconcileDurability` (entity-based, crash-restart healing) which must NOT run mid-sync.
-   * Deterministic given tree-doc state, so every replica that exchanges the same bytes
-   * converges identically.
-   */
-  async sweepOrphans(): Promise<void> {
-    for (let iter = 0; iter < 100; iter++) {
-      let changed = false;
-      const occToRemove: TreeID[] = [];
-      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
-        const nid = node.data.get("nodeId");
-        if (typeof nid === "string" && this.ownership.get(nid) === undefined) {
-          occToRemove.push(node.id);
-        }
-      }
-      for (const id of occToRemove) {
-        this.occurrenceTree.delete(id);
-        changed = true;
-      }
-      const liveOccNodeIds = new Set<NodeId>();
-      for (const node of this.occurrenceTree.getNodes({ withDeleted: false })) {
-        const nid = node.data.get("nodeId");
-        if (typeof nid === "string") {
-          liveOccNodeIds.add(nid);
-        }
-      }
-      for (const nid of [...(this.ownership.keys() as string[])]) {
-        if (!liveOccNodeIds.has(nid)) {
-          const shardId = this.shardIdOfNode(nid);
-          (await this.shardForRead(shardId)).getMap("entities").delete(nid);
-          await this.shardForWrite(shardId); // mark dirty so the orphan deletion persists
-          this.ownership.delete(nid);
-          changed = true;
-        }
-      }
-      if (!changed) {
-        break;
-      }
-    }
-    this.treeDoc.commit();
-    for (const [, s] of this.shardCache.residentEntries()) {
-      s.commit();
-    }
+  /** The store's heal-relevant surface, handed to the sharded-heal algorithms as bound closures so
+   *  the heal functions stay standalone (TS can't split a class across files). */
+  private healContext(): HealContext {
+    return {
+      numShards: this.numShards,
+      occurrenceTree: this.occurrenceTree,
+      ownership: this.ownership,
+      shardCache: this.shardCache,
+      treeDoc: this.treeDoc,
+      // RAW (shardCache.get + markDirty) — NOT the gated shardForRead/Write. Heal is infra, not an
+      // operation, so it must not trip a concurrent operation's working-set session gate. The gated
+      // accessors stay CRUD-only; this is the structural closure that keeps infra off the gate.
+      fault: (id) => this.shardCache.get(id),
+      touch: (id) => {
+        this.markDirty(id);
+        return this.shardCache.get(id);
+      },
+      entityPresent: (nid) => this.entityPresent(nid),
+      shardIdOfNode: (nid) => this.shardIdOfNode(nid),
+    };
   }
 
   // ── internals ───────────────────────────────────────────────────────────────

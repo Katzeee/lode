@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deltaToText, textToDelta } from "./utils.js";
+import { deltaToText, textToDelta } from "./delta.js";
 
 describe("deltaToText / textToDelta", () => {
   it("converts bidirectionally between text and delta", () => {

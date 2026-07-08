@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- 6 daemon sync e2e scenarios sharing one relay + two-daemon harness. */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -394,5 +395,80 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
 
     ownerClient.close();
     memberClient.close();
+  }, 30000);
+
+  it("synced content persists across a member restart (content-round 落盘 regression)", async () => {
+    // The one loop the engine layer can't host (loro wasm coexistence) — here at the daemon layer,
+    // in two real processes. The member converges content over sync, then RESTARTS (same dataRoot),
+    // and reads it back. `daemon.stop()` is an abrupt `runtime.app.stop()` (no flush, no clean marker
+    // — the engine's `close()` is not on this path), so the synced bytes survive the restart ONLY
+    // because the content round flushed them. That `ContentRound.runRound → flushDirty` line was
+    // previously verified by reading the code; this is its regression net. A `syncNow` before the
+    // stop deterministically closes the exchange→flush window inside the round (same flush code path
+    // every round uses, so it can't mask a broken flush — only the timing).
+    const relay = new BrokerServer({ port: 0 });
+    relays.push(relay);
+    await relay.ready();
+    const syncUrl = `http://127.0.0.1:${relay.port}`;
+    // MEMBER's dataRoot is reused across the restart — the persistence contract under test.
+    const memberDataRoot = await tempDataRoot();
+
+    const owner = await bootDaemon();
+    const member = await bootDaemon({ dataRoot: memberDataRoot });
+
+    const ownerClient = new AppServerClient({ url: owner.address });
+    const memberClient = new AppServerClient({ url: member.address });
+    ownerClient.connect();
+    memberClient.connect();
+    await openAuthedSession(ownerClient);
+    await openAuthedSession(memberClient);
+
+    const memberPeer = await memberClient.rpc.getPeerPublicKeys({});
+    await ownerClient.rpc.createWorkspace({ workspaceId: WORKSPACE, displayName: "shared" });
+    await ownerClient.rpc.addMember({
+      workspaceId: WORKSPACE,
+      peerEncPub: memberPeer.peerEncPub,
+      peerId: memberPeer.peerId,
+      owningActorId: memberPeer.owningActorId,
+    });
+    await ownerClient.rpc.registerSync({ workspaceId: WORKSPACE, relayUrl: syncUrl });
+    const coordinate = await ownerClient.rpc.shareWorkspace({ workspaceId: WORKSPACE });
+    await memberClient.rpc.joinWorkspace({ coordinate });
+
+    const ownerRoots = await ownerClient.rpc.listRoots({ workspaceId: WORKSPACE });
+    const ownerSeededRootOccurrenceId = ownerRoots.roots.at(0)!.occurrenceId;
+    const node = await ownerClient.rpc.createPlainNode({
+      workspaceId: WORKSPACE,
+      parentOccurrenceId: ownerSeededRootOccurrenceId,
+    });
+    const SECRET = "survives-member-restart";
+    await ownerClient.rpc.replaceNodeText({
+      workspaceId: WORKSPACE,
+      occurrenceId: node.occurrenceId,
+      deltas: [{ insert: SECRET }],
+    });
+    await expectConverged(memberClient, node.occurrenceId, SECRET);
+    // Force a complete round so the imported content is flushed before the abrupt stop.
+    await memberClient.rpc.syncNow({ workspaceId: WORKSPACE });
+
+    // Abrupt restart on the SAME dataRoot. stop() does not flush — the content round did.
+    memberClient.close();
+    await member.stop();
+    daemons.splice(daemons.indexOf(member), 1); // already stopped; don't let afterEach double-stop it
+
+    const member2 = await bootDaemon({ dataRoot: memberDataRoot });
+    const memberClient2 = new AppServerClient({ url: member2.address });
+    memberClient2.connect();
+    await openAuthedSession(memberClient2);
+    try {
+      const restored = await memberClient2.rpc.getNode({
+        workspaceId: WORKSPACE,
+        occurrenceId: node.occurrenceId,
+      });
+      expect(restored.occurrence?.deltas?.some((d) => d.insert === SECRET)).toBe(true);
+    } finally {
+      ownerClient.close();
+      memberClient2.close();
+    }
   }, 30000);
 });

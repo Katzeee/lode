@@ -9,11 +9,11 @@ import {
   type Engine,
   type LoadedDocBytes,
 } from "../core/index.js";
-import { ShardedBlockStore, TREE_SUBDOC } from "../core/sharded-store.js";
-import { SYS_PREFIX } from "../core/syncable.js";
+import { ShardedBlockStore, TREE_SUBDOC } from "../core/store/sharded-store.js";
+import { SYS_PREFIX } from "../core/store/syncable.js";
 import { WorkspaceDocStore } from "./workspace-doc-store.js";
 import { validateOccurrenceStructure, validateSnapshot } from "../core/invariant.js";
-import { toJSON, toJSONOccurrences } from "../core/serializers/json.js";
+import { toJSON, toJSONOccurrences } from "../core/serialize.js";
 import { createPlainNode } from "../domain/node.js";
 import { workspaceDbPath } from "../persistence/paths.js";
 import { RegistryStore, type WorkspaceRecord } from "../persistence/registry-store.js";
@@ -206,6 +206,13 @@ export class AppWorkspaceRuntime {
   }
 
   private createChain: Promise<void> = Promise.resolve();
+  /** Per-workspace mutation chains — same-workspace mutations serialize (one completes before the
+   *  next starts); different workspaces mutate in parallel. The CRDT-paradigm rule: same-replica
+   *  operations are serial (concurrency is expressed via sync + merge, not parallel mutation). This
+   *  makes the `residentSession` working-set gate reliably single-operation + `ActionHistory`
+   *  begin/end grouping non-interleaving, so concurrent multi-client writes to one workspace QUEUE
+   *  (ms, invisible) instead of erroring ("session already active") or tearing a read-modify-write. */
+  private readonly workspaceChains = new Map<string, Promise<void>>();
 
   /** Run `work` serialized on `createChain` so workspace-creating ops (create, fork) are atomic w.r.t.
    *  each other. `work` never throws up — it rejects the returned promise and leaves the chain
@@ -227,6 +234,29 @@ export class AppWorkspaceRuntime {
       }
     };
     this.createChain = this.createChain.then(run);
+    return result;
+  }
+
+  /** Run `work` serialized on `workspaceId`'s chain so same-workspace MUTATIONS are atomic w.r.t.
+   *  each other. Same never-throws-up semantics as `runSerialized`: `work`'s outcome rejects the
+   *  returned promise while the chain stays fulfilled (a failed mutation doesn't block later ones).
+   *  Per-workspace key (not global) so independent workspaces proceed in parallel. */
+  runWorkspaceSerialized<T>(workspaceId: string, work: () => Promise<T>): Promise<T> {
+    let resolve!: (v: T) => void;
+    let reject!: (e: unknown) => void;
+    const result = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    const run = async () => {
+      try {
+        resolve(await work());
+      } catch (e) {
+        reject(e);
+      }
+    };
+    const prev = this.workspaceChains.get(workspaceId) ?? Promise.resolve();
+    this.workspaceChains.set(workspaceId, prev.then(run));
     return result;
   }
 

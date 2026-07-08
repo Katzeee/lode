@@ -1,4 +1,4 @@
-import type { NodeId } from "./types.js";
+import type { NodeId } from "../types.js";
 
 /**
  * Deterministic sharding math. A node's BUCKET (`hash mod P`) is permanent — it is

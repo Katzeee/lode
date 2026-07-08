@@ -4,7 +4,7 @@
  */
 import { LoroDoc, LoroText } from "loro-crdt";
 import { Engine } from "../../src/core/engine.js";
-import { ShardedBlockStore } from "../../src/core/sharded-store.js";
+import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
 
 const t = (label: string, fn: () => void) => {
   const t0 = performance.now();

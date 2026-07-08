@@ -121,6 +121,49 @@ describe("LruShardCache", () => {
     const { cache } = newCache({});
     expect(() => cache.pin("absent")).toThrow(/not resident/);
   });
+
+  it("concurrent cold-faults of the same shard share one createDoc (no cache stampede → no orphan)", async () => {
+    // A controllable faultIn that doesn't resolve until the test releases it — two callers racing
+    // the same cold fault. Without dedup each would createDoc → the second overwrites pages → the
+    // first's doc is orphaned → its writes lost. With dedup they share ONE doc instance.
+    let resolveFault!: (bytes: LoadedDocBytes | null) => void;
+    const faultIn = vi.fn(
+      (_id: string) =>
+        new Promise<LoadedDocBytes | null>((res) => {
+          resolveFault = res;
+        }),
+    );
+    const createDoc = vi.fn((bytes: LoadedDocBytes | null): FakeDoc => ({ id: 0, bytes }));
+    const cache = new LruShardCache<FakeDoc>({ faultIn, createDoc });
+
+    const p1 = cache.get("s0");
+    const p2 = cache.get("s0");
+    expect(faultIn).toHaveBeenCalledTimes(1); // deduped: only one in-flight fault
+    resolveFault(snap([1, 2, 3]));
+    const [d1, d2] = await Promise.all([p1, p2]);
+    expect(d1).toBe(d2); // SAME instance — no orphan
+    expect(createDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it("concurrent get + getAndPin of the same shard share one createDoc; the pin still applies", async () => {
+    let resolveFault!: (bytes: LoadedDocBytes | null) => void;
+    const faultIn = vi.fn(
+      (_id: string) =>
+        new Promise<LoadedDocBytes | null>((res) => {
+          resolveFault = res;
+        }),
+    );
+    const createDoc = vi.fn((bytes: LoadedDocBytes | null): FakeDoc => ({ id: 0, bytes }));
+    const cache = new LruShardCache<FakeDoc>({ faultIn, createDoc });
+
+    const pGet = cache.get("s0");
+    const pPin = cache.getAndPin("s0");
+    resolveFault(snap([7]));
+    const [dGet, dPin] = await Promise.all([pGet, pPin]);
+    expect(dGet).toBe(dPin); // SAME instance
+    expect(createDoc).toHaveBeenCalledTimes(1);
+    cache.unpin("s0"); // the getAndPin's pin was applied (balanced unpin doesn't throw)
+  });
 });
 
 /** FIFO eviction: the OLDEST resident (insertion order, ignoring later accesses) is the victim.

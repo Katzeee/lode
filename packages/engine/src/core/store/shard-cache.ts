@@ -122,6 +122,11 @@ export type ShardCacheOptions<T> = {
 export class LruShardCache<T> implements ShardCache<T> {
   private readonly pages = new Map<string, T>();
   private readonly pins = new Map<string, number>();
+  /** In-flight cold faults, deduped per id so concurrent cold-faults of the SAME shard share one
+   *  `createDoc` + `pages.set` — no cache stampede (two createDocs → one orphaned → lost writes).
+   *  Cleared in the fault's `finally`, which runs in the same microtask as `pages.set`, so a later
+   *  access sees the resident doc (cache hit), not a fresh fault. */
+  private readonly pending = new Map<string, Promise<T>>();
   private readonly faultIn: (id: string) => Promise<LoadedDocBytes | null>;
   private readonly createDoc: (bytes: LoadedDocBytes | null) => T;
   private capacity: number;
@@ -144,10 +149,7 @@ export class LruShardCache<T> implements ShardCache<T> {
       this.policy.onAccess(id);
       return cached;
     }
-    const doc = this.createDoc(await this.faultIn(id));
-    this.pages.set(id, doc);
-    this.policy.onInsert(id);
-    this.onFault?.(id);
+    const doc = await this.faultAndSet(id);
     await this.evictToFit();
     return doc;
   }
@@ -159,13 +161,44 @@ export class LruShardCache<T> implements ShardCache<T> {
       this.bumpPin(id);
       return cached;
     }
-    const doc = this.createDoc(await this.faultIn(id));
-    this.pages.set(id, doc);
-    this.policy.onInsert(id);
-    this.bumpPin(id); // pin BEFORE evictToFit, so the just-faulted doc is never its own victim
-    this.onFault?.(id);
+    const doc = await this.faultAndSet(id);
+    // A concurrent `get`'s evictToFit could have evicted the just-faulted doc (it's the only
+    // unpinned one when the cache is full of session-pinned shards) before we pin. Re-set the SAME
+    // instance (no new createDoc → no stampede) + pin BEFORE our own evictToFit so it is never its
+    // own victim.
+    if (!this.pages.has(id)) {
+      this.pages.set(id, doc);
+      this.policy.onInsert(id);
+    } else {
+      this.policy.onAccess(id);
+    }
+    this.bumpPin(id);
     await this.evictToFit();
     return doc;
+  }
+
+  /** Dedup the cold fault (createDoc + first pages.set) per id — concurrent cold-faults share ONE
+   *  doc instance. The pin + evictToFit stay caller-side so the pin refcount is exact. */
+  private faultAndSet(id: string): Promise<T> {
+    const existing = this.pending.get(id);
+    if (existing) {
+      return existing;
+    }
+    const p = (async () => {
+      try {
+        const doc = this.createDoc(await this.faultIn(id));
+        if (!this.pages.has(id)) {
+          this.pages.set(id, doc);
+          this.policy.onInsert(id);
+          this.onFault?.(id);
+        }
+        return doc;
+      } finally {
+        this.pending.delete(id);
+      }
+    })();
+    this.pending.set(id, p);
+    return p;
   }
 
   has(id: string): boolean {

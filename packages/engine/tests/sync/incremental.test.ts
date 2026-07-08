@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../src/core/engine.js";
-import { ShardedBlockStore } from "../../src/core/sharded-store.js";
+import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
 import { InMemorySyncTransport, SyncManager } from "../../src/runtime/sync/sync-manager.js";
 import { canonical } from "./harness.js";
 

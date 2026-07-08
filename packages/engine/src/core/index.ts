@@ -7,19 +7,19 @@ export { Workspace } from "./workspace.js";
 export type { WorkspaceOptions, DocOptions } from "./workspace.js";
 
 // Syncable — the opaque CRDT sync/persistence contract (closes the CRDT backend behind bytes).
-export type { SyncBytes, SyncableDoc, SyncableComposite } from "./syncable.js";
-export { SYS_PREFIX } from "./syncable.js";
-export type { Outliner } from "./sharded-store.js";
-export type { MetaDoc } from "./meta-doc.js";
-export { LoroMetaDoc } from "./meta-doc.js";
+export type { SyncBytes, SyncableDoc, SyncableComposite } from "./store/syncable.js";
+export { SYS_PREFIX } from "./store/syncable.js";
+export type { Outliner } from "./store/sharded-store.js";
+export type { MetaDoc } from "./store/meta-doc.js";
+export { LoroMetaDoc } from "./store/meta-doc.js";
 
 // DocStore port — the persistence contract core owns; the runtime adapts the persistence leaf to it.
-export type { DocStore, LoadedDocBytes } from "./doc-store.js";
-export { InMemoryDocStore } from "./in-memory-doc-store.js";
+export type { DocStore, LoadedDocBytes } from "./store/doc-store.js";
+export { InMemoryDocStore } from "./store/in-memory-doc-store.js";
 
 // WorkspaceDocSet — the unified per-workspace doc collection (outliner + meta docs) the broker reads.
-export { WorkspaceDocSet } from "./doc-set.js";
-export type { DocSetEntry, SecurityClass } from "./doc-set.js";
+export { WorkspaceDocSet } from "./store/doc-set.js";
+export type { DocSetEntry, SecurityClass } from "./store/doc-set.js";
 
 // Types
 export type {
@@ -41,7 +41,7 @@ export type {
 } from "./types.js";
 
 // Delta utilities
-export { deltaToText, textToDelta } from "./delta/utils.js";
+export { deltaToText, textToDelta } from "./delta.js";
 
 // Serializers
-export { toJSON, fromJSON } from "./serializers/json.js";
+export { toJSON, fromJSON } from "./serialize.js";

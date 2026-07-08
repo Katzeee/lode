@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
-import { ShardedBlockStore } from "../../core/sharded-store.js";
-import { WorkspaceDocSet } from "../../core/doc-set.js";
-import type { MetaDoc } from "../../core/meta-doc.js";
+import { ShardedBlockStore } from "../../core/store/sharded-store.js";
+import { WorkspaceDocSet } from "../../core/store/doc-set.js";
+import type { MetaDoc } from "../../core/store/meta-doc.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
-import { LoroMetaDoc } from "../../core/meta-doc.js";
+import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */
 const newLog = (persistence?: ConstructorParameters<typeof MembershipLog>[1]): MembershipLog =>

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "./engine.js";
+import { Engine } from "../engine.js";
 import { ShardedBlockStore } from "./sharded-store.js";
 import { shardIdOf } from "./sharding.js";
 import type { DocStore } from "./doc-store.js";
-import type { NodeId, OccurrenceId } from "./types.js";
+import type { NodeId, OccurrenceId } from "../types.js";
 
 /** A round-tripping in-memory DocStore — flushDirty/persist exercises the lazy fault + write-back
  *  path without a real sqlite sink. */
@@ -120,5 +120,31 @@ describe("mid-burst residency (Phase 3): an un-flushed multi-shard write burst s
     expect(samples.length).toBeGreaterThan(capacity); // the burst faulted more shards than capacity
     expect(Math.max(...samples)).toBeLessThanOrEqual(capacity + 1); // no spike; +1 is the per-fault transient
     expect(store.residentShardCount).toBeLessThanOrEqual(capacity); // quiescent after the burst
+  });
+});
+
+/**
+ * Infra is session-exempt — the structural closure of the "operation × infra" race class. The
+ * working-set assertion in `shardForRead` is for OPERATIONS (CRUD via `ensureResident`); infra (heal,
+ * sync, persist) must NOT be gated by a concurrent operation's session. `healContext` exposes RAW
+ * faults (`shardCache.get` + `markDirty`), not the gated accessors — so heal can't trip the gate.
+ * This is the deterministic replacement for the daemon `local-write-pushes` flake (where sync tripped
+ * the gate under load): arm a session, run heal (which scans every shard, most outside the session)
+ * — it must not throw.
+ */
+describe("infra session-exempt: heal during an armed working-set session does not trip the gate", () => {
+  it("reconcileDurability + heal scan all shards during an armed session without throwing", async () => {
+    const numShards = 8;
+    const store = new ShardedBlockStore({ numShards });
+    const e = new Engine({ store });
+    const root = await e.createNode(null);
+    e.captureSync();
+    // Arm a session over ONLY root's shard. reconcile/heal's delete-direction sweep faults every
+    // s0..s7 — most are outside {rootShard}. A gated heal threw "shard touched outside its declared
+    // working set" here; heal is infra (raw) so it's exempt.
+    await store.ensureResident([root.nodeId]);
+    await expect(store.reconcileDurability()).resolves.toBeUndefined();
+    await expect(store.heal()).resolves.toBeUndefined();
+    store.release();
   });
 });

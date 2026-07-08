@@ -1,4 +1,4 @@
-import type { Delta } from "../types.js";
+import type { Delta } from "./types.js";
 
 export function deltaToText(deltas: Delta): string {
   let s = "";
