@@ -11,10 +11,25 @@ export type WorkspaceRecord = {
   updatedAt: number;
 };
 
-export class RegistryStore {
+/** The registry of workspaces + per-dataRoot metadata (peerId, peer key). A binding-agnostic port:
+ *  the SQLite impl persists; an in-memory impl backs ephemeral runtimes. The runtime always holds a
+ *  RegistryStore — "persistent vs in-memory" is which impl is injected, not a scattered `if`. */
+export type RegistryStore = {
+  createWorkspace(input: { workspaceId?: string; displayName: string }): Promise<WorkspaceRecord>;
+  listWorkspaces(): Promise<WorkspaceRecord[]>;
+  getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
+  removeWorkspace(workspaceId: string): Promise<boolean>;
+  getMeta(key: string): Promise<string | null>;
+  setMeta(key: string, value: string): Promise<void>;
+  /** Get-or-create this dataRoot's stable peer id (see SqliteRegistryStore.ensurePeerId). */
+  ensurePeerId(): Promise<number>;
+  close(): Promise<void>;
+};
+
+export class SqliteRegistryStore implements RegistryStore {
   private constructor(private readonly db: SqlDatabase) {}
 
-  static async open(dataRoot: string): Promise<RegistryStore> {
+  static async open(dataRoot: string): Promise<SqliteRegistryStore> {
     const db = await openSqliteDatabase(registryDbPath(dataRoot));
     await db.exec(`
       CREATE TABLE IF NOT EXISTS registry_meta (
@@ -30,7 +45,7 @@ export class RegistryStore {
         updated_at INTEGER NOT NULL
       );
     `);
-    return new RegistryStore(db);
+    return new SqliteRegistryStore(db);
   }
 
   async createWorkspace(input: {

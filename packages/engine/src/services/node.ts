@@ -23,17 +23,15 @@ import {
   type UnsetNodePropRequest,
   type UnsetOccurrencePropRequest,
 } from "@lode/protocol/proto";
-import { assertNodeHardDeleteAllowed } from "../domain/hard-delete-policy.js";
-import { assertNotActiveManagedChild } from "../domain/managed-child-policy.js";
 import {
-  createPlainNode as createPlainNodeCore,
+  createPlainNodeInWorkspace,
   getSemanticChildren,
   hardDeleteNode as hardDeleteNodeCore,
   moveOccurrence,
   promoteCanonicalOccurrence,
+  removeOccurrence,
 } from "../domain/node.js";
 import { getEngine, type AppContext } from "./context.js";
-import { DomainInvalidInputError } from "../domain/errors.js";
 import { EMPTY } from "./empty.js";
 import { runMutation } from "./mutation.js";
 import { fromValue } from "./struct.js";
@@ -57,20 +55,13 @@ export function createNodeHandlers(ctx: AppContext) {
       req: CreatePlainNodeRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceWire> => {
-      // Single-root is a PRODUCT policy (one workspace = one content tree), enforced HERE — the one
-      // product-surface funnel for node creation. The engine core stays a forest (BlockSuite/Loro-
-      // faithful; engine tests build multi-root trees directly via the domain primitive). The sole
-      // sanctioned root is the one `createWorkspace` seeds at birth (owner-gated, directly via the
-      // domain primitive — it bypasses this RPC). A null parent means "the workspace's one root," legal
-      // only before that root exists; once rooted, every node must attach under it.
-      const node = await runMutation(ctx, connectionId, req.workspaceId, async (doc) => {
-        if (!req.parentOccurrenceId && (await doc.getRootOccurrences()).length > 0) {
-          throw new DomainInvalidInputError(
-            "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
-          );
-        }
-        return createPlainNodeCore(doc, req.parentOccurrenceId ?? null, req.index, req.props);
-      });
+      // Single-root (one workspace = one content tree) is enforced inside the domain primitive
+      // `createPlainNodeInWorkspace`, so every caller — this RPC, in-process, importers — hits it.
+      // The engine core stays a forest; engine tests + the owner-gated root seed at `createWorkspace`
+      // use the bare `createPlainNode` directly.
+      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+        createPlainNodeInWorkspace(doc, req.parentOccurrenceId ?? null, req.index, req.props),
+      );
       return nodeToProto(node);
     },
 
@@ -113,10 +104,9 @@ export function createNodeHandlers(ctx: AppContext) {
     },
 
     moveNode: async (req: MoveNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, async (doc) => {
-        await assertNotActiveManagedChild(doc, req.occurrenceId);
-        await moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId ?? null, req.index);
-      });
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+        moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId ?? null, req.index),
+      );
       return EMPTY;
     },
 
@@ -177,18 +167,16 @@ export function createNodeHandlers(ctx: AppContext) {
       req: RemoveNodeOccurrenceRequest,
       connectionId: string,
     ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, async (doc) => {
-        await assertNotActiveManagedChild(doc, req.occurrenceId);
-        await doc.removeOccurrence(req.occurrenceId);
-      });
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+        removeOccurrence(doc, req.occurrenceId),
+      );
       return EMPTY;
     },
 
     hardDeleteNode: async (req: HardDeleteNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, async (doc) => {
-        await assertNodeHardDeleteAllowed(doc, req.nodeId);
-        await hardDeleteNodeCore(doc, req.nodeId);
-      });
+      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+        hardDeleteNodeCore(doc, req.nodeId),
+      );
       return EMPTY;
     },
 

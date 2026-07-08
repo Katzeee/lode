@@ -23,7 +23,7 @@ export {
   AuthenticationError,
   PreconditionFailedError,
   NotOwnerError,
-} from "./services/errors.js";
+} from "./errors.js";
 export { DomainInvalidInputError } from "./domain/errors.js";
 
 export type { AppRuntime, AppRuntimeOptions, LodeCommands } from "./runtime/app-runtime.js";

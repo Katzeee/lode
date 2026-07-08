@@ -1,6 +1,6 @@
 import { createLogger } from "@lode/logger";
 import { MEMBERSHIP_DOC_ID } from "../membership/membership-log.js";
-import { PreconditionFailedError } from "../../services/errors.js";
+import { PreconditionFailedError } from "../../errors.js";
 import type { AppWorkspaceRuntime } from "../workspace-registry.js";
 import type { ActorKeypair } from "../../utils/crypto/index.js";
 import type { Engine } from "../../core/engine.js";

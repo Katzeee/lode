@@ -4,9 +4,10 @@ import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
 
-// Proves the single-root product policy enforced in services/node.ts: createWorkspace seeds the
-// workspace's one root (named = displayName), and a subsequent createPlainNode with no parent is
-// refused once that root exists. Attaching under the seeded root is the sanctioned path.
+// Proves the single-root product policy enforced in domain/node.ts (createPlainNodeInWorkspace):
+// createWorkspace seeds the workspace's one root (named = displayName), and a subsequent
+// createPlainNode with no parent is refused once that root exists. Attaching under the seeded
+// root is the sanctioned path.
 describe("single-root product policy", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;

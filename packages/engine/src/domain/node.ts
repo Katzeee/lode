@@ -1,4 +1,12 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
+import {
+  cascadeHardDelete,
+  cascadeRemove,
+  type Engine,
+  type NodeOccurrence,
+} from "../core/index.js";
+import { invalidDomainInput } from "./errors.js";
+import { assertNodeHardDeleteAllowed } from "./hard-delete-policy.js";
+import { assertNotActiveManagedChild } from "./managed-child-policy.js";
 
 export async function createPlainNode(
   doc: Engine,
@@ -7,6 +15,27 @@ export async function createPlainNode(
   props?: Record<string, unknown>,
 ): Promise<NodeOccurrence> {
   return doc.createNode(await canonicalChildOwnerOf(doc, parentOccurrenceId), index, props);
+}
+
+/** Product-level node creation: enforces the single-root workspace policy (one workspace = one
+ *  content tree). A null parent is legal only before the workspace's root exists; once rooted,
+ *  every node must attach under it. This is the narrow point all user node creation funnels
+ *  through — the `createPlainNode` RPC handler + in-process callers. The bare `createPlainNode`
+ *  (multi-root) stays for engine tests and the owner-gated root seed at `createWorkspace`, which
+ *  deliberately bypass this guard to plant the one sanctioned root. */
+export async function createPlainNodeInWorkspace(
+  doc: Engine,
+  parentOccurrenceId?: string | null,
+  index?: number,
+  props?: Record<string, unknown>,
+): Promise<NodeOccurrence> {
+  if (parentOccurrenceId == null && (await doc.getRootOccurrences()).length > 0) {
+    invalidDomainInput(
+      "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
+      { reason: "workspace_already_rooted" },
+    );
+  }
+  return createPlainNode(doc, parentOccurrenceId, index, props);
 }
 
 export async function createReference(
@@ -22,12 +51,16 @@ export async function createReference(
   );
 }
 
+/** Product-level move: runs the managed-child guard, then resolves the semantic parent and moves.
+ *  This is the narrow point every move funnels through — RPC (`moveNode`), in-process callers, and
+ *  editing paths (indent/outdent). The bare forest primitive is core `Engine.moveOccurrence`. */
 export async function moveOccurrence(
   doc: Engine,
   occurrenceId: string,
   parentOccurrenceId: string | null,
   index?: number,
 ): Promise<void> {
+  await assertNotActiveManagedChild(doc, occurrenceId);
   await doc.moveOccurrence(
     occurrenceId,
     await canonicalChildOwnerOf(doc, parentOccurrenceId),
@@ -85,129 +118,31 @@ export async function promoteCanonicalOccurrence(
   });
 }
 
+/** Product-level leaf-only remove: runs the managed-child guard, then the core leaf remove. Mirrors
+ *  core `Engine.removeOccurrence` (throws on canonical / non-leaf) plus the guard — the narrow point
+ *  every single-occurrence user remove funnels through (`removeNodeOccurrence` RPC, in-process). */
+export async function removeOccurrence(doc: Engine, occurrenceId: string): Promise<void> {
+  await assertNotActiveManagedChild(doc, occurrenceId);
+  await doc.removeOccurrence(occurrenceId);
+}
+
+/** Product-level cascade remove: runs the managed-child guard on the seed, then the bare cascade.
+ *  Authorized system callers that legitimately remove a managed entity (e.g. `removeField`, which
+ *  carries its own `assertFieldRemoveAllowed`) use the bare core `cascadeRemove` directly. */
 export async function removeOccurrenceOrHardDelete(
   doc: Engine,
   occurrenceId: string,
 ): Promise<void> {
-  // One undo step for the whole cascade (joins an outer batch if called inside one, e.g.
-  // setFieldValues).
-  await doc.batch(async () => {
-    const { removed, deletedNodes } = await cascadeClosure(doc, [occurrenceId]);
-    await applyCascade(doc, removed, deletedNodes);
-  });
+  await assertNotActiveManagedChild(doc, occurrenceId);
+  await cascadeRemove(doc, occurrenceId);
 }
 
+/** Product-level hard delete: runs the protected-node guard, then the bare cascade. The guard
+ *  checks the node, all its occurrences, and the full descendant subtree — so the cascade cannot
+ *  nuke a protected entity even when reached via a non-RPC caller. */
 export async function hardDeleteNode(doc: Engine, nodeId: string): Promise<void> {
-  await doc.batch(async () => {
-    const seeds = (await doc.getOccurrences(nodeId)).map((occurrence) => occurrence.occurrenceId);
-    const { removed, deletedNodes } = await cascadeClosure(doc, seeds);
-    await applyCascade(doc, removed, deletedNodes);
-  });
-}
-
-/**
- * Compute the removal closure by worklist, WITHOUT mutating — so a node referenced
- * from several places (transclusion) is enqueued many times but processed once (the
- * `removed` set bounds the work; the old recursive form revisited deleted occurrences
- * and crashed). Closure rules: an occurrence drags its physical subtree; an occurrence
- * that IS its node's canonical drags every occurrence of that node (and their subtrees).
- * A node is deleted iff its canonical ends up removed.
- */
-async function cascadeClosure(
-  doc: Engine,
-  seeds: string[],
-): Promise<{ removed: Set<string>; deletedNodes: Set<string> }> {
-  const removed = new Set<string>();
-  const work = [...seeds];
-  while (work.length > 0) {
-    const occId = work.pop()!;
-    if (removed.has(occId)) {
-      continue;
-    }
-    const occ = await doc.getOccurrence(occId);
-    if (!occ) {
-      continue;
-    }
-    removed.add(occId);
-    for (const child of await doc.getOccurrenceChildren(occId)) {
-      work.push(child.occurrenceId);
-    }
-    if (occId === occ.canonicalOccurrenceId) {
-      for (const sibling of await doc.getOccurrences(occ.nodeId)) {
-        work.push(sibling.occurrenceId);
-      }
-    }
-  }
-  const deletedNodes = new Set<string>();
-  for (const occId of removed) {
-    const occ = await doc.getOccurrence(occId);
-    if (occ && occId === occ.canonicalOccurrenceId) {
-      deletedNodes.add(occ.nodeId);
-    }
-  }
-  return { removed, deletedNodes };
-}
-
-/**
- * Apply the closure through the Engine mutators (events + history), bottom-up to a
- * fixpoint: drop leaf occurrences of surviving nodes via removeOccurrence, and kill
- * nodes via deleteNode once all their occurrences are leaves. The fixpoint resolves
- * inter-node dependencies (a killed node nested under another) without explicit depth
- * ordering. removeOccurrence/deleteNode's leaf + non-canonical guards hold by
- * construction (surviving occurrences are non-canonical; killed nodes' occurrences are
- * all in the closure, so their children clear first).
- */
-async function applyCascade(
-  doc: Engine,
-  removed: Set<string>,
-  deletedNodes: Set<string>,
-): Promise<void> {
-  const appliedOcc = new Set<string>();
-  const appliedNode = new Set<string>();
-  let progress = true;
-  while (progress) {
-    progress = false;
-    for (const occId of removed) {
-      if (appliedOcc.has(occId)) {
-        continue;
-      }
-      const occ = await doc.getOccurrence(occId);
-      if (!occ) {
-        appliedOcc.add(occId);
-        progress = true;
-        continue;
-      }
-      // The canonical occurrence of a killed node is dropped via deleteNode
-      // (removeOccurrence throws on canonical). Non-canonical occurrences of a killed
-      // node — including a self-nested one under the canonical — are removed here, so
-      // the canonical can become a leaf before deleteNode runs.
-      if (deletedNodes.has(occ.nodeId) && occId === occ.canonicalOccurrenceId) {
-        continue;
-      }
-      if (doc.getChildOccurrenceIds(occId).length === 0) {
-        await doc.removeOccurrence(occId);
-        appliedOcc.add(occId);
-        progress = true;
-      }
-    }
-    for (const nodeId of deletedNodes) {
-      if (appliedNode.has(nodeId)) {
-        continue;
-      }
-      const occs = await doc.getOccurrences(nodeId);
-      if (
-        occs.length === 0 ||
-        occs.every((occ) => doc.getChildOccurrenceIds(occ.occurrenceId).length === 0)
-      ) {
-        await doc.deleteNode(nodeId);
-        appliedNode.add(nodeId);
-        for (const occ of occs) {
-          appliedOcc.add(occ.occurrenceId);
-        }
-        progress = true;
-      }
-    }
-  }
+  await assertNodeHardDeleteAllowed(doc, nodeId);
+  await cascadeHardDelete(doc, nodeId);
 }
 
 export async function getSemanticChildren(

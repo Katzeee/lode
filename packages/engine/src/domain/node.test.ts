@@ -3,6 +3,7 @@ import { Engine } from "../core/engine.js";
 import {
   cloneOccurrence,
   createPlainNode,
+  createPlainNodeInWorkspace,
   createReference,
   getSemanticChildren,
   hardDeleteNode,
@@ -147,5 +148,23 @@ describe("domain node semantics", () => {
 
     expect(await doc.getOccurrence(source.occurrenceId)).toBeUndefined();
     expect(await doc.getOccurrence(child.occurrenceId)).toBeUndefined();
+  });
+});
+
+describe("createPlainNodeInWorkspace single-root guard (non-RPC path)", () => {
+  it("allows the first null-parent node, then refuses a second root", async () => {
+    const doc = new Engine();
+    const first = await createPlainNodeInWorkspace(doc, null);
+    expect(first.parentOccurrenceId).toBeNull();
+    await expect(createPlainNodeInWorkspace(doc, null)).rejects.toThrow(
+      "workspace already has a root",
+    );
+  });
+
+  it("attaches under an existing root when a parent is given (no guard fired)", async () => {
+    const doc = new Engine();
+    const root = await createPlainNodeInWorkspace(doc, null);
+    const child = await createPlainNodeInWorkspace(doc, root.occurrenceId);
+    expect(child.parentOccurrenceId).toBe(root.occurrenceId);
   });
 });

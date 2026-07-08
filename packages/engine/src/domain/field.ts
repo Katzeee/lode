@@ -1,4 +1,4 @@
-import { type Engine, type NodeOccurrence, textToDelta } from "../core/index.js";
+import { cascadeRemove, type Engine, type NodeOccurrence, textToDelta } from "../core/index.js";
 import { SystemEntityMeta, type FieldPresence, type FieldType } from "../bundle/system-schema.js";
 import type { DomainChange } from "./model/changes.js";
 import type {
@@ -184,7 +184,11 @@ export async function setFieldValues(
 export async function removeField(doc: Engine, fieldOccurrenceId: string): Promise<void> {
   const field = await requireFieldNode(doc, fieldOccurrenceId);
   await assertFieldRemoveAllowed(doc, field);
-  await removeOccurrenceOrHardDelete(doc, field.occurrenceId);
+  // Bare cascade (no managed-child guard): a field IS an active managed child, so the product
+  // `removeOccurrenceOrHardDelete` would reject it. Field lifecycle carries its own authorization
+  // (`assertFieldRemoveAllowed` — allows optional fields, blocks required ones) and then removes
+  // directly through the core cascade.
+  await cascadeRemove(doc, field.occurrenceId);
 }
 
 async function requireFieldNode(doc: Engine, occurrenceId: string): Promise<NodeOccurrence> {

@@ -16,7 +16,7 @@ import {
   ListMembersResponseSchema,
 } from "@lode/protocol/proto";
 import type { AppContext } from "./context.js";
-import { PreconditionFailedError } from "./errors.js";
+import { PreconditionFailedError } from "../errors.js";
 import { DomainInvalidInputError } from "../domain/errors.js";
 
 const EMPTY: Empty = create(EmptySchema);

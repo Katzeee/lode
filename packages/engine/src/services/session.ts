@@ -11,40 +11,26 @@ import type {
   UnsubscribeDocRequest,
 } from "@lode/protocol/proto";
 import { ActorMnemonicSchema, ActorPublicKeysSchema } from "@lode/protocol/proto";
-import {
-  deriveActorKeypairFromMnemonic,
-  generateMnemonic,
-  type ActorKeypair,
-} from "../utils/crypto/index.js";
+import { deriveActorKeypair, mintActorIdentity } from "../session/identity-policy.js";
 import { getEngine, type AppContext } from "./context.js";
-import { AuthenticationError } from "./errors.js";
 import { EMPTY } from "./empty.js";
 
 export function createSessionHandlers(ctx: AppContext) {
   return {
-    // The client sends only the mnemonic; the daemon derives the keypair (the identity IS the derived
-    // actor id — no declared actor to cross-check). A bad/undecodable mnemonic → reject; the session is
-    // never created. The derived sign pub is retained on the session so a peer can add this actor as a
-    // member via GetActorPublicKeys.
+    // The client sends only the mnemonic; the identity policy derives the keypair (the identity IS
+    // the derived actor id — no declared actor to cross-check). A bad/undecodable mnemonic → the
+    // policy throws AuthenticationError; the session is never created. The derived sign pub is
+    // retained on the session so a peer can add this actor as a member via GetActorPublicKeys.
     sessionHello: (req: SessionHelloRequest, connectionId: string): SessionInfo => {
-      let keypair: ActorKeypair | undefined;
-      try {
-        keypair = deriveActorKeypairFromMnemonic(req.mnemonic);
-      } catch {
-        keypair = undefined;
-      }
-      if (keypair === undefined) {
-        throw new AuthenticationError("sessionHello: actor authentication failed (bad mnemonic)");
-      }
+      const keypair = deriveActorKeypair(req.mnemonic);
       return ctx.sessions.createSession(connectionId, req, keypair);
     },
 
     // Mint a fresh actor identity — a 12-word mnemonic + the actor id it derives to. Unauthenticated
     // by design: this is the bootstrap (`lode actor new`) a new user calls once, before any authed
-    // command is possible. It mints a new identity; it reads/signs nothing.
+    // command is possible. The policy mints a new identity; it reads/signs nothing.
     generateActorMnemonic: (_req: Empty): ActorMnemonic => {
-      const mnemonic = generateMnemonic();
-      const actorId = deriveActorKeypairFromMnemonic(mnemonic).actorId;
+      const { mnemonic, actorId } = mintActorIdentity();
       return create(ActorMnemonicSchema, { mnemonic, actorId });
     },
 

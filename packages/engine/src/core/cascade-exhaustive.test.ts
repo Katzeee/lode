@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../core/engine.js";
-import { toJSON } from "../core/serialize.js";
-import { hardDeleteNode, removeOccurrenceOrHardDelete } from "./node.js";
-import type { DocSnapshot } from "../core/types.js";
+import { Engine } from "./engine.js";
+import { toJSON } from "./serialize.js";
+import { cascadeHardDelete, cascadeRemove } from "./cascade.js";
+import type { DocSnapshot } from "./types.js";
 
 /**
  * cascade-exhaustive — an INDEPENDENT truth for the remove/hard-delete cascade.
  * Ported from `experiments/multi-shard-tree/test/cascade-exhaustive.test.ts`, now
- * driving the PRODUCTION cascade (`domain.removeOccurrenceOrHardDelete` /
- * `hardDeleteNode`) instead of the prototype's. The production cascade currently
- * has no independent spec — only its own tests — so this is the missing witness.
+ * driving the bare core cascade (`core.cascadeRemove` / `cascadeHardDelete`) — the
+ * pure occurrence/canonical tree algebra, with no product guards — instead of the
+ * prototype's. The cascade currently has no independent spec — only its own tests —
+ * so this is the missing witness.
  *
  * For every tiny rooted tree (sizes 2–4) × every transclusion pattern (set
  * partition), enumerate every remove(occurrence) and hardDelete(node), and assert
@@ -297,14 +298,14 @@ describe("cascade-exhaustive: production cascade == independent brute-force trut
     expect(n).toBe(2 + 10 + 90); // B(2)·1! + B(3)·2! + B(4)·3!
   });
 
-  it("every removeOccurrenceOrHardDelete on every shape matches the brute-force survivor set", async () => {
+  it("every cascadeRemove on every shape matches the brute-force survivor set", async () => {
     let matched = 0;
     let total = 0;
     for (const s of shapes(SIZES)) {
       for (let p = 0; p < s.k; p++) {
         total++;
         const { e, occIds, labelByNodeId } = await build(s);
-        await removeOccurrenceOrHardDelete(e, at(occIds, p));
+        await cascadeRemove(e, at(occIds, p));
         same(
           equivOf(await toJSON(e), labelByNodeId),
           expected(s, survive(s, { kind: "remove", pos: p })),
@@ -315,7 +316,7 @@ describe("cascade-exhaustive: production cascade == independent brute-force trut
     expect(matched).toBe(total); // every enumerated case matches the spec — no throws
   });
 
-  it("every hardDeleteNode on every shape matches the brute-force survivor set", async () => {
+  it("every cascadeHardDelete on every shape matches the brute-force survivor set", async () => {
     let matched = 0;
     let total = 0;
     for (const s of shapes(SIZES)) {
@@ -326,7 +327,7 @@ describe("cascade-exhaustive: production cascade == independent brute-force trut
           continue;
         }
         total++;
-        await hardDeleteNode(e, target);
+        await cascadeHardDelete(e, target);
         same(
           equivOf(await toJSON(e), labelByNodeId),
           expected(s, survive(s, { kind: "hardDelete", node: n })),
@@ -338,11 +339,10 @@ describe("cascade-exhaustive: production cascade == independent brute-force trut
   });
 });
 
-// History (Step 1 safety net → #4b fix): production's ORIGINAL recursive cascade
-// (removeOccurrenceOrHardDelete / hardDeleteNode) was unsound under multi-occurrence
-// transclusion — it revisited an occurrence already deleted earlier in the same cascade
-// (mustGetOccurrence threw; heavier topologies even WASM-crashed). This exhaustive test
-// caught it (originally `threw > 0`). #4b rewrote the cascade as a bounded worklist with
-// a `removed` set (cascadeClosure + applyCascade in domain/node.ts): pure traversal
-// computes the closure, then applies bottom-up through the Engine mutators. The tests
-// above now require every enumerated case to match the brute-force spec with no throws.
+// History (Step 1 safety net → #4b fix): the ORIGINAL recursive cascade was unsound under
+// multi-occurrence transclusion — it revisited an occurrence already deleted earlier in the same
+// cascade (mustGetOccurrence threw; heavier topologies even WASM-crashed). This exhaustive test
+// caught it (originally `threw > 0`). #4b rewrote the cascade as a bounded worklist with a
+// `removed` set (cascadeClosure + applyCascade in core/cascade.ts): pure traversal computes the
+// closure, then applies bottom-up through the Engine mutators. The tests above now require every
+// enumerated case to match the brute-force spec with no throws.

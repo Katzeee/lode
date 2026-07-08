@@ -8,7 +8,6 @@ import {
   writeManagedProvenance,
 } from "./managed-child-state.js";
 import { readSchemaIds } from "./schema-membership.js";
-import { moveOccurrence } from "./node.js";
 import { isSameProvenance } from "./model/reconcile.js";
 
 export async function reorderTargetChildren(
@@ -42,7 +41,11 @@ export async function reorderTargetChildren(
     if (!atIndex || atIndex.occurrenceId === occurrenceId) {
       continue;
     }
-    await moveOccurrence(doc, occurrenceId, target.occurrenceId, index);
+    // Bare core move (no managed-child guard): reorder is a SYSTEM operation — the schema enforces
+    // field order on its own managed children. The product guard `moveOccurrence` would reject moving
+    // an active managed child; system reorder is authorized to, like `removeField`'s bare cascade.
+    // target is the canonical occurrence, so its id is the direct move parent (no resolution needed).
+    await doc.moveOccurrence(occurrenceId, target.occurrenceId, index);
     const moved = await doc.mustGetOccurrence(occurrenceId);
     changes.push({
       kind: managedAllSet.has(occurrenceId) ? requireManagedKind(doc, moved) : "templateRef",

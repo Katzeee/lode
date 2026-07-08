@@ -12,7 +12,7 @@ import {
   type PeerKeypair,
 } from "../../utils/crypto/index.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
-import { NotOwnerError, PreconditionFailedError } from "../../services/errors.js";
+import { NotOwnerError, PreconditionFailedError } from "../../errors.js";
 import {
   AddRecordSchema,
   PeerWrapSchema,
