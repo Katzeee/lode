@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPlainNode } from "../../src/domain/node.js";
+import { createPlainNode } from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import {
   assertConverged,
@@ -19,7 +19,7 @@ import {
 describe("sync chaos: partial delivery + partition heal", () => {
   it("treeDoc-only partial delivery does not corrupt; full sync heals to convergence", async () => {
     const a = replica(8);
-    const root = await createPlainNode(a, null);
+    const root = await a.createNode(null);
     const n = await createPlainNode(a, root.occurrenceId);
     await a.replaceDeltas(n.occurrenceId, [{ insert: "in shard" }]);
     const b = await cloneReplica(a);
@@ -36,7 +36,7 @@ describe("sync chaos: partial delivery + partition heal", () => {
 
   it("partitioned replica reconnects and converges (no data loss)", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const a = await cloneReplica(base);
     const b = await cloneReplica(base);
     const c = await cloneReplica(base);
@@ -58,7 +58,7 @@ describe("sync chaos: partial delivery + partition heal", () => {
 
   it("re-delivery is idempotent: syncing again changes nothing", async () => {
     const a = replica(8);
-    const root = await createPlainNode(a, null);
+    const root = await a.createNode(null);
     await createPlainNode(a, root.occurrenceId);
     const b = await cloneReplica(a);
     await createPlainNode(b, root.occurrenceId);

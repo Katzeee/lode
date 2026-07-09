@@ -12,7 +12,4 @@ export type SyncDeps = {
    *  ~1 idle line per workspace per ~200s). The engine emits raw counts; the host shapes the UX
    *  (CLI log line, mobile toast, nothing). */
   readonly onRound?: (workspaceId: string, summary: RoundSummary) => void;
-  /** Whether the push fast-path should fire for this workspace — e.g. suppress on mobile idle to
-   *  save battery (the broadcast tick backstops drops). Default: always push. */
-  readonly shouldPush?: (workspaceId: string) => boolean;
 };

@@ -4,26 +4,28 @@ import { actorPublicKeyFromId } from "../../utils/crypto/index.js";
 import type { WireSecurity } from "./wire-security.js";
 
 export type MembershipWireSecurity = {
-  /** The live `WireSecurity` to hand to a secured `BrokerSyncProtocol`. Its `transitKey` field
-   *  is mutated in place by `refresh()` — the transport sees the new key without being rebuilt. */
+  /** The live `WireSecurity` to hand to a secured `BrokerSyncProtocol`. Its `transitKey` is a
+   *  version-memoized getter: reading it re-derives the membership state (and the unwrapped key)
+   *  iff the log's frontier has moved — so the transport always seals/opens under the current key
+   *  with no external `refresh()` to remember. */
   readonly security: WireSecurity;
-  /** Re-derive the membership snapshot from the log and, if the local peer is admitted, install the
-   *  unwrapped transit key onto `security`. Call after each membership-gossip round so the key + member
-   *  set reflect the latest converged roster. */
-  refresh(): void;
   /** True iff the local peer (peerId) is currently admitted → the sealed content round may run. */
   isMember(): boolean;
-  /** The latest converged membership state (refreshed by `refresh()`). */
+  /** The latest converged membership state (re-derived lazily when the log's frontier moves). */
   state(): MembershipState;
 };
 
 /**
  * Build a `WireSecurity` for a content transport from a membership log + the local peer (design
- * sync-identity-persistence §2 + §13). `refresh()` re-derives the log state and installs the unwrapped
- * transit key onto `security.transitKey` (a concrete, mutable field — the crypto layer just AEADs
- * under whatever it holds, no membership knowledge). Before the local peer is admitted the key stays
- * a placeholder and `isMember()` is false, so the host skips the sealed content round; the membership
- * (plaintext) round still runs, which is exactly what lets the peer join.
+ * sync-identity-persistence §2 + §13). Wire security is a PROJECTION of the membership log: every
+ * reader (`isMember`/`state`/`resolveActorPub`/`transitKey`) re-derives iff the log's frontier has
+ * moved since the last read, else reuses the cached state + transit key. A projection invalidates
+ * from its source — so any write (a governance rotate/add/revoke, or a sync import) is visible on
+ * the very next read, with no `refresh()` for callers to remember to call.
+ *
+ * Before the local peer is admitted the key stays a placeholder and `isMember()` is false, so the
+ * host skips the sealed content round; the membership (plaintext) round still runs, which is exactly
+ * what lets the peer join.
  *
  * The actor still signs every wire payload (attribution); the peer key only unwraps transit. A
  * sender's sign pub is recovered from its actorId; `resolveActorPub` is a SOFT membership-attribution
@@ -40,14 +42,41 @@ export function createMembershipWireSecurity(opts: {
   local: LocalPeer;
 }): MembershipWireSecurity {
   const { log, local } = opts;
-  const snap = { state: log.deriveState().state };
+
+  // The real transit key iff the local peer is currently admitted; a placeholder otherwise (never
+  // used as a real key — the host gates sealed rounds on `isMember()`, true only once admitted).
+  const unwrapTransitKey = (state: MembershipState): Uint8Array =>
+    state.peers.has(local.peerId) ? log.unwrapCurrentTransitKey(state, local) : new Uint8Array(32);
+
+  // Cached projection: state + the frontier key it was derived from. `ensureFresh` re-derives only
+  // when the log's frontier (the causal heads) moves — which happens iff records were appended or
+  // imported, i.e. iff the derived state could have changed.
+  const snap = { state: log.deriveState().state, frontierKey: frontierKeyOf(log) };
+  let currentTransitKey = unwrapTransitKey(snap.state);
+
+  /** Re-derive the cached state + transit key iff the log moved since the last read. Called by every
+   *  reader, so callers never need to remember a separate refresh step. */
+  const ensureFresh = (): void => {
+    const frontierKey = frontierKeyOf(log);
+    if (frontierKey !== snap.frontierKey) {
+      snap.state = log.deriveState().state;
+      snap.frontierKey = frontierKey;
+      currentTransitKey = unwrapTransitKey(snap.state);
+    }
+  };
+
   const security: WireSecurity = {
     actorId: local.actor.actorId,
     actorPrivateKey: local.actor.privateKey,
-    // Placeholder until refresh() installs the real key; never used as a real key because the host
-    // gates sealed rounds on isMember(), which is true only once a real key has been installed.
-    transitKey: new Uint8Array(32),
+    // A getter, not a mutated field: reading the transit key (at every seal/open) lazily re-derives
+    // when the log moved, so the transport always AEADs under the current key — including the push
+    // fast-path, which seals without a membership gate.
+    get transitKey(): Uint8Array {
+      ensureFresh();
+      return currentTransitKey;
+    },
     resolveActorPub: (id) => {
+      ensureFresh();
       if (!actorHasPeer(snap.state, id)) {
         return undefined;
       }
@@ -58,16 +87,22 @@ export function createMembershipWireSecurity(opts: {
       }
     },
   };
+
   return {
     security,
-    refresh: () => {
-      const { state } = log.deriveState();
-      snap.state = state;
-      if (state.peers.has(local.peerId)) {
-        security.transitKey = log.unwrapCurrentTransitKey(state, local);
-      }
+    isMember: () => {
+      ensureFresh();
+      return snap.state.peers.has(local.peerId);
     },
-    isMember: () => snap.state.peers.has(local.peerId),
-    state: () => snap.state,
+    state: () => {
+      ensureFresh();
+      return snap.state;
+    },
   };
+}
+
+/** A stable string for the log's current frontier — the membership-state version. Two equal keys
+ *  mean the records are unchanged, so the derived state + transit key are unchanged. */
+function frontierKeyOf(log: MembershipLog): string {
+  return Buffer.from(log.metaDoc.frontiers()).toString("base64");
 }

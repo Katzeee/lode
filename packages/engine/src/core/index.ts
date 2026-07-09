@@ -48,4 +48,4 @@ export { toJSON, fromJSON } from "./serialize.js";
 
 // Bare forest cascade (pure occurrence/canonical tree algebra over the Engine; no product guards).
 // Domain wraps these with managed-child / protected-node guards for user paths.
-export { cascadeRemove, cascadeHardDelete } from "./cascade.js";
+export { applyCascade, cascadeClosure, cascadeHardDelete, cascadeRemove } from "./cascade.js";

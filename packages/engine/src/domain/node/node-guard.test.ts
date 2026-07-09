@@ -1,16 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../core/engine.js";
-import { createFieldDef } from "./field.js";
+import { Engine } from "../../core/engine.js";
+import { SystemEntityMeta, SystemKind } from "../../bundle/system-schema.js";
+import { createFieldDef } from "../field/field.js";
 import {
   createPlainNode,
   createReference,
+  createWorkspaceRoot,
   getSemanticChildren,
   hardDeleteNode,
   moveOccurrence,
   removeOccurrence,
   removeOccurrenceOrHardDelete,
 } from "./node.js";
-import { applySchema, createSchema } from "./schema.js";
+import { applySchema, createSchema } from "../schema/schema.js";
 
 /**
  * Guards live on the domain primitives, not the RPC handlers — so every caller hits them, not just
@@ -28,17 +30,18 @@ async function docWithManagedChild(): Promise<{
   other: { occurrenceId: string };
 }> {
   const doc = new Engine();
-  const schema = await createSchema(doc, "S");
-  const defs = await createPlainNode(doc);
+  const root = await createWorkspaceRoot(doc);
+  const schema = await createSchema(doc, "S", root.occurrenceId);
+  const defs = await createPlainNode(doc, root.occurrenceId);
   const fieldDef = await createFieldDef(doc, defs.occurrenceId, "F", "plain", "normal");
   await createReference(doc, fieldDef.nodeId, schema.occurrenceId);
-  const target = await createPlainNode(doc);
+  const target = await createPlainNode(doc, root.occurrenceId);
   await applySchema(doc, target.occurrenceId, schema.nodeId);
   const slot = (await getSemanticChildren(doc, target.occurrenceId))[0];
   if (slot === undefined) {
     throw new Error("setup failed: schema apply did not create a managed field slot");
   }
-  const other = await createPlainNode(doc);
+  const other = await createPlainNode(doc, root.occurrenceId);
   return { doc, slot, other };
 }
 
@@ -69,14 +72,35 @@ describe("domain primitives carry managed-child / hard-delete guards (non-RPC pa
 
   it("a plain (non-managed) node passes through the guards untouched", async () => {
     const doc = new Engine();
-    const parent = await createPlainNode(doc);
+    const root = await createWorkspaceRoot(doc);
+    const parent = await createPlainNode(doc, root.occurrenceId);
     const child = await createPlainNode(doc, parent.occurrenceId);
-    const other = await createPlainNode(doc);
+    const other = await createPlainNode(doc, root.occurrenceId);
     await moveOccurrence(doc, child.occurrenceId, other.occurrenceId);
     expect((await doc.getOccurrence(child.occurrenceId))?.parentOccurrenceId).toBe(
       other.occurrenceId,
     );
     await removeOccurrenceOrHardDelete(doc, child.occurrenceId);
     expect(await doc.getOccurrence(child.occurrenceId)).toBeUndefined();
+  });
+
+  it("hardDeleteNode catches a protected node under a non-canonical occurrence (one closure)", async () => {
+    // The guard must walk the SAME closure the cascade removes. A protected entity physically
+    // parented under a non-canonical occurrence is in that closure but outside the canonical
+    // subtree — a canonical-only guard walk would miss it and let the cascade delete it.
+    const doc = new Engine();
+    const root = await createWorkspaceRoot(doc);
+    const source = await createPlainNode(doc, root.occurrenceId);
+    const holder = await createPlainNode(doc, root.occurrenceId);
+    const ref = await createReference(doc, source.nodeId, holder.occurrenceId); // non-canonical
+    // Attach a protected entity directly under the non-canonical occurrence (bypasses the
+    // canonicalization createPlainNode does, so it sits in ref's subtree, not source's).
+    const hidden = await doc.createNode(ref.occurrenceId);
+    await doc.setEntityMeta(hidden.occurrenceId, SystemEntityMeta.SystemKind, SystemKind.Schema);
+
+    await expect(hardDeleteNode(doc, source.nodeId)).rejects.toThrow("protected_node_hard_delete");
+    // The guard fired before apply, so nothing was removed.
+    expect(await doc.getOccurrence(source.occurrenceId)).toBeDefined();
+    expect(await doc.getOccurrence(hidden.occurrenceId)).toBeDefined();
   });
 });

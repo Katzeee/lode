@@ -1,7 +1,8 @@
-import type { RegistryStore } from "../persistence/registry-store.js";
-import type { ActorKeypair, PeerKeypair } from "../utils/crypto/index.js";
-import { generatePeerKeypair, peerKeypairFromPrivateKey } from "../utils/crypto/index.js";
-import type { LocalPeer } from "./membership/membership-log.js";
+import { randomUUID } from "node:crypto";
+import type { RegistryStore } from "../../persistence/registry-store.js";
+import type { ActorKeypair, PeerKeypair } from "../../utils/crypto/index.js";
+import { generatePeerKeypair, peerKeypairFromPrivateKey } from "../../utils/crypto/index.js";
+import type { LocalPeer } from "../membership/membership-log.js";
 
 const PEER_PRIV_KEY_META = "peerPrivKey";
 
@@ -11,6 +12,10 @@ const PEER_PRIV_KEY_META = "peerPrivKey";
  * §13). Random, NOT mnemonic-derived — a lost mnemonic must not let a revoked peer re-derive its
  * key. Always constructed from a RegistryStore (SQLite for persistent, in-memory for ephemeral) so
  * the peer id + key are get-or-created uniformly — the difference is which registry is injected.
+ *
+ * Owns the ONLY numeric peerId → string policy: `routingId()` is the string label every consumer
+ * (sync self-filter, LocalPeer.peerId, the session origin) reads, so the conversion lives in one
+ * place rather than scattered `String(peerId)` calls.
  */
 export class PeerIdentity {
   private constructor(
@@ -22,6 +27,19 @@ export class PeerIdentity {
     return new PeerIdentity(await registry.ensurePeerId(), await ensurePeerKey(registry));
   }
 
+  /** The string form of the peer id — the routing/self-filter label + the LocalPeer's peerId.
+   *  undefined if this runtime has no peer identity (only in odd non-persistent configs). */
+  routingId(): string | undefined {
+    return this.peerId === undefined ? undefined : String(this.peerId);
+  }
+
+  /** The session-origin node label for changes emitted from this runtime — the stable peer routing
+   *  id (so a restart keeps the same origin, matching the Loro site id), or a fresh random id if this
+   *  runtime has no peer identity. */
+  originLabel(): string {
+    return this.routingId() ?? randomUUID();
+  }
+
   /** The LocalPeer (session actor + this dataRoot's peer key + peerId) a host uses for wire security
    *  + membership ops. Throws if this runtime has no peer identity (only in odd non-persistent
    *  configs). */
@@ -29,7 +47,7 @@ export class PeerIdentity {
     if (this.peerId === undefined || this.peerKeypair === undefined) {
       throw new Error("no peer identity on this dataRoot");
     }
-    return { actor, peer: this.peerKeypair, peerId: String(this.peerId) };
+    return { actor, peer: this.peerKeypair, peerId: this.routingId()! };
   }
 }
 

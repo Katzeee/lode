@@ -1,5 +1,5 @@
 import type { Engine, NodeOccurrence } from "../../core/index.js";
-import { cloneOccurrence, getSemanticChildren } from "../node.js";
+import { cloneOccurrence, getSemanticChildren } from "../node/node.js";
 
 // Composite clipboard ops. The clipboard BUFFER lives client-side; the engine only provides
 // deep-clone-under-target as one undoable intent. Both ops reuse cloneOccurrence (already
@@ -26,13 +26,14 @@ export async function paste(
   });
 }
 
-/** Duplicate an occurrence in place — same parent, immediately after the original. One undo step. */
+/** Duplicate an occurrence in place — same parent, immediately after the original. One undo step.
+ *  A root has no parent to duplicate beside, so it clones under itself (never mints a second root). */
 export async function duplicate(doc: Engine, occurrenceId: string): Promise<NodeOccurrence> {
   return doc.batch(async () => {
     const occ = await doc.mustGetOccurrence(occurrenceId);
-    const parent = occ.parentOccurrenceId;
-    const siblings = parent ? doc.getChildOccurrenceIds(parent) : doc.getRootOccurrenceIds();
-    const after = siblings.indexOf(occurrenceId) + 1;
-    return cloneOccurrence(doc, occurrenceId, parent, after);
+    const parent = occ.parentOccurrenceId ?? occurrenceId;
+    const siblings = doc.getChildOccurrenceIds(parent);
+    const selfIndex = occ.parentOccurrenceId ? siblings.indexOf(occurrenceId) : -1;
+    return cloneOccurrence(doc, occurrenceId, parent, selfIndex + 1);
   });
 }

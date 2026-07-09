@@ -7,8 +7,8 @@ import type {
   UndoHistoryRequest,
 } from "@lode/protocol/proto";
 import type { Engine } from "../core/index.js";
-import { getEngine, type AppContext } from "./context.js";
-import { runMutation } from "./mutation.js";
+import { getEngine, type AppContext } from "./wire/context.js";
+import { runMutation } from "./wire/mutation.js";
 
 export function createHistoryHandlers(ctx: AppContext) {
   // undo/redo run through the same envelope as every direct edit (`runMutation`: origin gate →

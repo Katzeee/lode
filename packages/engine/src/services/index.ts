@@ -1,4 +1,4 @@
-import type { AppContext } from "./context.js";
+import type { AppContext } from "./wire/context.js";
 import { createEditingHandlers } from "./editing.js";
 import { createFieldDefHandlers } from "./field-def.js";
 import { createFieldHandlers } from "./field.js";

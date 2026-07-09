@@ -4,6 +4,7 @@ import {
   AuthenticationError,
   DocNotFoundError,
   DomainInvalidInputError,
+  NotFoundError,
   NotOwnerError,
   PreconditionFailedError,
   SessionRequiredError,
@@ -40,6 +41,12 @@ describe("toConnectError", () => {
 
   it("maps DocNotFoundError → NotFound", () => {
     expect(toConnectError(new DocNotFoundError("ws"))).toMatchObject({ code: Code.NotFound });
+  });
+
+  it("maps NotFoundError (a missing node/occurrence/entity) → NotFound", () => {
+    expect(toConnectError(new NotFoundError("entity", "node-123"))).toMatchObject({
+      code: Code.NotFound,
+    });
   });
 
   it("maps DomainInvalidInputError → InvalidArgument", () => {

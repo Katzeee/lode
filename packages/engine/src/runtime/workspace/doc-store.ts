@@ -1,5 +1,5 @@
-import type { DocStore, LoadedDocBytes } from "../core/store/doc-store.js";
-import type { WorkspaceStore } from "../persistence/workspace-store.js";
+import type { DocStore, LoadedDocBytes } from "../../core/store/doc-store.js";
+import type { WorkspaceStore } from "../../persistence/workspace-store.js";
 
 /**
  * Adapts the persistence leaf (WorkspaceStore — sqlite today; a different binding on mobile, a

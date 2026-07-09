@@ -1,13 +1,13 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import type { DomainChange } from "./model/changes.js";
-import { ManagedKind } from "./model/managed-child.js";
-import { isActiveManagedChild, managedKindValue } from "./managed-child-state.js";
-import { isField } from "./system-entity.js";
-import { getSemanticChildren, removeOccurrenceOrHardDelete } from "./node.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import type { DomainChange } from "../model/changes.js";
+import { ManagedKind } from "../model/managed-child.js";
+import { isActiveManagedChild, managedKindValue } from "../managed/managed-child-state.js";
+import { isField } from "../system-entity.js";
+import { getSemanticChildren, removeOccurrenceOrHardDelete } from "../node/node.js";
 import { applyDesiredManagedChildren } from "./schema-reconcile-apply.js";
 import { collectDesiredManagedChildren } from "./schema-reconcile-desired.js";
 import { reorderTargetChildren, trimStaleManagedProvenance } from "./schema-reconcile-order.js";
-import { requireCanonicalOccurrence } from "./lookup.js";
+import { requireCanonicalOccurrence } from "../lookup.js";
 
 export async function reconcileTargetSchemas(
   doc: Engine,

@@ -1,8 +1,8 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import { invalidDomainInput } from "./errors.js";
-import { requireOccurrence } from "./lookup.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import { invalidDomainInput } from "../errors.js";
+import { requireOccurrence } from "../lookup.js";
 import { isActiveManagedChild } from "./managed-child-state.js";
-import { isFieldDef, readFieldDefId, readFieldDefPresence } from "./system-entity.js";
+import { isFieldDef, readFieldDefId, readFieldDefPresence } from "../system-entity.js";
 
 export async function assertNotActiveManagedChild(
   doc: Engine,

@@ -8,7 +8,7 @@ import { createLogger } from "@lode/logger";
 // otherwise be hand-coded per subsystem.
 //
 // app.child() creates a sub-runtime whose `parent` is this App. Each loaded workspace is such a
-// ChildApp (see workspace-registry.ts): its components stop independently on unload, and it is the
+// ChildApp (see workspace/registry.ts): its components stop independently on unload, and it is the
 // mounting point for per-workspace subsystems. Cross-level access (a child reaching a parent's
 // component) is wired by passing the parent's already-constructed components into the child at
 // build time — no runtime lookup needed.
@@ -131,6 +131,12 @@ export class App {
     this.started = false;
   }
 
+  /** True once stop() has run (the app is tearing down / torn down). A lifecycle-state query for
+   *  tests + hosts that need to observe teardown — e.g. asserting a nested sub-graph stopped. */
+  get isStopped(): boolean {
+    return this.stopped;
+  }
+
   setDeviceState(state: DeviceState): void {
     this.deviceState = state;
     for (const c of this.components) {
@@ -189,5 +195,21 @@ export class App {
         runSettleMs: this.runSettleMs,
       });
     }
+  }
+}
+
+/** A Component that owns a child App and stops it when its parent stops. Lets a long-lived App (e.g.
+ *  a workspace's ChildApp) host a disposable sub-graph that tears down WITH it — so one `app.stop()`
+ *  from `removeWorkspace` collapses engine + store + sync into a single teardown, and the sub-graph
+ *  can't outlive the workspace whose engine it reads. The child is built + started before this is
+ *  registered, so a failed build discards the child (no holder left on the parent to conflict with a
+ *  retry). */
+export class ChildAppComponent implements Component {
+  constructor(
+    readonly name: string,
+    private readonly child: App,
+  ) {}
+  async stop(): Promise<void> {
+    await this.child.stop();
   }
 }

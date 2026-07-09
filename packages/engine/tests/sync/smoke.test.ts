@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPlainNode, createReference, hardDeleteNode } from "../../src/domain/node.js";
+import { createPlainNode, createReference, hardDeleteNode } from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, cloneReplica, replica, syncAll } from "./harness.js";
 
@@ -13,7 +13,7 @@ import { assertConverged, cloneReplica, replica, syncAll } from "./harness.js";
 describe("sync smoke", () => {
   it("divergent edits on a shared base converge (structure + shard content)", async () => {
     const a = replica(8);
-    const root = await createPlainNode(a, null);
+    const root = await a.createNode(null);
     const shared = await createPlainNode(a, root.occurrenceId);
     await a.replaceDeltas(shared.occurrenceId, [{ insert: "base" }]);
 
@@ -30,7 +30,7 @@ describe("sync smoke", () => {
 
   it("concurrent ref + hard-delete heals via sweepOrphans (no orphan, no resurrection)", async () => {
     const a = replica(8);
-    const root = await createPlainNode(a, null);
+    const root = await a.createNode(null);
     const target = await createPlainNode(a, root.occurrenceId);
     const targetNode = target.nodeId;
 
@@ -49,7 +49,7 @@ describe("sync smoke", () => {
 
   it("three replicas converge via pairwise syncAll (transitivity)", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     await createPlainNode(base, root.occurrenceId);
 
     const a = await cloneReplica(base);
@@ -66,7 +66,7 @@ describe("sync smoke", () => {
 
   it("idempotent re-sync: syncing again changes nothing", async () => {
     const a = replica(8);
-    const root = await createPlainNode(a, null);
+    const root = await a.createNode(null);
     await createPlainNode(a, root.occurrenceId);
     const b = await cloneReplica(a);
     await createPlainNode(b, root.occurrenceId);

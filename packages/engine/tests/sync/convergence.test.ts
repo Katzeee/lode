@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mulberry32 } from "../driver.js";
-import { createPlainNode } from "../../src/domain/node.js";
+import { createPlainNode } from "../../src/domain/node/node.js";
 import { assertConverged, cloneReplica, replica, syncAll } from "./harness.js";
 
 /**
@@ -22,7 +22,7 @@ describe("sync convergence fuzz", () => {
         const e = replica(8);
         const k = 1 + Math.floor(rng() * 4); // 1–4 nodes per replica
         for (let i = 0; i < k; i++) {
-          const n = await createPlainNode(e, null);
+          const n = await e.createNode(null);
           await e.replaceDeltas(n.occurrenceId, [{ insert: `r${r}-n${i}` }]);
           created.push(n.occurrenceId);
         }
@@ -42,7 +42,7 @@ describe("sync convergence fuzz", () => {
     for (const seed of [10, 11, 12]) {
       const rng = mulberry32(seed * 7);
       const base = replica(8);
-      const root = await createPlainNode(base, null);
+      const root = await base.createNode(null);
       const baseChild = await createPlainNode(base, root.occurrenceId);
 
       const n = 2 + Math.floor(rng() * 3); // 2–4 divergent replicas

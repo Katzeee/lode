@@ -1,10 +1,5 @@
 import type { ParsedCli } from "../args.js";
-import {
-  assertAllowedFlags,
-  getOptionalIndex,
-  getOptionalNullableFlag,
-  getRequiredSingleFlag,
-} from "./shared.js";
+import { assertAllowedFlags, getOptionalIndex, getRequiredSingleFlag } from "./shared.js";
 import type { ClientLike } from "./types.js";
 
 export async function executeRefCommand(
@@ -22,12 +17,12 @@ export async function executeRefCommand(
       ]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
       const targetNodeId = getRequiredSingleFlag(command, "--target-node");
-      const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
+      const parentOccurrenceId = getRequiredSingleFlag(command, "--parent-occ");
       const index = getOptionalIndex(command);
       const created = await client.createRef({
         workspaceId,
         targetNodeId,
-        ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+        parentOccurrenceId,
         ...(index === undefined ? {} : { index }),
       });
       return `Created ref occurrence ${created.occurrenceId} for node ${targetNodeId}.`;
@@ -37,12 +32,12 @@ export async function executeRefCommand(
       assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--parent-occ", "--index"]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
       const occurrenceId = getRequiredSingleFlag(command, "--occ");
-      const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
+      const parentOccurrenceId = getRequiredSingleFlag(command, "--parent-occ");
       const index = getOptionalIndex(command);
       const cloned = await client.cloneRef({
         workspaceId,
         occurrenceId,
-        ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+        parentOccurrenceId,
         ...(index === undefined ? {} : { index }),
       });
       return `Cloned occurrence ${occurrenceId} into ${cloned.occurrenceId}.`;

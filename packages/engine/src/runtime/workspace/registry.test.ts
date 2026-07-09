@@ -3,10 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap, VersionVector } from "loro-crdt";
-import { generateActorKeypair } from "../utils/crypto/index.js";
-import { AppWorkspaceRuntime } from "./workspace-registry.js";
-import type { ShardedBlockStore } from "../core/store/sharded-store.js";
-import { shardIdOf } from "../core/store/sharding.js";
+import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { AppWorkspaceRuntime } from "./registry.js";
+import type { ShardedBlockStore } from "../../core/store/sharded-store.js";
+import { shardIdOf } from "../../core/store/sharding.js";
 
 /**
  * Step 5b — sharded persistence end-to-end. A sharded workspace (treeDoc + N content
@@ -45,6 +45,19 @@ const buildAndMutate = async (dataRoot: string) => {
   await rt.close();
   return { rootOcc, rootText };
 };
+
+describe("AppWorkspaceRuntime state-holder attachment", () => {
+  it("assertStateHoldersAttached throws before attach (fail-loud against a missed two-phase wire)", async () => {
+    const rt = await AppWorkspaceRuntime.inMemory();
+    try {
+      // An unattached registry would silently leak sync + session state on a workspace's death; the
+      // lifecycle start() asserts this so a misconfigured createAppRuntime can't slip through.
+      expect(() => rt.assertStateHoldersAttached()).toThrow(/not attached/);
+    } finally {
+      await rt.close();
+    }
+  });
+});
 
 describe("AppWorkspaceRuntime sharded persistence", () => {
   it("restores treeDoc structure + shard content across a restart", async () => {
@@ -88,7 +101,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
         .toJSON()
         .keys(),
     ];
-    expect(vvPeers).toContain(String(peerId));
+    expect(vvPeers).toContain(rt.routingId()!);
     await rt.close();
 
     // Stable across reopen (same dataRoot → same peerId).
@@ -106,7 +119,7 @@ describe("AppWorkspaceRuntime sharded persistence", () => {
     const store = doc.asOutliner() as ShardedBlockStore;
     const shard = await store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
     const shardPeers = [...shard.version().toJSON().keys()];
-    expect(shardPeers).toContain(String(rt.peerId));
+    expect(shardPeers).toContain(rt.routingId()!);
     await rt.close();
   });
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { deriveActorKeypairFromMnemonic, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 
@@ -15,7 +15,7 @@ describe("session authentication (mnemonic)", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient({ url: server.address });
+    client = new AppServerClient(createSocketTransport(server.address));
     client.connect();
   });
 

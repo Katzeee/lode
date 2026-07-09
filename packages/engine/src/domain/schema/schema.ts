@@ -1,26 +1,26 @@
-import { type Engine, textToDelta } from "../core/index.js";
-import { SystemEntityMeta, SystemKind } from "../bundle/system-schema.js";
-import type { DomainChange } from "./model/changes.js";
-import type { SchemaChangeResult, SchemaIdentity } from "./model/schema.js";
-import { invalidDomainInput } from "./errors.js";
-import { requireCanonicalOccurrence, requireNodeById } from "./lookup.js";
+import { type Engine, textToDelta } from "../../core/index.js";
+import { SystemEntityMeta, SystemKind } from "../../bundle/system-schema.js";
+import type { DomainChange } from "../model/changes.js";
+import type { SchemaChangeResult, SchemaIdentity } from "../model/schema.js";
+import { invalidDomainInput } from "../errors.js";
+import { requireCanonicalOccurrence, requireNodeById } from "../lookup.js";
 import { readSchemaIds, writeSchemaIds } from "./schema-membership.js";
-import { requireSchema } from "./system-entity.js";
-import { createPlainNode } from "./node.js";
+import { requireSchema } from "../system-entity.js";
+import { createPlainNode } from "../node/node.js";
 import { cleanupInactiveManagedChildren, reconcileTargetSchemas } from "./schema-reconcile.js";
 
 export async function createSchema(
   doc: Engine,
   name: string,
-  parentOccurrenceId?: string | null,
+  parentOccurrenceId: string,
 ): Promise<SchemaIdentity> {
-  if (parentOccurrenceId != null && !(await doc.getOccurrence(parentOccurrenceId))) {
+  if (!(await doc.getOccurrence(parentOccurrenceId))) {
     invalidDomainInput(`Occurrence not found: ${parentOccurrenceId}`, {
       reason: "occurrence_not_found",
       occurrenceId: parentOccurrenceId,
     });
   }
-  const schema = await createPlainNode(doc, parentOccurrenceId ?? null);
+  const schema = await createPlainNode(doc, parentOccurrenceId);
   await doc.setEntityMeta(schema.occurrenceId, SystemEntityMeta.SystemKind, SystemKind.Schema);
   await doc.replaceDeltas(schema.occurrenceId, textToDelta(name));
   return { nodeId: schema.nodeId, occurrenceId: schema.occurrenceId };

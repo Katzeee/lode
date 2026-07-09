@@ -2,7 +2,6 @@ import type { ParsedCli } from "../args.js";
 import {
   assertAllowedFlags,
   formatChangeResult,
-  getOptionalNullableFlag,
   getRequiredSingleFlag,
   resolveNodeLabel,
 } from "./shared.js";
@@ -18,11 +17,11 @@ export async function executeSchemaCommand(
       assertAllowedFlags(command, commandKey, ["--workspace", "--name", "--parent-occ"]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
       const name = getRequiredSingleFlag(command, "--name");
-      const parentOccurrenceId = getOptionalNullableFlag(command, "--parent-occ");
+      const parentOccurrenceId = getRequiredSingleFlag(command, "--parent-occ");
       const created = await client.createSchema({
         workspaceId,
         name,
-        ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+        parentOccurrenceId,
       });
       return `Created schema "${name}" as node ${created.nodeId} (occurrence ${created.occurrenceId}).`;
     }

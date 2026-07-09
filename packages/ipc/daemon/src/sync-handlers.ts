@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
+import type { Empty } from "@bufbuild/protobuf/wkt";
 import type {
   JoinWorkspaceRequest,
   RegisterSyncRequest,
@@ -8,9 +8,7 @@ import type {
   WorkspaceCoordinate,
 } from "@lode/protocol/proto";
 import { WorkspaceCoordinateSchema } from "@lode/protocol/proto";
-import type { AppRuntime, SyncRegistry } from "@lode/engine";
-
-const EMPTY: Empty = create(EmptySchema);
+import { EMPTY, type AppRuntime } from "@lode/engine";
 
 /** The daemon-side RPC handlers for relay-connection lifecycle (share/join/register/syncNow). They
  *  are thin, session-gated forwards to the engine-owned `SyncRegistry` (`AppRuntime.sync`) —
@@ -28,7 +26,7 @@ export type SyncHandlers = {
 };
 
 export function createSyncHandlers(
-  registry: SyncRegistry,
+  registry: AppRuntime["sync"],
   sessions: AppRuntime["sessions"],
 ): SyncHandlers {
   return {

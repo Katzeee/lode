@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateActorKeypair } from "../src/utils/crypto/index.js";
-import { AppWorkspaceRuntime } from "../src/runtime/workspace-registry.js";
+import { AppWorkspaceRuntime } from "../src/runtime/workspace/registry.js";
 import type { ShardedBlockStore } from "../src/core/store/sharded-store.js";
 
 /**

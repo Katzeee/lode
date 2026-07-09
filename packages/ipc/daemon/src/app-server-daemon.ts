@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
-import { createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lode/engine";
+import { App, createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lode/engine";
 import { parseListenUrl } from "./listen-url.js";
-import { BrokerServerComponent } from "./broker-server-component.js";
-import { ConnectServerComponent } from "./connect-server-component.js";
+import { BrokerServerComponent } from "./components/broker-server.js";
+import { ConnectServerComponent } from "./components/connect-server.js";
 import { createSyncHandlers } from "./sync-handlers.js";
 
 /** Read the relay's TLS cert/key PEM files (from `--tls-cert`/`--tls-key` paths) for
@@ -106,14 +106,18 @@ export async function startAppServerDaemon(
 
 /** Relay-only mode: host just the workspace-routing broker (BrokerService over h2) — no engine, no
  *  LodeCommands client→core gRPC, no identity. One binary, three modes (design sync-design.md §5);
- *  the bin picks this entry when `--listen` is absent. Uses `BrokerServerComponent` directly
- *  (single-component lifecycle needs no App wrapper). */
+ *  the bin picks this entry when `--listen` is absent. The relay runs on its own single-component App
+ *  so its live state is in a lifecycle graph with one teardown (`app.stop()`), structurally parallel
+ *  to the engine-mode daemon. */
 export async function startRelayDaemon(options: RelayDaemonOptions = {}): Promise<RelayDaemon> {
-  const component = new BrokerServerComponent({
-    port: options.relay?.port,
-    host: options.relay?.host,
-    ...readRelayTls(options.relay),
-  });
-  await component.start();
-  return { relayUrl: component.url, stop: () => component.stop() };
+  const app = new App();
+  const relay = app.register(
+    new BrokerServerComponent({
+      port: options.relay?.port,
+      host: options.relay?.host,
+      ...readRelayTls(options.relay),
+    }),
+  );
+  await app.start();
+  return { relayUrl: relay.url, stop: () => app.stop() };
 }

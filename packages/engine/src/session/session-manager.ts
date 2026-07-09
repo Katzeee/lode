@@ -11,7 +11,7 @@ import {
   type SessionHelloRequest,
   type SessionInfo,
 } from "@lode/protocol/proto";
-import { NotificationStream } from "../event/notification-stream.js";
+import { NotificationStream } from "../event.js";
 import type { ActorKeypair } from "../utils/crypto/index.js";
 
 // Engine-internal typed error: the daemon (Connect layer) maps it to a status code; in-process
@@ -49,7 +49,7 @@ export class SessionManager {
   private readonly subscribers = new Map<string, Set<string>>();
   private readonly streams = new Map<string, NotificationStream>();
 
-  constructor(private readonly nodeId: string) {}
+  constructor(private readonly originLabel: string) {}
 
   createSession(
     connectionId: string,
@@ -85,7 +85,7 @@ export class SessionManager {
     if (actor === undefined) {
       throw new SessionRequiredError();
     }
-    return { nodeId: this.nodeId, actorId: actor.actorId, sessionId: record.sessionId };
+    return { nodeId: this.originLabel, actorId: actor.actorId, sessionId: record.sessionId };
   }
 
   /** The session actor's id + Ed25519 sign pub — what a peer needs to add this actor as a member.
@@ -164,6 +164,26 @@ export class SessionManager {
     for (const subs of this.subscribers.values()) {
       subs.delete(connectionId);
     }
+  }
+
+  /** Drop the subscriber set for `wsId` — called from the workspace death point so a removed
+   *  workspace leaves no stale subscribers (a same-id rebuild would otherwise broadcast to the old
+   *  connections). Connection streams are per-connection, not per-workspace, so they stay. */
+  purgeWorkspace(workspaceId: string): void {
+    this.subscribers.delete(workspaceId);
+  }
+
+  /** Lifecycle teardown: complete every open notification stream and drop all session/subscriber
+   *  bookkeeping. The runtime roots this on the App (via a Component adapter in runtime/) so
+   *  `app.stop()` reaches it regardless of how the host wired connection teardown — an in-process
+   *  host may register no connect component, so the live state can't depend on one to be closed. */
+  close(): void {
+    for (const stream of this.streams.values()) {
+      stream.close();
+    }
+    this.streams.clear();
+    this.subscribers.clear();
+    this.sessionsByConnection.clear();
   }
 }
 

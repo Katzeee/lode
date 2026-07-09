@@ -24,18 +24,19 @@ import {
   type UnsetOccurrencePropRequest,
 } from "@lode/protocol/proto";
 import {
-  createPlainNodeInWorkspace,
+  createPlainNode,
   getSemanticChildren,
   hardDeleteNode as hardDeleteNodeCore,
   moveOccurrence,
   promoteCanonicalOccurrence,
   removeOccurrence,
-} from "../domain/node.js";
-import { getEngine, type AppContext } from "./context.js";
-import { EMPTY } from "./empty.js";
-import { runMutation } from "./mutation.js";
-import { fromValue } from "./struct.js";
-import { deltasFromProto, nodeToProto } from "./wire-node.js";
+} from "../domain/node/node.js";
+import { getEngine, type AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
+import { runMutation } from "./wire/mutation.js";
+import { fromValue } from "./wire/struct.js";
+import { deltasFromProto, nodeToProto } from "./wire/wire-node.js";
+import { NotFoundError } from "../errors.js";
 import type { Engine, NodeId, OccurrenceId } from "../core/index.js";
 
 /** Working set for an occurrence-targeted mutation: the node's one owning shard, derived tree-only
@@ -55,12 +56,11 @@ export function createNodeHandlers(ctx: AppContext) {
       req: CreatePlainNodeRequest,
       connectionId: string,
     ): Promise<NodeOccurrenceWire> => {
-      // Single-root (one workspace = one content tree) is enforced inside the domain primitive
-      // `createPlainNodeInWorkspace`, so every caller — this RPC, in-process, importers — hits it.
-      // The engine core stays a forest; engine tests + the owner-gated root seed at `createWorkspace`
-      // use the bare `createPlainNode` directly.
+      // Single-root (one workspace = one content tree) is structural: `createPlainNode` takes a
+      // required parent, and only `createWorkspaceRoot` (called at workspace birth) can root. So
+      // every caller — this RPC, in-process, importers — attaches under an existing node.
       const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        createPlainNodeInWorkspace(doc, req.parentOccurrenceId ?? null, req.index, req.props),
+        createPlainNode(doc, req.parentOccurrenceId, req.index, req.props),
       );
       return nodeToProto(node);
     },
@@ -76,14 +76,23 @@ export function createNodeHandlers(ctx: AppContext) {
       _connectionId: string,
     ): Promise<GetNodeResponse> => {
       const doc = await getEngine(ctx, req.workspaceId);
+      // Resolve the canonical occurrence, then read it via the OPTIONAL `getOccurrence` so only a
+      // missing node maps to an empty response. The canonical lookup throws NotFoundError on a
+      // missing node; any OTHER failure (a shard fault, a corrupt entity) propagates for the daemon
+      // to map to a real Connect error — the old bare `catch {}` masked those as a silent "no such node".
+      let canonicalOccurrenceId: string;
       try {
-        const occurrence = await doc.mustGetOccurrence(
-          await doc.getCanonicalOccurrenceId(req.nodeId),
-        );
-        return create(GetNodeResponseSchema, { occurrence: nodeToProto(occurrence) });
-      } catch {
-        return create(GetNodeResponseSchema, {});
+        canonicalOccurrenceId = await doc.getCanonicalOccurrenceId(req.nodeId);
+      } catch (e) {
+        if (e instanceof NotFoundError) {
+          return create(GetNodeResponseSchema, {});
+        }
+        throw e;
       }
+      const occurrence = await doc.getOccurrence(canonicalOccurrenceId);
+      return create(GetNodeResponseSchema, {
+        occurrence: occurrence ? nodeToProto(occurrence) : undefined,
+      });
     },
 
     getNodeChildren: async (
@@ -105,7 +114,7 @@ export function createNodeHandlers(ctx: AppContext) {
 
     moveNode: async (req: MoveNodeRequest, connectionId: string): Promise<Empty> => {
       await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId ?? null, req.index),
+        moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId, req.index),
       );
       return EMPTY;
     },

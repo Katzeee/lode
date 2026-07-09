@@ -1,11 +1,11 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
 import {
   ManagedKind,
   type ManagedChildState,
   type SchemaProvenance,
-} from "./model/managed-child.js";
-import { invalidDomainInput } from "./errors.js";
-import { readSchemaIds } from "./schema-membership.js";
+} from "../model/managed-child.js";
+import { invalidDomainInput } from "../errors.js";
+import { readSchemaIds } from "../schema/schema-membership.js";
 
 const ManagedOccurrenceMeta = {
   KindKey: "managedKind",

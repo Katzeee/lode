@@ -1,14 +1,14 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import { ManagedKind } from "./model/managed-child.js";
-import { readManagedChildState, writeManagedChildState } from "./managed-child-state.js";
-import { isField, markField, readFieldDefId } from "./system-entity.js";
-import { createPlainNode, createReference, getSemanticChildren } from "./node.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import { ManagedKind } from "../model/managed-child.js";
+import { readManagedChildState, writeManagedChildState } from "../managed/managed-child-state.js";
+import { isField, markField, readFieldDefId } from "../system-entity.js";
+import { createPlainNode, createReference, getSemanticChildren } from "../node/node.js";
 import {
   type AppliedManagedChildren,
   type DesiredManagedChild,
   isSameProvenance,
   provenanceKeyOf,
-} from "./model/reconcile.js";
+} from "../model/reconcile.js";
 
 export async function applyDesiredManagedChildren(
   doc: Engine,

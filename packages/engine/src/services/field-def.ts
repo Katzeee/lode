@@ -5,11 +5,11 @@ import type {
   SetFieldDefPresenceRequest,
   SetFieldDefTypeRequest,
 } from "@lode/protocol/proto";
-import { createFieldDef, setFieldDefPresence, setFieldDefType } from "../domain/field.js";
-import type { AppContext } from "./context.js";
-import { EMPTY } from "./empty.js";
-import { fieldPresenceFromProto, fieldTypeFromProto, identityToProto } from "./mappers.js";
-import { runMutation } from "./mutation.js";
+import { createFieldDef, setFieldDefPresence, setFieldDefType } from "../domain/field/field.js";
+import type { AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
+import { fieldPresenceFromProto, fieldTypeFromProto, identityToProto } from "./wire/mappers.js";
+import { runMutation } from "./wire/mutation.js";
 
 export function createFieldDefHandlers(ctx: AppContext) {
   return {

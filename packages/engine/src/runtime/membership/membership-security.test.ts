@@ -28,7 +28,7 @@ const peerPub = (local: LocalPeer) => ({
 });
 
 describe("createMembershipWireSecurity — transit key + member set from a membership log", () => {
-  it("installs the transit key + flips isMember on refresh() once the log converges the peer", async () => {
+  it("flips isMember + installs the transit key once the log converges the peer", async () => {
     const owner = newLocal();
     const member = newLocal();
     const tk = randomBytes(32);
@@ -37,7 +37,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     const log = newLog();
     const ms = createMembershipWireSecurity({ log, local: member });
 
-    ms.refresh();
+    // Reads are a lazy projection of the log — no refresh step. Empty log → not a member.
     expect(ms.isMember()).toBe(false); // peer not admitted yet → host skips the sealed content round
     expect(ms.security.resolveActorPub(owner.actor.actorId)).toBeUndefined();
 
@@ -46,7 +46,7 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     ownerLog.appendAdd(owner.actor, peerPub(member), tk, 0);
     await log.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot()); // member "receives" the roster
 
-    ms.refresh();
+    // The next read sees the imported roster immediately (frontier moved → re-derive).
     expect(ms.isMember()).toBe(true);
     expect(eq(ms.security.transitKey, tk)).toBe(true); // the real key is installed on the security
     // resolveActorPub returns the sign pub recovered from the actorId (= hex of the sign pub).
@@ -68,15 +68,13 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
 
     const ownerSec = createMembershipWireSecurity({ log: ownerLog, local: owner });
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
-    ownerSec.refresh();
-    memberSec.refresh();
 
     const blob = seal(ownerSec.security, enc("members-only payload"));
     expect(Buffer.from(open(memberSec.security, blob)).toString()).toBe("members-only payload");
     expect(Buffer.from(open(ownerSec.security, blob)).toString()).toBe("members-only payload");
   });
 
-  it("refresh() reflects a governance rotation (the installed transit key changes)", async () => {
+  it("reflects a governance rotation on the next read (the transit key changes)", async () => {
     const owner = newLocal();
     const member = newLocal();
     const k0 = randomBytes(32);
@@ -88,13 +86,12 @@ describe("createMembershipWireSecurity — transit key + member set from a membe
     await memberLog.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot());
 
     const memberSec = createMembershipWireSecurity({ log: memberLog, local: member });
-    memberSec.refresh();
     expect(eq(memberSec.security.transitKey, k0)).toBe(true);
 
-    // Owner rotates the transit key (owner + member peers survive). Member converges + refreshes.
+    // Owner rotates the transit key (owner + member peers survive). Member converges; the next read
+    // reflects it (frontier moved → re-derive → new key), no refresh step.
     ownerLog.appendRotate(owner.actor, [peerPub(owner), peerPub(member)], k1, k0, 1);
     await memberLog.metaDoc.importUpdate(await ownerLog.metaDoc.exportSnapshot());
-    memberSec.refresh();
     expect(eq(memberSec.security.transitKey, k1)).toBe(true);
   });
 });

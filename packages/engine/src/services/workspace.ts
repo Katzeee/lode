@@ -9,7 +9,7 @@ import {
   type RemoveWorkspaceRequest,
   type WorkspaceInfo,
 } from "@lode/protocol/proto";
-import type { AppContext } from "./context.js";
+import type { AppContext } from "./wire/context.js";
 
 export function createWorkspaceHandlers(ctx: AppContext) {
   return {

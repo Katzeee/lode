@@ -235,6 +235,7 @@ export default tseslint.config(
                 "../services/**",
                 "../persistence/**",
                 "../bundle/**",
+                "../runtime/**",
               ],
               message: "session sits below services — import only event + protocol.",
             },

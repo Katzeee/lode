@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
@@ -14,7 +14,7 @@ describe("AppServer integration", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient({ url: server.address });
+    client = new AppServerClient(createSocketTransport(server.address));
     client.connect();
     await hello(client);
     await createTestWorkspace(client);

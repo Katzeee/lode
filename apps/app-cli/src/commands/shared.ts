@@ -106,21 +106,6 @@ export function getOptionalSingleFlag(command: ParsedCli, flagName: string): str
   return values[0];
 }
 
-export function getRequiredNullableFlag(command: ParsedCli, flagName: string): string | null {
-  return parseNullableId(getRequiredSingleFlag(command, flagName));
-}
-
-export function getOptionalNullableFlag(
-  command: ParsedCli,
-  flagName: string,
-): string | null | undefined {
-  const value = getOptionalSingleFlag(command, flagName);
-  if (value === undefined) {
-    return undefined;
-  }
-  return parseNullableId(value);
-}
-
 export function describeNullableId(value: string | null | undefined): string {
   return value ?? "null";
 }
@@ -273,10 +258,6 @@ export async function resolveNodeLabel(
   }
   const text = nodeText(node);
   return text.length > 0 ? `${text}(${nodeId})` : nodeId;
-}
-
-function parseNullableId(value: string): string | null {
-  return value === "null" ? null : value;
 }
 
 function nodeText(node: NodeOccurrenceWire): string {

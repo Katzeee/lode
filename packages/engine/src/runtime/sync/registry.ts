@@ -1,10 +1,10 @@
 import { createLogger } from "@lode/logger";
 import { MEMBERSHIP_DOC_ID } from "../membership/membership-log.js";
 import { PreconditionFailedError } from "../../errors.js";
-import type { AppWorkspaceRuntime } from "../workspace-registry.js";
+import type { AppWorkspaceRuntime } from "../workspace/registry.js";
 import type { ActorKeypair } from "../../utils/crypto/index.js";
 import type { Engine } from "../../core/engine.js";
-import type { App, Component } from "../app.js";
+import { ChildAppComponent, type App, type Component } from "../app.js";
 import { SyncContext } from "./context.js";
 import { MembershipRound, ContentRound } from "./round.js";
 import { SyncRoundDriver } from "./driver.js";
@@ -28,7 +28,9 @@ export type WorkspaceCoordinateData = {
 };
 
 type SyncAppHandle = {
-  readonly app: App;
+  /** The sync sub-graph ChildApp (a child of the workspace's ChildApp). Stopped with the workspace
+   *  via the ChildAppComponent holder — so removeWorkspace's app.stop() tears engine+store+sync. */
+  readonly syncApp: App;
   /** The engine this handle wired against — compared in `ensureWired` to detect a reload + re-wire. */
   readonly engine: Engine;
   readonly ctx: SyncContext;
@@ -37,8 +39,6 @@ type SyncAppHandle = {
 
 export type SyncRegistryOptions = {
   readonly workspaces: AppWorkspaceRuntime;
-  /** The root App — per-workspace sync sub-graphs are built as its children. */
-  readonly app: App;
   readonly deps?: SyncDeps;
   readonly roundIntervalMs?: number;
 };
@@ -49,11 +49,13 @@ export type SyncRegistryOptions = {
  * (wsId → keypair, captured at register/join so the tick keeps signing after the client disconnects),
  * the single relay URL (one relay per daemon in the MVP), and the per-workspace sync sub-graphs.
  *
- * Each syncing workspace is a child App (context + round driver + push path) started on
- * `registerSync` and stopped on `stopSync`. `run(signal)` is the lazy-wire + re-wire-on-reload
- * backstop (the old `materialize`); registerSync wires immediately when the workspace is already
- * loaded, so the poll only covers the register-before-load and engine-reload edges. Registered on
- * the root App, so it survives per-workspace ChildApp teardown.
+ * Each syncing workspace's sub-graph (context + round driver + push path) is a ChildApp nested under
+ * THAT workspace's ChildApp, linked by a ChildAppComponent holder — so `removeWorkspace`'s
+ * `app.stop()` tears engine + store + sync down in ONE graph (no leaked transport/tick against a
+ * disposed engine). This registry does NOT own the sub-graph lifecycle: it builds it onto the
+ * workspace's App and lets the workspace's teardown collapse it. `run(signal)` is the lazy-wire +
+ * re-wire-on-reload backstop; registerSync wires immediately when the workspace is already loaded, so
+ * the poll only covers register-before-load and remove→reopen.
  *
  * The runner has NO identity of its own — every syncing workspace is registered by a session that
  * captures that session's actor keypair. The membership root is NOT bootstrapped here
@@ -63,19 +65,20 @@ export type SyncRegistryOptions = {
 export class SyncRegistry implements Component {
   readonly name = "sync.registry";
   private readonly workspaces: AppWorkspaceRuntime;
-  private readonly app: App;
   private readonly roundIntervalMs: number;
   private readonly report: (wsId: string, summary: RoundSummary) => void;
   private readonly registrations = new Map<string, ActorKeypair>();
   private readonly syncApps = new Map<string, SyncAppHandle>();
+  /** Per-workspace idle-log rate-limit state — lives on the registry (not in the reporter closure)
+   *  so a workspace's death can purge it. Unused when a custom `onRound` is supplied. */
+  private readonly lastNoOp = new Map<string, number>();
   private url?: string;
   private stopped = false;
 
   constructor(opts: SyncRegistryOptions) {
     this.workspaces = opts.workspaces;
-    this.app = opts.app;
     this.roundIntervalMs = opts.roundIntervalMs ?? DEFAULT_ROUND_INTERVAL_MS;
-    this.report = opts.deps?.onRound ?? defaultRoundReporter();
+    this.report = opts.deps?.onRound ?? defaultRoundReporter(this.lastNoOp);
   }
 
   /** Register the session's actor to drive sync for `wsId` via `relayUrl`. Captures the keypair so
@@ -158,18 +161,16 @@ export class SyncRegistry implements Component {
     }
   }
 
-  /** Stop + drop a workspace's sync sub-graph (called on workspace close). Idempotent. */
-  async stopSync(wsId: string): Promise<void> {
-    const handle = this.syncApps.get(wsId);
-    if (handle) {
-      this.syncApps.delete(wsId);
-      await handle.app.stop();
-    }
+  /** The wired sync sub-graph's ChildApp for `wsId` (null if not wired). Test/observability seam —
+   *  lets a test confirm the sub-graph stopped after removeWorkspace (its `isStopped` flips true when
+   *  the workspace ChildApp's holder tears it down). */
+  wiredSyncApp(wsId: string): App | null {
+    return this.syncApps.get(wsId)?.syncApp ?? null;
   }
 
   /** The lazy-wire + re-wire-on-reload backstop (the old `materialize`). Polls every registered
    *  workspace; registerSync wires immediately when loaded, so this only covers register-before-load
-   *  and engine reload. */
+   *  and remove→reopen. */
   async run(signal: AbortSignal): Promise<void> {
     const wire = async (): Promise<void> => {
       try {
@@ -194,23 +195,33 @@ export class SyncRegistry implements Component {
     });
   }
 
-  async stop(): Promise<void> {
+  stop(): void {
     this.stopped = true;
-    for (const handle of this.syncApps.values()) {
-      try {
-        await handle.app.stop();
-      } catch (err) {
-        log.warn("sync app stop failed", { err });
-      }
-    }
+    // The sync sub-graphs live on the workspace ChildApps; WorkspaceRegistryComponent.stop() — which
+    // runs after this in the root App's reverse-stop — calls workspaces.close(), stopping each
+    // workspace ChildApp and (via the ChildAppComponent holder) each sync sub-graph. So this clears
+    // only the registry's bookkeeping; it does not own the sub-graphs' lifecycle.
     this.syncApps.clear();
     this.registrations.clear();
+    this.lastNoOp.clear();
     this.url = undefined;
   }
 
-  /** One-shot directed membership fetch: ask ONE peer (by peerId) for the full membership doc,
-   *  import it, and refresh wire security so `isMember()` flips immediately. Best-effort: any
-   *  failure (not wired, no other peer, timeout) is swallowed — the broadcast tick is the backstop. */
+  /** Drop all per-workspace bookkeeping for `wsId` — called from the workspace death point so a
+   *  removed workspace leaves no ghost: `shareCoordinate`/`syncNow` then report not-registered, the
+   *  wire poll skips the dead id, and the idle-log rate-limit entry is freed (no same-id-rebuild
+   *  residue). The sync sub-graph itself already stopped with the workspace ChildApp; this clears
+   *  only the registry's keyed state. */
+  purge(wsId: string): void {
+    this.registrations.delete(wsId);
+    this.syncApps.delete(wsId);
+    this.lastNoOp.delete(wsId);
+  }
+
+  /** One-shot directed membership fetch: ask ONE peer (by peerId) for the full membership doc and
+   *  import it — wire security re-derives lazily, so `isMember()` reflects the imported roster on the
+   *  next read. Best-effort: any failure (not wired, no other peer, timeout) is swallowed — the
+   *  broadcast tick is the backstop. */
   private async directedMembershipFetch(wsId: string): Promise<void> {
     const handle = this.syncApps.get(wsId);
     if (handle === undefined) {
@@ -219,8 +230,7 @@ export class SyncRegistry implements Component {
     const { ctx } = handle;
     let target: string | undefined;
     try {
-      const selfPeerId =
-        this.workspaces.peerId === undefined ? undefined : String(this.workspaces.peerId);
+      const selfPeerId = this.workspaces.routingId();
       const peers = await ctx.transport.peers();
       target = peers.find((p) => p !== selfPeerId && p !== "");
       if (target === undefined) {
@@ -234,7 +244,8 @@ export class SyncRegistry implements Component {
       if (bytes.length > 0) {
         await ctx.membershipDoc.importUpdate(bytes);
         await ctx.log.persistIfDirty();
-        ctx.security.refresh();
+        // No security refresh: wire security is a lazy projection of the log, so the next read
+        // (the content round's isMember() gate) reflects the imported roster immediately.
       }
     } catch (err) {
       // Transient (peer mid-restart, relay blip, timeout) — the next broadcast tick retries.
@@ -253,8 +264,10 @@ export class SyncRegistry implements Component {
   }
 
   /** Wire a registered workspace that's now open but not yet wired (peek-only `loadedEngine`, never
-   *  the load path — no race with the doc-adding load). Also re-wires a workspace whose Engine was
-   *  reloaded under us: the old sub-graph would hold a stale store/transport + a dead subscription. */
+   *  the load path — no race with the doc-adding load). Also drops a stale sub-graph when the workspace
+   *  was removed (engine gone) or reopened (a new ChildApp + engine). `createEngine` throws if called
+   *  twice, so a stable workspace's engine never changes — the only "engine differs" path is
+   *  remove→reopen, where the old sub-graph already stopped with the old workspace ChildApp. */
   private async ensureWired(wsId: string): Promise<void> {
     if (this.stopped || this.url === undefined) {
       return;
@@ -265,17 +278,23 @@ export class SyncRegistry implements Component {
       if (engine === existing.engine) {
         return; // same engine — still valid
       }
-      // Engine recreated — tear down the stale sub-graph (transport + driver + push) then rebuild.
+      // Engine gone (removed) or a new one (reopened). The old sub-graph lived on the old workspace
+      // ChildApp, which already stopped it — so this stop is idempotent. Drop the stale handle.
       this.syncApps.delete(wsId);
-      await existing.app.stop();
+      try {
+        await existing.syncApp.stop();
+      } catch (err) {
+        log.warn("stale sync app stop failed", { wsId, err });
+      }
     }
     if (!engine) {
-      return; // workspace not open yet — the poll retries
+      return; // workspace not open (removed or never opened) — the poll retries
     }
     try {
       const handle = await this.buildSyncApp(wsId, engine);
       if (this.stopped) {
-        await handle.app.stop(); // stop() ran while build was in flight — don't leak.
+        // stop() ran while build was in flight — the workspace ChildApp will be torn down by
+        // workspaces.close(), taking this sub-graph (its child) with it. Nothing to undo here.
         return;
       }
       this.syncApps.set(wsId, handle);
@@ -285,9 +304,12 @@ export class SyncRegistry implements Component {
     }
   }
 
-  /** Build the per-workspace sync sub-graph: a child App of the root, with the context (transport),
-   *  the round driver (tick), and the push fast-path. Round bodies (membership + content) are plain
-   *  collaborators held by the driver — they have no lifecycle of their own. */
+  /** Build the per-workspace sync sub-graph: a ChildApp nested under the workspace's own ChildApp
+   *  (linked by a ChildAppComponent holder so it tears down with the workspace), with the context
+   *  (transport), the round driver (tick), and the push fast-path. Round bodies (membership +
+   *  content) are plain collaborators held by the driver — no lifecycle of their own. The holder is
+   *  registered AFTER start succeeds, so a failed build discards the child (no holder left on the
+   *  workspace App to conflict with a retry). */
   private async buildSyncApp(wsId: string, engine: Engine): Promise<SyncAppHandle> {
     const keypair = this.registrations.get(wsId);
     if (keypair === undefined) {
@@ -297,8 +319,12 @@ export class SyncRegistry implements Component {
     if (log_ === null) {
       throw new Error(`buildSyncApp: no membership log for ${wsId} (workspace not loaded)`);
     }
+    const wsApp = this.workspaces.loadedApp(wsId);
+    if (wsApp === null) {
+      throw new Error(`buildSyncApp: workspace ${wsId} not loaded`);
+    }
     const local = this.workspaces.localPeerFor(keypair);
-    const app = this.app.child();
+    const syncApp = wsApp.child();
     const ctx = new SyncContext({
       wsId,
       url: this.url ?? "",
@@ -315,18 +341,23 @@ export class SyncRegistry implements Component {
       content,
     });
     const push = new PushFastPath(ctx);
-    app.register(ctx); // start opens the transport first…
-    app.register(driver); // …then the driver (run starts the tick)…
-    app.register(push); // …then push (start subscribes AFTER the transport is open)
-    await app.start();
-    return { app, engine, ctx, driver };
+    syncApp.register(ctx); // start opens the transport first…
+    syncApp.register(driver); // …then the driver (run starts the tick)…
+    syncApp.register(push); // …then push (start subscribes AFTER the transport is open)
+    await syncApp.start();
+    // Embed: register the holder AFTER start succeeds so a failed build leaves nothing on the
+    // workspace App. removeWorkspace → wsApp.stop() → holder.stop() → syncApp.stop() (engine+store+sync).
+    wsApp.register(new ChildAppComponent("sync-subgraph", syncApp));
+    return { syncApp, engine, ctx, driver };
   }
 }
 
 /** The default round reporter when no host `onRound` is supplied: rate-limited idle logging + always
- *  log when ops were exchanged (the behavior of the old `DaemonSyncRunner.logRound`). */
-function defaultRoundReporter(): (wsId: string, summary: RoundSummary) => void {
-  const lastNoOp = new Map<string, number>();
+ *  log when ops were exchanged (the behavior of the old `DaemonSyncRunner.logRound`). The `lastNoOp`
+ *  map is owned by the registry so a workspace's death can purge it. */
+function defaultRoundReporter(
+  lastNoOp: Map<string, number>,
+): (wsId: string, summary: RoundSummary) => void {
   return (wsId, { pulled, pushed }) => {
     if (pulled + pushed > 0) {
       lastNoOp.delete(wsId);

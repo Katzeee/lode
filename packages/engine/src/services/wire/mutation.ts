@@ -16,7 +16,7 @@ import type {
   Engine,
   NodeId,
   NodeUpdatedPayload as CoreNodeUpdatedPayload,
-} from "../core/index.js";
+} from "../../core/index.js";
 import { getEngine, type AppContext } from "./context.js";
 
 // Runs a mutating doc operation within the session/persist/broadcast envelope:

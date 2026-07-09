@@ -8,7 +8,7 @@ import { createLogger } from "@lode/logger";
 import { type SyncMessage, SyncMessageSchema } from "@lode/protocol/proto";
 import { BrokerClient } from "./broker-client.js";
 import { BoundedAsyncQueue } from "./bounded-async-queue.js";
-import { decodeProfile, encodeProfile } from "../sync-message.js";
+import { decodeProfile, encodeProfile } from "../sync/sync-message.js";
 import { open, seal } from "../membership/wire-security.js";
 import type { SyncBytes, SyncableDoc } from "../../core/store/syncable.js";
 import type { WorkspaceDocSet } from "../../core/store/doc-set.js";
@@ -20,12 +20,20 @@ const log = createLogger("engine.broker.sync");
 /**
  * When `security` is configured, every published payload carries a 1-byte envelope tag so the receiver
  * can demux plaintext vs sealed WITHOUT decoding (the `subDocId` lives inside the message, which is the
- * sealed plaintext — unreadable until opened). `0x00` = plaintext (the membership doc — a public roster
- * that must be readable before a peer holds the transit key); `0x01` = sealed (everything else). When
- * `security` is OFF the transport is raw/untagged.
+ * sealed plaintext — unreadable until opened). `0x00` = plaintext; `0x01` = sealed. When `security` is
+ * OFF the transport is raw/untagged.
+ *
+ * The envelope is the broker's wire vocabulary — `WireEnvelope`, not the product's `SecurityClass`. The
+ * product declares a doc's `securityClass` (`"public"` | `"sealed"`) on `DocSetEntry`; `envelopeFor()`
+ * translates that to a `WireEnvelope` at the seam, so the framing code below reads/writes only
+ * `WireEnvelope` and never the product term.
  */
 const TAG_PLAIN = 0x00;
 const TAG_SEALED = 0x01;
+
+/** How a frame rides the wire — the broker's own vocabulary. Distinct from the product `SecurityClass`,
+ *  which `envelopeFor` maps to this at the seam (a wire concept can't live on the core `DocSetEntry`). */
+type WireEnvelope = "plaintext" | "sealed";
 
 /**
  * A per-doc recv task — an export-on-request (`respond`) or an import-on-push (`apply`). Both touch
@@ -120,13 +128,14 @@ export class BrokerSyncProtocol implements SyncTransport {
   }
 
   /** Envelope a sync-message payload: untagged raw when security is off; else a `[tag][body]` frame
-   *  where body is the raw message (plaintext, for `plaintextDocIds` push) or `seal(...)` (sealed). */
-  private wireEncode(msgBytes: Uint8Array, plaintext: boolean): Uint8Array {
+   *  where the body is the raw message (plaintext) or `seal(...)` (sealed). */
+  private wireEncode(msgBytes: Uint8Array, env: WireEnvelope): Uint8Array {
     if (!this.security) {
       return msgBytes;
     }
-    const body = plaintext ? msgBytes : seal(this.security, msgBytes);
-    return Buffer.concat([Buffer.from([plaintext ? TAG_PLAIN : TAG_SEALED]), Buffer.from(body)]);
+    const body = env === "plaintext" ? msgBytes : seal(this.security, msgBytes);
+    const tag = env === "plaintext" ? TAG_PLAIN : TAG_SEALED;
+    return Buffer.concat([Buffer.from([tag]), Buffer.from(body)]);
   }
 
   /** Connect + subscribe to the workspace (declaring this replica's peerId so it's a directed target
@@ -177,7 +186,7 @@ export class BrokerSyncProtocol implements SyncTransport {
         kind: { case: "updatesReq", value: { reqId, subDocId, body: from } },
       }),
       undefined,
-      this.isPublicDoc(subDocId),
+      this.envelopeFor(subDocId),
     );
   }
 
@@ -186,8 +195,9 @@ export class BrokerSyncProtocol implements SyncTransport {
    *  specific member for the membership doc). The request is PLAINTEXT for a public doc (the membership
    *  roster): a joiner fetches it BEFORE it holds the transit key, so it cannot seal the request — the
    *  bootstrap chicken-and-egg. The response is broadcast (sender-exclusion delivers it back here) and
-   *  also plaintext for a public doc. Not on the `SyncTransport` interface — the engine's SyncManager
-   *  broadcasts; only the daemon's join path directs. */
+   *  also plaintext for a public doc. Part of the `SyncTransport` seam — `SyncManager` broadcasts
+   *  (`fetchUpdates`), the engine's join path directs (here, via the registry's directed membership
+   *  fetch). */
   async directedFetchUpdates(
     subDocId: string,
     from: SyncBytes,
@@ -200,7 +210,7 @@ export class BrokerSyncProtocol implements SyncTransport {
         kind: { case: "updatesReq", value: { reqId, subDocId, body: from } },
       }),
       toPeerId,
-      this.isPublicDoc(subDocId),
+      this.envelopeFor(subDocId),
     );
   }
 
@@ -210,11 +220,12 @@ export class BrokerSyncProtocol implements SyncTransport {
     return this.brokerClient.peers(this.workspaceId);
   }
 
-  /** Whether `subDocId` is a public doc (rides the plaintext envelope). The membership roster is
-   *  public so a joiner can fetch + read it BEFORE it holds the transit key. Read off the doc's
-   *  securityClass — no array scan. */
-  private isPublicDoc(subDocId: string): boolean {
-    return this.docSet.entry(subDocId)?.securityClass === "public";
+  /** The wire envelope for `subDocId` — the seam where the product's `securityClass` becomes the
+   *  broker's `WireEnvelope`. A public doc (the membership roster) rides plaintext so a joiner can
+   *  fetch + read it BEFORE it holds the transit key; everything else is sealed. Unknown docs default
+   *  sealed (a sealed reply to an unknown-doc request matches today's behavior). */
+  private envelopeFor(subDocId: string): WireEnvelope {
+    return this.docSet.entry(subDocId)?.securityClass === "public" ? "plaintext" : "sealed";
   }
 
   sendUpdates(subDocId: string, bytes: Uint8Array): Promise<void> {
@@ -222,7 +233,7 @@ export class BrokerSyncProtocol implements SyncTransport {
       this.workspaceId,
       this.wireEncode(
         encodeMessage({ kind: { case: "updatesPush", value: { subDocId, body: bytes } } }),
-        this.isPublicDoc(subDocId),
+        this.envelopeFor(subDocId),
       ),
     );
     return Promise.resolve();
@@ -236,7 +247,9 @@ export class BrokerSyncProtocol implements SyncTransport {
       if (!this.security) {
         msg = fromBinary(SyncMessageSchema, payload);
       } else {
-        // Demux by envelope tag: 0x00 plaintext (membership push), 0x01 sealed (everything else).
+        // Demux by envelope tag — INHERENT wire framing, not a doc-semantic branch: the receiver must
+        // pick plaintext vs sealed BEFORE decoding (the subDocId lives in the sealed plaintext, which
+        // is unreadable until opened). 0x00 plaintext, 0x01 sealed.
         const tag = payload[0];
         const body = payload.subarray(1);
         if (tag === TAG_PLAIN) {
@@ -298,7 +311,7 @@ export class BrokerSyncProtocol implements SyncTransport {
       encodeMessage({
         kind: { case: "profileResp", value: { reqId, body: encodeProfile(profile) } },
       }),
-      false,
+      "sealed", // the profile is composite-only (sealed content) — always sealed
     );
   }
 
@@ -310,22 +323,22 @@ export class BrokerSyncProtocol implements SyncTransport {
   ): Promise<void> {
     const doc = this.lookupDoc(subDocId);
     const body = doc ? await doc.exportUpdate(fromBytes) : new Uint8Array(0);
-    // A public doc (the membership roster) is answered on the plaintext envelope so a joiner can
-    // fetch it via `fetchUpdates("membership")` BEFORE it holds the transit key. Mirrors sendUpdates.
+    // Answer on the doc's wire envelope — a public doc (the membership roster) replies plaintext so a
+    // joiner can fetch it BEFORE it holds the transit key. Mirrors sendUpdates.
     this.replyTo(
       fromPeerId,
       encodeMessage({ kind: { case: "updatesResp", value: { reqId, body } } }),
-      this.isPublicDoc(subDocId),
+      this.envelopeFor(subDocId),
     );
   }
 
   /** Publish a response directed at the asker when they declared a peerId — private (the sealed
    *  response reaches only the initiator, not every subscriber) and avoids fanning it across the
    *  channel for N>2. Falls back to broadcast when the asker declared no peerId. */
-  private replyTo(fromPeerId: string, msgBytes: Uint8Array, plaintext: boolean): void {
+  private replyTo(fromPeerId: string, msgBytes: Uint8Array, env: WireEnvelope): void {
     this.brokerClient.publish(
       this.workspaceId,
-      this.wireEncode(msgBytes, plaintext),
+      this.wireEncode(msgBytes, env),
       fromPeerId || undefined,
     );
   }
@@ -412,7 +425,7 @@ export class BrokerSyncProtocol implements SyncTransport {
     reqId: string,
     msgBytes: Uint8Array,
     toPeerId?: string,
-    plaintext = false,
+    env: WireEnvelope = "sealed",
   ): Promise<Uint8Array> {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -421,7 +434,7 @@ export class BrokerSyncProtocol implements SyncTransport {
         }
       }, this.responseTimeoutMs);
       this.pending.set(reqId, { resolve, reject, timer });
-      this.brokerClient.publish(this.workspaceId, this.wireEncode(msgBytes, plaintext), toPeerId);
+      this.brokerClient.publish(this.workspaceId, this.wireEncode(msgBytes, env), toPeerId);
     });
   }
 

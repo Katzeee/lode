@@ -1,47 +1,48 @@
 import {
-  cascadeHardDelete,
+  applyCascade,
+  cascadeClosure,
   cascadeRemove,
   type Engine,
   type NodeOccurrence,
-} from "../core/index.js";
-import { invalidDomainInput } from "./errors.js";
-import { assertNodeHardDeleteAllowed } from "./hard-delete-policy.js";
-import { assertNotActiveManagedChild } from "./managed-child-policy.js";
+} from "../../core/index.js";
+import { invalidDomainInput } from "../errors.js";
+import { authorizeHardDelete } from "./hard-delete-policy.js";
+import { assertNotActiveManagedChild } from "../managed/managed-child-policy.js";
 
+/** The single sanctioned root producer. Idempotent: if the workspace already has a root, returns
+ *  it unchanged — there is no second rooting path anywhere in the domain. This is the ONLY entry
+ *  that calls core `createNode(null)`; every product creator below takes a required parent, so the
+ *  single-root policy is a type fact, not a runtime check. */
+export async function createWorkspaceRoot(
+  doc: Engine,
+  displayName?: string,
+): Promise<NodeOccurrence> {
+  const existing = await doc.getRootOccurrences();
+  if (existing.length > 0) {
+    return existing.at(0)!;
+  }
+  const root = await doc.createNode(null);
+  if (displayName !== undefined) {
+    await doc.replaceDeltas(root.occurrenceId, [{ insert: displayName }]);
+  }
+  return root;
+}
+
+/** Product-level node creation under a required parent (canonicalized — the child attaches under
+ *  the parent's canonical occurrence, so it is visible from every ref). Structurally cannot root. */
 export async function createPlainNode(
   doc: Engine,
-  parentOccurrenceId?: string | null,
+  parentOccurrenceId: string,
   index?: number,
   props?: Record<string, unknown>,
 ): Promise<NodeOccurrence> {
   return doc.createNode(await canonicalChildOwnerOf(doc, parentOccurrenceId), index, props);
 }
 
-/** Product-level node creation: enforces the single-root workspace policy (one workspace = one
- *  content tree). A null parent is legal only before the workspace's root exists; once rooted,
- *  every node must attach under it. This is the narrow point all user node creation funnels
- *  through — the `createPlainNode` RPC handler + in-process callers. The bare `createPlainNode`
- *  (multi-root) stays for engine tests and the owner-gated root seed at `createWorkspace`, which
- *  deliberately bypass this guard to plant the one sanctioned root. */
-export async function createPlainNodeInWorkspace(
-  doc: Engine,
-  parentOccurrenceId?: string | null,
-  index?: number,
-  props?: Record<string, unknown>,
-): Promise<NodeOccurrence> {
-  if (parentOccurrenceId == null && (await doc.getRootOccurrences()).length > 0) {
-    invalidDomainInput(
-      "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
-      { reason: "workspace_already_rooted" },
-    );
-  }
-  return createPlainNode(doc, parentOccurrenceId, index, props);
-}
-
 export async function createReference(
   doc: Engine,
   targetNodeId: string,
-  parentOccurrenceId?: string | null,
+  parentOccurrenceId: string,
   index?: number,
 ): Promise<NodeOccurrence> {
   return doc.createOccurrence(
@@ -53,11 +54,12 @@ export async function createReference(
 
 /** Product-level move: runs the managed-child guard, then resolves the semantic parent and moves.
  *  This is the narrow point every move funnels through — RPC (`moveNode`), in-process callers, and
- *  editing paths (indent/outdent). The bare forest primitive is core `Engine.moveOccurrence`. */
+ *  editing paths (indent/outdent/moveSibling). A move always takes a parent (single-root: there is no
+ *  move-to-root), exactly like the creators. The bare forest primitive is core `Engine.moveOccurrence`. */
 export async function moveOccurrence(
   doc: Engine,
   occurrenceId: string,
-  parentOccurrenceId: string | null,
+  parentOccurrenceId: string,
   index?: number,
 ): Promise<void> {
   await assertNotActiveManagedChild(doc, occurrenceId);
@@ -71,20 +73,18 @@ export async function moveOccurrence(
 export async function cloneOccurrence(
   doc: Engine,
   occurrenceId: string,
-  parentOccurrenceId?: string | null,
+  parentOccurrenceId: string,
   index?: number,
 ): Promise<NodeOccurrence> {
   // One undo step for the whole subtree clone. The recursion uses the inner fn so it does
   // not open its own group (transact is re-entrant anyway, but this avoids redundant snapshots).
-  return doc.batch(async () =>
-    cloneOccurrenceInner(doc, occurrenceId, parentOccurrenceId ?? null, index),
-  );
+  return doc.batch(async () => cloneOccurrenceInner(doc, occurrenceId, parentOccurrenceId, index));
 }
 
 async function cloneOccurrenceInner(
   doc: Engine,
   occurrenceId: string,
-  parentOccurrenceId: string | null,
+  parentOccurrenceId: string,
   index?: number,
 ): Promise<NodeOccurrence> {
   const clone = await createPlainNode(
@@ -137,28 +137,34 @@ export async function removeOccurrenceOrHardDelete(
   await cascadeRemove(doc, occurrenceId);
 }
 
-/** Product-level hard delete: runs the protected-node guard, then the bare cascade. The guard
- *  checks the node, all its occurrences, and the full descendant subtree — so the cascade cannot
- *  nuke a protected entity even when reached via a non-RPC caller. */
+/** Product-level hard delete: authorize and apply share ONE closure (the exact set the core
+ *  cascade will remove) — so the guard cannot diverge from the delete. A protected node anywhere
+ *  in the deletion closure (including under a non-canonical occurrence) is caught, because the
+ *  closure walked to authorize is the same one walked to remove. */
 export async function hardDeleteNode(doc: Engine, nodeId: string): Promise<void> {
-  await assertNodeHardDeleteAllowed(doc, nodeId);
-  await cascadeHardDelete(doc, nodeId);
+  await doc.batch(async () => {
+    const seeds = (await doc.getOccurrences(nodeId)).map((occ) => occ.occurrenceId);
+    const { removed, deletedNodes } = await cascadeClosure(doc, seeds);
+    await authorizeHardDelete(doc, removed);
+    await applyCascade(doc, removed, deletedNodes);
+  });
 }
 
 export async function getSemanticChildren(
   doc: Engine,
   occurrenceId: string,
 ): Promise<NodeOccurrence[]> {
-  const ownerId = await canonicalChildOwnerOf(doc, occurrenceId);
-  return ownerId == null ? [] : doc.getOccurrenceChildren(ownerId);
+  return doc.getOccurrenceChildren(await canonicalChildOwnerOf(doc, occurrenceId));
 }
 
-async function canonicalChildOwnerOf(
-  doc: Engine,
-  occurrenceId?: string | null,
-): Promise<string | null> {
-  if (occurrenceId == null) {
-    return null;
+async function canonicalChildOwnerOf(doc: Engine, occurrenceId: string): Promise<string> {
+  if (!occurrenceId) {
+    // The one parent-required guard, shared by every creator and the move — an empty/missing parent
+    // is an invalid argument (distinct from a NotFoundError for a real-but-absent id). Catches a
+    // client that sends no parent (proto3 empty default) at the single funnel all of them go through.
+    invalidDomainInput("parent occurrence id required (parent_required)", {
+      reason: "parent_required",
+    });
   }
   return doc.getCanonicalOccurrenceId((await doc.mustGetOccurrence(occurrenceId)).nodeId);
 }

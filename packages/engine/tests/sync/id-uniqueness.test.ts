@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
-import { createPlainNode } from "../../src/domain/node.js";
+import { createPlainNode } from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, cloneReplica, replica } from "./harness.js";
 
@@ -15,7 +15,7 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 describe("id uniqueness contract", () => {
   it("default randomUUID: concurrent creates on two replicas never collide", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const a = await cloneReplica(base);
     const b = await cloneReplica(base);
     const ax = await createPlainNode(a, root.occurrenceId);
@@ -46,8 +46,8 @@ describe("id uniqueness contract", () => {
       nodeIdGenerator: fixed,
       occIdGenerator: fixed,
     });
-    const na = await createPlainNode(a, null);
-    const nb = await createPlainNode(b, null);
+    const na = await a.createNode(null);
+    const nb = await b.createNode(null);
     // nodeId + the permanent occId both come from the duplicate generator. (occurrenceId is the
     // live Loro tree id `index@peer`, which differs per replica peer — not the permanent id.)
     expect(na.nodeId).toBe("colliding-id");

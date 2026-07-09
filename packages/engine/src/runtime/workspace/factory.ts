@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { type DocStore, type Engine, type LoadedDocBytes, Workspace } from "../core/index.js";
-import { createPlainNode } from "../domain/node.js";
-import type { RegistryStore, WorkspaceRecord } from "../persistence/registry-store.js";
-import type { WorkspaceStore } from "../persistence/workspace-store.js";
-import type { ActorKeypair } from "../utils/crypto/index.js";
-import type { PeerIdentity } from "./peer-identity.js";
-import type { LocalPeer } from "./membership/membership-log.js";
-import type { WorkspacePersistence } from "./workspace-persistence.js";
-import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./workspace-types.js";
+import { type DocStore, type Engine, type LoadedDocBytes, Workspace } from "../../core/index.js";
+import { createWorkspaceRoot } from "../../domain/node/node.js";
+import type { RegistryStore, WorkspaceRecord } from "../../persistence/registry-store.js";
+import type { WorkspaceStore } from "../../persistence/workspace-store.js";
+import type { ActorKeypair } from "../../utils/crypto/index.js";
+import type { PeerIdentity } from "../identity/peer-identity.js";
+import type { LocalPeer } from "../membership/membership-log.js";
+import type { WorkspacePersistence } from "./persistence.js";
+import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./types.js";
 
 export type CreateWorkspaceInput = {
   workspaceId?: string;
@@ -99,7 +99,7 @@ export class WorkspaceFactory {
     // content into it.
     const engine = this.persistence.initOutliner(loaded.workspace, docStore);
     // ACL-at-birth + single-root seed — owner does both, joiner (no actor) is a no-op. The one
-    // sanctioned root seed bypasses the product guard createPlainNodeInWorkspace enforces.
+    // sanctioned root is planted via createWorkspaceRoot (the domain's only rooting entry).
     await seedPolicyFor(input, this.peer).apply({
       log: loaded.membershipLog,
       engine,
@@ -194,11 +194,10 @@ class OwnerSeed implements WorkspaceSeed {
       log.appendRoot(this.local, randomBytes(32), this.peerName);
       await log.persistIfDirty();
     }
-    if ((await engine.getRootOccurrences()).length === 0) {
-      const root = await createPlainNode(engine, null);
-      await engine.replaceDeltas(root.occurrenceId, [{ insert: displayName }]);
-      await flush();
-    }
+    // The one sanctioned root: createWorkspaceRoot is the domain's only rooting entry (idempotent —
+    // a no-op once a root exists), so seeding never bypasses the single-root policy.
+    await createWorkspaceRoot(engine, displayName);
+    await flush();
   }
 }
 

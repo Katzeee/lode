@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPlainNode, createReference, hardDeleteNode } from "../../src/domain/node.js";
+import { createPlainNode, createReference, hardDeleteNode } from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, cloneReplica, replica } from "./harness.js";
 
@@ -14,7 +14,7 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 describe("sync gc: no resurrection under partition", () => {
   it("a hard-deleted node stays gone when a partitioned replica reconnects", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const target = await createPlainNode(base, root.occurrenceId);
     const targetOcc = target.occurrenceId;
 
@@ -31,7 +31,7 @@ describe("sync gc: no resurrection under partition", () => {
 
   it("a NEW reference made during partition is swept on reconnect (no resurrection)", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const target = await createPlainNode(base, root.occurrenceId);
 
     const a = await cloneReplica(base);

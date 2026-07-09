@@ -1,4 +1,5 @@
 import type { Engine } from "./engine.js";
+import { NotFoundError } from "../errors.js";
 import type {
   DocSnapshot,
   NodeEntitySnapshot,
@@ -108,7 +109,7 @@ export async function fromJSON(
     ): Promise<NodeOccurrence> => {
       const occurrence = occurrenceById.get(oldOccurrenceId);
       if (!occurrence) {
-        throw new Error(`Occurrence snapshot not found: ${oldOccurrenceId}`);
+        throw new NotFoundError("occurrence", oldOccurrenceId);
       }
       const existingNodeId = newNodeByOldNode.get(occurrence.nodeId);
       let created: NodeOccurrence;
@@ -117,7 +118,7 @@ export async function fromJSON(
       } else {
         const entity = entityById.get(occurrence.nodeId);
         if (!entity) {
-          throw new Error(`Entity snapshot not found: ${occurrence.nodeId}`);
+          throw new NotFoundError("entity", occurrence.nodeId);
         }
         created = await engine.createNode(newParentOccurrenceId ?? null, undefined, entity.props);
         await engine.replaceDeltas(created.occurrenceId, entity.deltas);

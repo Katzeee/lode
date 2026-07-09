@@ -125,8 +125,7 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     await settle();
     await syncA.sync();
     await settle();
-    secA.refresh();
-    secB.refresh();
+    // Wire security is a lazy projection of the log — isMember() re-derives on read.
     expect(secB.isMember()).toBe(true);
     expect(
       Buffer.from(logB.unwrapCurrentTransitKey(logB.deriveState().state, member)).equals(tk),
@@ -196,8 +195,6 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     await settle();
     await syncA.sync();
     await settle();
-    secA.refresh();
-    secB.refresh();
     expect(secB.isMember()).toBe(false);
 
     const mb = new SyncManager(b.store, tb);

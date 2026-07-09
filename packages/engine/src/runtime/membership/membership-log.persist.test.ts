@@ -10,7 +10,7 @@ import {
   DocStoreMembershipPersistence,
   type MembershipPersistence,
 } from "./membership-persistence.js";
-import { WorkspaceDocStore } from "../workspace-doc-store.js";
+import { WorkspaceDocStore } from "../workspace/doc-store.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */

@@ -2,10 +2,12 @@ import type { SyncContext } from "./context.js";
 import type { RoundSummary } from "./deps.js";
 
 /**
- * The membership half of a sync round: gossip the membership roster, persist any dirtied log state,
- * then refresh the wire security so the content round sees the live transit key + member set. Plain
- * collaborator (no lifecycle of its own) driven in order by the round driver — therefore NOT a
- * Component: only things with open/close/long-run lifecycle are Components, and a round body has none.
+ * The membership half of a sync round: gossip the membership roster, then persist any dirtied log
+ *  state. No security refresh — wire security is a lazy projection of the log (re-derives on read
+ *  when the frontier moves), so the content round's `isMember()` gate picks up the new roster
+ *  automatically. Plain collaborator (no lifecycle of its own) driven in order by the round driver —
+ *  therefore NOT a Component: only things with open/close/long-run lifecycle are Components, and a
+ *  round body has none.
  */
 export class MembershipRound {
   constructor(private readonly ctx: SyncContext) {}
@@ -13,7 +15,6 @@ export class MembershipRound {
   async runRound(): Promise<void> {
     await this.ctx.membershipSync.sync();
     await this.ctx.log.persistIfDirty();
-    this.ctx.security.refresh();
   }
 }
 

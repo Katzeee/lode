@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Subject } from "rxjs";
 import { ShardedBlockStore, type Outliner } from "./store/sharded-store.js";
 import { ActionHistory } from "./action-history.js";
+import { NotFoundError } from "../errors.js";
 import type {
   Delta,
   EngineSlots,
@@ -281,7 +282,7 @@ export class Engine {
   async mustGetOccurrence(occurrenceId: OccurrenceId): Promise<NodeOccurrence> {
     const node = await this.getOccurrence(occurrenceId);
     if (!node) {
-      throw new Error(`Node occurrence not found: ${occurrenceId}`);
+      throw new NotFoundError("occurrence", occurrenceId);
     }
     return node;
   }
@@ -620,9 +621,13 @@ export class Engine {
         props: await this.store.getProps(canonicalOccurrenceId),
         meta: await this.store.getEntityMetaRecord(canonicalOccurrenceId),
       };
-    } catch {
-      // Node absent (e.g. createNode's target before it exists) — the snapshot is null.
-      return null;
+    } catch (e) {
+      // A missing node (e.g. createNode's target before it exists) is the not-found case → null.
+      // Anything else (corruption, a shard fault) propagates — the old bare catch masked those.
+      if (e instanceof NotFoundError) {
+        return null;
+      }
+      throw e;
     }
   }
 

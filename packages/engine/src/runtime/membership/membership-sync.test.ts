@@ -36,6 +36,9 @@ function pipe(a: MembershipLog, b: MembershipLog): { ta: SyncTransport; tb: Sync
     sendUpdates: async (_docId, bytes) => {
       await target.metaDoc.importUpdate(bytes);
     },
+    // MembershipSync is push-only; the directed/bootstrap methods are never called here.
+    directedFetchUpdates: () => Promise.resolve(new Uint8Array(0)),
+    peers: () => Promise.resolve([]),
   });
   return { ta: make(b), tb: make(a) }; // A pushes → into B; B pushes → into A
 }

@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { Engine } from "../core/engine.js";
+import { Engine } from "../../core/engine.js";
+import { NotFoundError } from "../../errors.js";
 import {
   cloneOccurrence,
   createPlainNode,
-  createPlainNodeInWorkspace,
   createReference,
+  createWorkspaceRoot,
   getSemanticChildren,
   hardDeleteNode,
+  moveOccurrence,
   promoteCanonicalOccurrence,
   removeOccurrenceOrHardDelete,
 } from "./node.js";
@@ -14,10 +16,10 @@ import {
 describe("domain node semantics", () => {
   it("creates plain and reference children through the canonical child owner", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const refParent = await createReference(doc, source.nodeId, holder.occurrenceId);
-    const target = await createPlainNode(doc);
+    const target = await doc.createNode(null);
 
     const plainChild = await createPlainNode(doc, refParent.occurrenceId);
     const refChild = await createReference(doc, target.nodeId, refParent.occurrenceId);
@@ -38,8 +40,8 @@ describe("domain node semantics", () => {
 
   it("promotes canonical occurrence and moves semantic children to the new owner", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
     const child = await createPlainNode(doc, source.occurrenceId);
 
@@ -59,8 +61,8 @@ describe("domain node semantics", () => {
 
   it("clones an occurrence into an independent semantic subtree", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
     const child = await createPlainNode(doc, source.occurrenceId);
     await doc.replaceDeltas(source.occurrenceId, [{ insert: "source" }]);
@@ -79,8 +81,8 @@ describe("domain node semantics", () => {
 
   it("removes a non-canonical occurrence without deleting the entity", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
 
     await removeOccurrenceOrHardDelete(doc, ref.occurrenceId);
@@ -91,8 +93,8 @@ describe("domain node semantics", () => {
 
   it("removes physical children before removing a non-canonical occurrence", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
     const refChild = await doc.createNode(ref.occurrenceId);
 
@@ -100,18 +102,18 @@ describe("domain node semantics", () => {
 
     expect(await doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
     expect(await doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
-    await expect(doc.getCanonicalOccurrenceId(refChild.nodeId)).rejects.toThrow(
-      /Node entity not found/,
-    );
+    const lookup = doc.getCanonicalOccurrenceId(refChild.nodeId);
+    await expect(lookup).rejects.toBeInstanceOf(NotFoundError);
+    await expect(lookup).rejects.toHaveProperty("kind", "entity");
     expect((await doc.getOccurrence(source.occurrenceId))?.nodeId).toBe(source.nodeId);
   });
 
   it("hard deletes semantic child subtrees recursively", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
+    const source = await doc.createNode(null);
     const child = await createPlainNode(doc, source.occurrenceId);
     const grandchild = await createPlainNode(doc, child.occurrenceId);
-    const holder = await createPlainNode(doc);
+    const holder = await doc.createNode(null);
     const childRef = await createReference(doc, child.nodeId, holder.occurrenceId);
 
     await hardDeleteNode(doc, source.nodeId);
@@ -124,8 +126,8 @@ describe("domain node semantics", () => {
 
   it("hard deletes physical children under every occurrence before deleting the entity", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
-    const holder = await createPlainNode(doc);
+    const source = await doc.createNode(null);
+    const holder = await doc.createNode(null);
     const ref = await createReference(doc, source.nodeId, holder.occurrenceId);
     const refChild = await doc.createNode(ref.occurrenceId);
 
@@ -134,14 +136,14 @@ describe("domain node semantics", () => {
     expect(await doc.getOccurrence(source.occurrenceId)).toBeUndefined();
     expect(await doc.getOccurrence(ref.occurrenceId)).toBeUndefined();
     expect(await doc.getOccurrence(refChild.occurrenceId)).toBeUndefined();
-    await expect(doc.getCanonicalOccurrenceId(refChild.nodeId)).rejects.toThrow(
-      /Node entity not found/,
-    );
+    const lookup = doc.getCanonicalOccurrenceId(refChild.nodeId);
+    await expect(lookup).rejects.toBeInstanceOf(NotFoundError);
+    await expect(lookup).rejects.toHaveProperty("kind", "entity");
   });
 
   it("hard deletes a node when removing its canonical occurrence", async () => {
     const doc = new Engine();
-    const source = await createPlainNode(doc);
+    const source = await doc.createNode(null);
     const child = await createPlainNode(doc, source.occurrenceId);
 
     await removeOccurrenceOrHardDelete(doc, source.occurrenceId);
@@ -151,20 +153,28 @@ describe("domain node semantics", () => {
   });
 });
 
-describe("createPlainNodeInWorkspace single-root guard (non-RPC path)", () => {
-  it("allows the first null-parent node, then refuses a second root", async () => {
+describe("createWorkspaceRoot: the single rooting entry", () => {
+  it("plants the one root and is idempotent (a second call returns it unchanged)", async () => {
     const doc = new Engine();
-    const first = await createPlainNodeInWorkspace(doc, null);
-    expect(first.parentOccurrenceId).toBeNull();
-    await expect(createPlainNodeInWorkspace(doc, null)).rejects.toThrow(
-      "workspace already has a root",
-    );
+    const first = await createWorkspaceRoot(doc, "WS");
+    expect((await doc.getRootOccurrences()).map((root) => root.occurrenceId)).toEqual([
+      first.occurrenceId,
+    ]);
+
+    const second = await createWorkspaceRoot(doc, "ignored");
+    expect(second.occurrenceId).toBe(first.occurrenceId);
+    expect(await doc.getRootOccurrences()).toHaveLength(1);
+    // Idempotent: the displayName is not overwritten on the no-op re-root.
+    expect((await doc.getOccurrence(first.occurrenceId))?.deltas).toEqual([{ insert: "WS" }]);
   });
 
-  it("attaches under an existing root when a parent is given (no guard fired)", async () => {
+  it("rejects an empty parent at the shared resolver (parent_required)", async () => {
     const doc = new Engine();
-    const root = await createPlainNodeInWorkspace(doc, null);
-    const child = await createPlainNodeInWorkspace(doc, root.occurrenceId);
-    expect(child.parentOccurrenceId).toBe(root.occurrenceId);
+    const root = await createWorkspaceRoot(doc);
+    const child = await createPlainNode(doc, root.occurrenceId);
+    // Every creator + move funnels through canonicalChildOwnerOf, which rejects an empty parent
+    // (a client sending no parent over the wire) as an invalid argument, not a not-found.
+    await expect(createPlainNode(doc, "")).rejects.toThrow("parent_required");
+    await expect(moveOccurrence(doc, child.occurrenceId, "")).rejects.toThrow("parent_required");
   });
 });

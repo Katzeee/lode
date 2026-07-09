@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { DomainChangeKind, DomainChangeReason, FieldPresence } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
@@ -13,7 +13,7 @@ describe("schema reconcile", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient({ url: server.address });
+    client = new AppServerClient(createSocketTransport(server.address));
     client.connect();
     await hello(client);
     await createTestWorkspace(client);
@@ -184,7 +184,11 @@ describe("schema reconcile", () => {
   }
 
   async function createSchema(name: string) {
-    return rpc.createSchema({ name });
+    if (seededRootOccurrenceId === undefined) {
+      const roots = await rpc.listRoots({});
+      seededRootOccurrenceId = roots.roots[0]?.occurrenceId;
+    }
+    return rpc.createSchema({ name, parentOccurrenceId: seededRootOccurrenceId });
   }
 
   async function createRef(targetNodeId: string, parentOccurrenceId: string) {

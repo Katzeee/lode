@@ -11,6 +11,7 @@ import {
   type ActorKeypair,
   type PeerKeypair,
 } from "../../utils/crypto/index.js";
+import { sameBytes } from "../../utils/bytes.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
 import { NotOwnerError, PreconditionFailedError } from "../../errors.js";
 import {
@@ -101,9 +102,10 @@ export class MembershipLog {
   private readonly persistence?: MembershipPersistence;
   /** Encoded frontiers of the last persisted snapshot — the dirty-check baseline. */
   private lastPersisted?: Uint8Array;
-  /** Last-seen skipped-record count. `deriveState` runs every round (via `sec.refresh`), so we warn
-   *  only when NEW corruption appears (count rises) — mirrors any-sync's synclogger "always log on
-   *  change", not a per-instance boolean that would hide a second, later corruption. */
+  /** Last-seen skipped-record count. `deriveState` runs whenever the log's frontier moves (the lazy
+   *  wire-security projection re-derives on read), so we warn only when NEW corruption appears
+   *  (count rises) — mirrors any-sync's synclogger "always log on change", not a per-instance boolean
+   *  that would hide a second, later corruption. */
   private skipLastCount = 0;
 
   constructor(metaDoc: MetaDoc, persistence?: MembershipPersistence) {
@@ -392,17 +394,4 @@ function rosterSurvivors(
     }
   }
   return out;
-}
-
-/** Constant-time-unconcerned byte equality for the dirty-check baseline (frontiers are not secret). */
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
 }

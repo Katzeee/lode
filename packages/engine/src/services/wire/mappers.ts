@@ -13,13 +13,13 @@ import {
   type NodeOccurrenceRef,
   type NodeRef,
 } from "@lode/protocol/proto";
-import { DomainInvalidInputError } from "../domain/errors.js";
-import type { DomainChange } from "../domain/model/changes.js";
+import { DomainInvalidInputError } from "../../domain/errors.js";
+import type { DomainChange } from "../../domain/model/changes.js";
 import type {
   FieldAddMode,
   FieldValueInput as DomainFieldValueInput,
-} from "../domain/model/field.js";
-import type { FieldPresence, FieldType } from "../bundle/system-schema.js";
+} from "../../domain/model/field.js";
+import type { FieldPresence, FieldType } from "../../bundle/system-schema.js";
 
 export function identityToProto(identity: {
   nodeId: string;

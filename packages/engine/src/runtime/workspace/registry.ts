@@ -4,31 +4,33 @@ import {
   Workspace,
   type DocStore,
   type Engine,
-} from "../core/index.js";
-import { workspaceDbPath } from "../persistence/paths.js";
+} from "../../core/index.js";
+import { workspaceDbPath } from "../../persistence/paths.js";
 import {
   SqliteRegistryStore,
   type RegistryStore,
   type WorkspaceRecord,
-} from "../persistence/registry-store.js";
-import { InMemoryRegistryStore } from "../persistence/in-memory-registry-store.js";
-import { WorkspaceStore } from "../persistence/workspace-store.js";
-import { WorkspaceDocStore } from "./workspace-doc-store.js";
-import { DocStoreMembershipPersistence } from "./membership/membership-persistence.js";
-import { MEMBERSHIP_DOC_ID, MembershipLog } from "./membership/membership-log.js";
-import { App, type Component } from "./app.js";
-import { PeerIdentity } from "./peer-identity.js";
-import { WorkspacePersistence } from "./workspace-persistence.js";
+} from "../../persistence/registry-store.js";
+import { InMemoryRegistryStore } from "../../persistence/in-memory-registry-store.js";
+import { WorkspaceStore } from "../../persistence/workspace-store.js";
+import { WorkspaceDocStore } from "./doc-store.js";
+import { DocStoreMembershipPersistence } from "../membership/membership-persistence.js";
+import { MEMBERSHIP_DOC_ID, MembershipLog } from "../membership/membership-log.js";
+import { App, type Component } from "../app.js";
+import { PeerIdentity } from "../identity/peer-identity.js";
+import { WorkspacePersistence } from "./persistence.js";
+import type { SessionManager } from "../../session/session-manager.js";
+import type { SyncRegistry } from "../sync/registry.js";
 import {
   WorkspaceFactory,
   type CreateWorkspaceInput,
   type ForkWorkspaceInput,
   type WorkspaceContentOpener,
-} from "./workspace-factory.js";
-import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./workspace-types.js";
+} from "./factory.js";
+import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./types.js";
 
-export type { CreateWorkspaceInput, ForkWorkspaceInput } from "./workspace-factory.js";
-export type { RuntimeWorkspaceInfo } from "./workspace-types.js";
+export type { CreateWorkspaceInput, ForkWorkspaceInput } from "./factory.js";
+export type { RuntimeWorkspaceInfo } from "./types.js";
 
 export type PersistenceOptions = {
   dataRoot: string;
@@ -74,6 +76,12 @@ export class AppWorkspaceRuntime {
   private readonly loaded = new Map<string, LoadedWorkspace>();
   private readonly persistence: WorkspacePersistence;
   private readonly factory: WorkspaceFactory;
+  /** Cross-component holders of per-workspace state (sync registrations/sub-graphs, session
+   *  subscribers). Set once at runtime assembly — after this registry, since both depend on it — so a
+   *  workspace's death can purge them too. Optional because a registry constructed directly (tests)
+   *  may never wire sync/sessions; `unloadWorkspace` then skips the purge. */
+  private syncRegistry?: SyncRegistry;
+  private sessions?: SessionManager;
 
   private constructor(
     private readonly config: {
@@ -114,9 +122,14 @@ export class AppWorkspaceRuntime {
     return this.peer.peerId;
   }
 
-  /** This dataRoot's peer X25519 keypair (the transit-wrap target / per-peer revocation unit). */
-  get peerKeypair() {
-    return this.peer.peerKeypair;
+  /** The peer's string routing id — the single peerId→string label (see PeerIdentity.routingId). */
+  routingId(): string | undefined {
+    return this.peer.routingId();
+  }
+
+  /** The session-origin node label for changes emitted from this runtime (PeerIdentity.originLabel). */
+  originLabel(): string {
+    return this.peer.originLabel();
   }
 
   /** The LocalPeer (session actor + per-dataRoot peer key + peerId) a host uses for wire security
@@ -199,46 +212,43 @@ export class AppWorkspaceRuntime {
    *  (ms, invisible) instead of erroring ("session already active") or tearing a read-modify-write. */
   private readonly workspaceChains = new Map<string, Promise<void>>();
 
-  /** Run `work` serialized on `createChain` so workspace-creating ops (create, fork) are atomic w.r.t.
-   *  each other. `work` never throws up — it rejects the returned promise and leaves the chain
-   *  fulfilled, so a later op still runs. */
-  private runSerialized<T>(work: () => Promise<T>): Promise<T> {
+  /** Run `work` on a serialized chain: `work` never throws up — it rejects the returned promise and
+   *  leaves the chain fulfilled, so a later op still runs. Returns the deferred result + the chain's
+   *  next link (the caller stores it on whichever chain it picked). */
+  private runOnChain<T>(
+    chain: Promise<void>,
+    work: () => Promise<T>,
+  ): { result: Promise<T>; next: Promise<void> } {
     let resolve!: (v: T) => void;
     let reject!: (e: unknown) => void;
     const result = new Promise<T>((res, rej) => {
       resolve = res;
       reject = rej;
     });
-    const run = async (): Promise<void> => {
+    const next = chain.then(async () => {
       try {
         resolve(await work());
       } catch (e) {
         reject(e);
       }
-    };
-    this.createChain = this.createChain.then(run);
+    });
+    return { result, next };
+  }
+
+  /** Run `work` serialized on `createChain` so workspace-creating ops (create, fork) are atomic w.r.t.
+   *  each other. */
+  private runSerialized<T>(work: () => Promise<T>): Promise<T> {
+    const { result, next } = this.runOnChain(this.createChain, work);
+    this.createChain = next;
     return result;
   }
 
   /** Run `work` serialized on `workspaceId`'s chain so same-workspace MUTATIONS are atomic w.r.t.
-   *  each other. Same never-throws-up semantics as `runSerialized`. Per-workspace key (not global) so
-   *  independent workspaces proceed in parallel. */
+   *  each other. Per-workspace key (not global) so independent workspaces proceed in parallel. */
   runWorkspaceSerialized<T>(workspaceId: string, work: () => Promise<T>): Promise<T> {
-    let resolve!: (v: T) => void;
-    let reject!: (e: unknown) => void;
-    const result = new Promise<T>((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    const run = async (): Promise<void> => {
-      try {
-        resolve(await work());
-      } catch (e) {
-        reject(e);
-      }
-    };
     const prev = this.workspaceChains.get(workspaceId) ?? Promise.resolve();
-    this.workspaceChains.set(workspaceId, prev.then(run));
+    const { result, next } = this.runOnChain(prev, work);
+    this.workspaceChains.set(workspaceId, next);
     return result;
   }
 
@@ -249,14 +259,48 @@ export class AppWorkspaceRuntime {
     }));
   }
 
+  /** Wire the cross-component holders of per-workspace state so a workspace's death purges them too.
+   *  Called once at runtime assembly, after these are constructed (both depend on this registry). */
+  attachWorkspaceStateHolders(sync: SyncRegistry, sessions: SessionManager): void {
+    this.syncRegistry = sync;
+    this.sessions = sessions;
+  }
+
+  /** Fail-loud if the two-phase wiring never happened. A workspace's death would otherwise silently
+   *  leak its sync registration + session subscribers (ghosts) — `attachWorkspaceStateHolders` MUST
+   *  run before the registry goes live. Called from the lifecycle `start()`; direct tests that bypass
+   *  the App lifecycle never reach it. */
+  assertStateHoldersAttached(): void {
+    if (this.syncRegistry === undefined || this.sessions === undefined) {
+      throw new Error(
+        "workspace registry state holders not attached — call attachWorkspaceStateHolders before start",
+      );
+    }
+  }
+
   async removeWorkspace(workspaceId: string): Promise<boolean> {
+    await this.unloadWorkspace(workspaceId, true);
+    return this.config.registry.removeWorkspace(workspaceId);
+  }
+
+  /** The single per-workspace death funnel: stop the ChildApp (collapsing engine + store + the sync
+   *  sub-graph via its holder), drop the loaded record, and purge EVERY keyed-by-wsId holder — this
+   *  registry's mutation chain plus the cross-component sync/session bookkeeping — so a removed
+   *  workspace leaves no ghost and a same-id rebuild starts clean. `markClean` writes the
+   *  clean-shutdown marker (clean removal/close); a crash-close omits it so the next load reconciles
+   *  + validates. Every death path (removeWorkspace, close, crashClose) routes through here. */
+  private async unloadWorkspace(workspaceId: string, markClean: boolean): Promise<void> {
     const loaded = this.loaded.get(workspaceId);
     if (loaded) {
-      await this.persistence.markCleanShutdown(loaded.docStore);
+      if (markClean) {
+        await this.persistence.markCleanShutdown(loaded.docStore);
+      }
       await loaded.app.stop();
+      this.loaded.delete(workspaceId);
     }
-    this.loaded.delete(workspaceId);
-    return this.config.registry.removeWorkspace(workspaceId);
+    this.workspaceChains.delete(workspaceId);
+    this.syncRegistry?.purge(workspaceId);
+    this.sessions?.purgeWorkspace(workspaceId);
   }
 
   async getEngine(workspaceId: string): Promise<Engine | null> {
@@ -268,6 +312,13 @@ export class AppWorkspaceRuntime {
    *  workspaces; calling the load path here would race with the doc-adding load. Null if not open. */
   loadedEngine(workspaceId: string): Engine | null {
     return this.loaded.get(workspaceId)?.workspace?.engine ?? null;
+  }
+
+  /** The ChildApp for an ALREADY-loaded workspace (null if not open). Sync wires its sub-graph onto
+   *  this as a child so `removeWorkspace`'s `app.stop()` tears engine + store + sync down in one
+   *  graph. Peek-only — never triggers a load. */
+  loadedApp(workspaceId: string): App | null {
+    return this.loaded.get(workspaceId)?.app ?? null;
   }
 
   /** The membership log for an ALREADY-loaded workspace (null if not open yet). Peek-only — never
@@ -290,21 +341,19 @@ export class AppWorkspaceRuntime {
   }
 
   /** Close all workspace stores + the registry WITHOUT writing the clean-shutdown marker — models a
-   *  crash so the next load runs reconcile + validate. For crash-recovery tests. */
+   *  crash so the next load runs reconcile + validate. For crash-recovery tests. Routes each
+   *  workspace through `unloadWorkspace` so per-wsId state is purged here too. */
   async crashClose(): Promise<void> {
-    for (const loaded of this.loaded.values()) {
-      await loaded.app.stop();
+    for (const workspaceId of [...this.loaded.keys()]) {
+      await this.unloadWorkspace(workspaceId, false);
     }
-    this.loaded.clear();
     await this.config.registry.close();
   }
 
   async close(): Promise<void> {
-    for (const loaded of this.loaded.values()) {
-      await this.persistence.markCleanShutdown(loaded.docStore);
-      await loaded.app.stop();
+    for (const workspaceId of [...this.loaded.keys()]) {
+      await this.unloadWorkspace(workspaceId, true);
     }
-    this.loaded.clear();
     await this.config.registry.close();
   }
 

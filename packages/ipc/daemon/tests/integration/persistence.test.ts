@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { startAppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 
@@ -23,7 +23,7 @@ describe("AppServer persistence", () => {
       listen: "tcp://127.0.0.1:0",
       persistence: { dataRoot },
     });
-    const client = new AppServerClient({ url: server.address });
+    const client = new AppServerClient(createSocketTransport(server.address));
     client.connect();
     try {
       await openAuthedSession(client);
@@ -124,7 +124,7 @@ async function startPersistentServer(
     listen: "tcp://127.0.0.1:0",
     persistence: { dataRoot, ...(snapshotEveryUpdates ? { snapshotEveryUpdates } : {}) },
   });
-  const client = new AppServerClient({ url: server.address });
+  const client = new AppServerClient(createSocketTransport(server.address));
   client.connect();
   await openAuthedSession(client);
   return {

@@ -1,6 +1,6 @@
 import type { AppRuntime, Component } from "@lode/engine";
-import { createLodeServer } from "./connect-server.js";
-import type { SyncHandlers } from "./sync-handlers.js";
+import { createLodeServer } from "../connect-server.js";
+import type { SyncHandlers } from "../sync-handlers.js";
 
 /**
  * Hosts the gRPC (HTTP/2, h2c) Connect server as an App `Component`. Wraps `createLodeServer`

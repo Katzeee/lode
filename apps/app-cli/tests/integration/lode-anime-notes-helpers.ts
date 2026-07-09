@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { generateMnemonic } from "@lode/engine";
 import { parseCli } from "../../src/args.js";
 import { executeCommand } from "../../src/commands.js";
@@ -41,7 +41,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
 
   const be = async (...args: string[]): Promise<string> => {
     const parsed = parseCli(["--url", url(), ...args]);
-    const client = new AppServerClient({ url: parsed.url });
+    const client = new AppServerClient(createSocketTransport(parsed.url));
     client.connect();
     try {
       await client.authenticate({ actorMnemonic: mnemonic });

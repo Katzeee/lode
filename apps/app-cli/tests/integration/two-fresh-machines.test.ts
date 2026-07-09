@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { BrokerServer, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
 import { parseCli } from "../../src/args.js";
@@ -47,8 +47,8 @@ describe("two fresh machines — share→join→see (in-process)", () => {
       dataRoot: tmpB,
       syncIntervalMs: 30,
     });
-    ownerClient = new AppServerClient({ url: ownerD.address });
-    memberClient = new AppServerClient({ url: memberD.address });
+    ownerClient = new AppServerClient(createSocketTransport(ownerD.address));
+    memberClient = new AppServerClient(createSocketTransport(memberD.address));
     ownerClient.connect();
     memberClient.connect();
   });
@@ -106,7 +106,7 @@ describe("two fresh machines — share→join→see (in-process)", () => {
     // `syncIntervalMs: 30` the tick would also converge it — Test A locks the CLI flow end-to-end, it
     // does NOT isolate Stage C (the starved-tick test in sync-secured-e2e.test.ts does that). Sync isn't
     // instantaneous (the join's content round is fire-and-forget), so wait for it to land before reading
-    // — reading mid-round hits a child whose content shard hasn't arrived yet ("Node entity not found"),
+    // — reading mid-round hits a child whose content shard hasn't arrived yet ("entity not found"),
     // which is the correct "not here yet," not a bug.
     await memberBe("sync", "join", "--coordinate", coord);
     await sleep(1000);

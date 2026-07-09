@@ -1,8 +1,8 @@
-import { Workspace, type DocStore, type Engine, type LoadedDocBytes } from "../core/index.js";
-import { ShardedBlockStore, TREE_SUBDOC } from "../core/store/sharded-store.js";
-import { SYS_PREFIX } from "../core/store/syncable.js";
-import { validateOccurrenceStructure, validateSnapshot } from "../core/invariant.js";
-import { toJSON, toJSONOccurrences } from "../core/serialize.js";
+import { Workspace, type DocStore, type Engine, type LoadedDocBytes } from "../../core/index.js";
+import { ShardedBlockStore, TREE_SUBDOC } from "../../core/store/sharded-store.js";
+import { SYS_PREFIX } from "../../core/store/syncable.js";
+import { validateOccurrenceStructure, validateSnapshot } from "../../core/invariant.js";
+import { toJSON, toJSONOccurrences } from "../../core/serialize.js";
 
 /** workspace_meta marker doc — a small doc carrying the clean-shutdown flag (the DocStore is generic
  *  id→bytes, so a non-`sys:` id keeps it out of the structure namespace). On a clean close the

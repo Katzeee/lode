@@ -1,4 +1,5 @@
 import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/store/syncable.js";
+import { sameBytes } from "../../utils/bytes.js";
 
 /** A peer's per-doc versions — the cheap metadata exchanged first to find what differs. Opaque
  *  version bytes per sub-doc id; the CRDT backend is closed behind `SyncableDoc`, so this type (and
@@ -6,14 +7,29 @@ import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/store
 export type SyncProfile = { subDocId: string; version: SyncBytes }[];
 
 /**
- * The transport seam. Phase B shipped an in-memory impl (two composites in one process); the broker
- * impl (`BrokerSyncProtocol`) is the real-network drop-in. The interface deals in sub-doc ids +
- * opaque bytes only — no CRDT type crosses it — so it can span a process boundary.
+ * The transport seam — the full set of wire capabilities a peer sync needs. The interface deals in
+ * sub-doc ids + opaque bytes only (no CRDT type crosses it), so it spans a process boundary. Two
+ * cohesive capability groups, on one port because they share one wire:
+ *   - **Round exchange** (`remoteProfile` / `fetchUpdates` / `sendUpdates`): the steady-state
+ *     broadcast sync the `SyncManager` drives.
+ *   - **Membership bootstrap** (`directedFetchUpdates` / `peers`): discover who's on the channel
+ *     and cold-start-fetch a doc from ONE peer. `directedFetchUpdates` is a directed variant of
+ *     `fetchUpdates` — same `reqId` correlation, same response — so it belongs beside it, not on a
+ *     second port with an identical impl set.
+ * The in-memory impl (`InMemorySyncTransport`) is the test substrate; the broker impl
+ * (`BrokerSyncProtocol`) is the real-network drop-in. Callers depend on THIS type, never on the
+ * concrete broker — that is what makes the transport swappable.
  */
 export type SyncTransport = {
   remoteProfile(): Promise<SyncProfile>;
   fetchUpdates(subDocId: string, from: SyncBytes): Promise<Uint8Array>;
   sendUpdates(subDocId: string, bytes: Uint8Array): Promise<void>;
+  /** Directed `fetchUpdates`: ask ONE peer (by routing peerId) for updates beyond `from`. The
+   *  cold-start path — a joiner targets a member for the membership doc before the first tick. */
+  directedFetchUpdates(subDocId: string, from: SyncBytes, toPeerId: string): Promise<Uint8Array>;
+  /** The routing peerIds declared on this workspace's channel, INCLUDING this replica's own — the
+   *  caller filters self. Empty until peers subscribe with a peerId. */
+  peers(): Promise<string[]>;
 };
 
 /**
@@ -180,7 +196,13 @@ export class SyncManager {
  * in-process pairs. The real network transport is the engine's `BrokerSyncProtocol`.
  */
 export class InMemorySyncTransport implements SyncTransport {
-  constructor(private readonly remote: SyncableComposite) {}
+  constructor(
+    private readonly remote: SyncableComposite,
+    /** The remote's routing peerId, if it has one — reported by `peers()` and used to direct a fetch
+     *  in tests that model the broker's peer routing. Omitted for a plain `syncPair` (no directed
+     *  fetch there → `peers()` is empty). */
+    private readonly remotePeerId?: string,
+  ) {}
 
   remoteProfile(): Promise<SyncProfile> {
     return Promise.all(
@@ -200,6 +222,21 @@ export class InMemorySyncTransport implements SyncTransport {
     }
   }
 
+  /** Directed fetch — in-process there's a single remote, so the target IS it (the `toPeerId` is the
+   *  broker's routing concern in production; here it's trivially the only peer). */
+  async directedFetchUpdates(
+    subDocId: string,
+    from: SyncBytes,
+    _toPeerId: string,
+  ): Promise<Uint8Array> {
+    return this.fetchUpdates(subDocId, from);
+  }
+
+  /** The remote's peerId when declared, else empty (the in-memory pair has no channel to query). */
+  peers(): Promise<string[]> {
+    return Promise.resolve(this.remotePeerId !== undefined ? [this.remotePeerId] : []);
+  }
+
   private remoteDoc(subDocId: string): SyncableDoc | undefined {
     return this.remote.docs().find((d) => d.id === subDocId);
   }
@@ -209,21 +246,4 @@ export class InMemorySyncTransport implements SyncTransport {
 export async function syncPair(a: SyncableComposite, b: SyncableComposite): Promise<void> {
   await new SyncManager(a, new InMemorySyncTransport(b)).sync();
   await b.heal();
-}
-
-/** Byte equality for the incremental-sync cursor's version comparison (versions from the same peer
- *  encode deterministically, so equal bytes ⇒ equal version ⇒ no peer change). */
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a.byteLength !== b.byteLength) {
-    return false;
-  }
-  for (let i = 0; i < a.byteLength; i++) {
-    if (a[i] !== b[i]) {
-      return false;
-    }
-  }
-  return true;
 }

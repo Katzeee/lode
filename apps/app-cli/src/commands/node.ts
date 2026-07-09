@@ -6,7 +6,6 @@ import {
   formatNodeBlock,
   getOptionalIndex,
   getOptionalSingleFlag,
-  getRequiredNullableFlag,
   getRequiredSingleFlag,
 } from "./shared.js";
 import type { ClientLike } from "./types.js";
@@ -59,12 +58,12 @@ async function executeNodeCreate(
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
   // Single-root tree: every node has a parent. The owner's createWorkspace seeds the root; thereafter
   // all creation attaches under it (or its descendants) — `--parent-occ` is required.
-  const parentOccurrenceId = getRequiredNullableFlag(command, "--parent-occ");
+  const parentOccurrenceId = getRequiredSingleFlag(command, "--parent-occ");
   const index = getOptionalIndex(command);
   const text = getOptionalSingleFlag(command, "--text");
   const created = await client.createPlainNode({
     workspaceId,
-    ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+    parentOccurrenceId,
     ...(index === undefined ? {} : { index }),
   });
 
@@ -155,12 +154,12 @@ async function executeNodeMove(
   assertAllowedFlags(command, commandKey, ["--workspace", "--occ", "--parent-occ", "--index"]);
   const workspaceId = getRequiredSingleFlag(command, "--workspace");
   const occurrenceId = getRequiredSingleFlag(command, "--occ");
-  const parentOccurrenceId = getRequiredNullableFlag(command, "--parent-occ");
+  const parentOccurrenceId = getRequiredSingleFlag(command, "--parent-occ");
   const index = getOptionalIndex(command);
   await client.moveNode({
     workspaceId,
     occurrenceId,
-    ...(parentOccurrenceId ? { parentOccurrenceId } : {}),
+    parentOccurrenceId,
     ...(index === undefined ? {} : { index }),
   });
   return `Moved occurrence ${occurrenceId} to parent ${describeNullableId(parentOccurrenceId)}.`;

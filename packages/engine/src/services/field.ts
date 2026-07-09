@@ -9,16 +9,16 @@ import {
   type SetFieldValuesRequest,
   type SetFieldValuesResult,
 } from "@lode/protocol/proto";
-import { addField, removeField, setFieldValues } from "../domain/field.js";
-import type { AppContext } from "./context.js";
-import { EMPTY } from "./empty.js";
+import { addField, removeField, setFieldValues } from "../domain/field/field.js";
+import type { AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
 import {
   changeToProto,
   fieldModeFromProto,
   fieldValueInputFromProto,
   identityToProto,
-} from "./mappers.js";
-import { runMutation } from "./mutation.js";
+} from "./wire/mappers.js";
+import { runMutation } from "./wire/mutation.js";
 
 export function createFieldHandlers(ctx: AppContext) {
   return {

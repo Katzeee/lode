@@ -12,6 +12,7 @@ import { LodeCommands } from "@lode/protocol/proto";
 import {
   DomainInvalidInputError,
   DocNotFoundError,
+  NotFoundError,
   SessionRequiredError,
   AuthenticationError,
   PreconditionFailedError,
@@ -48,6 +49,9 @@ export function toConnectError(error: unknown): ConnectError {
     return new ConnectError(error.message, Code.PermissionDenied);
   }
   if (error instanceof DocNotFoundError) {
+    return new ConnectError(error.message, Code.NotFound);
+  }
+  if (error instanceof NotFoundError) {
     return new ConnectError(error.message, Code.NotFound);
   }
   if (error instanceof DomainInvalidInputError) {

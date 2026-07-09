@@ -182,7 +182,7 @@ message ListWorkspacesResponse {
 
 message CreatePlainNodeRequest {
   string workspace_id = 1;
-  optional string parent_occurrence_id = 3;
+  string parent_occurrence_id = 3;
   optional int32 index = 4;
   optional google.protobuf.Struct props = 5;
 }
@@ -223,7 +223,7 @@ message ListRootsResponse {
 message MoveNodeRequest {
   string workspace_id = 1;
   string occurrence_id = 3;
-  optional string parent_occurrence_id = 4; // absent == move to root
+  string parent_occurrence_id = 4;
   optional int32 index = 5;
 }
 
@@ -280,14 +280,14 @@ message UnsetOccurrencePropRequest {
 message CreateRefRequest {
   string workspace_id = 1;
   string target_node_id = 3;
-  optional string parent_occurrence_id = 4;
+  string parent_occurrence_id = 4;
   optional int32 index = 5;
 }
 
 message CloneRefRequest {
   string workspace_id = 1;
   string occurrence_id = 3;
-  optional string parent_occurrence_id = 4;
+  string parent_occurrence_id = 4;
   optional int32 index = 5;
 }
 
@@ -296,7 +296,7 @@ message CloneRefRequest {
 message CreateSchemaRequest {
   string workspace_id = 1;
   string name = 3;
-  optional string parent_occurrence_id = 4;
+  string parent_occurrence_id = 4;
 }
 
 message ApplySchemaRequest {

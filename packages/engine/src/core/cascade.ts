@@ -13,8 +13,9 @@ export async function cascadeRemove(doc: Engine, occurrenceId: string): Promise<
 }
 
 /** Hard-delete a node: cascade every occurrence of the node (and their subtrees). The bare forest
- *  cascade: no product guards. Domain wraps this (`hardDeleteNode`) with the protected-node guard
- *  for user paths. */
+ *  cascade: no product guards. The product path (`hardDeleteNode`) computes the same closure, runs
+ *  the protected-node guard over it, then applies it — so guard and delete share one traversal.
+ *  This bare entry stays for engine tests. */
 export async function cascadeHardDelete(doc: Engine, nodeId: string): Promise<void> {
   await doc.batch(async () => {
     const seeds = (await doc.getOccurrences(nodeId)).map((occurrence) => occurrence.occurrenceId);
@@ -31,7 +32,7 @@ export async function cascadeHardDelete(doc: Engine, nodeId: string): Promise<vo
  * that IS its node's canonical drags every occurrence of that node (and their subtrees).
  * A node is deleted iff its canonical ends up removed.
  */
-async function cascadeClosure(
+export async function cascadeClosure(
   doc: Engine,
   seeds: string[],
 ): Promise<{ removed: Set<string>; deletedNodes: Set<string> }> {
@@ -75,7 +76,7 @@ async function cascadeClosure(
  * construction (surviving occurrences are non-canonical; killed nodes' occurrences are
  * all in the closure, so their children clear first).
  */
-async function applyCascade(
+export async function applyCascade(
   doc: Engine,
   removed: Set<string>,
   deletedNodes: Set<string>,

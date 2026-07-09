@@ -1,5 +1,5 @@
 import type { Engine } from "../../core/index.js";
-import { getSemanticChildren, moveOccurrence } from "../node.js";
+import { getSemanticChildren, moveOccurrence } from "../node/node.js";
 
 // Outliner structure ops: indent / outdent / move-sibling. Each composite op is one undo
 // step. They operate on the physical occurrence tree for sibling discovery and place through
@@ -45,8 +45,9 @@ export async function indent(doc: Engine, occurrenceIds: string[]): Promise<bool
 }
 
 /**
- * Outdent an occurrence one level: it becomes the sibling immediately after its parent (under
- * the grandparent, or a root if the parent is a root). Returns false (no-op) for a root.
+ * Outdent an occurrence one level: it becomes the sibling immediately after its parent (under the
+ * grandparent). Returns false (no-op) for a root, and for a direct child of the root — outdenting
+ * past the single root would mint a second root, which the single-root policy forbids.
  */
 export async function outdent(doc: Engine, occurrenceId: string): Promise<boolean> {
   return doc.batch(async () => {
@@ -56,9 +57,10 @@ export async function outdent(doc: Engine, occurrenceId: string): Promise<boolea
     }
     const parent = occ.parentOccurrenceId;
     const grandparent = doc.getParentOccurrenceId(parent);
-    const parentSiblings = grandparent
-      ? doc.getChildOccurrenceIds(grandparent)
-      : doc.getRootOccurrenceIds();
+    if (grandparent === null) {
+      return false; // parent is the root — outdent would mint a second root
+    }
+    const parentSiblings = doc.getChildOccurrenceIds(grandparent);
     const parentIndex = parentSiblings.indexOf(parent);
     await moveOccurrence(doc, occurrenceId, grandparent, parentIndex + 1);
     return true;

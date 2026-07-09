@@ -12,10 +12,10 @@ import {
 } from "@lode/protocol/proto";
 import { duplicate, paste } from "../domain/editing/clipboard.js";
 import { indent, moveSibling, outdent } from "../domain/editing/structure.js";
-import type { AppContext } from "./context.js";
-import { EMPTY } from "./empty.js";
-import { identityToProto } from "./mappers.js";
-import { runMutation } from "./mutation.js";
+import type { AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
+import { identityToProto } from "./wire/mappers.js";
+import { runMutation } from "./wire/mutation.js";
 
 // RPC adapters for the composite/intent editing ops. Each maps 1:1 to a domain/editing op; the
 // domain already groups the whole intent as one undo step, so runMutation records a single

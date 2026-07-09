@@ -42,6 +42,19 @@ function commitAll(ctx: HealContext): void {
   }
 }
 
+/** The nodeIds of every live (non-deleted) occurrence — the post-drop live set each heal pass feeds
+ *  to its ownership loop. Shared by both heal algorithms (the single getNodes scan they used to duplicate). */
+function collectLiveNodeIds(ctx: HealContext): Set<NodeId> {
+  const live = new Set<NodeId>();
+  for (const node of ctx.occurrenceTree.getNodes({ withDeleted: false })) {
+    const nid = node.data.get("nodeId");
+    if (typeof nid === "string") {
+      live.add(nid);
+    }
+  }
+  return live;
+}
+
 /**
  * Crash recovery: reconcile treeDoc ↔ shards after a non-atomic restart. The tree doc and each shard
  * are independent LoroDocs (persisted separately), so a crash between their writes leaves two kinds
@@ -66,13 +79,7 @@ export async function runReconcileDurability(ctx: HealContext): Promise<void> {
       changed = true;
     }
     // Ownership with neither a live occurrence nor an entity: crashed-create residue.
-    const liveOccNodeIds = new Set<NodeId>();
-    for (const node of ctx.occurrenceTree.getNodes({ withDeleted: false })) {
-      const nid = node.data.get("nodeId");
-      if (typeof nid === "string") {
-        liveOccNodeIds.add(nid);
-      }
-    }
+    const liveOccNodeIds = collectLiveNodeIds(ctx);
     for (const nid of [...(ctx.ownership.keys() as string[])]) {
       if (!liveOccNodeIds.has(nid) && !(await ctx.entityPresent(nid))) {
         ctx.ownership.delete(nid);
@@ -131,13 +138,7 @@ export async function runSweepOrphans(ctx: HealContext): Promise<void> {
       ctx.occurrenceTree.delete(id);
       changed = true;
     }
-    const liveOccNodeIds = new Set<NodeId>();
-    for (const node of ctx.occurrenceTree.getNodes({ withDeleted: false })) {
-      const nid = node.data.get("nodeId");
-      if (typeof nid === "string") {
-        liveOccNodeIds.add(nid);
-      }
-    }
+    const liveOccNodeIds = collectLiveNodeIds(ctx);
     for (const nid of [...(ctx.ownership.keys() as string[])]) {
       if (!liveOccNodeIds.has(nid)) {
         const shardId = ctx.shardIdOfNode(nid);

@@ -1,15 +1,22 @@
-import { cascadeRemove, type Engine, type NodeOccurrence, textToDelta } from "../core/index.js";
-import { SystemEntityMeta, type FieldPresence, type FieldType } from "../bundle/system-schema.js";
-import type { DomainChange } from "./model/changes.js";
+import { cascadeRemove, type Engine, type NodeOccurrence, textToDelta } from "../../core/index.js";
+import {
+  SystemEntityMeta,
+  type FieldPresence,
+  type FieldType,
+} from "../../bundle/system-schema.js";
+import type { DomainChange } from "../model/changes.js";
 import type {
   FieldAddMode,
   FieldAddResult,
   FieldIdentity,
   FieldSetValuesResult,
   FieldValueInput,
-} from "./model/field.js";
-import { invalidDomainInput } from "./errors.js";
-import { assertFieldRemoveAllowed, assertNotActiveManagedChild } from "./managed-child-policy.js";
+} from "../model/field.js";
+import { invalidDomainInput } from "../errors.js";
+import {
+  assertFieldRemoveAllowed,
+  assertNotActiveManagedChild,
+} from "../managed/managed-child-policy.js";
 import {
   isField,
   markField,
@@ -17,15 +24,15 @@ import {
   readFieldDefId,
   requireField,
   requireFieldDef,
-} from "./system-entity.js";
-import { requireNodeById, requireOccurrence } from "./lookup.js";
+} from "../system-entity.js";
+import { requireNodeById, requireOccurrence } from "../lookup.js";
 import {
   createPlainNode,
   createReference,
   getSemanticChildren,
   moveOccurrence,
   removeOccurrenceOrHardDelete,
-} from "./node.js";
+} from "../node/node.js";
 
 export async function createFieldDef(
   doc: Engine,

@@ -1,7 +1,7 @@
-import type { App } from "./app.js";
-import type { DocStore, Workspace } from "../core/index.js";
-import type { WorkspaceStore } from "../persistence/workspace-store.js";
-import type { MembershipLog } from "./membership/membership-log.js";
+import type { App } from "../app.js";
+import type { DocStore, Workspace } from "../../core/index.js";
+import type { WorkspaceStore } from "../../persistence/workspace-store.js";
+import type { MembershipLog } from "../membership/membership-log.js";
 
 /** The user-facing workspace identity (no internal handles). */
 export type RuntimeWorkspaceInfo = {

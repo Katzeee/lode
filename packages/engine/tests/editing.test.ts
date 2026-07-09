@@ -9,7 +9,7 @@ import {
   createPlainNode,
   hardDeleteNode,
   removeOccurrenceOrHardDelete,
-} from "../src/domain/node.js";
+} from "../src/domain/node/node.js";
 import { duplicate, paste } from "../src/domain/editing/clipboard.js";
 import { indent, moveSibling, outdent } from "../src/domain/editing/structure.js";
 import { stableStringify } from "./truth-model.js";
@@ -104,7 +104,7 @@ async function buildTree(): Promise<{
 describe("composite/intent ops: one undo step + round-trip", () => {
   it("cloneOccurrence clones a subtree in one undo step", async () => {
     const t = await buildTree();
-    await roundTrip(t.e, () => cloneOccurrence(t.e, t.a));
+    await roundTrip(t.e, () => cloneOccurrence(t.e, t.a, t.root));
   });
 
   it("removeOccurrenceOrHardDelete cascades in one undo step", async () => {
@@ -182,6 +182,13 @@ describe("composite/intent ops: no-op edges", () => {
     const t = await buildTree();
     const before = stableStringify(await toJSON(t.e));
     expect(await outdent(t.e, t.root)).toBe(false);
+    expect(stableStringify(await toJSON(t.e))).toBe(before);
+  });
+
+  it("outdent of a direct child of the root is a no-op (can't outdent above the single root)", async () => {
+    const t = await buildTree();
+    const before = stableStringify(await toJSON(t.e));
+    expect(await outdent(t.e, t.a)).toBe(false); // a's parent is the root → no grandparent
     expect(stableStringify(await toJSON(t.e))).toBe(before);
   });
 

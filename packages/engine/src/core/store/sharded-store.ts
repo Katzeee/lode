@@ -10,6 +10,7 @@ import {
   VersionVector,
 } from "loro-crdt";
 import type { SyncableComposite, SyncableDoc } from "./syncable.js";
+import { NotFoundError } from "../../errors.js";
 import { SYS_PREFIX } from "./syncable.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
 import { InMemoryDocStore } from "./in-memory-doc-store.js";
@@ -325,7 +326,7 @@ export class ShardedBlockStore implements Outliner {
   async canonicalOccurrenceIdOf(nodeId: NodeId): Promise<OccurrenceId> {
     const id = (await this.entityOf(nodeId)).get("canonicalOccurrenceId");
     if (typeof id !== "string") {
-      throw new Error(`Canonical occurrence not found: ${nodeId}`);
+      throw new NotFoundError("canonical", nodeId);
     }
     return id;
   }
@@ -377,7 +378,7 @@ export class ShardedBlockStore implements Outliner {
     const node = this.treeNodeOf(occurrenceId);
     const nodeId = node?.data.get("nodeId");
     if (typeof nodeId !== "string") {
-      throw new Error(`Occurrence not found: ${occurrenceId}`);
+      throw new NotFoundError("occurrence", occurrenceId);
     }
     return nodeId;
   }
@@ -386,7 +387,7 @@ export class ShardedBlockStore implements Outliner {
     const node = this.treeNodeOf(occurrenceId);
     const occId = node?.data.get("occId");
     if (typeof occId !== "string") {
-      throw new Error(`Occurrence not found: ${occurrenceId}`);
+      throw new NotFoundError("occurrence", occurrenceId);
     }
     return occId;
   }
@@ -778,7 +779,7 @@ export class ShardedBlockStore implements Outliner {
   private shardIdOfNode(nodeId: NodeId): string {
     const bucket = this.ownership.get(nodeId);
     if (typeof bucket !== "number") {
-      throw new Error(`Node entity not found: ${nodeId}`);
+      throw new NotFoundError("entity", nodeId);
     }
     return shardIdOfBucket(bucket, this.numShards);
   }
@@ -786,7 +787,7 @@ export class ShardedBlockStore implements Outliner {
   private async entityOf(nodeId: NodeId): Promise<LoroMap> {
     const entity = await this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
     if (!(entity instanceof LoroMap)) {
-      throw new Error(`Node entity not found: ${nodeId}`);
+      throw new NotFoundError("entity", nodeId);
     }
     return entity;
   }
@@ -809,7 +810,7 @@ export class ShardedBlockStore implements Outliner {
     const nodeId = this.nodeIdOf(occurrenceId);
     const text = (await this.entityOf(nodeId)).get("content");
     if (!(text instanceof LoroText)) {
-      throw new Error(`Node content not found: ${nodeId}`);
+      throw new NotFoundError("content", nodeId);
     }
     return text;
   }
@@ -818,7 +819,7 @@ export class ShardedBlockStore implements Outliner {
     const nodeId = this.nodeIdOf(occurrenceId);
     const props = (await this.entityOf(nodeId)).get("props");
     if (!(props instanceof LoroMap)) {
-      throw new Error(`Node entity props not found: ${nodeId}`);
+      throw new NotFoundError("props", nodeId);
     }
     const narrowed = props as unknown as LoroMap;
     return narrowed;
@@ -828,7 +829,7 @@ export class ShardedBlockStore implements Outliner {
     const nodeId = this.nodeIdOf(occurrenceId);
     const meta = (await this.entityOf(nodeId)).get("meta");
     if (!(meta instanceof LoroMap)) {
-      throw new Error(`Node entity meta not found: ${nodeId}`);
+      throw new NotFoundError("meta", nodeId);
     }
     const narrowed = meta as unknown as LoroMap;
     return narrowed;
@@ -838,7 +839,7 @@ export class ShardedBlockStore implements Outliner {
     const node = this.treeNodeOf(occurrenceId);
     const props = node?.data.get("props");
     if (!(props instanceof LoroMap)) {
-      throw new Error(`Occurrence props not found: ${occurrenceId}`);
+      throw new NotFoundError("props", occurrenceId);
     }
     const narrowed = props as unknown as LoroMap;
     return narrowed;
@@ -848,7 +849,7 @@ export class ShardedBlockStore implements Outliner {
     const node = this.treeNodeOf(occurrenceId);
     const meta = node?.data.get("meta");
     if (!(meta instanceof LoroMap)) {
-      throw new Error(`Occurrence meta not found: ${occurrenceId}`);
+      throw new NotFoundError("meta", occurrenceId);
     }
     const narrowed = meta as unknown as LoroMap;
     return narrowed;

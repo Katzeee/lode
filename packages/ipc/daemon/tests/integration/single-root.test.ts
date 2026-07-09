@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
 
-// Proves the single-root product policy enforced in domain/node.ts (createPlainNodeInWorkspace):
-// createWorkspace seeds the workspace's one root (named = displayName), and a subsequent
-// createPlainNode with no parent is refused once that root exists. Attaching under the seeded
-// root is the sanctioned path.
+// Proves the single-root product policy: createWorkspace seeds the workspace's one root (named =
+// displayName), and every node attaches under it. Single-root is now structural — createPlainNode
+// takes a required parent, and createWorkspaceRoot is the only rooting entry — so there is no
+// "no-parent" path left to refuse.
 describe("single-root product policy", () => {
   let server: AppServerDaemon;
   let client: AppServerClient;
@@ -15,7 +15,7 @@ describe("single-root product policy", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient({ url: server.address });
+    client = new AppServerClient(createSocketTransport(server.address));
     client.connect();
     await openAuthedSession(client);
     await createTestWorkspace(client);
@@ -31,12 +31,6 @@ describe("single-root product policy", () => {
     const { roots } = await rpc.listRoots({});
     expect(roots).toHaveLength(1);
     expect(roots.at(0)!.deltas).toMatchObject([{ insert: "Test Workspace" }]);
-  });
-
-  it("rejects a second root via createPlainNode with no parent", async () => {
-    await expect(rpc.createPlainNode({})).rejects.toThrow(
-      "createPlainNode: workspace already has a root; pass parentOccurrenceId to attach under it",
-    );
   });
 
   it("attaches a child when parentOccurrenceId is the seeded root", async () => {

@@ -1,33 +1,21 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import { invalidDomainInput } from "./errors.js";
-import { requireNodeById } from "./lookup.js";
-import { isActiveManagedChild, readManagedChildState } from "./managed-child-state.js";
-import { readSchemaIds } from "./schema-membership.js";
-import { isField, isFieldDef, isSchema } from "./system-entity.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import { invalidDomainInput } from "../errors.js";
+import { isActiveManagedChild, readManagedChildState } from "../managed/managed-child-state.js";
+import { readSchemaIds } from "../schema/schema-membership.js";
+import { isField, isFieldDef, isSchema } from "../system-entity.js";
 
-export async function assertNodeHardDeleteAllowed(doc: Engine, nodeId: string): Promise<void> {
-  const canonical = await requireNodeById(doc, nodeId);
-  await assertOccurrenceHardDeleteAllowed(doc, canonical);
-
-  for (const occurrence of await doc.getOccurrences(nodeId)) {
-    await assertOccurrenceHardDeleteAllowed(doc, occurrence);
+/** Authorize a hard-delete against the exact closure the core cascade will remove — guard and
+ *  delete share one traversal, so there is no second closure that could diverge. Every occurrence
+ *  in the closure is checked, so a protected entity anywhere in it — including one nested under a
+ *  non-canonical occurrence, which a canonical-only walk would miss — is caught before any
+ *  mutation. */
+export async function authorizeHardDelete(doc: Engine, removed: Set<string>): Promise<void> {
+  for (const occId of removed) {
+    const occ = await doc.getOccurrence(occId);
+    if (occ) {
+      await assertOccurrenceHardDeleteAllowed(doc, occ);
+    }
   }
-
-  for (const descendant of await collectOccurrenceSubtree(doc, canonical.occurrenceId)) {
-    await assertOccurrenceHardDeleteAllowed(doc, descendant);
-  }
-}
-
-async function collectOccurrenceSubtree(
-  doc: Engine,
-  occurrenceId: string,
-): Promise<NodeOccurrence[]> {
-  const out: NodeOccurrence[] = [];
-  for (const child of await doc.getOccurrenceChildren(occurrenceId)) {
-    out.push(child);
-    out.push(...(await collectOccurrenceSubtree(doc, child.occurrenceId)));
-  }
-  return out;
 }
 
 async function assertOccurrenceHardDeleteAllowed(

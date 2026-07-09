@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
+import type { Empty } from "@bufbuild/protobuf/wkt";
 import type {
   AddMemberRequest,
   AddPeerRequest,
@@ -15,11 +15,10 @@ import {
   ListedPeerSchema,
   ListMembersResponseSchema,
 } from "@lode/protocol/proto";
-import type { AppContext } from "./context.js";
+import type { AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
 import { PreconditionFailedError } from "../errors.js";
 import { DomainInvalidInputError } from "../domain/errors.js";
-
-const EMPTY: Empty = create(EmptySchema);
 
 /** Membership / peer-governance RPC handlers — relay-independent adapters over the engine's
  *  membership log (design sync-identity-persistence §2 + §13). They live in the ENGINE (not the

@@ -26,6 +26,8 @@ function recording(peer: ShardedBlockStore): {
         }
         await inner.sendUpdates(docId, bytes);
       },
+      directedFetchUpdates: (id, from, to) => inner.directedFetchUpdates(id, from, to),
+      peers: () => inner.peers(),
     },
   };
 }
@@ -116,6 +118,8 @@ describe("SyncManager.pushOnly() — the push fast-path", () => {
       // written (before the per-doc loop), so pushOnly is not stranded on cold start.
       fetchUpdates: () => Promise.reject(new Error("relay blip")),
       sendUpdates: () => Promise.resolve(),
+      directedFetchUpdates: () => Promise.reject(new Error("relay blip")),
+      peers: () => inner.peers(),
     };
     const sm = new SyncManager(aStore, throwing);
     await expect(sm.sync()).rejects.toThrow(/relay blip/);
@@ -162,5 +166,31 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     } finally {
       sub.unsubscribe();
     }
+  });
+});
+
+describe("InMemorySyncTransport — directed fetch + peers (the mockable bootstrap seam)", () => {
+  it("reports the remote peerId and directed-fetches a doc by it — no broker required", async () => {
+    // The directed-membership-bootstrap path (registry.directedMembershipFetch) can be exercised
+    // against an in-memory transport now that peers()/directedFetchUpdates are on the SyncTransport
+    // seam — this is the Phase 1 payoff: a broker-free mock.
+    const bStore = newStore();
+    await new Engine({ store: bStore }).createNode(null); // B has a dirty tree doc
+    const treeId = bStore.treeSyncDoc().id;
+    // The joiner's version of the doc — a fresh store's encoded empty version vector. A raw
+    // zero-length array is NOT a valid Loro VV; the joiner passes its real (empty) version, as prod does.
+    const fromEmpty = await newStore().treeSyncDoc().version();
+
+    const transport = new InMemorySyncTransport(bStore, "peer-b");
+
+    // peers() lists the remote's declared peerId (the caller filters self; self is empty here).
+    expect(await transport.peers()).toEqual(["peer-b"]);
+    // A transport with no declared peerId reports nobody (the plain syncPair shape).
+    expect(await new InMemorySyncTransport(bStore).peers()).toEqual([]);
+
+    // Directed fetch from "peer-b" returns the tree doc's bytes beyond the (empty) version — the
+    // same flow the joiner's directedMembershipFetch runs against the broker in production.
+    const bytes = await transport.directedFetchUpdates(treeId, fromEmpty, "peer-b");
+    expect(bytes.length).toBeGreaterThan(0);
   });
 });

@@ -5,7 +5,7 @@ import {
   createReference,
   hardDeleteNode,
   moveOccurrence,
-} from "../../src/domain/node.js";
+} from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, assertEquiv, cloneReplica, replica } from "./harness.js";
 
@@ -28,7 +28,7 @@ function stores(a: ReturnType<typeof replica>, b: ReturnType<typeof replica>) {
 describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
   it("independent concurrent creates: both survive on both replicas", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const a = await cloneReplica(base);
     const b = await cloneReplica(base);
     const ax = await createPlainNode(a, root.occurrenceId);
@@ -44,7 +44,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
 
   it("concurrent ref + hard-delete: delete wins, ref swept, node gone (no resurrection)", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const target = await createPlainNode(base, root.occurrenceId);
     const targetNode = target.nodeId;
     const targetOcc = target.occurrenceId;
@@ -63,7 +63,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
 
   it("concurrent same-field text edit: converges identically on both (Loro sequence-merge)", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const shared = await createPlainNode(base, root.occurrenceId);
     await base.replaceDeltas(shared.occurrenceId, [{ insert: "base" }]);
 
@@ -84,7 +84,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
 
   it("concurrent move to different parents: lands on one target, acyclic, same on both", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const p = await createPlainNode(base, root.occurrenceId);
     const q = await createPlainNode(base, root.occurrenceId);
     const x = await createPlainNode(base, root.occurrenceId); // the node both will move
@@ -105,7 +105,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
 
   it("concurrent delete + edit: delete wins, node gone on both", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const target = await createPlainNode(base, root.occurrenceId);
     const targetNode = target.nodeId;
     const targetOcc = target.occurrenceId;
@@ -127,7 +127,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
     // part of X's deleted subtree → removed. Pinned so the outcome can't silently regress;
     // revisit if product wants Y rescued (reparented to root) instead of removed.
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const x = await createPlainNode(base, root.occurrenceId);
     const y = await createPlainNode(base, root.occurrenceId);
 
@@ -146,7 +146,7 @@ describe("sync truth: concurrent op-pair outcomes (spec-defined)", () => {
 describe("sync truth: contract properties", () => {
   it("conservation: every node created on any replica is present on all after sync", async () => {
     const base = replica(8);
-    const root = await createPlainNode(base, null);
+    const root = await base.createNode(null);
     const a = await cloneReplica(base);
     const b = await cloneReplica(base);
     const created = (
@@ -170,7 +170,7 @@ describe("sync truth: contract properties", () => {
     // Build the divergent state ONCE (fixed ids), then clone it per schedule so both start
     // from identical ids — only the sync ORDER differs.
     const seed = replica(8);
-    const root = await createPlainNode(seed, null);
+    const root = await seed.createNode(null);
     const shared = await createPlainNode(seed, root.occurrenceId);
     const a0 = await cloneReplica(seed);
     const b0 = await cloneReplica(seed);

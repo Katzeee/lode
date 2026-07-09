@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { toJSON } from "../core/serialize.js";
 import { generateActorKeypair } from "../utils/crypto/index.js";
-import { AppWorkspaceRuntime } from "./workspace-registry.js";
+import { AppWorkspaceRuntime } from "./workspace/registry.js";
 
 /**
  * forkWorkspace — the Phase 3 recovery primitive (design sync-identity-persistence §13). A fork
@@ -64,7 +64,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
       expect(state.owner).toBe(owner.actorId);
       expect(state.currentEpoch).toBe(0);
       expect(state.peers.size).toBe(1);
-      const peer = state.peers.get(String(rt.peerId));
+      const peer = state.peers.get(rt.routingId()!);
       expect(peer).toBeDefined();
       expect(peer!.owningActorId).toBe(owner.actorId);
     } finally {

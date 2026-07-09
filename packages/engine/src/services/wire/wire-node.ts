@@ -5,7 +5,7 @@ import {
   type Delta as ProtoDelta,
   type NodeOccurrenceWire,
 } from "@lode/protocol/proto";
-import type { Delta, NodeOccurrence } from "../core/index.js";
+import type { Delta, NodeOccurrence } from "../../core/index.js";
 import { asJsonObject } from "./struct.js";
 
 export function nodeToProto(node: NodeOccurrence): NodeOccurrenceWire {

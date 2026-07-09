@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/app-server-daemon.js";
 import { openAuthedSession } from "./authed-session.js";
 
@@ -21,7 +21,7 @@ describe("app server daemon runtime", () => {
   it("starts from a tcp listen URL and accepts client RPCs", async () => {
     daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
 
-    const client = new AppServerClient({ url: daemon.address });
+    const client = new AppServerClient(createSocketTransport(daemon.address));
     client.connect();
     await openAuthedSession(client);
     await expect(client.rpc.listWorkspaces({})).resolves.toMatchObject({ workspaces: [] });
@@ -30,7 +30,7 @@ describe("app server daemon runtime", () => {
 
   it("stops gracefully and closes transport connections", async () => {
     daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    const client = new AppServerClient({ url: daemon.address });
+    const client = new AppServerClient(createSocketTransport(daemon.address));
     client.connect();
 
     await daemon.stop();
@@ -44,7 +44,7 @@ describe("app server daemon runtime", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "be-daemon-data-"));
     dataRoots.push(dataRoot);
     daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
-    const first = new AppServerClient({ url: daemon.address });
+    const first = new AppServerClient(createSocketTransport(daemon.address));
     first.connect();
     await openAuthedSession(first);
     await first.rpc.createWorkspace({
@@ -67,7 +67,7 @@ describe("app server daemon runtime", () => {
     daemon = null;
 
     daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
-    const second = new AppServerClient({ url: daemon.address });
+    const second = new AppServerClient(createSocketTransport(daemon.address));
     second.connect();
     await openAuthedSession(second);
 

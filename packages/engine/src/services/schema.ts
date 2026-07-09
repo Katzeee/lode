@@ -8,11 +8,16 @@ import {
   type RemoveSchemaRequest,
   type SchemaChangeResult,
 } from "@lode/protocol/proto";
-import { applySchema, createSchema, reconcileSchema, removeSchema } from "../domain/schema.js";
+import {
+  applySchema,
+  createSchema,
+  reconcileSchema,
+  removeSchema,
+} from "../domain/schema/schema.js";
 import type { SchemaChangeResult as DomainSchemaChangeResult } from "../domain/model/schema.js";
-import type { AppContext } from "./context.js";
-import { changeToProto, identityToProto, nodeRefToProto } from "./mappers.js";
-import { runMutation } from "./mutation.js";
+import type { AppContext } from "./wire/context.js";
+import { changeToProto, identityToProto, nodeRefToProto } from "./wire/mappers.js";
+import { runMutation } from "./wire/mutation.js";
 
 export function createSchemaHandlers(ctx: AppContext) {
   const toResult = (result: DomainSchemaChangeResult): SchemaChangeResult =>
@@ -28,7 +33,7 @@ export function createSchemaHandlers(ctx: AppContext) {
       connectionId: string,
     ): Promise<NodeOccurrenceRef> => {
       const identity = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        createSchema(doc, req.name, req.parentOccurrenceId ?? null),
+        createSchema(doc, req.name, req.parentOccurrenceId),
       );
       return identityToProto(identity);
     },

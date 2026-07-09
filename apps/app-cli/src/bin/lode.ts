@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { AppServerClient, describeError } from "@lode/client";
+import { AppServerClient, createSocketTransport, describeError } from "@lode/client";
 import { parseCli } from "../args.js";
 import { executeCommand } from "../commands.js";
 
@@ -9,7 +9,7 @@ async function main(): Promise<void> {
 
   try {
     const parsed = parseCli(process.argv.slice(2));
-    client = new AppServerClient({ url: parsed.url });
+    client = new AppServerClient(createSocketTransport(parsed.url));
     client.connect();
     // `actor new` mints a fresh identity — it has no mnemonic yet and must skip auth. Every other
     // command needs an authenticated session, established from the mnemonic alone (the daemon derives

@@ -1,9 +1,9 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import { requireNodeById } from "./lookup.js";
-import { ManagedKind, type SchemaProvenance } from "./model/managed-child.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import { requireNodeById } from "../lookup.js";
+import { ManagedKind, type SchemaProvenance } from "../model/managed-child.js";
 import { readSchemaIds } from "./schema-membership.js";
-import { isFieldDef, readFieldDefPresence, requireSchema } from "./system-entity.js";
-import type { DesiredManagedChild, DesiredManagedChildInput } from "./model/reconcile.js";
+import { isFieldDef, readFieldDefPresence, requireSchema } from "../system-entity.js";
+import type { DesiredManagedChild, DesiredManagedChildInput } from "../model/reconcile.js";
 
 export async function collectDesiredManagedChildren(
   doc: Engine,

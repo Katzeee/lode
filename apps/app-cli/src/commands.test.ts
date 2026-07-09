@@ -47,13 +47,13 @@ describe("executeCommand", () => {
     );
   });
 
-  it("creates a node with parsed index and initial text (null parent omitted)", async () => {
+  it("creates a node with parsed index and initial text", async () => {
     const { client, calls } = createFakeClient();
 
     await executeCommand(
       client,
       command("node", "create", {
-        "--parent-occ": ["null"],
+        "--parent-occ": ["occ_parent"],
         "--index": ["2"],
         "--text": ["hello"],
       }),
@@ -63,6 +63,7 @@ describe("executeCommand", () => {
       method: Methods.CreatePlainNode,
       params: {
         workspaceId: "ws_main",
+        parentOccurrenceId: "occ_parent",
         index: 2,
       },
     });

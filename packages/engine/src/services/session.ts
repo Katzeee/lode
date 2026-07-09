@@ -12,8 +12,8 @@ import type {
 } from "@lode/protocol/proto";
 import { ActorMnemonicSchema, ActorPublicKeysSchema } from "@lode/protocol/proto";
 import { deriveActorKeypair, mintActorIdentity } from "../session/identity-policy.js";
-import { getEngine, type AppContext } from "./context.js";
-import { EMPTY } from "./empty.js";
+import { getEngine, type AppContext } from "./wire/context.js";
+import { EMPTY } from "./wire/empty.js";
 
 export function createSessionHandlers(ctx: AppContext) {
   return {

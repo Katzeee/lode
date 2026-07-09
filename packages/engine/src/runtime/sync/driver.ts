@@ -14,10 +14,10 @@ export type SyncRoundDriverOptions = {
 
 /**
  * Drives one round every `intervalMs` for a single workspace: membership round then content round
- * (in that order, so `sec.refresh()` lands before the content gate), with a `busy` guard that skips
- * overlapping rounds. `busy` is PER-WORKSPACE here — the old `DaemonSyncRunner` carried one global
- * `busy` across all workspaces, so a slow round on one blocked the next; that coupling is gone (a
- * behavior improvement, called out in the design doc).
+ * (in that order, so the content round's `isMember()` gate re-derives on the just-moved membership
+ * frontier), with a `busy` guard that skips overlapping rounds. `busy` is PER-WORKSPACE here — the
+ * old `DaemonSyncRunner` carried one global `busy` across all workspaces, so a slow round on one
+ * blocked the next; that coupling is gone (a behavior improvement, called out in the design doc).
  *
  * `run(signal)` wraps the existing `setInterval` shape with abort-driven cleanup: the interval fires
  * every `intervalMs` exactly as before, and the loop resolves when the App aborts the signal on

@@ -5,7 +5,7 @@ import {
   createReference,
   hardDeleteNode,
   moveOccurrence,
-} from "../../src/domain/node.js";
+} from "../../src/domain/node/node.js";
 import { syncPair } from "../../src/runtime/sync/sync-manager.js";
 import { assertConverged, cloneReplica, replica } from "./harness.js";
 
@@ -21,7 +21,7 @@ import { assertConverged, cloneReplica, replica } from "./harness.js";
 
 // Shared base: root → {x, y}. Built once; each test clones it (ids preserved across clones).
 const base = replica(8);
-const rootOcc = (await createPlainNode(base, null)).occurrenceId;
+const rootOcc = (await base.createNode(null)).occurrenceId;
 const x = await createPlainNode(base, rootOcc);
 const y = await createPlainNode(base, rootOcc);
 const xOcc = x.occurrenceId;
@@ -35,7 +35,7 @@ const OPS: Op[] = [
   { name: "create", apply: (e) => createPlainNode(e, rootOcc) },
   { name: "editX", apply: (e) => e.replaceDeltas(xOcc, [{ insert: "a" }]) },
   { name: "editY", apply: (e) => e.replaceDeltas(yOcc, [{ insert: "b" }]) },
-  { name: "moveXroot", apply: (e) => moveOccurrence(e, xOcc, null) },
+  { name: "moveXunderY", apply: (e) => moveOccurrence(e, xOcc, yOcc) },
   { name: "setPropX", apply: (e) => e.setProp(xOcc, "k", "v") },
   { name: "deleteX", apply: (e) => hardDeleteNode(e, xNode) },
   { name: "deleteY", apply: (e) => hardDeleteNode(e, yNode) },

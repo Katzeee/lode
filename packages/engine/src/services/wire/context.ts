@@ -1,7 +1,7 @@
-import type { Engine } from "../core/index.js";
-import { DocNotFoundError } from "../errors.js";
-import type { AppWorkspaceRuntime } from "../runtime/workspace-registry.js";
-import type { SessionManager } from "../session/session-manager.js";
+import type { Engine } from "../../core/index.js";
+import { DocNotFoundError } from "../../errors.js";
+import type { AppWorkspaceRuntime } from "../../runtime/workspace/registry.js";
+import type { SessionManager } from "../../session/session-manager.js";
 
 export type AppContext = {
   workspaces: AppWorkspaceRuntime;

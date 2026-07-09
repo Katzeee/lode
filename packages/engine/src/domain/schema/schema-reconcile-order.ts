@@ -1,14 +1,14 @@
-import type { Engine, NodeOccurrence } from "../core/index.js";
-import type { DomainChange } from "./model/changes.js";
-import type { SchemaProvenance } from "./model/managed-child.js";
+import type { Engine, NodeOccurrence } from "../../core/index.js";
+import type { DomainChange } from "../model/changes.js";
+import type { SchemaProvenance } from "../model/managed-child.js";
 import {
   isActiveManagedChild,
   readManagedChildState,
   requireManagedKind,
   writeManagedProvenance,
-} from "./managed-child-state.js";
+} from "../managed/managed-child-state.js";
 import { readSchemaIds } from "./schema-membership.js";
-import { isSameProvenance } from "./model/reconcile.js";
+import { isSameProvenance } from "../model/reconcile.js";
 
 export async function reorderTargetChildren(
   doc: Engine,
@@ -45,10 +45,13 @@ export async function reorderTargetChildren(
     // field order on its own managed children. The product guard `moveOccurrence` would reject moving
     // an active managed child; system reorder is authorized to, like `removeField`'s bare cascade.
     // target is the canonical occurrence, so its id is the direct move parent (no resolution needed).
+    // Only managed children ever reach here: `finalOrder`'s unmanaged tail is derived from the current
+    // order, so an unmanaged child is always already at its target index and the `continue` above
+    // skips it — a moved item is always managed.
     await doc.moveOccurrence(occurrenceId, target.occurrenceId, index);
     const moved = await doc.mustGetOccurrence(occurrenceId);
     changes.push({
-      kind: managedAllSet.has(occurrenceId) ? requireManagedKind(doc, moved) : "templateRef",
+      kind: requireManagedKind(doc, moved),
       reason: "moved",
       nodeId: moved.nodeId,
       occurrenceId: moved.occurrenceId,

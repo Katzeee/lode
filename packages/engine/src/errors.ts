@@ -16,6 +16,23 @@ export class DocNotFoundError extends Error {
   }
 }
 
+/** What kind of thing the store looked up and didn't find. */
+export type NotFoundKind = "entity" | "occurrence" | "canonical" | "content" | "props" | "meta";
+
+/** A node entity / occurrence / canonical / content / props / meta the store looked up by id and
+ *  didn't find. THE single "not found" signal from core — typed, so callers (`getNodeById`,
+ *  `getEntitySnapshot`, the daemon) match on `instanceof NotFoundError`, never on message text. The
+ *  daemon maps it to Connect `Code.NotFound`. */
+export class NotFoundError extends Error {
+  constructor(
+    readonly kind: NotFoundKind,
+    readonly id: string,
+  ) {
+    super(`${kind} not found: ${id}`);
+    this.name = "NotFoundError";
+  }
+}
+
 /** An authentication failure — bad credentials (e.g. an unparseable/invalid mnemonic at
  *  `sessionHello`). The daemon maps this to Connect `Code.Unauthenticated`. */
 export class AuthenticationError extends Error {

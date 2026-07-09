@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AppServerClient } from "@lode/client";
+import { AppServerClient, createSocketTransport } from "@lode/client";
 import { BrokerServer, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
 import { parseCli } from "../../src/args.js";
@@ -41,8 +41,8 @@ describe("two fresh machines — kicked member forks (in-process)", () => {
       dataRoot: tmpB,
       syncIntervalMs: 30,
     });
-    ownerClient = new AppServerClient({ url: ownerD.address });
-    memberClient = new AppServerClient({ url: memberD.address });
+    ownerClient = new AppServerClient(createSocketTransport(ownerD.address));
+    memberClient = new AppServerClient(createSocketTransport(memberD.address));
     ownerClient.connect();
     memberClient.connect();
   });
