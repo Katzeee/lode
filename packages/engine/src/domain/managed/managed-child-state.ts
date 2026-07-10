@@ -14,9 +14,9 @@ const ManagedOccurrenceMeta = {
 
 // Occurrence-meta reads are treeDoc-only (sync) — the managed-child state lives on the tree node's
 // `data`, so these never fault a shard. Writes are mutators (async via the grouping envelope).
-export function readManagedChildState(doc: Engine, occurrenceId: string): ManagedChildState {
-  const kindValue = doc.getOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey);
-  const provenanceValue = doc.getOccurrenceMeta(
+export function readManagedChildState(engine: Engine, occurrenceId: string): ManagedChildState {
+  const kindValue = engine.getOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey);
+  const provenanceValue = engine.getOccurrenceMeta(
     occurrenceId,
     ManagedOccurrenceMeta.ManagedBySchemas,
   );
@@ -37,11 +37,11 @@ export function readManagedChildState(doc: Engine, occurrenceId: string): Manage
 }
 
 export async function writeManagedProvenance(
-  doc: Engine,
+  engine: Engine,
   occurrenceId: string,
   provenance: SchemaProvenance[],
 ): Promise<void> {
-  await doc.setOccurrenceMeta(
+  await engine.setOccurrenceMeta(
     occurrenceId,
     ManagedOccurrenceMeta.ManagedBySchemas,
     provenance.map((entry) => ({ ...entry })),
@@ -49,26 +49,26 @@ export async function writeManagedProvenance(
 }
 
 export async function writeManagedChildState(
-  doc: Engine,
+  engine: Engine,
   occurrenceId: string,
   kind: ManagedKind,
   provenance: SchemaProvenance[],
 ): Promise<void> {
-  await doc.setOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey, kind);
-  await writeManagedProvenance(doc, occurrenceId, provenance);
+  await engine.setOccurrenceMeta(occurrenceId, ManagedOccurrenceMeta.KindKey, kind);
+  await writeManagedProvenance(engine, occurrenceId, provenance);
 }
 
 export async function isActiveManagedChild(
-  doc: Engine,
+  engine: Engine,
   parent: NodeOccurrence,
   child: NodeOccurrence,
 ): Promise<boolean> {
-  const parentSchemaIds = new Set(await readSchemaIds(doc, parent.occurrenceId));
+  const parentSchemaIds = new Set(await readSchemaIds(engine, parent.occurrenceId));
   if (parentSchemaIds.size === 0) {
     return false;
   }
 
-  const managed = readManagedChildState(doc, child.occurrenceId);
+  const managed = readManagedChildState(engine, child.occurrenceId);
   if (managed.status !== "valid") {
     return false;
   }
@@ -76,8 +76,8 @@ export async function isActiveManagedChild(
   return managed.provenance.some((entry) => parentSchemaIds.has(entry.schemaId));
 }
 
-export function requireManagedKind(doc: Engine, child: NodeOccurrence): ManagedKind {
-  const managed = readManagedChildState(doc, child.occurrenceId);
+export function requireManagedKind(engine: Engine, child: NodeOccurrence): ManagedKind {
+  const managed = readManagedChildState(engine, child.occurrenceId);
   if (managed.status === "valid") {
     return managed.kind;
   }
@@ -87,8 +87,8 @@ export function requireManagedKind(doc: Engine, child: NodeOccurrence): ManagedK
   });
 }
 
-export function managedKindValue(doc: Engine, child: NodeOccurrence): ManagedKind | null {
-  const managed = readManagedChildState(doc, child.occurrenceId);
+export function managedKindValue(engine: Engine, child: NodeOccurrence): ManagedKind | null {
+  const managed = readManagedChildState(engine, child.occurrenceId);
   return managed.status === "valid" ? managed.kind : null;
 }
 

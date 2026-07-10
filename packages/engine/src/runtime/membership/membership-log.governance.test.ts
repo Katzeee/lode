@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import {
   MembershipLog,
   MEMBERSHIP_DOC_ID,

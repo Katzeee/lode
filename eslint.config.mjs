@@ -96,11 +96,11 @@ export default tseslint.config(
       ],
     },
   },
-  // Architecture boundaries (AGENTS.md: services -> domain -> core; engine ↛ client).
-  // Enforced automatically so a future PR can't silently cross them. Tests may cross layers
-  // (e.g. cascade-exhaustive drives the domain cascade from a core test), so *.test.ts is exempt.
-  // NB: flat-config rule values don't merge across blocks (last-wins), so the three blocks use
-  // NON-overlapping file scopes — each src file matches exactly one — and each carries the full
+  // Architecture boundaries (AGENTS.md: commands -> runtime -> domain -> core; runtime ↛ commands;
+  // engine ↛ client). Enforced automatically so a future PR can't silently cross them. Tests may
+  // cross layers (e.g. cascade-exhaustive drives the domain cascade from a core test), so *.test.ts
+  // is exempt. NB: flat-config rule values don't merge across blocks (last-wins), so the layer blocks
+  // use NON-overlapping file scopes — each src file matches exactly one — and each carries the full
   // restriction set for its layer.
   {
     files: ["packages/engine/src/core/**/*.ts"],
@@ -113,13 +113,12 @@ export default tseslint.config(
             {
               group: [
                 "**/domain/**",
-                "**/services/**",
-                "**/bundle/**",
-                "../event.js",
+                "**/commands/**",
                 "**/persistence/**",
                 "**/runtime/**",
               ],
-              message: "core must not import above layers — engine layers services -> domain -> core.",
+              message:
+                "core must not import above layers — engine layers commands -> runtime -> domain -> core.",
             },
             {
               group: ["@lode/protocol", "@lode/client"],
@@ -139,8 +138,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../services/*", "../../services/*"],
-              message: "domain must not import services — services sit above domain.",
+              group: ["../commands/*", "../../commands/*"],
+              message: "domain must not import commands — commands sit above domain.",
             },
             {
               group: ["@lode/protocol", "@lode/client"],
@@ -175,59 +174,6 @@ export default tseslint.config(
     },
   },
   {
-    // bundle: declarative built-in schema vocabulary — pure leaf, no engine imports.
-    files: ["packages/engine/src/bundle/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../**"],
-              message: "bundle is a pure leaf — no engine imports.",
-            },
-            {
-              group: ["@lode/protocol", "@lode/client"],
-              message: "bundle must not import the wire contract or any client.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    // event.ts: low-level notification primitive (NotificationStream + the NotificationHub port).
-    // Imports only protocol + the identity origin type — never the engine layers above it.
-    files: ["packages/engine/src/event.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "./core/**",
-                "./domain/**",
-                "./services/**",
-                "./runtime/**",
-                "./persistence/**",
-                "./bundle/**",
-                "./utils/**",
-              ],
-              message:
-                "event.ts is a low-level notification primitive — import only protocol + the identity origin type.",
-            },
-            {
-              group: ["@lode/client"],
-              message: "event must not import any client.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
     // persistence: storage primitives (SQLite CRUD on bytes/records) — pure leaf, no engine imports.
     files: ["packages/engine/src/persistence/**/*.ts"],
     ignores: ["**/*.test.ts"],
@@ -250,10 +196,13 @@ export default tseslint.config(
     },
   },
   {
-    // utils/crypto: pure crypto leaf (node:crypto + @noble/curves + @scure/bip39 + sibling files).
-    // No engine internals, no persistence, no protocol, no client — the standardized layer that
-    // travels inside the engine's future Rust dynamic-library form (cross-implementation KAT parity).
-    files: ["packages/engine/src/utils/**/*.ts"],
+    // Neutral primitives — crypto (node:crypto + @noble/curves + @scure/bip39) + errors: pure leaves,
+    // no engine internals, no protocol, no client. The standardized substrate that travels inside the
+    // engine's future Rust dynamic-library form (cross-implementation KAT parity).
+    files: [
+      "packages/engine/src/crypto/**/*.ts",
+      "packages/engine/src/errors/**/*.ts",
+    ],
     ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
@@ -262,11 +211,11 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../**"],
-              message: "utils/crypto is a pure leaf — no engine internals.",
+              message: "neutral primitives (crypto/errors) are pure leaves — no engine internals.",
             },
             {
               group: ["@lode/protocol", "@lode/client"],
-              message: "utils/crypto must not import the wire contract or any client.",
+              message: "neutral primitives must not import the wire contract or any client.",
             },
           ],
         },
@@ -274,15 +223,72 @@ export default tseslint.config(
     },
   },
   {
-    // services / runtime / top-level src (index.ts): adapter + composition layers; may use any
-    // internal layer + protocol, never client.
+    // runtime: stateful subsystems (workspace registry, identity, notification, sync, broker,
+    // membership, lifecycle). May import down (domain/core/leaves) + protocol; never the command
+    // handlers (they sit above runtime — handlers orchestrate it) and never a client.
+    files: ["packages/engine/src/runtime/**/*.ts"],
+    ignores: ["**/*.test.ts", "packages/engine/src/runtime/membership/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/commands/**"],
+              message:
+                "runtime must not import command handlers — handlers sit above runtime and orchestrate it.",
+            },
+            {
+              group: ["@lode/client"],
+              message: "runtime must not import any client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // membership: the signed-roster domain — sync-independent. sync syncs it (one-way sync ->
+    // membership); membership must not reach up into sync. That was a false split — the MembershipSync
+    // adapter moved to sync/ — and this rule locks it. The runtime-wide bans (no commands, no client)
+    // carry over (membership is excluded from the runtime block above, so it needs the full set here).
+    files: ["packages/engine/src/runtime/membership/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/sync/**"],
+              message:
+                "membership must not import sync — sync depends on membership (one-way); the MembershipSync adapter lives in sync/.",
+            },
+            {
+              group: ["**/commands/**"],
+              message:
+                "runtime must not import command handlers — handlers sit above runtime and orchestrate it.",
+            },
+            {
+              group: ["@lode/client"],
+              message: "runtime must not import any client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // commands + the apex (composition root engine-runtime.ts, index.ts): adapter/composition layers.
+    // May use any internal layer + protocol, never a client.
     files: ["packages/engine/src/**/*.ts"],
     ignores: [
       "packages/engine/src/core/**",
       "packages/engine/src/domain/**",
-      "packages/engine/src/bundle/**",
       "packages/engine/src/persistence/**",
-      "packages/engine/src/utils/**",
+      "packages/engine/src/crypto/**",
+      "packages/engine/src/errors/**",
+      "packages/engine/src/runtime/**",
       "**/*.test.ts",
     ],
     rules: {

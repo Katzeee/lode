@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair } from "../../crypto/index.js";
 import { open, seal, type WireOpenContext, type WireSealContext } from "./wire-security.js";
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);

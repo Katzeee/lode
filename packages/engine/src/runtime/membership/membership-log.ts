@@ -10,10 +10,9 @@ import {
   wrapKey,
   type ActorKeypair,
   type PeerKeypair,
-} from "../../utils/crypto/index.js";
-import { sameBytes } from "../../utils/bytes.js";
+} from "../../crypto/index.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
-import { NotOwnerError, PreconditionFailedError } from "../../errors.js";
+import { NotOwnerError, PreconditionFailedError } from "../../errors/index.js";
 import {
   AddRecordSchema,
   PeerWrapSchema,
@@ -394,4 +393,24 @@ function rosterSurvivors(
     }
   }
   return out;
+}
+
+/** Byte-by-byte Uint8Array equality (reference-shortcut fast path). Allocation-free — hot path: the
+ *  dirty check compares frontiers every persist + SyncExchange compares versions every round. Not
+ *  constant-time: these are public version/frontier bytes, not secrets. Lives with its lower consumer
+ *  (membership-log) so SyncExchange imports it downward; extract a shared leaf only if a cohesive
+ *  byte-helpers cluster forms. */
+export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a === b) {
+    return true;
+  }
+  if (a.byteLength !== b.byteLength) {
+    return false;
+  }
+  for (let i = 0; i < a.byteLength; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
 }

@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { toJSON } from "../../core/serialize.js";
-import { generateActorKeypair } from "../../utils/crypto/index.js";
-import { AppWorkspaceRuntime } from "./registry.js";
+import { generateActorKeypair } from "../../crypto/index.js";
+import { WorkspaceRegistry } from "./registry.js";
 
 /**
  * forkWorkspace — the Phase 3 recovery primitive (design sync-identity-persistence §13). A fork
@@ -24,9 +24,9 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-describe("AppWorkspaceRuntime.forkWorkspace", () => {
+describe("WorkspaceRegistry.forkWorkspace", () => {
   it("copies the source content verbatim and roots a fresh owner (epoch 0, one peer)", async () => {
-    const rt = await AppWorkspaceRuntime.inMemory();
+    const rt = await WorkspaceRegistry.inMemory();
     try {
       const owner = generateActorKeypair();
       await rt.createWorkspace({
@@ -73,7 +73,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
   });
 
   it("leaves the source workspace's content and membership log untouched", async () => {
-    const rt = await AppWorkspaceRuntime.inMemory();
+    const rt = await WorkspaceRegistry.inMemory();
     try {
       const owner = generateActorKeypair();
       await rt.createWorkspace({
@@ -102,7 +102,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
 
   it("persists the forked content + root so they survive a restart", async () => {
     const owner = generateActorKeypair();
-    const rt = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({
       workspaceId: "src",
       displayName: "Source",
@@ -121,7 +121,7 @@ describe("AppWorkspaceRuntime.forkWorkspace", () => {
 
     // Reopen the same dataRoot: the forked ws reloads its content (snapshot + shards persisted) and
     // its fresh owner root (membership persisted) — not just the in-memory copy.
-    const rt2 = await AppWorkspaceRuntime.persistent({ dataRoot: tempDir });
+    const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
       const forkedDoc = (await rt2.getEngine(forked.workspaceId))!;
       expect(await toJSON(forkedDoc)).toEqual(expected);

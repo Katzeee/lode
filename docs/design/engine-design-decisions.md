@@ -149,14 +149,14 @@ event   -> protocol        session -> {event, protocol}
 - **`event`** / **`session`** — the notification primitive and the session/subscription/broadcast
   layer above it; both sit below `services` so RPC adapters can use them without circular deps.
 - **`services`** — RPC adapters (validate → load → call domain → map to DTO → emit via session/event).
-- **`runtime`** — composition root: the `App`/`Component`/`ChildApp` graph, `createAppRuntime`,
-  the per-workspace registry, and the in-process sync core (`SyncManager` + `SyncTransport` seam —
+- **`runtime`** — composition root: the `Lifecycle`/`Component`/`ChildLifecycleComponent` graph, `createEngineRuntime`,
+  the per-workspace registry, and the in-process sync core (`SyncExchange` + `SyncTransport` seam —
   see § Sync).
 
-**Component composition** (`runtime/app.ts`) mirrors anytype-heart's `app.Component` / `app.App`,
+**Component composition** (`runtime/lifecycle.ts`) mirrors anytype-heart's `app.Component` / `app.App`,
 adapted to TypeScript: constructor injection instead of Go's service-locator lookup. A `Component`
-is a named subsystem with optional async `start`/`stop`; the `App` starts components in registration
-order and stops them in reverse. Each loaded workspace is a `ChildApp` whose components (workspace +
+is a named subsystem with optional async `start`/`stop`; the `Lifecycle` starts components in registration
+order and stops them in reverse. Each loaded workspace is a `ChildLifecycleComponent` whose components (workspace +
 store) stop independently on unload, and which is the mounting point for per-workspace subsystems
 (the in-process sync core already mounts here; indexer/query-cache will plug in the same way). The
 graph is intentionally lean; it exists so subsystems mount uniformly instead of each bolting on
@@ -179,7 +179,7 @@ workspace-routing broker).
 - **Sync unit** = a workspace doc = `treeDoc ("main") + N shards`, each an independent `LoroDoc`
   with its own version vector. `ShardedBlockStore.syncDocs()` exposes the per-doc `SyncDoc` surface
   (version + export/import) — the seam a sync manager plugs into.
-- **`SyncManager`** (`runtime/sync.ts`) drives one round with a peer over a `SyncTransport`:
+- **`SyncExchange`** (`runtime/sync/sync-exchange.ts`) drives one round with a peer over a `SyncTransport`:
   treeDoc **first** (it carries ownership → reveals which shard ids exist), then the **union** of
   local + remote shard ids (materializing any the treeDoc sync revealed), exchanging both
   directions per doc (push captured before pull, so it never echoes the peer's own ops). One round

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";

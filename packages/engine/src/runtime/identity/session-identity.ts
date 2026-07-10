@@ -8,11 +8,12 @@ import {
   type SessionHelloRequest,
   type SessionInfo,
 } from "@lode/protocol/proto";
-import type { EngineOrigin, ResolvedCaller } from "../../caller.js";
-import type { ActorKeypair } from "../../utils/crypto/index.js";
+import type { ResolvedCaller } from "./caller.js";
+import type { ActorKeypair } from "../../crypto/index.js";
+import type { Component } from "../lifecycle.js";
 
 // Engine-internal typed error: the daemon (Connect layer) maps it to a status code; in-process
-// callers handle it directly. Co-located with its only throwers (resolveCaller/requireOrigin).
+// callers handle it directly. Co-located with its only thrower (resolveCaller).
 export class SessionRequiredError extends Error {
   constructor(message = "Session handshake required") {
     super(message);
@@ -35,11 +36,14 @@ type SessionRecord = {
 
 /**
  * The identity/auth half of the old SessionManager: the per-connection session store keyed by
- * connectionId. Owns session creation, the auth gate (resolveCaller/requireOrigin — the dispatch
- * boundary's chokepoint), and the actor-key retrieval daemon-side ops use to act as a session's
- * actor. Pure bookkeeping — no notification/subscription state (that's NotificationManager).
+ * connectionId. Owns session creation + the auth gate (resolveCaller — the dispatch boundary's
+ * single chokepoint). Pure bookkeeping — no notification/subscription state (that's
+ * NotificationManager).
  */
-export class SessionIdentity {
+export class SessionIdentity implements Component {
+  /** Component name — registers itself on the Lifecycle (see createEngineRuntime). */
+  readonly name = "session-identity";
+
   private readonly sessionsByConnection = new Map<string, SessionRecord>();
 
   constructor(private readonly originLabel: string) {}
@@ -69,42 +73,10 @@ export class SessionIdentity {
     });
   }
 
-  requireOrigin(connectionId: string): EngineOrigin {
-    const record = this.sessionsByConnection.get(connectionId);
-    if (record === undefined) {
-      throw new SessionRequiredError();
-    }
-    const actor = record.actor;
-    if (actor === undefined) {
-      throw new SessionRequiredError();
-    }
-    return { nodeId: this.originLabel, actorId: actor.actorId, sessionId: record.sessionId };
-  }
-
-  /** The session actor's id + Ed25519 sign pub — what a peer needs to add this actor as a member.
-   *  Throws SessionRequiredError without a verified session, so it doubles as the auth gate. */
-  getActorPublicKeys(connectionId: string): { actorId: string; signPub: Uint8Array } {
-    const record = this.sessionsByConnection.get(connectionId);
-    if (record === undefined || record.actor === undefined || record.keypair === undefined) {
-      throw new SessionRequiredError();
-    }
-    return { actorId: record.actor.actorId, signPub: record.keypair.publicKey };
-  }
-
-  /** The session actor's full keypair — for daemon-side operations that act AS this actor
-   *  (`RegisterSync` captures it for the tick). Same SessionRequiredError gate. */
-  getActorKeypair(connectionId: string): { actorId: string; keypair: ActorKeypair } {
-    const record = this.sessionsByConnection.get(connectionId);
-    if (record === undefined || record.actor === undefined || record.keypair === undefined) {
-      throw new SessionRequiredError();
-    }
-    return { actorId: record.actor.actorId, keypair: record.keypair };
-  }
-
   /** Resolve the caller for an authenticated RPC — the origin (change attribution) + the actor's
    *  keypair (signing). The single auth gate at the dispatch boundary (wrapCommands); throws
-   *  SessionRequiredError without a verified session. Merges requireOrigin + getActorKeypair into one
-   *  lookup. */
+   *  SessionRequiredError without a verified session. The ONE lookup `authed` handlers need: it
+   *  returns both the change origin and the signing keypair. */
   resolveCaller(connectionId: string): ResolvedCaller {
     const record = this.sessionsByConnection.get(connectionId);
     if (record === undefined || record.actor === undefined || record.keypair === undefined) {
@@ -126,7 +98,12 @@ export class SessionIdentity {
     this.sessionsByConnection.delete(connectionId);
   }
 
-  /** Lifecycle teardown: drop all session bookkeeping. */
+  /** Component lifecycle: drop all session bookkeeping. */
+  stop(): void {
+    this.close();
+  }
+
+  /** Lifecycle teardown (also the Component.stop body): drop all session bookkeeping. */
   close(): void {
     this.sessionsByConnection.clear();
   }

@@ -4,7 +4,7 @@ export type { EngineOptions } from "./engine.js";
 
 // Workspace
 export { Workspace } from "./workspace.js";
-export type { WorkspaceOptions, DocOptions } from "./workspace.js";
+export type { WorkspaceOptions } from "./workspace.js";
 
 // Syncable — the opaque CRDT sync/persistence contract (closes the CRDT backend behind bytes).
 export type { SyncBytes, SyncableDoc, SyncableComposite } from "./store/syncable.js";

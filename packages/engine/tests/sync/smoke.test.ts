@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createPlainNode, createReference, hardDeleteNode } from "../../src/domain/node/node.js";
-import { syncPair } from "../../src/runtime/sync/sync-manager.js";
+import { syncPair } from "../../src/runtime/sync/sync-exchange.js";
 import { assertConverged, cloneReplica, replica, syncAll } from "./harness.js";
 
 /**

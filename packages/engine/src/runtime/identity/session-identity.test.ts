@@ -1,11 +1,11 @@
 import { create } from "@bufbuild/protobuf";
 import { SessionHelloRequestSchema } from "@lode/protocol/proto";
 import { describe, expect, it } from "vitest";
-import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair } from "../../crypto/index.js";
 import { SessionIdentity, SessionRequiredError } from "./session-identity.js";
 
-describe("SessionIdentity — actor keys", () => {
-  it("returns the session actor's id + sign pub (retained at createSession)", () => {
+describe("SessionIdentity — resolveCaller (the dispatch-boundary gate)", () => {
+  it("resolves the caller's origin + retained keypair for a verified session", () => {
     const identity = new SessionIdentity("node-1");
     const actor = generateActorKeypair();
     identity.createSession(
@@ -13,21 +13,16 @@ describe("SessionIdentity — actor keys", () => {
       create(SessionHelloRequestSchema, { mnemonic: "ignored by the manager" }),
       actor,
     );
-    expect(identity.getActorPublicKeys("conn-1")).toEqual({
-      actorId: actor.actorId,
-      signPub: actor.publicKey,
-    });
-  });
 
-  it("retains the full keypair (createWorkspace signs as this actor)", () => {
-    const identity = new SessionIdentity("node-1");
-    const actor = generateActorKeypair();
-    identity.createSession("conn-1", create(SessionHelloRequestSchema, { mnemonic: "x" }), actor);
-    expect(identity.getActorKeypair("conn-1")).toEqual({ actorId: actor.actorId, keypair: actor });
+    const caller = identity.resolveCaller("conn-1");
+
+    expect(caller.origin.nodeId).toBe("node-1");
+    expect(caller.origin.actorId).toBe(actor.actorId);
+    expect(caller.keypair).toBe(actor);
   });
 
   it("throws SessionRequiredError without a verified session", () => {
     const identity = new SessionIdentity("node-1");
-    expect(() => identity.getActorPublicKeys("missing")).toThrow(SessionRequiredError);
+    expect(() => identity.resolveCaller("missing")).toThrow(SessionRequiredError);
   });
 });

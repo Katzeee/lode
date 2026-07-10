@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { RegistryStore } from "../../persistence/registry-store.js";
-import type { ActorKeypair, PeerKeypair } from "../../utils/crypto/index.js";
-import { generatePeerKeypair, peerKeypairFromPrivateKey } from "../../utils/crypto/index.js";
+import type { ActorKeypair, PeerKeypair } from "../../crypto/index.js";
+import { generatePeerKeypair, peerKeypairFromPrivateKey } from "../../crypto/index.js";
 import type { LocalPeer } from "../membership/membership-log.js";
 
 const PEER_PRIV_KEY_META = "peerPrivKey";

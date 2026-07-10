@@ -6,7 +6,7 @@ import {
   hardDeleteNode,
   moveOccurrence,
 } from "../../src/domain/node/node.js";
-import { syncPair } from "../../src/runtime/sync/sync-manager.js";
+import { syncPair } from "../../src/runtime/sync/sync-exchange.js";
 import { assertConverged, assertEquiv, cloneReplica, replica } from "./harness.js";
 
 /**

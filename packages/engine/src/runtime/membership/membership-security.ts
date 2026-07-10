@@ -1,6 +1,6 @@
 import { type MembershipLog, type MembershipState, type LocalPeer } from "./membership-log.js";
 import { actorHasPeer } from "./membership-replay.js";
-import { actorPublicKeyFromId } from "../../utils/crypto/index.js";
+import { actorPublicKeyFromId } from "../../crypto/index.js";
 import type { WireSecurity } from "./wire-security.js";
 
 export type MembershipWireSecurity = {

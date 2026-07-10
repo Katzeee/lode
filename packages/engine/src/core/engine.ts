@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Subject } from "rxjs";
 import { ShardedBlockStore, type Outliner } from "./store/sharded-store.js";
 import { ActionHistory } from "./action-history.js";
-import { NotFoundError } from "../errors.js";
+import { NotFoundError } from "../errors/index.js";
 import type {
   Delta,
   EngineSlots,

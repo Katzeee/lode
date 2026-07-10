@@ -25,7 +25,7 @@ describe("sync mid-partial-sync read contract", () => {
   });
 
   it("once the missing shard is delivered the read succeeds (self-heal)", async () => {
-    const { syncPair } = await import("../../src/runtime/sync/sync-manager.js");
+    const { syncPair } = await import("../../src/runtime/sync/sync-exchange.js");
     const a = replica(8);
     const root = await a.createNode(null);
     const child = await createPlainNode(a, root.occurrenceId);

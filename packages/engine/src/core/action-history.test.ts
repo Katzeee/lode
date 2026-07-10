@@ -127,7 +127,7 @@ describe("ActionHistory grouping: run() folds multiple ops into one undo step", 
 /**
  * The wired path. Engine mutators auto-group (each top-level op = one undo step), and
  * engine.undo()/redo()/canUndo() route to ActionHistory — so undo works through the
- * normal Engine API (the path services/history.ts uses), not just by driving
+ * normal Engine API (the path commands/history.ts uses), not just by driving
  * ActionHistory directly.
  */
 describe("ActionHistory wired into Engine: engine.undo() works on a sharded store", () => {

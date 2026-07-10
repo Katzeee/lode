@@ -3,7 +3,7 @@ import { type DocStore, type Engine, type LoadedDocBytes, Workspace } from "../.
 import { createWorkspaceRoot } from "../../domain/node/node.js";
 import type { RegistryStore, WorkspaceRecord } from "../../persistence/registry-store.js";
 import type { WorkspaceStore } from "../../persistence/workspace-store.js";
-import type { ActorKeypair } from "../../utils/crypto/index.js";
+import type { ActorKeypair } from "../../crypto/index.js";
 import type { PeerIdentity } from "../identity/peer-identity.js";
 import type { LocalPeer } from "../membership/membership-log.js";
 import type { WorkspacePersistence } from "./persistence.js";
@@ -29,7 +29,7 @@ export type ForkWorkspaceInput = {
   actorKeypair: ActorKeypair;
 };
 
-/** What the factory needs from the AppWorkspaceRuntime facade: the stateful ops that touch the
+/** What the factory needs from the WorkspaceRegistry facade: the stateful ops that touch the
  *  loaded map (mount / flush / require) and persistent loading. The facade implements this. */
 export type WorkspaceFactoryHost = {
   mount(

@@ -5,7 +5,7 @@ import {
   verifyActorSignature,
   type ActorPrivateKey,
   type ActorPublicKey,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 
 /**
  * The wire security layer (design sync-design.md §5 + sync-identity-persistence §1): transit-key

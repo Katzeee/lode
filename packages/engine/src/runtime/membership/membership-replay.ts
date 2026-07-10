@@ -11,7 +11,7 @@ import {
   actorPublicKeyFromId,
   verifyActorSignature,
   type ActorPublicKey,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 import type { MembershipState } from "./membership-log.js";
 
 /**

@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { generateActorKeypair } from "../src/utils/crypto/index.js";
-import { AppWorkspaceRuntime } from "../src/runtime/workspace/registry.js";
+import { generateActorKeypair } from "../src/crypto/index.js";
+import { WorkspaceRegistry } from "../src/runtime/workspace/registry.js";
 import type { ShardedBlockStore } from "../src/core/store/sharded-store.js";
 
 /**
@@ -20,42 +20,42 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true });
 });
 
-const storeOf = (doc: { asOutliner(): unknown }): ShardedBlockStore =>
-  doc.asOutliner() as ShardedBlockStore;
+const storeOf = (engine: { asOutliner(): unknown }): ShardedBlockStore =>
+  engine.asOutliner() as ShardedBlockStore;
 
 describe("terminal acceptance: residentShardCount ≤ capacity across load / edit / undo / fork", () => {
   it("a large workspace stays within capacity on load, edit, undo, and fork", async () => {
     const cap = 4;
-    const rt = await AppWorkspaceRuntime.persistent({
+    const rt = await WorkspaceRegistry.persistent({
       dataRoot: tempDir,
       shardCacheCapacity: cap,
     });
     const owner = generateActorKeypair();
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS", actorKeypair: owner });
-    const doc = (await rt.getEngine("ws"))!;
-    const root = (await doc.getRootOccurrences()).at(0)!;
+    const engine = (await rt.getEngine("ws"))!;
+    const root = (await engine.getRootOccurrences()).at(0)!;
 
     // Create 40 children (fanned across many of the 256 shards) — far beyond capacity.
     const occs: string[] = [];
     for (let i = 0; i < 40; i++) {
-      occs.push((await doc.createNode(root.occurrenceId)).occurrenceId);
+      occs.push((await engine.createNode(root.occurrenceId)).occurrenceId);
     }
-    await storeOf(doc).flushDirty(); // flush + unpin + evictToFit
-    expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
+    await storeOf(engine).flushDirty(); // flush + unpin + evictToFit
+    expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Edit a node, flush → resident still bounded.
-    await doc.replaceDeltas(occs.at(0)!, [{ insert: "edited" }]);
-    await storeOf(doc).flushDirty();
-    expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
+    await engine.replaceDeltas(occs.at(0)!, [{ insert: "edited" }]);
+    await storeOf(engine).flushDirty();
+    expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Undo the edit, flush → resident still bounded.
-    await doc.undo();
-    await storeOf(doc).flushDirty();
-    expect(storeOf(doc).residentShardCount).toBeLessThanOrEqual(cap);
+    await engine.undo();
+    await storeOf(engine).flushDirty();
+    expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 
     // close + reopen (load): only the tree is eager → shards fault lazily, resident bounded.
     await rt.close();
-    const rt2 = await AppWorkspaceRuntime.persistent({
+    const rt2 = await WorkspaceRegistry.persistent({
       dataRoot: tempDir,
       shardCacheCapacity: cap,
     });

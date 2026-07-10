@@ -1,5 +1,5 @@
 import { createLogger } from "@lode/logger";
-import type { Component } from "../app.js";
+import type { Component } from "../lifecycle.js";
 import type { MembershipRound, ContentRound } from "./round.js";
 
 const log = createLogger("sync.driver");
@@ -20,7 +20,7 @@ export type SyncRoundDriverOptions = {
  * blocked the next; that coupling is gone (a behavior improvement, called out in the design doc).
  *
  * `run(signal)` wraps the existing `setInterval` shape with abort-driven cleanup: the interval fires
- * every `intervalMs` exactly as before, and the loop resolves when the App aborts the signal on
+ * every `intervalMs` exactly as before, and the loop resolves when the Lifecycle aborts the signal on
  * stop(). The loop never rejects — per-round errors are caught + logged (a round may fail
  * transiently: a relay blip, a peer mid-restart); the next round retries, so aborting the driver
  * would be wrong.

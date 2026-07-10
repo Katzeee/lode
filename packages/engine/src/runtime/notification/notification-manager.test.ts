@@ -1,7 +1,7 @@
 import { create } from "@bufbuild/protobuf";
 import { NodeUpdatedPayloadSchema } from "@lode/protocol/proto";
 import { describe, expect, it } from "vitest";
-import type { EngineOrigin } from "../../caller.js";
+import type { EngineOrigin } from "../identity/caller.js";
 import { NotificationManager } from "./notification-manager.js";
 
 describe("NotificationManager — purgeWorkspace", () => {

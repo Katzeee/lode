@@ -11,16 +11,18 @@ import { cloneOccurrence, getSemanticChildren } from "../node/node.js";
  * clones follow in source order. Returns the new clones.
  */
 export async function paste(
-  doc: Engine,
+  engine: Engine,
   sourceOccurrenceIds: string[],
   targetParentOccurrenceId: string,
   index?: number,
 ): Promise<NodeOccurrence[]> {
-  return doc.batch(async () => {
-    const start = index ?? (await getSemanticChildren(doc, targetParentOccurrenceId)).length;
+  return engine.batch(async () => {
+    const start = index ?? (await getSemanticChildren(engine, targetParentOccurrenceId)).length;
     const created: NodeOccurrence[] = [];
     for (const [offset, sourceId] of sourceOccurrenceIds.entries()) {
-      created.push(await cloneOccurrence(doc, sourceId, targetParentOccurrenceId, start + offset));
+      created.push(
+        await cloneOccurrence(engine, sourceId, targetParentOccurrenceId, start + offset),
+      );
     }
     return created;
   });
@@ -28,12 +30,12 @@ export async function paste(
 
 /** Duplicate an occurrence in place — same parent, immediately after the original. One undo step.
  *  A root has no parent to duplicate beside, so it clones under itself (never mints a second root). */
-export async function duplicate(doc: Engine, occurrenceId: string): Promise<NodeOccurrence> {
-  return doc.batch(async () => {
-    const occ = await doc.mustGetOccurrence(occurrenceId);
+export async function duplicate(engine: Engine, occurrenceId: string): Promise<NodeOccurrence> {
+  return engine.batch(async () => {
+    const occ = await engine.mustGetOccurrence(occurrenceId);
     const parent = occ.parentOccurrenceId ?? occurrenceId;
-    const siblings = doc.getChildOccurrenceIds(parent);
+    const siblings = engine.getChildOccurrenceIds(parent);
     const selfIndex = occ.parentOccurrenceId ? siblings.indexOf(occurrenceId) : -1;
-    return cloneOccurrence(doc, occurrenceId, parent, selfIndex + 1);
+    return cloneOccurrence(engine, occurrenceId, parent, selfIndex + 1);
   });
 }

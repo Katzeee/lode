@@ -7,28 +7,39 @@ import {
 } from "@lode/protocol/proto";
 import { afterEach, describe, expect, it } from "vitest";
 import { deriveActorKeypair } from "../identity/identity-policy.js";
-import { generateMnemonic, type ActorKeypair } from "../../utils/crypto/index.js";
-import { createAppRuntime, type AppRuntime } from "../app-runtime.js";
+import { generateMnemonic, type ActorKeypair } from "../../crypto/index.js";
 import { BrokerServer } from "../broker/broker-server.js";
+import { Lifecycle } from "../lifecycle.js";
+import { WorkspaceRegistry } from "../workspace/registry.js";
+import { SessionIdentity } from "../identity/session-identity.js";
+import { NotificationManager } from "../notification/notification-manager.js";
+import { SyncRegistry } from "./registry.js";
+import { wrapCommands } from "../../commands/wrap-commands.js";
+import { createCommands, type CommandDeps, type Commands } from "../../commands/index.js";
+import { createSessionRpcs } from "../../commands/session-rpcs.js";
 
 // Engine-level coverage for the SyncRegistry sub-graph (no daemon). The full sealed two-peer
 // convergence flow is covered by the daemon e2e (`sync-secured-e2e.test.ts`); driving it in-process
 // here trips a loro re-entrancy guard (reading a partially-converged occurrence's deltas while a
 // sync round runs), unrelated to the sub-graph under test. These tests cover the registry + sub-graph
-// LIFECYCLE — the mechanics unique to the extracted code: register wires a per-workspace sync App,
+// LIFECYCLE — the mechanics unique to the extracted code: register wires a per-workspace sync Lifecycle,
 // shareCoordinate/syncNow gate correctly, stop tears everything down without hanging.
 //
-// Workspaces are created/removed through `commands` (the single client route) — the workspace
-// registry is engine-internal, not on the host surface, so there is no second path to reach it.
+// SyncRegistry is engine-internal (NOT on the EngineRuntime host surface — hosts reach sync via the
+// `commands` bag), so this co-located test builds the subsystems directly to hold a `sync` reference
+// (incl. its `wiredSyncApp` observability seam, which has no RPC equivalent). Workspace + session
+// ops still go through `commands` (the single client route).
 
 const WS = "ws-sync-unit";
 
 let relay: BrokerServer | undefined;
-const runtimes: AppRuntime[] = [];
+
+type TestRuntime = { commands: Commands; lifecycle: Lifecycle; sync: SyncRegistry };
+const runtimes: TestRuntime[] = [];
 
 afterEach(async () => {
   for (const r of runtimes.splice(0)) {
-    await r.app.stop();
+    await r.lifecycle.stop();
   }
   if (relay) {
     await relay.close();
@@ -36,23 +47,40 @@ afterEach(async () => {
   }
 });
 
+// Mirrors createEngineRuntime's assembly but exposes `sync` for direct registry testing. In-memory only
+// (these tests never persist); the round interval is short so rounds drive promptly.
+async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
+  const app = new Lifecycle();
+  const workspaces = await WorkspaceRegistry.inMemory(() => app.child());
+  const identity = new SessionIdentity(workspaces.originLabel());
+  const notify = new NotificationManager();
+  const sync = new SyncRegistry({ workspaces, roundIntervalMs });
+  const ctx: CommandDeps = { workspaces, notify, sync };
+  const commands = wrapCommands(
+    { ...createCommands(ctx), ...createSessionRpcs(identity, notify, workspaces) },
+    identity,
+  );
+  workspaces.attachWorkspaceStateHolders(sync, notify);
+  app.register(identity);
+  app.register(notify);
+  app.register(workspaces);
+  app.register(sync);
+  return { commands, lifecycle: app, sync };
+}
+
 // The single route a host uses: sessionHello derives the keypair the session holds, and that SAME
-// keypair owns the workspace (createWorkspace) + signs sync rounds (registerSync). Returns both so a
-// test can register sync with the owner's identity.
-function ownerSession(runtime: AppRuntime): { connectionId: string; keypair: ActorKeypair } {
+// keypair owns the workspace (createWorkspace) + signs sync rounds (registerSync). Returns the
+// pre-derived keypair so a test can register sync with the owner's identity.
+function ownerSession(runtime: TestRuntime): { connectionId: string; keypair: ActorKeypair } {
   const mnemonic = generateMnemonic();
   const keypair = deriveActorKeypair(mnemonic);
   const connectionId = randomUUID();
-  runtime.identity.createSession(
-    connectionId,
-    create(SessionHelloRequestSchema, { mnemonic }),
-    keypair,
-  );
+  runtime.commands.sessionHello(create(SessionHelloRequestSchema, { mnemonic }), connectionId);
   return { connectionId, keypair };
 }
 
 async function createWorkspace(
-  runtime: AppRuntime,
+  runtime: TestRuntime,
   connectionId: string,
   workspaceId: string,
   displayName = "shared",
@@ -64,7 +92,7 @@ async function createWorkspace(
 }
 
 async function removeWorkspace(
-  runtime: AppRuntime,
+  runtime: TestRuntime,
   connectionId: string,
   workspaceId: string,
 ): Promise<void> {
@@ -75,14 +103,14 @@ async function removeWorkspace(
 }
 
 describe("SyncRegistry — lifecycle + ownership", () => {
-  it("register wires a sync App; shareCoordinate + syncNow gate; stop tears down without hanging", async () => {
+  it("register wires a sync Lifecycle; shareCoordinate + syncNow gate; stop tears down without hanging", async () => {
     relay = new BrokerServer({ port: 0 });
     await relay.ready();
     const url = `http://127.0.0.1:${relay.port}`;
 
-    const owner = await createAppRuntime({ sync: { roundIntervalMs: 30 } });
+    const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.app.start();
+    await owner.lifecycle.start();
 
     const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS);
@@ -106,7 +134,7 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     // app.stop aborts the registry's wire poll + the per-workspace driver run loop + closes the
     // transport, and completes well within the run-settle deadline (no hang).
     const before = Date.now();
-    await owner.app.stop();
+    await owner.lifecycle.stop();
     expect(Date.now() - before).toBeLessThan(5000);
   }, 15000);
 
@@ -115,9 +143,9 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     await relay.ready();
     const url = `http://127.0.0.1:${relay.port}`;
 
-    const owner = await createAppRuntime({ sync: { roundIntervalMs: 30 } });
+    const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.app.start();
+    await owner.lifecycle.start();
 
     const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS, "x");
@@ -140,9 +168,9 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     relay = new BrokerServer({ port: 0 });
     await relay.ready();
     const url = `http://127.0.0.1:${relay.port}`;
-    const owner = await createAppRuntime({ sync: { roundIntervalMs: 30 } });
+    const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.app.start();
+    await owner.lifecycle.start();
 
     const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS, "x");
@@ -160,7 +188,7 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     expect(syncApp.isStopped).toBe(false); // the sub-graph is running (transport + tick alive)
 
     // removeWorkspace stops the workspace ChildApp → the holder stops the nested sync sub-graph. Pre-fix
-    // the sub-graph was a sibling under the root App, so it kept ticking against the disposed engine.
+    // the sub-graph was a sibling under the root Lifecycle, so it kept ticking against the disposed engine.
     await removeWorkspace(owner, ownerConn, WS);
     expect(owner.sync.wiredSyncApp(WS)).toBeNull(); // the registration (engine + sub-graph) is gone
     expect(syncApp.isStopped).toBe(true); // …and the sync sub-graph stopped with it — no leak
@@ -173,9 +201,9 @@ describe("removeWorkspace — per-workspace teardown funnel", () => {
     await relay.ready();
     const url = `http://127.0.0.1:${relay.port}`;
 
-    const owner = await createAppRuntime({ sync: { roundIntervalMs: 30 } });
+    const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.app.start();
+    await owner.lifecycle.start();
 
     const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS);

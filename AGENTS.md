@@ -31,6 +31,31 @@ for type-only dependencies.
 - Smells are fixed when found, never deferred — properly, with the right mechanism, not a stopgap.
   Deferral compounds — more code accretes around the smell, the fix only gets harder.
 
+## Module placement
+
+Every unit has exactly one correct home, decided by what concept owns it — not by how many places
+use it.
+
+- Apex — depends on everything, depended on by nothing (public entry + composition root). The only
+  files loose at `src` root.
+- A layer's concept → that layer; layers above import downward.
+- A neutral MODULE — a cohesive substrate with no layer semantics (crypto, persistence, errors) → its
+  own leaf, named for what it is. It earns the leaf by being a real module, NOT by being portable or
+  reused. Never a `base/`/`shared/`/`utils/` drawer: "depended on by many" is not a cohesion axis.
+- A helper with no concept owner → lives with its concept-closest consumer, the one LOWER in the
+  dependency graph (so the other consumer imports it one-way downward). Extract a separate helper file
+  only for a cohesive cluster of related helpers, never on first reuse; one-offs are colocated or
+  duplicated — never leafed and never dropped into a `util`/`common` drawer at any level.
+
+Directory boundaries are dependency boundaries: two subdirectories that import each other are a FALSE
+split — they aren't independent modules. Decouple (move the bridging adapter to the concept-owning
+side, or introduce a seam) or merge; never leave a bidirectional import across directory boundaries,
+and lock the one-way edge in eslint so it can't regress.
+
+Test: does it carry a layer's semantics (→ that layer), is it a cohesive substrate module (→ its own
+leaf), or is it a helper serving a specific consumer (→ that consumer; the lower one in the graph
+hosts it)?
+
 ## Testing
 
 Tests should assert observable behavior and meaningful invariants. A behavior change should come

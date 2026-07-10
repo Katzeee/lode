@@ -1,6 +1,6 @@
 import { BrokerSyncProtocol } from "../broker/broker-sync-transport.js";
-import { SyncManager, type SyncTransport } from "./sync-manager.js";
-import { MembershipSync } from "../membership/membership-sync.js";
+import { SyncExchange, type SyncTransport } from "./sync-exchange.js";
+import { MembershipSync } from "./membership-sync.js";
 import {
   createMembershipWireSecurity,
   type MembershipWireSecurity,
@@ -9,7 +9,7 @@ import type { MembershipLog, LocalPeer } from "../membership/membership-log.js";
 import type { Engine } from "../../core/engine.js";
 import type { SyncableDoc } from "../../core/store/syncable.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
-import type { Component } from "../app.js";
+import type { Component } from "../lifecycle.js";
 
 /**
  * The per-workspace shared state for the sync sub-graph — the lode analog of any-sync's
@@ -19,8 +19,8 @@ import type { Component } from "../app.js";
  * Construction is synchronous (it was the non-async body of the old `DaemonSyncRunner.build()`):
  * create wire security (its transit key is derived eagerly from the log, so the transport is built
  * against the live key), derive the membership sync doc, and build the broker transport +
- * `SyncManager` + `MembershipSync`. Only `transport.open()` is async, so that alone lives in
- * `start()`; `stop()` closes it. The round driver runs in the App's run phase — after `start()` —
+ * `SyncExchange` + `MembershipSync`. Only `transport.open()` is async, so that alone lives in
+ * `start()`; `stop()` closes it. The round driver runs in the Lifecycle's run phase — after `start()` —
  * so it always sees an open transport.
  */
 export type SyncContextInput = {
@@ -37,7 +37,7 @@ export class SyncContext implements Component {
    *  the `SyncTransport` wire contract. Wire consumers read `transport` (the port) below; only this
    *  context, as the sync sub-graph's composition root, knows the concrete impl. */
   private readonly broker: BrokerSyncProtocol;
-  readonly syncManager: SyncManager;
+  readonly syncManager: SyncExchange;
   readonly membershipSync: MembershipSync;
   readonly security: MembershipWireSecurity;
   readonly membershipDoc: SyncableDoc;
@@ -65,7 +65,7 @@ export class SyncContext implements Component {
       // Declare this replica's site id so it's a directed target + discoverable via peers().
       peerId: local.peerId,
     });
-    this.syncManager = new SyncManager(docSet.composite(), this.broker);
+    this.syncManager = new SyncExchange(docSet.composite(), this.broker);
     this.membershipSync = new MembershipSync(this.broker, membershipDoc);
   }
 

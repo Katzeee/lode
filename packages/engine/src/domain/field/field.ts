@@ -1,9 +1,5 @@
 import { cascadeRemove, type Engine, type NodeOccurrence, textToDelta } from "../../core/index.js";
-import {
-  SystemEntityMeta,
-  type FieldPresence,
-  type FieldType,
-} from "../../bundle/system-schema.js";
+import { SystemEntityMeta, type FieldPresence, type FieldType } from "../bundle/system-schema.js";
 import type { DomainChange } from "../model/changes.js";
 import type {
   FieldAddMode,
@@ -35,46 +31,46 @@ import {
 } from "../node/node.js";
 
 export async function createFieldDef(
-  doc: Engine,
+  engine: Engine,
   parentOccurrenceId: string,
   name: string,
   fieldType: FieldType = "plain",
   presence: FieldPresence = "normal",
 ): Promise<FieldIdentity> {
-  const fieldDef = await createPlainNode(doc, parentOccurrenceId);
-  await markFieldDef(doc, fieldDef.occurrenceId, fieldType, presence);
-  await doc.replaceDeltas(fieldDef.occurrenceId, textToDelta(name));
-  const updated = await doc.mustGetOccurrence(fieldDef.occurrenceId);
+  const fieldDef = await createPlainNode(engine, parentOccurrenceId);
+  await markFieldDef(engine, fieldDef.occurrenceId, fieldType, presence);
+  await engine.replaceDeltas(fieldDef.occurrenceId, textToDelta(name));
+  const updated = await engine.mustGetOccurrence(fieldDef.occurrenceId);
   return { nodeId: updated.nodeId, occurrenceId: updated.occurrenceId };
 }
 
 export async function setFieldDefType(
-  doc: Engine,
+  engine: Engine,
   fieldDefNodeId: string,
   fieldType: FieldType,
 ): Promise<void> {
-  const node = await requireNodeById(doc, fieldDefNodeId);
-  await requireFieldDef(doc, node, fieldDefNodeId);
-  await doc.setEntityMeta(node.occurrenceId, SystemEntityMeta.FieldType, fieldType);
+  const node = await requireNodeById(engine, fieldDefNodeId);
+  await requireFieldDef(engine, node, fieldDefNodeId);
+  await engine.setEntityMeta(node.occurrenceId, SystemEntityMeta.FieldType, fieldType);
 }
 
 export async function setFieldDefPresence(
-  doc: Engine,
+  engine: Engine,
   fieldDefNodeId: string,
   presence: FieldPresence,
 ): Promise<void> {
-  const node = await requireNodeById(doc, fieldDefNodeId);
-  await requireFieldDef(doc, node, fieldDefNodeId);
-  await doc.setEntityMeta(node.occurrenceId, SystemEntityMeta.Presence, presence);
+  const node = await requireNodeById(engine, fieldDefNodeId);
+  await requireFieldDef(engine, node, fieldDefNodeId);
+  await engine.setEntityMeta(node.occurrenceId, SystemEntityMeta.Presence, presence);
 }
 
 export async function addField(
-  doc: Engine,
+  engine: Engine,
   targetOccurrenceId: string,
   fieldDefNodeId: string,
   mode: FieldAddMode = "reuseExisting",
 ): Promise<FieldAddResult> {
-  const target = await doc.getOccurrence(targetOccurrenceId);
+  const target = await engine.getOccurrence(targetOccurrenceId);
   if (!target) {
     invalidDomainInput(`Occurrence not found: ${targetOccurrenceId}`, {
       reason: "occurrence_not_found",
@@ -82,13 +78,16 @@ export async function addField(
     });
   }
 
-  const fieldDef = await requireNodeById(doc, fieldDefNodeId);
-  await requireFieldDef(doc, fieldDef, fieldDefNodeId);
+  const fieldDef = await requireNodeById(engine, fieldDefNodeId);
+  await requireFieldDef(engine, fieldDef, fieldDefNodeId);
 
-  const children = await getSemanticChildren(doc, target.occurrenceId);
+  const children = await getSemanticChildren(engine, target.occurrenceId);
   let existing: NodeOccurrence | undefined;
   for (const child of children) {
-    if ((await isField(doc, child)) && (await readFieldDefId(doc, child)) === fieldDefNodeId) {
+    if (
+      (await isField(engine, child)) &&
+      (await readFieldDefId(engine, child)) === fieldDefNodeId
+    ) {
       existing = child;
       break;
     }
@@ -105,17 +104,17 @@ export async function addField(
     return { nodeId: existing.nodeId, occurrenceId: existing.occurrenceId, created: false };
   }
 
-  const field = await createPlainNode(doc, target.occurrenceId);
-  await markField(doc, field.occurrenceId, fieldDefNodeId);
+  const field = await createPlainNode(engine, target.occurrenceId);
+  await markField(engine, field.occurrenceId, fieldDefNodeId);
   return { nodeId: field.nodeId, occurrenceId: field.occurrenceId, created: true };
 }
 
 export async function setFieldValues(
-  doc: Engine,
+  engine: Engine,
   fieldOccurrenceId: string,
   values: FieldValueInput[],
 ): Promise<FieldSetValuesResult> {
-  const field = await requireFieldNode(doc, fieldOccurrenceId);
+  const field = await requireFieldNode(engine, fieldOccurrenceId);
   const changes: DomainChange[] = [];
   const moveOccurrenceIds = new Set<string>();
 
@@ -124,7 +123,7 @@ export async function setFieldValues(
       continue;
     }
     if (value.type === "ref") {
-      await requireNodeById(doc, value.targetNodeId);
+      await requireNodeById(engine, value.targetNodeId);
       continue;
     }
     if (moveOccurrenceIds.has(value.occurrenceId)) {
@@ -134,16 +133,16 @@ export async function setFieldValues(
       });
     }
     moveOccurrenceIds.add(value.occurrenceId);
-    await assertNotActiveManagedChild(doc, value.occurrenceId);
+    await assertNotActiveManagedChild(engine, value.occurrenceId);
   }
 
-  await doc.batch(async () => {
-    const existingValues = await getSemanticChildren(doc, field.occurrenceId);
+  await engine.batch(async () => {
+    const existingValues = await getSemanticChildren(engine, field.occurrenceId);
     for (const valueNode of existingValues) {
       if (moveOccurrenceIds.has(valueNode.occurrenceId)) {
         continue;
       }
-      await removeOccurrenceOrHardDelete(doc, valueNode.occurrenceId);
+      await removeOccurrenceOrHardDelete(engine, valueNode.occurrenceId);
       changes.push({
         kind: "fieldValue",
         reason: "deleted",
@@ -154,8 +153,8 @@ export async function setFieldValues(
 
     for (const [index, value] of values.entries()) {
       if (value.type === "text") {
-        const textNode = await createPlainNode(doc, field.occurrenceId, index);
-        await doc.replaceDeltas(textNode.occurrenceId, [{ insert: value.text }]);
+        const textNode = await createPlainNode(engine, field.occurrenceId, index);
+        await engine.replaceDeltas(textNode.occurrenceId, [{ insert: value.text }]);
         changes.push({
           kind: "fieldValue",
           reason: "created",
@@ -165,7 +164,7 @@ export async function setFieldValues(
         continue;
       }
       if (value.type === "ref") {
-        const ref = await createReference(doc, value.targetNodeId, field.occurrenceId, index);
+        const ref = await createReference(engine, value.targetNodeId, field.occurrenceId, index);
         changes.push({
           kind: "fieldValue",
           reason: "created",
@@ -174,8 +173,8 @@ export async function setFieldValues(
         });
         continue;
       }
-      await moveOccurrence(doc, value.occurrenceId, field.occurrenceId, index);
-      const moved = await requireOccurrence(doc, value.occurrenceId);
+      await moveOccurrence(engine, value.occurrenceId, field.occurrenceId, index);
+      const moved = await requireOccurrence(engine, value.occurrenceId);
       changes.push({
         kind: "fieldValue",
         reason: "moved",
@@ -188,18 +187,18 @@ export async function setFieldValues(
   return { field: { nodeId: field.nodeId, occurrenceId: field.occurrenceId }, changes };
 }
 
-export async function removeField(doc: Engine, fieldOccurrenceId: string): Promise<void> {
-  const field = await requireFieldNode(doc, fieldOccurrenceId);
-  await assertFieldRemoveAllowed(doc, field);
+export async function removeField(engine: Engine, fieldOccurrenceId: string): Promise<void> {
+  const field = await requireFieldNode(engine, fieldOccurrenceId);
+  await assertFieldRemoveAllowed(engine, field);
   // Bare cascade (no managed-child guard): a field IS an active managed child, so the product
   // `removeOccurrenceOrHardDelete` would reject it. Field lifecycle carries its own authorization
   // (`assertFieldRemoveAllowed` — allows optional fields, blocks required ones) and then removes
   // directly through the core cascade.
-  await cascadeRemove(doc, field.occurrenceId);
+  await cascadeRemove(engine, field.occurrenceId);
 }
 
-async function requireFieldNode(doc: Engine, occurrenceId: string): Promise<NodeOccurrence> {
-  const node = await requireOccurrence(doc, occurrenceId);
-  await requireField(doc, node, occurrenceId);
+async function requireFieldNode(engine: Engine, occurrenceId: string): Promise<NodeOccurrence> {
+  const node = await requireOccurrence(engine, occurrenceId);
+  await requireField(engine, node, occurrenceId);
   return node;
 }

@@ -400,7 +400,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
   it("synced content persists across a member restart (content-round 落盘 regression)", async () => {
     // The one loop the engine layer can't host (loro wasm coexistence) — here at the daemon layer,
     // in two real processes. The member converges content over sync, then RESTARTS (same dataRoot),
-    // and reads it back. `daemon.stop()` is an abrupt `runtime.app.stop()` (no flush, no clean marker
+    // and reads it back. `daemon.stop()` is an abrupt `runtime.lifecycle.stop()` (no flush, no clean marker
     // — the engine's `close()` is not on this path), so the synced bytes survive the restart ONLY
     // because the content round flushed them. That `ContentRound.runRound → flushDirty` line was
     // previously verified by reading the code; this is its regression net. A `syncNow` before the

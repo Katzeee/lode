@@ -1,5 +1,5 @@
 import type { Engine } from "./engine.js";
-import { NotFoundError } from "../errors.js";
+import { NotFoundError } from "../errors/index.js";
 import type {
   DocSnapshot,
   NodeEntitySnapshot,

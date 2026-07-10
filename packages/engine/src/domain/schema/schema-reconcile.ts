@@ -10,40 +10,40 @@ import { reorderTargetChildren, trimStaleManagedProvenance } from "./schema-reco
 import { requireCanonicalOccurrence } from "../lookup.js";
 
 export async function reconcileTargetSchemas(
-  doc: Engine,
+  engine: Engine,
   targetOccurrenceId: string,
 ): Promise<DomainChange[]> {
-  const target = await requireCanonicalOccurrence(doc, targetOccurrenceId);
-  const desired = await collectDesiredManagedChildren(doc, target);
-  const applied = await applyDesiredManagedChildren(doc, target, desired);
+  const target = await requireCanonicalOccurrence(engine, targetOccurrenceId);
+  const desired = await collectDesiredManagedChildren(engine, target);
+  const applied = await applyDesiredManagedChildren(engine, target, desired);
   const changes = [...applied.changes];
 
   changes.push(
-    ...(await trimStaleManagedProvenance(doc, target, applied.assignedProvenanceByOccurrence)),
+    ...(await trimStaleManagedProvenance(engine, target, applied.assignedProvenanceByOccurrence)),
   );
-  changes.push(...(await reorderTargetChildren(doc, target, applied.managedOrder)));
+  changes.push(...(await reorderTargetChildren(engine, target, applied.managedOrder)));
 
   return changes;
 }
 
 export async function cleanupInactiveManagedChildren(
-  doc: Engine,
+  engine: Engine,
   targetOccurrenceId: string,
 ): Promise<DomainChange[]> {
-  const target = await doc.mustGetOccurrence(targetOccurrenceId);
+  const target = await engine.mustGetOccurrence(targetOccurrenceId);
   const changes: DomainChange[] = [];
 
-  for (const child of await doc.getOccurrenceChildren(targetOccurrenceId)) {
-    if (await isActiveManagedChild(doc, target, child)) {
+  for (const child of await engine.getOccurrenceChildren(targetOccurrenceId)) {
+    if (await isActiveManagedChild(engine, target, child)) {
       continue;
     }
-    const managedKind = managedKindValue(doc, child);
+    const managedKind = managedKindValue(engine, child);
     if (!managedKind) {
       continue;
     }
 
-    if (managedKind === ManagedKind.FieldSlot && (await isField(doc, child))) {
-      changes.push(await cleanupInactiveFieldSlot(doc, child));
+    if (managedKind === ManagedKind.FieldSlot && (await isField(engine, child))) {
+      changes.push(await cleanupInactiveFieldSlot(engine, child));
       continue;
     }
 
@@ -58,8 +58,11 @@ export async function cleanupInactiveManagedChildren(
   return changes;
 }
 
-async function cleanupInactiveFieldSlot(doc: Engine, child: NodeOccurrence): Promise<DomainChange> {
-  const hasValues = (await getSemanticChildren(doc, child.occurrenceId)).length > 0;
+async function cleanupInactiveFieldSlot(
+  engine: Engine,
+  child: NodeOccurrence,
+): Promise<DomainChange> {
+  const hasValues = (await getSemanticChildren(engine, child.occurrenceId)).length > 0;
   if (hasValues) {
     return {
       kind: ManagedKind.FieldSlot,
@@ -68,7 +71,7 @@ async function cleanupInactiveFieldSlot(doc: Engine, child: NodeOccurrence): Pro
       occurrenceId: child.occurrenceId,
     };
   }
-  await removeOccurrenceOrHardDelete(doc, child.occurrenceId);
+  await removeOccurrenceOrHardDelete(engine, child.occurrenceId);
   return {
     kind: ManagedKind.FieldSlot,
     reason: "deleted",

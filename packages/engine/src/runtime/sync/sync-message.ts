@@ -1,5 +1,5 @@
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
-import type { SyncProfile } from "./sync-manager.js";
+import type { SyncProfile } from "./sync-exchange.js";
 import { SyncProfileEntrySchema, SyncProfileSchema } from "@lode/protocol/proto";
 
 /**

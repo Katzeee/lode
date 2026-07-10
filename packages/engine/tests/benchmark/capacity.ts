@@ -103,28 +103,28 @@ function runUser(blockCount: number, avgChars: number, nestRatio: number) {
 // ── BATCHED mode ──────────────────────────────────────────────────────────────
 
 function runBatched(blockCount: number, avgChars: number, nestRatio: number) {
-  const doc = new Engine();
+  const engine = new Engine();
   const rootCount = Math.ceil(blockCount * (1 - nestRatio));
   const rootIds: OccurrenceId[] = [];
   const allIds: OccurrenceId[] = [];
 
   const t0 = performance.now();
-  doc.transact(() => {
+  engine.transact(() => {
     for (let i = 0; i < rootCount; i++) {
-      const id = doc.createNode().occurrenceId;
+      const id = engine.createNode().occurrenceId;
       rootIds.push(id);
       allIds.push(id);
     }
     for (let i = rootCount; i < blockCount; i++) {
-      allIds.push(doc.createNode(rootIds[i % rootIds.length]).occurrenceId);
+      allIds.push(engine.createNode(rootIds[i % rootIds.length]).occurrenceId);
     }
     for (let i = 0; i < allIds.length; i++) {
-      doc.replaceDeltas(allIds[i], textToDelta(makeText(i, avgChars)));
+      engine.replaceDeltas(allIds[i], textToDelta(makeText(i, avgChars)));
     }
   });
   const tBuild = performance.now() - t0;
 
-  const snap = doc.exportSnapshot();
+  const snap = engine.exportSnapshot();
   const t1 = performance.now();
   new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;
@@ -135,30 +135,30 @@ function runBatched(blockCount: number, avgChars: number, nestRatio: number) {
 // ── TYPING mode ───────────────────────────────────────────────────────────────
 
 function runTyping(blockCount: number, avgChars: number, nestRatio: number) {
-  const doc = new Engine();
+  const engine = new Engine();
   const rootCount = Math.ceil(blockCount * (1 - nestRatio));
   const rootIds: OccurrenceId[] = [];
   const allIds: OccurrenceId[] = [];
 
-  doc.transact(() => {
+  engine.transact(() => {
     for (let i = 0; i < rootCount; i++) {
-      const id = doc.createNode().occurrenceId;
+      const id = engine.createNode().occurrenceId;
       rootIds.push(id);
       allIds.push(id);
     }
     for (let i = rootCount; i < blockCount; i++) {
-      allIds.push(doc.createNode(rootIds[i % rootIds.length]).occurrenceId);
+      allIds.push(engine.createNode(rootIds[i % rootIds.length]).occurrenceId);
     }
   });
 
   const t0 = performance.now();
   for (let i = 0; i < allIds.length; i++) {
     const text = makeText(i, avgChars);
-    doc.replaceDeltas(allIds[i]!, textToDelta(text));
+    engine.replaceDeltas(allIds[i]!, textToDelta(text));
   }
   const tBuild = performance.now() - t0;
 
-  const snap = doc.exportSnapshot();
+  const snap = engine.exportSnapshot();
   const t1 = performance.now();
   new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;

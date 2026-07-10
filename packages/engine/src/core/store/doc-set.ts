@@ -67,7 +67,7 @@ export class WorkspaceDocSet {
     return [...this.outliner.docs(), ...[...this.metaEntries.values()].map((entry) => entry.doc)];
   }
 
-  /** The content composite (tree + shards) — the sealed docs the SyncManager exchanges. Distinct
+  /** The content composite (tree + shards) — the sealed docs the SyncExchange exchanges. Distinct
    *  from `docs()` so the broker's profile stays composite-only (a meta doc rides push, not req/resp). */
   composite(): Outliner {
     return this.outliner;

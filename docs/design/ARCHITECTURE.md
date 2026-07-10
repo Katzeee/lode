@@ -21,7 +21,7 @@ service.
                    proto (via connectrpc)
                         |
                     AppServer (daemon)
-                   ├─ runtime (App/Component/ChildApp composition + workspace registry)
+                   ├─ runtime (Lifecycle/Component/ChildLifecycleComponent composition + workspace registry)
                    ├─ services (RPC handlers)
                    ├─ domain (product semantics)
                    └─ core (engine + storage)

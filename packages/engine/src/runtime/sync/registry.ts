@@ -1,10 +1,10 @@
 import { createLogger } from "@lode/logger";
 import { MEMBERSHIP_DOC_ID } from "../membership/membership-log.js";
-import { PreconditionFailedError } from "../../errors.js";
-import type { AppWorkspaceRuntime } from "../workspace/registry.js";
-import type { ActorKeypair } from "../../utils/crypto/index.js";
+import { PreconditionFailedError } from "../../errors/index.js";
+import type { WorkspaceRegistry } from "../workspace/registry.js";
+import type { ActorKeypair } from "../../crypto/index.js";
 import type { Engine } from "../../core/engine.js";
-import { ChildAppComponent, type App, type Component } from "../app.js";
+import { ChildLifecycleComponent, type Lifecycle, type Component } from "../lifecycle.js";
 import { SyncContext } from "./context.js";
 import { MembershipRound, ContentRound } from "./round.js";
 import { SyncRoundDriver } from "./driver.js";
@@ -29,8 +29,8 @@ export type WorkspaceCoordinateData = {
 
 type SyncAppHandle = {
   /** The sync sub-graph ChildApp (a child of the workspace's ChildApp). Stopped with the workspace
-   *  via the ChildAppComponent holder — so removeWorkspace's app.stop() tears engine+store+sync. */
-  readonly syncApp: App;
+   *  via the ChildLifecycleComponent holder — so removeWorkspace's app.stop() tears engine+store+sync. */
+  readonly syncApp: Lifecycle;
   /** The engine this handle wired against — compared in `ensureWired` to detect a reload + re-wire. */
   readonly engine: Engine;
   readonly ctx: SyncContext;
@@ -38,7 +38,7 @@ type SyncAppHandle = {
 };
 
 export type SyncRegistryOptions = {
-  readonly workspaces: AppWorkspaceRuntime;
+  readonly workspaces: WorkspaceRegistry;
   readonly deps?: SyncDeps;
   readonly roundIntervalMs?: number;
 };
@@ -50,10 +50,10 @@ export type SyncRegistryOptions = {
  * the single relay URL (one relay per daemon in the MVP), and the per-workspace sync sub-graphs.
  *
  * Each syncing workspace's sub-graph (context + round driver + push path) is a ChildApp nested under
- * THAT workspace's ChildApp, linked by a ChildAppComponent holder — so `removeWorkspace`'s
+ * THAT workspace's ChildApp, linked by a ChildLifecycleComponent holder — so `removeWorkspace`'s
  * `app.stop()` tears engine + store + sync down in ONE graph (no leaked transport/tick against a
  * disposed engine). This registry does NOT own the sub-graph lifecycle: it builds it onto the
- * workspace's App and lets the workspace's teardown collapse it. `run(signal)` is the lazy-wire +
+ * workspace's Lifecycle and lets the workspace's teardown collapse it. `run(signal)` is the lazy-wire +
  * re-wire-on-reload backstop; registerSync wires immediately when the workspace is already loaded, so
  * the poll only covers register-before-load and remove→reopen.
  *
@@ -64,7 +64,7 @@ export type SyncRegistryOptions = {
  */
 export class SyncRegistry implements Component {
   readonly name = "sync.registry";
-  private readonly workspaces: AppWorkspaceRuntime;
+  private readonly workspaces: WorkspaceRegistry;
   private readonly roundIntervalMs: number;
   private readonly report: (wsId: string, summary: RoundSummary) => void;
   private readonly registrations = new Map<string, ActorKeypair>();
@@ -164,7 +164,7 @@ export class SyncRegistry implements Component {
   /** The wired sync sub-graph's ChildApp for `wsId` (null if not wired). Test/observability seam —
    *  lets a test confirm the sub-graph stopped after removeWorkspace (its `isStopped` flips true when
    *  the workspace ChildApp's holder tears it down). */
-  wiredSyncApp(wsId: string): App | null {
+  wiredSyncApp(wsId: string): Lifecycle | null {
     return this.syncApps.get(wsId)?.syncApp ?? null;
   }
 
@@ -197,9 +197,9 @@ export class SyncRegistry implements Component {
 
   stop(): void {
     this.stopped = true;
-    // The sync sub-graphs live on the workspace ChildApps; WorkspaceRegistryComponent.stop() — which
-    // runs after this in the root App's reverse-stop — calls workspaces.close(), stopping each
-    // workspace ChildApp and (via the ChildAppComponent holder) each sync sub-graph. So this clears
+    // The sync sub-graphs live on the workspace ChildApps; WorkspaceRegistry.stop() — which
+    // runs after this in the root Lifecycle's reverse-stop — calls workspaces.close(), stopping each
+    // workspace ChildApp and (via the ChildLifecycleComponent holder) each sync sub-graph. So this clears
     // only the registry's bookkeeping; it does not own the sub-graphs' lifecycle.
     this.syncApps.clear();
     this.registrations.clear();
@@ -305,11 +305,11 @@ export class SyncRegistry implements Component {
   }
 
   /** Build the per-workspace sync sub-graph: a ChildApp nested under the workspace's own ChildApp
-   *  (linked by a ChildAppComponent holder so it tears down with the workspace), with the context
+   *  (linked by a ChildLifecycleComponent holder so it tears down with the workspace), with the context
    *  (transport), the round driver (tick), and the push fast-path. Round bodies (membership +
    *  content) are plain collaborators held by the driver — no lifecycle of their own. The holder is
    *  registered AFTER start succeeds, so a failed build discards the child (no holder left on the
-   *  workspace App to conflict with a retry). */
+   *  workspace Lifecycle to conflict with a retry). */
   private async buildSyncApp(wsId: string, engine: Engine): Promise<SyncAppHandle> {
     const keypair = this.registrations.get(wsId);
     if (keypair === undefined) {
@@ -346,8 +346,8 @@ export class SyncRegistry implements Component {
     syncApp.register(push); // …then push (start subscribes AFTER the transport is open)
     await syncApp.start();
     // Embed: register the holder AFTER start succeeds so a failed build leaves nothing on the
-    // workspace App. removeWorkspace → wsApp.stop() → holder.stop() → syncApp.stop() (engine+store+sync).
-    wsApp.register(new ChildAppComponent("sync-subgraph", syncApp));
+    // workspace Lifecycle. removeWorkspace → wsApp.stop() → holder.stop() → syncApp.stop() (engine+store+sync).
+    wsApp.register(new ChildLifecycleComponent("sync-subgraph", syncApp));
     return { syncApp, engine, ctx, driver };
   }
 }

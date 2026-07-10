@@ -1,13 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
-import { SyncManager } from "../sync/sync-manager.js";
+import { SyncExchange } from "../sync/sync-exchange.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
-import { MembershipSync } from "../membership/membership-sync.js";
+import { MembershipSync } from "../sync/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
@@ -132,8 +132,8 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     ).toBe(true);
 
     // (2) Content (sealed): converges now that B can unwrap the transit key.
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([{ insert: SECRET }]);
@@ -197,7 +197,7 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     await settle();
     expect(secB.isMember()).toBe(false);
 
-    const mb = new SyncManager(b.store, tb);
+    const mb = new SyncExchange(b.store, tb);
     await expect(mb.sync()).rejects.toThrow(); // sealed exchange can't succeed without the transit key
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toBeUndefined();
   });

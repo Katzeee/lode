@@ -1,9 +1,9 @@
-import { AuthenticationError } from "../../errors.js";
+import { AuthenticationError } from "../../errors/index.js";
 import {
   deriveActorKeypairFromMnemonic,
   generateMnemonic,
   type ActorKeypair,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 
 // The identity-bootstrap policy: how an actor identity is minted and how a mnemonic derives the
 // signing keypair. The identity IS the derived actor id — no declared actor to cross-check — so a

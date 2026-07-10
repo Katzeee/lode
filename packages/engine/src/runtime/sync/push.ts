@@ -1,5 +1,5 @@
 import { createLogger } from "@lode/logger";
-import type { Component } from "../app.js";
+import type { Component } from "../lifecycle.js";
 import type { SyncContext } from "./context.js";
 
 const log = createLogger("sync.push");
@@ -12,7 +12,7 @@ const PUSH_DEBOUNCE_MS = 150;
 
 /**
  * The push fast-path: a trailing-debounced `pushOnly()` armed on every local mutation
- * (`engine.slots.nodeUpdated`). Registered AFTER the context in the per-workspace App, so `start()`
+ * (`engine.slots.nodeUpdated`). Registered AFTER the context in the per-workspace Lifecycle, so `start()`
  * runs after the context opened the transport — the "subscribe AFTER open()" invariant from the old
  * runner. The subscriber callback MUST stay synchronous + trivial: it runs inside the engine
  * Subject's `next`, whose error propagation would reach the mutation broadcast sub, so it may not

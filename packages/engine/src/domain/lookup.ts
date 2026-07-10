@@ -2,10 +2,10 @@ import type { Engine, NodeOccurrence } from "../core/index.js";
 import { invalidDomainInput } from "./errors.js";
 
 export async function requireOccurrence(
-  doc: Engine,
+  engine: Engine,
   occurrenceId: string,
 ): Promise<NodeOccurrence> {
-  const node = await doc.getOccurrence(occurrenceId);
+  const node = await engine.getOccurrence(occurrenceId);
   if (!node) {
     invalidDomainInput(`Occurrence not found: ${occurrenceId}`, {
       reason: "occurrence_not_found",
@@ -16,16 +16,16 @@ export async function requireOccurrence(
 }
 
 export async function requireCanonicalOccurrence(
-  doc: Engine,
+  engine: Engine,
   occurrenceId: string,
 ): Promise<NodeOccurrence> {
-  const occurrence = await requireOccurrence(doc, occurrenceId);
-  return doc.mustGetOccurrence(await doc.getCanonicalOccurrenceId(occurrence.nodeId));
+  const occurrence = await requireOccurrence(engine, occurrenceId);
+  return engine.mustGetOccurrence(await engine.getCanonicalOccurrenceId(occurrence.nodeId));
 }
 
-export async function requireNodeById(doc: Engine, nodeId: string): Promise<NodeOccurrence> {
+export async function requireNodeById(engine: Engine, nodeId: string): Promise<NodeOccurrence> {
   try {
-    return await doc.mustGetOccurrence(await doc.getCanonicalOccurrenceId(nodeId));
+    return await engine.mustGetOccurrence(await engine.getCanonicalOccurrenceId(nodeId));
   } catch {
     invalidDomainInput(`Node not found: ${nodeId}`, {
       reason: "node_not_found",

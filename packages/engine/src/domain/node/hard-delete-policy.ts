@@ -9,27 +9,27 @@ import { isField, isFieldDef, isSchema } from "../system-entity.js";
  *  in the closure is checked, so a protected entity anywhere in it — including one nested under a
  *  non-canonical occurrence, which a canonical-only walk would miss — is caught before any
  *  mutation. */
-export async function authorizeHardDelete(doc: Engine, removed: Set<string>): Promise<void> {
+export async function authorizeHardDelete(engine: Engine, removed: Set<string>): Promise<void> {
   for (const occId of removed) {
-    const occ = await doc.getOccurrence(occId);
+    const occ = await engine.getOccurrence(occId);
     if (occ) {
-      await assertOccurrenceHardDeleteAllowed(doc, occ);
+      await assertOccurrenceHardDeleteAllowed(engine, occ);
     }
   }
 }
 
 async function assertOccurrenceHardDeleteAllowed(
-  doc: Engine,
+  engine: Engine,
   occurrence: NodeOccurrence,
 ): Promise<void> {
   if (
-    (await isSystemEntity(doc, occurrence)) ||
-    (await readSchemaIds(doc, occurrence.occurrenceId)).length > 0
+    (await isSystemEntity(engine, occurrence)) ||
+    (await readSchemaIds(engine, occurrence.occurrenceId)).length > 0
   ) {
     throwProtectedHardDelete(occurrence.nodeId, occurrence.occurrenceId);
   }
 
-  const managed = readManagedChildState(doc, occurrence.occurrenceId);
+  const managed = readManagedChildState(engine, occurrence.occurrenceId);
   if (managed.status !== "none") {
     throwProtectedHardDelete(occurrence.nodeId, occurrence.occurrenceId);
   }
@@ -37,17 +37,24 @@ async function assertOccurrenceHardDeleteAllowed(
   if (!occurrence.parentOccurrenceId) {
     return;
   }
-  const parent = await doc.getOccurrence(occurrence.parentOccurrenceId);
+  const parent = await engine.getOccurrence(occurrence.parentOccurrenceId);
   if (!parent) {
     return;
   }
-  if ((await isSchema(doc, parent)) || (await isActiveManagedChild(doc, parent, occurrence))) {
+  if (
+    (await isSchema(engine, parent)) ||
+    (await isActiveManagedChild(engine, parent, occurrence))
+  ) {
     throwProtectedHardDelete(occurrence.nodeId, occurrence.occurrenceId);
   }
 }
 
-async function isSystemEntity(doc: Engine, node: NodeOccurrence): Promise<boolean> {
-  return (await isSchema(doc, node)) || (await isFieldDef(doc, node)) || (await isField(doc, node));
+async function isSystemEntity(engine: Engine, node: NodeOccurrence): Promise<boolean> {
+  return (
+    (await isSchema(engine, node)) ||
+    (await isFieldDef(engine, node)) ||
+    (await isField(engine, node))
+  );
 }
 
 function throwProtectedHardDelete(nodeId: string, occurrenceId: string): never {

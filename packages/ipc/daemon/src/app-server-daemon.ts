@@ -1,9 +1,13 @@
 import { readFileSync } from "node:fs";
-import { App, createAppRuntime, type AppRuntime, type PersistenceOptions } from "@lode/engine";
+import {
+  Lifecycle,
+  createEngineRuntime,
+  type EngineRuntime,
+  type PersistenceOptions,
+} from "@lode/engine";
 import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerComponent } from "./components/broker-server.js";
 import { ConnectServerComponent } from "./components/connect-server.js";
-import { createSyncHandlers } from "./sync-handlers.js";
 
 /** Read the relay's TLS cert/key PEM files (from `--tls-cert`/`--tls-key` paths) for
  *  `BrokerServerComponent`. Empty when TLS isn't configured (h2c plaintext — the default). */
@@ -59,8 +63,8 @@ export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 
 // Hosts the engine as a local gRPC (HTTP/2, h2c) daemon. The daemon IS the composition root: it
 // builds the runtime (which registers the workspace registry + the engine-owned SyncRegistry
-// on the App), then registers the connect server (+ optional relay) and starts everything in
-// registration order. `stop()` is the App's reverse-order teardown. Mirrors anytype-heart's
+// on the Lifecycle), then registers the connect server (+ optional relay) and starts everything in
+// registration order. `stop()` is the Lifecycle's reverse-order teardown. Mirrors anytype-heart's
 // cmd/grpcserver bootstrap shape.
 export async function startAppServerDaemon(
   options: AppServerDaemonOptions,
@@ -68,7 +72,7 @@ export async function startAppServerDaemon(
   const { host, port } = parseListenUrl(options.listen);
   const persistence =
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
-  const runtime: AppRuntime = await createAppRuntime({
+  const runtime: EngineRuntime = await createEngineRuntime({
     ...(persistence ? { persistence } : {}),
     // The registry has no identity of its own — every syncing workspace is registered by a session
     // (RegisterSync / JoinWorkspace), which captures that session's actor keypair.
@@ -76,17 +80,14 @@ export async function startAppServerDaemon(
       ? {}
       : { sync: { roundIntervalMs: options.syncIntervalMs } }),
   });
-  const syncHandlers = createSyncHandlers(runtime.sync, runtime.identity);
-
-  // Register in start-order; the App stops them in reverse. createAppRuntime already registered the
-  // workspace registry + the SyncRegistry → they stop LAST (sync + workspaces outlive the
-  // connect/relay components that sit on top of them).
-  const connect = runtime.app.register(
-    new ConnectServerComponent(runtime, host, port, syncHandlers),
-  );
+  // Register in start-order; the Lifecycle stops them in reverse. createEngineRuntime already registered the
+  // engine subsystems (identity, notification, the workspace registry, the SyncRegistry) → they stop
+  // LAST (outlive the connect/relay components that sit on top of them). The daemon adds only
+  // transport (connect server + optional relay) — no handlers, no engine subsystems held directly.
+  const connect = runtime.lifecycle.register(new ConnectServerComponent(runtime, host, port));
   const relay =
     options.relay !== undefined
-      ? runtime.app.register(
+      ? runtime.lifecycle.register(
           new BrokerServerComponent({
             port: options.relay.port,
             host: options.relay.host,
@@ -95,22 +96,22 @@ export async function startAppServerDaemon(
         )
       : undefined;
 
-  await runtime.app.start();
+  await runtime.lifecycle.start();
 
   return {
     address: connect.address,
     ...(relay === undefined ? {} : { relayUrl: relay.url }),
-    stop: () => runtime.app.stop(),
+    stop: () => runtime.lifecycle.stop(),
   };
 }
 
 /** Relay-only mode: host just the workspace-routing broker (BrokerService over h2) — no engine, no
  *  LodeCommands client→core gRPC, no identity. One binary, three modes (design sync-design.md §5);
- *  the bin picks this entry when `--listen` is absent. The relay runs on its own single-component App
+ *  the bin picks this entry when `--listen` is absent. The relay runs on its own single-component Lifecycle
  *  so its live state is in a lifecycle graph with one teardown (`app.stop()`), structurally parallel
  *  to the engine-mode daemon. */
 export async function startRelayDaemon(options: RelayDaemonOptions = {}): Promise<RelayDaemon> {
-  const app = new App();
+  const app = new Lifecycle();
   const relay = app.register(
     new BrokerServerComponent({
       port: options.relay?.port,

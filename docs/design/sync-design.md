@@ -1,7 +1,7 @@
 # Sync Design Decisions
 
 The stable decisions for lode's real network sync. Each records **why**: the constraints, the
-alternatives rejected, the trade-offs. The in-process CRDT sync core (`SyncManager` /
+alternatives rejected, the trade-offs. The in-process CRDT sync core (`SyncExchange` /
 `sweepOrphans` in `@lode/engine`) is assumed; this doc is about reaching it over a network.
 
 Identity, membership, and persistence layer on top — see

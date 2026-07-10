@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
-import { InMemorySyncTransport, SyncManager } from "../../src/runtime/sync/sync-manager.js";
+import { InMemorySyncTransport, SyncExchange } from "../../src/runtime/sync/sync-exchange.js";
 import { canonical } from "./harness.js";
 
 /**
  * Phase 6 — incremental sync via the per-peer revision cursor. After a full round establishes the
  * cursor, a subsequent round CONSIDERS (exchanges) only shards whose revision advanced (local
  * change) or whose peer version changed — not every owned shard. Measured as `considered` (docs the
- * driver exchanged). The cursor lives on the (reused) SyncManager — production reuses it per peer.
+ * driver exchanged). The cursor lives on the (reused) SyncExchange — production reuses it per peer.
  */
 describe("incremental sync (Phase 6): a round only considers changed shards", () => {
   it("after M shard changes, the next round considers ≈ M shards (not all owned)", async () => {
@@ -25,8 +25,8 @@ describe("incremental sync (Phase 6): a round only considers changed shards", ()
     }
     eA.captureSync();
 
-    // One long-lived SyncManager — the cursor persists across rounds (production reuses it per peer).
-    const sm = new SyncManager(a, new InMemorySyncTransport(b));
+    // One long-lived SyncExchange — the cursor persists across rounds (production reuses it per peer).
+    const sm = new SyncExchange(a, new InMemorySyncTransport(b));
     const r1 = await sm.sync(); // round 1: full — every owned doc is a first-round candidate
     await b.heal();
     await expect(canonical(eA)).resolves.toEqual(await canonical(eB)); // converged

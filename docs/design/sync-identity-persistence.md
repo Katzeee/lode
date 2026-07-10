@@ -63,11 +63,11 @@ its frames carry lode's `SyncMessage`, lode's wsId routing, lode's membership-se
 envelopes — so pretending it is a reusable transport is speculative generalization. The
 honest shape: the broker is engine business logic that happens to talk to a socket.
 
-| Layer              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Used by                |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **`@lode/engine`** | sync core (`SyncManager` + the `SyncTransport` **interface**: docIds + bytes + VVs) + **the peer-sync wire** (`BrokerClient` / `BrokerServer` + the routing core + the `BrokerSyncProtocol` protocol, in `src/runtime/broker/`) + peerId → `setPeerId` + actor crypto (the `utils/crypto` leaf: Ed25519/X25519/AES-256-GCM/BIP-39/SLIP-10) + the membership log + the wire-security/SyncProfile content layer (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
-| **`@lode/daemon`** | thin desktop host: engine (in-process) + the relay (`BrokerServer` in `--relay` mode) + the client→core gRPC IPC + process lifecycle                                                                                                                                                                                                                                                                                                                                                   | desktop                |
-| **mobile**         | engine (in-process, incl. the broker client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                                                                                                                                                                     | mobile                 |
+| Layer              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Used by                |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| **`@lode/engine`** | sync core (`SyncExchange` + the `SyncTransport` **interface**: docIds + bytes + VVs) + **the peer-sync wire** (`BrokerClient` / `BrokerServer` + the routing core + the `BrokerSyncProtocol` protocol, in `src/runtime/broker/`) + peerId → `setPeerId` + actor crypto (the `crypto` leaf: Ed25519/X25519/AES-256-GCM/BIP-39/SLIP-10) + the membership log + the wire-security/SyncProfile content layer (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
+| **`@lode/daemon`** | thin desktop host: engine (in-process) + the relay (`BrokerServer` in `--relay` mode) + the client→core gRPC IPC + process lifecycle                                                                                                                                                                                                                                                                                                                                              | desktop                |
+| **mobile**         | engine (in-process, incl. the broker client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                                                                                                                                                                | mobile                 |
 
 The engine owns the wire, but the `SyncTransport` **interface** stays socket-free (next
 paragraph) — `InMemorySyncTransport` (tests / two-workspaces-one-process) and
@@ -148,8 +148,8 @@ LoroList; signed over the canonical proto3 body encoding — the wrapped set is 
   signed no-op). The old owner stays on as a member.
 
 The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core`
-(LoroDoc) + the `utils/crypto` leaf + `@lode/protocol` (records), so it can't sit in `domain`
-(no-protocol rule); `runtime` is sanctioned as the sync core (`SyncManager` lives there). It is a
+(LoroDoc) + the `crypto` leaf + `@lode/protocol` (records), so it can't sit in `domain`
+(no-protocol rule); `runtime` is sanctioned as the sync core (`SyncExchange` lives there). It is a
 **Loro doc inside the workspace**, so it syncs like any doc — `MembershipSync` gossip-pushes
 it over the transport's plaintext envelope. Validity = the record's signature verifies AND the
 signer is the current owner (root is
@@ -219,7 +219,7 @@ the same actor keypair (same mnemonic).
   keypair type) — used to wrap the **transit key** to members. The Edwards↔Montgomery conversions
   - X25519 ECDH use `@noble/curves` (`ed25519.utils.toMontgomery` / `toMontgomerySecret` +
     `x25519.getSharedSecret`); SLIP-10 HMAC, Ed25519 sign/verify, and the sealed-box AES-256-GCM +
-    HKDF stay in `node:crypto` (the `utils/crypto` leaf).
+    HKDF stay in `node:crypto` (the `crypto` leaf).
 - **Mnemonic:** BIP-39 (12 words) → SLIP-10 hardened derivation → 32-byte seed → Ed25519. The
   mnemonic is the recovery root for the actor identity (mirrors any-sync's
   `util/crypto/mnemonic.go`). Lode's actor path is `m/44'/2026'/<account>'/0'/<index>'` (all
@@ -554,7 +554,7 @@ Alice's phone]`. Users see people, not peerIds.
 - **Crypto:** `actor-encryption.ts` → `transit-wrap.ts` (wrap/unwrap retargeted to peer X25519);
   **delete `curve.ts`** (Ed↔Montgomery — zero consumers after the move); delete
   `actorEncryptionPublic/Private`; update `actor-key.ts` docstring (Ed25519 signing-only); drop the
-  re-exports in `utils/crypto/index.ts` and `engine/src/index.ts`.
+  re-exports in `crypto/index.ts` and `engine/src/index.ts`.
 - **State/types:** `Member` → `Peer`; `MemberPublicKeys` → `PeerPublicKeys`;
   `MembershipState.members: Map<actorId>` → `peers: Map<peerId>` (no separate `actors` index — the
   signer's signPub is recovered from its actorId via `actorPublicKeyFromId`, since actorId IS the hex
@@ -563,7 +563,7 @@ Alice's phone]`. Users see people, not peerIds.
   `AddMemberRequest.member_sign_pub` → `(peer_enc_pub, peer_id, owning_actor_id)`;
   `MembershipRecord.signer` comment notes the owner-or-self-add cases.
 - **Daemon:** `sync-runner.ts registrations: Map<wsId, ActorKeypair>` STAYS actor-per-workspace (the
-  peer key + peerId are per-dataRoot, not per-registration); `AppWorkspaceRuntime.localPeerFor(actor)` bundles `{actor, peer, peerId}` for the daemon's wire-security + addMember sites.
+  peer key + peerId are per-dataRoot, not per-registration); `WorkspaceRegistry.localPeerFor(actor)` bundles `{actor, peer, peerId}` for the daemon's wire-security + addMember sites.
 - **Docs:** §2/§3/§6/§9 markers, `sync-design.md` §6 marker, this section — drop all "actor encPub /
   Ed25519→X25519 dual-use" language that no longer applies.
 

@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import { generateActorKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair } from "../../crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
-import { SyncManager } from "../sync/sync-manager.js";
+import { SyncExchange } from "../sync/sync-exchange.js";
 import { open, type WireSecurity } from "../membership/wire-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
@@ -88,8 +88,8 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     eavesdropper.subscribe("W");
     await settle();
 
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
     eavesdropper.close();
@@ -160,8 +160,8 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
     await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
 
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     // Both rounds time out: A's reqs are dropped by B; B's reqs get responses from A but B drops them.
     await expect(ma.sync()).rejects.toThrow(/timeout|closed/);
     await expect(mb.sync()).rejects.toThrow(/timeout|closed/);

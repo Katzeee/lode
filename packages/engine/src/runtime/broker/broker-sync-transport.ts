@@ -12,7 +12,7 @@ import { decodeProfile, encodeProfile } from "../sync/sync-message.js";
 import { open, seal } from "../membership/wire-security.js";
 import type { SyncBytes, SyncableDoc } from "../../core/store/syncable.js";
 import type { WorkspaceDocSet } from "../../core/store/doc-set.js";
-import type { SyncProfile, SyncTransport } from "../sync/sync-manager.js";
+import type { SyncProfile, SyncTransport } from "../sync/sync-exchange.js";
 import type { WireSecurity } from "../membership/wire-security.js";
 
 const log = createLogger("engine.broker.sync");
@@ -63,7 +63,7 @@ const taskBytes = (t: DocTask): number =>
 /**
  * `SyncTransport` over the broker (design: request/response over the broker's pub/sub). Each peer
  * runs BOTH halves:
- *   - **Initiator** (the `SyncTransport` methods, driven by the engine's `SyncManager`): publish a
+ *   - **Initiator** (the `SyncTransport` methods, driven by the engine's `SyncExchange`): publish a
  *     correlated request and await the matching response (by `reqId`).
  *   - **Responder** (every incoming payload): answer profile/updates requests from the local
  *     composite, and import pushed updates.
@@ -146,7 +146,7 @@ export class BrokerSyncProtocol implements SyncTransport {
   }
 
   close(): void {
-    // Reject in-flight requests (don't leave SyncManager.sync() awaiting a promise that never
+    // Reject in-flight requests (don't leave SyncExchange.sync() awaiting a promise that never
     // settles) before tearing down the socket.
     this.rejectPending(new Error("sync transport closed"));
     // Close every per-doc recv queue → its drainer's `for await` completes (queued-but-unrun tasks
@@ -167,7 +167,7 @@ export class BrokerSyncProtocol implements SyncTransport {
     this.pending.clear();
   }
 
-  // ── SyncTransport: initiator (driven by SyncManager) ────────────────────────────
+  // ── SyncTransport: initiator (driven by SyncExchange) ────────────────────────────
 
   async remoteProfile(): Promise<SyncProfile> {
     const reqId = randomUUID();
@@ -195,7 +195,7 @@ export class BrokerSyncProtocol implements SyncTransport {
    *  specific member for the membership doc). The request is PLAINTEXT for a public doc (the membership
    *  roster): a joiner fetches it BEFORE it holds the transit key, so it cannot seal the request — the
    *  bootstrap chicken-and-egg. The response is broadcast (sender-exclusion delivers it back here) and
-   *  also plaintext for a public doc. Part of the `SyncTransport` seam — `SyncManager` broadcasts
+   *  also plaintext for a public doc. Part of the `SyncTransport` seam — `SyncExchange` broadcasts
    *  (`fetchUpdates`), the engine's join path directs (here, via the registry's directed membership
    *  fetch). */
   async directedFetchUpdates(

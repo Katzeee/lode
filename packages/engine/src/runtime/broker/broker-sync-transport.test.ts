@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
-import { SyncManager } from "../sync/sync-manager.js";
+import { SyncExchange } from "../sync/sync-exchange.js";
 import { BrokerServer } from "./broker-server.js";
 import { BrokerSyncProtocol } from "./broker-sync-transport.js";
 
@@ -61,8 +61,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle(); // let both subscribes land on the server
 
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
 
@@ -96,8 +96,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle();
 
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([
@@ -140,8 +140,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle();
 
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
 
@@ -221,8 +221,8 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
-    const ma = new SyncManager(a.store, ta);
-    const mb = new SyncManager(b.store, tb);
+    const ma = new SyncExchange(a.store, ta);
+    const mb = new SyncExchange(b.store, tb);
     await ma.sync();
     await mb.sync();
 

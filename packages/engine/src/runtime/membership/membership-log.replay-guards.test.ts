@@ -7,7 +7,7 @@ import {
   signWithActor,
   wrapKey,
   type ActorKeypair,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 import { create, toBinary } from "@bufbuild/protobuf";
 import {
   PeerWrapSchema,

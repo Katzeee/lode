@@ -7,7 +7,7 @@ import {
   generateActorKeypair,
   generatePeerKeypair,
   unwrapKey,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 import {
   MembershipLog,
   MEMBERSHIP_DOC_ID,

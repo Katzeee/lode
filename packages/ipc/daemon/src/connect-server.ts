@@ -17,9 +17,8 @@ import {
   AuthenticationError,
   PreconditionFailedError,
   NotOwnerError,
-  type AppRuntime,
+  type EngineRuntime,
 } from "@lode/engine";
-import type { SyncHandlers } from "./sync-handlers.js";
 
 // Per-call connection id, stamped into the handler context by the adapter (one id per
 // HTTP/2 session). Identifies a client for session/subscription/notification routing.
@@ -97,17 +96,14 @@ function serverStreaming<I, O>(handler: (req: I, connectionId: string) => AsyncI
 // handlers. One connectionId is assigned per HTTP/2 session and cleaned up on session close.
 // Returns the server plus closeConnections() to forcibly tear down live sessions on shutdown
 // (http2 servers don't expose closeAllConnections like http servers do).
-export function createLodeServer(
-  runtime: AppRuntime,
-  extraHandlers: SyncHandlers,
-): {
+export function createLodeServer(runtime: EngineRuntime): {
   server: http2.Http2Server;
   closeConnections: () => void;
 } {
-  // Merge the engine's handlers (all RPC adapters incl. relay-independent governance) with the
-  // daemon-side sync handlers (the runner-dependent share/join/register/syncNow). The engine is
-  // transport/host-free; the daemon is the composition root that owns the sync runner.
-  const commands = { ...runtime.commands, ...extraHandlers };
+  // The engine's full auth-wrapped command bag — every LodeCommands RPC (incl. the sync
+  // share/join/register/syncNow, now engine-resident). The daemon is pure transport: it routes the
+  // bag, owns no handlers, and reaches no engine subsystem directly.
+  const commands = runtime.commands;
   const sessions = new Map<http2.Http2Session, string>();
 
   const handler = connectNodeAdapter({
@@ -125,10 +121,9 @@ export function createLodeServer(
         sessions.set(session, id);
         session.on("close", () => {
           sessions.delete(session);
-          // A closed connection drops its session record (identity) + its notification stream +
-          // subscriber entries (notify) — the two halves of the old session manager.
-          runtime.identity.removeConnection(id as string);
-          runtime.notify.removeConnection(id as string);
+          // A closed connection drops its session record + its notification stream/subscriber
+          // entries — the engine's single connection-teardown hook converges both halves.
+          runtime.onConnectionClosed(id as string);
         });
       }
       return createContextValues().set(connectionIdKey, id);

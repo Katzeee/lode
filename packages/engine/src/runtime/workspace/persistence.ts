@@ -16,7 +16,7 @@ const encode = (s: string): Uint8Array => new TextEncoder().encode(s);
 /**
  * The DocStore-facing load/persist/reconcile ops for a workspace — pure structure over the
  * workspace + DocStore + shard-store config. Holds no lifecycle, no registry, no loaded map: the
- * AppWorkspaceRuntime facade resolves a workspaceId to its (workspace, docStore) and delegates here.
+ * WorkspaceRegistry facade resolves a workspaceId to its (workspace, docStore) and delegates here.
  */
 export class WorkspacePersistence {
   constructor(
@@ -113,11 +113,11 @@ export class WorkspacePersistence {
         ? { snapshotEveryUpdates: sink.snapshotEveryUpdates }
         : {}),
     });
-    const doc = workspace.createEngine({ store: blockStore });
+    const engine = workspace.createEngine({ store: blockStore });
     await blockStore.reconcileDurability();
     // Persist the heal so the next open doesn't re-heal (the heal deltas land in the fork DocStore).
     await blockStore.flushDirty();
-    const occ = toJSONOccurrences(doc);
+    const occ = toJSONOccurrences(engine);
     validateOccurrenceStructure(occ.occurrences, occ.rootOccurrenceIds);
     return workspace;
   }

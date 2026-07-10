@@ -111,54 +111,54 @@ console.log("\n═══ Engine API ══════════════�
 
 // 5. Engine — our wrapper
 {
-  const doc = new Engine();
+  const engine = new Engine();
   t("Engine.createNode() × 100, individual commits", () => {
     for (let i = 0; i < 100; i++) {
-      doc.createNode();
+      engine.createNode();
     }
   });
 }
 {
-  const doc = new Engine();
+  const engine = new Engine();
   const ids: string[] = [];
   t("Engine.createNode() × 100 in transact()", () => {
-    doc.transact(() => {
+    engine.transact(() => {
       for (let i = 0; i < 100; i++) {
-        ids.push(doc.createNode().occurrenceId);
+        ids.push(engine.createNode().occurrenceId);
       }
     });
   });
   t("Engine.replaceDeltas() × 100 in transact()", () => {
-    doc.transact(() => {
+    engine.transact(() => {
       for (const id of ids) {
-        doc.replaceDeltas(id, [
+        engine.replaceDeltas(id, [
           { insert: "hello world from block in the outliner document test abc" },
         ]);
       }
     });
   });
   t("Engine.export() after 100 blocks", () => {
-    doc.exportSnapshot();
+    engine.exportSnapshot();
   });
   t("new Engine({ initialTreeBytes }) — import 100 blocks (treeDoc structure)", () => {
-    new Engine({ store: new ShardedBlockStore({ initialTreeBytes: doc.exportSnapshot() }) });
+    new Engine({ store: new ShardedBlockStore({ initialTreeBytes: engine.exportSnapshot() }) });
   });
 }
 {
-  const doc = new Engine();
+  const engine = new Engine();
   const ids: string[] = [];
   t("Engine: 500 blocks + text, all in one transact()", () => {
-    doc.transact(() => {
+    engine.transact(() => {
       for (let i = 0; i < 500; i++) {
-        const id = doc.createNode().occurrenceId;
+        const id = engine.createNode().occurrenceId;
         ids.push(id);
-        doc.replaceDeltas(id, [
-          { insert: `hello world from block number ${i} in the outliner doc` },
+        engine.replaceDeltas(id, [
+          { insert: `hello world from block number ${i} in the outliner engine` },
         ]);
       }
     });
   });
-  const snap = doc.exportSnapshot();
+  const snap = engine.exportSnapshot();
   console.log(
     `  ${"Engine: 500 blocks snapshot size".padEnd(48)} ${(snap.length / 1024).toFixed(1).padStart(8)} KB`,
   );

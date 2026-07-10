@@ -1,3 +1,7 @@
+/* eslint-disable max-lines -- WorkspaceRegistry is the workspace-registry facade: it owns the
+loaded map, the serialization chains, the factory host, the lifecycle (close/crashClose), AND its own
+Component lifecycle (start/stop) — a cohesive facade that legitimately exceeds the file cap (cf.
+sharded-store.ts). */
 import {
   InMemoryDocStore,
   LoroMetaDoc,
@@ -16,11 +20,10 @@ import { WorkspaceStore } from "../../persistence/workspace-store.js";
 import { WorkspaceDocStore } from "./doc-store.js";
 import { DocStoreMembershipPersistence } from "../membership/membership-persistence.js";
 import { MEMBERSHIP_DOC_ID, MembershipLog } from "../membership/membership-log.js";
-import { App, type Component } from "../app.js";
+import { Lifecycle, type Component } from "../lifecycle.js";
 import { PeerIdentity } from "../identity/peer-identity.js";
 import { WorkspacePersistence } from "./persistence.js";
-import type { NotificationHub } from "../../event.js";
-import type { WorkspaceProvider } from "../../workspace-provider.js";
+import type { NotificationManager } from "../notification/notification-manager.js";
 import type { SyncRegistry } from "../sync/registry.js";
 import {
   WorkspaceFactory,
@@ -42,7 +45,7 @@ export type PersistenceOptions = {
 /** Default resident shard bound — caps parsed CRDTs at 32; the treeDoc stays always-resident. */
 const DEFAULT_SHARD_CACHE_CAPACITY = 32;
 
-// Per-workspace lifecycle components. App.stop runs them in reverse registration order, so
+// Per-workspace lifecycle components. Lifecycle.stop runs them in reverse registration order, so
 // workspace is registered before store → store closes before workspace disposes (matching
 // the prior hand-coded teardown order).
 class WorkspaceComponent implements Component {
@@ -70,7 +73,10 @@ class WorkspaceStoreComponent implements Component {
  * Persistent vs in-memory is NOT a scattered `if`: it is which RegistryStore + WorkspaceContentOpener
  * are injected at construction. Both modes run the same create/fork/load path.
  */
-export class AppWorkspaceRuntime implements WorkspaceProvider {
+export class WorkspaceRegistry implements Component {
+  /** Component name — this subsystem registers itself on the Lifecycle (see createEngineRuntime). */
+  readonly name = "workspace-registry";
+
   private readonly loaded = new Map<string, LoadedWorkspace>();
   private readonly persistence: WorkspacePersistence;
   private readonly factory: WorkspaceFactory;
@@ -79,7 +85,7 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
    *  workspace's death can purge them too. Optional because a registry constructed directly (tests)
    *  may never wire sync/notify; `unloadWorkspace` then skips the purge. */
   private syncRegistry?: SyncRegistry;
-  private notify?: NotificationHub;
+  private notify?: NotificationManager;
 
   private constructor(
     private readonly config: {
@@ -89,7 +95,7 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
       opener: WorkspaceContentOpener;
     },
     private readonly peer: PeerIdentity,
-    private readonly createChildApp: () => App,
+    private readonly createChildApp: () => Lifecycle,
   ) {
     this.persistence = new WorkspacePersistence(
       peer.peerId,
@@ -135,9 +141,11 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
     return this.peer.localPeerFor(actor);
   }
 
-  static async inMemory(createChildApp: () => App = () => new App()): Promise<AppWorkspaceRuntime> {
+  static async inMemory(
+    createChildApp: () => Lifecycle = () => new Lifecycle(),
+  ): Promise<WorkspaceRegistry> {
     const registry = new InMemoryRegistryStore();
-    return new AppWorkspaceRuntime(
+    return new WorkspaceRegistry(
       {
         snapshotEveryUpdates: Number.POSITIVE_INFINITY,
         shardCacheCapacity: Number.POSITIVE_INFINITY,
@@ -151,10 +159,10 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
 
   static async persistent(
     options: PersistenceOptions,
-    createChildApp: () => App = () => new App(),
-  ): Promise<AppWorkspaceRuntime> {
+    createChildApp: () => Lifecycle = () => new Lifecycle(),
+  ): Promise<WorkspaceRegistry> {
     const registry = await SqliteRegistryStore.open(options.dataRoot);
-    return new AppWorkspaceRuntime(
+    return new WorkspaceRegistry(
       {
         snapshotEveryUpdates: options.snapshotEveryUpdates ?? 100,
         shardCacheCapacity: options.shardCacheCapacity ?? DEFAULT_SHARD_CACHE_CAPACITY,
@@ -258,7 +266,7 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
 
   /** Wire the cross-component holders of per-workspace state so a workspace's death purges them too.
    *  Called once at runtime assembly, after these are constructed (both depend on this registry). */
-  attachWorkspaceStateHolders(sync: SyncRegistry, notify: NotificationHub): void {
+  attachWorkspaceStateHolders(sync: SyncRegistry, notify: NotificationManager): void {
     this.syncRegistry = sync;
     this.notify = notify;
   }
@@ -266,13 +274,24 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
   /** Fail-loud if the two-phase wiring never happened. A workspace's death would otherwise silently
    *  leak its sync registration + notification subscribers (ghosts) — `attachWorkspaceStateHolders`
    *  MUST run before the registry goes live. Called from the lifecycle `start()`; direct tests that
-   *  bypass the App lifecycle never reach it. */
+   *  bypass the lifecycle never reach it. */
   assertStateHoldersAttached(): void {
     if (this.syncRegistry === undefined || this.notify === undefined) {
       throw new Error(
         "workspace registry state holders not attached — call attachWorkspaceStateHolders before start",
       );
     }
+  }
+
+  /** Component lifecycle: fail-loud if the cross-component state holders weren't attached — a
+   *  workspace's death would otherwise silently leak its sync + notification state. */
+  start(): void {
+    this.assertStateHoldersAttached();
+  }
+
+  /** Component lifecycle: tear down every loaded workspace sub-runtime + the registry store. */
+  async stop(): Promise<void> {
+    await this.close();
   }
 
   async removeWorkspace(workspaceId: string): Promise<boolean> {
@@ -314,7 +333,7 @@ export class AppWorkspaceRuntime implements WorkspaceProvider {
   /** The ChildApp for an ALREADY-loaded workspace (null if not open). Sync wires its sub-graph onto
    *  this as a child so `removeWorkspace`'s `app.stop()` tears engine + store + sync down in one
    *  graph. Peek-only — never triggers a load. */
-  loadedApp(workspaceId: string): App | null {
+  loadedApp(workspaceId: string): Lifecycle | null {
     return this.loaded.get(workspaceId)?.app ?? null;
   }
 

@@ -17,7 +17,7 @@ export type AppServerTransport = {
 };
 
 /** A commands handler bag — method name → `(request, connectionId)` handler. This is the engine's
- *  `createLodeCommands` output, typed structurally so `@lode/client` stays free of an engine
+ *  `createCommands` output, typed structurally so `@lode/client` stays free of an engine
  *  dependency; the real (typed) commands object is assignable because every property is a function. */
 export type InProcessCommands = Record<string, unknown>;
 

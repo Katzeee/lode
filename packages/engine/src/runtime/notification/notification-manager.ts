@@ -4,16 +4,19 @@ import {
   OriginSchema,
   type NodeUpdatedPayload as ProtoNodeUpdatedPayload,
 } from "@lode/protocol/proto";
-import { NotificationStream, type NotificationHub } from "../../event.js";
-import type { EngineOrigin } from "../../caller.js";
+import { NotificationStream } from "./notification-stream.js";
+import type { EngineOrigin } from "../identity/caller.js";
+import type { Component } from "../lifecycle.js";
 
 /**
  * The notification pub/sub half of the old SessionManager: per-workspace subscribers + per-connection
- * streams. Implements the NotificationHub port services + the workspace registry consume. Pure
- * delivery — no session/auth state (that's SessionIdentity). Shares only the connectionId key with
- * SessionIdentity.
+ * streams. A Component (registers itself on the Lifecycle so app.stop() reaches it); pure delivery — no
+ * session/auth state (that's SessionIdentity). Shares only the connectionId key with SessionIdentity.
  */
-export class NotificationManager implements NotificationHub {
+export class NotificationManager implements Component {
+  /** Component name — registers itself on the Lifecycle (see createEngineRuntime). */
+  readonly name = "notification";
+
   // One doc per workspace, so subscriptions are keyed by workspaceId alone.
   private readonly subscribers = new Map<string, Set<string>>();
   private readonly streams = new Map<string, NotificationStream>();
@@ -81,9 +84,13 @@ export class NotificationManager implements NotificationHub {
     this.subscribers.delete(workspaceId);
   }
 
-  /** Lifecycle teardown: complete every open notification stream and drop the subscriber/ stream
-   *  bookkeeping. The runtime roots this on the App (via a Component adapter) so `app.stop()` reaches
-   *  it regardless of how the host wired connection teardown. */
+  /** Component lifecycle: complete every open stream + drop the subscriber/stream bookkeeping. */
+  stop(): void {
+    this.close();
+  }
+
+  /** Lifecycle teardown (also the Component.stop body): complete every open notification stream and
+   *  drop the subscriber/stream bookkeeping. */
   close(): void {
     for (const stream of this.streams.values()) {
       stream.close();

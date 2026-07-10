@@ -1,7 +1,7 @@
 import { type Component, BrokerServer } from "@lode/engine";
 
 /**
- * Hosts the workspace-routing broker (the relay) as an App `Component` (design sync-design.md §3).
+ * Hosts the workspace-routing broker (the relay) as an Lifecycle `Component` (design sync-design.md §3).
  * The relay is a stateless coordinate — content-blind, no-auth, no storage, served as a Connect gRPC
  * `BrokerService` over HTTP/2. Bind is async, so `start()` awaits `ready()`; `url` is readable only
  * after `start()` (the port is ephemeral until bound). Registered before the sync runner so it stops

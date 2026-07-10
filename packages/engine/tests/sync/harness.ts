@@ -5,13 +5,13 @@ import { InMemoryDocStore, type LoadedDocBytes } from "../../src/core/index.js";
 import { toJSON } from "../../src/core/serialize.js";
 import type { DocSnapshot } from "../../src/core/types.js";
 import { validateSnapshot } from "../../src/core/invariant.js";
-import { syncPair } from "../../src/runtime/sync/sync-manager.js";
+import { syncPair } from "../../src/runtime/sync/sync-exchange.js";
 import { stableStringify } from "../truth-model.js";
 
 /**
  * Shared sync-test harness. Ports the prototype simulator (cloneReplica/syncAll) + the
  * occId-normalized comparator (from tests/editing.test.ts) to the PRODUCTION surface
- * (Engine + ShardedBlockStore + SyncManager). Live Loro occurrence ids churn across
+ * (Engine + ShardedBlockStore + SyncExchange). Live Loro occurrence ids churn across
  * replicas/recreate, but the permanent occId is minted into the CRDT bytes and survives —
  * so two converged replicas project to identical canonical strings.
  */

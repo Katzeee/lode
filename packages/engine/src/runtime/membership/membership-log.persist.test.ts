@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { WorkspaceStore } from "../../persistence/workspace-store.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
 import {

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
-import { generateActorKeypair, generatePeerKeypair } from "../../utils/crypto/index.js";
+import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { createMembershipWireSecurity } from "./membership-security.js";
 import { open, seal } from "./wire-security.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";

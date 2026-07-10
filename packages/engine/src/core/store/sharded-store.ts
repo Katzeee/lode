@@ -10,7 +10,7 @@ import {
   VersionVector,
 } from "loro-crdt";
 import type { SyncableComposite, SyncableDoc } from "./syncable.js";
-import { NotFoundError } from "../../errors.js";
+import { NotFoundError } from "../../errors/index.js";
 import { SYS_PREFIX } from "./syncable.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
 import { InMemoryDocStore } from "./in-memory-doc-store.js";

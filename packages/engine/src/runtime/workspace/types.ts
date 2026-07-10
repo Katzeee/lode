@@ -1,4 +1,4 @@
-import type { App } from "../app.js";
+import type { Lifecycle } from "../lifecycle.js";
 import type { DocStore, Workspace } from "../../core/index.js";
 import type { WorkspaceStore } from "../../persistence/workspace-store.js";
 import type { MembershipLog } from "../membership/membership-log.js";
@@ -10,12 +10,12 @@ export type RuntimeWorkspaceInfo = {
 };
 
 /** A loaded workspace's runtime handles: its ChildApp (lifecycle), the Workspace + store + DocStore
- *  port, and the membership log. Shared between the AppWorkspaceRuntime facade and its
+ *  port, and the membership log. Shared between the WorkspaceRegistry facade and its
  *  WorkspaceFactory collaborator. */
 export type LoadedWorkspace = {
   // Per-workspace sub-runtime: a ChildApp whose components (workspace + store) are stopped in
   // reverse on unload, and which is the mounting point for per-workspace subsystems (sync state).
-  app: App;
+  app: Lifecycle;
   workspace: Workspace;
   // Null in in-memory mode (no per-workspace SQLite db); a WorkspaceStore in persistent mode.
   store: WorkspaceStore | null;

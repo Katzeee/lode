@@ -4,8 +4,6 @@ export type WorkspaceOptions = {
   id?: string;
 };
 
-export type DocOptions = Omit<EngineOptions, "id">;
-
 /**
  * A workspace holds exactly one outliner engine — its content. Formerly modeled as a `Map` of docs
  * (a speculative N-doc generality hardwired to 1); collapsed to the single outliner the product
@@ -25,7 +23,7 @@ export class Workspace {
   }
 
   /** Create the workspace's single outliner engine. Throws if already created. */
-  createEngine(options?: DocOptions): Engine {
+  createEngine(options?: Omit<EngineOptions, "id">): Engine {
     if (this._engine !== null) {
       throw new Error("Workspace already has an engine");
     }

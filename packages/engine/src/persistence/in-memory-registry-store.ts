@@ -3,7 +3,7 @@ import { workspaceRelativePath } from "./paths.js";
 import type { RegistryStore, WorkspaceRecord } from "./registry-store.js";
 
 /**
- * An in-memory RegistryStore — the ephemeral dual of SqliteRegistryStore. Backs AppWorkspaceRuntime's
+ * An in-memory RegistryStore — the ephemeral dual of SqliteRegistryStore. Backs WorkspaceRegistry's
  * in-memory mode so the runtime holds a RegistryStore in BOTH modes (no scattered `if (!registry)`):
  * "persistent vs in-memory" is which impl is injected. Workspaces + the peer id / peer key live only
  * for the process lifetime — nothing survives a restart.

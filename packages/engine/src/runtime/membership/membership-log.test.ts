@@ -8,7 +8,7 @@ import {
   generatePeerKeypair,
   signWithActor,
   type ActorKeypair,
-} from "../../utils/crypto/index.js";
+} from "../../crypto/index.js";
 import {
   AddRecordSchema,
   MembershipRecordSchema,
