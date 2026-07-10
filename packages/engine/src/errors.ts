@@ -1,10 +1,10 @@
 // Engine-internal typed errors. A neutral leaf every engine layer may import (services, runtime,
-// session, the in-process sync core). These carry no wire/error-code knowledge — the daemon
-// (Connect layer) maps them to Connect status codes + details; in-process callers (mobile) handle
-// them directly. Keeping them out of `services/` restores the one-way DAG: lower layers (the sync
-// core in `runtime/`) no longer reach up into the RPC adapter for their error types.
-// (SessionRequiredError stays co-located with its thrower in session/session-manager.ts; the
-// domain-specific DomainInvalidInputError stays in domain/errors.ts.)
+// the in-process sync core). These carry no wire/error-code knowledge — the daemon (Connect layer)
+// maps them to Connect status codes + details; in-process callers (mobile) handle them directly.
+// Keeping them out of `services/` restores the one-way DAG: lower layers (the sync core in
+// `runtime/`) no longer reach up into the RPC adapter for their error types.
+// (SessionRequiredError stays co-located with its thrower in runtime/identity/session-identity.ts;
+// the domain-specific DomainInvalidInputError stays in domain/errors.ts.)
 
 export class DocNotFoundError extends Error {
   readonly workspaceId: string;

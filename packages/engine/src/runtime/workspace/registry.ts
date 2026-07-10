@@ -19,7 +19,8 @@ import { MEMBERSHIP_DOC_ID, MembershipLog } from "../membership/membership-log.j
 import { App, type Component } from "../app.js";
 import { PeerIdentity } from "../identity/peer-identity.js";
 import { WorkspacePersistence } from "./persistence.js";
-import type { SessionManager } from "../../session/session-manager.js";
+import type { NotificationHub } from "../../event.js";
+import type { WorkspaceProvider } from "../../workspace-provider.js";
 import type { SyncRegistry } from "../sync/registry.js";
 import {
   WorkspaceFactory,
@@ -28,9 +29,6 @@ import {
   type WorkspaceContentOpener,
 } from "./factory.js";
 import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./types.js";
-
-export type { CreateWorkspaceInput, ForkWorkspaceInput } from "./factory.js";
-export type { RuntimeWorkspaceInfo } from "./types.js";
 
 export type PersistenceOptions = {
   dataRoot: string;
@@ -72,16 +70,16 @@ class WorkspaceStoreComponent implements Component {
  * Persistent vs in-memory is NOT a scattered `if`: it is which RegistryStore + WorkspaceContentOpener
  * are injected at construction. Both modes run the same create/fork/load path.
  */
-export class AppWorkspaceRuntime {
+export class AppWorkspaceRuntime implements WorkspaceProvider {
   private readonly loaded = new Map<string, LoadedWorkspace>();
   private readonly persistence: WorkspacePersistence;
   private readonly factory: WorkspaceFactory;
-  /** Cross-component holders of per-workspace state (sync registrations/sub-graphs, session
+  /** Cross-component holders of per-workspace state (sync registrations/sub-graphs, notification
    *  subscribers). Set once at runtime assembly — after this registry, since both depend on it — so a
    *  workspace's death can purge them too. Optional because a registry constructed directly (tests)
-   *  may never wire sync/sessions; `unloadWorkspace` then skips the purge. */
+   *  may never wire sync/notify; `unloadWorkspace` then skips the purge. */
   private syncRegistry?: SyncRegistry;
-  private sessions?: SessionManager;
+  private notify?: NotificationHub;
 
   private constructor(
     private readonly config: {
@@ -132,8 +130,7 @@ export class AppWorkspaceRuntime {
     return this.peer.originLabel();
   }
 
-  /** The LocalPeer (session actor + per-dataRoot peer key + peerId) a host uses for wire security
-   *  + membership ops on this dataRoot. */
+  /** The LocalPeer (session actor + per-dataRoot peer key + peerId) for wire security + membership ops. */
   localPeerFor(actor: Parameters<PeerIdentity["localPeerFor"]>[0]) {
     return this.peer.localPeerFor(actor);
   }
@@ -261,17 +258,17 @@ export class AppWorkspaceRuntime {
 
   /** Wire the cross-component holders of per-workspace state so a workspace's death purges them too.
    *  Called once at runtime assembly, after these are constructed (both depend on this registry). */
-  attachWorkspaceStateHolders(sync: SyncRegistry, sessions: SessionManager): void {
+  attachWorkspaceStateHolders(sync: SyncRegistry, notify: NotificationHub): void {
     this.syncRegistry = sync;
-    this.sessions = sessions;
+    this.notify = notify;
   }
 
   /** Fail-loud if the two-phase wiring never happened. A workspace's death would otherwise silently
-   *  leak its sync registration + session subscribers (ghosts) — `attachWorkspaceStateHolders` MUST
-   *  run before the registry goes live. Called from the lifecycle `start()`; direct tests that bypass
-   *  the App lifecycle never reach it. */
+   *  leak its sync registration + notification subscribers (ghosts) — `attachWorkspaceStateHolders`
+   *  MUST run before the registry goes live. Called from the lifecycle `start()`; direct tests that
+   *  bypass the App lifecycle never reach it. */
   assertStateHoldersAttached(): void {
-    if (this.syncRegistry === undefined || this.sessions === undefined) {
+    if (this.syncRegistry === undefined || this.notify === undefined) {
       throw new Error(
         "workspace registry state holders not attached — call attachWorkspaceStateHolders before start",
       );
@@ -300,7 +297,7 @@ export class AppWorkspaceRuntime {
     }
     this.workspaceChains.delete(workspaceId);
     this.syncRegistry?.purge(workspaceId);
-    this.sessions?.purgeWorkspace(workspaceId);
+    this.notify?.purgeWorkspace(workspaceId);
   }
 
   async getEngine(workspaceId: string): Promise<Engine | null> {

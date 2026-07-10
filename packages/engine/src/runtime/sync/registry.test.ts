@@ -6,7 +6,7 @@ import {
   RemoveWorkspaceRequestSchema,
 } from "@lode/protocol/proto";
 import { afterEach, describe, expect, it } from "vitest";
-import { deriveActorKeypair } from "../../session/identity-policy.js";
+import { deriveActorKeypair } from "../identity/identity-policy.js";
 import { generateMnemonic, type ActorKeypair } from "../../utils/crypto/index.js";
 import { createAppRuntime, type AppRuntime } from "../app-runtime.js";
 import { BrokerServer } from "../broker/broker-server.js";
@@ -43,7 +43,7 @@ function ownerSession(runtime: AppRuntime): { connectionId: string; keypair: Act
   const mnemonic = generateMnemonic();
   const keypair = deriveActorKeypair(mnemonic);
   const connectionId = randomUUID();
-  runtime.sessions.createSession(
+  runtime.identity.createSession(
     connectionId,
     create(SessionHelloRequestSchema, { mnemonic }),
     keypair,

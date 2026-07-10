@@ -125,7 +125,10 @@ export function createLodeServer(
         sessions.set(session, id);
         session.on("close", () => {
           sessions.delete(session);
-          runtime.sessions.removeConnection(id as string);
+          // A closed connection drops its session record (identity) + its notification stream +
+          // subscriber entries (notify) — the two halves of the old session manager.
+          runtime.identity.removeConnection(id as string);
+          runtime.notify.removeConnection(id as string);
         });
       }
       return createContextValues().set(connectionIdKey, id);

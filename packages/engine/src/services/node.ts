@@ -31,6 +31,7 @@ import {
   promoteCanonicalOccurrence,
   removeOccurrence,
 } from "../domain/node/node.js";
+import { authed, open } from "../handler.js";
 import { getEngine, type AppContext } from "./wire/context.js";
 import { EMPTY } from "./wire/empty.js";
 import { runMutation } from "./wire/mutation.js";
@@ -49,37 +50,26 @@ const shardOfOcc =
     return nodeId ? [nodeId] : [];
   };
 
-// eslint-disable-next-line max-lines-per-function -- registers the full node RPC handler set; each handler is a thin adapter over Engine.
+// eslint-disable-next-line max-lines-per-function -- registers the full node RPC handler set; each handler is a thin authed()/open() adapter over Engine.
 export function createNodeHandlers(ctx: AppContext) {
   return {
-    createPlainNode: async (
-      req: CreatePlainNodeRequest,
-      connectionId: string,
-    ): Promise<NodeOccurrenceWire> => {
-      // Single-root (one workspace = one content tree) is structural: `createPlainNode` takes a
-      // required parent, and only `createWorkspaceRoot` (called at workspace birth) can root. So
-      // every caller — this RPC, in-process, importers — attaches under an existing node.
-      const node = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        createPlainNode(doc, req.parentOccurrenceId, req.index, req.props),
-      );
-      return nodeToProto(node);
-    },
+    createPlainNode: authed(
+      async (req: CreatePlainNodeRequest, caller): Promise<NodeOccurrenceWire> => {
+        const node = await runMutation(ctx, caller, req.workspaceId, (doc) =>
+          createPlainNode(doc, req.parentOccurrenceId, req.index, req.props),
+        );
+        return nodeToProto(node);
+      },
+    ),
 
-    getNode: async (req: GetNodeRequest, _connectionId: string): Promise<GetNodeResponse> => {
+    getNode: open(async (req: GetNodeRequest): Promise<GetNodeResponse> => {
       const doc = await getEngine(ctx, req.workspaceId);
       const node = await doc.getOccurrence(req.occurrenceId);
       return create(GetNodeResponseSchema, { occurrence: node ? nodeToProto(node) : undefined });
-    },
+    }),
 
-    getNodeById: async (
-      req: GetNodeByIdRequest,
-      _connectionId: string,
-    ): Promise<GetNodeResponse> => {
+    getNodeById: open(async (req: GetNodeByIdRequest): Promise<GetNodeResponse> => {
       const doc = await getEngine(ctx, req.workspaceId);
-      // Resolve the canonical occurrence, then read it via the OPTIONAL `getOccurrence` so only a
-      // missing node maps to an empty response. The canonical lookup throws NotFoundError on a
-      // missing node; any OTHER failure (a shard fault, a corrupt entity) propagates for the daemon
-      // to map to a real Connect error — the old bare `catch {}` masked those as a silent "no such node".
       let canonicalOccurrenceId: string;
       try {
         canonicalOccurrenceId = await doc.getCanonicalOccurrenceId(req.nodeId);
@@ -93,114 +83,101 @@ export function createNodeHandlers(ctx: AppContext) {
       return create(GetNodeResponseSchema, {
         occurrence: occurrence ? nodeToProto(occurrence) : undefined,
       });
-    },
+    }),
 
-    getNodeChildren: async (
-      req: GetNodeChildrenRequest,
-      _connectionId: string,
-    ): Promise<GetNodeChildrenResponse> => {
+    getNodeChildren: open(async (req: GetNodeChildrenRequest): Promise<GetNodeChildrenResponse> => {
       const children = await getSemanticChildren(
         await getEngine(ctx, req.workspaceId),
         req.occurrenceId,
       );
       return create(GetNodeChildrenResponseSchema, { children: children.map(nodeToProto) });
-    },
+    }),
 
-    listRoots: async (req: ListRootsRequest, _connectionId: string): Promise<ListRootsResponse> => {
+    listRoots: open(async (req: ListRootsRequest): Promise<ListRootsResponse> => {
       const doc = await getEngine(ctx, req.workspaceId);
       const roots = await doc.getRootOccurrences();
       return create(ListRootsResponseSchema, { roots: roots.map(nodeToProto) });
-    },
+    }),
 
-    moveNode: async (req: MoveNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+    moveNode: authed(async (req: MoveNodeRequest, caller): Promise<Empty> => {
+      await runMutation(ctx, caller, req.workspaceId, (doc) =>
         moveOccurrence(doc, req.occurrenceId, req.parentOccurrenceId, req.index),
       );
       return EMPTY;
-    },
+    }),
 
-    replaceNodeText: async (req: ReplaceNodeTextRequest, connectionId: string): Promise<Empty> => {
+    replaceNodeText: authed(async (req: ReplaceNodeTextRequest, caller): Promise<Empty> => {
       await runMutation(
         ctx,
-        connectionId,
+        caller,
         req.workspaceId,
         (doc) => doc.replaceDeltas(req.occurrenceId, deltasFromProto(req.deltas)),
         shardOfOcc(req.occurrenceId),
       );
       return EMPTY;
-    },
+    }),
 
-    setNodeProp: async (req: SetNodePropRequest, connectionId: string): Promise<Empty> => {
+    setNodeProp: authed(async (req: SetNodePropRequest, caller): Promise<Empty> => {
       await runMutation(
         ctx,
-        connectionId,
+        caller,
         req.workspaceId,
         (doc) => doc.setProp(req.occurrenceId, req.key, fromValue(req.value)),
         shardOfOcc(req.occurrenceId),
       );
       return EMPTY;
-    },
+    }),
 
-    unsetNodeProp: async (req: UnsetNodePropRequest, connectionId: string): Promise<Empty> => {
+    unsetNodeProp: authed(async (req: UnsetNodePropRequest, caller): Promise<Empty> => {
       await runMutation(
         ctx,
-        connectionId,
+        caller,
         req.workspaceId,
         (doc) => doc.unsetProp(req.occurrenceId, req.key),
         shardOfOcc(req.occurrenceId),
       );
       return EMPTY;
-    },
+    }),
 
-    setOccurrenceProp: async (
-      req: SetOccurrencePropRequest,
-      connectionId: string,
-    ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+    setOccurrenceProp: authed(async (req: SetOccurrencePropRequest, caller): Promise<Empty> => {
+      await runMutation(ctx, caller, req.workspaceId, (doc) =>
         doc.setOccurrenceProp(req.occurrenceId, req.key, fromValue(req.value)),
       );
       return EMPTY;
-    },
+    }),
 
-    unsetOccurrenceProp: async (
-      req: UnsetOccurrencePropRequest,
-      connectionId: string,
-    ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+    unsetOccurrenceProp: authed(async (req: UnsetOccurrencePropRequest, caller): Promise<Empty> => {
+      await runMutation(ctx, caller, req.workspaceId, (doc) =>
         doc.unsetOccurrenceProp(req.occurrenceId, req.key),
       );
       return EMPTY;
-    },
+    }),
 
-    removeNodeOccurrence: async (
-      req: RemoveNodeOccurrenceRequest,
-      connectionId: string,
-    ): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        removeOccurrence(doc, req.occurrenceId),
-      );
-      return EMPTY;
-    },
+    removeNodeOccurrence: authed(
+      async (req: RemoveNodeOccurrenceRequest, caller): Promise<Empty> => {
+        await runMutation(ctx, caller, req.workspaceId, (doc) =>
+          removeOccurrence(doc, req.occurrenceId),
+        );
+        return EMPTY;
+      },
+    ),
 
-    hardDeleteNode: async (req: HardDeleteNodeRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        hardDeleteNodeCore(doc, req.nodeId),
-      );
+    hardDeleteNode: authed(async (req: HardDeleteNodeRequest, caller): Promise<Empty> => {
+      await runMutation(ctx, caller, req.workspaceId, (doc) => hardDeleteNodeCore(doc, req.nodeId));
       return EMPTY;
-    },
+    }),
 
-    promoteCanonicalNode: async (
-      req: PromoteCanonicalNodeRequest,
-      connectionId: string,
-    ): Promise<Empty> => {
-      await runMutation(
-        ctx,
-        connectionId,
-        req.workspaceId,
-        (doc) => promoteCanonicalOccurrence(doc, req.nodeId, req.occurrenceId),
-        () => [req.nodeId],
-      );
-      return EMPTY;
-    },
+    promoteCanonicalNode: authed(
+      async (req: PromoteCanonicalNodeRequest, caller): Promise<Empty> => {
+        await runMutation(
+          ctx,
+          caller,
+          req.workspaceId,
+          (doc) => promoteCanonicalOccurrence(doc, req.nodeId, req.occurrenceId),
+          () => [req.nodeId],
+        );
+        return EMPTY;
+      },
+    ),
   };
 }

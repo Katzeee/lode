@@ -9,7 +9,7 @@
 export { deriveActorKeypairFromMnemonic, generateMnemonic } from "./utils/crypto/index.js";
 
 export type { PersistenceOptions } from "./runtime/workspace/registry.js";
-export { SessionRequiredError } from "./session/session-manager.js";
+export { SessionRequiredError } from "./runtime/identity/session-identity.js";
 export {
   DocNotFoundError,
   NotFoundError,

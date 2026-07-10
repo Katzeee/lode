@@ -1,7 +1,10 @@
 import { App, type Component } from "./app.js";
 import { AppWorkspaceRuntime, type PersistenceOptions } from "./workspace/registry.js";
-import { SessionManager } from "../session/session-manager.js";
+import { SessionIdentity } from "./identity/session-identity.js";
+import { NotificationManager } from "./notification/notification-manager.js";
+import { createSessionRpcs } from "./commands/session-rpcs.js";
 import { createLodeCommands, type AppContext } from "../services/index.js";
+import { wrapCommands, type WrappedCommands } from "./commands/wrap-commands.js";
 import { SyncRegistry } from "./sync/registry.js";
 import type { SyncDeps } from "./sync/deps.js";
 
@@ -16,21 +19,30 @@ export type AppRuntimeOptions = {
 };
 
 export type LodeCommands = ReturnType<typeof createLodeCommands>;
+/** The session/notification/identity RPCs (runtime/session-rpcs) — merged with the domain commands
+ *  before auth-wrapping. */
+type SessionRpcs = ReturnType<typeof createSessionRpcs>;
+/** The command bag transports invoke: each `(req, connectionId) => result`, with the caller resolved
+ *  at this seam (auth chokepoint — see wrapCommands). Covers the domain commands + the session RPCs. */
+export type RuntimeCommands = WrappedCommands<LodeCommands & SessionRpcs>;
 
-// The HOST surface. Hosts (daemon, mobile, embedded) reach the engine ONLY through these four:
-// every client operation goes AppServerClient → `commands` (the single client route, over a
-// pluggable transport); host-only relay-lifecycle handlers (share/join/register/syncNow) go through
-// `sync`; gating goes through `sessions`; lifecycle goes through `app`. The internal subsystems
-// (the workspace registry, the peer/node id) are NOT here — there is no second route around the
-// guarded primitives in `commands`.
+// The HOST surface. Hosts (daemon, mobile, embedded) reach the engine ONLY through these: every
+// client operation goes AppServerClient → `commands` (the single client route, over a pluggable
+// transport); host-only relay-lifecycle handlers (share/join/register/syncNow) go through `sync`;
+// the identity + notification halves are exposed for the host's own connection lifecycle (resolve a
+// caller, tear down a connection); lifecycle goes through `app`. The internal subsystems (workspace
+// registry, peer/node id) are NOT here — there is no second route around the guarded `commands`.
 export type AppRuntime = {
-  /** The session manager — exposed so daemon-side handlers (sync governance/share/join) can gate on
-   *  `requireOrigin`, the same gate the engine's own write handlers use. */
-  readonly sessions: SessionManager;
-  // The LodeCommands service implementation (typed handlers keyed by RPC name). The daemon
-  // binds this to a Connect server; an in-process host binds a direct transport. Either way every
-  // client operation lands here — never bypassing it to the workspace registry or membership log.
-  readonly commands: LodeCommands;
+  /** The auth/identity half — session store + the caller resolver the command wrapper gates on. Host
+   *  handlers (daemon sync: share/join/register) use it to resolve the actor. */
+  readonly identity: SessionIdentity;
+  /** The notification pub/sub half — per-connection streams + per-workspace subscribers. The host
+   *  tears a connection down via removeConnection on both halves. */
+  readonly notify: NotificationManager;
+  // The LodeCommands service, auth-wrapped at this seam. The daemon binds it to a Connect server;
+  // an in-process host binds a direct transport. Either way every client operation lands here,
+  // authenticated at the boundary — never bypassing it to the workspace registry or membership log.
+  readonly commands: RuntimeCommands;
   /** The sync coordinator — per-workspace sync sub-graphs over a relay. Exposed so the host
    *  (daemon/mobile) can drive register/share/join/syncNow through it without importing engine sync
    *  internals. In-process hosts get the same surface. */
@@ -43,14 +55,14 @@ export type AppRuntime = {
 
 // Adapts the workspace registry to the Component lifecycle: stop tears down every loaded
 // workspace sub-runtime (each a ChildApp) and the registry store. The workspaces are the
-// notification broadcasters (engine write handlers call sessions.broadcastNodeUpdated), so they
-// must stop BEFORE the session manager — the registry is registered after it.
+// notification broadcasters (engine write handlers broadcast via the notify port), so they must
+// stop BEFORE the notification half — the registry is registered after it.
 class WorkspaceRegistryComponent implements Component {
   readonly name = "workspace-registry";
   constructor(readonly runtime: AppWorkspaceRuntime) {}
   start(): void {
     // Fail-loud if createAppRuntime skipped attachWorkspaceStateHolders — a workspace's death would
-    // otherwise silently leak sync + session state.
+    // otherwise silently leak sync + notification state.
     this.runtime.assertStateHoldersAttached();
   }
   async stop(): Promise<void> {
@@ -58,16 +70,19 @@ class WorkspaceRegistryComponent implements Component {
   }
 }
 
-// Adapts the SessionManager to the Component lifecycle: stop completes every open notification
-// stream and clears the session/subscriber maps. session/ sits below runtime/ in the DAG, so the
-// Component adapter lives here, not on SessionManager itself. Registered FIRST so it stops LAST —
-// after the workspace broadcasters and the host's connect/relay components — so `app.stop()` closes
-// the streams only once no component can still broadcast.
-class SessionManagerComponent implements Component {
-  readonly name = "session-manager";
-  constructor(readonly sessions: SessionManager) {}
+// Adapts the session-state halves to the Component lifecycle: stop closes every open notification
+// stream (notify) then clears the session bookkeeping (identity). Registered FIRST so it stops LAST
+// — after the workspace broadcasters and the host's connect/relay components — so `app.stop()`
+// closes the streams only once no component can still broadcast.
+class SessionStateComponent implements Component {
+  readonly name = "session-state";
+  constructor(
+    readonly identity: SessionIdentity,
+    readonly notify: NotificationManager,
+  ) {}
   stop(): void {
-    this.sessions.close();
+    this.notify.close();
+    this.identity.close();
   }
 }
 
@@ -83,9 +98,17 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
     : await AppWorkspaceRuntime.inMemory(() => app.child());
   // The session origin label comes from the peer identity (the stable per-dataRoot peerId, so a
   // restart keeps the same origin) — the peerId→string policy lives in PeerIdentity, not copied here.
-  const sessions = new SessionManager(workspaces.originLabel());
-  const ctx: AppContext = { workspaces, sessions };
-  const commands = createLodeCommands(ctx);
+  const identity = new SessionIdentity(workspaces.originLabel());
+  const notify = new NotificationManager();
+  const ctx: AppContext = { workspaces, notify };
+  // The domain commands (services) + the session/notification/identity RPCs (runtime) merged, then
+  // auth-wrapped at this seam: transports invoke `(req, connectionId)` and the wrapper resolves the
+  // caller here — the single auth chokepoint, reached identically by the daemon socket transport and
+  // the engine-free in-process transport.
+  const commands = wrapCommands(
+    { ...createLodeCommands(ctx), ...createSessionRpcs(identity, notify, workspaces) },
+    identity,
+  );
   const sync = new SyncRegistry({
     workspaces,
     ...(options.sync?.deps === undefined ? {} : { deps: options.sync.deps }),
@@ -94,14 +117,15 @@ export async function createAppRuntime(options: AppRuntimeOptions = {}): Promise
       : { roundIntervalMs: options.sync.roundIntervalMs }),
   });
   // Wire the cross-component per-workspace state holders so a workspace's death purges them too.
-  workspaces.attachWorkspaceStateHolders(sync, sessions);
+  workspaces.attachWorkspaceStateHolders(sync, notify);
 
-  app.register(new SessionManagerComponent(sessions));
+  app.register(new SessionStateComponent(identity, notify));
   app.register(new WorkspaceRegistryComponent(workspaces));
   app.register(sync);
 
   return {
-    sessions,
+    identity,
+    notify,
     commands,
     sync,
     app,

@@ -1,59 +1,10 @@
 # Development Guide
 
-## Project Identity
-
-This project is a local-first, Tana-like note management app. Plain nodes are the primary content
-units, refs are first-class product objects, and schema/fieldDef/field model supertag-like
-structure. Product services are exposed to multiple client surfaces by `@lode/engine`, the core
-library; `@lode/daemon` hosts that engine as a local AppServer process for out-of-process clients,
-while mobile/embedded clients may use the engine in-process.
-
-`Engine` is intentionally business-agnostic: it owns block tree, text, props, history, and CRDT
-sync primitives without knowing about Tana-like product concepts.
-
-## Boundaries
-
-- `@lode/protocol` — the wire contract only: method names, schemas, DTOs, errors. Language-neutral.
-- `@lode/logger` — the cross-cutting logging facade. A neutral leaf every package may import.
-- `@lode/client` — the caller-facing RPC client.
-- `@lode/engine` — the core library, layered one way (enforced by ESLint; see DAG). Must not
-  import `@lode/client`.
-- `@lode/daemon` — thin host: process lifecycle + the IPC socket + relay hosting. The peer-sync
-  wire + protocol live in the engine, not here.
-- `apps/*` — deployable client surfaces. Out-of-process surfaces reach the engine through
-  `@lode/client`/`@lode/daemon`; an in-process surface uses `@lode/engine` directly (no daemon).
-
-Engine sublayers (one-way, ESLint-enforced): `core` (block tree, text, props, history, CRDT
-primitives — business-agnostic) ← `domain` (product semantics) ← `services` (RPC adapters) ←
-`runtime` (composition root + the in-process peer-sync core). Pure leaves with no engine imports:
-`persistence`, `domain/model`, `bundle`, `utils/crypto`. `event` = notification primitives;
-`session` = session/subscription/broadcast.
-
-Two wires, kept separate: **Layer A** is the peer-sync wire (engine-internal, between peers);
-**Layer B** is the client→core RPC (`@lode/daemon`/`@lode/client`).
-
-**Engine vs daemon — the deciding test.** Mobile/embedded consume `@lode/engine` in-process with no
-daemon, so anything a consumer needs MUST live in the engine. The daemon holds ONLY host-only
-concerns: process lifecycle, the IPC socket, relay hosting, and the RPC handlers that need
-relay-connection lifecycle (share/join/register/syncNow). Every other RPC handler belongs in
-`engine/src/services/`. Equivalently: delete the daemon; if an in-process consumer can no longer do
-something it should be able to, that something was wrongly placed in the daemon.
-
-Do not move product concepts into `core` — supertags, fields, queries, sessions, subscriptions, UI
-behavior all belong above it.
-
-```
-runtime -> services -> {domain, event, session} -> core
-                       \--> protocol
-domain  -> {core, bundle, domain/model}
-leaves  : persistence, domain/model, bundle, utils/crypto  (no engine imports)
-event   -> protocol      session -> {event, protocol}
-```
-
-`core` may not import any layer above it. `domain` may use `core`/`bundle`/`domain/model` but must
-not register RPC methods, send notifications, or shape wire DTOs. `services` is the RPC adapter
-layer only (no domain semantics — those live in `domain`; no connection/subscription lifecycle —
-that lives in `session`). `runtime` may import every internal layer.
+Methodology only. This doc describes _how_ to write and change code here — not what the code
+currently is. Package and layer boundaries are enforced by ESLint (`eslint.config.mjs`); that
+config is the live source of truth, so they are intentionally not restated in prose (a written copy
+would drift the moment the code moves). When you need the current boundaries, read the eslint rules
+and the code.
 
 ## Code Style
 

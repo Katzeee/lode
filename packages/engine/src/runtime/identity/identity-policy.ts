@@ -1,14 +1,13 @@
-import { AuthenticationError } from "../errors.js";
+import { AuthenticationError } from "../../errors.js";
 import {
   deriveActorKeypairFromMnemonic,
   generateMnemonic,
   type ActorKeypair,
-} from "../utils/crypto/index.js";
+} from "../../utils/crypto/index.js";
 
 // The identity-bootstrap policy: how an actor identity is minted and how a mnemonic derives the
-// signing keypair. Lives out of the RPC adapter (`services/session`) so that layer just forwards.
-// The identity IS the derived actor id — no declared actor to cross-check — so a bad/undecodable
-// mnemonic is an authentication failure, not a stored transformation.
+// signing keypair. The identity IS the derived actor id — no declared actor to cross-check — so a
+// bad/undecodable mnemonic is an authentication failure, not a stored transformation.
 
 /** Derive the actor keypair from a mnemonic, rejecting a bad/undecodable one as an auth failure. */
 export function deriveActorKeypair(mnemonic: string): ActorKeypair {

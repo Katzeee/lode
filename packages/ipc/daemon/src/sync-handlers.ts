@@ -27,27 +27,27 @@ export type SyncHandlers = {
 
 export function createSyncHandlers(
   registry: AppRuntime["sync"],
-  sessions: AppRuntime["sessions"],
+  identity: AppRuntime["identity"],
 ): SyncHandlers {
   return {
     // Register the session's actor to drive sync for a workspace via a relay. The registry captures
     // the keypair so rounds keep signing after the client disconnects.
     registerSync: async (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
-      const { keypair } = sessions.getActorKeypair(connectionId);
+      identity.requireOrigin(connectionId);
+      const { keypair } = identity.getActorKeypair(connectionId);
       await registry.registerSync(req.workspaceId, req.relayUrl, keypair);
       return EMPTY;
     },
     // Manual trigger: run one sync round for the workspace now (`lode sync now`).
     syncNow: async (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
+      identity.requireOrigin(connectionId);
       await registry.syncNow(req.workspaceId);
       return EMPTY;
     },
     // Surface the relay URL this daemon registered + the wsId as a share coordinate (host→client: the
     // CLI talks to the daemon IPC, not the relay, so it doesn't know the relay absent this).
     shareWorkspace: (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
+      identity.requireOrigin(connectionId);
       const c = registry.shareCoordinate(req.workspaceId);
       return create(WorkspaceCoordinateSchema, {
         relayUrl: c.relayUrl,
@@ -57,12 +57,12 @@ export function createSyncHandlers(
     // Join a workspace via a share coordinate: ensure it exists locally, register, directed-fetch the
     // membership roster, and auto-fire a content round.
     joinWorkspace: async (req, connectionId) => {
-      sessions.requireOrigin(connectionId);
+      identity.requireOrigin(connectionId);
       const c = req.coordinate;
       if (!c) {
         throw new Error("joinWorkspace: missing coordinate");
       }
-      const { keypair } = sessions.getActorKeypair(connectionId);
+      const { keypair } = identity.getActorKeypair(connectionId);
       await registry.joinWorkspace(c.workspaceId, c.relayUrl, keypair);
       return EMPTY;
     },

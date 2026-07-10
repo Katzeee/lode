@@ -115,8 +115,7 @@ export default tseslint.config(
                 "**/domain/**",
                 "**/services/**",
                 "**/bundle/**",
-                "**/event/**",
-                "**/session/**",
+                "../event.js",
                 "**/persistence/**",
                 "**/runtime/**",
               ],
@@ -198,31 +197,9 @@ export default tseslint.config(
     },
   },
   {
-    // event: low-level notification primitive — imports only the protocol.
-    files: ["packages/engine/src/event/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../**"],
-              message: "event is a low-level notification primitive — import only the protocol.",
-            },
-            {
-              group: ["@lode/client"],
-              message: "event must not import any client.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    // session: session/subscription/broadcast — sits below services; imports only event + protocol.
-    files: ["packages/engine/src/session/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    // event.ts: low-level notification primitive (NotificationStream + the NotificationHub port).
+    // Imports only protocol + the identity origin type — never the engine layers above it.
+    files: ["packages/engine/src/event.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -230,18 +207,20 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../core/**",
-                "../domain/**",
-                "../services/**",
-                "../persistence/**",
-                "../bundle/**",
-                "../runtime/**",
+                "./core/**",
+                "./domain/**",
+                "./services/**",
+                "./runtime/**",
+                "./persistence/**",
+                "./bundle/**",
+                "./utils/**",
               ],
-              message: "session sits below services — import only event + protocol.",
+              message:
+                "event.ts is a low-level notification primitive — import only protocol + the identity origin type.",
             },
             {
               group: ["@lode/client"],
-              message: "session must not import any client.",
+              message: "event must not import any client.",
             },
           ],
         },
@@ -302,8 +281,6 @@ export default tseslint.config(
       "packages/engine/src/core/**",
       "packages/engine/src/domain/**",
       "packages/engine/src/bundle/**",
-      "packages/engine/src/event/**",
-      "packages/engine/src/session/**",
       "packages/engine/src/persistence/**",
       "packages/engine/src/utils/**",
       "**/*.test.ts",

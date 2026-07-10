@@ -10,6 +10,7 @@ import {
   type SetFieldValuesResult,
 } from "@lode/protocol/proto";
 import { addField, removeField, setFieldValues } from "../domain/field/field.js";
+import { authed } from "../handler.js";
 import type { AppContext } from "./wire/context.js";
 import { EMPTY } from "./wire/empty.js";
 import {
@@ -22,8 +23,8 @@ import { runMutation } from "./wire/mutation.js";
 
 export function createFieldHandlers(ctx: AppContext) {
   return {
-    addField: async (req: AddFieldRequest, connectionId: string): Promise<AddFieldResult> => {
-      const result = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+    addField: authed(async (req: AddFieldRequest, caller): Promise<AddFieldResult> => {
+      const result = await runMutation(ctx, caller, req.workspaceId, (doc) =>
         addField(doc, req.targetOccurrenceId, req.fieldDefNodeId, fieldModeFromProto(req.mode)),
       );
       return create(AddFieldResultSchema, {
@@ -31,26 +32,25 @@ export function createFieldHandlers(ctx: AppContext) {
         occurrenceId: result.occurrenceId,
         created: result.created,
       });
-    },
+    }),
 
-    setFieldValues: async (
-      req: SetFieldValuesRequest,
-      connectionId: string,
-    ): Promise<SetFieldValuesResult> => {
-      const result = await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
-        setFieldValues(doc, req.fieldOccurrenceId, req.values.map(fieldValueInputFromProto)),
-      );
-      return create(SetFieldValuesResultSchema, {
-        field: identityToProto(result.field),
-        changes: result.changes.map(changeToProto),
-      });
-    },
+    setFieldValues: authed(
+      async (req: SetFieldValuesRequest, caller): Promise<SetFieldValuesResult> => {
+        const result = await runMutation(ctx, caller, req.workspaceId, (doc) =>
+          setFieldValues(doc, req.fieldOccurrenceId, req.values.map(fieldValueInputFromProto)),
+        );
+        return create(SetFieldValuesResultSchema, {
+          field: identityToProto(result.field),
+          changes: result.changes.map(changeToProto),
+        });
+      },
+    ),
 
-    removeField: async (req: RemoveFieldRequest, connectionId: string): Promise<Empty> => {
-      await runMutation(ctx, connectionId, req.workspaceId, (doc) =>
+    removeField: authed(async (req: RemoveFieldRequest, caller): Promise<Empty> => {
+      await runMutation(ctx, caller, req.workspaceId, (doc) =>
         removeField(doc, req.fieldOccurrenceId),
       );
       return EMPTY;
-    },
+    }),
   };
 }

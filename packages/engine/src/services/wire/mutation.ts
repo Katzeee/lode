@@ -17,12 +17,13 @@ import type {
   NodeId,
   NodeUpdatedPayload as CoreNodeUpdatedPayload,
 } from "../../core/index.js";
+import type { ResolvedCaller } from "../../caller.js";
 import { getEngine, type AppContext } from "./context.js";
 
-// Runs a mutating doc operation within the session/persist/broadcast envelope:
-// requireOrigin → load doc → [pin working set] → capture nodeUpdated payloads → run → persist →
-// broadcast → [release working set]. DomainInvalidInputError thrown by `fn` propagates (the daemon
-// maps it to InvalidArgument).
+// Runs a mutating doc operation within the persist/broadcast envelope:
+// [caller gated at the boundary] → load doc → [pin working set] → capture nodeUpdated payloads →
+// run → persist → broadcast → [release working set]. DomainInvalidInputError thrown by `fn`
+// propagates (the daemon maps it to InvalidArgument).
 //
 // `workingSet`, when supplied, pins the shards the mutation touches resident for the op's duration
 // (operation-internal consistency + no fault/evict thrash under capacity pressure). Supply it only
@@ -33,7 +34,7 @@ import { getEngine, type AppContext } from "./context.js";
 // the working-set pin here is the upfront, declared variant.
 export async function runMutation<T>(
   ctx: AppContext,
-  connectionId: string,
+  caller: ResolvedCaller,
   workspaceId: string,
   fn: (doc: Engine) => T | Promise<T>,
   workingSet?: (doc: Engine) => readonly NodeId[],
@@ -45,7 +46,7 @@ export async function runMutation<T>(
   // workspace QUEUE (ms, invisible) instead of erroring ("session already active") or tearing a
   // read-modify-write. Different workspaces run in parallel (per-workspace chain).
   return ctx.workspaces.runWorkspaceSerialized(workspaceId, async () => {
-    const origin = ctx.sessions.requireOrigin(connectionId);
+    const origin = caller.origin;
     const doc = await getEngine(ctx, workspaceId);
     const outliner = doc.asOutliner();
     const resident = workingSet?.(doc) ?? [];
@@ -63,7 +64,7 @@ export async function runMutation<T>(
       // Persist what changed (tree + dirty shards) through the single flushDirty entry point — each
       // doc exports its own delta from the persister's cursor, no external version capture needed.
       await ctx.workspaces.flushDirty(workspaceId);
-      ctx.sessions.broadcastNodeUpdated(workspaceId, payloads, origin);
+      ctx.notify.broadcastNodeUpdated(workspaceId, payloads, origin);
       return result;
     } finally {
       sub.unsubscribe();
