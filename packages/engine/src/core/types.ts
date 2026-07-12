@@ -52,7 +52,7 @@ export type BlockSelection = {
 
 export type Selection = TextSelection | BlockSelection | null;
 
-// ── Notifications (slots) ─────────────────────────────────────────────────────
+// ── Mutation effects (returned by Engine.captureEffects) ──────────────────────
 
 export type NodeUpdatedPayload =
   | { type: "entityAdded"; nodeId: NodeId; occurrenceId: OccurrenceId }
@@ -84,16 +84,6 @@ export type NodeUpdatedPayload =
       parentOccurrenceId: OccurrenceId | null;
     }
   | { type: "canonicalChanged"; nodeId: NodeId; occurrenceId: OccurrenceId };
-
-import type { Subject } from "rxjs";
-
-/** Engine notification slots. `nodeUpdated` is a synchronous RxJS Subject: `next` propagates to
- *  every subscriber in line, and a throwing subscriber would break the rest (and the caller's own
- *  post-emit work — e.g. `runMutation`'s broadcast capture). Subscribers MUST NOT throw — keep them
- *  trivial (schedule/queue) and do the real work off the call site. */
-export type EngineSlots = {
-  nodeUpdated: Subject<NodeUpdatedPayload>;
-};
 
 // ── Serialization ─────────────────────────────────────────────────────────────
 

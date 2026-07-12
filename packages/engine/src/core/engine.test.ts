@@ -161,18 +161,18 @@ describe("Engine entity and occurrence semantics", () => {
     expect((await engine.getOccurrence(child.occurrenceId))?.nodeId).toBe(child.nodeId);
   });
 
-  it("emits payloads for text and canonical changes via slots", async () => {
+  it("returns text and canonical effects from captureEffects", async () => {
     const engine = new Engine();
     const source = await engine.createNode();
     const holder = await engine.createNode();
     const ref = await engine.createOccurrence(source.nodeId, holder.occurrenceId);
-    const received: unknown[] = [];
-    engine.slots.nodeUpdated.subscribe((payload) => received.push(payload));
 
-    await engine.replaceDeltas(ref.occurrenceId, [{ insert: "updated" }]);
-    await engine.setCanonicalOccurrence(source.nodeId, ref.occurrenceId);
+    const { effects } = await engine.captureEffects(async () => {
+      await engine.replaceDeltas(ref.occurrenceId, [{ insert: "updated" }]);
+      await engine.setCanonicalOccurrence(source.nodeId, ref.occurrenceId);
+    });
 
-    expect(received).toEqual(
+    expect(effects).toEqual(
       expect.arrayContaining([
         { type: "entityUpdated", nodeId: source.nodeId, field: "text" },
         { type: "canonicalChanged", nodeId: source.nodeId, occurrenceId: ref.occurrenceId },
@@ -180,31 +180,15 @@ describe("Engine entity and occurrence semantics", () => {
     );
   });
 
-  it("emits node payloads on slots.nodeUpdated when a node is created", async () => {
+  it("returns node-added effects when a node is created", async () => {
     const engine = new Engine();
-    const received: unknown[] = [];
-    engine.slots.nodeUpdated.subscribe((payload) => received.push(payload));
 
-    const node = await engine.createNode();
+    const { result: node, effects } = await engine.captureEffects(() => engine.createNode());
 
-    expect(received).toContainEqual({
+    expect(effects).toContainEqual({
       type: "entityAdded",
       nodeId: node.nodeId,
       occurrenceId: node.occurrenceId,
     });
-  });
-
-  it("dispose completes the slots subject", () => {
-    const engine = new Engine();
-    let completed = false;
-    engine.slots.nodeUpdated.subscribe({
-      complete: () => {
-        completed = true;
-      },
-    });
-
-    engine.dispose();
-
-    expect(completed).toBe(true);
   });
 });

@@ -14,7 +14,7 @@ This document records the stable decisions that shaped `@lode/engine`'s core. It
 - CRDT sync primitives (export/import/version)
 
 It does **not** own product semantics. If a concept knows about supertags, field definitions,
-queries, sessions, or UI behavior, it belongs in `domain` or `services` — above the engine.
+queries, sessions, or UI behavior, it belongs in `domain` — above the engine.
 
 ## Entity / Occurrence Model
 
@@ -63,7 +63,7 @@ transclusion.
 
 - Each action captures the before/after state of ONLY the **changed** occurrences and entities
   (diffed from full DocSnapshots at `begin()`/`end()`, keyed by permanent `occId`).
-- **Undo** restores the before-state forward through Engine mutators (events fire), bottom-up:
+- **Undo** restores the before-state forward through Engine mutators, bottom-up:
   recreate deleted occurrences (with original occId/nodeId via override), delete added ones,
   move reparented ones back, restore content/props/meta/canonical. One reconciliation pass.
 - **Redo** restores the after-state.
@@ -123,50 +123,8 @@ or subscribe through the daemon.
 
 Selection (ephemeral, per-client), cursors, awareness, scroll state, drag previews, IME drafts,
 command routing, schema/product validation, rendering. These live above the `core` engine — in
-`domain`, `session`, or `services` inside the package, or in the client for purely ephemeral
+`domain` or `runtime` inside the package, or in the client for purely ephemeral
 per-client view state.
-
-## Internal Layering & Component Composition
-
-The `@lode/engine` package is layered one way (enforced by ESLint `no-restricted-imports`, one
-non-overlapping config block per layer):
-
-```
-runtime -> services -> {domain, event, session} -> core
-domain  -> {core, bundle, domain/model}
-leaves  : persistence, domain/model, bundle   (no engine imports)
-event   -> protocol        session -> {event, protocol}
-```
-
-- **`core`** — block tree, text, props, history, CRDT sync primitives. Product-agnostic.
-- **`persistence`** — storage primitives (SQLite CRUD on opaque bytes/records). Pure leaf.
-- **`domain/model`** — the domain's shared value types (change / identity / provenance vocabulary),
-  zero engine imports. Mirrors anytype-heart's `core/domain` pure-type leaf.
-- **`domain`** — product semantics and policies as functions over `core` (node, schema, field,
-  managed-child, cascade). Functional-on-core, not object-oriented.
-- **`bundle`** — declarative built-in schema vocabulary (system entity meta keys + field types),
-  the single source of truth for built-in supertags/fields. Mirrors anytype-heart's `pkg/lib/bundle`.
-- **`event`** / **`session`** — the notification primitive and the session/subscription/broadcast
-  layer above it; both sit below `services` so RPC adapters can use them without circular deps.
-- **`services`** — RPC adapters (validate → load → call domain → map to DTO → emit via session/event).
-- **`runtime`** — composition root: the `Lifecycle`/`Component`/`ChildLifecycleComponent` graph, `createEngineRuntime`,
-  the per-workspace registry, and the in-process sync core (`SyncExchange` + `SyncTransport` seam —
-  see § Sync).
-
-**Component composition** (`runtime/lifecycle.ts`) mirrors anytype-heart's `app.Component` / `app.App`,
-adapted to TypeScript: constructor injection instead of Go's service-locator lookup. A `Component`
-is a named subsystem with optional async `start`/`stop`; the `Lifecycle` starts components in registration
-order and stops them in reverse. Each loaded workspace is a `ChildLifecycleComponent` whose components (workspace +
-store) stop independently on unload, and which is the mounting point for per-workspace subsystems
-(the in-process sync core already mounts here; indexer/query-cache will plug in the same way). The
-graph is intentionally lean; it exists so subsystems mount uniformly instead of each bolting on
-ad-hoc wiring.
-
-**Deliberately not aligned with anytype:** the data model stays functional-on-core + sharded Loro
-CRDT (not SmartBlock OO + any-sync's change-DAG), and there is no object-type/dispatch seam yet —
-lode has one structural object type (a node), so a per-type editor hierarchy would have no client.
-That seam earns its place only when behaviorally-distinct object types (e.g. query/dataview nodes)
-appear.
 
 ## Sync (in-process CRDT core)
 

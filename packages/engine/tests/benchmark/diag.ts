@@ -122,14 +122,14 @@ console.log("\n═══ Engine API ══════════════�
   const engine = new Engine();
   const ids: string[] = [];
   t("Engine.createNode() × 100 in transact()", () => {
-    engine.transact(() => {
+    engine.batch(() => {
       for (let i = 0; i < 100; i++) {
         ids.push(engine.createNode().occurrenceId);
       }
     });
   });
   t("Engine.replaceDeltas() × 100 in transact()", () => {
-    engine.transact(() => {
+    engine.batch(() => {
       for (const id of ids) {
         engine.replaceDeltas(id, [
           { insert: "hello world from block in the outliner document test abc" },
@@ -148,7 +148,7 @@ console.log("\n═══ Engine API ══════════════�
   const engine = new Engine();
   const ids: string[] = [];
   t("Engine: 500 blocks + text, all in one transact()", () => {
-    engine.transact(() => {
+    engine.batch(() => {
       for (let i = 0; i < 500; i++) {
         const id = engine.createNode().occurrenceId;
         ids.push(id);

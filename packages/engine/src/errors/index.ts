@@ -3,7 +3,7 @@
 // maps them to Connect status codes + details; in-process callers (mobile) handle them directly.
 // Keeping them out of `commands/` restores the one-way DAG: lower layers (the sync core in
 // `runtime/`) no longer reach up into the RPC adapter for their error types.
-// (SessionRequiredError stays co-located with its thrower in runtime/identity/session-identity.ts;
+// (SessionRequiredError stays co-located with its thrower in runtime/session/client-session-manager.ts;
 // the domain-specific DomainInvalidInputError stays in domain/errors.ts.)
 
 export class DocNotFoundError extends Error {

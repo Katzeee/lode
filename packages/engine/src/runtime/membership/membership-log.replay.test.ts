@@ -8,12 +8,8 @@ import {
   generatePeerKeypair,
   unwrapKey,
 } from "../../crypto/index.js";
-import {
-  MembershipLog,
-  MEMBERSHIP_DOC_ID,
-  type PeerPublicKeys,
-  type LocalPeer,
-} from "./membership-log.js";
+import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "./membership-log.js";
+import type { PeerPublicKeys } from "../../domain/membership/model.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */

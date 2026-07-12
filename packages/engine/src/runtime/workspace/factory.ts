@@ -7,7 +7,8 @@ import type { ActorKeypair } from "../../crypto/index.js";
 import type { PeerIdentity } from "../identity/peer-identity.js";
 import type { LocalPeer } from "../membership/membership-log.js";
 import type { WorkspacePersistence } from "./persistence.js";
-import type { LoadedWorkspace, RuntimeWorkspaceInfo } from "./types.js";
+import type { RuntimeWorkspaceInfo } from "./types.js";
+import type { WorkspaceRuntime } from "./workspace-runtime.js";
 
 export type CreateWorkspaceInput = {
   workspaceId?: string;
@@ -37,10 +38,13 @@ export type WorkspaceFactoryHost = {
     workspace: Workspace,
     store: WorkspaceStore | null,
     docStore: DocStore,
-  ): Promise<LoadedWorkspace>;
+  ): Promise<WorkspaceRuntime>;
   flushDirty(workspaceId: string): Promise<void>;
-  requireLoaded(workspaceId: string): Promise<LoadedWorkspace>;
-  loadPersistent(record: WorkspaceRecord): Promise<LoadedWorkspace>;
+  runWorkspace<T>(
+    workspaceId: string,
+    operation: (runtime: WorkspaceRuntime) => Promise<T>,
+  ): Promise<T>;
+  loadPersistent(record: WorkspaceRecord): Promise<WorkspaceRuntime>;
 };
 
 /** Opens a workspace's content store (the per-workspace persistence) for a freshly-created record.
@@ -101,7 +105,7 @@ export class WorkspaceFactory {
     // ACL-at-birth + single-root seed — owner does both, joiner (no actor) is a no-op. The one
     // sanctioned root is planted via createWorkspaceRoot (the domain's only rooting entry).
     await seedPolicyFor(input, this.peer).apply({
-      log: loaded.membershipLog,
+      log: loaded.membership,
       engine,
       displayName: input.displayName,
       flush: () => this.host.flushDirty(record.workspaceId),
@@ -115,45 +119,43 @@ export class WorkspaceFactory {
    *  log + re-key chain do NOT carry over. Content at rest is plaintext (transit is wire-only), so
    *  the copy has no decryption gap. */
   async fork(input: ForkWorkspaceInput): Promise<RuntimeWorkspaceInfo> {
-    // Fork needs the SOURCE doc + shards materialized to export them → trigger-load (requireLoaded,
-    // not the peek-only membershipLog). The source is read-only here — fork never mutates it.
-    const source = await this.host.requireLoaded(input.sourceWorkspaceId);
-    const sourceEngine = source.workspace.engine;
-    if (sourceEngine === null) {
-      throw new Error(`forkWorkspace: source has no outliner: ${input.sourceWorkspaceId}`);
-    }
-    const sourceSharded = sourceEngine.asOutliner();
-    // Export the source's tree (always-resident) + stream its shards one at a time — never
-    // materialize the full shard set in memory (invariant I). The source's own capacity bound makes
-    // the sequential shard export fault→evict→next, so source memory stays bounded.
-    const sourceTreeSync = sourceSharded.treeSyncDoc();
-    const treeBytes: LoadedDocBytes = {
-      snapshot: await sourceTreeSync.exportSnapshot(),
-      updates: [],
-    };
-    const local = this.peer.localPeerFor(input.actorKeypair);
+    return this.host.runWorkspace(input.sourceWorkspaceId, async (source) => {
+      const sourceEngine = source.engine;
+      const sourceSharded = sourceEngine.asOutliner();
+      // Export the source's tree (always-resident) + stream its shards one at a time — never
+      // materialize the full shard set in memory (invariant I). The source's own capacity bound makes
+      // the sequential shard export fault→evict→next, so source memory stays bounded.
+      const sourceTreeSync = sourceSharded.treeSyncDoc();
+      const treeBytes: LoadedDocBytes = {
+        snapshot: await sourceTreeSync.exportSnapshot(),
+        updates: [],
+      };
+      const local = this.peer.localPeerFor(input.actorKeypair);
 
-    // One path for both modes: registry stores the record; opener provides the content DocStore
-    // (SQLite or in-memory); source tree + shards stream into it one at a time (invariant I — never
-    // materialize the full shard set); the fork store then lazily faults from it.
-    const record = await this.storage.registry.createWorkspace({ displayName: input.displayName });
-    const { store, docStore } = await this.storage.opener.open(record);
-    await docStore.writeSnapshot(sourceTreeSync.id, treeBytes.snapshot ?? new Uint8Array());
-    for (const doc of sourceSharded.shardSyncDocs()) {
-      await docStore.writeSnapshot(doc.id, await doc.exportSnapshot());
-    }
-    const workspace = await this.persistence.buildForkedWorkspace(record.workspaceId, treeBytes, {
-      docStore,
-      snapshotEveryUpdates: this.storage.snapshotEveryUpdates,
+      // One path for both modes: registry stores the record; opener provides the content DocStore
+      // (SQLite or in-memory); source tree + shards stream into it one at a time (invariant I — never
+      // materialize the full shard set); the fork store then lazily faults from it.
+      const record = await this.storage.registry.createWorkspace({
+        displayName: input.displayName,
+      });
+      const { store, docStore } = await this.storage.opener.open(record);
+      await docStore.writeSnapshot(sourceTreeSync.id, treeBytes.snapshot ?? new Uint8Array());
+      for (const doc of sourceSharded.shardSyncDocs()) {
+        await docStore.writeSnapshot(doc.id, await doc.exportSnapshot());
+      }
+      const workspace = await this.persistence.buildForkedWorkspace(record.workspaceId, treeBytes, {
+        docStore,
+        snapshotEveryUpdates: this.storage.snapshotEveryUpdates,
+      });
+      const loaded = await this.host.mount(record.workspaceId, workspace, store, docStore);
+
+      // Fresh owner root: the forker's actor self-signs; transit wrapped to the forker's peer (THIS
+      // dataRoot's peer — reused, not minted). The log is empty by construction (new wsId), so no
+      // empty-guard is needed (unlike create's idempotent re-create path).
+      loaded.membership.appendRoot(local, randomBytes(32), input.peerName ?? "");
+      await loaded.membership.persistIfDirty();
+      return recordToInfo(record);
     });
-    const loaded = await this.host.mount(record.workspaceId, workspace, store, docStore);
-
-    // Fresh owner root: the forker's actor self-signs; transit wrapped to the forker's peer (THIS
-    // dataRoot's peer — reused, not minted). The log is empty by construction (new wsId), so no
-    // empty-guard is needed (unlike create's idempotent re-create path).
-    loaded.membershipLog.appendRoot(local, randomBytes(32), input.peerName ?? "");
-    await loaded.membershipLog.persistIfDirty();
-    return recordToInfo(record);
   }
 
   private async lookupExisting(workspaceId: string): Promise<RuntimeWorkspaceInfo | null> {
@@ -169,7 +171,7 @@ function recordToInfo(record: WorkspaceRecord): RuntimeWorkspaceInfo {
 // ── create-time seed policy (owner/joiner null-object) ──────────────────────────
 
 type SeedArgs = {
-  log: LoadedWorkspace["membershipLog"];
+  log: WorkspaceRuntime["membership"];
   engine: Engine;
   displayName: string;
   flush: () => Promise<void>;

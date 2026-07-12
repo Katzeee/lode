@@ -123,7 +123,7 @@ export function createLodeServer(runtime: EngineRuntime): {
           sessions.delete(session);
           // A closed connection drops its session record + its notification stream/subscriber
           // entries — the engine's single connection-teardown hook converges both halves.
-          runtime.onConnectionClosed(id as string);
+          void runtime.onConnectionClosed(id as string);
         });
       }
       return createContextValues().set(connectionIdKey, id);

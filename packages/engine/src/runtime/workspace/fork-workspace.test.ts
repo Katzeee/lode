@@ -4,7 +4,15 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { toJSON } from "../../core/serialize.js";
 import { generateActorKeypair } from "../../crypto/index.js";
-import { WorkspaceRegistry } from "./registry.js";
+import { TestWorkspaceRegistry as WorkspaceRegistry } from "../../../tests/support/workspace-registry.js";
+
+async function engineOf(registry: WorkspaceRegistry, workspaceId: string) {
+  return registry.runWorkspace(workspaceId, ({ engine }) => engine);
+}
+
+async function membershipOf(registry: WorkspaceRegistry, workspaceId: string) {
+  return registry.runWorkspace(workspaceId, ({ membership }) => membership);
+}
 
 /**
  * forkWorkspace — the Phase 3 recovery primitive (design sync-identity-persistence §13). A fork
@@ -36,7 +44,7 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       });
       // Write content beyond the auto-created root so the copy exercises shards, not just the
       // treeDoc root node. (flushDirty is a no-op in-memory; content lives in the resident docs.)
-      const src = (await rt.getEngine("src"))!;
+      const src = await engineOf(rt, "src");
       const root = (await src.getRootOccurrences()).at(0)!;
       for (let i = 0; i < 5; i++) {
         await src.createNode(root.occurrenceId);
@@ -52,12 +60,12 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       // New wsId + byte-independent content equality (toJSON is the logical DocSnapshot).
       expect(forked.workspaceId).not.toBe("src");
       expect(forked.displayName).toBe("Fork");
-      const forkedDoc = (await rt.getEngine(forked.workspaceId))!;
+      const forkedDoc = await engineOf(rt, forked.workspaceId);
       expect(await toJSON(forkedDoc)).toEqual(await toJSON(src));
 
       // Fresh governance: exactly one record (a root), forker = owner, epoch 0, one peer (the
       // forker's, on this dataRoot). The source's log + re-key chain did NOT carry over.
-      const log = rt.membershipLog(forked.workspaceId)!;
+      const log = await membershipOf(rt, forked.workspaceId);
       expect(log.records()).toHaveLength(1);
       expect(log.records().at(0)!.body.case).toBe("root");
       const { state } = log.deriveState();
@@ -81,11 +89,11 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
         displayName: "Source",
         actorKeypair: owner,
       });
-      const src = (await rt.getEngine("src"))!;
+      const src = await engineOf(rt, "src");
       await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
       await rt.flushDirty("src");
       const srcSnapshot = await toJSON(src);
-      const srcLogLen = rt.membershipLog("src")!.records().length;
+      const srcLogLen = (await membershipOf(rt, "src")).records().length;
 
       await rt.forkWorkspace({
         sourceWorkspaceId: "src",
@@ -94,7 +102,7 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       });
 
       expect(await toJSON(src)).toEqual(srcSnapshot);
-      expect(rt.membershipLog("src")!.records().length).toBe(srcLogLen);
+      expect((await membershipOf(rt, "src")).records().length).toBe(srcLogLen);
     } finally {
       await rt.close();
     }
@@ -108,7 +116,7 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       displayName: "Source",
       actorKeypair: owner,
     });
-    const src = (await rt.getEngine("src"))!;
+    const src = await engineOf(rt, "src");
     await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
     await rt.flushDirty("src");
     const expected = await toJSON(src);
@@ -123,9 +131,9 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
     // its fresh owner root (membership persisted) — not just the in-memory copy.
     const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
-      const forkedDoc = (await rt2.getEngine(forked.workspaceId))!;
+      const forkedDoc = await engineOf(rt2, forked.workspaceId);
       expect(await toJSON(forkedDoc)).toEqual(expected);
-      const log = rt2.membershipLog(forked.workspaceId)!;
+      const log = await membershipOf(rt2, forked.workspaceId);
       expect(log.records()).toHaveLength(1);
       expect(log.deriveState().state.owner).toBe(owner.actorId);
     } finally {

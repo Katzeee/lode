@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- One cohesive oracle; its length reflects the complete 18-op surface (splitting would scatter the spec). */
+/* eslint-disable max-lines -- the oracle covers the engine's full 18-op surface. */
 /**
  * TruthModel — an INDEPENDENT oracle for the engine's observable behavior, derived
  * from the prose semantics (not from any store implementation). The fuzzer drives an

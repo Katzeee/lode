@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
-import { InMemorySyncTransport, SyncExchange, type SyncTransport } from "./sync-exchange.js";
+import { InMemorySyncTransport, SyncExchange } from "./sync-exchange.js";
+import type { SyncTransport } from "./transport.js";
 
 const newStore = (): ShardedBlockStore => new ShardedBlockStore({ numShards: 4 });
 
@@ -131,13 +132,14 @@ describe("SyncExchange.pushOnly() — the push fast-path", () => {
 });
 
 describe("Engine.importUpdate — merge-path termination (no re-export pump)", () => {
-  it("re-importing already-known bytes is a no-op: fires no nodeUpdated, advances no VV", async () => {
+  it("re-importing already-known bytes is a no-op: produces no effects, advances no VV", async () => {
     // CRDT merge itself is Loro's job (in-version ops apply idempotently); this locks in that our
     // integration doesn't turn import into a re-export pump. The load-bearing assertion is that
-    // import fires no `nodeUpdated`: PushFastPath subscribes to exactly that
-    // signal, so if import emitted it, every received update would re-trigger a push —
-    //   recv → import → nodeUpdated → schedulePush → export → send → recv → … (never halts).
-    // Guards against someone later adding an import-time callback that emits nodeUpdated.
+    // import produces no effects: a committed fact (what PushFastPath listens for) is derived ONLY
+    // from captureEffects around LOCAL mutators, and import bypasses mutators entirely — so a
+    // received update can never re-trigger a push:
+    //   recv → import → (no effects) → no committed fact → no schedulePush (halts).
+    // Guards against someone later wiring import into the effect channel.
     const aStore = newStore();
     const aEngine = new Engine({ store: aStore });
     await aEngine.createNode(null); // dirties the treeDoc ("main")
@@ -151,21 +153,13 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     const aBytes = await treeDoc.exportUpdate();
     expect(aBytes.length).toBeGreaterThan(0); // non-empty so the no-op below is meaningful
 
-    let fired = 0;
-    const sub = aEngine.slots.nodeUpdated.subscribe(() => {
-      fired++;
-    });
-    try {
-      const vvBefore = await treeDoc.version();
-      await treeDoc.importUpdate(aBytes);
-      const vvAfter = await treeDoc.version();
+    const vvBefore = await treeDoc.version();
+    const { effects } = await aEngine.captureEffects(() => treeDoc.importUpdate(aBytes));
+    const vvAfter = await treeDoc.version();
 
-      expect(fired).toBe(0); // import emits no nodeUpdated → nothing re-triggers a push
-      // CRDT applies in-version ops idempotently → the opaque version bytes are unchanged.
-      expect(Buffer.from(vvAfter).equals(Buffer.from(vvBefore))).toBe(true);
-    } finally {
-      sub.unsubscribe();
-    }
+    expect(effects).toEqual([]); // import emits no effects → nothing re-triggers a push
+    // CRDT applies in-version ops idempotently → the opaque version bytes are unchanged.
+    expect(Buffer.from(vvAfter).equals(Buffer.from(vvBefore))).toBe(true);
   });
 });
 

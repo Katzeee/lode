@@ -335,7 +335,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     // 60s ticks → the periodic round CANNOT fire during this short test. After a single warm-up round
     // (so both sides have each other's profile cached + the member has the target shard materialized),
     // the ONLY thing that can carry the owner's new write is the push fast-path (the runner's
-    // `nodeUpdated` subscription → debounced `pushOnly`). No post-warm-up `syncNow` anywhere.
+    // committed-fact subscription → debounced `pushOnly`). No post-warm-up `syncNow` anywhere.
     const owner = await bootDaemon({ syncIntervalMs: 60000 });
     const member = await bootDaemon({ syncIntervalMs: 60000 });
 

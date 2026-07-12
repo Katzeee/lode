@@ -1,5 +1,5 @@
-/* eslint-disable max-lines -- one cohesive sharded-storage class: the full CRUD (~40 methods) +
-   Outliner/sync surface over a sharded LoroDoc tree. The heal algorithms live in sharded-heal.ts. */
+/* eslint-disable max-lines -- full CRUD (~40 methods) + Outliner/sync surface over a sharded
+   LoroDoc tree. Heal algorithms live in sharded-heal.ts. */
 import {
   LoroDoc,
   LoroMap,
@@ -14,7 +14,7 @@ import { NotFoundError } from "../../errors/index.js";
 import { SYS_PREFIX } from "./syncable.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
 import { InMemoryDocStore } from "./in-memory-doc-store.js";
-import { LruShardCache, type EvictionPolicy, type ShardCache } from "./shard-cache.js";
+import { LruShardCache, type ShardCache } from "./shard-cache.js";
 import { ShardPersister } from "./shard-persister.js";
 import { bucketOf, shardIdOf, shardIdOfBucket } from "./sharding.js";
 import { runReconcileDurability, runSweepOrphans, type HealContext } from "./sharded-heal.js";
@@ -170,9 +170,6 @@ export class ShardedBlockStore implements Outliner {
       /** Max resident shard LoroDocs. Default ∞ (tests/in-memory — no eviction). The runtime passes a
        *  finite bound so the parsed CRDTs (the heavy memory) are capped. */
       capacity?: number;
-      /** Eviction policy for the default shard cache (ignored if `shardCache` is injected). Default:
-       *  LRU. Test seam — swap in FIFO etc. without touching the cache. */
-      evictionPolicy?: EvictionPolicy;
       /** Inject a custom shard cache (test seam). Default: a capacity-bounded `LruShardCache` over
        *  this store's fault/create/evict closures. The field type is the `ShardCache` interface, so a
        *  test double satisfies it; production uses the LRU impl. */
@@ -215,7 +212,6 @@ export class ShardedBlockStore implements Outliner {
         createDoc: (bytes) => this.createShardDoc(bytes),
         capacity: options.capacity ?? Number.POSITIVE_INFINITY,
         onFault: options.onFault,
-        policy: options.evictionPolicy,
         // Write-back: a dirty shard evicted before persist is flushed through the persister so its
         // bytes survive AND its cursor advances (a later flushDirty then sees it clean — no re-fault);
         // a clean shard flushes an empty delta (no write). The doc is wrapped in a transient SyncableDoc
@@ -653,13 +649,6 @@ export class ShardedBlockStore implements Outliner {
     };
   }
 
-  /** Get (lazily creating) a shard's raw `LoroDoc` by id. INTERNAL/test-seam — production reaches
-   *  shards through the `SyncableDoc`s from `docs()`. Exposed for the durability unit test, which
-   *  inspects shard entity maps to verify `reconcileDurability` / `sweepOrphans` directly. */
-  async getShardDoc(shardId: string): Promise<LoroDoc> {
-    return this.shardForRead(shardId);
-  }
-
   /** Number of shard LoroDocs currently resident (diagnostic — the buffer-pool bound check). */
   get residentShardCount(): number {
     return this.shardCache.size;
@@ -757,7 +746,7 @@ export class ShardedBlockStore implements Outliner {
 
   /** Build a fresh shard LoroDoc (peerId + text styles + entities container), replaying `bytes`
    *  (snapshot + post-snapshot updates) if present. The cache's `createDoc` factory — Loro-specific,
-   *  so it lives here (not in the generic ShardCache, which imports no CRDT backend). */
+   *  so it stays with the store (ShardCache is kept backend-agnostic). */
   private createShardDoc(bytes: LoadedDocBytes | null): LoroDoc {
     const s = new LoroDoc();
     if (this.peerId !== undefined) {

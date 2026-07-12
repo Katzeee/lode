@@ -1,12 +1,10 @@
 /* eslint-disable max-lines -- the business-agnostic Engine store is intentionally kept in one file */
 import { randomUUID } from "node:crypto";
-import { Subject } from "rxjs";
 import { ShardedBlockStore, type Outliner } from "./store/sharded-store.js";
 import { ActionHistory } from "./action-history.js";
 import { NotFoundError } from "../errors/index.js";
 import type {
   Delta,
-  EngineSlots,
   MarkRange,
   NodeEntitySnapshot,
   NodeId,
@@ -39,12 +37,11 @@ export type EngineOptions = {
 
 export class Engine {
   readonly id: string;
-  readonly slots: EngineSlots;
   private readonly store: ShardedBlockStore;
   /** Cross-doc undo/redo (snapshot-diff): captures before/after per action and restores
    *  the wanted side forward through these mutators (store-agnostic). */
   private readonly actionHistory: ActionHistory;
-  /** True inside transact() (the transaction is the one group) and during undo/redo
+  /** True inside batch() (the batch is one group) and during undo/redo
    *  application — suppresses per-op auto-grouping so mutators run the store-apply path
    *  bare instead of each opening their own begin/end group. */
   private historyActive = false;
@@ -68,9 +65,6 @@ export class Engine {
     if (options.readonly) {
       this._readonly = true;
     }
-
-    const nodeUpdated = new Subject<NodeUpdatedPayload>();
-    this.slots = { nodeUpdated };
   }
 
   // ── Readonly ─────────────────────────────────────────────────────────────
@@ -115,7 +109,7 @@ export class Engine {
       );
       await this.store.createEntity(nodeId, occurrenceId, props);
       this.commitIfNeeded();
-      this.emit([
+      this.recordEffects([
         { type: "entityAdded", nodeId, occurrenceId },
         {
           type: "occurrenceAdded",
@@ -145,7 +139,7 @@ export class Engine {
         index,
       );
       this.commitIfNeeded();
-      this.emit([
+      this.recordEffects([
         {
           type: "occurrenceAdded",
           nodeId,
@@ -167,7 +161,7 @@ export class Engine {
       const nodeId = this.store.nodeIdOf(occurrenceId);
       this.store.moveOccurrenceRecord(occurrenceId, parentOccurrenceId, index);
       this.commitIfNeeded();
-      this.emit([{ type: "occurrenceMoved", nodeId, occurrenceId, parentOccurrenceId }]);
+      this.recordEffects([{ type: "occurrenceMoved", nodeId, occurrenceId, parentOccurrenceId }]);
     });
   }
 
@@ -184,7 +178,7 @@ export class Engine {
       const parentOccurrenceId = this.getParentOccurrenceId(occurrenceId);
       this.store.deleteOccurrenceRecord(occurrenceId);
       this.commitIfNeeded();
-      this.emit([{ type: "occurrenceDeleted", nodeId, occurrenceId, parentOccurrenceId }]);
+      this.recordEffects([{ type: "occurrenceDeleted", nodeId, occurrenceId, parentOccurrenceId }]);
     });
   }
 
@@ -201,7 +195,7 @@ export class Engine {
       }
       await this.store.setCanonicalOccurrence(nodeId, occurrenceId);
       this.commitIfNeeded();
-      this.emit([{ type: "canonicalChanged", nodeId, occurrenceId }]);
+      this.recordEffects([{ type: "canonicalChanged", nodeId, occurrenceId }]);
     });
   }
 
@@ -227,7 +221,7 @@ export class Engine {
       }
       await this.store.deleteEntity(nodeId);
       this.commitIfNeeded();
-      this.emit([
+      this.recordEffects([
         ...occurrenceIds.map(({ occurrenceId, parentOccurrenceId }) => ({
           type: "occurrenceDeleted" as const,
           nodeId,
@@ -336,7 +330,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.replaceDeltas(occurrenceId, deltas);
       this.commitIfNeeded();
-      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
+      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
@@ -352,7 +346,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.mark(occurrenceId, range, key, value);
       this.commitIfNeeded();
-      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
+      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
@@ -363,7 +357,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.unmark(occurrenceId, range, key);
       this.commitIfNeeded();
-      this.emit([{ type: "entityUpdated", nodeId, field: "text" }]);
+      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
     });
   }
 
@@ -378,7 +372,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.setProp(occurrenceId, key, value);
       this.commitIfNeeded();
-      this.emit([{ type: "entityUpdated", nodeId, field: "props", key }]);
+      this.recordEffects([{ type: "entityUpdated", nodeId, field: "props", key }]);
     });
   }
 
@@ -389,7 +383,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.unsetProp(occurrenceId, key);
       this.commitIfNeeded();
-      this.emit([{ type: "entityUpdated", nodeId, field: "props", key }]);
+      this.recordEffects([{ type: "entityUpdated", nodeId, field: "props", key }]);
     });
   }
 
@@ -400,7 +394,7 @@ export class Engine {
       await this.captureEntityBeforeIfRecording(nodeId);
       await this.store.setProps(occurrenceId, props);
       this.commitIfNeeded();
-      this.emit(
+      this.recordEffects(
         Object.keys(props).map((key) => ({
           type: "entityUpdated" as const,
           nodeId,
@@ -452,7 +446,7 @@ export class Engine {
     await this.runAutoGrouped(() => {
       this.store.setOccurrenceProp(occurrenceId, key, value);
       this.commitIfNeeded();
-      this.emit([
+      this.recordEffects([
         {
           type: "occurrenceUpdated",
           nodeId: this.store.nodeIdOf(occurrenceId),
@@ -469,7 +463,7 @@ export class Engine {
     await this.runAutoGrouped(() => {
       this.store.unsetOccurrenceProp(occurrenceId, key);
       this.commitIfNeeded();
-      this.emit([
+      this.recordEffects([
         {
           type: "occurrenceUpdated",
           nodeId: this.store.nodeIdOf(occurrenceId),
@@ -525,11 +519,11 @@ export class Engine {
 
   // ── History ──────────────────────────────────────────────────────────────
 
-  async transact<T>(fn: () => T | Promise<T>): Promise<T> {
+  async batch<T>(fn: () => T | Promise<T>): Promise<T> {
     // Re-entrant: a batch inside a batch joins the outer group (one undo step) instead of
     // throwing. This lets a composite op group itself while calling other grouped primitives
     // (e.g. setFieldValues → removeOccurrenceOrHardDelete, or paste → cloneOccurrence). Only
-    // the outermost transact owns begin/end; inner calls run fn bare against the open group.
+    // the outermost batch owns begin/end; inner calls run fn bare against the open group.
     if (this.inTransaction) {
       return await fn();
     }
@@ -545,10 +539,6 @@ export class Engine {
       this.inTransaction = false;
       await this.actionHistory.end();
     }
-  }
-
-  batch<T>(fn: () => T | Promise<T>): Promise<T> {
-    return this.transact(fn);
   }
 
   async undo(): Promise<boolean> {
@@ -643,12 +633,6 @@ export class Engine {
     return this.store;
   }
 
-  // ── Events ───────────────────────────────────────────────────────────────
-
-  dispose(): void {
-    this.slots.nodeUpdated.complete();
-  }
-
   private commitIfNeeded(): void {
     if (!this.inTransaction) {
       this.store.commit();
@@ -657,7 +641,7 @@ export class Engine {
 
   /** Run a store-mutation thunk. Auto-groups as its own undo step when no group is open
    *  (top-level call); runs bare when a group is already open. Two "outer owns it" signals:
-   *   - `historyActive` — a transact/batch or undo/redo application is driving (the established path).
+   *   - `historyActive` — a batch or undo/redo application is driving (the established path).
    *   - `entityCapture` active — a (possibly standalone) ActionHistory began a group and installed
    *     its before-image callback; that outer owns the grouping + capture, so this mutator runs bare
    *     and its before-image is recorded into the outer's action. */
@@ -675,12 +659,33 @@ export class Engine {
     }
   }
 
-  private emit(payloads: NodeUpdatedPayload[]): void {
-    if (payloads.length === 0) {
-      return;
+  // ── Effect capture ─────────────────────────────────────────────────────
+  // core reports what a mutation changed by RETURNING it, not by pushing events. The wire layer
+  // opens a capture window around an operation (`captureEffects`); mutators append via
+  // `recordEffects`; `captureEffects` drains and returns the batch. Re-entrant calls share the outer
+  // buffer (a composite op's inner mutators fold into the one outer capture) and return empty effects
+  // so the caller doesn't double-count. No window open → `recordEffects` is a no-op (e.g. undo replay
+  // outside a window). One engine is mutated under one workspace-exclusive lane, so the single buffer
+  // is never raced by concurrent captures.
+  private capture: NodeUpdatedPayload[] | null = null;
+
+  private recordEffects(payloads: NodeUpdatedPayload[]): void {
+    this.capture?.push(...payloads);
+  }
+
+  async captureEffects<T>(
+    fn: () => T | Promise<T>,
+  ): Promise<{ result: T; effects: NodeUpdatedPayload[] }> {
+    if (this.capture !== null) {
+      const result = await fn();
+      return { result, effects: [] };
     }
-    for (const payload of payloads) {
-      this.slots.nodeUpdated.next(payload);
+    this.capture = [];
+    try {
+      const result = await fn();
+      return { result, effects: this.capture };
+    } finally {
+      this.capture = null;
     }
   }
 }

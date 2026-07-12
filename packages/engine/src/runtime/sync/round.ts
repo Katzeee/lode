@@ -6,7 +6,7 @@ import type { RoundSummary } from "./deps.js";
  *  state. No security refresh — wire security is a lazy projection of the log (re-derives on read
  *  when the frontier moves), so the content round's `isMember()` gate picks up the new roster
  *  automatically. Plain collaborator (no lifecycle of its own) driven in order by the round driver —
- *  therefore NOT a Component: only things with open/close/long-run lifecycle are Components, and a
+ *  therefore not a managed resource: only things with open/close/long-run lifetime need ownership, and a
  *  round body has none.
  */
 export class MembershipRound {

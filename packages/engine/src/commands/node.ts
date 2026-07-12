@@ -32,7 +32,7 @@ import {
   removeOccurrence,
 } from "../domain/node/node.js";
 import { authed, open } from "./handler.js";
-import { getEngine, type CommandDeps } from "./wire/context.js";
+import { readWorkspace, type CommandDeps } from "./wire/context.js";
 import { EMPTY } from "./wire/empty.js";
 import { runMutation } from "./wire/mutation.js";
 import { fromValue } from "./wire/struct.js";
@@ -63,39 +63,41 @@ export function createNodeHandlers(ctx: CommandDeps) {
     ),
 
     getNode: open(async (req: GetNodeRequest): Promise<GetNodeResponse> => {
-      const engine = await getEngine(ctx, req.workspaceId);
-      const node = await engine.getOccurrence(req.occurrenceId);
+      const node = await readWorkspace(ctx, req.workspaceId, (engine) =>
+        engine.getOccurrence(req.occurrenceId),
+      );
       return create(GetNodeResponseSchema, { occurrence: node ? nodeToProto(node) : undefined });
     }),
 
     getNodeById: open(async (req: GetNodeByIdRequest): Promise<GetNodeResponse> => {
-      const engine = await getEngine(ctx, req.workspaceId);
-      let canonicalOccurrenceId: string;
-      try {
-        canonicalOccurrenceId = await engine.getCanonicalOccurrenceId(req.nodeId);
-      } catch (e) {
-        if (e instanceof NotFoundError) {
-          return create(GetNodeResponseSchema, {});
+      const occurrence = await readWorkspace(ctx, req.workspaceId, async (engine) => {
+        let canonicalOccurrenceId: string;
+        try {
+          canonicalOccurrenceId = await engine.getCanonicalOccurrenceId(req.nodeId);
+        } catch (e) {
+          if (e instanceof NotFoundError) {
+            return undefined;
+          }
+          throw e;
         }
-        throw e;
-      }
-      const occurrence = await engine.getOccurrence(canonicalOccurrenceId);
+        return engine.getOccurrence(canonicalOccurrenceId);
+      });
       return create(GetNodeResponseSchema, {
         occurrence: occurrence ? nodeToProto(occurrence) : undefined,
       });
     }),
 
     getNodeChildren: open(async (req: GetNodeChildrenRequest): Promise<GetNodeChildrenResponse> => {
-      const children = await getSemanticChildren(
-        await getEngine(ctx, req.workspaceId),
-        req.occurrenceId,
+      const children = await readWorkspace(ctx, req.workspaceId, (engine) =>
+        getSemanticChildren(engine, req.occurrenceId),
       );
       return create(GetNodeChildrenResponseSchema, { children: children.map(nodeToProto) });
     }),
 
     listRoots: open(async (req: ListRootsRequest): Promise<ListRootsResponse> => {
-      const engine = await getEngine(ctx, req.workspaceId);
-      const roots = await engine.getRootOccurrences();
+      const roots = await readWorkspace(ctx, req.workspaceId, (engine) =>
+        engine.getRootOccurrences(),
+      );
       return create(ListRootsResponseSchema, { roots: roots.map(nodeToProto) });
     }),
 

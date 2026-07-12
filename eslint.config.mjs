@@ -90,10 +90,7 @@ export default tseslint.config(
     files: ["packages/engine/src/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
-      "max-lines-per-function": [
-        "error",
-        { max: 100, skipBlankLines: true, skipComments: true },
-      ],
+      "max-lines-per-function": ["error", { max: 100, skipBlankLines: true, skipComments: true }],
     },
   },
   // Architecture boundaries (AGENTS.md: commands -> runtime -> domain -> core; runtime ↛ commands;
@@ -111,12 +108,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                "**/domain/**",
-                "**/commands/**",
-                "**/persistence/**",
-                "**/runtime/**",
-              ],
+              group: ["**/domain/**", "**/commands/**", "**/persistence/**", "**/runtime/**"],
               message:
                 "core must not import above layers — engine layers commands -> runtime -> domain -> core.",
             },
@@ -161,8 +153,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../*", "../../**"],
-              message:
-                "domain/model is a pure value-type leaf — import only sibling model files.",
+              message: "domain/model is a pure value-type leaf — import only sibling model files.",
             },
             {
               group: ["@lode/protocol", "@lode/client"],
@@ -174,36 +165,18 @@ export default tseslint.config(
     },
   },
   {
-    // persistence: storage primitives (SQLite CRUD on bytes/records) — pure leaf, no engine imports.
-    files: ["packages/engine/src/persistence/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../**"],
-              message: "persistence storage primitives must not import engine internals.",
-            },
-            {
-              group: ["@lode/protocol", "@lode/client"],
-              message: "persistence must not import the wire contract or any client.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    // Neutral primitives — crypto (node:crypto + @noble/curves + @scure/bip39) + errors: pure leaves,
-    // no engine internals, no protocol, no client. The standardized substrate that travels inside the
-    // engine's future Rust dynamic-library form (cross-implementation KAT parity).
-    files: [
-      "packages/engine/src/crypto/**/*.ts",
-      "packages/engine/src/errors/**/*.ts",
+    // Neutral leaves — pure substrates with no layer semantics: depended on by everything above,
+    // depending on nothing in the engine (only node built-ins, @lode/logger, and each other). This is
+    // STRUCTURAL, not enumerated: any src-level dir that isn't a layer (commands/runtime/domain/core)
+    // is a neutral leaf — crypto, errors, persistence, events (the typed Bus + bounded async channel),
+    // and any future substrate. Adding a leaf is `mkdir` — no eslint edit. Same purity as before: no
+    // engine internals (../**), no protocol, no client.
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: [
+      "packages/engine/src/{commands,runtime,domain,core}/**",
+      "packages/engine/src/*.ts",
+      "**/*.test.ts",
     ],
-    ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -211,11 +184,11 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../**"],
-              message: "neutral primitives (crypto/errors) are pure leaves — no engine internals.",
+              message: "neutral leaves (crypto/errors/persistence/events) are pure — no engine internals.",
             },
             {
               group: ["@lode/protocol", "@lode/client"],
-              message: "neutral primitives must not import the wire contract or any client.",
+              message: "neutral leaves must not import the wire contract or any client.",
             },
           ],
         },
@@ -279,18 +252,145 @@ export default tseslint.config(
     },
   },
   {
+    // Pure membership policy: normalized records and deterministic replay. Wire codecs, CRDT docs,
+    // persistence, and runtime orchestration adapt this module from outside.
+    files: ["packages/engine/src/domain/membership/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../../core/**",
+                "../../runtime/**",
+                "../../persistence/**",
+                "**/commands/**",
+              ],
+              message:
+                "membership domain policy must not import runtime, storage, core, or commands.",
+            },
+            {
+              group: ["@lode/protocol", "@lode/protocol/**", "@lode/client"],
+              message: "membership domain policy must not import wire or client types.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Workspace owns workspace lifetimes. Sync/session/relay attach from outside through the
+    // WorkspaceRuntime surface and scoped events; workspace never reaches back into them.
+    files: ["packages/engine/src/runtime/workspace/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/sync/**", "**/session/**", "**/broker/**", "**/commands/**"],
+              message:
+                "workspace runtime owns its lifetime and must not import attached subsystems.",
+            },
+            { group: ["@lode/client"], message: "runtime must not import any client." },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // The content-blind broker is a lower transport substrate. It cannot know sync, membership,
+    // workspaces, or sessions; the sync-owned adapter is the only bridge.
+    files: ["packages/engine/src/runtime/broker/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "**/sync/**",
+                "**/membership/**",
+                "**/workspace/**",
+                "**/session/**",
+                "**/commands/**",
+              ],
+              message: "broker is content-blind; bridge it from a concept-owned adapter.",
+            },
+            { group: ["@lode/client"], message: "runtime must not import any client." },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Sync core owns its transport port and orchestration, but not a concrete broker. Concrete wire
+    // implementations live under sync/adapters and are injected by the composition root.
+    files: ["packages/engine/src/runtime/sync/**/*.ts"],
+    ignores: ["packages/engine/src/runtime/sync/adapters/**", "**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/broker/**", "**/commands/**"],
+              message: "sync core depends on SyncTransport, never on a concrete broker or command.",
+            },
+            { group: ["@lode/client"], message: "runtime must not import any client." },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/runtime/sync/adapters/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/commands/**", "@lode/client"],
+              message: "sync adapters may implement ports but never depend on commands or clients.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // Sessions project workspace facts to client streams. They never coordinate sync or broker
+    // lifetimes; those are separate scopes.
+    files: ["packages/engine/src/runtime/session/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/sync/**", "**/broker/**", "**/commands/**"],
+              message: "session delivery must not coordinate sync, broker, or commands.",
+            },
+            { group: ["@lode/client"], message: "runtime must not import any client." },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // commands + the apex (composition root engine-runtime.ts, index.ts): adapter/composition layers.
-    // May use any internal layer + protocol, never a client.
-    files: ["packages/engine/src/**/*.ts"],
-    ignores: [
-      "packages/engine/src/core/**",
-      "packages/engine/src/domain/**",
-      "packages/engine/src/persistence/**",
-      "packages/engine/src/crypto/**",
-      "packages/engine/src/errors/**",
-      "packages/engine/src/runtime/**",
-      "**/*.test.ts",
-    ],
+    // May use any internal layer + protocol, never a client. Scoped by POSITION (root-level src files
+    // + the commands dir), so it needn't re-ignore every neutral leaf — those match the neutral block
+    // above, this matches only the apex + commands.
+    files: ["packages/engine/src/*.ts", "packages/engine/src/commands/**/*.ts"],
+    ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

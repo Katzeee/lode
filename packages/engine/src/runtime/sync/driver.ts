@@ -1,5 +1,6 @@
 import { createLogger } from "@lode/logger";
-import type { Component } from "../lifecycle.js";
+import type { RuntimeInstance } from "../kernel/runtime.js";
+import type { RuntimeResource } from "../kernel/resource.js";
 import type { MembershipRound, ContentRound } from "./round.js";
 
 const log = createLogger("sync.driver");
@@ -20,21 +21,21 @@ export type SyncRoundDriverOptions = {
  * blocked the next; that coupling is gone (a behavior improvement, called out in the design doc).
  *
  * `run(signal)` wraps the existing `setInterval` shape with abort-driven cleanup: the interval fires
- * every `intervalMs` exactly as before, and the loop resolves when the Lifecycle aborts the signal on
+ * every `intervalMs` exactly as before, and the loop resolves when its owning instance quiesces on
  * stop(). The loop never rejects — per-round errors are caught + logged (a round may fail
  * transiently: a relay blip, a peer mid-restart); the next round retries, so aborting the driver
  * would be wrong.
  *
  * `roundNow()` exposes one synchronous round for the host's foreground trigger (`syncNow`).
  */
-export class SyncRoundDriver implements Component {
-  readonly name = "sync.driver";
+export class SyncRoundDriver implements RuntimeResource {
+  readonly id = "sync.driver";
   private readonly wsId: string;
   private readonly intervalMs: number;
   private readonly membership: MembershipRound;
   private readonly content: ContentRound;
   private busy = false;
-  private signal?: AbortSignal;
+  private instance?: RuntimeInstance;
 
   constructor(opts: SyncRoundDriverOptions) {
     this.wsId = opts.wsId;
@@ -43,21 +44,27 @@ export class SyncRoundDriver implements Component {
     this.content = opts.content;
   }
 
-  async run(signal: AbortSignal): Promise<void> {
-    this.signal = signal;
-    return new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        void this.roundNow();
-      }, this.intervalMs);
-      signal.addEventListener(
-        "abort",
-        () => {
-          clearInterval(timer);
-          resolve();
-        },
-        { once: true },
-      );
-    });
+  start(instance: RuntimeInstance): void {
+    this.instance = instance;
+    instance.spawn(
+      "round-scheduler",
+      (quiescing) =>
+        new Promise<void>((resolve) => {
+          const timer = setInterval(() => {
+            if (!quiescing.aborted) {
+              void this.roundNow();
+            }
+          }, this.intervalMs);
+          quiescing.addEventListener(
+            "abort",
+            () => {
+              clearInterval(timer);
+              resolve();
+            },
+            { once: true },
+          );
+        }),
+    );
   }
 
   /** One round now instead of waiting for the next tick — the host's `syncNow`. Same `busy` overlap
@@ -65,6 +72,14 @@ export class SyncRoundDriver implements Component {
    *  Transient round failures are swallowed exactly as in the tick; a stop() mid-round is expected
    *  teardown (debug), not a fault. */
   async roundNow(): Promise<void> {
+    const instance = this.instance;
+    if (instance === undefined || instance.state !== "active") {
+      return;
+    }
+    await instance.run("sync-round", () => this.executeRound());
+  }
+
+  private async executeRound(): Promise<void> {
     if (this.busy) {
       return;
     }
@@ -75,7 +90,7 @@ export class SyncRoundDriver implements Component {
     } catch (err) {
       // `stopped` = stop()'s transport close mid-round (expected teardown → debug); a real relay
       // drop / peer mid-restart → warn. Never abort the driver — the next round retries.
-      if (this.signal?.aborted) {
+      if (this.instance?.quiescing.aborted) {
         log.debug("sync round aborted on stop", { wsId: this.wsId, err });
       } else {
         log.warn("sync round failed", { wsId: this.wsId, err });

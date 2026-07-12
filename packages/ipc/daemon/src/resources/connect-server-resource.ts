@@ -1,20 +1,22 @@
-import type { EngineRuntime, Component } from "@lode/engine";
+import type { EngineRuntime, RuntimeResource } from "@lode/engine";
 import { createLodeServer } from "../connect-server.js";
 
 /**
- * Hosts the gRPC (HTTP/2, h2c) Connect server as an Lifecycle `Component`. Wraps `createLodeServer`
+ * Hosts the gRPC (HTTP/2, h2c) Connect server as a managed resource. Wraps `createLodeServer`
  * (which binds the engine's LodeCommands handlers and assigns one connectionId per HTTP/2 session).
  * The bound port is ephemeral until `listen()` resolves, so `address` is readable only after
- * `start()`. Registered before the relay/sync runner so it stops after they drain (reverse teardown).
+ * `start()`. Quiesce closes listener admission while existing connections drain; dispose then closes
+ * any remaining connections.
  */
-export class ConnectServerComponent implements Component {
-  readonly name = "connect-server";
+export class ConnectServerResource implements RuntimeResource {
+  readonly id = "connect-server";
   private readonly runtime: EngineRuntime;
   private readonly host: string;
   private readonly port: number;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
+  private closePromise?: Promise<void>;
 
   constructor(runtime: EngineRuntime, host: string, port: number) {
     this.runtime = runtime;
@@ -37,12 +39,15 @@ export class ConnectServerComponent implements Component {
     this.boundPort = (server.address() as { port: number }).port;
   }
 
-  async stop(): Promise<void> {
-    // Destroy open HTTP/2 sessions so server.close() doesn't hang on connected clients (their
-    // session 'close' fires removeConnection on the engine).
-    this.closeConnections();
-    await new Promise<void>((resolve, reject) => {
+  quiesce(): void {
+    this.closePromise ??= new Promise<void>((resolve, reject) => {
       this.server?.close((error) => (error ? reject(error) : resolve()));
     });
+  }
+
+  async release(): Promise<void> {
+    this.closeConnections();
+    this.quiesce();
+    await this.closePromise;
   }
 }

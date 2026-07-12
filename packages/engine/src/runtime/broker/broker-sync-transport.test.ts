@@ -4,7 +4,7 @@ import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import { SyncExchange } from "../sync/sync-exchange.js";
 import { BrokerServer } from "./broker-server.js";
-import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { BrokerSyncProtocol } from "../sync/adapters/broker-sync-transport.js";
 
 /**
  * The earliest end-to-end milestone: two engine runtimes converge a workspace over a REAL broker

@@ -10,11 +10,6 @@ import { createEngineRuntime } from "../src/engine-runtime.js";
 //
 // This can't be caught by grepping handler names (grep can't see "an RPC took a wire-layer detour").
 // It is caught by enumerating the proto service descriptor and diffing against the bag keys.
-//
-// History: before the command boundary was collapsed (R-Phase 2), the 4 relay-lifecycle sync RPCs
-// (shareWorkspace / joinWorkspace / registerSync / syncNow) lived daemon-side (`sync-handlers.ts`,
-// merged in `connect-server.ts`) outside the engine bag — exactly the gap this probe was written to
-// catch (it was RED on those 4 until R-Phase 2 moved them to `commands/sync.ts` as `authed` handlers).
 describe("LodeCommands service — every RPC is in the engine command bag", () => {
   it("createEngineRuntime().commands covers every proto RPC localName", async () => {
     const runtime = await createEngineRuntime();

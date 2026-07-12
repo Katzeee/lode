@@ -6,7 +6,7 @@
  *             (each call → 1 Loro commit)
  *             Models: real user interactions
  *
- *   BATCHED — Engine.transact() wrapping all creates + text
+ *   BATCHED — Engine.batch() wrapping all creates + text
  *             (single Loro commit for everything)
  *             Models: bulk import (Markdown, JSON, initial load)
  *
@@ -95,8 +95,6 @@ function runUser(blockCount: number, avgChars: number, nestRatio: number) {
   const e2 = new Engine({ store: new ShardedBlockStore({ initialTreeBytes: snap }) });
   const tImport = performance.now() - t1;
 
-  engine.dispose();
-  e2.dispose();
   return { tBuild, tImport, snapBytes: snap.length };
 }
 
@@ -109,7 +107,7 @@ function runBatched(blockCount: number, avgChars: number, nestRatio: number) {
   const allIds: OccurrenceId[] = [];
 
   const t0 = performance.now();
-  engine.transact(() => {
+  engine.batch(() => {
     for (let i = 0; i < rootCount; i++) {
       const id = engine.createNode().occurrenceId;
       rootIds.push(id);
@@ -140,7 +138,7 @@ function runTyping(blockCount: number, avgChars: number, nestRatio: number) {
   const rootIds: OccurrenceId[] = [];
   const allIds: OccurrenceId[] = [];
 
-  engine.transact(() => {
+  engine.batch(() => {
     for (let i = 0; i < rootCount; i++) {
       const id = engine.createNode().occurrenceId;
       rootIds.push(id);

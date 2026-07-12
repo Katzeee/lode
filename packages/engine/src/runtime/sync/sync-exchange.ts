@@ -1,36 +1,10 @@
 import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/store/syncable.js";
 import { sameBytes } from "../membership/membership-log.js";
+import type { SyncProfile, SyncTransport } from "./transport.js";
 
 /** A peer's per-doc versions — the cheap metadata exchanged first to find what differs. Opaque
  *  version bytes per sub-doc id; the CRDT backend is closed behind `SyncableDoc`, so this type (and
  *  the transport below) carries no loro/CRDT type. */
-export type SyncProfile = { subDocId: string; version: SyncBytes }[];
-
-/**
- * The transport seam — the full set of wire capabilities a peer sync needs. The interface deals in
- * sub-doc ids + opaque bytes only (no CRDT type crosses it), so it spans a process boundary. Two
- * cohesive capability groups, on one port because they share one wire:
- *   - **Round exchange** (`remoteProfile` / `fetchUpdates` / `sendUpdates`): the steady-state
- *     broadcast sync the `SyncExchange` drives.
- *   - **Membership bootstrap** (`directedFetchUpdates` / `peers`): discover who's on the channel
- *     and cold-start-fetch a doc from ONE peer. `directedFetchUpdates` is a directed variant of
- *     `fetchUpdates` — same `reqId` correlation, same response — so it belongs beside it, not on a
- *     second port with an identical impl set.
- * The in-memory impl (`InMemorySyncTransport`) is the test substrate; the broker impl
- * (`BrokerSyncProtocol`) is the real-network drop-in. Callers depend on THIS type, never on the
- * concrete broker — that is what makes the transport swappable.
- */
-export type SyncTransport = {
-  remoteProfile(): Promise<SyncProfile>;
-  fetchUpdates(subDocId: string, from: SyncBytes): Promise<Uint8Array>;
-  sendUpdates(subDocId: string, bytes: Uint8Array): Promise<void>;
-  /** Directed `fetchUpdates`: ask ONE peer (by routing peerId) for updates beyond `from`. The
-   *  cold-start path — a joiner targets a member for the membership doc before the first tick. */
-  directedFetchUpdates(subDocId: string, from: SyncBytes, toPeerId: string): Promise<Uint8Array>;
-  /** The routing peerIds declared on this workspace's channel, INCLUDING this replica's own — the
-   *  caller filters self. Empty until peers subscribe with a peerId. */
-  peers(): Promise<string[]>;
-};
 
 /**
  * Drives one sync round against a `SyncableComposite`. The composite declares its own sync plan
@@ -137,7 +111,7 @@ export class SyncExchange {
   }
 
   /** Send-only half of a round — the push fast-path, driven on a local mutation (the runner
-   *  subscribes to the engine's `nodeUpdated`). Skips the `remoteProfile` round-trip (that is what
+   *  subscribes to the workspace's committed fact). Skips the `remoteProfile` round-trip (that is what
    *  `sync()` pays) and exports each local doc against the peer's last-known version. No-op before
    *  the first round populates `lastRemoteVersion` (cold start is `sync()`'s job).
    *

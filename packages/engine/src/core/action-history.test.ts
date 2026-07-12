@@ -143,11 +143,11 @@ describe("ActionHistory wired into Engine: engine.undo() works on a sharded stor
     expect(e.getChildOccurrenceIds(root.occurrenceId).length).toBe(1);
   });
 
-  it("engine.transact() groups sharded ops into one undo step", async () => {
+  it("engine.batch() groups sharded ops into one undo step", async () => {
     const e = new Engine({ store: new ShardedBlockStore({ numShards: 8 }) });
     const root = await e.createNode(null);
     e.resetHistory();
-    await e.transact(async () => {
+    await e.batch(async () => {
       await e.createNode(root.occurrenceId);
       await e.createNode(root.occurrenceId);
     });

@@ -32,7 +32,6 @@ export class Workspace {
   }
 
   dispose(): void {
-    this._engine?.dispose();
     this._engine = null;
   }
 }

@@ -2,7 +2,14 @@ import { randomBytes } from "node:crypto";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { createLogger } from "@lode/logger";
 import type { MembershipPersistence } from "./membership-persistence.js";
-import { actorHasPeer, bodyBytes, deriveMembershipState } from "./membership-replay.js";
+import { actorHasPeer, deriveMembershipState } from "../../domain/membership/replay.js";
+import type {
+  MembershipRecord as DomainMembershipRecord,
+  MembershipState,
+  Peer,
+  PeerPublicKeys,
+} from "../../domain/membership/model.js";
+import { bodyBytes, decodeMembershipRecord } from "./membership-codec.js";
 import {
   aeadEncrypt,
   signWithActor,
@@ -20,7 +27,7 @@ import {
   RootRecordSchema,
   RotateRecordSchema,
   TransferRecordSchema,
-  type MembershipRecord,
+  type MembershipRecord as ProtoMembershipRecord,
 } from "@lode/protocol/proto";
 
 const log = createLogger("engine.membership");
@@ -54,36 +61,6 @@ const log = createLogger("engine.membership");
  *  inside it are per-peer wrapped, so the log itself isn't secret) → it rides the broker's plaintext
  *  envelope so a joining peer can read it BEFORE it holds the transit key (bootstrap). */
 export const MEMBERSHIP_DOC_ID = "membership";
-
-/** One admitted peer in the replayed state. The transit key is wrapped to `peerEncPub`. */
-export type Peer = {
-  /** Hex Ed25519 pub of the owning actor (attribution; the actor signs, the peer never does). */
-  owningActorId: string;
-  /** 32-byte X25519 — the transit key is wrapped to this. */
-  peerEncPub: Uint8Array;
-  epoch: number;
-  /** The current-epoch transit key, sealed to peerEncPub. */
-  wrappedTransit: Uint8Array;
-  /** Human label ("Alice's laptop"); set at admission, advisory (UI-only). */
-  peerName: string;
-};
-
-export type MembershipState = {
-  owner: string;
-  /** Keyed by peerId — the membership/revocation unit. */
-  peers: Map<string, Peer>;
-  currentEpoch: number;
-};
-
-/** A peer's public identity — the single input shape for `appendAdd` and `appendRotate`. The owner
- *  knows each peer — peerId + owning actor + X25519 enc pub; the peer private key never leaves the
- *  peer. */
-export type PeerPublicKeys = {
-  peerId: string;
-  owningActorId: string;
-  peerEncPub: Uint8Array;
-  peerName: string;
-};
 
 /** The local replica's identity bundle: the actor (signs) + the peer (unwraps transit) + peerId.
  *  The actor is always present in-session (CLI/GUI login); the peer key is loaded per-dataRoot. */
@@ -141,11 +118,11 @@ export class MembershipLog {
     this.lastPersisted = frontiers;
   }
 
-  records(): MembershipRecord[] {
+  records(): ProtoMembershipRecord[] {
     return this.metaDoc.records().map((bytes) => fromBinary(MembershipRecordSchema, bytes));
   }
 
-  private append(rec: MembershipRecord): void {
+  private append(rec: ProtoMembershipRecord): void {
     this.metaDoc.appendRecord(toBinary(MembershipRecordSchema, rec));
     this.metaDoc.commit();
   }
@@ -235,7 +212,7 @@ export class MembershipLog {
   }
 
   /** Sign a record body with the signer actor's key and append the full MembershipRecord. */
-  private appendSigned(signer: ActorKeypair, body: MembershipRecord["body"]): void {
+  private appendSigned(signer: ActorKeypair, body: ProtoMembershipRecord["body"]): void {
     const sig = signWithActor(signer.privateKey, bodyBytes(body));
     this.append(create(MembershipRecordSchema, { signer: signer.actorId, sig, body }));
   }
@@ -245,8 +222,12 @@ export class MembershipLog {
   /** Replay every record into a membership state + the records that were skipped. The replay rules
    *  (signature + authorization + the authority-independent invariants) live in
    *  `membership-replay.ts`. Deterministic given the merged list → every replica converges. */
-  deriveState(): { state: MembershipState; skipped: MembershipRecord[] } {
-    const result = deriveMembershipState(this.metaDoc.records());
+  deriveState(): { state: MembershipState; skipped: DomainMembershipRecord[] } {
+    const records = this.metaDoc.records().flatMap((bytes) => {
+      const decoded = decodeMembershipRecord(bytes);
+      return decoded === null ? [] : [decoded];
+    });
+    const result = deriveMembershipState(records);
     if (result.skipped.length > this.skipLastCount) {
       // New corruption appeared since the last round — surface it. A stable count stays quiet
       // (per-round dedup); a heal (count falling) updates silently. Turn up engine=debug for every
@@ -397,9 +378,7 @@ function rosterSurvivors(
 
 /** Byte-by-byte Uint8Array equality (reference-shortcut fast path). Allocation-free — hot path: the
  *  dirty check compares frontiers every persist + SyncExchange compares versions every round. Not
- *  constant-time: these are public version/frontier bytes, not secrets. Lives with its lower consumer
- *  (membership-log) so SyncExchange imports it downward; extract a shared leaf only if a cohesive
- *  byte-helpers cluster forms. */
+ *  constant-time: these are public version/frontier bytes, not secrets. */
 export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   if (a === b) {
     return true;

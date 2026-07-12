@@ -1,19 +1,22 @@
-/* eslint-disable max-lines -- one cohesive SyncTransport-over-broker impl: the initiator
-   (request/response correlation by reqId) + responder (profile/updates/push) + the per-doc recv
-   drainer share the protocol's private state (store/security/pending/docQueues); splitting would
-   force an awkward seam through them. */
+/* eslint-disable max-lines -- initiator (reqId correlation), responder, and per-doc recv drainer
+   share the protocol's private state (store/security/pending/docQueues). */
 import { randomUUID } from "node:crypto";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { createLogger } from "@lode/logger";
 import { type SyncMessage, SyncMessageSchema } from "@lode/protocol/proto";
-import { BrokerClient } from "./broker-client.js";
-import { BoundedAsyncQueue } from "./bounded-async-queue.js";
-import { decodeProfile, encodeProfile } from "../sync/sync-message.js";
-import { open, seal } from "../membership/wire-security.js";
-import type { SyncBytes, SyncableDoc } from "../../core/store/syncable.js";
-import type { WorkspaceDocSet } from "../../core/store/doc-set.js";
-import type { SyncProfile, SyncTransport } from "../sync/sync-exchange.js";
-import type { WireSecurity } from "../membership/wire-security.js";
+import { BrokerClient } from "../../broker/broker-client.js";
+import { BoundedAsyncQueue } from "../../broker/bounded-async-queue.js";
+import { decodeProfile, encodeProfile } from "../sync-message.js";
+import { open, seal } from "../../membership/wire-security.js";
+import type { SyncBytes, SyncableDoc } from "../../../core/store/syncable.js";
+import type { WorkspaceDocSet } from "../../../core/store/doc-set.js";
+import type {
+  ManagedSyncTransport,
+  SyncProfile,
+  SyncTransportFactory,
+  SyncTransportInput,
+} from "../transport.js";
+import type { WireSecurity } from "../../membership/wire-security.js";
 
 const log = createLogger("engine.broker.sync");
 
@@ -72,7 +75,7 @@ const taskBytes = (t: DocTask): number =>
  * reaches the OTHER subscriber(s); for 2 peers there's exactly one responder. For N>2 the initiator
  * takes the first response (CRDT transitivity converges everyone from one up-to-date peer).
  */
-export class BrokerSyncProtocol implements SyncTransport {
+export class BrokerSyncProtocol implements ManagedSyncTransport {
   private readonly docSet: WorkspaceDocSet;
   private readonly workspaceId: string;
   private readonly responseTimeoutMs: number;
@@ -445,6 +448,18 @@ export class BrokerSyncProtocol implements SyncTransport {
       this.pending.delete(reqId);
       entry.resolve(body);
     }
+  }
+}
+
+export class BrokerSyncTransportFactory implements SyncTransportFactory {
+  create(input: SyncTransportInput): ManagedSyncTransport {
+    return new BrokerSyncProtocol({
+      url: input.url,
+      docSet: input.documents,
+      workspaceId: input.workspaceId,
+      security: input.security,
+      peerId: input.peerId,
+    });
   }
 }
 

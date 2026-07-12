@@ -9,11 +9,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { deriveActorKeypair } from "../identity/identity-policy.js";
 import { generateMnemonic, type ActorKeypair } from "../../crypto/index.js";
 import { BrokerServer } from "../broker/broker-server.js";
-import { Lifecycle } from "../lifecycle.js";
+import { BrokerSyncTransportFactory } from "./adapters/broker-sync-transport.js";
+import { AppRuntime } from "../kernel/app-runtime.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
-import { SessionIdentity } from "../identity/session-identity.js";
-import { NotificationManager } from "../notification/notification-manager.js";
-import { SyncRegistry } from "./registry.js";
+import { ClientSessionManager } from "../session/client-session-manager.js";
+import { SyncService } from "./sync-service.js";
 import { wrapCommands } from "../../commands/wrap-commands.js";
 import { createCommands, type CommandDeps, type Commands } from "../../commands/index.js";
 import { createSessionRpcs } from "../../commands/session-rpcs.js";
@@ -22,7 +22,7 @@ import { createSessionRpcs } from "../../commands/session-rpcs.js";
 // convergence flow is covered by the daemon e2e (`sync-secured-e2e.test.ts`); driving it in-process
 // here trips a loro re-entrancy guard (reading a partially-converged occurrence's deltas while a
 // sync round runs), unrelated to the sub-graph under test. These tests cover the registry + sub-graph
-// LIFECYCLE — the mechanics unique to the extracted code: register wires a per-workspace sync Lifecycle,
+// LIFECYCLE — register wires a workspace-owned sync instance,
 // shareCoordinate/syncNow gate correctly, stop tears everything down without hanging.
 //
 // SyncRegistry is engine-internal (NOT on the EngineRuntime host surface — hosts reach sync via the
@@ -34,12 +34,12 @@ const WS = "ws-sync-unit";
 
 let relay: BrokerServer | undefined;
 
-type TestRuntime = { commands: Commands; lifecycle: Lifecycle; sync: SyncRegistry };
+type TestRuntime = { commands: Commands; app: AppRuntime; sync: SyncService };
 const runtimes: TestRuntime[] = [];
 
 afterEach(async () => {
   for (const r of runtimes.splice(0)) {
-    await r.lifecycle.stop();
+    await r.app.stop();
   }
   if (relay) {
     await relay.close();
@@ -50,32 +50,49 @@ afterEach(async () => {
 // Mirrors createEngineRuntime's assembly but exposes `sync` for direct registry testing. In-memory only
 // (these tests never persist); the round interval is short so rounds drive promptly.
 async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
-  const app = new Lifecycle();
-  const workspaces = await WorkspaceRegistry.inMemory(() => app.child());
-  const identity = new SessionIdentity(workspaces.originLabel());
-  const notify = new NotificationManager();
-  const sync = new SyncRegistry({ workspaces, roundIntervalMs });
-  const ctx: CommandDeps = { workspaces, notify, sync };
+  const app = new AppRuntime("test-engine");
+  const workspaces = (
+    await app.root.mount("component:workspaces", (instance) => WorkspaceRegistry.inMemory(instance))
+  ).api;
+  const sessions = (
+    await app.root.mount("component:sessions", (instance) => {
+      const service = new ClientSessionManager(instance, workspaces.originLabel());
+      instance.own(service);
+      return service;
+    })
+  ).api;
+  const sync = (
+    await app.root.mount("component:sync", (instance) => {
+      const service = new SyncService({
+        workspaces,
+        transportFactory: new BrokerSyncTransportFactory(),
+        roundIntervalMs,
+      });
+      instance.own(service);
+      return service;
+    })
+  ).api;
+  const ctx: CommandDeps = { workspaces, sync };
   const commands = wrapCommands(
-    { ...createCommands(ctx), ...createSessionRpcs(identity, notify, workspaces) },
-    identity,
+    { ...createCommands(ctx), ...createSessionRpcs(sessions, workspaces) },
+    sessions,
   );
-  workspaces.attachWorkspaceStateHolders(sync, notify);
-  app.register(identity);
-  app.register(notify);
-  app.register(workspaces);
-  app.register(sync);
-  return { commands, lifecycle: app, sync };
+  return { commands, app, sync };
 }
 
 // The single route a host uses: sessionHello derives the keypair the session holds, and that SAME
 // keypair owns the workspace (createWorkspace) + signs sync rounds (registerSync). Returns the
 // pre-derived keypair so a test can register sync with the owner's identity.
-function ownerSession(runtime: TestRuntime): { connectionId: string; keypair: ActorKeypair } {
+async function ownerSession(
+  runtime: TestRuntime,
+): Promise<{ connectionId: string; keypair: ActorKeypair }> {
   const mnemonic = generateMnemonic();
   const keypair = deriveActorKeypair(mnemonic);
   const connectionId = randomUUID();
-  runtime.commands.sessionHello(create(SessionHelloRequestSchema, { mnemonic }), connectionId);
+  await runtime.commands.sessionHello(
+    create(SessionHelloRequestSchema, { mnemonic }),
+    connectionId,
+  );
   return { connectionId, keypair };
 }
 
@@ -102,17 +119,17 @@ async function removeWorkspace(
   );
 }
 
-describe("SyncRegistry — lifecycle + ownership", () => {
-  it("register wires a sync Lifecycle; shareCoordinate + syncNow gate; stop tears down without hanging", async () => {
+describe("SyncService — lifecycle + ownership", () => {
+  it("register wires a sync instance; shareCoordinate + syncNow gate; stop tears down without hanging", async () => {
     relay = new BrokerServer({ port: 0 });
     await relay.ready();
     const url = `http://127.0.0.1:${relay.port}`;
 
     const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.lifecycle.start();
+    await owner.app.start();
 
-    const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
+    const { connectionId: ownerConn, keypair: ownerKp } = await ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS);
 
     // shareCoordinate refuses before the workspace is synced to a relay.
@@ -134,7 +151,7 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     // app.stop aborts the registry's wire poll + the per-workspace driver run loop + closes the
     // transport, and completes well within the run-settle deadline (no hang).
     const before = Date.now();
-    await owner.lifecycle.stop();
+    await owner.app.stop();
     expect(Date.now() - before).toBeLessThan(5000);
   }, 15000);
 
@@ -145,16 +162,16 @@ describe("SyncRegistry — lifecycle + ownership", () => {
 
     const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.lifecycle.start();
+    await owner.app.start();
 
-    const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
+    const { connectionId: ownerConn, keypair: ownerKp } = await ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS, "x");
     await owner.sync.registerSync(WS, url, ownerKp);
 
     // A different actor re-registering the owner's workspace is refused (would overwrite the owner's
     // captured keypair that signs rounds + wires wire security). The same actor re-registering is
     // idempotent.
-    const intruderKp = ownerSession(owner).keypair;
+    const intruderKp = (await ownerSession(owner)).keypair;
     await expect(owner.sync.registerSync(WS, url, intruderKp)).rejects.toThrow(
       /already registered by actor/,
     );
@@ -163,36 +180,6 @@ describe("SyncRegistry — lifecycle + ownership", () => {
     // The owner's registration survives — it can still share the workspace.
     expect(owner.sync.shareCoordinate(WS)).toEqual({ relayUrl: url, workspaceId: WS });
   });
-
-  it("removeWorkspace tears down the sync sub-graph — engine+store+sync in one app.stop()", async () => {
-    relay = new BrokerServer({ port: 0 });
-    await relay.ready();
-    const url = `http://127.0.0.1:${relay.port}`;
-    const owner = await buildRuntime();
-    runtimes.push(owner);
-    await owner.lifecycle.start();
-
-    const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
-    await createWorkspace(owner, ownerConn, WS, "x");
-    await owner.sync.registerSync(WS, url, ownerKp);
-
-    // The sync sub-graph wires as a CHILD of the workspace's ChildApp (linked by a holder component).
-    const pollUntil = async (pred: () => boolean, ms: number): Promise<void> => {
-      const end = Date.now() + ms;
-      while (!pred() && Date.now() < end) {
-        await new Promise((r) => setTimeout(r, 10));
-      }
-    };
-    await pollUntil(() => owner.sync.wiredSyncApp(WS) !== null, 3000);
-    const syncApp = owner.sync.wiredSyncApp(WS)!;
-    expect(syncApp.isStopped).toBe(false); // the sub-graph is running (transport + tick alive)
-
-    // removeWorkspace stops the workspace ChildApp → the holder stops the nested sync sub-graph. Pre-fix
-    // the sub-graph was a sibling under the root Lifecycle, so it kept ticking against the disposed engine.
-    await removeWorkspace(owner, ownerConn, WS);
-    expect(owner.sync.wiredSyncApp(WS)).toBeNull(); // the registration (engine + sub-graph) is gone
-    expect(syncApp.isStopped).toBe(true); // …and the sync sub-graph stopped with it — no leak
-  }, 15000);
 });
 
 describe("removeWorkspace — per-workspace teardown funnel", () => {
@@ -203,9 +190,9 @@ describe("removeWorkspace — per-workspace teardown funnel", () => {
 
     const owner = await buildRuntime();
     runtimes.push(owner);
-    await owner.lifecycle.start();
+    await owner.app.start();
 
-    const { connectionId: ownerConn, keypair: ownerKp } = ownerSession(owner);
+    const { connectionId: ownerConn, keypair: ownerKp } = await ownerSession(owner);
     await createWorkspace(owner, ownerConn, WS);
     await owner.sync.registerSync(WS, url, ownerKp);
     await owner.sync.syncNow(WS); // registered → the round drives (transient failures swallowed)
@@ -215,7 +202,7 @@ describe("removeWorkspace — per-workspace teardown funnel", () => {
     await removeWorkspace(owner, ownerConn, WS);
     await expect(owner.sync.syncNow(WS)).rejects.toThrow(/not registered/);
 
-    // Same-id rebuild starts clean — no stale syncApp handle / ownership clash from the dead ws.
+    // Same-id rebuild starts clean — no stale instance handle or ownership clash from the dead ws.
     await createWorkspace(owner, ownerConn, WS, "rebuilt");
     await owner.sync.registerSync(WS, url, ownerKp);
     await expect(owner.sync.syncNow(WS)).resolves.toBeUndefined();

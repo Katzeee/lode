@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- applyOp + the weighted TABLE cover the full 18-op surface; length is inherent to completeness. */
+/* eslint-disable max-lines -- applyOp + the weighted TABLE cover the full 18-op surface. */
 import type { Engine } from "../src/core/engine.js";
 import type { Delta } from "../src/core/types.js";
 import { TruthModel, MARK_KEY, MARK_VALUE, type Op } from "./truth-model.js";

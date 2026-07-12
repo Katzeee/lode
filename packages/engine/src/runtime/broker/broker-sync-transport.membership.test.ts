@@ -11,7 +11,7 @@ import { MembershipSync } from "../sync/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
-import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { BrokerSyncProtocol } from "../sync/adapters/broker-sync-transport.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */

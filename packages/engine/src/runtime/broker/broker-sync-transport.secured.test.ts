@@ -8,7 +8,7 @@ import { SyncExchange } from "../sync/sync-exchange.js";
 import { open, type WireSecurity } from "../membership/wire-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
-import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { BrokerSyncProtocol } from "../sync/adapters/broker-sync-transport.js";
 
 // Secured-transport e2e: transit-key AEAD + actor signing over the real broker. Split out from
 // broker-sync-transport.test.ts (which covers the plaintext transport contract) so neither file

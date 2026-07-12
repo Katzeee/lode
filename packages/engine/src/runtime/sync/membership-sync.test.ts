@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { MembershipSync } from "./membership-sync.js";
-import type { SyncProfile, SyncTransport } from "./sync-exchange.js";
+import type { SyncProfile, SyncTransport } from "./transport.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */

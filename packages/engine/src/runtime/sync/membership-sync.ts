@@ -1,5 +1,5 @@
 import type { SyncableDoc } from "../../core/store/syncable.js";
-import type { SyncTransport } from "./sync-exchange.js";
+import type { SyncTransport } from "./transport.js";
 
 /**
  * Drives one membership-doc gossip round over a transport (design sync-identity-persistence §2/§9).

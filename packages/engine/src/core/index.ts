@@ -37,7 +37,6 @@ export type {
   BlockSelection,
   Selection,
   NodeUpdatedPayload,
-  EngineSlots,
 } from "./types.js";
 
 // Delta utilities

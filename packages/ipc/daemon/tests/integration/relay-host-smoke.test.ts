@@ -31,7 +31,7 @@ describe("daemon relay host (--relay)", () => {
     probe.close();
 
     // Must tear down cleanly (relay + Connect server + runtime).
-    await expect(daemon.stop()).resolves.toBeUndefined();
+    await expect(daemon.stop()).resolves.toMatchObject({ graceful: true, dirty: false });
     handles.pop();
   });
 
@@ -45,7 +45,7 @@ describe("daemon relay host (--relay)", () => {
     await probe.open();
     probe.close();
 
-    await expect(relay.stop()).resolves.toBeUndefined();
+    await expect(relay.stop()).resolves.toMatchObject({ graceful: true, dirty: false });
     handles.pop();
   });
 });

@@ -10,6 +10,7 @@ import {
 } from "../src/core/index.js";
 import { validateSnapshot } from "../src/core/invariant.js";
 import { toJSON } from "../src/core/serialize.js";
+import { readStoredShard, residentShardDoc, snapshotShard } from "./support/shard-doc.js";
 
 /**
  * Crash recovery — `ShardedBlockStore.reconcileDurability()`. The treeDoc and each shard
@@ -37,6 +38,8 @@ const build = (numShards: number): { e: Engine; store: ShardedBlockStore } => {
 /** Restart into a fresh store from [outwardId, snapshot] pairs: the tree entry → eager treeBytes,
  *  each `sys:s{k}` entry → a seeded InMemoryDocStore (others omitted = the lost shard). Snapshots
  *  only — mirrors how shards persist. */
+const restartStores = new WeakMap<ShardedBlockStore, InMemoryDocStore>();
+
 const restart = (numShards: number, entries: [string, Uint8Array][]): ShardedBlockStore => {
   let treeBytes: LoadedDocBytes | undefined;
   const shardSeed = new Map<string, LoadedDocBytes>();
@@ -47,7 +50,18 @@ const restart = (numShards: number, entries: [string, Uint8Array][]): ShardedBlo
       shardSeed.set(id, { snapshot, updates: [] });
     }
   }
-  return new ShardedBlockStore({ numShards, treeBytes, docStore: new InMemoryDocStore(shardSeed) });
+  const docStore = new InMemoryDocStore(shardSeed);
+  const store = new ShardedBlockStore({ numShards, treeBytes, docStore });
+  restartStores.set(store, docStore);
+  return store;
+};
+
+const storedRestartShard = (store: ShardedBlockStore, shardId: string) => {
+  const docStore = restartStores.get(store);
+  if (docStore === undefined) {
+    throw new Error("store was not created by restart()");
+  }
+  return readStoredShard(docStore, shardId);
 };
 
 /** A round-tripping in-memory DocStore: records writes + reconstructs on load — lets durability
@@ -95,7 +109,7 @@ describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", (
 
     const treeBytes = await store.treeSyncDoc().exportSnapshot();
     const rootShard = shardIdOf("root", numShards);
-    const rootShardBytes = (await store.getShardDoc(rootShard)).export({ mode: "snapshot" });
+    const rootShardBytes = await snapshotShard(store, rootShard);
 
     // Restart losing child's shard (entity never flushed) → child is a create-orphan. The restart
     // carries the tree + root's shard; child's shard is omitted (a missing seed = the lost shard).
@@ -121,17 +135,13 @@ describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", (
     await e.createNode(root.occurrenceId); // "child" → s7
     e.captureSync();
     const childShard = shardIdOf("child", numShards);
-    const childShardBytes = (await store.getShardDoc(childShard)).export({
-      mode: "snapshot",
-    }); // entity present
+    const childShardBytes = await snapshotShard(store, childShard); // entity present
 
     // Hard-delete child (ownership gone, occurrence gone) — then snapshot treeDoc.
     await e.deleteNode("child");
     e.captureSync();
     const treeBytes = await store.treeSyncDoc().exportSnapshot();
-    const rootShardBytes = (await store.getShardDoc(shardIdOf("root", numShards))).export({
-      mode: "snapshot",
-    });
+    const rootShardBytes = await snapshotShard(store, shardIdOf("root", numShards));
 
     // Restart: treeDoc flushed (child deleted), but child's shard served STALE (entity leaked).
     const restarted = restart(numShards, [
@@ -140,12 +150,17 @@ describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", (
       [SYS_PREFIX + childShard, childShardBytes],
     ]);
     // The leaked entity is an orphan (ownership gone); reconcile must clean it.
-    expect((await restarted.getShardDoc(childShard)).getMap("entities").get("child")).toBeDefined(); // leaked
+    expect(
+      (await storedRestartShard(restarted, childShard)).getMap("entities").get("child"),
+    ).toBeDefined(); // leaked
 
     await restarted.reconcileDurability();
+    expect(residentShardDoc(restarted, childShard).getMap("entities").get("child")).toBeUndefined(); // reconcile repairs the resident shard before returning
+
+    await restarted.flushDirty();
     expect(
-      (await restarted.getShardDoc(childShard)).getMap("entities").get("child"),
-    ).toBeUndefined(); // cleaned
+      (await storedRestartShard(restarted, childShard)).getMap("entities").get("child"),
+    ).toBeUndefined(); // the repair is persisted
     validateSnapshot(await toJSON(new Engine({ store: restarted }))); // invariant-valid after reconcile
   });
 
@@ -199,7 +214,7 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
 
     // Capture child's shard snapshot (entity present) BEFORE the delete — this is the leaked bytes.
     const childShard = shardIdOf("child", numShards);
-    const leakedChildBytes = (await seedStore.getShardDoc(childShard)).export({ mode: "snapshot" });
+    const leakedChildBytes = await snapshotShard(seedStore, childShard);
 
     // Hard-delete child (ownership + occurrence gone), persist → the tree + root's shard advance.
     await es.deleteNode("child");
@@ -213,7 +228,7 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
     await orphan.writeSnapshot(treeId, await seedStore.treeSyncDoc().exportSnapshot());
     await orphan.writeSnapshot(
       SYS_PREFIX + shardIdOf("root", numShards),
-      (await seedStore.getShardDoc(shardIdOf("root", numShards))).export({ mode: "snapshot" }),
+      await snapshotShard(seedStore, shardIdOf("root", numShards)),
     );
     await orphan.writeSnapshot(SYS_PREFIX + childShard, leakedChildBytes);
 
@@ -224,7 +239,9 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
       snapshotEveryUpdates: 1,
     });
     // The leaked entity is an orphan (ownership gone); reconcile must clean it.
-    expect((await store.getShardDoc(childShard)).getMap("entities").get("child")).toBeDefined();
+    expect(
+      (await readStoredShard(orphan, childShard)).getMap("entities").get("child"),
+    ).toBeDefined();
 
     await store.reconcileDurability();
     // reconcile deleted the orphan entity via shardForWrite → child's shard is now dirty (markDirty).
@@ -233,7 +250,9 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
     // is gone by design — there is no write-pin to leak.
     await store.flushDirty();
     expect(store.residentShardCount).toBeLessThanOrEqual(cap);
-    expect((await store.getShardDoc(childShard)).getMap("entities").get("child")).toBeUndefined(); // cleaned
+    expect(
+      (await readStoredShard(orphan, childShard)).getMap("entities").get("child"),
+    ).toBeUndefined(); // cleaned
 
     // The heal was persisted: a fresh reopen still sees the orphan cleaned (no re-heal needed).
     const reopened = new ShardedBlockStore({
@@ -244,7 +263,7 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
       snapshotEveryUpdates: 1,
     });
     expect(
-      (await reopened.getShardDoc(childShard)).getMap("entities").get("child"),
+      (await readStoredShard(orphan, childShard)).getMap("entities").get("child"),
     ).toBeUndefined();
     validateSnapshot(await toJSON(new Engine({ store: reopened })));
   });

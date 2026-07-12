@@ -1,13 +1,12 @@
-import { type Component, BrokerServer } from "@lode/engine";
+import { type RuntimeResource, BrokerServer } from "@lode/engine";
 
 /**
- * Hosts the workspace-routing broker (the relay) as an Lifecycle `Component` (design sync-design.md §3).
+ * Hosts the workspace-routing broker (the relay) as a managed resource (design sync-design.md §3).
  * The relay is a stateless coordinate — content-blind, no-auth, no storage, served as a Connect gRPC
  * `BrokerService` over HTTP/2. Bind is async, so `start()` awaits `ready()`; `url` is readable only
- * after `start()` (the port is ephemeral until bound). Registered before the sync runner so it stops
- * after it (reverse teardown).
+ * after `start()` (the port is ephemeral until bound).
  */
-export type BrokerServerComponentOptions = {
+export type BrokerServerResourceOptions = {
   /** Bind port; 0 (default) = ephemeral. */
   readonly port?: number;
   /** Bind host; default 127.0.0.1. */
@@ -20,13 +19,13 @@ export type BrokerServerComponentOptions = {
   readonly tlsKey?: string;
 };
 
-export class BrokerServerComponent implements Component {
-  readonly name = "relay";
+export class BrokerServerResource implements RuntimeResource {
+  readonly id = "relay";
   private readonly server: BrokerServer;
   private readonly host: string;
   private readonly secure: boolean;
 
-  constructor(opts: BrokerServerComponentOptions = {}) {
+  constructor(opts: BrokerServerResourceOptions = {}) {
     this.host = opts.host ?? "127.0.0.1";
     this.secure = opts.tlsCert !== undefined && opts.tlsKey !== undefined;
     this.server = new BrokerServer({
@@ -47,7 +46,7 @@ export class BrokerServerComponent implements Component {
     await this.server.ready();
   }
 
-  async stop(): Promise<void> {
+  async release(): Promise<void> {
     await this.server.close();
   }
 }

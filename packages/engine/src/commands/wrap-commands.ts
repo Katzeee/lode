@@ -1,5 +1,5 @@
 import type { AuthedHandler, Handler, OpenHandler } from "./handler.js";
-import type { SessionIdentity } from "../runtime/identity/session-identity.js";
+import type { ClientSessionManager } from "../runtime/session/client-session-manager.js";
 
 /** A command bag of self-declaring handlers (each `authed(...)` or `open(...)`). `req` is `never` so
  *  a bag of differently-typed handlers satisfies the constraint (each keeps its own request type). */
@@ -23,13 +23,13 @@ export type WrappedCommands<T extends HandlerBag> = {
 
 export function wrapCommands<T extends HandlerBag>(
   raw: T,
-  identity: SessionIdentity,
+  sessions: ClientSessionManager,
 ): WrappedCommands<T> {
   const out: Record<string, (req: unknown, connectionId: string) => unknown> = {};
   for (const [name, handler] of Object.entries(raw)) {
     out[name] = handler.authed
       ? (req: unknown, connectionId: string) =>
-          handler.invoke(req as never, identity.resolveCaller(connectionId), connectionId)
+          handler.invoke(req as never, sessions.resolveCaller(connectionId), connectionId)
       : (req: unknown, connectionId: string) => handler.invoke(req as never, connectionId);
   }
   return out as unknown as WrappedCommands<T>;

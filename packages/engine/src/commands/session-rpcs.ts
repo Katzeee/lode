@@ -12,11 +12,9 @@ import type {
 } from "@lode/protocol/proto";
 import { ActorMnemonicSchema, ActorPublicKeysSchema } from "@lode/protocol/proto";
 import { authed, open } from "./handler.js";
-import { DocNotFoundError } from "../errors/index.js";
-import type { NotificationManager } from "../runtime/notification/notification-manager.js";
 import { EMPTY } from "./wire/empty.js";
 import type { WorkspaceRegistry } from "../runtime/workspace/registry.js";
-import type { SessionIdentity } from "../runtime/identity/session-identity.js";
+import type { ClientSessionManager } from "../runtime/session/client-session-manager.js";
 import { deriveActorKeypair, mintActorIdentity } from "../runtime/identity/identity-policy.js";
 
 // The RPCs that are NOT domain adapters — session/identity (hello, mint, getActorPublicKeys) +
@@ -26,27 +24,16 @@ import { deriveActorKeypair, mintActorIdentity } from "../runtime/identity/ident
 // hello/mint/listen are `open` (no session — hello CREATES it, mint is bootstrap, listen is the
 // pre-auth stream); getActorPublicKeys/subscribe/unsubscribe are `authed`.
 
-/** Resolve the engine for `workspaceId` or throw (the existence check subscribeDoc needs). */
-async function requireEngine(workspaces: WorkspaceRegistry, workspaceId: string) {
-  const engine = await workspaces.getEngine(workspaceId);
-  if (!engine) {
-    throw new DocNotFoundError(workspaceId);
-  }
-  return engine;
-}
-
-export function createSessionRpcs(
-  identity: SessionIdentity,
-  notify: NotificationManager,
-  workspaces: WorkspaceRegistry,
-) {
+export function createSessionRpcs(sessions: ClientSessionManager, workspaces: WorkspaceRegistry) {
   return {
     // The client sends only the mnemonic; the identity policy derives the keypair. A bad/undecodable
     // mnemonic → AuthenticationError; the session is never created. Open (it CREATES the session).
-    sessionHello: open((req: SessionHelloRequest, connectionId: string): SessionInfo => {
-      const keypair = deriveActorKeypair(req.mnemonic);
-      return identity.createSession(connectionId, req, keypair);
-    }),
+    sessionHello: open(
+      async (req: SessionHelloRequest, connectionId: string): Promise<SessionInfo> => {
+        const keypair = deriveActorKeypair(req.mnemonic);
+        return sessions.createSession(connectionId, req, keypair);
+      },
+    ),
 
     // Mint a fresh actor identity — a 12-word mnemonic + the actor id it derives to. Open by design:
     // the bootstrap (`lode actor new`) a new user calls once, before any authed command.
@@ -65,13 +52,14 @@ export function createSessionRpcs(
     ),
 
     subscribeDoc: authed(async (req: SubscribeDocRequest, _caller, connectionId: string) => {
-      await requireEngine(workspaces, req.workspaceId);
-      notify.subscribeDoc(connectionId, req.workspaceId);
+      await workspaces.runWorkspace(req.workspaceId, ({ instance, facts }) => {
+        return sessions.subscribeWorkspace(connectionId, req.workspaceId, instance, facts);
+      });
       return EMPTY;
     }),
 
     unsubscribeDoc: authed((req: UnsubscribeDocRequest, _caller, connectionId: string) => {
-      notify.unsubscribeDoc(connectionId, req.workspaceId);
+      sessions.unsubscribeWorkspace(connectionId, req.workspaceId);
       return EMPTY;
     }),
 
@@ -79,7 +67,7 @@ export function createSessionRpcs(
     // before subscribing to receive notifications.
     listenNotifications: open(
       (_req: ListenNotificationsRequest, connectionId: string): AsyncIterable<Notification> =>
-        notify.getOrCreateStream(connectionId),
+        sessions.listenNotifications(connectionId),
     ),
   };
 }

@@ -4,9 +4,14 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap, VersionVector } from "loro-crdt";
 import { generateActorKeypair } from "../../crypto/index.js";
-import { WorkspaceRegistry } from "./registry.js";
+import { TestWorkspaceRegistry as WorkspaceRegistry } from "../../../tests/support/workspace-registry.js";
+import { mutateShard, readShardDoc } from "../../../tests/support/shard-doc.js";
 import type { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { shardIdOf } from "../../core/store/sharding.js";
+
+async function engineOf(registry: WorkspaceRegistry, workspaceId: string) {
+  return registry.runWorkspace(workspaceId, ({ engine }) => engine);
+}
 
 /**
  * Step 5b — sharded persistence end-to-end. A sharded workspace (treeDoc + N content
@@ -28,7 +33,7 @@ afterEach(async () => {
 const buildAndMutate = async (dataRoot: string) => {
   const rt = await WorkspaceRegistry.persistent({ dataRoot });
   await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-  const engine = (await rt.getEngine("ws"))!;
+  const engine = await engineOf(rt, "ws");
   expect(engine.asOutliner()).not.toBeNull();
 
   const root = await engine.createNode(null);
@@ -46,26 +51,13 @@ const buildAndMutate = async (dataRoot: string) => {
   return { rootOcc, rootText };
 };
 
-describe("WorkspaceRegistry state-holder attachment", () => {
-  it("assertStateHoldersAttached throws before attach (fail-loud against a missed two-phase wire)", async () => {
-    const rt = await WorkspaceRegistry.inMemory();
-    try {
-      // An unattached registry would silently leak sync + session state on a workspace's death; the
-      // lifecycle start() asserts this so a misconfigured createEngineRuntime can't slip through.
-      expect(() => rt.assertStateHoldersAttached()).toThrow(/not attached/);
-    } finally {
-      await rt.close();
-    }
-  });
-});
-
 describe("WorkspaceRegistry sharded persistence", () => {
   it("restores treeDoc structure + shard content across a restart", async () => {
     const { rootOcc, rootText } = await buildAndMutate(tempDir);
 
     const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
-      const doc2 = (await rt2.getEngine("ws"))!;
+      const doc2 = await engineOf(rt2, "ws");
       expect(doc2.asOutliner()).not.toBeNull();
       // Structure survived (the root + 30 children).
       const root2 = await doc2.getOccurrence(rootOcc);
@@ -81,7 +73,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("the runtime is sharded-only (no single-engine path)", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     expect(engine.asOutliner()).not.toBeNull(); // always sharded
     await rt.close();
   });
@@ -89,7 +81,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("exposes a stable per-dataRoot peerId wired into the Loro treeDoc", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     const peerId = rt.peerId;
     expect(typeof peerId).toBe("number");
     expect(peerId!).toBeGreaterThan(0);
@@ -113,11 +105,11 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("wires peerId into lazily-created shard docs, not just the treeDoc", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     // createNode writes an entity into the owning shard, materializing that shard lazily.
     const node = await engine.createNode(null);
     const store = engine.asOutliner() as ShardedBlockStore;
-    const shard = await store.getShardDoc(shardIdOf(node.nodeId, store.numShards));
+    const shard = await readShardDoc(store, shardIdOf(node.nodeId, store.numShards));
     const shardPeers = [...shard.version().toJSON().keys()];
     expect(shardPeers).toContain(rt.routingId()!);
     await rt.close();
@@ -130,22 +122,22 @@ describe("WorkspaceRegistry sharded persistence", () => {
     // validateSnapshot (the sharded analog of the old single-engine import validation).
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     const root = await engine.createNode(null);
 
     const store = engine.asOutliner() as ShardedBlockStore;
-    const shard = await store.getShardDoc(shardIdOf(root.nodeId, store.numShards));
-    const entity = shard.getMap("entities").get(root.nodeId);
-    expect(entity).toBeInstanceOf(LoroMap);
-    (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
-    shard.commit();
+    await mutateShard(store, shardIdOf(root.nodeId, store.numShards), (shard) => {
+      const entity = shard.getMap("entities").get(root.nodeId);
+      expect(entity).toBeInstanceOf(LoroMap);
+      (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
+    });
     await rt.flushDirty("ws");
     // Crash-close (no clean marker) so the reload runs validate, which rejects the unhealable break.
     await rt.crashClose();
 
     const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
-      await expect(rt2.getEngine("ws")).rejects.toThrow(/canonical/i);
+      await expect(rt2.runWorkspace("ws", async () => {})).rejects.toThrow(/canonical/i);
     } finally {
       await rt2.close();
     }
@@ -155,7 +147,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
     // No createDoc call: the ws is born with its one content tree — an engine exists for it.
-    expect(await rt.getEngine("ws")).not.toBeNull();
+    await expect(rt.runWorkspace("ws", async () => {})).resolves.toBeUndefined();
     await rt.close();
   });
 
@@ -180,7 +172,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
       displayName: "My Workspace",
       actorKeypair: owner,
     });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     const roots = await engine.getRootOccurrences();
     expect(roots).toHaveLength(1);
     for (const root of roots) {
@@ -195,7 +187,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("a joiner createWorkspace (no keypair) creates no root — it converges the owner's over sync", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = (await rt.getEngine("ws"))!;
+    const engine = await engineOf(rt, "ws");
     expect(await engine.getRootOccurrences()).toHaveLength(0);
     await rt.close();
   });
@@ -208,7 +200,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
     // Re-open the same dataRoot: the root must reload from the persisted update, not be in-memory only.
     const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
-      const engine = (await rt2.getEngine("ws"))!;
+      const engine = await engineOf(rt2, "ws");
       const roots = await engine.getRootOccurrences();
       expect(roots).toHaveLength(1);
       for (const root of roots) {
@@ -223,7 +215,7 @@ describe("WorkspaceRegistry sharded persistence", () => {
   });
 });
 
-describe("WorkspaceRegistry.runWorkspaceSerialized: per-workspace mutation chain", () => {
+describe("WorkspaceRegistry.runWorkspaceExclusive: per-workspace operation lease", () => {
   // The CRDT-paradigm serialization: same-workspace mutations queue (one completes before the next
   // starts), different workspaces run in parallel. This is what makes the residentSession working-set
   // gate reliably single-operation + keeps concurrent multi-client writes from erroring ("session
@@ -233,15 +225,16 @@ describe("WorkspaceRegistry.runWorkspaceSerialized: per-workspace mutation chain
   it("same-workspace works serialize: B's body runs only after A completes", async () => {
     const rt = await WorkspaceRegistry.inMemory();
     try {
+      await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
       const order: string[] = [];
       let aDone = false;
-      const a = rt.runWorkspaceSerialized("ws", async () => {
+      const a = rt.runWorkspaceExclusive("ws", async () => {
         order.push("a-start");
         await delay(15);
         aDone = true;
         order.push("a-end");
       });
-      const b = rt.runWorkspaceSerialized("ws", () => {
+      const b = rt.runWorkspaceExclusive("ws", () => {
         order.push("b-start");
         expect(aDone).toBe(true); // B starts only after A completed
         order.push("b-end");
@@ -257,10 +250,11 @@ describe("WorkspaceRegistry.runWorkspaceSerialized: per-workspace mutation chain
   it("a failed work does not block a later work on the same workspace (chain stays fulfilled)", async () => {
     const rt = await WorkspaceRegistry.inMemory();
     try {
-      const first = rt.runWorkspaceSerialized("ws", () => Promise.reject(new Error("boom")));
+      await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+      const first = rt.runWorkspaceExclusive("ws", () => Promise.reject(new Error("boom")));
       await expect(first).rejects.toThrow("boom");
       // A later work on the same workspace still runs (the chain didn't stay rejected).
-      const ran = rt.runWorkspaceSerialized("ws", () => Promise.resolve("ok"));
+      const ran = rt.runWorkspaceExclusive("ws", () => Promise.resolve("ok"));
       await expect(ran).resolves.toBe("ok");
     } finally {
       await rt.close();
@@ -270,13 +264,15 @@ describe("WorkspaceRegistry.runWorkspaceSerialized: per-workspace mutation chain
   it("different workspaces run in parallel (A on ws1 does not block B on ws2)", async () => {
     const rt = await WorkspaceRegistry.inMemory();
     try {
+      await rt.createWorkspace({ workspaceId: "ws1", displayName: "WS1" });
+      await rt.createWorkspace({ workspaceId: "ws2", displayName: "WS2" });
       let bStarted = false;
       const aStarted: boolean[] = [];
-      const a = rt.runWorkspaceSerialized("ws1", async () => {
+      const a = rt.runWorkspaceExclusive("ws1", async () => {
         aStarted.push(bStarted); // sampled mid-A — B should already be running (parallel)
         await delay(15);
       });
-      const b = rt.runWorkspaceSerialized("ws2", async () => {
+      const b = rt.runWorkspaceExclusive("ws2", async () => {
         bStarted = true;
         await delay(15);
       });
@@ -288,5 +284,31 @@ describe("WorkspaceRegistry.runWorkspaceSerialized: per-workspace mutation chain
     } finally {
       await rt.close();
     }
+  });
+
+  it("remove closes admission, drains an accepted operation, then disposes the workspace", async () => {
+    const rt = await WorkspaceRegistry.inMemory();
+    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+    let release!: () => void;
+    let started!: () => void;
+    const operationStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const operation = rt.runWorkspaceExclusive("ws", async () => {
+      started();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    });
+    await operationStarted;
+
+    const removal = rt.removeWorkspace("ws");
+    await expect(rt.runWorkspace("ws", async () => {})).rejects.toThrow(/not accepting work/);
+    release();
+
+    await operation;
+    await expect(removal).resolves.toBe(true);
+    await expect(rt.runWorkspace("ws", async () => {})).rejects.toThrow(/not found/i);
+    await rt.close();
   });
 });

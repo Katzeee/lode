@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { configureLogger } from "@lode/logger";
+import type { StopReport } from "@lode/engine";
 import { startAppServerDaemon, startRelayDaemon } from "../app-server-daemon.js";
 import { parseAppServerArgs } from "../app-server-args.js";
 
@@ -14,7 +15,7 @@ if (options.logFile) {
 
 // One binary, three modes (design sync-design.md §5): --listen = engine daemon; --relay without
 // --listen = relay-only (no engine/gRPC); both = combined. parseAppServerArgs discriminates by mode.
-let stop: () => Promise<void>;
+let stop: () => Promise<StopReport>;
 if (options.mode === "engine") {
   const daemon = await startAppServerDaemon(options);
   process.stdout.write(`lode daemon listening on: ${daemon.address}\n`);

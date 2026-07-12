@@ -6,7 +6,7 @@ import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { BrokerServer } from "./broker-server.js";
-import { BrokerSyncProtocol } from "./broker-sync-transport.js";
+import { BrokerSyncProtocol } from "../sync/adapters/broker-sync-transport.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
 /** Construct a MembershipLog backed by a fresh LoroMetaDoc (the production backing). */

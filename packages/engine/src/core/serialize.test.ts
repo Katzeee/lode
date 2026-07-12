@@ -67,7 +67,6 @@ describe("toJSON / fromJSON", () => {
 
     expect(importedRef.nodeId).toBe(importedSource.nodeId);
     expect(importedRef.occurrenceId).not.toBe(importedSource.occurrenceId);
-    engine2.dispose();
   });
 
   it("serializes reference occurrence children as physical children only", async () => {

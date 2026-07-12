@@ -13,7 +13,7 @@ import { EMPTY } from "./wire/empty.js";
 import type { CommandDeps } from "./wire/context.js";
 
 /** Relay-lifecycle sync RPCs (share/join/register/syncNow). They depend on the engine-resident
- *  SyncRegistry (ctx.sync) — the relay connection + round driver live in the engine, so an in-process
+ *  SyncService (ctx.sync) — the relay connection + round driver live in the engine, so an in-process
  *  host (mobile/embedded) gets them with no daemon. Each is `authed`: the boundary resolves the caller
  *  and the actor keypair comes from `caller.keypair` (captured at hello), never re-sent by the client.
  *  Relay-independent governance (addMember/list/revoke/addPeer/transfer/rotate/getPeerPublicKeys) is
