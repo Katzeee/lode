@@ -125,7 +125,13 @@ export class ClientSessionManager implements RuntimeResource {
   }
 
   listenNotifications(connectionId: string): AsyncIterable<Notification> {
-    return this.notificationStream(this.connection(connectionId));
+    // Kick the connection mount eagerly (before Connect iterates) so a stop()/removeConnection
+    // that follows still tears the stream down — the mount is in-flight by then, not deferred to
+    // the first `.next()` (which would run against a stopped instance).
+    const connection = this.connection(connectionId);
+    return (async function* (): AsyncIterable<Notification> {
+      yield* (await connection).notifications;
+    })();
   }
 
   async removeConnection(connectionId: string): Promise<void> {
@@ -173,13 +179,6 @@ export class ClientSessionManager implements RuntimeResource {
     } finally {
       this.mounting.delete(connectionId);
     }
-  }
-
-  private async *notificationStream(
-    pendingConnection: Promise<ClientConnection>,
-  ): AsyncIterable<Notification> {
-    const connection = await pendingConnection;
-    yield* connection.notifications;
   }
 
   private deliver(

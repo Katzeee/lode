@@ -20,7 +20,7 @@
     "typecheck:test": "npm run typecheck:test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
-    "verify": "npm run typecheck && npm run lint && npm run test",
+    "verify": "npm run build && npm run typecheck && npm run lint && npm run test",
     "prepare": "husky"
   },
   "lint-staged": {

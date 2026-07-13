@@ -1,16 +1,19 @@
 import { createLogger } from "@lode/logger";
 import type { RuntimeInstance } from "../kernel/runtime.js";
 import type { RuntimeResource } from "../kernel/resource.js";
-import type { MembershipRound, ContentRound } from "./round.js";
+import type { SyncContext } from "./context.js";
+import { syncMembershipDoc } from "./membership-sync.js";
 
 const log = createLogger("sync.driver");
 
+/** Round-summary shape the engine emits each content round; the host decides the UX. */
+export type RoundSummary = { readonly pulled: number; readonly pushed: number };
+
 export type SyncRoundDriverOptions = {
-  readonly wsId: string;
   /** Round interval; default 20000ms (20s — the reconciliation backstop, anytype-aligned). */
   readonly intervalMs: number;
-  readonly membership: MembershipRound;
-  readonly content: ContentRound;
+  readonly ctx: SyncContext;
+  readonly report: (wsId: string, summary: RoundSummary) => void;
 };
 
 /**
@@ -30,18 +33,16 @@ export type SyncRoundDriverOptions = {
  */
 export class SyncRoundDriver implements RuntimeResource {
   readonly id = "sync.driver";
-  private readonly wsId: string;
   private readonly intervalMs: number;
-  private readonly membership: MembershipRound;
-  private readonly content: ContentRound;
+  private readonly ctx: SyncContext;
+  private readonly report: (wsId: string, summary: RoundSummary) => void;
   private busy = false;
   private instance?: RuntimeInstance;
 
   constructor(opts: SyncRoundDriverOptions) {
-    this.wsId = opts.wsId;
     this.intervalMs = opts.intervalMs;
-    this.membership = opts.membership;
-    this.content = opts.content;
+    this.ctx = opts.ctx;
+    this.report = opts.report;
   }
 
   start(instance: RuntimeInstance): void {
@@ -85,15 +86,27 @@ export class SyncRoundDriver implements RuntimeResource {
     }
     this.busy = true;
     try {
-      await this.membership.runRound();
-      await this.content.runRound();
+      // Membership half: gossip the roster + persist dirtied log state. Wire security is a lazy
+      // projection of the log (re-derives on read when the frontier moves), so the content round's
+      // isMember() gate picks up the new roster automatically — no security refresh here.
+      await syncMembershipDoc(this.ctx.transport, this.ctx.log.metaDoc);
+      await this.ctx.log.persistIfDirty();
+      // Content half: only once the local actor is a member (before the membership log converges it
+      // isn't, so content is skipped, not errored — the membership half is what lets it join). Flush
+      // what the round delivered (tree edits + imported shards) so a pure receiver that crashes after
+      // a round keeps it on restart: tree always, plus any resident shard not already write-backed.
+      if (this.ctx.security.isMember()) {
+        const { pulled, pushed } = await this.ctx.syncManager.sync();
+        await this.ctx.engine.asOutliner().flushDirty();
+        this.report(this.ctx.wsId, { pulled, pushed });
+      }
     } catch (err) {
       // `stopped` = stop()'s transport close mid-round (expected teardown → debug); a real relay
       // drop / peer mid-restart → warn. Never abort the driver — the next round retries.
       if (this.instance?.quiescing.aborted) {
-        log.debug("sync round aborted on stop", { wsId: this.wsId, err });
+        log.debug("sync round aborted on stop", { wsId: this.ctx.wsId, err });
       } else {
-        log.warn("sync round failed", { wsId: this.wsId, err });
+        log.warn("sync round failed", { wsId: this.ctx.wsId, err });
       }
     } finally {
       this.busy = false;

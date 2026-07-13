@@ -1,10 +1,10 @@
 import type { ParsedCli } from "../args.js";
 import { assertAllowedFlags, getRequiredSingleFlag } from "./shared.js";
 import { decodeIdentityToken } from "./identity.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 export async function executeMemberCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {

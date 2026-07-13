@@ -1,5 +1,5 @@
 import type { ParsedCli } from "./args.js";
-import type { ClientLike } from "./commands/types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 // Method names matching the typed client, so tests can assert calls by name.
 export const Methods = {
@@ -56,7 +56,7 @@ export type ResponseFactory = (params: unknown) => unknown;
 // proto-shaped response (or the result of a factory). Overrides key on method name
 // (camelCase) — see Methods. A factory is invoked with the params.
 export function createFakeClient(overrides: Record<string, unknown> = {}): {
-  client: ClientLike;
+  client: LodeCommandsClient;
   calls: CallRecord[];
 } {
   const calls: CallRecord[] = [];
@@ -155,7 +155,7 @@ export function createFakeClient(overrides: Record<string, unknown> = {}): {
     indentNodes: make(Methods.IndentNodes),
     outdentNode: make(Methods.OutdentNode),
     moveSiblingNode: make(Methods.MoveSiblingNode),
-  } as unknown as ClientLike;
+  } as unknown as LodeCommandsClient;
 
   return { client, calls };
 }

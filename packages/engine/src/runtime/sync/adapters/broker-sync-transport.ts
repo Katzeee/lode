@@ -10,12 +10,7 @@ import { decodeProfile, encodeProfile } from "../sync-message.js";
 import { open, seal } from "../../membership/wire-security.js";
 import type { SyncBytes, SyncableDoc } from "../../../core/store/syncable.js";
 import type { WorkspaceDocSet } from "../../../core/store/doc-set.js";
-import type {
-  ManagedSyncTransport,
-  SyncProfile,
-  SyncTransportFactory,
-  SyncTransportInput,
-} from "../transport.js";
+import type { ManagedSyncTransport, SyncProfile, SyncTransportInput } from "../transport.js";
 import type { WireSecurity } from "../../membership/wire-security.js";
 
 const log = createLogger("engine.broker.sync");
@@ -451,16 +446,14 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
   }
 }
 
-export class BrokerSyncTransportFactory implements SyncTransportFactory {
-  create(input: SyncTransportInput): ManagedSyncTransport {
-    return new BrokerSyncProtocol({
-      url: input.url,
-      docSet: input.documents,
-      workspaceId: input.workspaceId,
-      security: input.security,
-      peerId: input.peerId,
-    });
-  }
+export function createBrokerSyncTransport(input: SyncTransportInput): ManagedSyncTransport {
+  return new BrokerSyncProtocol({
+    url: input.url,
+    docSet: input.documents,
+    workspaceId: input.workspaceId,
+    security: input.security,
+    peerId: input.peerId,
+  });
 }
 
 /** Tiny inline encoder so each call site doesn't repeat `toBinary(SyncMessageSchema, create(...))`. */

@@ -8,18 +8,8 @@ import { syncComponent } from "./runtime/sync/sync.component.js";
 import { createSessionRpcs } from "./commands/session-rpcs.js";
 import { createCommands, type CommandDeps, type Commands } from "./commands/index.js";
 import { wrapCommands } from "./commands/wrap-commands.js";
-import type { PersistenceOptions } from "./runtime/workspace/registry.js";
-import type { SyncDeps } from "./runtime/sync/deps.js";
 
-export type EngineRuntimeOptions = {
-  persistence?: PersistenceOptions;
-  /** Secured-sync configuration: host policy hooks + the round interval. Omit for an in-memory/test
-   *  runtime that never syncs. */
-  sync?: {
-    deps?: SyncDeps;
-    roundIntervalMs?: number;
-  };
-};
+export type { RuntimeConfig } from "./runtime/config.js";
 
 // The HOST surface — intentionally narrow. A host (daemon, mobile, embedded) reaches the engine ONLY
 // through `commands` (every client RPC, auth-wrapped at this seam) + `app` (the ownership root:
@@ -39,24 +29,10 @@ export type EngineRuntime = {
 // the module registry resolves the dependency graph (topo-started, cycle-checked) into services. The
 // modules carry their own `requires` + construction recipes; this function no longer constructs or
 // orders anything by hand. It then composes the one host surface (the auth-wrapped command funnel)
-// from the resolved services.
-export async function createEngineRuntime(
-  options: EngineRuntimeOptions = {},
-): Promise<EngineRuntime> {
+// from the resolved services. `config` is passed through verbatim — `RuntimeConfig` is the single
+// type the host and the module graph share, so there is no options→config translation step.
+export async function createEngineRuntime(config: RuntimeConfig = {}): Promise<EngineRuntime> {
   const app = new AppRuntime("engine");
-  const config: RuntimeConfig = {
-    ...(options.persistence === undefined ? {} : { persistence: options.persistence }),
-    ...(options.sync === undefined
-      ? {}
-      : {
-          sync: {
-            ...(options.sync.deps === undefined ? {} : { deps: options.sync.deps }),
-            ...(options.sync.roundIntervalMs === undefined
-              ? {}
-              : { roundIntervalMs: options.sync.roundIntervalMs }),
-          },
-        }),
-  };
   const services: EngineServices = await installComponents<EngineServices, RuntimeConfig>(
     app,
     [workspaceComponent, sessionComponent, syncComponent],

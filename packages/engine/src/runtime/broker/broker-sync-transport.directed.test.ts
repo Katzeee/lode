@@ -23,7 +23,7 @@ const docSetWith = (store: ShardedBlockStore, meta: MetaDoc): WorkspaceDocSet =>
 
 // Directed membership fetch (design §3c): a joiner asks ONE peer (by peerId) for the full membership
 // doc, reusing the `updatesReq/Resp` + `reqId` correlation with a directed publish. This is the first
-// real exercise of Phase 2's directed routing through the transport adapter.
+// real exercise of the directed routing through the transport adapter.
 
 let server: BrokerServer | undefined;
 const transports: BrokerSyncProtocol[] = [];

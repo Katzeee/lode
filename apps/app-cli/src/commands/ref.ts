@@ -1,9 +1,9 @@
 import type { ParsedCli } from "../args.js";
 import { assertAllowedFlags, getOptionalIndex, getRequiredSingleFlag } from "./shared.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 export async function executeRefCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {

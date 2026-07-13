@@ -1,7 +1,7 @@
 import type { Engine, NodeOccurrence } from "../../core/index.js";
 import { ManagedKind } from "../model/managed-child.js";
 import { readManagedChildState, writeManagedChildState } from "../managed/managed-child-state.js";
-import { isField, markField, readFieldDefId } from "../system-entity.js";
+import { markField, matchesFieldDef } from "../system-entity.js";
 import { createPlainNode, createReference, getSemanticChildren } from "../node/node.js";
 import {
   type AppliedManagedChildren,
@@ -20,8 +20,11 @@ export async function applyDesiredManagedChildren(
   const assignedProvenanceByOccurrence = new Map<string, DesiredManagedChild["provenance"]>();
   const managedOrder: string[] = [];
 
+  // Fetch the target's children once: findMatchingChild only reads them to find a match, and a child
+  // created in an earlier iteration is added to `reserved` (which findMatchingChild skips) — a
+  // per-iteration re-fetch returns the same effective candidate set.
+  const targetChildren = await engine.getOccurrenceChildren(target.occurrenceId);
   for (const desiredChild of desired) {
-    const targetChildren = await engine.getOccurrenceChildren(target.occurrenceId);
     const existing = await findMatchingChild(engine, targetChildren, desiredChild, reserved);
     if (!existing && !desiredChild.createIfMissing) {
       continue;
@@ -54,7 +57,6 @@ export async function applyDesiredManagedChildren(
         nodeId: child.nodeId,
         occurrenceId: child.occurrenceId,
       });
-      child = await engine.mustGetOccurrence(child.occurrenceId);
     }
     assignedProvenanceByOccurrence.set(
       child.occurrenceId,
@@ -129,7 +131,7 @@ async function findMatchingChild(
     return provenanceMatch;
   }
 
-  return candidates.find(() => true);
+  return candidates[0];
 }
 
 async function isReusableCandidate(
@@ -149,10 +151,7 @@ async function matchesDesiredTarget(
   desired: DesiredManagedChild,
 ): Promise<boolean> {
   if (desired.managedKind === ManagedKind.FieldSlot) {
-    return (
-      (await isField(engine, child)) &&
-      (await readFieldDefId(engine, child)) === desired.fieldDefNodeId
-    );
+    return matchesFieldDef(engine, child, desired.fieldDefNodeId);
   }
   return child.nodeId === desired.templateNodeId;
 }

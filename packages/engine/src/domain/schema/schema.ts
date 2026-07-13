@@ -2,8 +2,7 @@ import { type Engine, textToDelta } from "../../core/index.js";
 import { SystemEntityMeta, SystemKind } from "../bundle/system-schema.js";
 import type { DomainChange } from "../model/changes.js";
 import type { SchemaChangeResult, SchemaIdentity } from "../model/schema.js";
-import { invalidDomainInput } from "../errors.js";
-import { requireCanonicalOccurrence, requireNodeById } from "../lookup.js";
+import { requireCanonicalOccurrence, requireNodeById, requireOccurrence } from "../lookup.js";
 import { readSchemaIds, writeSchemaIds } from "./schema-membership.js";
 import { requireSchema } from "../system-entity.js";
 import { createPlainNode } from "../node/node.js";
@@ -14,12 +13,7 @@ export async function createSchema(
   name: string,
   parentOccurrenceId: string,
 ): Promise<SchemaIdentity> {
-  if (!(await engine.getOccurrence(parentOccurrenceId))) {
-    invalidDomainInput(`Occurrence not found: ${parentOccurrenceId}`, {
-      reason: "occurrence_not_found",
-      occurrenceId: parentOccurrenceId,
-    });
-  }
+  await requireOccurrence(engine, parentOccurrenceId);
   const schema = await createPlainNode(engine, parentOccurrenceId);
   await engine.setEntityMeta(schema.occurrenceId, SystemEntityMeta.SystemKind, SystemKind.Schema);
   await engine.replaceDeltas(schema.occurrenceId, textToDelta(name));
@@ -31,30 +25,29 @@ export async function applySchema(
   targetOccurrenceId: string,
   schemaNodeId: string,
 ): Promise<SchemaChangeResult> {
-  const target = await requireCanonicalOccurrence(engine, targetOccurrenceId);
-  const schema = await requireNodeById(engine, schemaNodeId);
-  await requireSchema(engine, schema, schemaNodeId);
-
-  let changes: DomainChange[] = [];
-  await engine.batch(async () => {
-    const schemaIds = await readSchemaIds(engine, target.occurrenceId);
-    if (!schemaIds.includes(schema.nodeId)) {
-      await writeSchemaIds(engine, target.occurrenceId, [...schemaIds, schema.nodeId]);
-    }
-    changes = await reconcileAndCleanup(engine, target.occurrenceId);
-  });
-
-  return {
-    target: { nodeId: target.nodeId, occurrenceId: target.occurrenceId },
-    schema: { nodeId: schema.nodeId },
-    changes,
-  };
+  return changeSchemaMembership(engine, targetOccurrenceId, schemaNodeId, (ids, id) =>
+    ids.includes(id) ? null : [...ids, id],
+  );
 }
 
 export async function removeSchema(
   engine: Engine,
   targetOccurrenceId: string,
   schemaNodeId: string,
+): Promise<SchemaChangeResult> {
+  return changeSchemaMembership(engine, targetOccurrenceId, schemaNodeId, (ids, id) =>
+    ids.includes(id) ? ids.filter((x) => x !== id) : null,
+  );
+}
+
+/** Add or remove a schema from a target's schema list. `update` returns the next id list, or null to
+ *  skip the write (the membership is already in the desired state). The resolve-target / require-schema
+ *  / batch / reconcile tail is identical for apply and remove, so it lives here once. */
+async function changeSchemaMembership(
+  engine: Engine,
+  targetOccurrenceId: string,
+  schemaNodeId: string,
+  update: (schemaIds: string[], schemaNodeId: string) => string[] | null,
 ): Promise<SchemaChangeResult> {
   const target = await requireCanonicalOccurrence(engine, targetOccurrenceId);
   const schema = await requireNodeById(engine, schemaNodeId);
@@ -63,9 +56,9 @@ export async function removeSchema(
   let changes: DomainChange[] = [];
   await engine.batch(async () => {
     const schemaIds = await readSchemaIds(engine, target.occurrenceId);
-    const nextSchemaIds = schemaIds.filter((id) => id !== schema.nodeId);
-    if (nextSchemaIds.length !== schemaIds.length) {
-      await writeSchemaIds(engine, target.occurrenceId, nextSchemaIds);
+    const next = update(schemaIds, schema.nodeId);
+    if (next !== null) {
+      await writeSchemaIds(engine, target.occurrenceId, next);
     }
     changes = await reconcileAndCleanup(engine, target.occurrenceId);
   });

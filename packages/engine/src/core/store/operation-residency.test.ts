@@ -41,11 +41,11 @@ function recordingDocStore(): DocStore & {
 }
 
 /**
- * Phase 4 — operation-level residency (`ensureResident`/`release`): pin the operation's working set
+ * Operation-level residency (`ensureResident`/`release`): pin the operation's working set
  * resident so a multi-shard edit doesn't fault+evict in a thrash. Each working-set shard faults once
  * (at the pin); subsequent edits are cache hits.
  */
-describe("operation-level residency (Phase 4): ensureResident pins the working set (no thrash)", () => {
+describe("operation-level residency: ensureResident pins the working set (no thrash)", () => {
   it("edits over a pinned multi-shard working set don't re-fault (each shard faulted once)", async () => {
     // Two nodes forced into DIFFERENT shards; capacity 1 would thrash (fault A, evict on B, re-fault
     // A) across interleaved edits. ensureResident pins both up front → every edit is a cache hit.
@@ -87,15 +87,15 @@ describe("operation-level residency (Phase 4): ensureResident pins the working s
 });
 
 /**
- * Mid-burst residency — the Phase 3 regression net. Before Phase 3, `shardForWrite` pinned every
+ * Mid-burst residency — guards the write-pin removal. Before that removal, `shardForWrite` pinned every
  * clean→dirty shard until `flushDirty`; a write burst over many shards with NO mid-flush therefore
- * pinned each one, and resident spiked past capacity. Phase 3 removed the write-pin (a dirty shard
+ * pinned each one, and resident spiked past capacity. The write-pin removal (a dirty shard
  * is freely evictable — `onEvict` flushes it). This test samples `residentShardCount` on every cold
  * fault during an un-flushed multi-shard burst and asserts it stays bounded (≤ capacity + 1, the
  * documented per-fault transient before `evictToFit` reclaims). A re-introduced write-pin would
  * push the max far past that.
  */
-describe("mid-burst residency (Phase 3): an un-flushed multi-shard write burst stays bounded", () => {
+describe("mid-burst residency: an un-flushed multi-shard write burst stays bounded", () => {
   it("residentShardCount never spikes past capacity during a no-flush write burst", async () => {
     const numShards = 32;
     const capacity = 2;

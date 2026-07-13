@@ -1,4 +1,4 @@
-export type ListenEndpoint = {
+type ListenEndpoint = {
   host: string;
   port: number;
 };

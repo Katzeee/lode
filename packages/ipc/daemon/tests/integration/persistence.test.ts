@@ -68,6 +68,45 @@ describe("AppServer persistence", () => {
     }
   });
 
+  it("restores document data across restart via the `dataRoot` shortcut option", async () => {
+    // The `dataRoot` shortcut vs the full `persistence: { dataRoot }` form (previous test): same
+    // round-trip, different constructor shape. Both must restore after a restart.
+    const dataRoot = await tempDataRoot();
+
+    const first = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
+    const firstClient = new AppServerClient(createSocketTransport(first.address));
+    firstClient.connect();
+    await openAuthedSession(firstClient);
+    await firstClient.rpc.createWorkspace({ workspaceId: "ws_shortcut", displayName: "Shortcut" });
+    const seededOccurrenceId = (
+      await firstClient.rpc.listRoots({ workspaceId: "ws_shortcut" })
+    ).roots.at(0)!.occurrenceId;
+    await firstClient.rpc.replaceNodeText({
+      workspaceId: "ws_shortcut",
+
+      occurrenceId: seededOccurrenceId,
+      deltas: [{ insert: "shortcut persisted" }],
+    });
+    firstClient.close();
+    await first.stop();
+
+    const second = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
+    const secondClient = new AppServerClient(createSocketTransport(second.address));
+    secondClient.connect();
+    await openAuthedSession(secondClient);
+    try {
+      const restored = await secondClient.rpc.getNode({
+        workspaceId: "ws_shortcut",
+
+        occurrenceId: seededOccurrenceId,
+      });
+      expect(restored.occurrence?.deltas).toMatchObject([{ insert: "shortcut persisted" }]);
+    } finally {
+      secondClient.close();
+      await second.stop();
+    }
+  });
+
   it("restores document data from snapshot plus remaining updates", async () => {
     const dataRoot = await tempDataRoot();
     const first = await startPersistentServer(dataRoot, 2);

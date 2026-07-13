@@ -132,10 +132,10 @@ replaces broadcast-then-first-responder-wins for N>2.
 **The primitives already exist — no new RPC.** The `SyncTransport` interface + its broker adapter
 (`BrokerSyncProtocol`) already have the broadcast/directed split any-sync uses:
 
-|                                                         | our primitive                                                                 | anytype analog                                                                              |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **broadcast** (one-way push)                            | `updatesPush` (`sendUpdates`) + the membership gossip-push (`MembershipSync`) | `HeadUpdate` on mutation (heads + inline changes); ACL-record push                          |
-| **directed** (req/resp to one peer, `reqId`-correlated) | `profileReq/Resp` (`remoteProfile`) + `updatesReq/Resp` (`fetchUpdates`)      | `HeadSync` (ldiff); `ObjectSyncRequestStream` (missing-data pull); `SpacePull` (cold-start) |
+|                                                         | our primitive                                                                    | anytype analog                                                                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **broadcast** (one-way push)                            | `updatesPush` (`sendUpdates`) + the membership gossip-push (`syncMembershipDoc`) | `HeadUpdate` on mutation (heads + inline changes); ACL-record push                          |
+| **directed** (req/resp to one peer, `reqId`-correlated) | `profileReq/Resp` (`remoteProfile`) + `updatesReq/Resp` (`fetchUpdates`)         | `HeadSync` (ldiff); `ObjectSyncRequestStream` (missing-data pull); `SpacePull` (cold-start) |
 
 Concretely:
 
@@ -237,7 +237,7 @@ Authority: [`sync-identity-persistence.md`](./sync-identity-persistence.md) §3�
 
 ## Structural decomposition
 
-> Live status lives in `_local/handoff/sync-handoff.md`. The design decomposes (in dependency
+> The design decomposes (in dependency
 > order) into:
 
 1. **Directed client→client request capability** (§3c) — relay peerId tracking + directed routing +

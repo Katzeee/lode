@@ -27,10 +27,6 @@ describe("AppServer sessions and notifications", () => {
     ).rejects.toThrow("Session handshake required");
   });
 
-  it("allows read RPCs before session hello", async () => {
-    await expect(client.rpc.listWorkspaces({})).resolves.toMatchObject({ workspaces: [] });
-  });
-
   it("session.hello returns the established session", async () => {
     const { session, actorId } = await openAuthedSession(client, {
       client: { name: "vitest" },

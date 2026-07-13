@@ -118,24 +118,11 @@ export class SqliteRegistryStore implements RegistryStore {
     );
   }
 
-  /**
-   * Get-or-create this dataRoot's stable peerId — the Loro replica site id, set on
-   * every LoroDoc (see ShardedBlockStore.peerId). Generated once and persisted in
-   * registry_meta so the version vector stays stable across restarts. 48-bit random: only
-   * collisions among concurrent editors of the SAME doc across replicas matter, and 2^48
-   * makes that negligible while staying inside JS safe-integer range.
-   */
   async ensurePeerId(): Promise<number> {
-    const existing = await this.getMeta("peerId");
-    if (existing !== null) {
-      const parsed = Number(existing);
-      if (Number.isSafeInteger(parsed) && parsed > 0) {
-        return parsed;
-      }
-    }
-    const peerId = randomInt(1, 2 ** 48);
-    await this.setMeta("peerId", String(peerId));
-    return peerId;
+    return ensurePeerId(
+      (key) => this.getMeta(key),
+      (key, value) => this.setMeta(key, value),
+    );
   }
 
   async close(): Promise<void> {
@@ -159,4 +146,26 @@ function rowToRecord(row: WorkspaceRow): WorkspaceRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/** Get-or-create the stable peerId — the Loro replica site id, set on every LoroDoc (see
+ *  ShardedBlockStore.peerId) — persisted via the given getMeta/setMeta (SQLite-backed or in-memory).
+ *  Generated once and reused so the version vector stays stable across restarts. 48-bit random: only
+ *  collisions among concurrent editors of the SAME doc across replicas matter, and 2^48 makes that
+ *  negligible while staying inside JS safe-integer range. Shared by both RegistryStore impls so the
+ *  validate-or-generate rule has one home. */
+export async function ensurePeerId(
+  getMeta: (key: string) => Promise<string | null>,
+  setMeta: (key: string, value: string) => Promise<void>,
+): Promise<number> {
+  const existing = await getMeta("peerId");
+  if (existing !== null) {
+    const parsed = Number(existing);
+    if (Number.isSafeInteger(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  const peerId = randomInt(1, 2 ** 48);
+  await setMeta("peerId", String(peerId));
+  return peerId;
 }

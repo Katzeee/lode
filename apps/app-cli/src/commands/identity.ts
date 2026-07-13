@@ -2,7 +2,7 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { PeerIdentityTokenSchema } from "@lode/protocol/proto";
 import type { ParsedCli } from "../args.js";
 import { assertAllowedFlags } from "./shared.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 // A portable identity token: the ONE thing a user exports (`lode identity export`) and hands to an
 // owner out-of-band; the owner pastes it into `lode member add`. Bundles the (actor + peer) tuple so
@@ -11,7 +11,7 @@ import type { ClientLike } from "./types.js";
 
 const TOKEN_PREFIX = "lode-id1.";
 
-export type DecodedIdentity = {
+type DecodedIdentity = {
   actorId: string;
   peerId: string;
   peerEncPub: Uint8Array;
@@ -65,7 +65,7 @@ export function decodeIdentityToken(token: string): DecodedIdentity {
 }
 
 export async function executeIdentityCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {

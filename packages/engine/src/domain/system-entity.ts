@@ -6,6 +6,7 @@ import {
   type FieldPresence,
 } from "./bundle/system-schema.js";
 import { invalidDomainInput } from "./errors.js";
+import { requireNodeById } from "./lookup.js";
 
 export async function markFieldDef(
   engine: Engine,
@@ -56,6 +57,16 @@ export async function readFieldDefId(
   return typeof value === "string" ? value : null;
 }
 
+/** True iff `node` is a field slot pointing at `fieldDefNodeId`. Shared by addField's existing-slot
+ *  search and the reconcile matcher so the isField + readFieldDefId pairing lives in one place. */
+export async function matchesFieldDef(
+  engine: Engine,
+  node: NodeOccurrence,
+  fieldDefNodeId: string,
+): Promise<boolean> {
+  return (await isField(engine, node)) && (await readFieldDefId(engine, node)) === fieldDefNodeId;
+}
+
 export async function readFieldDefPresence(
   engine: Engine,
   fieldDefOccurrenceId: string,
@@ -85,6 +96,17 @@ export async function requireFieldDef(
       nodeId,
     });
   }
+}
+
+/** Load a node by id and guard it is a fieldDef — the two-step combo setFieldDefType/Presence and
+ *  addField all need. Returns the loaded node. */
+export async function requireFieldDefById(
+  engine: Engine,
+  fieldDefNodeId: string,
+): Promise<NodeOccurrence> {
+  const node = await requireNodeById(engine, fieldDefNodeId);
+  await requireFieldDef(engine, node, fieldDefNodeId);
+  return node;
 }
 
 export async function requireField(

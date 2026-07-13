@@ -5,12 +5,12 @@ import { InMemorySyncTransport, SyncExchange } from "../../src/runtime/sync/sync
 import { canonical } from "./harness.js";
 
 /**
- * Phase 6 — incremental sync via the per-peer revision cursor. After a full round establishes the
+ * Incremental sync via the per-peer revision cursor. After a full round establishes the
  * cursor, a subsequent round CONSIDERS (exchanges) only shards whose revision advanced (local
  * change) or whose peer version changed — not every owned shard. Measured as `considered` (docs the
  * driver exchanged). The cursor lives on the (reused) SyncExchange — production reuses it per peer.
  */
-describe("incremental sync (Phase 6): a round only considers changed shards", () => {
+describe("incremental sync: a round only considers changed shards", () => {
   it("after M shard changes, the next round considers ≈ M shards (not all owned)", async () => {
     const numShards = 256;
     const a = new ShardedBlockStore({ numShards, capacity: 2 });

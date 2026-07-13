@@ -19,7 +19,7 @@ export {
 } from "./errors/index.js";
 export { DomainInvalidInputError } from "./domain/errors.js";
 
-export type { EngineRuntime, EngineRuntimeOptions } from "./engine-runtime.js";
+export type { EngineRuntime, RuntimeConfig } from "./engine-runtime.js";
 export { createEngineRuntime } from "./engine-runtime.js";
 // Shared empty-response instance for void RPCs (the daemon's host-only handlers reuse it).
 export { EMPTY } from "./commands/wire/empty.js";

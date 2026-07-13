@@ -2,16 +2,15 @@ import type { ParsedCli } from "../args.js";
 import {
   assertAllowedFlags,
   buildNodeNameResolver,
-  describeNullableId,
   formatNodeBlock,
   getOptionalIndex,
   getOptionalSingleFlag,
   getRequiredSingleFlag,
 } from "./shared.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 export async function executeNodeCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -50,7 +49,7 @@ export async function executeNodeCommand(
 }
 
 async function executeNodeCreate(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -64,7 +63,7 @@ async function executeNodeCreate(
   const created = await client.createPlainNode({
     workspaceId,
     parentOccurrenceId,
-    ...(index === undefined ? {} : { index }),
+    index,
   });
 
   if (text !== undefined) {
@@ -80,7 +79,7 @@ async function executeNodeCreate(
 }
 
 async function executeNodeGet(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -96,7 +95,7 @@ async function executeNodeGet(
 }
 
 async function executeNodeChildren(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -115,7 +114,7 @@ async function executeNodeChildren(
 }
 
 async function executeNodeList(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -147,7 +146,7 @@ async function executeNodeList(
 }
 
 async function executeNodeMove(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -160,13 +159,13 @@ async function executeNodeMove(
     workspaceId,
     occurrenceId,
     parentOccurrenceId,
-    ...(index === undefined ? {} : { index }),
+    index,
   });
-  return `Moved occurrence ${occurrenceId} to parent ${describeNullableId(parentOccurrenceId)}.`;
+  return `Moved occurrence ${occurrenceId} to parent ${parentOccurrenceId}.`;
 }
 
 async function executeNodeRemoveOccurrence(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -178,7 +177,7 @@ async function executeNodeRemoveOccurrence(
 }
 
 async function executeNodeHardDelete(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -190,7 +189,7 @@ async function executeNodeHardDelete(
 }
 
 async function executeNodeReplaceText(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -207,7 +206,7 @@ async function executeNodeReplaceText(
 }
 
 async function executeNodePaste(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -223,13 +222,13 @@ async function executeNodePaste(
     workspaceId,
     sourceOccurrenceIds,
     targetParentOccurrenceId,
-    ...(index === undefined ? {} : { index }),
+    index,
   });
   return `Pasted ${sourceOccurrenceIds.length} occurrence(s) under ${targetParentOccurrenceId}; new: ${result.occurrences.map((o) => o.occurrenceId).join(", ")}.`;
 }
 
 async function executeNodeDuplicate(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -241,7 +240,7 @@ async function executeNodeDuplicate(
 }
 
 async function executeNodeIndent(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -256,7 +255,7 @@ async function executeNodeIndent(
 }
 
 async function executeNodeOutdent(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -268,7 +267,7 @@ async function executeNodeOutdent(
 }
 
 async function executeNodeMoveSibling(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
   up: boolean,

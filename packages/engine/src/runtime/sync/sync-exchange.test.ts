@@ -167,7 +167,7 @@ describe("InMemorySyncTransport — directed fetch + peers (the mockable bootstr
   it("reports the remote peerId and directed-fetches a doc by it — no broker required", async () => {
     // The directed-membership-bootstrap path (registry.directedMembershipFetch) can be exercised
     // against an in-memory transport now that peers()/directedFetchUpdates are on the SyncTransport
-    // seam — this is the Phase 1 payoff: a broker-free mock.
+    // seam — this is the payoff: a broker-free mock.
     const bStore = newStore();
     await new Engine({ store: bStore }).createNode(null); // B has a dirty tree doc
     const treeId = bStore.treeSyncDoc().id;

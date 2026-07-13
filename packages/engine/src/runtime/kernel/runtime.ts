@@ -56,10 +56,6 @@ export class RuntimeInstance {
     return this.execution.quiescing;
   }
 
-  get forcedAbort(): AbortSignal {
-    return this.execution.forcedAbort;
-  }
-
   own<T extends RuntimeResource>(resource: T): T {
     if (this.currentState !== "new") {
       throw new InstanceUnavailableError(this.identity, this.currentState);

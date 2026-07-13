@@ -16,7 +16,6 @@ import pino, { type Logger as PinoLogger } from "pino";
 import { parseLevelSpec, resolveLevel, type Level, type LevelRule } from "./levels.js";
 import { rotatingFileDestination, type RotatingFileOptions } from "./rotating-file.js";
 
-export type { Level } from "./levels.js";
 export type { RotatingFileOptions } from "./rotating-file.js";
 
 /** Structured fields passed alongside a message (`{ wsId, peerId, err }`). pino's object API is the
@@ -108,17 +107,21 @@ class PinoLoggerWrapper implements Logger {
     return new PinoLoggerWrapper(this.component, this.level, this.log().child(bindings));
   }
 
+  private emit(level: "debug" | "info" | "warn" | "error", msg: string, fields?: LogFields): void {
+    this.log()[level](fields ?? {}, msg);
+  }
+
   debug(msg: string, fields?: LogFields): void {
-    this.log().debug(fields ?? {}, msg);
+    this.emit("debug", msg, fields);
   }
   info(msg: string, fields?: LogFields): void {
-    this.log().info(fields ?? {}, msg);
+    this.emit("info", msg, fields);
   }
   warn(msg: string, fields?: LogFields): void {
-    this.log().warn(fields ?? {}, msg);
+    this.emit("warn", msg, fields);
   }
   error(msg: string, fields?: LogFields): void {
-    this.log().error(fields ?? {}, msg);
+    this.emit("error", msg, fields);
   }
 }
 

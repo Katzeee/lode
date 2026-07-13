@@ -177,21 +177,21 @@ describe("reconcileDurability: crash recovery to an invariant-valid fixpoint", (
   });
 });
 
-// NOTE on the missing "sync → crashClose → reopen → read" test (Phase C's other half): the full
+// NOTE on the missing "sync → crashClose → reopen → read" test: the full
 // loop can't run at the engine layer because driving a real sync round in-process requires the
 // source and receiver LoroDocs to COEXIST, and cross-peer import degrades the shared wasm enough
 // to hang later in-process sync tests (a loro-level coexistence issue, not a correctness one).
 // The reload half — "can a receiver that synced cross-peer content, persisted, and restarted read
-// it back?" — is verified safe in `reload-cross-peer.test.ts`: with the source docs freed first,
-// a fresh doc reads `toDelta` cleanly off both a snapshot and a raw update reload. So the
-// production read-after-sync path is sound; only the in-process sync round is out of reach here.
+// it back?" — is safe: a fresh doc reads `toDelta` cleanly off both a snapshot and a raw update
+// reload (baseline loro behavior, exercised by every reload-then-read test). So the production
+// read-after-sync path is sound; only the in-process sync round is out of reach here.
 // The content-round wiring (`ContentRound.runRound` → `flushDirty`, one line in round.ts) is
 // verified by reading the code; the full sync→restart loop belongs in the daemon e2e (RPC
-// transport, separate processes). The test below proves the Phase C guarantee end-to-end for
+// transport, separate processes). The test below proves the guarantee end-to-end for
 // LOCALLY-produced content (a reconcile heal): flushDirty persists, unpins, and the healed state
 // survives a real reopen — the same flush mechanism the content round uses.
 
-describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDirty after reconcile)", () => {
+describe("heal is persisted + the reconcile pin leak is fixed (flushDirty after reconcile)", () => {
   it("reconcile unpins its healed shards via flushDirty → residentShardCount ≤ capacity; heal survives restart", async () => {
     const numShards = 8;
     const cap = 1;
@@ -245,8 +245,8 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
 
     await store.reconcileDurability();
     // reconcile deleted the orphan entity via shardForWrite → child's shard is now dirty (markDirty).
-    // Writes no longer pin (Phase 3): the dirty shard is freely evictable, and flushDirty persists
-    // the heal + reclaims to capacity. The pre-Phase-C "write-pin leaks past reconcile" failure mode
+    // Writes no longer pin: the dirty shard is freely evictable, and flushDirty persists
+    // the heal + reclaims to capacity. The "write-pin leaks past reconcile" failure mode
     // is gone by design — there is no write-pin to leak.
     await store.flushDirty();
     expect(store.residentShardCount).toBeLessThanOrEqual(cap);
@@ -270,13 +270,13 @@ describe("Phase C: heal is persisted + the reconcile pin leak is fixed (flushDir
 });
 
 /**
- * Phase 6 — the narrow content-persistence round-trip the durability NOTE used to verify "by reading
+ * The narrow content-persistence round-trip the durability NOTE used to verify "by reading
  * the code": write text → flushDirty → reload from the SAME DocStore → read it back. Same-peerId
  * (the persisting peer's own bytes), so no cross-peer wasm coexistence — the loop the daemon e2e
  * owns in full. Exercises the exact persistence path sync uses (markDirty → flushDirty → reload),
  * proving the bytes that flushDirty writes are the bytes a reload reads.
  */
-describe("Phase 6: content round-trips through flushDirty + reload (same DocStore)", () => {
+describe("content round-trips through flushDirty + reload (same DocStore)", () => {
   it("text written + flushed reloads from the same DocStore", async () => {
     const numShards = 8;
     const docStore = recordingDocStore();

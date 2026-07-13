@@ -14,12 +14,11 @@ import {
   assertNotActiveManagedChild,
 } from "../managed/managed-child-policy.js";
 import {
-  isField,
   markField,
   markFieldDef,
-  readFieldDefId,
+  matchesFieldDef,
   requireField,
-  requireFieldDef,
+  requireFieldDefById,
 } from "../system-entity.js";
 import { requireNodeById, requireOccurrence } from "../lookup.js";
 import {
@@ -49,8 +48,7 @@ export async function setFieldDefType(
   fieldDefNodeId: string,
   fieldType: FieldType,
 ): Promise<void> {
-  const node = await requireNodeById(engine, fieldDefNodeId);
-  await requireFieldDef(engine, node, fieldDefNodeId);
+  const node = await requireFieldDefById(engine, fieldDefNodeId);
   await engine.setEntityMeta(node.occurrenceId, SystemEntityMeta.FieldType, fieldType);
 }
 
@@ -59,8 +57,7 @@ export async function setFieldDefPresence(
   fieldDefNodeId: string,
   presence: FieldPresence,
 ): Promise<void> {
-  const node = await requireNodeById(engine, fieldDefNodeId);
-  await requireFieldDef(engine, node, fieldDefNodeId);
+  const node = await requireFieldDefById(engine, fieldDefNodeId);
   await engine.setEntityMeta(node.occurrenceId, SystemEntityMeta.Presence, presence);
 }
 
@@ -70,24 +67,14 @@ export async function addField(
   fieldDefNodeId: string,
   mode: FieldAddMode = "reuseExisting",
 ): Promise<FieldAddResult> {
-  const target = await engine.getOccurrence(targetOccurrenceId);
-  if (!target) {
-    invalidDomainInput(`Occurrence not found: ${targetOccurrenceId}`, {
-      reason: "occurrence_not_found",
-      occurrenceId: targetOccurrenceId,
-    });
-  }
+  const target = await requireOccurrence(engine, targetOccurrenceId);
 
-  const fieldDef = await requireNodeById(engine, fieldDefNodeId);
-  await requireFieldDef(engine, fieldDef, fieldDefNodeId);
+  await requireFieldDefById(engine, fieldDefNodeId);
 
   const children = await getSemanticChildren(engine, target.occurrenceId);
   let existing: NodeOccurrence | undefined;
   for (const child of children) {
-    if (
-      (await isField(engine, child)) &&
-      (await readFieldDefId(engine, child)) === fieldDefNodeId
-    ) {
+    if (await matchesFieldDef(engine, child, fieldDefNodeId)) {
       existing = child;
       break;
     }

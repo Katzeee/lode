@@ -9,7 +9,7 @@ import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
 import { openAuthedSession } from "./authed-session.js";
 
-// Secured daemon-level end-to-end sync on the Phase-3 identity model: the daemon has NO identity —
+// Secured daemon-level end-to-end sync on the current identity model: the daemon has NO identity —
 // every syncing workspace is registered by a session. The OWNER session creates the workspace (which
 // roots the membership log with the creator's actor = owner and auto-inits its single content doc),
 // registers sync (captures the owner actor + dials the relay), then adds the member + shares a
@@ -80,7 +80,7 @@ async function expectConverged(
   throw new Error(`member did not converge "${secret}" within ${timeoutMs}ms`);
 }
 
-describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
+describe("daemon sync e2e (secured)", () => {
   it("owner creates + registers + adds + shares; member joins; content converges sealed (opaque to an eavesdropper)", async () => {
     const relay = new BrokerServer({ port: 0 });
     relays.push(relay);
@@ -278,7 +278,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
     const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     // 60s ticks → the periodic round CANNOT fire during this short test. The ONLY thing that can move
-    // content is the round `joinWorkspace` auto-fires (Stage C) — no manual `syncNow` anywhere.
+    // content is the round `joinWorkspace` auto-fires — no manual `syncNow` anywhere.
     const owner = await bootDaemon({ syncIntervalMs: 60000 });
     const member = await bootDaemon({ syncIntervalMs: 60000 });
 
@@ -372,7 +372,7 @@ describe("daemon sync e2e (secured, Phase-3 identity model)", () => {
       deltas: [{ insert: BEFORE }],
     });
 
-    // Member joins (Stage C round pulls the owner's current content), then ONE owner round warms the
+    // Member joins (the join round pulls the owner's current content), then ONE owner round warms the
     // owner's `lastRemoteVV` (the cache pushOnly exports against) — the steady state the 20s tick would
     // reach in production.
     await memberClient.rpc.joinWorkspace({ coordinate });

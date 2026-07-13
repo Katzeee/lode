@@ -124,9 +124,31 @@ describe("ActionHistory grouping: run() folds multiple ops into one undo step", 
   });
 });
 
+describe("ActionHistory nested-create undo: deepest-first delete", () => {
+  it("a depth-3 nested create → undo removes the whole subtree (no orphaned ancestors)", async () => {
+    const { e, h } = newShardedHistory();
+    const root = await e.createNode(null);
+    e.resetHistory();
+    // One undo step creates a 3-deep chain a → b → c under root.
+    await h.run(async () => {
+      const a = await e.createNode(root.occurrenceId);
+      const b = await e.createNode(a.occurrenceId);
+      await e.createNode(b.occurrenceId);
+    });
+    expect(e.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(1);
+
+    await h.undo();
+
+    // Undo must clear the entire created subtree. Phase 2 deletes deepest-first so each removed
+    // occurrence is a leaf; a broken depth sort leaves ancestor nodes that still had children at the
+    // time the loop reached them → they survive and the tree is not restored.
+    expect(e.getChildOccurrenceIds(root.occurrenceId)).toHaveLength(0);
+    expect(e.getRootOccurrenceIds()).toEqual([root.occurrenceId]);
+  });
+});
+
 /**
- * The wired path. Engine mutators auto-group (each top-level op = one undo step), and
- * engine.undo()/redo()/canUndo() route to ActionHistory — so undo works through the
+ * The wired path. Engine mutators auto-group (each top-level op = one undo step), and * engine.undo()/redo()/canUndo() route to ActionHistory — so undo works through the
  * normal Engine API (the path commands/history.ts uses), not just by driving
  * ActionHistory directly.
  */
@@ -214,7 +236,7 @@ describe("incremental capture: undo materializes only the touched shard", () => 
     const e = new Engine({ store });
 
     // A local edit on ONE child + its undo. Only that child's shard may materialize — the
-    // pre-Phase-2 full-toJSON undo capture walked every entity and would have faulted every shard.
+    // The old full-toJSON undo capture walked every entity and would have faulted every shard.
     const targetNodeId = childNodeIds.at(0)!;
     const targetShard = shardIdOf(targetNodeId, numShards);
     const targetOcc = await e.getCanonicalOccurrenceId(targetNodeId);

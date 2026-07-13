@@ -315,8 +315,8 @@ export class ShardedBlockStore implements Outliner {
   }
 
   async setCanonicalOccurrence(nodeId: NodeId, occurrenceId: OccurrenceId): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(nodeId));
-    (await this.entityOf(nodeId)).set("canonicalOccurrenceId", occurrenceId);
+    const doc = await this.shardForWrite(this.shardIdOfNode(nodeId));
+    (await this.entityOf(nodeId, doc)).set("canonicalOccurrenceId", occurrenceId);
   }
 
   async canonicalOccurrenceIdOf(nodeId: NodeId): Promise<OccurrenceId> {
@@ -444,8 +444,8 @@ export class ShardedBlockStore implements Outliner {
   }
 
   async replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    const text = await this.contentOf(occurrenceId);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    const text = await this.contentOf(occurrenceId, doc);
     const len = text.length;
     if (len > 0) {
       text.delete(0, len);
@@ -472,13 +472,17 @@ export class ShardedBlockStore implements Outliner {
     key: string,
     value: unknown,
   ): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.contentOf(occurrenceId)).mark({ start: range.start, end: range.end }, key, value);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.contentOf(occurrenceId, doc)).mark(
+      { start: range.start, end: range.end },
+      key,
+      value,
+    );
   }
 
   async unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.contentOf(occurrenceId)).unmark({ start: range.start, end: range.end }, key);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.contentOf(occurrenceId, doc)).unmark({ start: range.start, end: range.end }, key);
   }
 
   // ── entity props + meta (resolve nodeId from occurrence) ────────────────────
@@ -487,16 +491,16 @@ export class ShardedBlockStore implements Outliner {
     return (await this.propsOf(occurrenceId)).get(key);
   }
   async setProp(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.propsOf(occurrenceId)).set(key, value as never);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.propsOf(occurrenceId, doc)).set(key, value as never);
   }
   async unsetProp(occurrenceId: OccurrenceId, key: string): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.propsOf(occurrenceId)).delete(key);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.propsOf(occurrenceId, doc)).delete(key);
   }
   async setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    const propsMap = await this.propsOf(occurrenceId);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    const propsMap = await this.propsOf(occurrenceId, doc);
     for (const [key, value] of Object.entries(props)) {
       propsMap.set(key, value as never);
     }
@@ -508,12 +512,12 @@ export class ShardedBlockStore implements Outliner {
     return (await this.entityMetaOf(occurrenceId)).get(key);
   }
   async setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.entityMetaOf(occurrenceId)).set(key, value as never);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.entityMetaOf(occurrenceId, doc)).set(key, value as never);
   }
   async unsetEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<void> {
-    await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
-    (await this.entityMetaOf(occurrenceId)).delete(key);
+    const doc = await this.shardForWrite(this.shardIdOfNode(this.nodeIdOf(occurrenceId)));
+    (await this.entityMetaOf(occurrenceId, doc)).delete(key);
   }
   async getEntityMetaRecord(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
     return this.mapToRecord(await this.entityMetaOf(occurrenceId));
@@ -773,8 +777,11 @@ export class ShardedBlockStore implements Outliner {
     return shardIdOfBucket(bucket, this.numShards);
   }
 
-  private async entityOf(nodeId: NodeId): Promise<LoroMap> {
-    const entity = await this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
+  private async entityOf(nodeId: NodeId, doc?: LoroDoc): Promise<LoroMap> {
+    const entity =
+      doc !== undefined
+        ? doc.getMap("entities").get(nodeId)
+        : await this.entityInShard(nodeId, this.shardIdOfNode(nodeId));
     if (!(entity instanceof LoroMap)) {
       throw new NotFoundError("entity", nodeId);
     }
@@ -795,33 +802,31 @@ export class ShardedBlockStore implements Outliner {
     return (await this.entityInShard(nodeId, shardIdOfBucket(bucket, this.numShards))) !== null;
   }
 
-  private async contentOf(occurrenceId: OccurrenceId): Promise<LoroText> {
+  private async contentOf(occurrenceId: OccurrenceId, doc?: LoroDoc): Promise<LoroText> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const text = (await this.entityOf(nodeId)).get("content");
+    const text = (await this.entityOf(nodeId, doc)).get("content");
     if (!(text instanceof LoroText)) {
       throw new NotFoundError("content", nodeId);
     }
     return text;
   }
 
-  private async propsOf(occurrenceId: OccurrenceId): Promise<LoroMap> {
+  private async propsOf(occurrenceId: OccurrenceId, doc?: LoroDoc): Promise<LoroMap> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const props = (await this.entityOf(nodeId)).get("props");
+    const props = (await this.entityOf(nodeId, doc)).get("props");
     if (!(props instanceof LoroMap)) {
       throw new NotFoundError("props", nodeId);
     }
-    const narrowed = props as unknown as LoroMap;
-    return narrowed;
+    return props;
   }
 
-  private async entityMetaOf(occurrenceId: OccurrenceId): Promise<LoroMap> {
+  private async entityMetaOf(occurrenceId: OccurrenceId, doc?: LoroDoc): Promise<LoroMap> {
     const nodeId = this.nodeIdOf(occurrenceId);
-    const meta = (await this.entityOf(nodeId)).get("meta");
+    const meta = (await this.entityOf(nodeId, doc)).get("meta");
     if (!(meta instanceof LoroMap)) {
       throw new NotFoundError("meta", nodeId);
     }
-    const narrowed = meta as unknown as LoroMap;
-    return narrowed;
+    return meta;
   }
 
   private occurrencePropsOf(occurrenceId: OccurrenceId): LoroMap {
@@ -830,8 +835,8 @@ export class ShardedBlockStore implements Outliner {
     if (!(props instanceof LoroMap)) {
       throw new NotFoundError("props", occurrenceId);
     }
-    const narrowed = props as unknown as LoroMap;
-    return narrowed;
+    // `.data.get()` yields LoroMap<any>; narrow the generic to the declared return type.
+    return props as LoroMap<Record<string, unknown>>;
   }
 
   private occurrenceMetaOf(occurrenceId: OccurrenceId): LoroMap {
@@ -840,8 +845,7 @@ export class ShardedBlockStore implements Outliner {
     if (!(meta instanceof LoroMap)) {
       throw new NotFoundError("meta", occurrenceId);
     }
-    const narrowed = meta as unknown as LoroMap;
-    return narrowed;
+    return meta as LoroMap<Record<string, unknown>>;
   }
 
   private treeNodeOf(occurrenceId: OccurrenceId): LoroTreeNode | null {

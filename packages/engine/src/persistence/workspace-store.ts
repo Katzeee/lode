@@ -19,16 +19,6 @@ export class WorkspaceStore {
   static async open(filePath: string): Promise<WorkspaceStore> {
     const db = await openSqliteDatabase(filePath);
     await db.exec(`
-      DROP TABLE IF EXISTS docs;
-      DROP TABLE IF EXISTS crdt_updates;
-      DROP TABLE IF EXISTS crdt_snapshots;
-      DROP TABLE IF EXISTS membership;
-
-      CREATE TABLE IF NOT EXISTS workspace_meta (
-        key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
-      );
-
       CREATE TABLE IF NOT EXISTS content_updates (
         sub_doc TEXT NOT NULL,
         seq INTEGER NOT NULL,
@@ -46,24 +36,6 @@ export class WorkspaceStore {
       );
     `);
     return new WorkspaceStore(db);
-  }
-
-  /** Read a workspace_meta value (null if absent). */
-  async getMeta(key: string): Promise<string | null> {
-    const row = await this.db.get<{ value: string }>(
-      "SELECT value FROM workspace_meta WHERE key = ?",
-      key,
-    );
-    return row?.value ?? null;
-  }
-
-  /** Write a workspace_meta value. */
-  async setMeta(key: string, value: string): Promise<void> {
-    await this.db.run(
-      "INSERT OR REPLACE INTO workspace_meta (key, value) VALUES (?, ?)",
-      key,
-      value,
-    );
   }
 
   /** Append one incremental update for a content sub-doc; returns the assigned seq. */

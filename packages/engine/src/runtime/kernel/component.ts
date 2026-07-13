@@ -1,4 +1,5 @@
 import type { AppRuntime } from "./app-runtime.js";
+import { toError } from "./invoke.js";
 import type { RuntimeInstance } from "./runtime.js";
 
 export type ComponentContext<Services, Required extends keyof Services & string, Config> = {
@@ -108,8 +109,4 @@ function select<Services>(
     selected[name] = services[name];
   }
   return selected as Services;
-}
-
-function toError(error: unknown): Error {
-  return error instanceof Error ? error : new Error(String(error));
 }

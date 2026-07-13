@@ -4,7 +4,7 @@ import { PreconditionFailedError } from "../../errors/index.js";
 import type { WorkspaceRegistry } from "../workspace/registry.js";
 import type { ActorKeypair } from "../../crypto/index.js";
 import type { RuntimeResource } from "../kernel/resource.js";
-import type { RoundSummary, SyncDeps } from "./deps.js";
+import type { RoundSummary } from "./driver.js";
 import type { SyncTransportFactory } from "./transport.js";
 import { WorkspaceSyncSession } from "./workspace-sync-session.js";
 
@@ -24,7 +24,7 @@ export type WorkspaceCoordinateData = {
 export type SyncServiceOptions = {
   readonly workspaces: WorkspaceRegistry;
   readonly transportFactory: SyncTransportFactory;
-  readonly deps?: SyncDeps;
+  readonly onRound?: (wsId: string, summary: RoundSummary) => void;
   readonly roundIntervalMs?: number;
 };
 
@@ -57,7 +57,7 @@ export class SyncService implements RuntimeResource {
     this.workspaces = opts.workspaces;
     this.transportFactory = opts.transportFactory;
     this.roundIntervalMs = opts.roundIntervalMs ?? DEFAULT_ROUND_INTERVAL_MS;
-    this.report = opts.deps?.onRound ?? defaultRoundReporter(this.lastNoOp);
+    this.report = opts.onRound ?? defaultRoundReporter(this.lastNoOp);
   }
 
   /** Register the session's actor to drive sync for `wsId` via `relayUrl`. Captures the keypair so
@@ -176,11 +176,11 @@ export class SyncService implements RuntimeResource {
       }
       const bytes = await ctx.transport.directedFetchUpdates(
         MEMBERSHIP_DOC_ID,
-        await ctx.membershipDoc.version(), // the joiner's current membership version (empty → full doc)
+        await ctx.log.metaDoc.version(), // the joiner's current membership version (empty → full doc)
         target,
       );
       if (bytes.length > 0) {
-        await ctx.membershipDoc.importUpdate(bytes);
+        await ctx.log.metaDoc.importUpdate(bytes);
         await ctx.log.persistIfDirty();
         // No security refresh: wire security is a lazy projection of the log, so the next read
         // (the content round's isMember() gate) reflects the imported roster immediately.

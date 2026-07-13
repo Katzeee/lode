@@ -5,10 +5,10 @@ import {
   getRequiredSingleFlag,
   resolveNodeLabel,
 } from "./shared.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 export async function executeSchemaCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -38,7 +38,7 @@ export async function executeSchemaCommand(
 }
 
 async function executeSchemaApply(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -59,7 +59,7 @@ async function executeSchemaApply(
 }
 
 async function executeSchemaRemove(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -80,7 +80,7 @@ async function executeSchemaRemove(
 }
 
 async function executeSchemaReconcile(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {

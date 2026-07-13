@@ -46,7 +46,7 @@ export class AppServerClient {
   async authenticate(opts: AuthenticateOptions): Promise<SessionInfo> {
     return this.rpc.sessionHello({
       mnemonic: opts.actorMnemonic,
-      ...(opts.client === undefined ? {} : { client: opts.client }),
+      client: opts.client,
     });
   }
 

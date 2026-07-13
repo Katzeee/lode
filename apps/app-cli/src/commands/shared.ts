@@ -11,68 +11,40 @@ import {
 } from "@lode/protocol/proto";
 import type { ParsedCli } from "../args.js";
 import { collectResolvableNodeIds, pushRecordLines } from "./record-format.js";
-import type { ClientLike, NodeNameResolver } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
+import type { NodeNameResolver } from "./types.js";
 
-const FIELD_TYPES = new Set(["plain", "reference", "option", "date", "checkbox"]);
-const FIELD_PRESENCE = new Set(["normal", "optional"]);
+const FIELD_TYPES: Record<string, FieldType> = {
+  plain: FieldType.PLAIN,
+  reference: FieldType.REFERENCE,
+  option: FieldType.OPTION,
+  date: FieldType.DATE,
+  checkbox: FieldType.CHECKBOX,
+};
+const FIELD_PRESENCE: Record<string, FieldPresence> = {
+  normal: FieldPresence.NORMAL,
+  optional: FieldPresence.OPTIONAL_PRESENCE,
+};
 
 function parseFieldType(raw: string): FieldType {
-  switch (raw) {
-    case "plain":
-      return FieldType.PLAIN;
-    case "reference":
-      return FieldType.REFERENCE;
-    case "option":
-      return FieldType.OPTION;
-    case "date":
-      return FieldType.DATE;
-    case "checkbox":
-      return FieldType.CHECKBOX;
-    default:
-      throw new Error(
-        `Invalid field type "${raw}". Expected one of: ${Array.from(FIELD_TYPES).join(", ")}.`,
-      );
+  const mapped = FIELD_TYPES[raw];
+  if (mapped === undefined) {
+    throw new Error(
+      `Invalid field type "${raw}". Expected one of: ${Object.keys(FIELD_TYPES).join(", ")}.`,
+    );
   }
+  return mapped;
 }
 
 function parseFieldPresence(raw: string): FieldPresence {
-  switch (raw) {
-    case "normal":
-      return FieldPresence.NORMAL;
-    case "optional":
-      return FieldPresence.OPTIONAL_PRESENCE;
-    default:
-      throw new Error(
-        `Invalid presence "${raw}". Expected one of: ${Array.from(FIELD_PRESENCE).join(", ")}.`,
-      );
+  const mapped = FIELD_PRESENCE[raw];
+  if (mapped === undefined) {
+    throw new Error(
+      `Invalid presence "${raw}". Expected one of: ${Object.keys(FIELD_PRESENCE).join(", ")}.`,
+    );
   }
+  return mapped;
 }
-
-export const APPROVED_FLAGS = new Set([
-  "--workspace",
-  "--occ",
-  "--node",
-  "--parent-occ",
-  "--target-occ",
-  "--target-node",
-  "--schema-node",
-  "--field-def-node",
-  "--field-occ",
-  "--ref-node",
-  "--move-occ",
-  "--field-type",
-  "--presence",
-  "--name",
-  "--text",
-  "--index",
-  "--identity",
-  "--coordinate",
-  "--relay",
-  "--peer-name",
-  "--peer",
-  "--actor",
-  "--to",
-]);
 
 export function assertAllowedFlags(
   command: ParsedCli,
@@ -223,7 +195,7 @@ export function formatChangeResult(header: string, changes: DomainChange[]): str
 }
 
 export async function buildNodeNameResolver(
-  client: ClientLike,
+  client: LodeCommandsClient,
   workspaceId: string,
   nodes: NodeOccurrenceWire[],
 ): Promise<NodeNameResolver> {
@@ -248,7 +220,7 @@ export async function buildNodeNameResolver(
 }
 
 export async function resolveNodeLabel(
-  client: ClientLike,
+  client: LodeCommandsClient,
   workspaceId: string,
   nodeId: string,
 ): Promise<string> {

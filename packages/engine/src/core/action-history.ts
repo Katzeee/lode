@@ -344,7 +344,7 @@ async function reconcile(
   for (const o of live.occurrences) {
     liveOccIdByOccId.set(o.occId, o.occurrenceId);
   }
-  const liveOccByOccId = new Map(live.occurrences.map((o) => [o.occId, o]));
+  const liveOccByOccurrenceId = new Map(live.occurrences.map((o) => [o.occurrenceId, o]));
   const wantedOccByOccId = new Map(wanted.occurrences.map((o) => [o.occId, o]));
   const wantedEntities = new Map(wanted.entities.map((e) => [e.nodeId, e]));
   const refOccIds = new Set(reference.occurrences.map((o) => o.occId));
@@ -383,7 +383,7 @@ async function reconcile(
   // created it; restoring `wanted` must remove it). Sort deepest-first so each is a leaf.
   const toDelete = reference.occurrences
     .filter((o) => !wantedOccByOccId.has(o.occId) && liveOccIdByOccId.has(o.occId))
-    .map((o) => ({ o, depth: liveDepth(o.occId, liveOccByOccId) }))
+    .map((o) => ({ o, depth: liveDepth(o.occurrenceId, liveOccByOccurrenceId) }))
     .sort((a, b) => b.depth - a.depth);
   for (const { o } of toDelete) {
     const occ = liveOrCreated(o.occId);
@@ -545,20 +545,26 @@ async function applyRecordDelta(
 }
 
 /** Depth of an occurrence in the LIVE tree (roots = 0). */
-function liveDepth(occId: string, liveOccByOccId: Map<string, NodeOccurrenceSnapshot>): number {
+/** Depth of an occurrence in the LIVE tree (roots = 0), via the live parent chain. The live snapshot
+ *  carries parentage as `parentOccurrenceId` (the Loro tree id), so the map is keyed by `occurrenceId`
+ *  — NOT the permanent `occId` (which keys reconciliation, not live parentage). Mixing the two silently
+ *  no-ops the walk (every lookup misses) and flattens depth to 0, breaking the deepest-first delete. */
+function liveDepth(
+  occurrenceId: OccurrenceId,
+  liveOccByOccurrenceId: Map<OccurrenceId, NodeOccurrenceSnapshot>,
+): number {
   let depth = 0;
-  const seen = new Set<string>([occId]);
-  let cur = liveOccByOccId.get(occId);
+  const seen = new Set<OccurrenceId>([occurrenceId]);
+  let cur = liveOccByOccurrenceId.get(occurrenceId);
   while (cur && cur.parentOccurrenceId) {
-    const parentLiveId = cur.parentOccurrenceId;
-    const parent = liveOccByOccId.get(parentLiveId);
+    const parent = liveOccByOccurrenceId.get(cur.parentOccurrenceId);
     if (!parent) {
       break;
     }
-    if (seen.has(parent.occId)) {
+    if (seen.has(parent.occurrenceId)) {
       break;
     }
-    seen.add(parent.occId);
+    seen.add(parent.occurrenceId);
     depth++;
     cur = parent;
   }

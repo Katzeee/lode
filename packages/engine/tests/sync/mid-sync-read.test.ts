@@ -7,7 +7,7 @@ import { replica, syncTreeOnly } from "./harness.js";
  * exchanged, a replica has a node's ownership but not its content shard — a pending-shard
  * state that self-heals once the shard arrives. Reading such a node must throw rather than
  * silently return empty/partial data: sync is synchronous today (reads never interleave a
- * half-delivered node), and this throw is the gate real network transport (Phase D) must
+ * half-delivered node), and this throw is the gate real network transport must
  * respect — never surface a node for reading before its owning shard has landed.
  */
 describe("sync mid-partial-sync read contract", () => {

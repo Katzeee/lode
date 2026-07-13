@@ -1,6 +1,6 @@
-import { randomInt, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { workspaceRelativePath } from "./paths.js";
-import type { RegistryStore, WorkspaceRecord } from "./registry-store.js";
+import { ensurePeerId, type RegistryStore, type WorkspaceRecord } from "./registry-store.js";
 
 /**
  * An in-memory RegistryStore — the ephemeral dual of SqliteRegistryStore. Backs WorkspaceRegistry's
@@ -51,19 +51,13 @@ export class InMemoryRegistryStore implements RegistryStore {
     return Promise.resolve();
   }
 
-  /** Get-or-create this runtime's stable peer id — same semantics as SqliteRegistryStore.ensurePeerId,
-   *  but held in the in-memory meta map (stable for the process, gone on exit). */
+  /** Get-or-create this runtime's stable peer id — same rule as SqliteRegistryStore.ensurePeerId, but
+   *  held in the in-memory meta map (stable for the process, gone on exit). */
   ensurePeerId(): Promise<number> {
-    const existing = this.meta.get("peerId");
-    if (existing !== undefined) {
-      const parsed = Number(existing);
-      if (Number.isSafeInteger(parsed) && parsed > 0) {
-        return Promise.resolve(parsed);
-      }
-    }
-    const peerId = randomInt(1, 2 ** 48);
-    this.meta.set("peerId", String(peerId));
-    return Promise.resolve(peerId);
+    return ensurePeerId(
+      (key) => this.getMeta(key),
+      (key, value) => this.setMeta(key, value),
+    );
   }
 
   close(): Promise<void> {

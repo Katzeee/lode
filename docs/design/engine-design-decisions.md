@@ -131,7 +131,7 @@ per-client view state.
 A Loro/VV-based CRDT sync core, matching any-sync's **semantics + structure** but NOT its
 change-DAG mechanism (lode is Loro-based, so it uses Loro's per-doc version vectors directly — no
 bloom-filter head-diff needed). Scope: a verified in-process core; the real network transport lives
-in the engine (`src/runtime/broker/` — the `BrokerSyncProtocol` adapter over the
+in the engine (`src/runtime/sync/adapters/` — the `BrokerSyncProtocol` adapter over the
 workspace-routing broker).
 
 - **Sync unit** = a workspace doc = `treeDoc ("main") + N shards`, each an independent `LoroDoc`
@@ -148,7 +148,7 @@ workspace-routing broker).
   `reconcileDurability`) so a shard merely pending delivery is NOT swept — partial delivery
   self-heals when the shard arrives.
 - **`SyncTransport`** is the network seam. The production adapter is `BrokerSyncProtocol`
-  (`src/runtime/broker/`, engine-internal); an `InMemorySyncTransport` + `syncPair` drive the
+  (`src/runtime/sync/adapters/`, engine-internal); an `InMemorySyncTransport` + `syncPair` drive the
   in-process core + tests.
 
 **Testing** is truth-based, not differential (comparing to another implementation only proves

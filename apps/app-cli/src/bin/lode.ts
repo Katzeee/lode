@@ -10,7 +10,6 @@ async function main(): Promise<void> {
   try {
     const parsed = parseCli(process.argv.slice(2));
     client = new AppServerClient(createSocketTransport(parsed.url));
-    client.connect();
     // `actor new` mints a fresh identity — it has no mnemonic yet and must skip auth. Every other
     // command needs an authenticated session, established from the mnemonic alone (the daemon derives
     // the identity).

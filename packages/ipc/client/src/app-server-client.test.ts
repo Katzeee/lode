@@ -6,12 +6,9 @@ import {
 } from "./app-server-client.js";
 
 describe("AppServerClient over a socket transport", () => {
-  it("exposes a typed LodeCommands rpc and closes without connecting", () => {
+  it("close() is safe before connecting", () => {
     const client = new AppServerClient(createSocketTransport("http://127.0.0.1:1"));
-    expect(typeof client.rpc.createWorkspace).toBe("function");
-    expect(typeof client.rpc.getNode).toBe("function");
-    expect(typeof client.rpc.listenNotifications).toBe("function");
-    client.close();
+    expect(() => client.close()).not.toThrow();
   });
 });
 

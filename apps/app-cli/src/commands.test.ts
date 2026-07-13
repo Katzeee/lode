@@ -281,6 +281,6 @@ describe("executeCommand", () => {
     );
     await expect(
       executeCommand(client, command("schema", "apply", { "--bad": ["x"] })),
-    ).rejects.toThrow(/Unknown flag/);
+    ).rejects.toThrow(/not valid for/);
   });
 });

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
-import { MembershipSync } from "./membership-sync.js";
+import { syncMembershipDoc } from "./membership-sync.js";
 import type { SyncProfile, SyncTransport } from "./transport.js";
 import { LoroMetaDoc } from "../../core/store/meta-doc.js";
 
@@ -56,13 +56,11 @@ describe("MembershipSync — plaintext gossip convergence", () => {
     const memberLog = newLog();
 
     const { ta, tb } = pipe(ownerLog, memberLog);
-    const ownerSync = new MembershipSync(ta, ownerLog.metaDoc);
-    const memberSync = new MembershipSync(tb, memberLog.metaDoc);
 
     // Gossip rounds: owner pushes → member imports; member pushes back → owner imports (no-op).
-    await ownerSync.sync();
-    await memberSync.sync();
-    await ownerSync.sync();
+    await syncMembershipDoc(ta, ownerLog.metaDoc);
+    await syncMembershipDoc(tb, memberLog.metaDoc);
+    await syncMembershipDoc(ta, ownerLog.metaDoc);
 
     const { state, skipped } = memberLog.deriveState();
     expect(skipped).toHaveLength(0);
@@ -78,11 +76,9 @@ describe("MembershipSync — plaintext gossip convergence", () => {
     a.appendRoot(owner, tk, "");
     const b = newLog();
     const { ta, tb } = pipe(a, b);
-    const sa = new MembershipSync(ta, a.metaDoc);
-    const sb = new MembershipSync(tb, b.metaDoc);
     for (let i = 0; i < 5; i++) {
-      await sa.sync();
-      await sb.sync();
+      await syncMembershipDoc(ta, a.metaDoc);
+      await syncMembershipDoc(tb, b.metaDoc);
     }
     expect(b.deriveState().state.owner).toBe(owner.actor.actorId);
     expect(b.records()).toHaveLength(1); // root only, not duplicated by re-push

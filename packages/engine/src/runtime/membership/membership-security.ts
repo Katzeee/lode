@@ -12,14 +12,12 @@ export type MembershipWireSecurity = {
   readonly security: WireSecurity;
   /** True iff the local peer (peerId) is currently admitted → the sealed content round may run. */
   isMember(): boolean;
-  /** The latest converged membership state (re-derived lazily when the log's frontier moves). */
-  state(): MembershipState;
 };
 
 /**
  * Build a `WireSecurity` for a content transport from a membership log + the local peer (design
  * sync-identity-persistence §2 + §13). Wire security is a PROJECTION of the membership log: every
- * reader (`isMember`/`state`/`resolveActorPub`/`transitKey`) re-derives iff the log's frontier has
+ * reader (`isMember`/`resolveActorPub`/`transitKey`) re-derives iff the log's frontier has
  * moved since the last read, else reuses the cached state + transit key. A projection invalidates
  * from its source — so any write (a governance rotate/add/revoke, or a sync import) is visible on
  * the very next read, with no `refresh()` for callers to remember to call.
@@ -94,10 +92,6 @@ export function createMembershipWireSecurity(opts: {
     isMember: () => {
       ensureFresh();
       return snap.state.peers.has(local.peerId);
-    },
-    state: () => {
-      ensureFresh();
-      return snap.state;
     },
   };
 }

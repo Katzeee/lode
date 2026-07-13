@@ -7,14 +7,13 @@ import { executeNodeCommand } from "./commands/node.js";
 import { executeRefCommand } from "./commands/ref.js";
 import { executeSchemaCommand } from "./commands/schema.js";
 import { executeSyncCommand } from "./commands/sync.js";
-import { APPROVED_FLAGS } from "./commands/shared.js";
-import type { ClientLike } from "./commands/types.js";
+import type { LodeCommandsClient } from "@lode/client";
 import { executeWorkspaceCommand } from "./commands/workspace.js";
 
-export type { ClientLike } from "./commands/types.js";
-
-export async function executeCommand(client: ClientLike, command: ParsedCli): Promise<string> {
-  assertApprovedFlags(command);
+export async function executeCommand(
+  client: LodeCommandsClient,
+  command: ParsedCli,
+): Promise<string> {
   const commandKey = `${command.group} ${command.action}`;
 
   switch (command.group) {
@@ -40,13 +39,5 @@ export async function executeCommand(client: ClientLike, command: ParsedCli): Pr
       return executeSyncCommand(client, command, commandKey);
     default:
       throw new Error(`Unknown command "${command.group} ${command.action}".`);
-  }
-}
-
-function assertApprovedFlags(command: ParsedCli): void {
-  for (const flagName of Object.keys(command.flags)) {
-    if (!APPROVED_FLAGS.has(flagName)) {
-      throw new Error(`Unknown flag "${flagName}".`);
-    }
   }
 }

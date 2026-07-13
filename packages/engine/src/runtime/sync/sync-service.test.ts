@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { deriveActorKeypair } from "../identity/identity-policy.js";
 import { generateMnemonic, type ActorKeypair } from "../../crypto/index.js";
 import { BrokerServer } from "../broker/broker-server.js";
-import { BrokerSyncTransportFactory } from "./adapters/broker-sync-transport.js";
+import { createBrokerSyncTransport } from "./adapters/broker-sync-transport.js";
 import { AppRuntime } from "../kernel/app-runtime.js";
 import { WorkspaceRegistry } from "../workspace/registry.js";
 import { ClientSessionManager } from "../session/client-session-manager.js";
@@ -65,7 +65,7 @@ async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
     await app.root.mount("component:sync", (instance) => {
       const service = new SyncService({
         workspaces,
-        transportFactory: new BrokerSyncTransportFactory(),
+        transportFactory: createBrokerSyncTransport,
         roundIntervalMs,
       });
       instance.own(service);

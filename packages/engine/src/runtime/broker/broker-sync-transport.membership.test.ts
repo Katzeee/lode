@@ -7,7 +7,7 @@ import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { MetaDoc } from "../../core/store/meta-doc.js";
 import { SyncExchange } from "../sync/sync-exchange.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
-import { MembershipSync } from "../sync/membership-sync.js";
+import { syncMembershipDoc } from "../sync/membership-sync.js";
 import { createMembershipWireSecurity } from "../membership/membership-security.js";
 import { BrokerClient } from "./broker-client.js";
 import { BrokerServer } from "./broker-server.js";
@@ -117,13 +117,11 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // (1) Membership gossip (plaintext): owner pushes → member imports. Refresh so the member's
     //     security installs the transit key before the sealed content round.
-    const syncA = new MembershipSync(ta, logA.metaDoc);
-    const syncB = new MembershipSync(tb, logB.metaDoc);
-    await syncA.sync();
+    await syncMembershipDoc(ta, logA.metaDoc);
     await settle();
-    await syncB.sync();
+    await syncMembershipDoc(tb, logB.metaDoc);
     await settle();
-    await syncA.sync();
+    await syncMembershipDoc(ta, logA.metaDoc);
     await settle();
     // Wire security is a lazy projection of the log — isMember() re-derives on read.
     expect(secB.isMember()).toBe(true);
@@ -187,13 +185,11 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // The stranger converges the PUBLIC roster (plaintext) — it sees the owner — but it is not a
     // member, so secB never installs a transit key and content sync (sealed) fails every round.
-    const syncA = new MembershipSync(ta, logA.metaDoc);
-    const syncB = new MembershipSync(tb, logB.metaDoc);
-    await syncA.sync();
+    await syncMembershipDoc(ta, logA.metaDoc);
     await settle();
-    await syncB.sync();
+    await syncMembershipDoc(tb, logB.metaDoc);
     await settle();
-    await syncA.sync();
+    await syncMembershipDoc(ta, logA.metaDoc);
     await settle();
     expect(secB.isMember()).toBe(false);
 

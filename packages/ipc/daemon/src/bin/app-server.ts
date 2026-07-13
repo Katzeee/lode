@@ -29,9 +29,8 @@ if (options.mode === "engine") {
   stop = () => relay.stop();
 }
 
-process.once("SIGINT", () => {
-  void stop().then(() => process.exit(0));
-});
-process.once("SIGTERM", () => {
-  void stop().then(() => process.exit(0));
-});
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.once(signal, () => {
+    void stop().then(() => process.exit(0));
+  });
+}

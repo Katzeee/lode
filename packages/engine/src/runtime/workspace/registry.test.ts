@@ -70,14 +70,6 @@ describe("WorkspaceRegistry sharded persistence", () => {
     }
   });
 
-  it("the runtime is sharded-only (no single-engine path)", async () => {
-    const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
-    await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = await engineOf(rt, "ws");
-    expect(engine.asOutliner()).not.toBeNull(); // always sharded
-    await rt.close();
-  });
-
   it("exposes a stable per-dataRoot peerId wired into the Loro treeDoc", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });

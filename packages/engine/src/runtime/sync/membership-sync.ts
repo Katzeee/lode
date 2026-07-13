@@ -13,15 +13,9 @@ import type { SyncTransport } from "./transport.js";
  * serves on its push-apply path, so send and receive share one API. Sibling of `SyncExchange`
  * (content docs, sealed): a host runs both over one transport each round — membership first, so the
  * security context the content round uses is fresh.
+ *
+ * Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge).
  */
-export class MembershipSync {
-  constructor(
-    private readonly transport: SyncTransport,
-    private readonly doc: SyncableDoc,
-  ) {}
-
-  /** Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge). */
-  async sync(): Promise<void> {
-    await this.transport.sendUpdates(this.doc.id, await this.doc.exportSnapshot());
-  }
+export async function syncMembershipDoc(transport: SyncTransport, doc: SyncableDoc): Promise<void> {
+  await transport.sendUpdates(doc.id, await doc.exportSnapshot());
 }

@@ -10,10 +10,10 @@ import {
   parseFieldValues,
   resolveNodeLabel,
 } from "./shared.js";
-import type { ClientLike } from "./types.js";
+import type { LodeCommandsClient } from "@lode/client";
 
 export async function executeFieldDefCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {
@@ -67,7 +67,7 @@ export async function executeFieldDefCommand(
 }
 
 export async function executeFieldCommand(
-  client: ClientLike,
+  client: LodeCommandsClient,
   command: ParsedCli,
   commandKey: string,
 ): Promise<string> {

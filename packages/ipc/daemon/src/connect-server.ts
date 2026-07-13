@@ -128,74 +128,26 @@ export function createLodeServer(runtime: EngineRuntime): {
       }
       return createContextValues().set(connectionIdKey, id);
     },
-    routes: (router) =>
-      router.service(LodeCommands, {
-        sessionHello: unary(commands.sessionHello),
-        generateActorMnemonic: unary(commands.generateActorMnemonic),
-        subscribeDoc: unary(commands.subscribeDoc),
-        unsubscribeDoc: unary(commands.unsubscribeDoc),
-        listenNotifications: serverStreaming(commands.listenNotifications),
-
-        createWorkspace: unary(commands.createWorkspace),
-        forkWorkspace: unary(commands.forkWorkspace),
-        listWorkspaces: unary(commands.listWorkspaces),
-        removeWorkspace: unary(commands.removeWorkspace),
-
-        createPlainNode: unary(commands.createPlainNode),
-        getNode: unary(commands.getNode),
-        getNodeById: unary(commands.getNodeById),
-        getNodeChildren: unary(commands.getNodeChildren),
-        listRoots: unary(commands.listRoots),
-        moveNode: unary(commands.moveNode),
-        removeNodeOccurrence: unary(commands.removeNodeOccurrence),
-        hardDeleteNode: unary(commands.hardDeleteNode),
-        promoteCanonicalNode: unary(commands.promoteCanonicalNode),
-        replaceNodeText: unary(commands.replaceNodeText),
-        setNodeProp: unary(commands.setNodeProp),
-        unsetNodeProp: unary(commands.unsetNodeProp),
-        setOccurrenceProp: unary(commands.setOccurrenceProp),
-        unsetOccurrenceProp: unary(commands.unsetOccurrenceProp),
-
-        pasteNodes: unary(commands.pasteNodes),
-        duplicateNode: unary(commands.duplicateNode),
-        indentNodes: unary(commands.indentNodes),
-        outdentNode: unary(commands.outdentNode),
-        moveSiblingNode: unary(commands.moveSiblingNode),
-
-        createRef: unary(commands.createRef),
-        cloneRef: unary(commands.cloneRef),
-
-        createSchema: unary(commands.createSchema),
-        applySchema: unary(commands.applySchema),
-        removeSchema: unary(commands.removeSchema),
-        reconcileSchema: unary(commands.reconcileSchema),
-
-        createFieldDef: unary(commands.createFieldDef),
-        setFieldDefType: unary(commands.setFieldDefType),
-        setFieldDefPresence: unary(commands.setFieldDefPresence),
-
-        addField: unary(commands.addField),
-        setFieldValues: unary(commands.setFieldValues),
-        removeField: unary(commands.removeField),
-
-        undoHistory: unary(commands.undoHistory),
-        redoHistory: unary(commands.redoHistory),
-        canUndoHistory: unary(commands.canUndoHistory),
-        canRedoHistory: unary(commands.canRedoHistory),
-
-        addMember: unary(commands.addMember),
-        listMembers: unary(commands.listMembers),
-        revokePeer: unary(commands.revokePeer),
-        addPeer: unary(commands.addPeer),
-        transferOwner: unary(commands.transferOwner),
-        rotateTransit: unary(commands.rotateTransit),
-        getActorPublicKeys: unary(commands.getActorPublicKeys),
-        getPeerPublicKeys: unary(commands.getPeerPublicKeys),
-        shareWorkspace: unary(commands.shareWorkspace),
-        joinWorkspace: unary(commands.joinWorkspace),
-        registerSync: unary(commands.registerSync),
-        syncNow: unary(commands.syncNow),
-      }),
+    routes: (router) => {
+      // Route every command in the bag: unary except listenNotifications (server-streaming). Iterating
+      // the bag — not a hand-listed table — keeps routes in lockstep with the command set: add a
+      // command and it is routed. Each wrapped command is `(req, connectionId) => result`, so the bag
+      // is a uniform record of callables.
+      const bag = commands as unknown as Record<
+        string,
+        (req: unknown, connectionId: string) => unknown
+      >;
+      const impl: Record<string, unknown> = {};
+      for (const [name, handler] of Object.entries(bag)) {
+        impl[name] =
+          name === "listenNotifications"
+            ? serverStreaming(
+                handler as (req: unknown, connectionId: string) => AsyncIterable<unknown>,
+              )
+            : unary(handler);
+      }
+      return router.service(LodeCommands, impl);
+    },
   });
 
   return {

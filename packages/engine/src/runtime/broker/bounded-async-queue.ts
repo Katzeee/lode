@@ -57,11 +57,6 @@ export class BoundedAsyncQueue<T> implements AsyncIterable<T> {
     this.waiters.length = 0;
   }
 
-  /** Whether the queue has been closed. */
-  get isClosed(): boolean {
-    return this.closed;
-  }
-
   [Symbol.asyncIterator](): AsyncIterator<T> {
     const next = (): Promise<IteratorResult<T>> => {
       const queued = this.queue.shift();

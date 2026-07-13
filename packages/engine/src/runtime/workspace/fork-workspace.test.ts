@@ -15,7 +15,7 @@ async function membershipOf(registry: WorkspaceRegistry, workspaceId: string) {
 }
 
 /**
- * forkWorkspace — the Phase 3 recovery primitive (design sync-identity-persistence §13). A fork
+ * forkWorkspace — the recovery primitive (design sync-identity-persistence §13). A fork
  * copies the source's content (treeDoc + shards) into a NEW wsId with an EMPTY membership log +
  * a fresh owner root signed by the forker. These tests pin the three guarantees: content is
  * copied verbatim (incl. across a restart, so persistence is real), the new governance starts

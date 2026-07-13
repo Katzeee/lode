@@ -25,6 +25,4 @@ export type SyncTransportInput = {
   readonly peerId: string;
 };
 
-export type SyncTransportFactory = {
-  create(input: SyncTransportInput): ManagedSyncTransport;
-};
+export type SyncTransportFactory = (input: SyncTransportInput) => ManagedSyncTransport;

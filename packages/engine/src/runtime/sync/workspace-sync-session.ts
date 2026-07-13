@@ -2,10 +2,9 @@ import type { RuntimeInstance } from "../kernel/runtime.js";
 import type { LocalPeer } from "../membership/membership-log.js";
 import type { WorkspaceRuntime } from "../workspace/workspace-runtime.js";
 import { SyncContext } from "./context.js";
-import type { RoundSummary } from "./deps.js";
+import type { RoundSummary } from "./driver.js";
 import { SyncRoundDriver } from "./driver.js";
 import { PushFastPath } from "./push.js";
-import { ContentRound, MembershipRound } from "./round.js";
 import type { SyncTransportFactory } from "./transport.js";
 
 export type WorkspaceSyncSessionOptions = {
@@ -40,10 +39,9 @@ export class WorkspaceSyncSession {
         transportFactory: options.transportFactory,
       });
       const driver = new SyncRoundDriver({
-        wsId: workspace.id,
         intervalMs: options.roundIntervalMs,
-        membership: new MembershipRound(context),
-        content: new ContentRound(context, options.report),
+        ctx: context,
+        report: options.report,
       });
       instance.own(context);
       instance.own(driver);

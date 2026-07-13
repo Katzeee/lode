@@ -324,14 +324,11 @@ export class Engine {
   }
 
   async replaceDeltas(occurrenceId: OccurrenceId, deltas: Delta): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.replaceDeltas(occurrenceId, deltas);
-      this.commitIfNeeded();
-      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.replaceDeltas(occurrenceId, deltas),
+      (nodeId) => [{ type: "entityUpdated", nodeId, field: "text" }],
+    );
   }
 
   async mark(
@@ -340,25 +337,19 @@ export class Engine {
     key: string,
     value: unknown,
   ): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.mark(occurrenceId, range, key, value);
-      this.commitIfNeeded();
-      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.mark(occurrenceId, range, key, value),
+      (nodeId) => [{ type: "entityUpdated", nodeId, field: "text" }],
+    );
   }
 
   async unmark(occurrenceId: OccurrenceId, range: MarkRange, key: string): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.unmark(occurrenceId, range, key);
-      this.commitIfNeeded();
-      this.recordEffects([{ type: "entityUpdated", nodeId, field: "text" }]);
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.unmark(occurrenceId, range, key),
+      (nodeId) => [{ type: "entityUpdated", nodeId, field: "text" }],
+    );
   }
 
   getProp(occurrenceId: OccurrenceId, key: string): Promise<unknown> {
@@ -366,43 +357,28 @@ export class Engine {
   }
 
   async setProp(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.setProp(occurrenceId, key, value);
-      this.commitIfNeeded();
-      this.recordEffects([{ type: "entityUpdated", nodeId, field: "props", key }]);
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.setProp(occurrenceId, key, value),
+      (nodeId) => [{ type: "entityUpdated", nodeId, field: "props", key }],
+    );
   }
 
   async unsetProp(occurrenceId: OccurrenceId, key: string): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.unsetProp(occurrenceId, key);
-      this.commitIfNeeded();
-      this.recordEffects([{ type: "entityUpdated", nodeId, field: "props", key }]);
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.unsetProp(occurrenceId, key),
+      (nodeId) => [{ type: "entityUpdated", nodeId, field: "props", key }],
+    );
   }
 
   async setProps(occurrenceId: OccurrenceId, props: Record<string, unknown>): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.setProps(occurrenceId, props);
-      this.commitIfNeeded();
-      this.recordEffects(
-        Object.keys(props).map((key) => ({
-          type: "entityUpdated" as const,
-          nodeId,
-          field: "props" as const,
-          key,
-        })),
-      );
-    });
+    return this.mutateEntity(
+      occurrenceId,
+      () => this.store.setProps(occurrenceId, props),
+      (nodeId) =>
+        Object.keys(props).map((key) => ({ type: "entityUpdated", nodeId, field: "props", key })),
+    );
   }
 
   getProps(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
@@ -414,23 +390,13 @@ export class Engine {
   }
 
   async setEntityMeta(occurrenceId: OccurrenceId, key: string, value: unknown): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.setEntityMeta(occurrenceId, key, value);
-      this.commitIfNeeded();
-    });
+    return this.mutateEntity(occurrenceId, () =>
+      this.store.setEntityMeta(occurrenceId, key, value),
+    );
   }
 
   async unsetEntityMeta(occurrenceId: OccurrenceId, key: string): Promise<void> {
-    this.requireWritable();
-    await this.runAutoGrouped(async () => {
-      const nodeId = this.store.nodeIdOf(occurrenceId);
-      await this.captureEntityBeforeIfRecording(nodeId);
-      await this.store.unsetEntityMeta(occurrenceId, key);
-      this.commitIfNeeded();
-    });
+    return this.mutateEntity(occurrenceId, () => this.store.unsetEntityMeta(occurrenceId, key));
   }
 
   getEntityMetaRecord(occurrenceId: OccurrenceId): Promise<Record<string, unknown>> {
@@ -657,6 +623,27 @@ export class Engine {
       await this.actionHistory.end();
       this.historyActive = false;
     }
+  }
+
+  /** The shared pipeline for an entity-mutating mutator: require writable, auto-group as one undo
+   *  step, resolve the node, record its before-image (first-touch-wins per nodeId), run the store op,
+   *  commit, then record effects. `op` closes over the store call; `effects` (optional) turns the
+   *  resolved nodeId into the NodeUpdatedPayloads to surface — set/unsetEntityMeta pass none. */
+  private async mutateEntity(
+    occurrenceId: OccurrenceId,
+    op: () => Promise<void>,
+    effects?: (nodeId: NodeId) => NodeUpdatedPayload[],
+  ): Promise<void> {
+    this.requireWritable();
+    await this.runAutoGrouped(async () => {
+      const nodeId = this.store.nodeIdOf(occurrenceId);
+      await this.captureEntityBeforeIfRecording(nodeId);
+      await op();
+      this.commitIfNeeded();
+      if (effects) {
+        this.recordEffects(effects(nodeId));
+      }
+    });
   }
 
   // ── Effect capture ─────────────────────────────────────────────────────

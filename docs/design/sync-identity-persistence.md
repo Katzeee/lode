@@ -27,8 +27,8 @@ _membership_ and _identity_ halves, and how they persist.
 > **Decision reversed 2026-07-05.** An earlier version of this section (and the original
 > sync-relay handoff) recorded the opposite — "engine stays transport-free; the broker
 > wire + `SyncTransport` adapter live in a separate `@lode/transport` package." That split
-> has been reversed: the broker wire + the sync protocol now live **inside `@lode/engine`**
-> (`src/runtime/broker/`), and `@lode/transport` is deleted. The `SyncTransport`-interface
+> has been reversed: the broker wire + the sync protocol now live **inside `@lode/engine`**,
+> and `@lode/transport` is deleted. The `SyncTransport`-interface
 > lesson at the end of this section is unchanged; the packaging conclusion is what flipped.
 > Recorded here so the evolution is visible, not just the latest state.
 
@@ -52,7 +52,7 @@ AEAD (`seal`/`open`), encodes the `SyncProfile`, and correlates request/response
 security primitives lived in engine, their consumer in transport) and dragged `loro-crdt`
 
 - engine types into a nominal "socket shell." Folding them into one package
-  (`src/runtime/broker/`) removes the seam, and the wire then **travels with the engine into
+  (`@lode/engine`) removes the seam, and the wire then **travels with the engine into
   a future Rust port** (gRPC/tonic in Rust) — avoiding a permanent two-language core joined
   by a byte pipe.
 
@@ -63,11 +63,11 @@ its frames carry lode's `SyncMessage`, lode's wsId routing, lode's membership-se
 envelopes — so pretending it is a reusable transport is speculative generalization. The
 honest shape: the broker is engine business logic that happens to talk to a socket.
 
-| Layer              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Used by                |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **`@lode/engine`** | sync core (`SyncExchange` + the `SyncTransport` **interface**: docIds + bytes + VVs) + **the peer-sync wire** (`BrokerClient` / `BrokerServer` + the routing core + the `BrokerSyncProtocol` protocol, in `src/runtime/broker/`) + peerId → `setPeerId` + actor crypto (the `crypto` leaf: Ed25519/X25519/AES-256-GCM/BIP-39/SLIP-10) + the membership log + the wire-security/SyncProfile content layer (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
-| **`@lode/daemon`** | thin desktop host: engine (in-process) + the relay (`BrokerServer` in `--relay` mode) + the client→core gRPC IPC + process lifecycle                                                                                                                                                                                                                                                                                                                                              | desktop                |
-| **mobile**         | engine (in-process, incl. the broker client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                                                                                                                                                                | mobile                 |
+| Layer              | Owns                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Used by                |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| **`@lode/engine`** | sync core (`SyncExchange` + the `SyncTransport` **interface**: docIds + bytes + VVs) + **the peer-sync wire** (`BrokerClient` / `BrokerServer` + the routing core, in `src/runtime/broker/`) + the `BrokerSyncProtocol` adapter (in `src/runtime/sync/adapters/`) + peerId → `setPeerId` + actor crypto (the `crypto` leaf: Ed25519/X25519/AES-256-GCM/BIP-39/SLIP-10) + the membership log + the wire-security/SyncProfile content layer (transit-key AEAD seal/open, actor wire signing, membership→wire bridge) | daemon + mobile + apps |
+| **`@lode/daemon`** | thin desktop host: engine (in-process) + the relay (`BrokerServer` in `--relay` mode) + the client→core gRPC IPC + process lifecycle                                                                                                                                                                                                                                                                                                                                                                               | desktop                |
+| **mobile**         | engine (in-process, incl. the broker client — dials the relay directly, no daemon)                                                                                                                                                                                                                                                                                                                                                                                                                                 | mobile                 |
 
 The engine owns the wire, but the `SyncTransport` **interface** stays socket-free (next
 paragraph) — `InMemorySyncTransport` (tests / two-workspaces-one-process) and
@@ -150,7 +150,7 @@ LoroList; signed over the canonical proto3 body encoding — the wrapped set is 
 The log lives in the engine's in-process sync core (`runtime/membership/`) — it needs `core`
 (LoroDoc) + the `crypto` leaf + `@lode/protocol` (records), so it can't sit in `domain`
 (no-protocol rule); `runtime` is sanctioned as the sync core (`SyncExchange` lives there). It is a
-**Loro doc inside the workspace**, so it syncs like any doc — `MembershipSync` gossip-pushes
+**Loro doc inside the workspace**, so it syncs like any doc — `syncMembershipDoc` gossip-pushes
 it over the transport's plaintext envelope. Validity = the record's signature verifies AND the
 signer is the current owner (root is
 self-authorizing as the first record). The owner is always a member — a rotate may not omit the
@@ -210,7 +210,7 @@ the same actor keypair (same mnemonic).
 
 - **The daemon holds no actor private key persistently — it has no identity of its own.** It acts
   on behalf of whichever actor a client brought. For background sync, the registered actor's key
-  is captured **in-memory** by the sync registration (no persistence) — see `sync-handoff.md`.
+  is captured **in-memory** by the sync registration (no persistence).
   (This supersedes an earlier "daemon-side actor keystore / `actors.sqlite`" design.)
 - **Signs** sync updates (attribution) and **membership-log records** (owner authority). The
   owner's actor key is the governance signer; it does **not** rotate, so it is its own recovery
@@ -254,7 +254,7 @@ derivable, and there is no persistent session to anchor it.)
 
 Because the daemon has no identity, **sync is a client-registered service**: a client registers
 "sync ws-X as my actor via relay(s)"; the daemon captures that actor's key **in-memory** for
-background sync rounds (no persistence — see `sync-handoff.md`). The daemon never picks or owns
+background sync rounds (no persistence). The daemon never picks or owns
 an actor. (Local access derivation is in §7.)
 
 ---
@@ -339,8 +339,8 @@ convenience, that is a local daemon UX choice layered on top, not a membership f
   registry.sqlite              # workspace catalog: wsId → relativePath, displayName
   peer.peerId                # this dataRoot's Loro site id (non-secret)
   workspaces/<wsId>/           # workspace stored ONCE
-    workspace.sqlite           # docs + crdt_updates + crdt_snapshots + workspace_meta
-                               #   + the membership log as one of its docs/shards (syncs like any doc)
+    workspace.sqlite           # content_updates + content_snapshots
+                               #   + the membership log as one of its sub-docs (syncs like any doc)
 ```
 
 Separation of concerns: `registry.sqlite` = which workspaces exist on this dataRoot; the
@@ -412,7 +412,7 @@ transit-key wrapping + the re-key chain round-trip; the owner/member lifecycle (
 - **`peerId`** is just **per-dataRoot peerId** (and now also the routing identity) — §3.
 - **Peer-sync wire folded into the engine** (§1, reversed 2026-07-05). The broker wire +
   `BrokerSyncProtocol` protocol moved from a separate `@lode/transport` package into
-  `@lode/engine` (`src/runtime/broker/`); `@lode/transport` is deleted. Supersedes the earlier
+  `@lode/engine`; `@lode/transport` is deleted. Supersedes the earlier
   "engine stays transport-free, wire in `@lode/transport`" decision recorded here previously.
 
 **Decided (membership model, stable):**
@@ -430,7 +430,7 @@ transit-key wrapping + the re-key chain round-trip; the owner/member lifecycle (
 
 ## 12. Structural decomposition
 
-> Live status in `_local/handoff/sync-handoff.md`. The design decomposes (in dependency order)
+> The design decomposes (in dependency order)
 > into:
 
 1. **Directed client→client request capability** — relay peerId tracking + directed routing +

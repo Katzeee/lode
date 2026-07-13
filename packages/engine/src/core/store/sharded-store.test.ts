@@ -173,7 +173,7 @@ describe("Outliner working-set session: ensureResident + the residency assertion
   });
 });
 
-describe("eviction (Phase 5): finite capacity bounds resident LoroDocs; re-fault preserves mutations", () => {
+describe("eviction: finite capacity bounds resident LoroDocs; re-fault preserves mutations", () => {
   it("resident shards stay ≤ capacity across edits that span many shards", async () => {
     const numShards = 16;
     const capacity = 4;
@@ -222,7 +222,7 @@ describe("eviction (Phase 5): finite capacity bounds resident LoroDocs; re-fault
     await e.replaceDeltas(child.occurrenceId, [{ insert: "kept" }]); // mutate s7
     e.captureSync();
     // Flush s7's mutation so it's clean — the subsequent s1 fault then evicts s7 with an empty onEvict
-    // delta (no extra write). Post-Phase-3 a dirty shard isn't pinned, so it COULD evict via onEvict
+    // delta (no extra write). Since dirty shards are no longer pinned, it COULD evict via onEvict
     // flush too; flushing first just keeps the test's eviction a clean one.
     await store.flushDirty();
     // Touch root (s1) → fault s1 → evict s7 (onEvict flushes "kept" to the DocStore). Only s1 resident.
@@ -234,7 +234,7 @@ describe("eviction (Phase 5): finite capacity bounds resident LoroDocs; re-fault
   });
 });
 
-describe("incremental persistence (Phase 2): dirty-only + delta writes + replay", () => {
+describe("incremental persistence: dirty-only + delta writes + replay", () => {
   const shardOf = (nodeId: string, numShards: number): string =>
     SYS_PREFIX + shardIdOf(nodeId, numShards);
 
