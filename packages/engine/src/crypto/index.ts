@@ -3,6 +3,7 @@
 // no engine internals, no persistence, no protocol.
 
 export { aeadEncrypt, aeadDecrypt } from "./aes.js";
+export { deriveVaultKey, DEFAULT_KDF_PARAMS, type KdfParams } from "./kdf.js";
 export { generateMnemonic, validateMnemonic, mnemonicToSeed } from "./bip39.js";
 export { deriveEd25519Node, deriveEd25519Seed, type Slip10Node } from "./slip10.js";
 export {

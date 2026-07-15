@@ -58,20 +58,17 @@ describe("two fresh machines — kicked member forks (in-process)", () => {
   });
 
   const run =
-    (client: AppServerClient, address: string, mnemonic: string) =>
+    (client: AppServerClient, address: string) =>
     (...args: string[]): Promise<string> =>
-      executeCommand(
-        client.rpc,
-        parseCli(["--url", address, "--actor-mnemonic", mnemonic, ...args]),
-      );
+      executeCommand(client.rpc, parseCli(["--url", address, ...args]));
 
   it("a kicked member forks their local copy into a new owner workspace with full content", async () => {
     const ownerMnemonic = generateMnemonic();
     const memberMnemonic = generateMnemonic();
     await ownerClient.authenticate({ actorMnemonic: ownerMnemonic });
     await memberClient.authenticate({ actorMnemonic: memberMnemonic });
-    const ownerBe = run(ownerClient, ownerD.address, ownerMnemonic);
-    const memberBe = run(memberClient, memberD.address, memberMnemonic);
+    const ownerBe = run(ownerClient, ownerD.address);
+    const memberBe = run(memberClient, memberD.address);
 
     const memberToken = await memberBe("identity", "export");
 
@@ -117,7 +114,7 @@ describe("two fresh machines — kicked member forks (in-process)", () => {
 
     // Owner kicks the member. The member does NOT need to receive the revoke — fork is local: it
     // copies the member's already-synced replica. (Local-first: data already replicated is kept.)
-    await ownerBe("member", "remove", "--workspace", ws, "--actor", memberActor);
+    await ownerBe("member", "remove", "--workspace", ws, "--actor-id", memberActor);
 
     // Member forks their local copy into a fresh workspace where they are the owner.
     const forked = parseForkedWorkspaceId(

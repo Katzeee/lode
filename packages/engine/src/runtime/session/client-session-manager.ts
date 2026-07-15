@@ -13,6 +13,7 @@ import type { ActorKeypair } from "../../crypto/index.js";
 import type { RuntimeInstance } from "../kernel/runtime.js";
 import type { MountedComponent, RuntimeResource } from "../kernel/resource.js";
 import type { ResolvedCaller } from "../identity/caller.js";
+import { VaultRuntime } from "../identity/vault.js";
 import { BoundedAsyncChannel } from "../../events/bounded-async-channel.js";
 import type { Bus, Subscription } from "../../events/bus.js";
 import { Committed } from "../workspace/workspace-facts.js";
@@ -41,17 +42,29 @@ type ClientConnection = {
   readonly subscriptions: Map<string, Subscription[]>;
 };
 
+/** The per-connection identity bound from request headers (socket deployment): the active actor the
+ *  client selected + this client install's stable id. Set by the daemon's server interceptor. */
+type ConnectionIdentity = { actorId?: string; clientId?: string };
+
 /** One owner for a connection's authenticated identity, subscriptions, and notification stream. */
 export class ClientSessionManager implements RuntimeResource {
   readonly id = "client-sessions";
   private readonly connections = new Map<string, MountedComponent<ClientConnection>>();
   private readonly mounting = new Map<string, Promise<MountedComponent<ClientConnection>>>();
+  private readonly identities = new Map<string, ConnectionIdentity>();
 
   constructor(
     private readonly instance: RuntimeInstance,
     private readonly originLabel: string,
+    private readonly vault: VaultRuntime = VaultRuntime.disabled(),
     private readonly notificationCapacity = DEFAULT_NOTIFICATION_CAPACITY,
   ) {}
+
+  /** Bind a connection's header identity (clientId, actorId). Called by the daemon interceptor on each
+   *  request — idempotent per connection since the client sends the same headers for its lifetime. */
+  setConnectionIdentity(connectionId: string, identity: ConnectionIdentity): void {
+    this.identities.set(connectionId, identity);
+  }
 
   async createSession(
     connectionId: string,
@@ -77,18 +90,40 @@ export class ClientSessionManager implements RuntimeResource {
   }
 
   resolveCaller(connectionId: string): ResolvedCaller {
+    // 1) sessionHello / in-process / mnemonic-test path: a session record carries the derived keypair.
+    //    Kept (the plan retains sessionHello for in-process/test direct connections) and tried first so
+    //    the CLI's mnemonic flow still works against a vault-enabled daemon during the Phase-2→3 cutover.
     const record = this.connections.get(connectionId)?.api.session;
-    if (record?.actor === undefined || record.keypair === undefined) {
-      throw new SessionRequiredError();
+    if (record?.actor !== undefined && record.keypair !== undefined) {
+      return {
+        origin: {
+          nodeId: this.originLabel,
+          actorId: record.actor.actorId,
+          sessionId: record.sessionId,
+        },
+        keypair: record.keypair,
+      };
     }
-    return {
-      origin: {
-        nodeId: this.originLabel,
-        actorId: record.actor.actorId,
-        sessionId: record.sessionId,
-      },
-      keypair: record.keypair,
-    };
+    // 2) Socket deployment: identity arrives per-call via request headers; the vault applies the lease
+    //    (may drop to LOCKED/GRACE), throws VaultLockedError(cold | lease-expired) when not usable, and
+    //    refreshes a sliding lease on success.
+    if (this.vault.available) {
+      const identity = this.identities.get(connectionId);
+      const actorId = identity?.actorId;
+      if (actorId === undefined) {
+        throw new SessionRequiredError("no actor selected (set lode-actor-id)");
+      }
+      const keypair = this.vault.access(actorId);
+      return {
+        origin: {
+          nodeId: this.originLabel,
+          actorId,
+          sessionId: identity?.clientId ?? actorId,
+        },
+        keypair,
+      };
+    }
+    throw new SessionRequiredError();
   }
 
   async subscribeWorkspace(
@@ -139,12 +174,14 @@ export class ClientSessionManager implements RuntimeResource {
     if (mounted === undefined) {
       return;
     }
+    this.identities.delete(connectionId);
     await mounted.instance.stop({ checkpoint: false });
   }
 
   release(): void {
     this.connections.clear();
     this.mounting.clear();
+    this.identities.clear();
   }
 
   private async connection(connectionId: string): Promise<ClientConnection> {

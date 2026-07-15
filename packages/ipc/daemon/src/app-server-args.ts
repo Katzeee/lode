@@ -6,12 +6,13 @@ import type { ParsedAppServerArgs } from "./app-server-daemon.js";
 // registered at runtime by sessions (RegisterSync / JoinWorkspace), so there are no sync flags here.
 // Kept explicit (no flag lib) to match the daemon's minimal argv style.
 
-const USAGE = `Usage: app-server [--listen <url>] [--data-root <path>] [--relay [<port>]] [--tls-cert <path> --tls-key <path>] [--log-file <path>]
-    --listen:    engine daemon (the gRPC service clients talk to)
+const USAGE = `Usage: lode daemon run [--listen <url>] [--home <path>] [--data-root <path>] [--relay [<port>]] [--tls-cert <path> --tls-key <path>] [--log-file <path>]
+    --listen:    engine daemon endpoint (default: a unix socket / named pipe under --home)
+    --home:      LODE_HOME dir (data/vault/endpoint live here; default: platform default)
     --relay:     host the workspace-routing broker (omit --listen for a relay-only process)
     --tls-cert:  PEM cert for the relay over h2+TLS (requires --relay + --tls-key; default h2c plaintext)
     --tls-key:   PEM key paired with --tls-cert
-    --data-root: where the engine persists data (default: in-memory)
+    --data-root: where the engine persists data (default: <home>/data)
     --log-file:  append structured logs (JSON) to a size-rotated file, ALONGSIDE stderr
                  (default: stderr only). Rotation: 50 MB × 5 backups.
   At least one of --listen / --relay is required.`;
@@ -32,6 +33,7 @@ function valueAfter(argv: string[], flag: string): string | undefined {
 export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
   const listen = valueAfter(argv, "--listen");
   const dataRoot = valueAfter(argv, "--data-root");
+  const home = valueAfter(argv, "--home");
   const logFile = valueAfter(argv, "--log-file");
   const tlsCertPath = valueAfter(argv, "--tls-cert");
   const tlsKeyPath = valueAfter(argv, "--tls-key");
@@ -77,6 +79,7 @@ export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
       mode: "relay",
       ...(relay === undefined ? {} : { relay }),
       ...(logFile === undefined ? {} : { logFile }),
+      ...(home === undefined ? {} : { home }),
     };
   }
   // Engine mode.
@@ -86,5 +89,6 @@ export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
     ...(dataRoot === undefined ? {} : { dataRoot }),
     ...(relay === undefined ? {} : { relay }),
     ...(logFile === undefined ? {} : { logFile }),
+    ...(home === undefined ? {} : { home }),
   };
 }

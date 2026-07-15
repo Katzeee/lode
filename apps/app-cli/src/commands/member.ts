@@ -51,14 +51,14 @@ export async function executeMemberCommand(
       return lines.join("\n");
     }
     case "remove": {
-      assertAllowedFlags(command, commandKey, ["--workspace", "--peer", "--actor"]);
+      assertAllowedFlags(command, commandKey, ["--workspace", "--peer", "--actor-id"]);
       const workspaceId = getRequiredSingleFlag(command, "--workspace");
       const peerFlag = command.flags["--peer"]?.[0];
-      const actorFlag = command.flags["--actor"]?.[0];
+      const actorFlag = command.flags["--actor-id"]?.[0];
       const hasPeer = peerFlag !== undefined;
       const hasActor = actorFlag !== undefined;
       if (hasPeer === hasActor) {
-        throw new Error(`Provide exactly one of --peer or --actor for "${commandKey}".`);
+        throw new Error(`Provide exactly one of --peer or --actor-id for "${commandKey}".`);
       }
       await client.revokePeer({
         workspaceId,

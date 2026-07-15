@@ -1,36 +1,43 @@
-// Shared harness for the binary tests (two-fresh-machines.mjs + anime-notes.mjs). Spawns the real
-// `app-server` + `lode` dist binaries, captures stdout for assertions, and prints it in verbose mode.
+// Shared harness for the binary tests. Spawns the real `lode` dist binary (a `daemon run` / `relay run`
+// process) + runs CLI commands against it, captures stdout for assertions, and prints it in verbose
+// mode. Phase 3: identity is the daemon-side vault, so each machine has its own LODE_HOME (vault +
+// client-id + active-actor); `actorNew` initializes the vault + mints an identity (feeding the
+// passphrase on stdin), and `runLode` drives header-authed commands via that home.
 //
 // Verbosity: `--quiet` (CI / `npm run test:binary`) captures stdout but suppresses printing; without
-// it (direct `node …mjs`) the runner prints each command + its output like a demo. Tests always
-// assert against captured stdout regardless of mode.
+// it (direct `node …mjs`) the runner prints each command + its output like a demo.
 
 import { spawn } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = fileURLToPath(new URL("../../../..", import.meta.url));
-const daemonBin = "packages/ipc/daemon/dist/bin/app-server.js";
 const cliBin = "apps/app-cli/dist/bin/lode.js";
 
 /** Verbose unless `--quiet` is on the argv (the CI invocation passes it). */
 export const verbose = !process.argv.includes("--quiet");
 
-/** Spawn an `app-server` process; resolve once it prints its `listening on: <url>` line. */
-function spawnServer(serverArgs) {
+/** Spawn a `lode daemon run` / `lode relay run` process with its own LODE_HOME; resolve once it prints
+ *  its `listening on: <url>` line. Returns the home too (vault/active-actor live there). */
+function spawnLifecycle(group, action, serverArgs, homeArg) {
+  const home = homeArg ?? mkdtempSync(join(tmpdir(), "lode-bin-"));
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [daemonBin, ...serverArgs], {
+    const child = spawn("node", [cliBin, group, action, ...serverArgs], {
       cwd: rootDir,
+      env: { ...process.env, LODE_HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let url;
     const timer = setTimeout(() => {
       child.kill();
-      reject(new Error(`app-server (${serverArgs.join(" ")}) didn't report its address in time`));
+      reject(new Error(`lode ${group} ${action} (${serverArgs.join(" ")}) didn't report its address in time`));
     }, 15000);
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       if (verbose) {
-        process.stdout.write(`[app-server ${serverArgs.includes("--relay") ? "relay" : "daemon"}] ${text}`);
+        process.stdout.write(`[${group} ${action}] ${text}`);
       }
       const match = /listening on: (\S+)/.exec(text);
       if (match) {
@@ -39,53 +46,51 @@ function spawnServer(serverArgs) {
     });
     child.stderr.on("data", (chunk) => {
       if (verbose) {
-        process.stderr.write(`[app-server] ${chunk}`);
+        process.stderr.write(`[${group} ${action}] ${chunk}`);
       }
     });
     child.on("exit", (code, signal) => {
       if (!url) {
         clearTimeout(timer);
-        reject(new Error(`app-server exited (code ${code}, signal ${signal}) before reporting`));
+        reject(new Error(`lode ${group} ${action} exited (code ${code}, signal ${signal}) before reporting`));
       }
     });
     const poll = setInterval(() => {
       if (url) {
         clearInterval(poll);
         clearTimeout(timer);
-        resolve({ child, url });
+        resolve({ child, url, home });
       }
     }, 25);
   });
 }
 
-/** Spawn a relay-only `app-server --relay 0` → `{ child, url }` (an `http://` URL, plaintext h2c). */
-export const spawnRelay = () => spawnServer(["--relay", "0"]);
+/** Spawn a relay-only `lode relay run --port 0` → `{ child, url, home }`. */
+export const spawnRelay = () => spawnLifecycle("relay", "run", ["--port", "0"]);
 
-/** Spawn an engine `app-server --listen … --data-root <dataRoot>` → `{ child, url }` (an `http://` URL). */
-export const spawnDaemon = (dataRoot) =>
-  spawnServer(["--listen", "tcp://127.0.0.1:0", "--data-root", dataRoot]);
+/** Spawn an engine `lode daemon run --listen tcp://… --data-root <dataRoot>` → `{ child, url, home }`.
+ *  `homeArg` reuses an existing LODE_HOME (so a restart keeps the same vault + active-actor). */
+export const spawnDaemon = (dataRoot, homeArg) =>
+  spawnLifecycle("daemon", "run", ["--listen", "tcp://127.0.0.1:0", "--data-root", dataRoot], homeArg);
 
-/**
- * Run a `lode` command. `commandArgs` is the group/action + its flags (command-first); the global
- * `--url` and `--actor-mnemonic` are appended. Pass `mnemonic = undefined` for the no-auth `actor new`
- * bootstrap. Always resolves to captured stdout (trimmed); prints command + stdout when verbose.
- */
-export function runLode(url, mnemonic, commandArgs) {
-  const fullArgs = [
-    cliBin,
-    ...commandArgs,
-    "--url",
-    url,
-    ...(mnemonic === undefined ? [] : ["--actor-mnemonic", mnemonic]),
-  ];
+/** Initialize the vault (if needed) + mint an identity in `home`, feeding the passphrase twice on stdin.
+ *  Returns the new actor id (and writes it to home/active-actor). */
+export async function actorNew(home, passphrase, label = "default") {
+  const out = await runLode(home, ["actor", "new", "--label", label], `${passphrase}\n${passphrase}\n`);
+  return parseActorId(out);
+}
+
+/** Run a `lode` command against the daemon at `home` (header auth via home/client-id + active-actor).
+ *  `stdin` (optional) is written to the child's stdin before closing. Resolves to trimmed stdout. */
+export function runLode(home, commandArgs, stdin) {
   if (verbose) {
     console.log(`> lode ${commandArgs.join(" ")}`);
   }
   return new Promise((resolve, reject) => {
-    const child = spawn("node", fullArgs, {
+    const child = spawn("node", [cliBin, ...commandArgs], {
       cwd: rootDir,
-      env: { ...process.env, FORCE_COLOR: "0" },
-      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, LODE_HOME: home, FORCE_COLOR: "0" },
+      stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
     let stderr = "";
@@ -112,24 +117,34 @@ export function runLode(url, mnemonic, commandArgs) {
         reject(new Error(`lode ${commandArgs.join(" ")} exited with code ${code}\n${stderr}`));
       }
     });
+    if (stdin !== undefined) {
+      child.stdin.write(stdin);
+    }
+    child.stdin.end();
   });
 }
 
-/** Wait `ms` milliseconds. Used to let an asynchronous sync round (the join's fire-and-forget round,
- *  or a just-triggered `sync now`) finish before the test reads — sync isn't instantaneous, and reading
- *  mid-round hits a child whose content shard hasn't arrived yet. */
+/** Wait `ms` milliseconds (let an async sync round finish before reading). */
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ── output parsers ──────────────────────────────────────────────────────────────
 
-export function parseActorNew(out) {
-  const m = /^actor (?<actorId>\S+)\nmnemonic (?<mnemonic>.+)$/m.exec(out);
+export function parseActorId(out) {
+  const m = /Created identity (?<id>\S+)/.exec(out);
   if (!m?.groups) {
-    throw new Error(`parseActorNew failed: ${out}`);
+    throw new Error(`parseActorId failed: ${out}`);
   }
-  return { actorId: m.groups.actorId, mnemonic: m.groups.mnemonic };
+  return m.groups.id;
+}
+
+export function parseMnemonic(out) {
+  const m = /^Recovery mnemonic .*:$\n(?<words>.+)$/m.exec(out);
+  if (!m?.groups) {
+    throw new Error(`parseMnemonic failed: ${out}`);
+  }
+  return m.groups.words.trim();
 }
 
 export function parseWorkspaceCreated(out) {
@@ -173,10 +188,8 @@ export function parseFieldAdded(out) {
   return { occurrenceId: m.groups.occurrenceId };
 }
 
-/**
- * The root occurrence id from a `node list` output. Line 1 is "root"; line 2 begins with
- * "<rootOcc>  <name>". Empty ("No root yet.") → undefined.
- */
+/** The root occurrence id from a `node list` output. Line 1 is "root"; line 2 begins with
+ *  "<rootOcc>  <name>". Empty ("No root yet.") → undefined. */
 export function parseRootOcc(out) {
   return out.split("\n").at(1)?.split(/\s+/).at(0);
 }

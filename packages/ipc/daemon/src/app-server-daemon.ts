@@ -5,6 +5,7 @@ import {
   type EngineRuntime,
   type PersistenceOptions,
   type StopReport,
+  type VaultTtl,
 } from "@lode/engine";
 import { parseListenUrl } from "./listen-url.js";
 import { BrokerServerResource } from "./resources/broker-server-resource.js";
@@ -29,11 +30,19 @@ export type AppServerDaemonOptions = {
   listen: string;
   dataRoot?: string;
   persistence?: PersistenceOptions;
+  /** Path to the encrypted identity vault (LODE_HOME/identity/vault.json). Omit for a non-vault
+   *  runtime (in-process / test direct) that authenticates via `sessionHello` instead of headers. */
+  vaultPath?: string;
+  /** Unlock-lease TTL policy (read by runDaemon from LODE_HOME/config.json). */
+  vaultTtl?: VaultTtl;
   /** Host the workspace-routing broker (relay) in-process (opt-in `--relay`, design §3). */
   relay?: { port?: number; host?: string; tlsCertPath?: string; tlsKeyPath?: string };
   /** Sync round interval (default 20000ms); exposed for tests. The daemon has no sync identity —
    *  workspaces are registered at runtime by sessions (RegisterSync / JoinWorkspace). */
   syncIntervalMs?: number;
+  /** Invoked by the open `Shutdown` RPC (`lode daemon stop`) — runDaemon uses it to tear the daemon
+   *  down gracefully. Omitted by tests that stop the daemon directly via `stop()`. */
+  onShutdown?: () => void;
 };
 
 /** Relay-only mode options (no engine, no gRPC — just the broker). */
@@ -57,9 +66,14 @@ export type RelayDaemon = {
 /** Parsed CLI args — a discriminated union of engine mode (`--listen` present) and relay-only. The
  *  bin switches on `mode` and feeds the matching starter; the discriminant makes the narrowing exact
  *  (no whole-object narrowing workaround). `logFile` is a bin-level concern (the bin calls
- *  `configureLogger` before starting) — not passed to the starters. */
-type EngineParsedArgs = AppServerDaemonOptions & { mode: "engine"; logFile?: string };
-type RelayParsedArgs = RelayDaemonOptions & { mode: "relay"; logFile?: string };
+ *  `configureLogger` before starting) — not passed to the starters. `home` is runDaemon-only (the
+ *  LODE_HOME whose endpoint/daemon.json it owns) — also not passed to the starters. */
+type EngineParsedArgs = AppServerDaemonOptions & {
+  mode: "engine";
+  logFile?: string;
+  home?: string;
+};
+type RelayParsedArgs = RelayDaemonOptions & { mode: "relay"; logFile?: string; home?: string };
 export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 
 // Hosts the engine as a local gRPC (HTTP/2, h2c) daemon. The daemon is the composition root: it
@@ -67,18 +81,28 @@ export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 export async function startAppServerDaemon(
   options: AppServerDaemonOptions,
 ): Promise<AppServerDaemon> {
-  const { host, port } = parseListenUrl(options.listen);
+  const endpoint = parseListenUrl(options.listen);
   const persistence =
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
   const runtime: EngineRuntime = await createEngineRuntime({
     ...(persistence ? { persistence } : {}),
+    ...(options.vaultPath === undefined
+      ? {}
+      : {
+          vault: {
+            path: options.vaultPath,
+            ...(options.vaultTtl === undefined ? {} : { ttl: options.vaultTtl }),
+          },
+        }),
     // The service has no identity of its own — every syncing workspace is registered by a session
     // (RegisterSync / JoinWorkspace), which captures that session's actor keypair.
     ...(options.syncIntervalMs === undefined
       ? {}
       : { sync: { roundIntervalMs: options.syncIntervalMs } }),
   });
-  const connect = runtime.app.root.own(new ConnectServerResource(runtime, host, port));
+  const connect = runtime.app.root.own(
+    new ConnectServerResource(runtime, endpoint, options.onShutdown),
+  );
   const relay =
     options.relay !== undefined
       ? runtime.app.root.own(

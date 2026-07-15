@@ -60,6 +60,12 @@ export class SyncService implements RuntimeResource {
     this.report = opts.onRound ?? defaultRoundReporter(this.lastNoOp);
   }
 
+  /** True when at least one workspace is registered for sync — the vault asks this on lease expiry to
+   *  decide GRACE (keep keys so rounds keep signing) vs LOCKED (drop keys). */
+  hasActiveSyncs(): boolean {
+    return this.registrations.size > 0;
+  }
+
   /** Register the session's actor to drive sync for `wsId` via `relayUrl`. Captures the keypair so
    *  rounds keep signing while the client is disconnected. One workspace → one registrant (its
    *  owner): a second, *different* actor re-registering is refused (it would overwrite the keypair

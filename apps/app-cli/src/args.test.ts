@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { parseCli } from "./args.js";
 
 describe("parseCli", () => {
-  it("parses url, mnemonic, command, flags and ordered value flags", () => {
+  it("parses url, actor, command, flags and ordered value flags", () => {
     const parsed = parseCli([
       "--url",
       "http://localhost:8080",
-      "--actor-mnemonic",
-      "test words",
+      "--actor",
+      "actor-123",
       "field",
       "set-values",
       "--field-occ",
@@ -22,7 +22,8 @@ describe("parseCli", () => {
 
     expect(parsed).toEqual({
       url: "http://localhost:8080",
-      actorMnemonic: "test words",
+      noAutospawn: false,
+      actor: "actor-123",
       group: "field",
       action: "set-values",
       flags: {
@@ -36,46 +37,65 @@ describe("parseCli", () => {
         { name: "--ref-node", value: "node_b" },
         { name: "--text", value: "c" },
       ],
+      daemonArgs: [],
     });
   });
 
-  it("uses LODE_URL / LODE_ACTOR_MNEMONIC when the flags are absent", () => {
+  it("uses LODE_URL when --url is absent", () => {
     const previousUrl = process.env.LODE_URL;
-    const previousMnemonic = process.env.LODE_ACTOR_MNEMONIC;
     process.env.LODE_URL = "http://from-env:8080";
-    process.env.LODE_ACTOR_MNEMONIC = "env words";
-
     try {
       const parsed = parseCli(["workspace", "list"]);
       expect(parsed.url).toBe("http://from-env:8080");
-      expect(parsed.actorMnemonic).toBe("env words");
     } finally {
       process.env.LODE_URL = previousUrl;
-      process.env.LODE_ACTOR_MNEMONIC = previousMnemonic;
     }
   });
 
-  it("treats the mnemonic as optional (the bootstrap `actor new` has none; enforced by bin/lode.ts)", () => {
-    const previousMnemonic = process.env.LODE_ACTOR_MNEMONIC;
-    delete process.env.LODE_ACTOR_MNEMONIC;
-
-    try {
-      const parsed = parseCli(["--url", "http://localhost:8080", "workspace", "list"]);
-      expect(parsed.actorMnemonic).toBeUndefined();
-    } finally {
-      process.env.LODE_ACTOR_MNEMONIC = previousMnemonic;
-    }
-  });
-
-  it("throws clear error for missing url", () => {
+  it("treats url + actor as optional (endpoint resolves from LODE_HOME)", () => {
     const previousUrl = process.env.LODE_URL;
     delete process.env.LODE_URL;
-
     try {
-      expect(() => parseCli(["workspace", "list"])).toThrow(/Missing server URL/);
+      const parsed = parseCli(["workspace", "list"]);
+      expect(parsed.url).toBeUndefined();
+      expect(parsed.actor).toBeUndefined();
     } finally {
       process.env.LODE_URL = previousUrl;
     }
+  });
+
+  it("parses global --home and --no-autospawn anywhere", () => {
+    const parsed = parseCli(["workspace", "create", "--home", "/tmp/lode", "--no-autospawn"]);
+    expect(parsed.home).toBe("/tmp/lode");
+    expect(parsed.noAutospawn).toBe(true);
+  });
+
+  it("allows a bare verb (no action) — e.g. `lode unlock`", () => {
+    const parsed = parseCli(["unlock"]);
+    expect(parsed.group).toBe("unlock");
+    expect(parsed.action).toBe("");
+  });
+
+  it("passes the daemon group's flags through verbatim (incl. boolean --relay)", () => {
+    const parsed = parseCli([
+      "daemon",
+      "run",
+      "--listen",
+      "tcp://127.0.0.1:0",
+      "--relay",
+      "--data-root",
+      "/tmp/x",
+    ]);
+    expect(parsed.group).toBe("daemon");
+    expect(parsed.action).toBe("run");
+    expect(parsed.daemonArgs).toEqual([
+      "--listen",
+      "tcp://127.0.0.1:0",
+      "--relay",
+      "--data-root",
+      "/tmp/x",
+    ]);
+    expect(parsed.flags).toEqual({});
   });
 
   it("throws clear error for malformed flags", () => {
@@ -84,7 +104,7 @@ describe("parseCli", () => {
     );
   });
 
-  it("throws clear error for missing flag values", () => {
+  it("throws clear error for missing non-daemon flag values", () => {
     expect(() =>
       parseCli(["--url", "http://localhost:8080", "workspace", "create", "--name"]),
     ).toThrow(/requires a value/);

@@ -46,8 +46,8 @@ export class AuthenticationError extends Error {
  *  a conflicting relay, a governance rule that blocks the op). The daemon maps this to Connect
  *  `Code.FailedPrecondition`. */
 export class PreconditionFailedError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "PreconditionFailedError";
   }
 }
@@ -59,5 +59,18 @@ export class NotOwnerError extends Error {
   constructor(message = "only the workspace owner may perform this operation") {
     super(message);
     this.name = "NotOwnerError";
+  }
+}
+
+/** The identity vault is not unlocked, so an authed command cannot get its actor keypair.
+ *  `subtype` tells the client which credential to prompt for: `cold` = locked from scratch (needs the
+ *  passphrase); `lease-expired` = keys still in memory for running sync, re-confirmable by PIN (Phase
+ *  2b). The daemon maps this to Connect `Code.FailedPrecondition`. */
+export class VaultLockedError extends Error {
+  readonly subtype: "cold" | "lease-expired";
+  constructor(subtype: "cold" | "lease-expired" = "cold") {
+    super(`vault locked (${subtype})`);
+    this.name = "VaultLockedError";
+    this.subtype = subtype;
   }
 }

@@ -1,5 +1,4 @@
 import type { ParsedCli } from "./args.js";
-import { executeActorCommand } from "./commands/actor.js";
 import { executeFieldCommand, executeFieldDefCommand } from "./commands/field.js";
 import { executeIdentityCommand } from "./commands/identity.js";
 import { executeMemberCommand } from "./commands/member.js";
@@ -29,8 +28,6 @@ export async function executeCommand(
       return executeFieldDefCommand(client, command, commandKey);
     case "field":
       return executeFieldCommand(client, command, commandKey);
-    case "actor":
-      return executeActorCommand(client, command, commandKey);
     case "identity":
       return executeIdentityCommand(client, command, commandKey);
     case "member":

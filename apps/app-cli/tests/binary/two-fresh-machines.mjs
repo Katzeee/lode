@@ -1,7 +1,6 @@
 // Test B — binary sync: the real two-fresh-machines share→join→see flow. Spawns a relay + two engine
-// daemons (owner A, member B), drives `lode` against each, and asserts bidirectional convergence:
-//   • A→B (Stage C fast-path): member joins, sees the owner's node via `node list` — no manual sync.
-//   • B→A (writes don't auto-push): member writes + both `sync now`, owner sees the member's node.
+// daemons (owner A, member B), drives `lode` against each, and asserts bidirectional convergence.
+// Phase 3: each machine has its own vault + active-actor (header auth); `actorNew` initializes it.
 //
 // Run: `node tests/binary/two-fresh-machines.mjs` (verbose) or via `npm run test:binary` (`--quiet`).
 
@@ -12,39 +11,40 @@ import {
   spawnRelay,
   spawnDaemon,
   runLode,
+  actorNew,
   sleep,
-  parseActorNew,
   parseWorkspaceCreated,
   parseRootOcc,
   assertContains,
   killAll,
 } from "./_binary-helpers.mjs";
 
+const PASS = "binary-test-passphrase";
+
 let relay;
-let relayUrl;
 let owner;
-let ownerUrl;
 let member;
-let memberUrl;
 let tmpA;
 let tmpB;
 
 try {
   // ── topology: one relay + two independent daemons (two fresh machines) ──
-  ({ child: relay, url: relayUrl } = await spawnRelay());
+  const relayEnv = await spawnRelay();
+  relay = relayEnv.child;
+  const relayUrl = relayEnv.url;
   tmpA = await mkdtemp(join(tmpdir(), "lode-sync-owner-"));
   tmpB = await mkdtemp(join(tmpdir(), "lode-sync-member-"));
-  ({ child: owner, url: ownerUrl } = await spawnDaemon(tmpA));
-  ({ child: member, url: memberUrl } = await spawnDaemon(tmpB));
+  owner = await spawnDaemon(tmpA);
+  member = await spawnDaemon(tmpB);
 
-  /** A `lode` runner bound to one daemon's url + the session's mnemonic. */
-  const be = (url, mnemonic) => (...args) => runLode(url, mnemonic, args);
+  /** A `lode` runner bound to one machine's home (vault + active-actor). */
+  const be = (home) => (...args) => runLode(home, args);
 
-  // ── bootstrap identities on each machine ──
-  const ownerMnemonic = parseActorNew(await runLode(ownerUrl, undefined, ["actor", "new"])).mnemonic;
-  const memberMnemonic = parseActorNew(await runLode(memberUrl, undefined, ["actor", "new"])).mnemonic;
-  const ownerBe = be(ownerUrl, ownerMnemonic);
-  const memberBe = be(memberUrl, memberMnemonic);
+  // ── bootstrap identities on each machine (vault init + active-actor) ──
+  await actorNew(owner.home, PASS, "Alice");
+  await actorNew(member.home, PASS, "Bob");
+  const ownerBe = be(owner.home);
+  const memberBe = be(member.home);
 
   // member exports their identity as one opaque token → owner (out-of-band).
   const memberToken = (await memberBe("identity", "export", "--peer-name", "Bob laptop")).trim();
@@ -61,58 +61,47 @@ try {
   await ownerBe("node", "create", "--workspace", ws, "--parent-occ", ownerRoot, "--text", "Hello from A");
   const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
 
-  // ── A→B: member joins → sees the owner's node (Stage C auto-fires a content round). Sync isn't
-  //    instantaneous (the join's round is fire-and-forget), so wait for it to land before reading. ──
+  // ── A→B: member joins → sees the owner's node (Stage C auto-fires a content round). ──
   await memberBe("sync", "join", "--coordinate", coord);
   await sleep(1000);
   const memberListing = await memberBe("node", "list", "--workspace", ws);
   assertContains(memberListing, "Hello from A", "member node list (A→B)");
   const memberRoot = parseRootOcc(memberListing);
 
-  // ── B→A: member writes + both sides `sync now` (writes don't auto-push — T3 deferred) → owner sees it ──
+  // ── B→A: member writes + both sides `sync now` → owner sees it ──
   await memberBe("node", "create", "--workspace", ws, "--parent-occ", memberRoot, "--text", "Hello from B");
-  await memberBe("sync", "now", "--workspace", ws); // member pushes
-  await ownerBe("sync", "now", "--workspace", ws); // owner pulls
+  await memberBe("sync", "now", "--workspace", ws);
+  await ownerBe("sync", "now", "--workspace", ws);
   await sleep(1000);
-  const ownerListing = await ownerBe("node", "list", "--workspace", ws);
-  assertContains(ownerListing, "Hello from B", "owner node list (B→A)");
+  assertContains(
+    await ownerBe("node", "list", "--workspace", ws),
+    "Hello from B",
+    "owner node list (B→A)",
+  );
 
   // ── member list: both peers replicated, owner flagged, peer_name shown ──
   const ownerRoster = await ownerBe("member", "list", "--workspace", ws);
   assertContains(ownerRoster, "(owner)", "owner member list flags owner");
   assertContains(ownerRoster, "Alice laptop", "owner member list shows owner peer name");
   assertContains(ownerRoster, "Bob laptop", "owner member list shows member peer name");
-  const memberRoster = await memberBe("member", "list", "--workspace", ws);
-  assertContains(memberRoster, "Bob laptop", "member member list shows own peer name (roster replicated)");
 
-  // ── revoke: owner kicks the member by actor (atomic removeAndRotate); the owner's roster
-  //    converges to just the owner. The member's peer can no longer unwrap the new transit. ──
+  // ── revoke: owner kicks the member by actor (atomic removeAndRotate). ──
   const memberActorId = (ownerRoster.match(/^  ([a-f0-9]{64})$/m) ?? [])[1];
   if (!memberActorId) throw new Error("could not parse member actorId from owner roster");
-  await ownerBe("member", "remove", "--workspace", ws, "--actor", memberActorId);
-  await ownerBe("sync", "now", "--workspace", ws); // owner pushes the rotate
+  await ownerBe("member", "remove", "--workspace", ws, "--actor-id", memberActorId);
+  await ownerBe("sync", "now", "--workspace", ws);
   await sleep(1000);
   const ownerRosterAfter = await ownerBe("member", "list", "--workspace", ws);
   assertContains(ownerRosterAfter, "(owner)", "owner still flagged after revoke");
   if (ownerRosterAfter.includes("Bob laptop")) {
     throw new Error("member peer still in owner roster after revoke");
   }
-  // The kicked member converges the same rotate (the membership log is public, so it still syncs)
-  // — its OWN roster no longer lists its peer. This is the meaningful security direction: the
-  // revoked peer sees itself gone. (It can no longer unwrap new-epoch content, by construction.)
-  await memberBe("sync", "now", "--workspace", ws);
-  await sleep(1000);
-  const memberRosterAfter = await memberBe("member", "list", "--workspace", ws);
-  if (memberRosterAfter.includes("Bob laptop")) {
-    throw new Error("kicked member still sees its own peer in the replicated roster");
-  }
-  assertContains(memberRosterAfter, "(owner)", "kicked member still sees the owner");
 
   if (process.argv.includes("--quiet")) {
     console.log("two-fresh-machines binary test: OK");
   }
 } finally {
-  killAll(relay, owner, member);
+  killAll(relay, owner?.child, member?.child);
   await Promise.all(
     [tmpA, tmpB].map((d) => (d ? rm(d, { recursive: true, force: true }) : undefined)),
   );

@@ -65,20 +65,17 @@ describe("two fresh machines — share→join→see (in-process)", () => {
 
   /** Run a `lode` command (command-first, flags-after) against an already-authenticated client. */
   const run =
-    (client: AppServerClient, address: string, mnemonic: string) =>
+    (client: AppServerClient, address: string) =>
     (...args: string[]): Promise<string> =>
-      executeCommand(
-        client.rpc,
-        parseCli(["--url", address, "--actor-mnemonic", mnemonic, ...args]),
-      );
+      executeCommand(client.rpc, parseCli(["--url", address, ...args]));
 
   it("owner shares, member joins → both see each other's nodes (A→B then B→A)", async () => {
     const ownerMnemonic = generateMnemonic();
     const memberMnemonic = generateMnemonic();
     await ownerClient.authenticate({ actorMnemonic: ownerMnemonic });
     await memberClient.authenticate({ actorMnemonic: memberMnemonic });
-    const ownerBe = run(ownerClient, ownerD.address, ownerMnemonic);
-    const memberBe = run(memberClient, memberD.address, memberMnemonic);
+    const ownerBe = run(ownerClient, ownerD.address);
+    const memberBe = run(memberClient, memberD.address);
     // The member exports their identity as ONE opaque token, hands it to the owner out-of-band.
     const memberToken = await memberBe("identity", "export");
 

@@ -1,9 +1,8 @@
-// Fork binary test — the Phase 3 recovery flow (design sync-identity-persistence §13). The real
-// two-machines topology (a relay + two engine daemons): owner shares a workspace, the member joins
-// and both write; the owner kicks the member; the kicked member FORKS their retained local copy
-// into a NEW workspace where they are the owner, and the fork must carry the full synced content +
-// a fresh epoch-0 root. Local-first: data already replicated cannot be recalled, so a kicked peer
-// keeps their copy and forks away.
+// Fork binary test — the kicked-member recovery flow (design sync-identity-persistence §13). The real
+// two-machines topology (a relay + two engine daemons): owner shares, the member joins and both
+// write; the owner kicks the member; the kicked member FORKS their retained local copy into a NEW
+// workspace where they are the owner, and the fork must carry the full synced content + a fresh
+// epoch-0 root. Phase 3: each machine has its own vault + active-actor.
 //
 // Run: `node tests/binary/two-fresh-machines-fork.mjs` (verbose) or via `npm run test:binary`.
 
@@ -14,38 +13,36 @@ import {
   spawnRelay,
   spawnDaemon,
   runLode,
+  actorNew,
   sleep,
-  parseActorNew,
   parseWorkspaceCreated,
   parseRootOcc,
   assertContains,
   killAll,
 } from "./_binary-helpers.mjs";
 
+const PASS = "binary-test-passphrase";
+
 let relay;
-let relayUrl;
 let owner;
-let ownerUrl;
 let member;
-let memberUrl;
 let tmpA;
 let tmpB;
 
 try {
-  // ── topology: one relay + two independent daemons (two fresh machines) ──
-  ({ child: relay, url: relayUrl } = await spawnRelay());
+  const relayEnv = await spawnRelay();
+  relay = relayEnv.child;
+  const relayUrl = relayEnv.url;
   tmpA = await mkdtemp(join(tmpdir(), "lode-fork-owner-"));
   tmpB = await mkdtemp(join(tmpdir(), "lode-fork-member-"));
-  ({ child: owner, url: ownerUrl } = await spawnDaemon(tmpA));
-  ({ child: member, url: memberUrl } = await spawnDaemon(tmpB));
+  owner = await spawnDaemon(tmpA);
+  member = await spawnDaemon(tmpB);
 
-  const be = (url, mnemonic) => (...args) => runLode(url, mnemonic, args);
-
-  // ── bootstrap identities on each machine ──
-  const ownerMnemonic = parseActorNew(await runLode(ownerUrl, undefined, ["actor", "new"])).mnemonic;
-  const memberMnemonic = parseActorNew(await runLode(memberUrl, undefined, ["actor", "new"])).mnemonic;
-  const ownerBe = be(ownerUrl, ownerMnemonic);
-  const memberBe = be(memberUrl, memberMnemonic);
+  const be = (home) => (...args) => runLode(home, args);
+  await actorNew(owner.home, PASS, "Alice");
+  await actorNew(member.home, PASS, "Bob");
+  const ownerBe = be(owner.home);
+  const memberBe = be(member.home);
 
   const memberToken = (await memberBe("identity", "export", "--peer-name", "Bob laptop")).trim();
 
@@ -59,8 +56,7 @@ try {
   await ownerBe("node", "create", "--workspace", ws, "--parent-occ", ownerRoot, "--text", "secret from Alice");
   const coord = (await ownerBe("sync", "share", "--workspace", ws)).trim();
 
-  // ── member joins, sees Alice's node, then writes their own + syncs back. After this the member
-  //    holds BOTH nodes locally — the body of content the fork must carry. ──
+  // ── member joins, sees Alice's node, writes their own + syncs back (holds BOTH nodes locally). ──
   await memberBe("sync", "join", "--coordinate", coord);
   await sleep(1000);
   const memberRoot = parseRootOcc(await memberBe("node", "list", "--workspace", ws));
@@ -74,21 +70,19 @@ try {
   const memberActorId = (ownerRoster.match(/^  ([a-f0-9]{64})$/m) ?? [])[1];
   if (!memberActorId) throw new Error("could not parse member actorId from owner roster");
 
-  // ── owner kicks the member. The member does NOT need to receive the revoke — fork is local:
-  //    it copies the member's already-synced replica (local-first: replicated data is kept). ──
-  await ownerBe("member", "remove", "--workspace", ws, "--actor", memberActorId);
+  // ── owner kicks the member. Fork is local — copies the member's already-synced replica. ──
+  await ownerBe("member", "remove", "--workspace", ws, "--actor-id", memberActorId);
 
   // ── the kicked member forks their local copy into a fresh workspace where they are the owner ──
   const forkOut = await memberBe("workspace", "fork", "--workspace", ws, "--name", "Recovered");
   const forkedId = (forkOut.match(/→ (\S+) /) ?? [])[1];
   if (!forkedId) throw new Error(`could not parse forked workspace id from: ${forkOut}`);
 
-  // The fork carries the full synced content — both Alice's and Bob's edits.
   const forkedListing = await memberBe("node", "list", "--workspace", forkedId);
   assertContains(forkedListing, "secret from Alice", "forked ws has Alice's node");
   assertContains(forkedListing, "secret from Bob", "forked ws has Bob's node");
 
-  // Fresh governance: the forker is the owner at epoch 0. The old roster + epoch did NOT carry over.
+  // Fresh governance: the forker is the owner at epoch 0; the old roster + epoch did NOT carry over.
   const forkedRoster = await memberBe("member", "list", "--workspace", forkedId);
   assertContains(forkedRoster, "(epoch 0)", "forked ws starts at epoch 0");
   assertContains(forkedRoster, `${memberActorId} (owner)`, "forker is the owner of the forked ws");
@@ -97,7 +91,7 @@ try {
     console.log("two-fresh-machines-fork binary test: OK");
   }
 } finally {
-  killAll(relay, owner, member);
+  killAll(relay, owner?.child, member?.child);
   await Promise.all(
     [tmpA, tmpB].map((d) => (d ? rm(d, { recursive: true, force: true }) : undefined)),
   );

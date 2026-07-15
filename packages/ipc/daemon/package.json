@@ -2,13 +2,14 @@
   "name": "@lode/daemon",
   "version": "0.1.0",
   "type": "module",
-  "bin": {
-    "app-server": "./dist/bin/app-server.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./home": {
+      "types": "./dist/home.d.ts",
+      "import": "./dist/home.js"
     }
   },
   "scripts": {

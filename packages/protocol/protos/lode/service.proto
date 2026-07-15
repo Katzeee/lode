@@ -20,6 +20,27 @@ service LodeCommands {
   rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);
   rpc ListenNotifications(ListenNotificationsRequest) returns (stream Notification);
 
+  // vault — daemon-side encrypted identity store. Open (identity bootstrap + unlock-on-demand; the
+  // endpoint is already permission-isolated to the OS user). CreateIdentity/ImportIdentity require the
+  // vault to be unlocked (they reject with FailedPrecondition if not).
+  rpc InitVault(InitVaultRequest) returns (VaultStatus);
+  rpc CreateIdentity(CreateIdentityRequest) returns (CreateIdentityResponse);
+  rpc ImportIdentity(ImportIdentityRequest) returns (ImportIdentityResponse);
+  rpc ListIdentities(google.protobuf.Empty) returns (VaultStatus);
+  rpc UnlockVault(UnlockVaultRequest) returns (VaultStatus);
+  rpc LockVault(google.protobuf.Empty) returns (VaultStatus);
+  // Set/change the PIN (requires the vault UNLOCKED — the caller has already proven the passphrase).
+  // The PIN only re-confirms identity during a GRACE re-lock; it never decrypts the vault.
+  rpc SetPin(SetPinRequest) returns (VaultStatus);
+  // Re-unlock from GRACE with the PIN (keys still in memory). 5 wrong attempts disable PIN until the
+  // passphrase is supplied via UnlockVault.
+  rpc UnlockWithPin(UnlockWithPinRequest) returns (VaultStatus);
+  rpc GetVaultStatus(google.protobuf.Empty) returns (VaultStatus);
+
+  // daemon lifecycle — gracefully stop the daemon process (`lode daemon stop`). Open (the endpoint is
+  // already permission-isolated to the OS user); the handler acks, then the daemon tears itself down.
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+
   // workspace
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (WorkspaceInfo);
   rpc ForkWorkspace(ForkWorkspaceRequest) returns (WorkspaceInfo);

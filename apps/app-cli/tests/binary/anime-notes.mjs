@@ -1,5 +1,5 @@
 // Test C — binary anime-notes business scenario (the fixed `run-anime-notes-demo.mjs`, moved into the
-// binary-test folder). Spawns ONE real `app-server` daemon + drives `lode` to build a realistic
+// binary-test folder). Spawns ONE real `lode daemon run` process + drives `lode` to build a realistic
 // schema/field/ref note tree, reads it back, restarts the daemon, and reads it back again (persistence).
 // Single-daemon: no sync, no relay — the business surface, not the sync flow (Test B owns that).
 //
@@ -12,7 +12,7 @@ import { join } from "node:path";
 import {
   spawnDaemon,
   runLode,
-  parseActorNew,
+  actorNew,
   parseWorkspaceCreated,
   parseNodeCreated,
   parseSchemaCreated,
@@ -25,20 +25,22 @@ import {
 
 let dataRoot;
 let server;
-let url;
-let mnemonic;
 let ws;
 const ids = {};
 
+const PASS = "binary-test-passphrase";
+let home;
+
 try {
   dataRoot = await mkdtemp(join(tmpdir(), "lode-anime-binary-"));
-  ({ child: server, url } = await spawnDaemon(dataRoot));
+  home = await mkdtemp(join(tmpdir(), "lode-anime-home-"));
+  server = await spawnDaemon(dataRoot, home);
 
-  // ── bootstrap identity ──
-  mnemonic = parseActorNew(await runLode(url, undefined, ["actor", "new"])).mnemonic;
+  // ── bootstrap identity (vault init + active-actor) ──
+  await actorNew(home, PASS, "Alice");
 
-  /** Run a `lode` command against this daemon as the minted actor (command-first, flags-after). */
-  const be = (...args) => runLode(url, mnemonic, args);
+  /** Run a `lode` command against this daemon via its home (header auth from active-actor). */
+  const be = (...args) => runLode(home, args);
 
   // ── workspace + its seeded root ──
   ws = parseWorkspaceCreated(await be("workspace", "create", "--name", "Anime"));
@@ -180,23 +182,27 @@ try {
   // ── readback ──
   await readBack();
 
-  // ── restart the daemon (same dataRoot) → persistence readback ──
-  killAll(server);
-  ({ child: server, url } = await spawnDaemon(dataRoot));
+  // ── restart the daemon (same dataRoot + home) → persistence readback ──
+  killAll(server.child);
+  server = await spawnDaemon(dataRoot, home);
+  await runLode(home, ["unlock"], `${PASS}\n`); // the vault re-locks on daemon restart
   await readBack();
 
   if (process.argv.includes("--quiet")) {
     console.log("anime-notes binary test: OK");
   }
 } finally {
-  killAll(server);
+  killAll(server?.child);
   if (dataRoot) {
     await rm(dataRoot, { recursive: true, force: true });
+  }
+  if (home) {
+    await rm(home, { recursive: true, force: true });
   }
 }
 
 async function readBack() {
-  const rb = (...args) => runLode(url, mnemonic, args);
+  const rb = (...args) => runLode(home, args);
 
   const rootChildren = await rb("node", "children", "--workspace", ws, "--occ", ids.root.occurrenceId);
   assertContains(rootChildren, "Schema", "root children");

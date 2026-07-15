@@ -6,6 +6,7 @@ import { Bus } from "../../events/bus.js";
 import { Committed } from "../workspace/workspace-facts.js";
 import { AppRuntime } from "../kernel/app-runtime.js";
 import { ClientSessionManager, SessionRequiredError } from "./client-session-manager.js";
+import { VaultRuntime } from "../identity/vault.js";
 
 const origin = { nodeId: "node-1", actorId: "actor-1", sessionId: "session-1" };
 
@@ -63,7 +64,7 @@ describe("ClientSessionManager", () => {
 
   it("fails a slow notification stream at its bound instead of growing without limit", async () => {
     const app = new AppRuntime("test");
-    const sessions = new ClientSessionManager(app.root, "node-1", 1);
+    const sessions = new ClientSessionManager(app.root, "node-1", VaultRuntime.disabled(), 1);
     const facts = new Bus();
     const workspace = await app.root.mount("workspace", () => undefined);
     await app.start();

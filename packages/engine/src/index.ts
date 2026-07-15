@@ -16,8 +16,13 @@ export {
   AuthenticationError,
   PreconditionFailedError,
   NotOwnerError,
+  VaultLockedError,
 } from "./errors/index.js";
 export { DomainInvalidInputError } from "./domain/errors.js";
+
+// Vault unlock-lease TTL policy + (de)serialization — the host reads it from config.json.
+export type { VaultTtl } from "./runtime/identity/vault-file.js";
+export { parseUnlockTtl, DEFAULT_TTL } from "./runtime/identity/vault-file.js";
 
 export type { EngineRuntime, RuntimeConfig } from "./engine-runtime.js";
 export { createEngineRuntime } from "./engine-runtime.js";

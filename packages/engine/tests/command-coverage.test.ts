@@ -16,7 +16,15 @@ describe("LodeCommands service — every RPC is in the engine command bag", () =
     const bagKeys = new Set(Object.keys(runtime.commands));
     const protoRpcNames = Object.keys(LodeCommands.method);
 
-    const missing = protoRpcNames.filter((name) => !bagKeys.has(name));
+    // Daemon-lifecycle RPCs live at the transport seam (connect-server), NOT the engine bag: they are
+    // not engine commands, they are `open` by design (the socket is the permission boundary), and the
+    // engine is also embedded in-process (mobile) where there is no daemon to shut down. Each entry
+    // here is a reviewed exception to the single-funnel rule — add with a justification.
+    const daemonLifecycle = new Set(["shutdown"]);
+
+    const missing = protoRpcNames.filter(
+      (name) => !bagKeys.has(name) && !daemonLifecycle.has(name),
+    );
 
     expect(
       missing,

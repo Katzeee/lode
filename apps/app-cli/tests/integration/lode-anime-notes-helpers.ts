@@ -41,7 +41,7 @@ export function createBeCliHarness(url: () => string): BeCliHarness {
 
   const be = async (...args: string[]): Promise<string> => {
     const parsed = parseCli(["--url", url(), ...args]);
-    const client = new AppServerClient(createSocketTransport(parsed.url));
+    const client = new AppServerClient(createSocketTransport(url()));
     client.connect();
     try {
       await client.authenticate({ actorMnemonic: mnemonic });

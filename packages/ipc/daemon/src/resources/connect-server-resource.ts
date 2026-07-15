@@ -1,42 +1,60 @@
+import { chmod } from "node:fs/promises";
 import type { EngineRuntime, RuntimeResource } from "@lode/engine";
 import { createLodeServer } from "../connect-server.js";
+import { canonicalAddress, type ListenEndpoint } from "../listen-url.js";
 
 /**
  * Hosts the gRPC (HTTP/2, h2c) Connect server as a managed resource. Wraps `createLodeServer`
  * (which binds the engine's LodeCommands handlers and assigns one connectionId per HTTP/2 session).
- * The bound port is ephemeral until `listen()` resolves, so `address` is readable only after
- * `start()`. Quiesce closes listener admission while existing connections drain; dispose then closes
- * any remaining connections.
+ * Listens on a Unix domain socket / Windows named pipe / TCP loopback. The bound port is ephemeral
+ * until `listen()` resolves for TCP, so `address` is readable only after `start()`. Unix sockets are
+ * chmod'd 0600 so only the OS user can reach the daemon. Quiesce closes listener admission while
+ * existing connections drain; dispose then closes any remaining connections.
  */
 export class ConnectServerResource implements RuntimeResource {
   readonly id = "connect-server";
   private readonly runtime: EngineRuntime;
-  private readonly host: string;
-  private readonly port: number;
+  private readonly endpoint: ListenEndpoint;
+  private readonly onShutdown?: () => void;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
   private closePromise?: Promise<void>;
 
-  constructor(runtime: EngineRuntime, host: string, port: number) {
+  constructor(runtime: EngineRuntime, endpoint: ListenEndpoint, onShutdown?: () => void) {
     this.runtime = runtime;
-    this.host = host;
-    this.port = port;
+    this.endpoint = endpoint;
+    this.onShutdown = onShutdown;
   }
 
-  /** The daemon's gRPC URL (`http://host:port`); readable after `start()`. */
+  /** The daemon's endpoint string (the canonical URL written to `LODE_HOME/endpoint`). */
   get address(): string {
-    return `http://${this.host}:${this.boundPort}`;
+    return canonicalAddress(this.endpoint, this.boundPort);
   }
 
   async start(): Promise<void> {
-    const { server, closeConnections } = createLodeServer(this.runtime);
+    const { server, closeConnections } = createLodeServer(this.runtime, this.onShutdown);
     this.server = server;
     this.closeConnections = closeConnections;
+    if (this.endpoint.kind === "tcp") {
+      const { host, port } = this.endpoint;
+      await new Promise<void>((resolve) => {
+        server.listen({ host, port }, () => resolve());
+      });
+      this.boundPort = (server.address() as { port: number }).port;
+      return;
+    }
+    // unix socket or Windows named pipe — both use { path }.
+    const { path } = this.endpoint;
     await new Promise<void>((resolve) => {
-      server.listen({ host: this.host, port: this.port }, () => resolve());
+      server.listen({ path }, () => resolve());
     });
-    this.boundPort = (server.address() as { port: number }).port;
+    if (this.endpoint.kind === "unix") {
+      // Restrict to the OS user; the socket is the auth boundary for the open `Shutdown` RPC.
+      await chmod(path, 0o600).catch(() => {
+        // Best-effort: a missing file (listener race) is harmless.
+      });
+    }
   }
 
   quiesce(): void {

@@ -16,10 +16,10 @@
   },
   "dependencies": {
     "@lode/client": "file:../../packages/ipc/client",
+    "@lode/daemon": "file:../../packages/ipc/daemon",
     "@lode/protocol": "file:../../packages/protocol"
   },
   "devDependencies": {
-    "@lode/daemon": "file:../../packages/ipc/daemon",
     "@types/node": "^20.19.39",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

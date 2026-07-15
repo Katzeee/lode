@@ -190,14 +190,14 @@ can read it _before_ it holds the transit key; content docs ride **sealed**.
 
 ## 5. Relay form — one binary, three modes
 
-The relay is one role of the **AppServer binary**, not a separate process. `--listen` is
-**optional**, giving three modes:
+The relay is one role of the **`lode` binary** (the daemon library `runDaemon`), not a separate process.
+`--listen` is **optional**, giving three modes:
 
-| invocation              | mode          | runs                                                  |
-| ----------------------- | ------------- | ----------------------------------------------------- |
-| `app-server --listen …` | engine daemon | engine + gRPC ConnectServer                           |
-| `app-server --relay …`  | relay-only    | only the broker — **no engine, no gRPC, no identity** |
-| both                    | combined      | engine daemon that also hosts the relay               |
+| invocation                           | mode          | runs                                                  |
+| ------------------------------------ | ------------- | ----------------------------------------------------- |
+| `lode daemon run --listen …`         | engine daemon | engine + gRPC ConnectServer                           |
+| `lode relay run`                     | relay-only    | only the broker — **no engine, no gRPC, no identity** |
+| `lode daemon run --listen … --relay` | combined      | engine daemon that also hosts the relay               |
 
 - Relay-only mode is how a dedicated relay machine runs (one process, no wasted engine).
 - The recommended desktop form is **combined** (co-located always-on client + relay) — that client

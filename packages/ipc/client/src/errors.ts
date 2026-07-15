@@ -19,6 +19,9 @@ export function describeError(error: unknown): string {
       return `Invalid input: ${detail}`;
     }
     if (error.code === Code.FailedPrecondition) {
+      if (isVaultLockedError(error)) {
+        return `Vault locked — run "lode unlock" first (${detail}).`;
+      }
       return `Precondition not met: ${detail}`;
     }
     if (error.code === Code.PermissionDenied) {
@@ -26,4 +29,17 @@ export function describeError(error: unknown): string {
     }
   }
   return detail;
+}
+
+/**
+ * True if `error` is the daemon's `VaultLockedError` surfaced over Connect (FailedPrecondition with the
+ * `vault locked` marker). The CLI uses this to trigger the lazy unlock flow, and to pick passphrase vs
+ * PIN from the subtype (`cold` vs `lease-expired`, the latter arriving in Phase 2b).
+ */
+export function isVaultLockedError(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.message.includes("vault locked")
+  );
 }

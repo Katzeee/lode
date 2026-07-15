@@ -141,6 +141,68 @@ message SessionInfo {
   optional ClientInfo client = 4;
 }
 
+// ---- vault (daemon-side encrypted identity store) ----
+
+// The daemon's identity vault state. LOCKED = no keypair in memory (vault.json at rest or absent);
+// UNLOCKED = keypair(s) loaded + lease valid; GRACE = keypairs still in memory (sync is registered,
+// needs them) but the lease expired, so interactive access is gated until re-confirm (PIN/passphrase).
+enum VaultState {
+  VAULT_LOCKED = 0;
+  VAULT_UNLOCKED = 1;
+  VAULT_GRACE = 2;
+}
+
+// An identity held in the vault. Labels are public (shown when LOCKED); the mnemonic is encrypted
+// at rest and only decrypted into memory on unlock.
+message VaultIdentity {
+  string actor_id = 1;
+  string label = 2;
+  int64 created_at = 3; // epoch millis
+}
+
+message VaultStatus {
+  VaultState state = 1;
+  repeated VaultIdentity identities = 2;
+  bool has_pin = 3;           // a PIN verifier is set
+  int64 active_until = 4;     // epoch ms the unlock lease expires (0 if locked / session policy)
+  int32 pin_failed_count = 5; // wrong-PIN attempts since last success (resets on unlock/daemon restart)
+}
+
+message InitVaultRequest {
+  string passphrase = 1;
+}
+
+message CreateIdentityRequest {
+  string label = 1;
+}
+
+// The freshly minted mnemonic — shown ONCE as a backup, then encrypted into the vault at rest.
+message CreateIdentityResponse {
+  string actor_id = 1;
+  string mnemonic = 2;
+}
+
+message ImportIdentityRequest {
+  string mnemonic = 1;
+  string label = 2;
+}
+
+message ImportIdentityResponse {
+  string actor_id = 1;
+}
+
+message UnlockVaultRequest {
+  string passphrase = 1;
+}
+
+message SetPinRequest {
+  string pin = 1;
+}
+
+message UnlockWithPinRequest {
+  string pin = 1;
+}
+
 // ---- subscription ----
 
 message SubscribeDocRequest {

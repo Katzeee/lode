@@ -17,6 +17,7 @@ import { SyncService } from "./sync-service.js";
 import { wrapCommands } from "../../commands/wrap-commands.js";
 import { createCommands, type CommandDeps, type Commands } from "../../commands/index.js";
 import { createSessionRpcs } from "../../commands/session-rpcs.js";
+import { VaultRuntime } from "../identity/vault.js";
 
 // Engine-level coverage for the SyncRegistry sub-graph (no daemon). The full sealed two-peer
 // convergence flow is covered by the daemon e2e (`sync-secured-e2e.test.ts`); driving it in-process
@@ -51,12 +52,13 @@ afterEach(async () => {
 // (these tests never persist); the round interval is short so rounds drive promptly.
 async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
   const app = new AppRuntime("test-engine");
+  const vault = VaultRuntime.disabled();
   const workspaces = (
     await app.root.mount("component:workspaces", (instance) => WorkspaceRegistry.inMemory(instance))
   ).api;
   const sessions = (
     await app.root.mount("component:sessions", (instance) => {
-      const service = new ClientSessionManager(instance, workspaces.originLabel());
+      const service = new ClientSessionManager(instance, workspaces.originLabel(), vault);
       instance.own(service);
       return service;
     })
@@ -74,7 +76,7 @@ async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
   ).api;
   const ctx: CommandDeps = { workspaces, sync };
   const commands = wrapCommands(
-    { ...createCommands(ctx), ...createSessionRpcs(sessions, workspaces) },
+    { ...createCommands(ctx), ...createSessionRpcs(sessions, workspaces, vault) },
     sessions,
   );
   return { commands, app, sync };

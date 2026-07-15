@@ -42,10 +42,12 @@ export function command(
       : { "--workspace": ["ws_main"], ...flags };
   return {
     url: "http://localhost:8080",
+    noAutospawn: false,
     group,
     action,
     flags: resolvedFlags,
     orderedFlags: orderedFlags ?? toOrderedFlags(resolvedFlags),
+    daemonArgs: [],
   };
 }
 

@@ -1,6 +1,7 @@
 import type { WorkspaceRegistry } from "./workspace/registry.js";
 import type { ClientSessionManager } from "./session/client-session-manager.js";
 import type { SyncService } from "./sync/sync-service.js";
+import type { VaultRuntime } from "./identity/vault.js";
 
 /**
  * The engine runtime's service manifest — module name → service type. Modules are declared against
@@ -9,6 +10,7 @@ import type { SyncService } from "./sync/sync-service.js";
  */
 export type EngineServices = {
   workspaces: WorkspaceRegistry;
+  vault: VaultRuntime;
   sessions: ClientSessionManager;
   sync: SyncService;
 };
