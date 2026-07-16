@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import type { Notification, NodeOccurrenceWire } from "@lode/protocol/proto";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
@@ -12,7 +13,7 @@ describe("AppServer sessions and notifications", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient(createSocketTransport(server.address));
+    client = new AppServerClient(createSocketTransport(dialTarget(server.address)));
     client.connect();
   });
 
@@ -53,7 +54,7 @@ describe("AppServer sessions and notifications", () => {
     await createWorkspaceAndDoc(client);
     await client.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
 
-    const observer = new AppServerClient(createSocketTransport(server.address));
+    const observer = new AppServerClient(createSocketTransport(dialTarget(server.address)));
     observer.connect();
     await hello(observer, "observer");
     await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });
@@ -79,7 +80,7 @@ describe("AppServer sessions and notifications", () => {
     await hello(client, "writer");
     await createWorkspaceAndDoc(client);
 
-    const observer = new AppServerClient(createSocketTransport(server.address));
+    const observer = new AppServerClient(createSocketTransport(dialTarget(server.address)));
     observer.connect();
     await hello(observer, "observer");
     await observer.rpc.subscribeDoc({ workspaceId: WORKSPACE_ID });

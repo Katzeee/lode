@@ -1,7 +1,7 @@
 import { chmod } from "node:fs/promises";
 import type { EngineRuntime, RuntimeResource } from "@lode/engine";
+import { canonicalAddress, type ParsedEndpoint, listenTarget } from "../endpoint.js";
 import { createLodeServer } from "../connect-server.js";
-import { canonicalAddress, type ListenEndpoint } from "../listen-url.js";
 
 /**
  * Hosts the gRPC (HTTP/2, h2c) Connect server as a managed resource. Wraps `createLodeServer`
@@ -14,14 +14,14 @@ import { canonicalAddress, type ListenEndpoint } from "../listen-url.js";
 export class ConnectServerResource implements RuntimeResource {
   readonly id = "connect-server";
   private readonly runtime: EngineRuntime;
-  private readonly endpoint: ListenEndpoint;
+  private readonly endpoint: ParsedEndpoint;
   private readonly onShutdown?: () => void;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
   private closePromise?: Promise<void>;
 
-  constructor(runtime: EngineRuntime, endpoint: ListenEndpoint, onShutdown?: () => void) {
+  constructor(runtime: EngineRuntime, endpoint: ParsedEndpoint, onShutdown?: () => void) {
     this.runtime = runtime;
     this.endpoint = endpoint;
     this.onShutdown = onShutdown;
@@ -36,22 +36,14 @@ export class ConnectServerResource implements RuntimeResource {
     const { server, closeConnections } = createLodeServer(this.runtime, this.onShutdown);
     this.server = server;
     this.closeConnections = closeConnections;
-    if (this.endpoint.kind === "tcp") {
-      const { host, port } = this.endpoint;
-      await new Promise<void>((resolve) => {
-        server.listen({ host, port }, () => resolve());
-      });
-      this.boundPort = (server.address() as { port: number }).port;
-      return;
-    }
-    // unix socket or Windows named pipe — both use { path }.
-    const { path } = this.endpoint;
     await new Promise<void>((resolve) => {
-      server.listen({ path }, () => resolve());
+      server.listen(listenTarget(this.endpoint), () => resolve());
     });
-    if (this.endpoint.kind === "unix") {
-      // Restrict to the OS user; the socket is the auth boundary for the open `Shutdown` RPC.
-      await chmod(path, 0o600).catch(() => {
+    if (this.endpoint.scheme === "tcp") {
+      this.boundPort = (server.address() as { port: number }).port;
+    } else if (this.endpoint.scheme === "unix") {
+      // Restrict the socket to the OS user — it is the auth boundary for the open `Shutdown` RPC.
+      await chmod(this.endpoint.socketPath, 0o600).catch(() => {
         // Best-effort: a missing file (listener race) is harmless.
       });
     }

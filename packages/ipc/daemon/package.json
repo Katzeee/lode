@@ -10,6 +10,10 @@
     "./home": {
       "types": "./dist/home.d.ts",
       "import": "./dist/home.js"
+    },
+    "./endpoint": {
+      "types": "./dist/endpoint.d.ts",
+      "import": "./dist/endpoint.js"
     }
   },
   "scripts": {

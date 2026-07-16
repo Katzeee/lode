@@ -72,8 +72,13 @@ export function toConnectError(error: unknown): ConnectError {
   }
   if (error instanceof VaultLockedError) {
     // The "vault unlocked" precondition for authed commands isn't met — the CLI catches this to prompt
-    // unlock. Carry the subtype in the message so the client can choose passphrase vs PIN (Phase 2b).
-    return new ConnectError(error.message, Code.FailedPrecondition);
+    // unlock. Attach a STABLE trailer marker (not message wording) so the client's isVaultLockedError
+    // matches on the key's presence rather than a fragile substring of the message. The subtype stays
+    // on the engine error for daemon-side logging; it is not part of the client contract — the client
+    // chooses PIN vs passphrase via getVaultStatus, never via the subtype.
+    return new ConnectError(error.message, Code.FailedPrecondition, {
+      "x-lode-vault-locked": "1",
+    });
   }
   const message = error instanceof Error ? error.message : String(error);
   return new ConnectError(message, Code.Internal);

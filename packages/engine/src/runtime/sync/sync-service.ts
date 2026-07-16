@@ -180,14 +180,17 @@ export class SyncService implements RuntimeResource {
       if (target === undefined) {
         return; // no other peer on the channel yet — wait for the broadcast round
       }
+      // version is a loro read → SHARED; the directed fetch is network (outside the lock).
+      const version = await ctx.lock.read(() => ctx.log.metaDoc.version());
       const bytes = await ctx.transport.directedFetchUpdates(
         MEMBERSHIP_DOC_ID,
-        await ctx.log.metaDoc.version(), // the joiner's current membership version (empty → full doc)
+        version, // the joiner's current membership version (empty → full doc)
         target,
       );
       if (bytes.length > 0) {
-        await ctx.log.metaDoc.importUpdate(bytes);
-        await ctx.log.persistIfDirty();
+        // importUpdate is a loro write → EXCLUSIVE; persistIfDirty reads + disk → SHARED.
+        await ctx.lock.write(() => ctx.log.metaDoc.importUpdate(bytes));
+        await ctx.lock.read(() => ctx.log.persistIfDirty());
         // No security refresh: wire security is a lazy projection of the log, so the next read
         // (the content round's isMember() gate) reflects the imported roster immediately.
       }

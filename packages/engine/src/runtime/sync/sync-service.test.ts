@@ -17,16 +17,24 @@ import { SyncService } from "./sync-service.js";
 import { wrapCommands } from "../../commands/wrap-commands.js";
 import { createCommands, type CommandDeps, type Commands } from "../../commands/index.js";
 import { createSessionRpcs } from "../../commands/session-rpcs.js";
+import { createVaultRpcs } from "../../commands/vault-rpcs.js";
 import { VaultRuntime } from "../identity/vault.js";
 
-// Engine-level coverage for the SyncRegistry sub-graph (no daemon). The full sealed two-peer
-// convergence flow is covered by the daemon e2e (`sync-secured-e2e.test.ts`); driving it in-process
-// here trips a loro re-entrancy guard (reading a partially-converged occurrence's deltas while a
-// sync round runs), unrelated to the sub-graph under test. These tests cover the registry + sub-graph
-// LIFECYCLE — register wires a workspace-owned sync instance,
-// shareCoordinate/syncNow gate correctly, stop tears everything down without hanging.
+// Engine-level coverage for the SyncService sub-graph (no daemon). The full sealed two-peer
+// convergence flow is covered by the daemon e2e (`sync-secured-e2e.test.ts`, run in two real
+// processes).
 //
-// SyncRegistry is engine-internal (NOT on the EngineRuntime host surface — hosts reach sync via the
+// The re-entrancy that previously kept two-peer convergence out of the ENGINE layer — "reading a
+// partially-converged occurrence's deltas while a sync round runs" — is now structurally prevented
+// by the per-workspace loro lock: each sync stage acquires it (shared for reads, exclusive for
+// imports), so a sync round and a client read/write can never touch the same doc concurrently. The
+// deterministic regression for that lives in `sync-lock.test.ts`: it parks a round mid-network and
+// fires a conflicting client read + write at that exact point, proving the lock-free network window
+// + no re-entrancy without racing. These tests cover the registry + sub-graph LIFECYCLE — register
+// wires a workspace-owned sync instance, shareCoordinate/syncNow gate correctly, stop tears
+// everything down without hanging.
+//
+// SyncService is engine-internal (NOT on the EngineRuntime host surface — hosts reach sync via the
 // `commands` bag), so this co-located test builds the subsystems directly to hold a `sync` reference
 // (incl. its `wiredSyncApp` observability seam, which has no RPC equivalent). Workspace + session
 // ops still go through `commands` (the single client route).
@@ -76,7 +84,11 @@ async function buildRuntime(roundIntervalMs = 30): Promise<TestRuntime> {
   ).api;
   const ctx: CommandDeps = { workspaces, sync };
   const commands = wrapCommands(
-    { ...createCommands(ctx), ...createSessionRpcs(sessions, workspaces, vault) },
+    {
+      ...createCommands(ctx),
+      ...createSessionRpcs(sessions, workspaces),
+      ...createVaultRpcs(vault),
+    },
     sessions,
   );
   return { commands, app, sync };

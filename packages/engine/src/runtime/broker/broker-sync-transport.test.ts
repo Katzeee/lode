@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
@@ -48,11 +49,13 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     const url = `http://127.0.0.1:${server.port}`;
 
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -61,8 +64,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle(); // let both subscribes land on the server
 
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
 
@@ -83,11 +86,13 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -96,8 +101,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle();
 
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([
@@ -127,11 +132,13 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -140,8 +147,8 @@ describe("BrokerSyncProtocol — end-to-end sync over a real broker", () => {
     await Promise.all([ta.open(), tb.open()]);
     await settle();
 
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
 
@@ -163,6 +170,7 @@ describe("BrokerSyncProtocol — transport contract (timeouts, lifecycle, robust
     const url = `http://127.0.0.1:${server.port}`;
     // A single transport, no other peer → its profileReq goes unanswered.
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
@@ -179,6 +187,7 @@ describe("BrokerSyncProtocol — transport contract (timeouts, lifecycle, robust
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
@@ -209,11 +218,13 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -221,8 +232,8 @@ describe("BrokerSyncProtocol — multi-shard convergence", () => {
     transports.push(ta, tb);
     await Promise.all([ta.open(), tb.open()]);
     await settle();
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
 

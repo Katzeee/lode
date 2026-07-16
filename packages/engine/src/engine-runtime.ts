@@ -7,6 +7,7 @@ import { sessionComponent } from "./runtime/session/session.component.js";
 import { syncComponent } from "./runtime/sync/sync.component.js";
 import { vaultComponent } from "./runtime/identity/vault.component.js";
 import { createSessionRpcs } from "./commands/session-rpcs.js";
+import { createVaultRpcs } from "./commands/vault-rpcs.js";
 import { createCommands, type CommandDeps, type Commands } from "./commands/index.js";
 import { wrapCommands } from "./commands/wrap-commands.js";
 
@@ -51,7 +52,8 @@ export async function createEngineRuntime(config: RuntimeConfig = {}): Promise<E
   const commands = wrapCommands(
     {
       ...createCommands(ctx),
-      ...createSessionRpcs(services.sessions, services.workspaces, services.vault),
+      ...createSessionRpcs(services.sessions, services.workspaces),
+      ...createVaultRpcs(services.vault),
     },
     services.sessions,
   );

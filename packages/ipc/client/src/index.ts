@@ -9,5 +9,6 @@ export type {
   InProcessCommands,
   LodeCommandsClient,
   NotificationHandler,
+  SocketDial,
 } from "./app-server-client.js";
 export { describeError, isVaultLockedError } from "./errors.js";

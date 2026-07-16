@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- the business-agnostic Engine store is intentionally kept in one file */
 import { randomUUID } from "node:crypto";
 import { ShardedBlockStore, type Outliner } from "./store/sharded-store.js";
+import type { LoroWriteGuard } from "./store/write-guard.js";
 import { ActionHistory } from "./action-history.js";
 import { NotFoundError } from "../errors/index.js";
 import type {
@@ -33,6 +34,11 @@ export type EngineOptions = {
    *  contract as nodeIdGenerator: concurrent occurrence creation on different replicas never
    *  collides; only an injected duplicate-producing generator can. */
   occIdGenerator?: () => string;
+  /** The workspace's loro write guard (dev backstop). When injected by the runtime, every mutator's
+   *  `requireWritable` asserts an exclusive lock is held — so a loro write that slips into a read-only
+   *  (shared) boundary throws deterministically instead of tripping a loro re-entrancy guard. Absent
+   *  for core unit tests that construct an engine directly (no lock → no assertion). */
+  writeGuard?: LoroWriteGuard;
 };
 
 export class Engine {
@@ -48,6 +54,7 @@ export class Engine {
   private _readonly = false;
   private readonly nodeIdGenerator: () => NodeId;
   private readonly occIdGenerator: () => string;
+  private readonly writeGuard?: LoroWriteGuard;
   private inTransaction = false;
   /** Before-image capture for incremental undo (Phase 2): when non-null, each entity-mutating
    *  mutator records its target's pre-mutation entity snapshot here (first-touch-wins per nodeId).
@@ -61,6 +68,7 @@ export class Engine {
     this.store = options.store ?? new ShardedBlockStore();
     this.nodeIdGenerator = options.nodeIdGenerator ?? randomUUID;
     this.occIdGenerator = options.occIdGenerator ?? randomUUID;
+    this.writeGuard = options.writeGuard;
     this.actionHistory = new ActionHistory(this);
     if (options.readonly) {
       this._readonly = true;
@@ -81,6 +89,10 @@ export class Engine {
     if (this._readonly) {
       throw new Error("Document is readonly");
     }
+    // The loro single-writer backstop: a write must run under the workspace's exclusive lock. Throws
+    // if only a shared (read) boundary is active — the deterministic catch for "a read path writes
+    // loro." No-op when no guard is injected (core unit tests).
+    this.writeGuard?.assertWritable();
   }
 
   // ── Node / occurrence CRUD ────────────────────────────────────────────────
@@ -511,6 +523,7 @@ export class Engine {
     if (this._readonly) {
       return false;
     }
+    this.writeGuard?.assertWritable();
     this.historyActive = true;
     try {
       return await this.actionHistory.undo();
@@ -523,6 +536,7 @@ export class Engine {
     if (this._readonly) {
       return false;
     }
+    this.writeGuard?.assertWritable();
     this.historyActive = true;
     try {
       return await this.actionHistory.redo();

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { toJSON } from "../../core/serialize.js";
+import type { Engine } from "../../core/index.js";
 import { generateActorKeypair } from "../../crypto/index.js";
 import { TestWorkspaceRegistry as WorkspaceRegistry } from "../../../tests/support/workspace-registry.js";
 
@@ -12,6 +13,16 @@ async function engineOf(registry: WorkspaceRegistry, workspaceId: string) {
 
 async function membershipOf(registry: WorkspaceRegistry, workspaceId: string) {
   return registry.runWorkspace(workspaceId, ({ membership }) => membership);
+}
+
+/** Run a mutation under the workspace's EXCLUSIVE lock — required now that the loro single-writer
+ *  guard rejects any write outside an exclusive boundary. */
+async function mutate<T>(
+  registry: WorkspaceRegistry,
+  workspaceId: string,
+  operation: (engine: Engine) => T | Promise<T>,
+): Promise<T> {
+  return registry.runWorkspaceExclusive(workspaceId, ({ engine }) => operation(engine));
 }
 
 /**
@@ -46,9 +57,11 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       // treeDoc root node. (flushDirty is a no-op in-memory; content lives in the resident docs.)
       const src = await engineOf(rt, "src");
       const root = (await src.getRootOccurrences()).at(0)!;
-      for (let i = 0; i < 5; i++) {
-        await src.createNode(root.occurrenceId);
-      }
+      await mutate(rt, "src", async (engine) => {
+        for (let i = 0; i < 5; i++) {
+          await engine.createNode(root.occurrenceId);
+        }
+      });
       await rt.flushDirty("src");
 
       const forked = await rt.forkWorkspace({
@@ -90,7 +103,9 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
         actorKeypair: owner,
       });
       const src = await engineOf(rt, "src");
-      await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
+      await mutate(rt, "src", async (engine) => {
+        await engine.createNode((await engine.getRootOccurrences()).at(0)!.occurrenceId);
+      });
       await rt.flushDirty("src");
       const srcSnapshot = await toJSON(src);
       const srcLogLen = (await membershipOf(rt, "src")).records().length;
@@ -117,7 +132,9 @@ describe("WorkspaceRegistry.forkWorkspace", () => {
       actorKeypair: owner,
     });
     const src = await engineOf(rt, "src");
-    await src.createNode((await src.getRootOccurrences()).at(0)!.occurrenceId);
+    await mutate(rt, "src", async (engine) => {
+      await engine.createNode((await engine.getRootOccurrences()).at(0)!.occurrenceId);
+    });
     await rt.flushDirty("src");
     const expected = await toJSON(src);
     const forked = await rt.forkWorkspace({

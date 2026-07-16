@@ -2,8 +2,9 @@ import { ConnectError, Code } from "@connectrpc/connect";
 import type { LodeHomePaths } from "@lode/daemon/home";
 import type { ParsedCli } from "../args.js";
 import { assertAllowedFlags, getOptionalSingleFlag, getRequiredSingleFlag } from "./shared.js";
-import type { LodeCommandsClient } from "@lode/client";
+import { isVaultLockedError, type LodeCommandsClient } from "@lode/client";
 import { writeActiveActor } from "../client-headers.js";
+import { unlockVaultInteractive } from "./lock.js";
 import { promptHidden, promptHiddenConfirmed } from "../prompt.js";
 
 // Vault-backed identity commands. `new` initializes the vault on first run (or unlocks an existing
@@ -31,7 +32,9 @@ export async function executeActorCommand(
   }
 }
 
-/** Set/change the PIN (prompted, never on argv — it's a credential). The vault must be UNLOCKED. */
+/** Set/change the PIN (prompted, never on argv — it's a credential). The vault must be UNLOCKED; if it
+ *  is locked, prompt to unlock (passphrase, or PIN while in GRACE) then retry — the same lazy-unlock
+ *  flow the domain commands use, so `actor pin` behaves consistently when the lease has expired. */
 async function actorPin(
   client: LodeCommandsClient,
   command: ParsedCli,
@@ -39,7 +42,15 @@ async function actorPin(
 ): Promise<string> {
   assertAllowedFlags(command, commandKey, []);
   const pin = await promptHiddenConfirmed("Choose a PIN: ", "Confirm PIN: ");
-  await client.setPin({ pin });
+  try {
+    await client.setPin({ pin });
+  } catch (error) {
+    if (!isVaultLockedError(error)) {
+      throw error;
+    }
+    await unlockVaultInteractive(client);
+    await client.setPin({ pin });
+  }
   return "PIN set.";
 }
 

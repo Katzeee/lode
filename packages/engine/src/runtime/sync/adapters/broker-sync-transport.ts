@@ -12,6 +12,7 @@ import type { SyncBytes, SyncableDoc } from "../../../core/store/syncable.js";
 import type { WorkspaceDocSet } from "../../../core/store/doc-set.js";
 import type { ManagedSyncTransport, SyncProfile, SyncTransportInput } from "../transport.js";
 import type { WireSecurity } from "../../membership/wire-security.js";
+import type { WorkspaceLock } from "../../workspace/loro-lock.js";
 
 const log = createLogger("engine.broker.sync");
 
@@ -91,6 +92,12 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
    *  head-of-line block the recv pump (and other docs). Bounded (drop-on-overflow). */
   private readonly docQueues = new Map<string, BoundedAsyncQueue<DocTask>>();
   private readonly maxRecvPerDocBytes: number;
+  /** The workspace's loro lock — the responder half (answering profile/updates requests, applying
+   *  pushes) touches LOCAL loro docs from the network message pump, outside SyncExchange, so it
+   *  acquires this lock at each loro stage to stay off the client read/write boundaries. Production
+   *  passes the workspace's `RwWorkspaceLock`; core protocol tests over bare doc sets pass
+   *  `NoopWorkspaceLock`. */
+  private readonly lock: WorkspaceLock;
 
   constructor(opts: {
     readonly url: string;
@@ -108,6 +115,8 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
     /** Per-doc recv queue cap (bytes); a slow doc's inbound tasks can't grow it without bound.
      *  Default 4 MiB. */
     readonly maxRecvPerDocBytes?: number;
+    /** The workspace's loro read/write lock — acquired by the responder half at each loro stage. */
+    readonly lock: WorkspaceLock;
   }) {
     this.docSet = opts.docSet;
     this.workspaceId = opts.workspaceId;
@@ -115,6 +124,7 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
     this.security = opts.security;
     this.peerId = opts.peerId;
     this.maxRecvPerDocBytes = opts.maxRecvPerDocBytes ?? DEFAULT_MAX_RECV_PER_DOC_BYTES;
+    this.lock = opts.lock;
     this.brokerClient = new BrokerClient({
       url: opts.url,
       onDeliver: (_wsId, payload, fromPeerId) =>
@@ -221,9 +231,13 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
   /** The wire envelope for `subDocId` — the seam where the product's `securityClass` becomes the
    *  broker's `WireEnvelope`. A public doc (the membership roster) rides plaintext so a joiner can
    *  fetch + read it BEFORE it holds the transit key; everything else is sealed. Unknown docs default
-   *  sealed (a sealed reply to an unknown-doc request matches today's behavior). */
+   *  sealed (a sealed reply to an unknown-doc request matches today's behavior).
+   *
+   *  Uses `securityClassOf` (a meta Map lookup) — NOT `entry()` — so this never walks `outliner.docs()`
+   *  (a loro ownership read). The initiator calls this from its network methods, which run OUTSIDE the
+   *  workspace lock, so it must stay loro-free. */
   private envelopeFor(subDocId: string): WireEnvelope {
-    return this.docSet.entry(subDocId)?.securityClass === "public" ? "plaintext" : "sealed";
+    return this.docSet.securityClassOf(subDocId) === "public" ? "plaintext" : "sealed";
   }
 
   sendUpdates(subDocId: string, bytes: Uint8Array): Promise<void> {
@@ -299,11 +313,18 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
     // req/resp, so it is deliberately excluded from the profile and can never leak here. The docSet's
     // composite is the outliner; meta docs (membership) are NOT in it. Sequential version reads so two
     // parallel profile builds don't double-fault the same shard.
-    const docs = this.docSet.composite().docs();
-    const profile: SyncProfile = [];
-    for (const d of docs) {
-      profile.push({ subDocId: d.id, version: await d.version() });
-    }
+    //
+    // docs() reads ownership (treeDoc) + each version() is a loro read → SHARED, so a peer's profile
+    // build can't race a local client write / sync import. Acquired once around the whole sequential
+    // build so the advertised profile is a consistent snapshot.
+    const profile: SyncProfile = await this.lock.read(async () => {
+      const docs = this.docSet.composite().docs();
+      const out: SyncProfile = [];
+      for (const d of docs) {
+        out.push({ subDocId: d.id, version: await d.version() });
+      }
+      return out;
+    });
     this.replyTo(
       fromPeerId,
       encodeMessage({
@@ -319,8 +340,12 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
     fromBytes: Uint8Array,
     fromPeerId: string,
   ): Promise<void> {
-    const doc = this.lookupDoc(subDocId);
-    const body = doc ? await doc.exportUpdate(fromBytes) : new Uint8Array(0);
+    // lookupDoc walks docSet.docs() (an ownership read) + exportUpdate is a loro read → both under
+    // SHARED. The reply publish is network, run outside the lock below.
+    const body = await this.lock.read(() => {
+      const doc = this.lookupDoc(subDocId);
+      return doc ? doc.exportUpdate(fromBytes) : Promise.resolve(new Uint8Array(0));
+    });
     // Answer on the doc's wire envelope — a public doc (the membership roster) replies plaintext so a
     // joiner can fetch it BEFORE it holds the transit key. Mirrors sendUpdates.
     this.replyTo(
@@ -345,15 +370,20 @@ export class BrokerSyncProtocol implements ManagedSyncTransport {
     if (bytes.length === 0) {
       return;
     }
-    const doc = this.lookupDoc(subDocId);
-    if (doc) {
-      await doc.importUpdate(bytes);
-    } else {
-      // An unknown-shard push with no local doc — the composite materializes shards via `docs()`
-      // (treeDoc ownership reveals them), so this only happens for genuinely foreign (often attacker
-      // -controlled) doc ids. Debug: protocol noise, not a normal cold-start path.
-      log.debug("dropped push for unknown doc", { subDocId });
-    }
+    // lookupDoc walks docSet.docs() (an ownership read) + importUpdate is a loro WRITE → both under
+    // EXCLUSIVE, so a peer's push can't race a local client read/write or a sync import. The import
+    // may fault a shard (async disk); the exclusive lock spans that fault.
+    await this.lock.write(async () => {
+      const doc = this.lookupDoc(subDocId);
+      if (doc) {
+        await doc.importUpdate(bytes);
+      } else {
+        // An unknown-shard push with no local doc — the composite materializes shards via `docs()`
+        // (treeDoc ownership reveals them), so this only happens for genuinely foreign (often attacker
+        // -controlled) doc ids. Debug: protocol noise, not a normal cold-start path.
+        log.debug("dropped push for unknown doc", { subDocId });
+      }
+    });
   }
 
   /** Dispatch a per-doc recv task (export-on-request / import-on-push) onto that doc's queue. The
@@ -453,6 +483,7 @@ export function createBrokerSyncTransport(input: SyncTransportInput): ManagedSyn
     workspaceId: input.workspaceId,
     security: input.security,
     peerId: input.peerId,
+    lock: input.lock,
   });
 }
 

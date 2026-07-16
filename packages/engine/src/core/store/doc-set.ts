@@ -62,6 +62,14 @@ export class WorkspaceDocSet {
     return undefined;
   }
 
+  /** The security class for `id` WITHOUT touching the outliner: meta docs are public (a Map lookup),
+   *  everything else (outliner docs + unknown ids) is sealed. Use this when only the wire envelope is
+   *  needed and a loro read must be avoided — the broker initiator calls it from its network methods,
+   *  which run OUTSIDE the workspace lock, so it must not walk `outliner.docs()` (an ownership read). */
+  securityClassOf(id: string): SecurityClass {
+    return this.metaEntries.get(id)?.securityClass ?? "sealed";
+  }
+
   /** Every doc — outliner first (exchange order: tree, then shards), then meta docs. */
   docs(): SyncableDoc[] {
     return [...this.outliner.docs(), ...[...this.metaEntries.values()].map((entry) => entry.doc)];

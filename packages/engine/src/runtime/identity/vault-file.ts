@@ -1,6 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import type { KdfParams } from "../../crypto/index.js";
 import { PreconditionFailedError } from "../../errors/index.js";
 import { DomainInvalidInputError } from "../../domain/errors.js";
@@ -101,24 +99,4 @@ export function requireStrength(secret: string, minLen: number): void {
 
 export function fromB64(b64: string): Uint8Array {
   return new Uint8Array(Buffer.from(b64, "base64"));
-}
-
-// Crash-safe write (temp + fsync + rename) so a partial write never corrupts the vault. A daemon-owned
-// file (single writer), so the Windows rename-over-existing fallback (unlink then rename) is safe here.
-export async function atomicWrite(path: string, data: string): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const tmp = `${dirname(path)}/.${basename(path)}.${randomUUID()}.tmp`;
-  const handle = await open(tmp, "wx");
-  try {
-    await handle.writeFile(data);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tmp, path);
-  } catch {
-    await unlink(path).catch(() => {});
-    await rename(tmp, path);
-  }
 }

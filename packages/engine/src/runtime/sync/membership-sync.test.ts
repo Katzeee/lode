@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { MembershipLog, MEMBERSHIP_DOC_ID, type LocalPeer } from "../membership/membership-log.js";
 import { syncMembershipDoc } from "./membership-sync.js";
@@ -58,9 +59,9 @@ describe("MembershipSync — plaintext gossip convergence", () => {
     const { ta, tb } = pipe(ownerLog, memberLog);
 
     // Gossip rounds: owner pushes → member imports; member pushes back → owner imports (no-op).
-    await syncMembershipDoc(ta, ownerLog.metaDoc);
-    await syncMembershipDoc(tb, memberLog.metaDoc);
-    await syncMembershipDoc(ta, ownerLog.metaDoc);
+    await syncMembershipDoc(ta, ownerLog.metaDoc, new NoopWorkspaceLock());
+    await syncMembershipDoc(tb, memberLog.metaDoc, new NoopWorkspaceLock());
+    await syncMembershipDoc(ta, ownerLog.metaDoc, new NoopWorkspaceLock());
 
     const { state, skipped } = memberLog.deriveState();
     expect(skipped).toHaveLength(0);
@@ -77,8 +78,8 @@ describe("MembershipSync — plaintext gossip convergence", () => {
     const b = newLog();
     const { ta, tb } = pipe(a, b);
     for (let i = 0; i < 5; i++) {
-      await syncMembershipDoc(ta, a.metaDoc);
-      await syncMembershipDoc(tb, b.metaDoc);
+      await syncMembershipDoc(ta, a.metaDoc, new NoopWorkspaceLock());
+      await syncMembershipDoc(tb, b.metaDoc, new NoopWorkspaceLock());
     }
     expect(b.deriveState().state.owner).toBe(owner.actor.actorId);
     expect(b.records()).toHaveLength(1); // root only, not duplicated by re-push

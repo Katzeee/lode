@@ -13,9 +13,6 @@ import "lode/events.proto";
 service LodeCommands {
   // session + subscription
   rpc SessionHello(SessionHelloRequest) returns (SessionInfo);
-  // Mint a fresh actor identity (mnemonic + derived actor id). Unauthenticated — the bootstrap a new
-  // user calls once before any authed command is possible (`lode actor new`).
-  rpc GenerateActorMnemonic(google.protobuf.Empty) returns (ActorMnemonic);
   rpc SubscribeDoc(SubscribeDocRequest) returns (google.protobuf.Empty);
   rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);
   rpc ListenNotifications(ListenNotificationsRequest) returns (stream Notification);

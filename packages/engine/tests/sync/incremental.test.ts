@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../../src/runtime/workspace/loro-lock.js";
 import { Engine } from "../../src/core/engine.js";
 import { ShardedBlockStore } from "../../src/core/store/sharded-store.js";
 import { InMemorySyncTransport, SyncExchange } from "../../src/runtime/sync/sync-exchange.js";
@@ -26,11 +27,16 @@ describe("incremental sync: a round only considers changed shards", () => {
     eA.captureSync();
 
     // One long-lived SyncExchange — the cursor persists across rounds (production reuses it per peer).
-    const sm = new SyncExchange(a, new InMemorySyncTransport(b));
+    const sm = new SyncExchange(a, new InMemorySyncTransport(b), new NoopWorkspaceLock());
     const r1 = await sm.sync(); // round 1: full — every owned doc is a first-round candidate
     await b.heal();
     await expect(canonical(eA)).resolves.toEqual(await canonical(eB)); // converged
-    expect(r1.considered).toBeGreaterThan(20); // round 1 considered (almost) all owned shards
+    // Round 1 has no cursor → every owned doc is a first-exchange candidate, so `considered` is
+    // constructively identical to the owned-doc count (tree + the distinct shards the 24 nodes land
+    // in). Assert equality against docs().length — NOT a magic threshold: the distinct-shard count is a
+    // birthday-collision random variable (24 nodes across 256 shards ≈ 23 distinct), so a fixed >20
+    // would flake whenever it dipped to ≤20.
+    expect(r1.considered).toBe(a.docs().length);
 
     // Change M=3 nodes on A.
     for (const n of nodes.slice(0, 3)) {

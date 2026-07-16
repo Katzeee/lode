@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
@@ -94,12 +95,14 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(a.store, logA.metaDoc),
       workspaceId: "W",
       security: secA.security,
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(b.store, logB.metaDoc),
       workspaceId: "W",
@@ -117,11 +120,11 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // (1) Membership gossip (plaintext): owner pushes → member imports. Refresh so the member's
     //     security installs the transit key before the sealed content round.
-    await syncMembershipDoc(ta, logA.metaDoc);
+    await syncMembershipDoc(ta, logA.metaDoc, new NoopWorkspaceLock());
     await settle();
-    await syncMembershipDoc(tb, logB.metaDoc);
+    await syncMembershipDoc(tb, logB.metaDoc, new NoopWorkspaceLock());
     await settle();
-    await syncMembershipDoc(ta, logA.metaDoc);
+    await syncMembershipDoc(ta, logA.metaDoc, new NoopWorkspaceLock());
     await settle();
     // Wire security is a lazy projection of the log — isMember() re-derives on read.
     expect(secB.isMember()).toBe(true);
@@ -130,8 +133,8 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     ).toBe(true);
 
     // (2) Content (sealed): converges now that B can unwrap the transit key.
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toEqual([{ insert: SECRET }]);
@@ -167,12 +170,14 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(a.store, logA.metaDoc),
       workspaceId: "W",
       security: secA.security,
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(b.store, logB.metaDoc),
       workspaceId: "W",
@@ -185,15 +190,15 @@ describe("BrokerSyncProtocol — membership-doc plaintext + content sealed", () 
 
     // The stranger converges the PUBLIC roster (plaintext) — it sees the owner — but it is not a
     // member, so secB never installs a transit key and content sync (sealed) fails every round.
-    await syncMembershipDoc(ta, logA.metaDoc);
+    await syncMembershipDoc(ta, logA.metaDoc, new NoopWorkspaceLock());
     await settle();
-    await syncMembershipDoc(tb, logB.metaDoc);
+    await syncMembershipDoc(tb, logB.metaDoc, new NoopWorkspaceLock());
     await settle();
-    await syncMembershipDoc(ta, logA.metaDoc);
+    await syncMembershipDoc(ta, logA.metaDoc, new NoopWorkspaceLock());
     await settle();
     expect(secB.isMember()).toBe(false);
 
-    const mb = new SyncExchange(b.store, tb);
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await expect(mb.sync()).rejects.toThrow(); // sealed exchange can't succeed without the transit key
     expect((await b.engine.getOccurrence(page.occurrenceId))?.deltas).toBeUndefined();
   });

@@ -1,13 +1,7 @@
 import { spawn } from "node:child_process";
 import { open, unlink } from "node:fs/promises";
-import net from "node:net";
-import {
-  defaultEndpoint,
-  homePaths,
-  type LodeHomePaths,
-  readTextMaybe,
-  resolveLodeHome,
-} from "@lode/daemon/home";
+import { connectSocket, defaultEndpoint } from "@lode/daemon/endpoint";
+import { homePaths, type LodeHomePaths, readTextMaybe, resolveLodeHome } from "@lode/daemon/home";
 
 export type DaemonEnv = {
   home: string;
@@ -39,7 +33,7 @@ export async function resolveEndpoint(env: DaemonEnv, explicitUrl?: string): Pro
 /** True if something is accepting connections at the endpoint (the daemon is listening). */
 export function probeEndpoint(endpoint: string, timeoutMs = PROBE_TIMEOUT_MS): Promise<boolean> {
   return new Promise((resolve) => {
-    const sock = dial(endpoint);
+    const sock = connectSocket(endpoint);
     const timer = setTimeout(() => {
       sock.destroy();
       resolve(false);
@@ -164,17 +158,6 @@ export function isPidAlive(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-function dial(endpoint: string): net.Socket {
-  if (endpoint.startsWith("unix://")) {
-    return net.connect(endpoint.slice("unix://".length));
-  }
-  if (endpoint.startsWith("pipe://")) {
-    return net.connect(`\\\\.\\pipe\\${endpoint.slice("pipe://".length)}`);
-  }
-  const url = new URL(endpoint);
-  return net.connect(Number(url.port), url.hostname);
 }
 
 function sleep(ms: number): Promise<void> {

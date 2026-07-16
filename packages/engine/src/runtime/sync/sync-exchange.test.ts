@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { InMemorySyncTransport, SyncExchange } from "./sync-exchange.js";
@@ -40,7 +41,11 @@ describe("SyncExchange.sync() — return shape", () => {
     const bStore = newStore();
     await new Engine({ store: bStore }).createNode(null);
 
-    const r = await new SyncExchange(aStore, new InMemorySyncTransport(bStore)).sync();
+    const r = await new SyncExchange(
+      aStore,
+      new InMemorySyncTransport(bStore),
+      new NoopWorkspaceLock(),
+    ).sync();
 
     expect(r.pulled).toBeGreaterThan(0); // B has its own ops A lacked
     expect(r.pushed).toBeGreaterThan(0); // A has its own ops B lacked
@@ -53,7 +58,7 @@ describe("SyncExchange.pushOnly() — the push fast-path", () => {
     const aEngine = new Engine({ store: aStore });
     await aEngine.createNode(null); // A has content
     const { transport } = recording(newStore());
-    const sm = new SyncExchange(aStore, transport);
+    const sm = new SyncExchange(aStore, transport, new NoopWorkspaceLock());
 
     // No sync() yet → lastRemoteVV empty → push no-ops even though A has content.
     const r = await sm.pushOnly();
@@ -66,7 +71,7 @@ describe("SyncExchange.pushOnly() — the push fast-path", () => {
     const root = await aEngine.createNode(null);
     const bStore = newStore();
     const { transport, sent } = recording(bStore);
-    const sm = new SyncExchange(aStore, transport);
+    const sm = new SyncExchange(aStore, transport, new NoopWorkspaceLock());
     await sm.sync(); // populate lastRemoteVV
     await aEngine.createNode(root.occurrenceId); // a mutation
     sent.clear(); // drop the sync() round's sends — measure pushOnly alone
@@ -91,7 +96,7 @@ describe("SyncExchange.pushOnly() — the push fast-path", () => {
     await aEngine.createNode(root.occurrenceId);
     const bStore = newStore();
     const { transport, sent } = recording(bStore);
-    const sm = new SyncExchange(aStore, transport);
+    const sm = new SyncExchange(aStore, transport, new NoopWorkspaceLock());
     await sm.sync(); // converge → lastRemoteVV populated
     sent.clear();
 
@@ -122,7 +127,7 @@ describe("SyncExchange.pushOnly() — the push fast-path", () => {
       directedFetchUpdates: () => Promise.reject(new Error("relay blip")),
       peers: () => inner.peers(),
     };
-    const sm = new SyncExchange(aStore, throwing);
+    const sm = new SyncExchange(aStore, throwing, new NoopWorkspaceLock());
     await expect(sm.sync()).rejects.toThrow(/relay blip/);
 
     // pushOnly proceeds (cache populated by the partial round) and pushes A's docs.
@@ -145,7 +150,7 @@ describe("Engine.importUpdate — merge-path termination (no re-export pump)", (
     await aEngine.createNode(null); // dirties the treeDoc ("main")
     const bStore = newStore();
     const { transport } = recording(bStore);
-    await new SyncExchange(aStore, transport).sync(); // A ↔ B converge; A holds both peers' treeDoc ops
+    await new SyncExchange(aStore, transport, new NoopWorkspaceLock()).sync(); // A ↔ B converge; A holds both peers' treeDoc ops
 
     // A's full treeDoc update (every op A holds), fed straight back into A via the composite's tree
     // SyncableDoc — the surface sync/persist use (Engine no longer exposes export/import).

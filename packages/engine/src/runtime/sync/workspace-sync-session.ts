@@ -37,6 +37,7 @@ export class WorkspaceSyncSession {
         engine: workspace.engine,
         facts: workspace.facts,
         transportFactory: options.transportFactory,
+        lock: workspace.lock,
       });
       const driver = new SyncRoundDriver({
         intervalMs: options.roundIntervalMs,

@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 
 // The Phase-1 endpoint verification: a real daemon on a Unix domain socket + a client over that
 // socket (Http2SessionManager with createConnection → net.connect). TCP stays covered by every other
-// integration test; this nails the UDS path that auto-spawn relies on.
-describe("Unix domain socket endpoint", () => {
+// integration test; this nails the UDS path that auto-spawn relies on. POSIX-only — UDS + chmod 0600
+// are not Windows concepts (Windows defaults to named pipes, covered end-to-end by app-cli's
+// daemon-autospawn and unit-covered by endpoint.test.ts's pipe parsing), and `unix://<tmpdir()>`
+// would feed new URL() a drive-letter path it can't parse on Windows.
+describe.skipIf(process.platform === "win32")("Unix domain socket endpoint", () => {
   let daemon: AppServerDaemon | null = null;
 
   afterEach(async () => {
@@ -21,7 +25,7 @@ describe("Unix domain socket endpoint", () => {
     daemon = await startAppServerDaemon({ listen: `unix://${socketPath}` });
     expect(daemon.address).toBe(`unix://${socketPath}`);
 
-    const client = new AppServerClient(createSocketTransport(daemon.address));
+    const client = new AppServerClient(createSocketTransport(dialTarget(daemon.address)));
     client.connect();
     await openAuthedSession(client);
     await expect(client.rpc.listWorkspaces({})).resolves.toMatchObject({ workspaces: [] });

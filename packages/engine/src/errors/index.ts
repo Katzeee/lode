@@ -62,10 +62,10 @@ export class NotOwnerError extends Error {
   }
 }
 
-/** The identity vault is not unlocked, so an authed command cannot get its actor keypair.
- *  `subtype` tells the client which credential to prompt for: `cold` = locked from scratch (needs the
- *  passphrase); `lease-expired` = keys still in memory for running sync, re-confirmable by PIN (Phase
- *  2b). The daemon maps this to Connect `Code.FailedPrecondition`. */
+/** The identity vault is not unlocked, so an authed command cannot get its actor keypair. The daemon
+ *  maps this to Connect `Code.FailedPrecondition` and attaches a stable `x-lode-vault-locked` trailer
+ *  marker the client detects (NOT the message wording). `subtype` is engine-internal — for daemon-side
+ *  logging only; the client chooses passphrase vs PIN via `getVaultStatus`, never via the subtype. */
 export class VaultLockedError extends Error {
   readonly subtype: "cold" | "lease-expired";
   constructor(subtype: "cold" | "lease-expired" = "cold") {

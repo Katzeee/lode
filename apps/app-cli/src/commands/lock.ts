@@ -1,5 +1,6 @@
 import { ConnectError, Code } from "@connectrpc/connect";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "@lode/daemon/endpoint";
 import { VaultState } from "@lode/protocol/proto";
 import type { ParsedCli } from "../args.js";
 import { promptHidden } from "../prompt.js";
@@ -19,7 +20,7 @@ export async function executeLockCommand(parsed: ParsedCli, endpoint: string): P
 }
 
 async function unlock(endpoint: string): Promise<string> {
-  const client = new AppServerClient(createSocketTransport(endpoint));
+  const client = new AppServerClient(createSocketTransport(dialTarget(endpoint)));
   try {
     await unlockVaultInteractive(client.rpc);
     return "Vault unlocked.";
@@ -60,7 +61,7 @@ export async function unlockVaultInteractive(rpc: {
 }
 
 async function lock(endpoint: string): Promise<string> {
-  const client = new AppServerClient(createSocketTransport(endpoint));
+  const client = new AppServerClient(createSocketTransport(dialTarget(endpoint)));
   try {
     await client.rpc.lockVault({});
     return "Vault locked.";

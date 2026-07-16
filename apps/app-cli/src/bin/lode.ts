@@ -8,6 +8,7 @@ import {
   isVaultLockedError,
   type LodeCommandsClient,
 } from "@lode/client";
+import { dialTarget } from "@lode/daemon/endpoint";
 import { parseCli, type ParsedCli } from "../args.js";
 import { executeCommand } from "../commands.js";
 import { executeActorCommand } from "../commands/actor.js";
@@ -54,7 +55,7 @@ async function main(): Promise<void> {
 
     // actor commands + domain commands: send the identity headers on every RPC.
     const headers = await buildHeaders(env.paths, parsed.actor);
-    client = new AppServerClient(createSocketTransport(endpoint, { headers }));
+    client = new AppServerClient(createSocketTransport(dialTarget(endpoint), { headers }));
     const output =
       parsed.group === "actor"
         ? await executeActorCommand(client.rpc, parsed, `actor ${parsed.action ?? ""}`, env.paths)

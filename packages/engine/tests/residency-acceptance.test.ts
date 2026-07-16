@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { generateActorKeypair } from "../src/crypto/index.js";
+import type { Engine } from "../src/core/index.js";
 import { TestWorkspaceRegistry as WorkspaceRegistry } from "./support/workspace-registry.js";
 import type { ShardedBlockStore } from "../src/core/store/sharded-store.js";
 
@@ -26,6 +27,16 @@ const storeOf = (engine: { asOutliner(): unknown }): ShardedBlockStore =>
 const engineOf = (registry: WorkspaceRegistry, workspaceId: string) =>
   registry.runWorkspace(workspaceId, ({ engine }) => engine);
 
+/** Run a mutation under the workspace's EXCLUSIVE lock — writes must be inside an exclusive
+ *  boundary now that the loro single-writer guard is active. */
+async function mutate<T>(
+  registry: WorkspaceRegistry,
+  workspaceId: string,
+  operation: (engine: Engine) => T | Promise<T>,
+): Promise<T> {
+  return registry.runWorkspaceExclusive(workspaceId, ({ engine }) => operation(engine));
+}
+
 describe("terminal acceptance: residentShardCount ≤ capacity across load / edit / undo / fork", () => {
   it("a large workspace stays within capacity on load, edit, undo, and fork", async () => {
     const cap = 4;
@@ -40,19 +51,21 @@ describe("terminal acceptance: residentShardCount ≤ capacity across load / edi
 
     // Create 40 children (fanned across many of the 256 shards) — far beyond capacity.
     const occs: string[] = [];
-    for (let i = 0; i < 40; i++) {
-      occs.push((await engine.createNode(root.occurrenceId)).occurrenceId);
-    }
+    await mutate(rt, "ws", async (e) => {
+      for (let i = 0; i < 40; i++) {
+        occs.push((await e.createNode(root.occurrenceId)).occurrenceId);
+      }
+    });
     await storeOf(engine).flushDirty(); // flush + unpin + evictToFit
     expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Edit a node, flush → resident still bounded.
-    await engine.replaceDeltas(occs.at(0)!, [{ insert: "edited" }]);
+    await mutate(rt, "ws", (e) => e.replaceDeltas(occs.at(0)!, [{ insert: "edited" }]));
     await storeOf(engine).flushDirty();
     expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 
     // Undo the edit, flush → resident still bounded.
-    await engine.undo();
+    await mutate(rt, "ws", (e) => e.undo());
     await storeOf(engine).flushDirty();
     expect(storeOf(engine).residentShardCount).toBeLessThanOrEqual(cap);
 

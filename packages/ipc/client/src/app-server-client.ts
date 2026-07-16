@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import net from "node:net";
+import type { Socket } from "node:net";
 import { createClient, type Client, type Interceptor } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
 import { LodeCommands, type Notification, type SessionInfo } from "@lode/protocol/proto";
@@ -91,43 +91,36 @@ export type AuthenticateOptions = {
   readonly client?: { readonly name?: string; readonly version?: string };
 };
 
-// The socket transport: a Connect gRPC client over HTTP/2 to the daemon. The endpoint selects the
-// transport: a Unix domain socket (`unix:///<path>`) or Windows named pipe (`pipe://<name>`) dial via
-// a custom `createConnection` (the HTTP/2 authority is a placeholder — the socket IS the channel);
-// an `http://`/`tcp://` URL is plain TCP loopback (tests / explicit remote).
-function socketTarget(endpoint: string): { authority: string; dialPath: string } | undefined {
-  if (endpoint.startsWith("unix://")) {
-    return { authority: "http://lode.local", dialPath: endpoint.slice("unix://".length) };
-  }
-  if (endpoint.startsWith("pipe://")) {
-    // pipe://<name> -> the Windows named pipe \\.\pipe\<name>.
-    return {
-      authority: "http://lode.local",
-      dialPath: `\\\\.\\pipe\\${endpoint.slice("pipe://".length)}`,
-    };
-  }
-  return undefined;
-}
+/** A pre-resolved dial target — what `createSocketTransport` runs gRPC/HTTP-2 over. The client is
+ *  scheme-agnostic: it does NOT know whether the channel is a Unix domain socket, a Windows named
+ *  pipe, or TCP. The caller (the daemon-side `endpoint.ts`, which owns scheme resolution) hands it
+ *  one of:
+ *    `{ tcpUrl }`                   plain TCP loopback — `Http2SessionManager` dials the URL itself;
+ *    `{ authority, createConnection }` a UDS/pipe — the HTTP/2 session runs over the supplied socket,
+ *                                    with `authority` as the `:authority` pseudo-header placeholder.
+ *  The field names are the contract between `@lode/client` and `@lode/daemon/endpoint`; the client
+ *  owns the type, the daemon produces structurally-matching values. */
+export type SocketDial =
+  | { readonly tcpUrl: string }
+  | { readonly authority: string; readonly createConnection: () => Socket };
 
 /** The socket transport: a Connect gRPC client over an HTTP/2 loopback to the daemon. `headers` (the
  *  socket deployment's per-call identity — `lode-client-id`, `lode-actor-id`) are stamped on every RPC
  *  via an interceptor. */
 export function createSocketTransport(
-  url: string,
+  dial: SocketDial,
   options?: { readonly headers?: Record<string, string> },
 ): AppServerTransport {
-  const socket = socketTarget(url);
-  const baseUrl = socket?.authority ?? url;
   const sessionManager =
-    socket !== undefined
-      ? // `createConnection` is passed straight to http2.connect — a UDS/pipe gives a raw Duplex the
+    "tcpUrl" in dial
+      ? new Http2SessionManager(dial.tcpUrl)
+      : // `createConnection` is passed straight to http2.connect — a UDS/pipe gives a raw Duplex the
         // HTTP/2 session runs over, with a placeholder authority for the `:authority` pseudo-header.
-        new Http2SessionManager(socket.authority, undefined, {
-          createConnection: () => net.connect(socket.dialPath),
-        })
-      : new Http2SessionManager(url);
+        new Http2SessionManager(dial.authority, undefined, {
+          createConnection: dial.createConnection,
+        });
   const transport = createGrpcTransport({
-    baseUrl,
+    baseUrl: "tcpUrl" in dial ? dial.tcpUrl : dial.authority,
     sessionManager,
     ...(options?.headers === undefined
       ? {}

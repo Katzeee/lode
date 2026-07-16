@@ -1,12 +1,16 @@
-// LODE_HOME — the per-user home directory that bundles a daemon's data, identity vault, endpoint,
-// and discovery metadata. One home ≈ one daemon (the unit of store isolation). Pure (node builtins
-// only): exported via the `@lode/daemon/home` subpath so light clients (app-cli) resolve an endpoint
-// without pulling the engine.
+// LODE_HOME — the per-user home directory that bundles a daemon's data, identity vault, endpoint, and
+// discovery metadata. One home ≈ one daemon (the unit of store isolation). This module owns the home's
+// PATH LAYOUT only. The crash-safe FS helpers (atomicWrite / readTextMaybe / readJsonMaybe / ensureDir)
+// live in the engine's persistence leaf and are re-exported here so the CLI — layered above the daemon
+// and structurally unable to depend on @lode/engine — can still reach them through @lode/daemon/home.
+// (Endpoint syntax, by contrast, lives in ./endpoint.ts and is reached via @lode/daemon/endpoint.)
 
-import { createHash, randomUUID } from "node:crypto";
-import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { homedir, platform } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
+
+// Facade, not a compat shim: the engine owns the atomic-write protocol; the daemon re-exposes it at
+// this subpath because app-cli → daemon → engine and app-cli cannot import the engine directly.
+export { atomicWrite, ensureDir, readJsonMaybe, readTextMaybe } from "@lode/engine";
 
 export type LodeHomePaths = {
   /** The home directory itself. */
@@ -71,67 +75,4 @@ export function homePaths(home: string): LodeHomePaths {
     activeActor: join(home, "active-actor"),
     logs: join(home, "logs"),
   };
-}
-
-/** The daemon's default endpoint when `--listen` is absent: a Unix domain socket on POSIX, a Windows
- *  named pipe on Win32. `pipe://lode-<sha1(home)[:16]>` keeps each home's pipe name distinct. */
-export function defaultEndpoint(home: string): string {
-  if (platform() === "win32") {
-    const hash = createHash("sha1").update(home).digest("hex").slice(0, 16);
-    return `pipe://lode-${hash}`;
-  }
-  return `unix://${join(home, "daemon.sock")}`;
-}
-
-/** For a unix:// endpoint, the on-disk socket path (for stale cleanup); undefined otherwise. */
-export function socketPathOf(endpoint: string): string | undefined {
-  if (endpoint.startsWith("unix://")) {
-    return endpoint.slice("unix://".length);
-  }
-  return undefined;
-}
-
-/** mkdir -p. */
-export async function ensureDir(path: string): Promise<void> {
-  await mkdir(path, { recursive: true });
-}
-
-/** Read + JSON.parse a file, or `undefined` if it doesn't exist / is unreadable. */
-export async function readJsonMaybe<T>(path: string | URL): Promise<T | undefined> {
-  try {
-    const raw = await readFile(path, "utf8");
-    return JSON.parse(raw) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-/** Atomic write: temp file in the same dir → fsync → rename over the target. A crash leaves either
- *  the previous complete file or the new complete file, never a partial write. */
-export async function atomicWrite(path: string, data: string): Promise<void> {
-  await ensureDir(dirname(path));
-  const tmp = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
-  const handle = await open(tmp, "wx");
-  try {
-    await handle.writeFile(data);
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await rename(tmp, path);
-  } catch {
-    // Windows rename refuses to overwrite — unlink the stale target first, then rename.
-    await unlink(path).catch(() => {});
-    await rename(tmp, path);
-  }
-}
-
-/** Read a small text file, or undefined if missing. */
-export async function readTextMaybe(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, "utf8");
-  } catch {
-    return undefined;
-  }
 }

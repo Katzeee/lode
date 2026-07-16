@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { generateActorKeypair } from "../../crypto/index.js";
 import { Engine } from "../../core/engine.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
@@ -63,12 +64,14 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
       security: sec(actorA),
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -88,8 +91,8 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     eavesdropper.subscribe("W");
     await settle();
 
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     await ma.sync();
     await mb.sync();
     eavesdropper.close();
@@ -139,6 +142,7 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const ta = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(a.store),
       workspaceId: "W",
@@ -146,6 +150,7 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
       responseTimeoutMs: 80,
     });
     const tb = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(b.store),
       workspaceId: "W",
@@ -160,8 +165,8 @@ describe("BrokerSyncProtocol — secured (transit-key AEAD + actor signing)", ()
     const page = await a.engine.createNode(root.occurrenceId, undefined, { kind: "page" });
     await a.engine.replaceDeltas(page.occurrenceId, [{ insert: "members-only" }]);
 
-    const ma = new SyncExchange(a.store, ta);
-    const mb = new SyncExchange(b.store, tb);
+    const ma = new SyncExchange(a.store, ta, new NoopWorkspaceLock());
+    const mb = new SyncExchange(b.store, tb, new NoopWorkspaceLock());
     // Both rounds time out: A's reqs are dropped by B; B's reqs get responses from A but B drops them.
     await expect(ma.sync()).rejects.toThrow(/timeout|closed/);
     await expect(mb.sync()).rejects.toThrow(/timeout|closed/);

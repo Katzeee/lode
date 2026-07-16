@@ -22,6 +22,7 @@ import {
 } from "./factory.js";
 import type { RuntimeWorkspaceInfo } from "./types.js";
 import { WorkspaceRuntime } from "./workspace-runtime.js";
+import { RwWorkspaceLock, type WorkspaceLock } from "./loro-lock.js";
 import { inMemoryContentOpener, persistentContentOpener } from "./content-openers.js";
 import {
   WorkspaceCheckpointResource,
@@ -72,8 +73,13 @@ export class WorkspaceRegistry implements RuntimeResource {
       config.snapshotEveryUpdates,
     );
     const host = {
-      mount: (id: string, ws: Workspace, store: WorkspaceStore | null, docStore: DocStore) =>
-        this.mount(id, ws, store, docStore),
+      mount: (
+        id: string,
+        ws: Workspace,
+        store: WorkspaceStore | null,
+        docStore: DocStore,
+        lock: WorkspaceLock,
+      ) => this.mount(id, ws, store, docStore, lock),
       flushDirty: (id: string) => this.flushDirty(id),
       runWorkspace: <T>(id: string, operation: (runtime: WorkspaceRuntime) => Promise<T>) =>
         this.runWorkspace(id, operation),
@@ -147,12 +153,15 @@ export class WorkspaceRegistry implements RuntimeResource {
   }
 
   /** Atomically mount a loaded workspace component and index it. The component is the owner of the
-   *  workspace engine, persistence, membership, events, operations, and attached sync session. */
+   *  workspace engine, persistence, membership, events, operations, and attached sync session. The
+   *  `lock` is the per-workspace loro read/write lock, created by the construct path that calls mount
+   *  (create/fork/load) and shared by the runtime's read/write boundaries + the sync sub-graph. */
   private async mount(
     workspaceId: string,
     workspace: Workspace,
     store: WorkspaceStore | null,
     docStore: DocStore,
+    lock: WorkspaceLock,
   ): Promise<WorkspaceRuntime> {
     const mounted = await this.instance.mount(`workspace:${workspaceId}`, async (instance) => {
       instance.own(new WorkspaceResource(workspace));
@@ -160,11 +169,16 @@ export class WorkspaceRegistry implements RuntimeResource {
       instance.own(new WorkspaceCheckpointResource(this.persistence, docStore));
       const facts = new Bus(`workspace:${workspaceId}`);
       instance.own({ id: "workspace-facts", release: () => facts.dispose() });
+      // The membership metaDoc shares the workspace lock as its write guard (governance appends are a
+      // write → exclusive). The outliner engine receives the same guard via the factory/load path.
       const membershipLog = new MembershipLog(
-        new LoroMetaDoc(MEMBERSHIP_DOC_ID),
+        new LoroMetaDoc(MEMBERSHIP_DOC_ID, undefined, lock),
         new DocStoreMembershipPersistence(docStore, MEMBERSHIP_DOC_ID),
       );
-      await membershipLog.load();
+      // membership.load() is a runtime loro write (importUpdate) → under the exclusive lock, and
+      // BEFORE this.loaded is set, so the workspace is fully loaded before any concurrent accessor
+      // can see it (load semantics preserved).
+      await lock.write(() => membershipLog.load());
       return new WorkspaceRuntime(
         workspaceId,
         instance,
@@ -173,6 +187,7 @@ export class WorkspaceRegistry implements RuntimeResource {
         docStore,
         membershipLog,
         facts,
+        lock,
       );
     });
     const runtime = mounted.api;
@@ -292,16 +307,30 @@ export class WorkspaceRegistry implements RuntimeResource {
 
   private async loadPersistent(record: WorkspaceRecord): Promise<WorkspaceRuntime> {
     const { store, docStore } = await this.config.opener.open(record);
-    let workspace: Workspace;
+    // The per-workspace lock is the first artifact: it guards the outliner engine (constructed by
+    // loadOutliner below) AND the runtime/metaDoc (constructed by mount), so it must precede both.
+    const lock = new RwWorkspaceLock();
+    const workspace = new Workspace({ id: record.workspaceId });
+    let needsReconcile: boolean;
     try {
-      workspace = new Workspace({ id: record.workspaceId });
-      await this.persistence.loadOutliner(docStore, workspace);
+      needsReconcile = await this.persistence.loadOutliner(docStore, workspace, lock);
     } catch (error) {
-      // loadOutliner can reject a corrupt persisted state (validateSnapshot after reconcile).
+      // loadOutliner can reject a corrupt persisted state (the tree bytes fail to hydrate).
       // No child component exists yet, so close the store directly to avoid leaking the handle.
       await store?.close();
       throw error;
     }
-    return this.mount(record.workspaceId, workspace, store, docStore);
+    // Crash-restart reconcile is a runtime loro write → under the exclusive lock, and BEFORE mount (so
+    // a workspace is never indexed half-reconciled, and a failed validate never indexes at all — load
+    // semantics preserved). needsReconcile ⇒ the tree hydrated ⇒ the engine exists.
+    if (needsReconcile) {
+      try {
+        await lock.write(() => this.persistence.reconcileLoaded(workspace.engine!));
+      } catch (error) {
+        await store?.close();
+        throw error;
+      }
+    }
+    return this.mount(record.workspaceId, workspace, store, docStore, lock);
   }
 }

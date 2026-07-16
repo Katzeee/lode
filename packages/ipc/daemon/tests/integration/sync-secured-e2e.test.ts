@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { BrokerClient, BrokerServer } from "@lode/engine";
 import type { AppServerDaemon } from "../../src/app-server-daemon.js";
 import { startAppServerDaemon } from "../../src/app-server-daemon.js";
@@ -90,8 +91,8 @@ describe("daemon sync e2e (secured)", () => {
     const owner = await bootDaemon();
     const member = await bootDaemon();
 
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
-    const memberClient = new AppServerClient(createSocketTransport(member.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
+    const memberClient = new AppServerClient(createSocketTransport(dialTarget(member.address)));
     ownerClient.connect();
     memberClient.connect();
     await openAuthedSession(ownerClient);
@@ -169,7 +170,7 @@ describe("daemon sync e2e (secured)", () => {
     const syncUrl = `http://127.0.0.1:${relay.port}`;
 
     const owner = await bootDaemon();
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
     ownerClient.connect();
     await openAuthedSession(ownerClient);
     // Owner creates + registers its workspace (the owner's session actor is the registrant).
@@ -179,7 +180,7 @@ describe("daemon sync e2e (secured)", () => {
     // A second session on the SAME daemon, a DIFFERENT actor, tries to register the owner's workspace.
     // Without the guard this would overwrite the owner's keypair and brick addMember for the real
     // owner; the guard refuses it.
-    const intruderClient = new AppServerClient(createSocketTransport(owner.address));
+    const intruderClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
     intruderClient.connect();
     await openAuthedSession(intruderClient);
     await expect(
@@ -206,8 +207,8 @@ describe("daemon sync e2e (secured)", () => {
     const owner = await bootDaemon({ syncIntervalMs: 60000 });
     const member = await bootDaemon({ syncIntervalMs: 60000 });
 
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
-    const memberClient = new AppServerClient(createSocketTransport(member.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
+    const memberClient = new AppServerClient(createSocketTransport(dialTarget(member.address)));
     ownerClient.connect();
     memberClient.connect();
     await openAuthedSession(ownerClient);
@@ -282,8 +283,8 @@ describe("daemon sync e2e (secured)", () => {
     const owner = await bootDaemon({ syncIntervalMs: 60000 });
     const member = await bootDaemon({ syncIntervalMs: 60000 });
 
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
-    const memberClient = new AppServerClient(createSocketTransport(member.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
+    const memberClient = new AppServerClient(createSocketTransport(dialTarget(member.address)));
     ownerClient.connect();
     memberClient.connect();
     await openAuthedSession(ownerClient);
@@ -339,8 +340,8 @@ describe("daemon sync e2e (secured)", () => {
     const owner = await bootDaemon({ syncIntervalMs: 60000 });
     const member = await bootDaemon({ syncIntervalMs: 60000 });
 
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
-    const memberClient = new AppServerClient(createSocketTransport(member.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
+    const memberClient = new AppServerClient(createSocketTransport(dialTarget(member.address)));
     ownerClient.connect();
     memberClient.connect();
     await openAuthedSession(ownerClient);
@@ -416,8 +417,8 @@ describe("daemon sync e2e (secured)", () => {
     const owner = await bootDaemon();
     const member = await bootDaemon({ dataRoot: memberDataRoot });
 
-    const ownerClient = new AppServerClient(createSocketTransport(owner.address));
-    const memberClient = new AppServerClient(createSocketTransport(member.address));
+    const ownerClient = new AppServerClient(createSocketTransport(dialTarget(owner.address)));
+    const memberClient = new AppServerClient(createSocketTransport(dialTarget(member.address)));
     ownerClient.connect();
     memberClient.connect();
     await openAuthedSession(ownerClient);
@@ -457,7 +458,7 @@ describe("daemon sync e2e (secured)", () => {
     daemons.splice(daemons.indexOf(member), 1); // already stopped; don't let afterEach double-stop it
 
     const member2 = await bootDaemon({ dataRoot: memberDataRoot });
-    const memberClient2 = new AppServerClient(createSocketTransport(member2.address));
+    const memberClient2 = new AppServerClient(createSocketTransport(dialTarget(member2.address)));
     memberClient2.connect();
     await openAuthedSession(memberClient2);
     try {

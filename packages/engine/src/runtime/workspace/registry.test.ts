@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LoroMap, VersionVector } from "loro-crdt";
+import type { Engine } from "../../core/index.js";
 import { generateActorKeypair } from "../../crypto/index.js";
 import { TestWorkspaceRegistry as WorkspaceRegistry } from "../../../tests/support/workspace-registry.js";
 import { mutateShard, readShardDoc } from "../../../tests/support/shard-doc.js";
@@ -11,6 +12,17 @@ import { shardIdOf } from "../../core/store/sharding.js";
 
 async function engineOf(registry: WorkspaceRegistry, workspaceId: string) {
   return registry.runWorkspace(workspaceId, ({ engine }) => engine);
+}
+
+/** Run a mutation under the workspace's EXCLUSIVE lock — required now that the loro single-writer
+ *  guard rejects any write outside an exclusive boundary. Reads may use `engineOf` (shared); writes
+ *  must go through here. */
+async function mutate<T>(
+  registry: WorkspaceRegistry,
+  workspaceId: string,
+  operation: (engine: Engine) => T | Promise<T>,
+): Promise<T> {
+  return registry.runWorkspaceExclusive(workspaceId, ({ engine }) => operation(engine));
 }
 
 /**
@@ -33,20 +45,23 @@ afterEach(async () => {
 const buildAndMutate = async (dataRoot: string) => {
   const rt = await WorkspaceRegistry.persistent({ dataRoot });
   await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-  const engine = await engineOf(rt, "ws");
-  expect(engine.asOutliner()).not.toBeNull();
+  expect((await engineOf(rt, "ws")).asOutliner()).not.toBeNull();
 
-  const root = await engine.createNode(null);
-  for (let i = 0; i < 30; i++) {
-    await engine.createNode(root.occurrenceId, undefined, { i });
-  }
-  await engine.replaceDeltas(root.occurrenceId, [{ insert: "persist me across shards" }]);
-  await engine.mark(root.occurrenceId, { start: 0, end: 4 }, "bold", true);
+  const { rootOcc, rootText } = await mutate(rt, "ws", async (engine) => {
+    const root = await engine.createNode(null);
+    for (let i = 0; i < 30; i++) {
+      await engine.createNode(root.occurrenceId, undefined, { i });
+    }
+    await engine.replaceDeltas(root.occurrenceId, [{ insert: "persist me across shards" }]);
+    await engine.mark(root.occurrenceId, { start: 0, end: 4 }, "bold", true);
+    return {
+      rootOcc: root.occurrenceId,
+      rootText: (await engine.getOccurrence(root.occurrenceId))?.deltas,
+    };
+  });
   // Persist the whole batch (runMutation does this per-call; here one explicit flush).
   await rt.flushDirty("ws");
 
-  const rootOcc = root.occurrenceId;
-  const rootText = (await engine.getOccurrence(rootOcc))?.deltas;
   await rt.close();
   return { rootOcc, rootText };
 };
@@ -73,13 +88,13 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("exposes a stable per-dataRoot peerId wired into the Loro treeDoc", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = await engineOf(rt, "ws");
     const peerId = rt.peerId;
     expect(typeof peerId).toBe("number");
     expect(peerId!).toBeGreaterThan(0);
     // The peerId reached the treeDoc: an op lands under it in the version vector. (Decodes the
     // opaque version bytes here purely to observe the peer set — production code never does this.)
-    await engine.createNode(null);
+    await mutate(rt, "ws", (engine) => engine.createNode(null));
+    const engine = await engineOf(rt, "ws");
     const vvPeers = [
       ...VersionVector.decode(await engine.asOutliner().treeSyncDoc().version())
         .toJSON()
@@ -97,11 +112,16 @@ describe("WorkspaceRegistry sharded persistence", () => {
   it("wires peerId into lazily-created shard docs, not just the treeDoc", async () => {
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = await engineOf(rt, "ws");
     // createNode writes an entity into the owning shard, materializing that shard lazily.
-    const node = await engine.createNode(null);
-    const store = engine.asOutliner() as ShardedBlockStore;
-    const shard = await readShardDoc(store, shardIdOf(node.nodeId, store.numShards));
+    const { nodeId, numShards } = await mutate(rt, "ws", async (engine) => {
+      const node = await engine.createNode(null);
+      return {
+        nodeId: node.nodeId,
+        numShards: (engine.asOutliner() as ShardedBlockStore).numShards,
+      };
+    });
+    const store = (await engineOf(rt, "ws")).asOutliner() as ShardedBlockStore;
+    const shard = await readShardDoc(store, shardIdOf(nodeId, numShards));
     const shardPeers = [...shard.version().toJSON().keys()];
     expect(shardPeers).toContain(rt.routingId()!);
     await rt.close();
@@ -114,14 +134,23 @@ describe("WorkspaceRegistry sharded persistence", () => {
     // validateSnapshot (the sharded analog of the old single-engine import validation).
     const rt = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
-    const engine = await engineOf(rt, "ws");
-    const root = await engine.createNode(null);
+    const { nodeId, numShards } = await mutate(rt, "ws", async (engine) => {
+      const root = await engine.createNode(null);
+      return {
+        nodeId: root.nodeId,
+        numShards: (engine.asOutliner() as ShardedBlockStore).numShards,
+      };
+    });
 
-    const store = engine.asOutliner() as ShardedBlockStore;
-    await mutateShard(store, shardIdOf(root.nodeId, store.numShards), (shard) => {
-      const entity = shard.getMap("entities").get(root.nodeId);
-      expect(entity).toBeInstanceOf(LoroMap);
-      (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
+    // Corrupt the canonical via a raw shard import — under the workspace's exclusive boundary now
+    // that importUpdate is a guarded write inlet (mutateShard's importUpdate asserts the lock).
+    await mutate(rt, "ws", async (engine) => {
+      const store = engine.asOutliner() as ShardedBlockStore;
+      await mutateShard(store, shardIdOf(nodeId, numShards), (shard) => {
+        const entity = shard.getMap("entities").get(nodeId);
+        expect(entity).toBeInstanceOf(LoroMap);
+        (entity as LoroMap).set("canonicalOccurrenceId", "ghost-occurrence");
+      });
     });
     await rt.flushDirty("ws");
     // Crash-close (no clean marker) so the reload runs validate, which rejects the unhealable break.
@@ -129,6 +158,10 @@ describe("WorkspaceRegistry sharded persistence", () => {
 
     const rt2 = await WorkspaceRegistry.persistent({ dataRoot: tempDir });
     try {
+      // The validate rejects the unhealable break. A failed load must NOT leave a broken workspace
+      // indexed — a second access re-attempts the load (does not serve a half-loaded workspace) and
+      // fails the same way.
+      await expect(rt2.runWorkspace("ws", async () => {})).rejects.toThrow(/canonical/i);
       await expect(rt2.runWorkspace("ws", async () => {})).rejects.toThrow(/canonical/i);
     } finally {
       await rt2.close();
@@ -207,11 +240,11 @@ describe("WorkspaceRegistry sharded persistence", () => {
   });
 });
 
-describe("WorkspaceRegistry.runWorkspaceExclusive: per-workspace operation lease", () => {
-  // The CRDT-paradigm serialization: same-workspace mutations queue (one completes before the next
-  // starts), different workspaces run in parallel. This is what makes the residentSession working-set
-  // gate reliably single-operation + keeps concurrent multi-client writes from erroring ("session
-  // already active") or tearing a read-modify-write.
+describe("WorkspaceRegistry.runWorkspaceExclusive: per-workspace exclusive lock serializes writes", () => {
+  // The CRDT-paradigm serialization: same-workspace mutations queue on the per-workspace exclusive
+  // lock (one completes before the next starts), different workspaces run in parallel (separate
+  // locks). This is what keeps the residentSession working-set gate reliably single-operation and
+  // keeps concurrent multi-client writes from tearing a read-modify-write.
   const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   it("same-workspace works serialize: B's body runs only after A completes", async () => {
@@ -239,13 +272,14 @@ describe("WorkspaceRegistry.runWorkspaceExclusive: per-workspace operation lease
     }
   });
 
-  it("a failed work does not block a later work on the same workspace (chain stays fulfilled)", async () => {
+  it("a failed work does not block a later work on the same workspace (the lock releases on throw)", async () => {
     const rt = await WorkspaceRegistry.inMemory();
     try {
       await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
       const first = rt.runWorkspaceExclusive("ws", () => Promise.reject(new Error("boom")));
       await expect(first).rejects.toThrow("boom");
-      // A later work on the same workspace still runs (the chain didn't stay rejected).
+      // A later work on the same workspace still runs: the exclusive lock released in the finally
+      // even though the body rejected, so the next acquire isn't wedged.
       const ran = rt.runWorkspaceExclusive("ws", () => Promise.resolve("ok"));
       await expect(ran).resolves.toBe("ok");
     } finally {
@@ -273,6 +307,22 @@ describe("WorkspaceRegistry.runWorkspaceExclusive: per-workspace operation lease
       // point: neither threw "already running" + both completed. Parallelism (bStarted seen by A) is
       // the expected signal; allow either timing but assert both finished cleanly.
       expect(aStarted.length).toBe(1);
+    } finally {
+      await rt.close();
+    }
+  });
+
+  it("rejects a loro write inside a shared (read) boundary — the single-writer backstop", async () => {
+    const rt = await WorkspaceRegistry.inMemory();
+    try {
+      await rt.createWorkspace({ workspaceId: "ws", displayName: "WS" });
+      // A read (shared) boundary: a mutation must throw, not silently write under a read lock —
+      // this is the §1.6 guard closing the loop end-to-end through the workspace wiring.
+      await expect(rt.runWorkspace("ws", ({ engine }) => engine.createNode(null))).rejects.toThrow(
+        /read-only/,
+      );
+      // The same mutation under the exclusive boundary succeeds (and the rejected write left nothing).
+      await expect(mutate(rt, "ws", (engine) => engine.createNode(null))).resolves.toBeDefined();
     } finally {
       await rt.close();
     }

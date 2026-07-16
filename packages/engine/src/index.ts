@@ -24,6 +24,11 @@ export { DomainInvalidInputError } from "./domain/errors.js";
 export type { VaultTtl } from "./runtime/identity/vault-file.js";
 export { parseUnlockTtl, DEFAULT_TTL } from "./runtime/identity/vault-file.js";
 
+// Crash-safe small-file helpers (atomic write + best-effort readers). The single owner of the write
+// protocol; the daemon re-exports these via `@lode/daemon/home` so the CLI (layered above the daemon)
+// can reach them without depending on the engine directly.
+export { atomicWrite, ensureDir, readJsonMaybe, readTextMaybe } from "./persistence/atomic-file.js";
+
 export type { EngineRuntime, RuntimeConfig } from "./engine-runtime.js";
 export { createEngineRuntime } from "./engine-runtime.js";
 // Shared empty-response instance for void RPCs (the daemon's host-only handlers reuse it).

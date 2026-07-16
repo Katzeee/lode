@@ -1,6 +1,7 @@
 import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../core/store/syncable.js";
 import { sameBytes } from "../membership/membership-log.js";
 import type { SyncProfile, SyncTransport } from "./transport.js";
+import { NoopWorkspaceLock, type WorkspaceLock } from "../workspace/loro-lock.js";
 
 /** A peer's per-doc versions — the cheap metadata exchanged first to find what differs. Opaque
  *  version bytes per sub-doc id; the CRDT backend is closed behind `SyncableDoc`, so this type (and
@@ -37,6 +38,12 @@ export class SyncExchange {
   constructor(
     private readonly composite: SyncableComposite,
     private readonly transport: SyncTransport,
+    /** The workspace's loro lock. Each loro stage acquires it (shared for version / export reads,
+     *  exclusive for import + heal) so a sync round never re-enters a client read or write; network
+     *  stays between stages (outside the lock). Production injects the real `RwWorkspaceLock`; core
+     *  sync tests over bare composites inject `NoopWorkspaceLock` (they exercise the algorithm, not the
+     *  boundary discipline). */
+    private readonly lock: WorkspaceLock,
   ) {}
 
   async sync(): Promise<{ pulled: number; pushed: number; considered: number }> {
@@ -63,7 +70,9 @@ export class SyncExchange {
     // earlier exchange revealed (treeDoc → shard ownership) are picked up. Ids are stable, so the
     // `seen` set terminates the loop once every surfaced doc has been considered.
     for (;;) {
-      const next = this.composite.docs().find((d) => !seen.has(d.id));
+      // docs() reads ownership (a loro read on the treeDoc) → under shared so it can't race a writer.
+      const docs = await this.lock.read(() => this.composite.docs());
+      const next = docs.find((d) => !seen.has(d.id));
       if (!next) {
         break;
       }
@@ -106,7 +115,8 @@ export class SyncExchange {
       });
     }
 
-    await this.composite.heal();
+    // heal writes (orphan sweep) → exclusive.
+    await this.lock.write(() => this.composite.heal());
     return { pulled, pushed, considered };
   }
 
@@ -127,7 +137,9 @@ export class SyncExchange {
     }
     let pushed = 0;
     for (const doc of this.composite.pushDocs()) {
-      const bytes = await doc.exportUpdate(this.lastRemoteVersion.get(doc.id));
+      const bytes = await this.lock.read(() =>
+        doc.exportUpdate(this.lastRemoteVersion.get(doc.id)),
+      );
       if (bytes.length > 0) {
         await this.transport.sendUpdates(doc.id, bytes);
         pushed++;
@@ -139,26 +151,30 @@ export class SyncExchange {
   /** Exchange one doc both ways in a round: pull peer→local, push local→peer (captured before
    *  import so the push never echoes the peer's own ops back). Returns whether each side moved bytes
    *  (the runner's round-summary log keys off it) + the post-exchange local version (which equals
-   *  the peer's post-exchange version after convergence — the incremental cursor's peerVersion). */
+   *  the peer's post-exchange version after convergence — the incremental cursor's peerVersion).
+   *
+   *  Locking is per-stage (§1.4): each loro touch acquires the workspace lock — version / exportUpdate
+   *  under SHARED, importUpdate under EXCLUSIVE — and the network (fetch / send) runs BETWEEN stages,
+   *  outside the lock, so an exclusive boundary never spans the network. */
   private async exchangeDoc(
     doc: SyncableDoc,
     remoteVersion: SyncBytes | undefined,
   ): Promise<{ pulled: boolean; pushed: boolean; version: SyncBytes }> {
-    const localVersion = await doc.version();
+    const localVersion = await this.lock.read(() => doc.version());
     const pull =
       remoteVersion === undefined
         ? new Uint8Array(0)
         : await this.transport.fetchUpdates(doc.id, localVersion);
-    const push = await doc.exportUpdate(remoteVersion);
+    const push = await this.lock.read(() => doc.exportUpdate(remoteVersion));
     if (pull.length > 0) {
-      await doc.importUpdate(pull);
+      await this.lock.write(() => doc.importUpdate(pull));
     }
     if (push.length > 0) {
       await this.transport.sendUpdates(doc.id, push);
     }
     // Post-exchange (after importing the pull): both sides have converged, so the local version
     // equals the peer's. This is the cursor's peerVersion for next round's peerChanged check.
-    const version = pull.length > 0 ? await doc.version() : localVersion;
+    const version = pull.length > 0 ? await this.lock.read(() => doc.version()) : localVersion;
     return { pulled: pull.length > 0, pushed: push.length > 0, version };
   }
 }
@@ -218,6 +234,8 @@ export class InMemorySyncTransport implements SyncTransport {
 
 /** Sync two in-process composites to convergence in one round (both directions + both heals). */
 export async function syncPair(a: SyncableComposite, b: SyncableComposite): Promise<void> {
-  await new SyncExchange(a, new InMemorySyncTransport(b)).sync();
+  // Bare-composite test helper — no workspace, so a Noop lock (the algorithm under test, not the
+  // boundary discipline).
+  await new SyncExchange(a, new InMemorySyncTransport(b), new NoopWorkspaceLock()).sync();
   await b.heal();
 }

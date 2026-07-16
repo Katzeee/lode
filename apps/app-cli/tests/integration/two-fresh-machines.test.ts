@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "@lode/daemon/endpoint";
 import { BrokerServer, generateMnemonic } from "@lode/engine";
 import { startAppServerDaemon, type AppServerDaemon } from "@lode/daemon";
 import { parseCli } from "../../src/args.js";
@@ -47,8 +48,8 @@ describe("two fresh machines — share→join→see (in-process)", () => {
       dataRoot: tmpB,
       syncIntervalMs: 30,
     });
-    ownerClient = new AppServerClient(createSocketTransport(ownerD.address));
-    memberClient = new AppServerClient(createSocketTransport(memberD.address));
+    ownerClient = new AppServerClient(createSocketTransport(dialTarget(ownerD.address)));
+    memberClient = new AppServerClient(createSocketTransport(dialTarget(memberD.address)));
     ownerClient.connect();
     memberClient.connect();
   });

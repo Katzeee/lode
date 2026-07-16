@@ -124,27 +124,44 @@ describe("mid-burst residency: an un-flushed multi-shard write burst stays bound
 });
 
 /**
- * Infra is session-exempt — the structural closure of the "operation × infra" race class. The
- * working-set assertion in `shardForRead` is for OPERATIONS (CRUD via `ensureResident`); infra (heal,
- * sync, persist) must NOT be gated by a concurrent operation's session. `healContext` exposes RAW
- * faults (`shardCache.get` + `markDirty`), not the gated accessors — so heal can't trip the gate.
- * This is the deterministic replacement for the daemon `local-write-pushes` flake (where sync tripped
- * the gate under load): arm a session, run heal (which scans every shard, most outside the session)
- * — it must not throw.
+ * The working-set gate is an OPERATION dev-aid: inside an `ensureResident` session, `shardForRead` /
+ * `shardForWrite` throw if a shard OUTSIDE the declared set is touched — catching an under-declared
+ * operation boundary. Infra (heal, sync, flush) goes through the SAME gated accessors; it never trips
+ * the gate because the per-workspace lock (Phase 2) serializes infra against any operation, so infra
+ * always runs with `residentSession === null`. (The daemon `local-write-pushes` flake this class of
+ * test was built for is now prevented structurally — sync cannot run during an operation's session.)
+ *
+ * This pins the gate's contract directly: a session scopes an operation to its declared shards, and
+ * infra (heal) runs freely with no session armed.
  */
-describe("infra session-exempt: heal during an armed working-set session does not trip the gate", () => {
-  it("reconcileDurability + heal scan all shards during an armed session without throwing", async () => {
+describe("working-set gate: scopes an operation's declared shards; infra runs off-session", () => {
+  it("an armed session rejects a shard outside the declared set", async () => {
+    const numShards = 256;
+    const store = new ShardedBlockStore({ numShards });
+    const e = new Engine({ store });
+    // Two nodes forced into DIFFERENT shards.
+    const a = await e.createNode(null);
+    let b = await e.createNode(null);
+    while (shardIdOf(b.nodeId, numShards) === shardIdOf(a.nodeId, numShards)) {
+      b = await e.createNode(null);
+    }
+    e.captureSync();
+    // Arm a session over ONLY a's shard. Editing b (a different shard) via the engine trips the gate.
+    await store.ensureResident([a.nodeId]);
+    await expect(e.replaceDeltas(b.occurrenceId, [{ insert: "x" }])).rejects.toThrow(/working set/);
+    store.release();
+    // Off-session the same edit is allowed — the infra / no-session path.
+    await expect(e.replaceDeltas(b.occurrenceId, [{ insert: "x" }])).resolves.toBeUndefined();
+  });
+
+  it("heal runs (reconcile + sweep) with no session armed — the infra path the lock keeps session-free", async () => {
     const numShards = 8;
     const store = new ShardedBlockStore({ numShards });
     const e = new Engine({ store });
-    const root = await e.createNode(null);
+    await e.createNode(null);
     e.captureSync();
-    // Arm a session over ONLY root's shard. reconcile/heal's delete-direction sweep faults every
-    // s0..s7 — most are outside {rootShard}. A gated heal threw "shard touched outside its declared
-    // working set" here; heal is infra (raw) so it's exempt.
-    await store.ensureResident([root.nodeId]);
+    // No ensureResident session armed → heal's gated faults see residentSession === null → no throw.
     await expect(store.reconcileDurability()).resolves.toBeUndefined();
     await expect(store.heal()).resolves.toBeUndefined();
-    store.release();
   });
 });

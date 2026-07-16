@@ -63,11 +63,11 @@ describe("VaultRuntime", () => {
     await expect(vault.init("short")).rejects.toBeInstanceOf(DomainInvalidInputError);
   });
 
-  it("refuses createIdentity while locked", async () => {
+  it("refuses createIdentity while locked (VaultLockedError so the client can lazy-unlock)", async () => {
     const vault = await VaultRuntime.load(join(dir, "v.json"), { kdfParams: LIGHT });
     await vault.init(PASS);
     vault.lock();
-    await expect(vault.createIdentity("a")).rejects.toBeInstanceOf(PreconditionFailedError);
+    await expect(vault.createIdentity("a")).rejects.toBeInstanceOf(VaultLockedError);
   });
 
   it("importIdentity derives the actorId from the mnemonic", async () => {

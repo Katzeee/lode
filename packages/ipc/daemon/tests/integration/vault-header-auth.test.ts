@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport, isVaultLockedError } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 
 // The Phase-2a socket-deployment auth contract: a vault-backed daemon authenticates each RPC via
@@ -29,7 +30,7 @@ describe("vault header auth (socket deployment)", () => {
   });
 
   it("InitVault → CreateIdentity → header-authed domain command succeeds", async () => {
-    const admin = new AppServerClient(createSocketTransport(daemon.address));
+    const admin = new AppServerClient(createSocketTransport(dialTarget(daemon.address)));
     admin.connect();
     await admin.rpc.initVault({ passphrase: PASS });
     const { actorId } = await admin.rpc.createIdentity({ label: "alice" });
@@ -37,7 +38,7 @@ describe("vault header auth (socket deployment)", () => {
     // A client that carries (clientId, actorId) headers can run authed commands: the vault is
     // UNLOCKED and the actor's keypair is loaded.
     const authed = new AppServerClient(
-      createSocketTransport(daemon.address, {
+      createSocketTransport(dialTarget(daemon.address), {
         headers: { "lode-client-id": "client-1", "lode-actor-id": actorId },
       }),
     );
@@ -50,7 +51,7 @@ describe("vault header auth (socket deployment)", () => {
   it("rejects an authed command with VaultLockedError when the vault is locked", async () => {
     // Fresh vault (LOCKED, not yet initialized): no keypair in memory.
     const authed = new AppServerClient(
-      createSocketTransport(daemon.address, {
+      createSocketTransport(dialTarget(daemon.address), {
         headers: { "lode-client-id": "client-1", "lode-actor-id": "some-actor" },
       }),
     );
@@ -61,13 +62,13 @@ describe("vault header auth (socket deployment)", () => {
   });
 
   it("LockVault after use re-gates authed commands", async () => {
-    const admin = new AppServerClient(createSocketTransport(daemon.address));
+    const admin = new AppServerClient(createSocketTransport(dialTarget(daemon.address)));
     admin.connect();
     await admin.rpc.initVault({ passphrase: PASS });
     const { actorId } = await admin.rpc.createIdentity({ label: "alice" });
 
     const authed = new AppServerClient(
-      createSocketTransport(daemon.address, {
+      createSocketTransport(dialTarget(daemon.address), {
         headers: { "lode-client-id": "client-1", "lode-actor-id": actorId },
       }),
     );

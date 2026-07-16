@@ -1,5 +1,6 @@
 import type { SyncableDoc } from "../../core/store/syncable.js";
 import type { SyncTransport } from "./transport.js";
+import type { WorkspaceLock } from "../workspace/loro-lock.js";
 
 /**
  * Drives one membership-doc gossip round over a transport (design sync-identity-persistence §2/§9).
@@ -14,8 +15,15 @@ import type { SyncTransport } from "./transport.js";
  * (content docs, sealed): a host runs both over one transport each round — membership first, so the
  * security context the content round uses is fresh.
  *
- * Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge).
+ * Push our membership snapshot so peers can import + converge. Idempotent (CRDT merge). The snapshot
+ * export is a loro read → SHARED lock; the network send runs outside the lock. Production passes the
+ * workspace's `RwWorkspaceLock`; core protocol tests over bare docs pass `NoopWorkspaceLock`.
  */
-export async function syncMembershipDoc(transport: SyncTransport, doc: SyncableDoc): Promise<void> {
-  await transport.sendUpdates(doc.id, await doc.exportSnapshot());
+export async function syncMembershipDoc(
+  transport: SyncTransport,
+  doc: SyncableDoc,
+  lock: WorkspaceLock,
+): Promise<void> {
+  const snapshot = await lock.read(() => doc.exportSnapshot());
+  await transport.sendUpdates(doc.id, snapshot);
 }

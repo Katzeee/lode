@@ -1,4 +1,5 @@
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "@lode/daemon/endpoint";
 import { type DaemonMeta, readJsonMaybe } from "@lode/daemon/home";
 import type { ParsedCli } from "../args.js";
 import {
@@ -57,7 +58,7 @@ async function stopDaemon(parsed: ParsedCli): Promise<string> {
     return "Daemon not running.";
   }
   const meta = await readJsonMaybe<DaemonMeta>(env.paths.daemonJson);
-  const client = new AppServerClient(createSocketTransport(endpoint));
+  const client = new AppServerClient(createSocketTransport(dialTarget(endpoint)));
   try {
     await client.rpc.shutdown({});
   } catch {

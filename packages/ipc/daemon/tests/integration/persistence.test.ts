@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fromJson } from "@bufbuild/protobuf";
 import { ValueSchema } from "@bufbuild/protobuf/wkt";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { startAppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 
@@ -23,7 +24,7 @@ describe("AppServer persistence", () => {
       listen: "tcp://127.0.0.1:0",
       persistence: { dataRoot },
     });
-    const client = new AppServerClient(createSocketTransport(server.address));
+    const client = new AppServerClient(createSocketTransport(dialTarget(server.address)));
     client.connect();
     try {
       await openAuthedSession(client);
@@ -74,7 +75,7 @@ describe("AppServer persistence", () => {
     const dataRoot = await tempDataRoot();
 
     const first = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
-    const firstClient = new AppServerClient(createSocketTransport(first.address));
+    const firstClient = new AppServerClient(createSocketTransport(dialTarget(first.address)));
     firstClient.connect();
     await openAuthedSession(firstClient);
     await firstClient.rpc.createWorkspace({ workspaceId: "ws_shortcut", displayName: "Shortcut" });
@@ -91,7 +92,7 @@ describe("AppServer persistence", () => {
     await first.stop();
 
     const second = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
-    const secondClient = new AppServerClient(createSocketTransport(second.address));
+    const secondClient = new AppServerClient(createSocketTransport(dialTarget(second.address)));
     secondClient.connect();
     await openAuthedSession(secondClient);
     try {
@@ -163,7 +164,7 @@ async function startPersistentServer(
     listen: "tcp://127.0.0.1:0",
     persistence: { dataRoot, ...(snapshotEveryUpdates ? { snapshotEveryUpdates } : {}) },
   });
-  const client = new AppServerClient(createSocketTransport(server.address));
+  const client = new AppServerClient(createSocketTransport(dialTarget(server.address)));
   client.connect();
   await openAuthedSession(client);
   return {

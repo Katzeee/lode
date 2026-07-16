@@ -1,19 +1,17 @@
 import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { configureLogger } from "@lode/logger";
-import { parseUnlockTtl, type StopReport } from "@lode/engine";
-import { parseAppServerArgs } from "./app-server-args.js";
-import { startAppServerDaemon, startRelayDaemon } from "./app-server-daemon.js";
 import {
   atomicWrite,
-  type DaemonMeta,
-  defaultEndpoint,
   ensureDir,
-  homePaths,
+  parseUnlockTtl,
   readJsonMaybe,
-  resolveLodeHome,
-  socketPathOf,
-} from "./home.js";
+  type StopReport,
+} from "@lode/engine";
+import { parseAppServerArgs } from "./app-server-args.js";
+import { startAppServerDaemon, startRelayDaemon } from "./app-server-daemon.js";
+import { defaultEndpoint, socketPathOf } from "./endpoint.js";
+import { type DaemonMeta, homePaths, resolveLodeHome } from "./home.js";
 
 // The foreground daemon entry — the single in-process target of `lode daemon run` (and what auto-spawn
 // detaches). Parses argv, starts the engine (or relay-only), owns LODE_HOME discovery metadata

@@ -9,6 +9,7 @@ import type { LocalPeer } from "../membership/membership-log.js";
 import type { WorkspacePersistence } from "./persistence.js";
 import type { RuntimeWorkspaceInfo } from "./types.js";
 import type { WorkspaceRuntime } from "./workspace-runtime.js";
+import { RwWorkspaceLock, type WorkspaceLock } from "./loro-lock.js";
 
 export type CreateWorkspaceInput = {
   workspaceId?: string;
@@ -38,6 +39,7 @@ export type WorkspaceFactoryHost = {
     workspace: Workspace,
     store: WorkspaceStore | null,
     docStore: DocStore,
+    lock: WorkspaceLock,
   ): Promise<WorkspaceRuntime>;
   flushDirty(workspaceId: string): Promise<void>;
   runWorkspace<T>(
@@ -89,7 +91,9 @@ export class WorkspaceFactory {
     // One path for both modes: the registry stores the record; the opener provides the content store
     // (SQLite WorkspaceStore + DocStore, or an in-memory DocStore). The content engine is initialized
     // AFTER mount so the membership log (a separate doc) and the outliner are both ready before the
-    // seed policy runs.
+    // seed policy runs. The per-workspace lock is created here (first artifact) and shared with mount
+    // (runtime/metaDoc) + the engine.
+    const lock = new RwWorkspaceLock();
     const record = await this.storage.registry.createWorkspace(input);
     const { store, docStore } = await this.storage.opener.open(record);
     const loaded = await this.host.mount(
@@ -97,19 +101,25 @@ export class WorkspaceFactory {
       new Workspace({ id: record.workspaceId }),
       store,
       docStore,
+      lock,
     );
     // A ws is one outliner: auto-init the single content engine at creation. Both owner-create
     // (keypair present) and joiner-create (no keypair) get it, so the joiner converges the owner's
     // content into it.
-    const engine = this.persistence.initOutliner(loaded.workspace, docStore);
+    const engine = this.persistence.initOutliner(loaded.workspace, docStore, lock);
     // ACL-at-birth + single-root seed — owner does both, joiner (no actor) is a no-op. The one
-    // sanctioned root is planted via createWorkspaceRoot (the domain's only rooting entry).
-    await seedPolicyFor(input, this.peer).apply({
-      log: loaded.membership,
-      engine,
-      displayName: input.displayName,
-      flush: () => this.host.flushDirty(record.workspaceId),
-    });
+    // sanctioned root is planted via createWorkspaceRoot (the domain's only rooting entry). Seed
+    // WRITES (membership root + content root), so they run under the workspace's exclusive lock —
+    // both for the single-writer invariant and so the write guard admits it. (membership.load() ran
+    // inside mount, before indexing; it's a no-op for a fresh workspace.)
+    await loaded.runExclusive(() =>
+      seedPolicyFor(input, this.peer).apply({
+        log: loaded.membership,
+        engine,
+        displayName: input.displayName,
+        flush: () => loaded.flush(),
+      }),
+    );
     return recordToInfo(record);
   }
 
@@ -132,6 +142,8 @@ export class WorkspaceFactory {
       };
       const local = this.peer.localPeerFor(input.actorKeypair);
 
+      // The new workspace's lock is created before its engine + mount so both share it.
+      const lock = new RwWorkspaceLock();
       // One path for both modes: registry stores the record; opener provides the content DocStore
       // (SQLite or in-memory); source tree + shards stream into it one at a time (invariant I — never
       // materialize the full shard set); the fork store then lazily faults from it.
@@ -143,17 +155,29 @@ export class WorkspaceFactory {
       for (const doc of sourceSharded.shardSyncDocs()) {
         await docStore.writeSnapshot(doc.id, await doc.exportSnapshot());
       }
-      const workspace = await this.persistence.buildForkedWorkspace(record.workspaceId, treeBytes, {
-        docStore,
-        snapshotEveryUpdates: this.storage.snapshotEveryUpdates,
-      });
-      const loaded = await this.host.mount(record.workspaceId, workspace, store, docStore);
+      const workspace = this.persistence.buildForkedWorkspace(
+        record.workspaceId,
+        treeBytes,
+        {
+          docStore,
+          snapshotEveryUpdates: this.storage.snapshotEveryUpdates,
+        },
+        lock,
+      );
+      // Fork reconcile is a runtime loro write → under the exclusive lock, BEFORE mount (so the fork
+      // is never indexed half-reconciled, and a failed validate never indexes). buildForkedWorkspace
+      // hydrated the engine, so it exists here.
+      await lock.write(() => this.persistence.reconcileForked(workspace.engine!));
+      const loaded = await this.host.mount(record.workspaceId, workspace, store, docStore, lock);
 
       // Fresh owner root: the forker's actor self-signs; transit wrapped to the forker's peer (THIS
       // dataRoot's peer — reused, not minted). The log is empty by construction (new wsId), so no
-      // empty-guard is needed (unlike create's idempotent re-create path).
-      loaded.membership.appendRoot(local, randomBytes(32), input.peerName ?? "");
-      await loaded.membership.persistIfDirty();
+      // empty-guard is needed (unlike create's idempotent re-create path). A membership write → under
+      // the new workspace's exclusive lock. (membership.load() ran inside mount; a no-op — new wsId.)
+      await loaded.runExclusive(async () => {
+        loaded.membership.appendRoot(local, randomBytes(32), input.peerName ?? "");
+        await loaded.membership.persistIfDirty();
+      });
       return recordToInfo(record);
     });
   }

@@ -9,6 +9,7 @@ import { WorkspaceDocSet } from "../../core/store/doc-set.js";
 import type { RuntimeResource } from "../kernel/resource.js";
 import type { Bus } from "../../events/bus.js";
 import type { ManagedSyncTransport, SyncTransport, SyncTransportFactory } from "./transport.js";
+import type { WorkspaceLock } from "../workspace/loro-lock.js";
 
 /**
  * The per-workspace shared state for the sync sub-graph — the lode analog of any-sync's
@@ -30,6 +31,11 @@ export type SyncContextInput = {
   readonly engine: Engine;
   readonly facts: Bus;
   readonly transportFactory: SyncTransportFactory;
+  /** The workspace's loro read/write lock — shared with the client read/write boundaries. Each sync
+   *  loro stage acquires it (shared for reads, exclusive for imports) so sync stays off the client
+   *  boundaries; the transport's responder half acquires it too (it touches local docs from the
+   *  network pump, outside SyncExchange). */
+  readonly lock: WorkspaceLock;
 };
 
 export class SyncContext implements RuntimeResource {
@@ -44,9 +50,10 @@ export class SyncContext implements RuntimeResource {
   readonly engine: Engine;
   readonly log: MembershipLog;
   readonly facts: Bus;
+  readonly lock: WorkspaceLock;
 
   constructor(input: SyncContextInput) {
-    const { log, local, url, wsId, engine, transportFactory, facts } = input;
+    const { log, local, url, wsId, engine, transportFactory, facts, lock } = input;
     // The actor is per-workspace (the registered session); the peer key + peerId are per-dataRoot.
     // Together they are this replica's LocalPeer for wire security. Wire security is a lazy
     // projection of the log (transit key re-derived on read when the frontier moves), so the
@@ -66,12 +73,14 @@ export class SyncContext implements RuntimeResource {
       security: security.security,
       // Declare this replica's site id so it's a directed target + discoverable via peers().
       peerId: local.peerId,
+      lock,
     });
-    this.syncManager = new SyncExchange(docSet.composite(), this.managedTransport);
+    this.syncManager = new SyncExchange(docSet.composite(), this.managedTransport, lock);
     this.wsId = wsId;
     this.engine = engine;
     this.log = log;
     this.facts = facts;
+    this.lock = lock;
   }
 
   /** The wire transport. Consumers (round driver, membership push, directed bootstrap) depend on

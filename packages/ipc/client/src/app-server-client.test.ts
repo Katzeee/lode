@@ -7,7 +7,7 @@ import {
 
 describe("AppServerClient over a socket transport", () => {
   it("close() is safe before connecting", () => {
-    const client = new AppServerClient(createSocketTransport("http://127.0.0.1:1"));
+    const client = new AppServerClient(createSocketTransport({ tcpUrl: "http://127.0.0.1:1" }));
     expect(() => client.close()).not.toThrow();
   });
 });

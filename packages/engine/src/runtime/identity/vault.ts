@@ -16,8 +16,8 @@ import {
   PreconditionFailedError,
   VaultLockedError,
 } from "../../errors/index.js";
+import { atomicWrite } from "../../persistence/atomic-file.js";
 import {
-  atomicWrite,
   DEFAULT_TTL,
   fromB64,
   readVaultFile,
@@ -64,8 +64,11 @@ export class VaultRuntime {
   private state: VaultState = "LOCKED";
   private readonly path?: string;
   private file: VaultFile | null = null;
-  private derivedKey: Uint8Array | null = null;
-  private readonly keypairs = new Map<string, ActorKeypair>();
+  /** The in-memory keys, present iff a passphrase has unlocked them (UNLOCKED or GRACE). `null` ⇔
+   *  LOCKED (no keys in memory). One object so "does the vault hold usable keys?" is a single truth
+   *  (not three scattered fields kept in sync by casts). */
+  private session: { readonly derivedKey: Uint8Array; keypairs: Map<string, ActorKeypair> } | null =
+    null;
   private readonly initKdfParams: KdfParams;
   private readonly pinKdfParams: KdfParams;
   private readonly ttl: VaultTtl;
@@ -137,11 +140,11 @@ export class VaultRuntime {
 
   /** The loaded keypair for an actor (no lease check); undefined if the keys aren't in memory. */
   keypairFor(actorId: string): ActorKeypair | undefined {
-    return this.keypairs.get(actorId);
+    return this.session?.keypairs.get(actorId);
   }
 
   async init(passphrase: string): Promise<VaultStatusInfo> {
-    this.requireAvailable();
+    const path = this.requirePath();
     if (this.file !== null) {
       throw new PreconditionFailedError("vault already initialized");
     }
@@ -160,10 +163,9 @@ export class VaultRuntime {
       },
       entries: [],
     };
-    await atomicWrite(this.path as string, `${JSON.stringify(file, null, 2)}\n`);
-    this.derivedKey = key;
+    await atomicWrite(path, `${JSON.stringify(file, null, 2)}\n`);
     this.file = file;
-    this.keypairs.clear();
+    this.session = { derivedKey: key, keypairs: new Map() };
     this.open();
     return this.status();
   }
@@ -184,18 +186,13 @@ export class VaultRuntime {
         deriveActorKeypairFromMnemonic(this.openAead(key, entry.ct, false)),
       );
     }
-    this.derivedKey = key;
-    this.keypairs.clear();
-    for (const [actorId, keypair] of loaded) {
-      this.keypairs.set(actorId, keypair);
-    }
+    this.session = { derivedKey: key, keypairs: loaded };
     this.open();
     return this.status();
   }
 
   lock(): VaultStatusInfo {
-    this.derivedKey = null;
-    this.keypairs.clear();
+    this.session = null;
     this.state = "LOCKED";
     this.activeUntil = 0;
     this.singleUse = false;
@@ -204,12 +201,16 @@ export class VaultRuntime {
   }
 
   async createIdentity(label: string): Promise<{ actorId: string; mnemonic: string }> {
-    this.requireUnlocked();
+    this.requireUnlocked(); // fail-fast early check
     const mnemonic = generateMnemonic();
     const keypair = deriveActorKeypairFromMnemonic(mnemonic);
     await this.queueWrite(async () => {
-      const ct = toB64(aeadEncrypt(this.derivedKey as Uint8Array, Buffer.from(mnemonic, "utf8")));
-      this.keypairs.set(keypair.actorId, keypair);
+      // Re-read the session INSIDE the serialized callback: a concurrent unlock/lock/init between the
+      // early check and here reassigns `this.session`, so a captured reference would land on an orphaned
+      // map. Reading live (under the writeChain) restores the old "always mutate the current map" rule.
+      const { derivedKey, keypairs } = this.requireUnlocked();
+      const ct = toB64(aeadEncrypt(derivedKey, Buffer.from(mnemonic, "utf8")));
+      keypairs.set(keypair.actorId, keypair);
       this.file?.entries.push({ actorId: keypair.actorId, label, createdAt: Date.now(), ct });
       await this.persist();
     });
@@ -217,14 +218,16 @@ export class VaultRuntime {
   }
 
   async importIdentity(mnemonic: string, label: string): Promise<{ actorId: string }> {
-    this.requireUnlocked();
+    this.requireUnlocked(); // fail-fast early check
     if (!validateMnemonic(mnemonic)) {
       throw new AuthenticationError("importIdentity: invalid mnemonic");
     }
     const keypair = deriveActorKeypairFromMnemonic(mnemonic);
     await this.queueWrite(async () => {
-      const ct = toB64(aeadEncrypt(this.derivedKey as Uint8Array, Buffer.from(mnemonic, "utf8")));
-      this.keypairs.set(keypair.actorId, keypair);
+      // Re-read live inside the callback — see createIdentity.
+      const { derivedKey, keypairs } = this.requireUnlocked();
+      const ct = toB64(aeadEncrypt(derivedKey, Buffer.from(mnemonic, "utf8")));
+      keypairs.set(keypair.actorId, keypair);
       this.file?.entries.push({ actorId: keypair.actorId, label, createdAt: Date.now(), ct });
       await this.persist();
     });
@@ -293,8 +296,8 @@ export class VaultRuntime {
       throw new VaultLockedError("lease-expired");
     }
     // Resolve the keypair BEFORE consuming the lease, so a wrong actorId doesn't burn the single-use
-    // always-lease on a misconfigured caller.
-    const keypair = this.keypairs.get(actorId);
+    // always-lease on a misconfigured caller. State is UNLOCKED here ⇒ session is loaded.
+    const keypair = this.session?.keypairs.get(actorId);
     if (keypair === undefined) {
       throw new PreconditionFailedError(`actor ${actorId} is not in the vault`);
     }
@@ -349,23 +352,38 @@ export class VaultRuntime {
   }
 
   private dropKeys(): void {
-    this.derivedKey = null;
-    this.keypairs.clear();
+    this.session = null;
     this.state = "LOCKED";
   }
 
   private requireAvailable(): void {
-    if (!this.available) {
-      throw new PreconditionFailedError("vault not available in this deployment");
-    }
+    this.requirePath();
   }
 
-  private requireUnlocked(): void {
+  /** The vault's path, narrowed to a non-null string (throws if this deployment has no vault file). */
+  private requirePath(): string {
+    if (this.path === undefined) {
+      throw new PreconditionFailedError("vault not available in this deployment");
+    }
+    return this.path;
+  }
+
+  /** The loaded key session (available iff UNLOCKED). Throws VaultLockedError otherwise — the
+   *  "not unlocked" precondition for createIdentity/importIdentity IS the vault-locked condition, so
+   *  VaultLockedError (not PreconditionFailedError) lets the daemon attach the x-lode-vault-locked
+   *  marker for lazy unlock. requireAvailable() still throws PreconditionFailedError for its own
+   *  distinct condition (no vault in this deployment). Returning the session removes the `as` casts at
+   *  the call sites: the non-null keys come from the type, not an assertion. */
+  private requireUnlocked(): {
+    readonly derivedKey: Uint8Array;
+    keypairs: Map<string, ActorKeypair>;
+  } {
     this.requireAvailable();
     this.checkLease();
-    if (this.state !== "UNLOCKED" || this.derivedKey === null) {
-      throw new PreconditionFailedError("vault is locked; unlock it first");
+    if (this.state !== "UNLOCKED" || this.session === null) {
+      throw new VaultLockedError(this.state === "GRACE" ? "lease-expired" : "cold");
     }
+    return this.session;
   }
 
   private async queueWrite(fn: () => Promise<void>): Promise<void> {

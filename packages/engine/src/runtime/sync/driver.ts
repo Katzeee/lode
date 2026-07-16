@@ -89,15 +89,18 @@ export class SyncRoundDriver implements RuntimeResource {
       // Membership half: gossip the roster + persist dirtied log state. Wire security is a lazy
       // projection of the log (re-derives on read when the frontier moves), so the content round's
       // isMember() gate picks up the new roster automatically — no security refresh here.
-      await syncMembershipDoc(this.ctx.transport, this.ctx.log.metaDoc);
-      await this.ctx.log.persistIfDirty();
+      await syncMembershipDoc(this.ctx.transport, this.ctx.log.metaDoc, this.ctx.lock);
+      // persistIfDirty reads frontiers + exports a snapshot (loro reads) before its disk write →
+      // SHARED; the disk write is local/bounded and stays under the shared boundary.
+      await this.ctx.lock.read(() => this.ctx.log.persistIfDirty());
       // Content half: only once the local actor is a member (before the membership log converges it
       // isn't, so content is skipped, not errored — the membership half is what lets it join). Flush
       // what the round delivered (tree edits + imported shards) so a pure receiver that crashes after
       // a round keeps it on restart: tree always, plus any resident shard not already write-backed.
+      // flushDirty exports updates (loro reads) + disk writes → SHARED.
       if (this.ctx.security.isMember()) {
         const { pulled, pushed } = await this.ctx.syncManager.sync();
-        await this.ctx.engine.asOutliner().flushDirty();
+        await this.ctx.lock.read(() => this.ctx.engine.asOutliner().flushDirty());
         this.report(this.ctx.wsId, { pulled, pushed });
       }
     } catch (err) {

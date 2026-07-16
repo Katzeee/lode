@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport, isVaultLockedError } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { VaultState } from "@lode/protocol/proto";
 import {
   startAppServerDaemon,
@@ -40,13 +41,13 @@ describe("vault GRACE + PIN (socket deployment)", () => {
 
   const authedClient = (address: string, actorId: string) =>
     new AppServerClient(
-      createSocketTransport(address, {
+      createSocketTransport(dialTarget(address), {
         headers: { "lode-client-id": "client-1", "lode-actor-id": actorId },
       }),
     );
 
   it("registered sync → lease expiry is GRACE (lease-expired gate, then PIN re-unlocks)", async () => {
-    const admin = new AppServerClient(createSocketTransport(daemon.address));
+    const admin = new AppServerClient(createSocketTransport(dialTarget(daemon.address)));
     admin.connect();
     await admin.rpc.initVault({ passphrase: PASS });
     const { actorId } = await admin.rpc.createIdentity({ label: "alice" });
@@ -76,7 +77,7 @@ describe("vault GRACE + PIN (socket deployment)", () => {
   });
 
   it("no sync → lease expiry is LOCKED (cold); the passphrase re-unlocks", async () => {
-    const admin = new AppServerClient(createSocketTransport(daemon.address));
+    const admin = new AppServerClient(createSocketTransport(dialTarget(daemon.address)));
     admin.connect();
     await admin.rpc.initVault({ passphrase: PASS });
     const { actorId } = await admin.rpc.createIdentity({ label: "alice" });

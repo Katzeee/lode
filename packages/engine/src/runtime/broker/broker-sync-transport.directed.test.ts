@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
+import { NoopWorkspaceLock } from "../workspace/loro-lock.js";
 import { generateActorKeypair, generatePeerKeypair } from "../../crypto/index.js";
 import { ShardedBlockStore } from "../../core/store/sharded-store.js";
 import { WorkspaceDocSet } from "../../core/store/doc-set.js";
@@ -66,12 +67,14 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     // The membership doc is a public doc (plaintext roster); no transit key / security needed for this
     // fetch. A ShardedBlockStore is required by the constructor; membership-only here (no content sync).
     const owner = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(new ShardedBlockStore({ numShards: 4 }), ownerDoc),
       workspaceId: "W",
       peerId: "owner",
     });
     const joiner = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: docSetWith(new ShardedBlockStore({ numShards: 4 }), joinerDoc),
       workspaceId: "W",
@@ -106,12 +109,14 @@ describe("BrokerSyncProtocol — directed membership fetch (§3c)", () => {
     await server.ready();
     const url = `http://127.0.0.1:${server.port}`;
     const a = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(new ShardedBlockStore({ numShards: 4 })),
       workspaceId: "W",
       peerId: "A",
     });
     const b = new BrokerSyncProtocol({
+      lock: new NoopWorkspaceLock(),
       url,
       docSet: new WorkspaceDocSet(new ShardedBlockStore({ numShards: 4 })),
       workspaceId: "W",

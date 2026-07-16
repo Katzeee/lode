@@ -7,7 +7,7 @@ import {
   type StopReport,
   type VaultTtl,
 } from "@lode/engine";
-import { parseListenUrl } from "./listen-url.js";
+import { parseEndpoint, type ParsedEndpoint } from "./endpoint.js";
 import { BrokerServerResource } from "./resources/broker-server-resource.js";
 import { ConnectServerResource } from "./resources/connect-server-resource.js";
 
@@ -81,7 +81,7 @@ export type ParsedAppServerArgs = EngineParsedArgs | RelayParsedArgs;
 export async function startAppServerDaemon(
   options: AppServerDaemonOptions,
 ): Promise<AppServerDaemon> {
-  const endpoint = parseListenUrl(options.listen);
+  const endpoint: ParsedEndpoint = parseEndpoint(options.listen);
   const persistence =
     options.persistence ?? (options.dataRoot ? { dataRoot: options.dataRoot } : undefined);
   const runtime: EngineRuntime = await createEngineRuntime({

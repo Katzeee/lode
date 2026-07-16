@@ -1,5 +1,6 @@
 import { LoroDoc, encodeFrontiers, type LoroList, VersionVector } from "loro-crdt";
 import type { SyncBytes, SyncableDoc } from "./syncable.js";
+import type { LoroWriteGuard } from "./write-guard.js";
 
 /**
  * A `SyncableDoc` that also offers an append-only record log + a frontier-based dirty check —
@@ -28,11 +29,13 @@ export class LoroMetaDoc implements MetaDoc {
   readonly id: string;
   private readonly doc: LoroDoc;
   private readonly list: LoroList;
+  private readonly writeGuard?: LoroWriteGuard;
 
-  constructor(id: string, doc: LoroDoc = new LoroDoc()) {
+  constructor(id: string, doc: LoroDoc = new LoroDoc(), writeGuard?: LoroWriteGuard) {
     this.id = id;
     this.doc = doc;
     this.list = doc.getList("log");
+    this.writeGuard = writeGuard;
   }
 
   // ── SyncableDoc (opaque bytes; the VV round-trip is internal to this impl). The meta doc is
@@ -53,6 +56,11 @@ export class LoroMetaDoc implements MetaDoc {
     return Promise.resolve(this.doc.export({ mode: "snapshot" }));
   }
   importUpdate(bytes: SyncBytes): Promise<void> {
+    // Runtime import inlet — assert the workspace's exclusive lock is held (every runtime loro write
+    // is under exclusive + asserted). Callers: sync's directed membership fetch + the broker responder
+    // (both exclusive); MembershipLog.load() runs it under the load-time runExclusive. A no-op when no
+    // guard is injected (core tests).
+    this.writeGuard?.assertWritable();
     this.doc.import(bytes);
     return Promise.resolve();
   }
@@ -60,6 +68,10 @@ export class LoroMetaDoc implements MetaDoc {
   // ── record log ───
 
   appendRecord(bytes: Uint8Array): void {
+    // Membership governance is a write → must run under the workspace's exclusive lock. The guard
+    // turns "a governance append inside a read boundary" into a deterministic throw. No-op without a
+    // guard (core tests). The wire import path (`importUpdate`) is asserted separately in Phase 2.
+    this.writeGuard?.assertWritable();
     this.list.push(Buffer.from(bytes).toString("base64"));
   }
   records(): Uint8Array[] {

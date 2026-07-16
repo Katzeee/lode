@@ -579,14 +579,6 @@ message ActorPublicKeys {
   bytes sign_pub = 2; // 32-byte Ed25519 sign pub
 }
 
-// A freshly generated BIP-39 mnemonic + the actor id it derives to — the bootstrap a new user calls
-// ONCE (`lode actor new`) to get an identity, before any authenticated command is possible.
-// Unauthenticated by design (it mints a new identity; it does not read or sign anything).
-message ActorMnemonic {
-  string mnemonic = 1; // 12-word BIP-39 phrase (the user's recovery root; keep secret)
-  string actor_id = 2; // the id derived from the mnemonic (display-only — identity is server-derived from the mnemonic, never supplied back by the client)
-}
-
 message ShareWorkspaceRequest {
   string workspace_id = 1;
 }

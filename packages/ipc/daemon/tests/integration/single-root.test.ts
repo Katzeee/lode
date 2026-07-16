@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AppServerClient, createSocketTransport } from "@lode/client";
+import { dialTarget } from "../../src/endpoint.js";
 import { startAppServerDaemon, type AppServerDaemon } from "../../src/index.js";
 import { openAuthedSession } from "./authed-session.js";
 import { createTestWorkspace, withDefaultWorkspace, type TestRpc } from "../helpers/workspace.js";
@@ -15,7 +16,7 @@ describe("single-root product policy", () => {
 
   beforeEach(async () => {
     server = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0" });
-    client = new AppServerClient(createSocketTransport(server.address));
+    client = new AppServerClient(createSocketTransport(dialTarget(server.address)));
     client.connect();
     await openAuthedSession(client);
     await createTestWorkspace(client);

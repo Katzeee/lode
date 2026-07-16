@@ -8,6 +8,7 @@ import {
   NotOwnerError,
   PreconditionFailedError,
   SessionRequiredError,
+  VaultLockedError,
 } from "@lode/engine";
 import { toConnectError } from "./connect-server.js";
 
@@ -59,6 +60,22 @@ describe("toConnectError", () => {
     expect(toConnectError(new PreconditionFailedError("not ready"))).toMatchObject({
       code: Code.FailedPrecondition,
     });
+  });
+
+  it("maps VaultLockedError → FailedPrecondition with the x-lode-vault-locked marker", () => {
+    // The marker (not message wording) is the client's stable signal — both cold and lease-expired
+    // carry it, so the client detects vault-locked without a fragile message substring, and the two
+    // precondition errors stay distinguishable by the marker alone.
+    for (const subtype of ["cold", "lease-expired"] as const) {
+      const ce = toConnectError(new VaultLockedError(subtype));
+      expect(ce).toMatchObject({ code: Code.FailedPrecondition });
+      expect(ce.metadata.get("x-lode-vault-locked")).toBe("1");
+    }
+  });
+
+  it("does NOT attach the vault-locked marker to a plain PreconditionFailedError", () => {
+    const ce = toConnectError(new PreconditionFailedError("not ready"));
+    expect(ce.metadata.get("x-lode-vault-locked")).toBeNull();
   });
 
   it("falls back to Internal for an unknown error", () => {

@@ -12,6 +12,7 @@ import {
 import type { SyncableComposite, SyncableDoc } from "./syncable.js";
 import { NotFoundError } from "../../errors/index.js";
 import { SYS_PREFIX } from "./syncable.js";
+import type { LoroWriteGuard } from "./write-guard.js";
 import type { DocStore, LoadedDocBytes } from "./doc-store.js";
 import { InMemoryDocStore } from "./in-memory-doc-store.js";
 import { LruShardCache, type ShardCache } from "./shard-cache.js";
@@ -147,6 +148,13 @@ export class ShardedBlockStore implements Outliner {
    *  `persistedRevision`) and flushes a doc's incremental delta to the DocStore. CRDT-agnostic.
    *  Always present (a `docStore` always is); in-memory mode flushes into the `InMemoryDocStore`. */
   private readonly persister: ShardPersister;
+  /** The workspace's loro write guard. When injected, the `importUpdate` inlets assert an exclusive
+   *  lock is held — so a sync import (or any runtime import) that slips outside the workspace's
+   *  exclusive boundary throws, unifying the single-writer invariant across every runtime write.
+   *  Absent for core store tests that construct a store directly. The constructor's own raw
+   *  `treeDoc.import(treeBytes)` (hydration from persisted bytes, before the store is exposed) is the
+   *  ONE pre-exposure import and deliberately does NOT go through this guard. */
+  private readonly writeGuard?: LoroWriteGuard;
 
   constructor(
     options: {
@@ -174,12 +182,16 @@ export class ShardedBlockStore implements Outliner {
        *  this store's fault/create/evict closures. The field type is the `ShardCache` interface, so a
        *  test double satisfies it; production uses the LRU impl. */
       shardCache?: ShardCache<LoroDoc>;
+      /** The workspace's loro write guard — asserted at the `importUpdate` inlets. Optional (absent
+       *  for core store tests). */
+      writeGuard?: LoroWriteGuard;
     } = {},
   ) {
     this.numShards = options.numShards ?? 256;
     this.peerId = options.peerId;
     this.docStore = options.docStore ?? new InMemoryDocStore();
     this.snapshotEveryUpdates = options.snapshotEveryUpdates ?? Number.POSITIVE_INFINITY;
+    this.writeGuard = options.writeGuard;
     this.persister = new ShardPersister({
       docStore: this.docStore,
       snapshotEveryUpdates: this.snapshotEveryUpdates,
@@ -190,6 +202,10 @@ export class ShardedBlockStore implements Outliner {
     }
     const treeBytes = options.treeBytes;
     if (treeBytes) {
+      // PRE-EXPOSURE HYDRATION (the ONE raw import boundary): materializing the tree from persisted
+      // bytes BEFORE this store is exposed to any caller. It is a raw `LoroDoc.import`, not the
+      // `importUpdate` inlet, so it deliberately bypasses the write guard — single-threaded, no
+      // concurrent accessor can exist yet. Every OTHER loro write goes through an asserted inlet.
       if (treeBytes.snapshot && treeBytes.snapshot.length > 0) {
         this.treeDoc.import(treeBytes.snapshot);
       }
@@ -611,22 +627,23 @@ export class ShardedBlockStore implements Outliner {
     await this.shardCache.evictToFit();
   }
 
-  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). Sync's shard access
-   *  is SESSION-EXEMPT: it faults via `shardCache.get` directly, NOT `shardForRead`, so it is not gated
-   *  by a concurrent operation's `ensureResident` working-set session. Sync (push/import) is not an
-   *  operation — the push fast-path can fire while a mutation's session is armed, and it legitimately
-   *  exports resident shards beyond that one operation's declared set. `importUpdate` is fault + import
-   *  + markDirty — no pin: a dirty imported shard is freely evictable (onEvict flushes it), and the
-   *  import is a sync call on an already-resolved doc, so there is no eviction window between fault
-   *  and the bytes landing. */
+  /** A shard's SyncableDoc: re-resolves the LoroDoc per access (eviction-safe). Reads fault via
+   *  `shardForRead`; the write (`importUpdate`) via `shardForWrite` (which also marks dirty). Both go
+   *  through the working-set gate — which NEVER fires for sync, because the per-workspace lock
+   *  serializes sync against any operation, so sync never runs while an operation's session is armed.
+   *  (The gate catches an OPERATION touching an undeclared shard; sync/flush are infra, serialized by
+   *  the lock, so they always see `residentSession === null`.) A dirty imported shard is freely
+   *  evictable (onEvict flushes it). */
   private shardSyncableDoc(id: string): SyncableDoc {
-    const sessionExemptGet = () => this.shardCache.get(id);
-    const base = this.syncableDoc(sessionExemptGet, id);
+    const base = this.syncableDoc(() => this.shardForRead(id), id);
     return {
       ...base,
       importUpdate: async (bytes) => {
-        (await sessionExemptGet()).import(bytes);
-        this.markDirty(id);
+        // Runtime import inlet — assert the workspace's exclusive lock is held (every runtime loro
+        // write is under exclusive + asserted). Construction hydration (the constructor's raw import)
+        // is the only import that bypasses this.
+        this.writeGuard?.assertWritable();
+        (await this.shardForWrite(id)).import(bytes);
       },
     };
   }
@@ -648,6 +665,9 @@ export class ShardedBlockStore implements Outliner {
         ),
       exportSnapshot: async () => (await getDoc()).export({ mode: "snapshot" }),
       importUpdate: async (bytes) => {
+        // Runtime import inlet (tree) — assert the workspace's exclusive lock is held. Shards override
+        // this (see shardSyncableDoc); the constructor's raw hydration import bypasses it.
+        this.writeGuard?.assertWritable();
         (await getDoc()).import(bytes);
       },
     };
@@ -697,14 +717,12 @@ export class ShardedBlockStore implements Outliner {
       ownership: this.ownership,
       shardCache: this.shardCache,
       treeDoc: this.treeDoc,
-      // RAW (shardCache.get + markDirty) — NOT the gated shardForRead/Write. Heal is infra, not an
-      // operation, so it must not trip a concurrent operation's working-set session gate. The gated
-      // accessors stay CRUD-only; this is the structural closure that keeps infra off the gate.
-      fault: (id) => this.shardCache.get(id),
-      touch: (id) => {
-        this.markDirty(id);
-        return this.shardCache.get(id);
-      },
+      // Through the gated accessors (`shardForRead` / `shardForWrite`). Heal is infra — it runs at
+      // load or inside a sync round, both under the per-workspace lock, so never while an operation's
+      // session is armed; the gate therefore never fires for it. `touch` writes (markDirty) so it
+      // uses `shardForWrite`; `fault` is a read so it uses `shardForRead`.
+      fault: (id) => this.shardForRead(id),
+      touch: (id) => this.shardForWrite(id),
       entityPresent: (nid) => this.entityPresent(nid),
       shardIdOfNode: (nid) => this.shardIdOfNode(nid),
     };

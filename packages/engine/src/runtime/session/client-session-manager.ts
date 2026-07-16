@@ -91,8 +91,9 @@ export class ClientSessionManager implements RuntimeResource {
 
   resolveCaller(connectionId: string): ResolvedCaller {
     // 1) sessionHello / in-process / mnemonic-test path: a session record carries the derived keypair.
-    //    Kept (the plan retains sessionHello for in-process/test direct connections) and tried first so
-    //    the CLI's mnemonic flow still works against a vault-enabled daemon during the Phase-2→3 cutover.
+    //    This is the PERMANENT direct-auth path for in-process hosts (mobile/embedded) and test
+    //    connections that inject a keypair via sessionHello — not a transitional cutover. Tried first so
+    //    those callers resolve without the socket-deployment header flow below.
     const record = this.connections.get(connectionId)?.api.session;
     if (record?.actor !== undefined && record.keypair !== undefined) {
       return {

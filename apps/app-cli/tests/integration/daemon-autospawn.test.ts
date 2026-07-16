@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
-import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resolveDaemonEnv, spawnDaemonProcess } from "../../src/daemon-launch.js";
+import { defaultEndpoint } from "@lode/daemon/endpoint";
+import { probeEndpoint, resolveDaemonEnv, spawnDaemonProcess } from "../../src/daemon-launch.js";
 
 // Exercises the real `lode` dist binary end-to-end: auto-spawn of a UDS daemon, daemon status/stop,
 // stale recovery, and spawn serialization under concurrency. Dist must be built (verify builds first).
@@ -35,16 +35,6 @@ function runLode(home: string, args: string[], timeoutMs = 15_000): Promise<RunR
   });
 }
 
-const probe = (path: string) =>
-  new Promise<boolean>((resolve) => {
-    const s = net.connect(path);
-    s.on("connect", () => {
-      s.destroy();
-      resolve(true);
-    });
-    s.on("error", () => resolve(false));
-  });
-
 const freshHome = () => mkdtemp(join(tmpdir(), "lode-cli-"));
 
 async function stopDaemon(home: string): Promise<void> {
@@ -68,21 +58,21 @@ describe("lode CLI auto-spawn + daemon lifecycle", () => {
     expect(res.stdout).toContain("No identities");
 
     // The auto-spawned daemon is reachable + discovered.
-    expect(await probe(join(home, "daemon.sock"))).toBe(true);
+    expect(await probeEndpoint(defaultEndpoint(home))).toBe(true);
     const status = await runLode(home, ["daemon", "status"]);
     expect(status.stdout).toContain("Daemon running");
     const meta = await readMeta(home);
-    expect(meta.address).toBe(`unix://${join(home, "daemon.sock")}`);
+    expect(meta.address).toBe(defaultEndpoint(home));
     expect(meta.pid).toBeGreaterThan(0);
   });
 
   it("daemon stop tears the daemon down and cleans up the socket + metadata", async () => {
     await runLode(home, ["actor", "list"]);
-    expect(await probe(join(home, "daemon.sock"))).toBe(true);
+    expect(await probeEndpoint(defaultEndpoint(home))).toBe(true);
     const stop = await runLode(home, ["daemon", "stop"]);
     expect(stop.stdout).toContain("Daemon stopped");
     // Process gone, metadata + socket removed.
-    expect(await probe(join(home, "daemon.sock"))).toBe(false);
+    expect(await probeEndpoint(defaultEndpoint(home))).toBe(false);
     await expect(readFile(join(home, "daemon.json"), "utf8")).rejects.toThrow();
     const status = await runLode(home, ["daemon", "status"]);
     expect(status.stdout).toContain("not running");
@@ -103,7 +93,7 @@ describe("lode CLI auto-spawn + daemon lifecycle", () => {
     expect(fresh.code).toBe(0);
     const freshMeta = await readMeta(home);
     expect(freshMeta.pid).not.toBe(meta.pid);
-    expect(await probe(join(home, "daemon.sock"))).toBe(true);
+    expect(await probeEndpoint(defaultEndpoint(home))).toBe(true);
   });
 
   it("serializes concurrent spawns: N parallel commands start exactly one daemon", async () => {
@@ -115,7 +105,7 @@ describe("lode CLI auto-spawn + daemon lifecycle", () => {
     for (const r of results) {
       expect(r.code).toBe(0);
     }
-    expect(await probe(join(home, "daemon.sock"))).toBe(true);
+    expect(await probeEndpoint(defaultEndpoint(home))).toBe(true);
     // Exactly one well-formed daemon.json (a second spawn would have left a collision or a leak).
     await readMeta(home);
     // No leaked lock file (the spawner released it once ready).
