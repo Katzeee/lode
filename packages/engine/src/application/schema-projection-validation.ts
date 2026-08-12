@@ -1,6 +1,7 @@
 import type { FieldTemplateConfig, FieldValueSeed } from "../domain/fact/index.js";
 import type {
   EffectiveField,
+  DefinitionStatus,
   FieldConfigCandidate,
   MaterializedField,
   SchemaFieldItem,
@@ -11,9 +12,11 @@ export type SchemaProjectionMaps = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
 }>;
@@ -28,6 +31,7 @@ export function parseSchemaProjectionMaps(
     schemaFieldItems: mapOrEmpty(section, "schemaFieldItems", value.schemaFieldItems, (item) =>
       array(item, schemaFieldItem),
     ),
+    schemaTemplateNodes: mapOrEmpty(section, "schemaTemplateNodes", value.schemaTemplateNodes, ids),
     schemaExtensions: mapOrEmpty(section, "schemaExtensions", value.schemaExtensions, ids),
     schemaSearchMembers: mapOrEmpty(section, "schemaSearchMembers", value.schemaSearchMembers, ids),
     schemaExtensionConflicts: mapOrEmpty(
@@ -35,6 +39,12 @@ export function parseSchemaProjectionMaps(
       "schemaExtensionConflicts",
       value.schemaExtensionConflicts,
       ids,
+    ),
+    definitionStatuses: mapOrEmpty(
+      section,
+      "definitionStatuses",
+      value.definitionStatuses,
+      definitionStatus,
     ),
     effectiveFields: mapOrEmpty(section, "effectiveFields", value.effectiveFields, (item) =>
       array(item, effectiveField),
@@ -53,20 +63,44 @@ export function parseSchemaProjectionValue(
     | "schemaApplications"
     | "schemaFields"
     | "schemaFieldItems"
+    | "schemaTemplateNodes"
     | "schemaExtensions"
     | "schemaSearchMembers"
     | "schemaExtensionConflicts"
+    | "definitionStatuses"
     | "effectiveFields"
     | "materializedFields",
   value: unknown,
 ): ProjectionPageValue {
-  return section === "effectiveFields"
-    ? array(value, effectiveField)
-    : section === "schemaFieldItems"
-      ? array(value, schemaFieldItem)
-      : section === "materializedFields"
-        ? array(value, materializedField)
-        : ids(value);
+  return section === "definitionStatuses"
+    ? definitionStatus(value)
+    : section === "effectiveFields"
+      ? array(value, effectiveField)
+      : section === "schemaFieldItems"
+        ? array(value, schemaFieldItem)
+        : section === "materializedFields"
+          ? array(value, materializedField)
+          : ids(value);
+}
+
+function definitionStatus(value: unknown): DefinitionStatus {
+  const item = record(value, "Definition status");
+  exact(item, ["definitionId", "kinds", "state", "deletionFactIds"]);
+  const kinds = array(item.kinds, (kind) => {
+    if (kind !== "schema" && kind !== "field") {
+      throw new Error("Definition kind is invalid");
+    }
+    return kind;
+  });
+  if (item.state !== "active" && item.state !== "deleted") {
+    throw new Error("Definition state is invalid");
+  }
+  return {
+    definitionId: identity(item.definitionId),
+    kinds,
+    state: item.state,
+    deletionFactIds: ids(item.deletionFactIds),
+  };
 }
 
 function materializedField(value: unknown): MaterializedField {

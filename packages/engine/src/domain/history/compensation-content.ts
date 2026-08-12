@@ -39,8 +39,13 @@ export function compensateContentMutation(
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
+    case "template-node-detach":
     case "field-materialize":
     case "field-initialize":
+    case "field-value-delete":
+    case "materialized-field-delete":
       return null;
   }
 }

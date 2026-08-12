@@ -6,9 +6,9 @@ export function validateSchemaEvidence(
   previous: Projection,
   available: Projection,
 ): void {
-  requireNode(available, mutation.schemaId, "Schema");
   if (mutation.kind === "schema-field-configure") {
-    requireNode(available, mutation.fieldDefinitionId, "Field Definition");
+    requireDefinition(available, mutation.schemaId, "Schema", false);
+    requireDefinition(available, mutation.fieldDefinitionId, "Field Definition", false);
     const item = available.schemaFieldItems[mutation.schemaId]?.find(
       (candidate) => candidate.fieldDefinitionId === mutation.fieldDefinitionId,
     );
@@ -28,6 +28,7 @@ export function validateSchemaEvidence(
     return;
   }
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
+    requireDefinition(available, mutation.schemaId, "Schema", mutation.kind === "schema-remove");
     requireNode(available, mutation.nodeId, "Schema application target");
     validateRelation(
       available.schemaApplications[mutation.nodeId] ?? [],
@@ -40,7 +41,9 @@ export function validateSchemaEvidence(
     return;
   }
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
-    requireNode(available, mutation.baseSchemaId, "Base Schema");
+    const removing = mutation.kind === "schema-extension-remove";
+    requireDefinition(available, mutation.schemaId, "Schema", removing);
+    requireDefinition(available, mutation.baseSchemaId, "Base Schema", removing);
     validateRelation(
       available.schemaExtensions[mutation.schemaId] ?? [],
       previous.schemaExtensions[mutation.schemaId] ?? [],
@@ -51,7 +54,28 @@ export function validateSchemaEvidence(
     );
     return;
   }
-  requireNode(available, mutation.fieldDefinitionId, "Field Definition");
+  if (
+    mutation.kind === "schema-template-node-add" ||
+    mutation.kind === "schema-template-node-remove"
+  ) {
+    const removing = mutation.kind === "schema-template-node-remove";
+    requireDefinition(available, mutation.schemaId, "Schema", removing);
+    if (!removing) {
+      requireNode(available, mutation.templateNodeId, "Template");
+    }
+    validateRelation(
+      available.schemaTemplateNodes[mutation.schemaId] ?? [],
+      previous.schemaTemplateNodes[mutation.schemaId] ?? [],
+      mutation.templateNodeId,
+      mutation.kind === "schema-template-node-add" ? mutation.anchor : mutation.previousAnchor,
+      mutation.kind === "schema-template-node-add",
+      "Schema Template Node",
+    );
+    return;
+  }
+  const removing = mutation.kind === "schema-field-remove";
+  requireDefinition(available, mutation.schemaId, "Schema", removing);
+  requireDefinition(available, mutation.fieldDefinitionId, "Field Definition", removing);
   validateRelation(
     available.schemaFields[mutation.schemaId] ?? [],
     previous.schemaFields[mutation.schemaId] ?? [],
@@ -60,6 +84,21 @@ export function validateSchemaEvidence(
     mutation.kind === "schema-field-add",
     "Schema Field",
   );
+}
+
+function requireDefinition(
+  projection: Projection,
+  definitionId: string,
+  label: string,
+  allowDeleted: boolean,
+): void {
+  if (
+    projection.nodes[definitionId] ||
+    (allowDeleted && projection.definitionStatuses[definitionId]?.state === "deleted")
+  ) {
+    return;
+  }
+  throw new Error(`${label} Definition is deleted or absent from the observed projection`);
 }
 
 function validateRelation(

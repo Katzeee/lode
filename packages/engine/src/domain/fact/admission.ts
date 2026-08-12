@@ -1,11 +1,12 @@
 import { canonicalJson, stableStringCompare } from "./canonical.js";
 import { validateAdmissibleFact } from "./causal-validation.js";
 import { compareFacts, frontierCovers, frontierEquals, normalizeFrontier } from "./frontier.js";
-import { validateReceipts } from "./receipt-validation.js";
+import { validatePlannedReceiptAppend, validateReceipts } from "./receipt-validation.js";
 import { parseAuthorityRecords } from "./shape-validation.js";
 import { validateStaticFact } from "./static-validation.js";
 import {
   type Admission,
+  type AuthorityReceipt,
   type AuthorityRecord,
   type Fact,
   type FactSnapshot,
@@ -75,8 +76,9 @@ export function admitAuthorityRecordShapes(
 export function admitPlannedAuthorityAppend(
   workspaceId: WorkspaceId,
   base: FactSnapshot,
-  existingRecords: readonly AuthorityRecord[],
   appendedRecords: readonly unknown[],
+  maximumLamport: number,
+  previousHistoryReceipt: AuthorityReceipt | null,
 ): Admission {
   try {
     const appended = parseAuthorityRecords(appendedRecords);
@@ -84,9 +86,10 @@ export function admitPlannedAuthorityAppend(
     if (quarantine?.recordKind === "quarantine") {
       throw new Error(`Quarantined local append: ${quarantine.reason}`);
     }
-    validateReceipts(workspaceId, [...existingRecords, ...appended]);
+    validatePlannedReceiptAppend(workspaceId, appended, previousHistoryReceipt);
     const admitted = [...base.facts];
     const frontier = { ...base.frontier };
+    let observedMaximumLamport = maximumLamport;
     for (const record of appended) {
       if (record.recordKind !== "fact") {
         continue;
@@ -100,9 +103,10 @@ export function admitPlannedAuthorityAppend(
       ) {
         throw new Error(`Planned Fact does not extend the admitted frontier: ${fact.id}`);
       }
-      validateAdmissibleFact(fact, admitted);
+      validateAdmissibleFact(fact, admitted, observedMaximumLamport);
       admitted.push(fact);
       frontier[replicaId] = sequence;
+      observedMaximumLamport = fact.coordinate.lamport;
     }
     return {
       kind: "ready",

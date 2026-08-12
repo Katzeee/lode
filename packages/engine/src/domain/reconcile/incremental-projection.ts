@@ -5,7 +5,8 @@ import {
   type FactSnapshot,
 } from "../fact/index.js";
 import type { OwnerKey } from "./owner-dag.js";
-import { advanceWithOwnerPlan, type ProjectionOwnerObserver } from "./projection-owner-plan.js";
+import { advanceWithOwnerPlan } from "./projection-owner-api.js";
+import type { ProjectionOwnerObserver } from "./projection-owner-plan.js";
 import type { Projection, ProjectionOwnerCache, ProjectionVersions } from "./projection-types.js";
 
 export function advanceDirectProjection(
@@ -78,6 +79,18 @@ function canApplyDirectTail(
   projection: Projection,
   mutation: ContributionFact["body"]["mutation"],
 ): boolean {
+  const fieldDeletionAvailable = canApplyFieldContentDeletion(projection, mutation);
+  if (fieldDeletionAvailable !== null) {
+    return fieldDeletionAvailable;
+  }
+  const occurrenceAvailable = canApplyOccurrenceMutation(projection, mutation);
+  if (occurrenceAvailable !== null) {
+    return occurrenceAvailable;
+  }
+  const schemaAvailable = canApplySchemaMutation(projection, mutation);
+  if (schemaAvailable !== null) {
+    return schemaAvailable;
+  }
   switch (mutation.kind) {
     case "text-splice":
     case "text-mark":
@@ -98,20 +111,20 @@ function canApplyDirectTail(
       );
     case "schema-apply":
     case "schema-remove":
-      return (
-        projection.nodes[mutation.nodeId] !== undefined &&
-        projection.nodes[mutation.schemaId] !== undefined
-      );
     case "schema-field-add":
     case "schema-field-remove":
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
-      return (
-        projection.nodes[mutation.schemaId] !== undefined &&
-        projection.nodes[
-          "fieldDefinitionId" in mutation ? mutation.fieldDefinitionId : mutation.baseSchemaId
-        ] !== undefined
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
+      return false;
+    case "template-node-detach":
+      return projection.templateNodeInstances.some(
+        (instance) =>
+          instance.ownerNodeId === mutation.ownerNodeId &&
+          instance.templateNodeId === mutation.templateNodeId &&
+          instance.state === "linked",
       );
     case "field-materialize":
       return (
@@ -130,7 +143,14 @@ function canApplyDirectTail(
         )
       );
     case "node-create":
-      return projection.nodes[mutation.nodeId] === undefined;
+      return (
+        projection.nodes[mutation.nodeId] === undefined &&
+        !Object.values(projection.conflictIssues).some(
+          (issue) =>
+            issue.kind === "unsupported-direct-intent" &&
+            issue.requiredNodeIds.includes(mutation.nodeId),
+        )
+      );
     case "node-delete":
       return projection.nodes[mutation.nodeId] !== undefined;
     case "node-restore":
@@ -143,18 +163,71 @@ function canApplyDirectTail(
           projection.occurrences[mutation.parentOccurrenceId] !== undefined)
       );
     case "occurrence-delete":
-      return projection.occurrences[mutation.occurrenceId] !== undefined;
     case "occurrence-restore":
-      return (
-        projection.occurrences[mutation.occurrenceId] === undefined &&
-        (mutation.parentOccurrenceId === null ||
-          projection.occurrences[mutation.parentOccurrenceId] !== undefined)
-      );
     case "occurrence-move":
-      return (
-        projection.occurrences[mutation.occurrenceId] !== undefined &&
-        (mutation.parentOccurrenceId === null ||
-          projection.occurrences[mutation.parentOccurrenceId] !== undefined)
-      );
+      return canApplyOccurrenceMutation(projection, mutation) ?? false;
+    case "field-value-delete":
+    case "materialized-field-delete":
+      return canApplyFieldContentDeletion(projection, mutation) ?? false;
   }
+}
+
+function canApplySchemaMutation(
+  projection: Projection,
+  mutation: ContributionFact["body"]["mutation"],
+): boolean | null {
+  if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
+    return Boolean(projection.nodes[mutation.nodeId] && projection.nodes[mutation.schemaId]);
+  }
+  if (
+    mutation.kind === "schema-template-node-add" ||
+    mutation.kind === "schema-template-node-remove"
+  ) {
+    return Boolean(
+      projection.nodes[mutation.schemaId] && projection.nodes[mutation.templateNodeId],
+    );
+  }
+  if (
+    mutation.kind === "schema-field-add" ||
+    mutation.kind === "schema-field-remove" ||
+    mutation.kind === "schema-field-configure" ||
+    mutation.kind === "schema-extension-add" ||
+    mutation.kind === "schema-extension-remove"
+  ) {
+    const targetId =
+      "fieldDefinitionId" in mutation ? mutation.fieldDefinitionId : mutation.baseSchemaId;
+    return Boolean(projection.nodes[mutation.schemaId] && projection.nodes[targetId]);
+  }
+  return null;
+}
+
+function canApplyOccurrenceMutation(
+  projection: Projection,
+  mutation: ContributionFact["body"]["mutation"],
+): boolean | null {
+  if (mutation.kind === "occurrence-delete") {
+    return projection.occurrences[mutation.occurrenceId] !== undefined;
+  }
+  if (mutation.kind !== "occurrence-restore" && mutation.kind !== "occurrence-move") {
+    return null;
+  }
+  return (
+    (mutation.kind === "occurrence-restore"
+      ? projection.occurrences[mutation.occurrenceId] === undefined
+      : projection.occurrences[mutation.occurrenceId] !== undefined) &&
+    (mutation.parentOccurrenceId === null ||
+      projection.occurrences[mutation.parentOccurrenceId] !== undefined)
+  );
+}
+
+function canApplyFieldContentDeletion(
+  projection: Projection,
+  mutation: ContributionFact["body"]["mutation"],
+): boolean | null {
+  if (mutation.kind === "field-value-delete") {
+    return projection.occurrences[mutation.valueOccurrenceId] !== undefined;
+  }
+  return mutation.kind === "materialized-field-delete"
+    ? projection.occurrences[mutation.fieldOccurrenceId] !== undefined
+    : null;
 }

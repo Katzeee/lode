@@ -1,22 +1,28 @@
-import {
-  DEFAULT_FIELD_TEMPLATE_CONFIG,
-  type Mutation,
-  type SequenceAnchor,
-} from "../../domain/fact/index.js";
+import { type Mutation, type SequenceAnchor } from "../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
-import {
-  fieldTemplateItemId,
-  projectEffectiveFields,
-} from "../../domain/reconcile/schema-field-config.js";
+import { projectEffectiveFields } from "../../domain/reconcile/schema-field-config.js";
 import type { MutableProjection } from "./planning-projection-mutation.js";
 import { insertionIndex } from "./planning-projection-sequence.js";
+import { applyFieldPlanningMutation } from "./planning-field-relations.js";
+import {
+  applyTemplatePlanningMutation,
+  prepareTemplateNodeRelation,
+  refreshPlanningTemplateNodeInstances,
+} from "./planning-template-nodes.js";
 
 export function applySchemaPlanningMutation(
   projection: MutableProjection,
   mutation: Mutation,
   factId: string,
 ): boolean {
+  markMutationDefinitions(projection, mutation);
+  if (applyTemplatePlanningMutation(projection, mutation, factId)) {
+    refreshEffectiveFields(projection);
+    return true;
+  }
+  let refreshTemplates = false;
   if (mutation.kind === "schema-apply") {
+    refreshTemplates = true;
     const applications = (projection.schemaApplications[mutation.nodeId] ??= []);
     remove(applications, mutation.schemaId);
     applications.splice(
@@ -28,98 +34,76 @@ export function applySchemaPlanningMutation(
       mutation.schemaId,
     );
   } else if (mutation.kind === "schema-remove") {
+    refreshTemplates = true;
     remove(projection.schemaApplications[mutation.nodeId] ?? [], mutation.schemaId);
-  } else if (mutation.kind === "schema-field-add") {
-    const fields = (projection.schemaFields[mutation.schemaId] ??= []);
-    remove(fields, mutation.fieldDefinitionId);
-    fields.splice(
-      insertionIndex(
-        fields.map((id) => ({ id })),
-        mutation.anchor,
-      ),
-      0,
-      mutation.fieldDefinitionId,
-    );
-    const items = (projection.schemaFieldItems[mutation.schemaId] ??= []);
-    if (!items.some((item) => item.fieldDefinitionId === mutation.fieldDefinitionId)) {
-      items.splice(fields.indexOf(mutation.fieldDefinitionId), 0, {
-        templateItemId: fieldTemplateItemId(mutation.schemaId, mutation.fieldDefinitionId),
-        schemaId: mutation.schemaId,
-        fieldDefinitionId: mutation.fieldDefinitionId,
-        configCandidates: [],
-        effectiveConfig: DEFAULT_FIELD_TEMPLATE_CONFIG,
-      });
+  } else if (!applyFieldPlanningMutation(projection, mutation, factId)) {
+    if (mutation.kind !== "schema-extension-add" && mutation.kind !== "schema-extension-remove") {
+      return false;
     }
-  } else if (mutation.kind === "schema-field-remove") {
-    remove(projection.schemaFields[mutation.schemaId] ?? [], mutation.fieldDefinitionId);
-    projection.schemaFieldItems[mutation.schemaId] = (
-      projection.schemaFieldItems[mutation.schemaId] ?? []
-    ).filter((item) => item.fieldDefinitionId !== mutation.fieldDefinitionId);
-  } else if (mutation.kind === "schema-field-configure") {
-    const items = projection.schemaFieldItems[mutation.schemaId] ?? [];
-    const index = items.findIndex((item) => item.fieldDefinitionId === mutation.fieldDefinitionId);
-    if (index >= 0) {
-      const item = items[index];
-      if (item) {
-        items[index] = {
-          ...item,
-          configCandidates: [
-            {
-              config: mutation.config,
-              sourceSchemaIds: [mutation.schemaId],
-              sourceTemplateItemIds: [item.templateItemId],
-              contributionIds: [factId],
-            },
-          ],
-          effectiveConfig: mutation.config,
-        };
-      }
+    refreshTemplates = true;
+    if (mutation.kind === "schema-extension-add") {
+      const bases = (projection.schemaExtensions[mutation.schemaId] ??= []);
+      remove(bases, mutation.baseSchemaId);
+      bases.splice(
+        insertionIndex(
+          bases.map((id) => ({ id })),
+          mutation.anchor,
+        ),
+        0,
+        mutation.baseSchemaId,
+      );
+    } else {
+      remove(projection.schemaExtensions[mutation.schemaId] ?? [], mutation.baseSchemaId);
     }
-  } else if (mutation.kind === "schema-extension-add") {
-    const bases = (projection.schemaExtensions[mutation.schemaId] ??= []);
-    remove(bases, mutation.baseSchemaId);
-    bases.splice(
-      insertionIndex(
-        bases.map((id) => ({ id })),
-        mutation.anchor,
-      ),
-      0,
-      mutation.baseSchemaId,
-    );
-  } else if (mutation.kind === "schema-extension-remove") {
-    remove(projection.schemaExtensions[mutation.schemaId] ?? [], mutation.baseSchemaId);
-  } else if (mutation.kind === "field-materialize") {
-    const fields = (projection.materializedFields[mutation.ownerNodeId] ??= []);
-    if (!fields.some((field) => field.fieldDefinitionId === mutation.fieldDefinitionId)) {
-      fields.push({
-        ownerNodeId: mutation.ownerNodeId,
-        fieldDefinitionId: mutation.fieldDefinitionId,
-        fieldNodeId: mutation.fieldNodeId,
-        fieldOccurrenceId: mutation.fieldOccurrenceId,
-        valueOccurrenceIds: projection.children[mutation.fieldOccurrenceId] ?? [],
-      });
-    }
-  } else if (mutation.kind === "field-initialize") {
-    // Initialization is projected from its immutable Fact after the command commits.
-  } else {
-    return false;
   }
+  refreshEffectiveFields(projection);
+  if (refreshTemplates) {
+    refreshPlanningTemplateNodeInstances(projection);
+  }
+  return true;
+}
+
+function refreshEffectiveFields(projection: MutableProjection): void {
   projection.effectiveFields = projectEffectiveFields(
     projection.schemaApplications,
     projection.schemaFieldItems,
     projection.schemaExtensions,
     projection.materializedFields,
   );
-  return true;
+}
+
+function markMutationDefinitions(projection: MutableProjection, mutation: Mutation): void {
+  const mark = (definitionId: string, kind: "schema" | "field") => {
+    const current = projection.definitionStatuses[definitionId];
+    projection.definitionStatuses[definitionId] = current
+      ? { ...current, kinds: [...new Set([...current.kinds, kind])].sort() }
+      : { definitionId, kinds: [kind], state: "active", deletionFactIds: [] };
+  };
+  if (!mutation.kind.startsWith("schema-") && mutation.kind !== "field-materialize") {
+    return;
+  }
+  if ("schemaId" in mutation) {
+    mark(mutation.schemaId, "schema");
+  }
+  if ("baseSchemaId" in mutation) {
+    mark(mutation.baseSchemaId, "schema");
+  }
+  if ("fieldDefinitionId" in mutation) {
+    mark(mutation.fieldDefinitionId, "field");
+  }
 }
 
 export function prepareSchemaMutation(
   mutation: Extract<Mutation, { kind: `schema-${string}` }>,
   available: ProjectionGeneration["review"],
 ): Mutation {
-  assertNode(available, mutation.schemaId, "Schema");
+  const templateNodeRelation = prepareTemplateNodeRelation(mutation, available);
+  if (templateNodeRelation) {
+    return templateNodeRelation;
+  }
   if (mutation.kind === "schema-field-configure") {
-    assertNode(available, mutation.fieldDefinitionId, "Field Definition");
+    assertActiveDefinition(available, mutation.schemaId, "Schema");
+    assertActiveDefinition(available, mutation.fieldDefinitionId, "Field Definition");
     const item = available.schemaFieldItems[mutation.schemaId]?.find(
       (candidate) => candidate.fieldDefinitionId === mutation.fieldDefinitionId,
     );
@@ -135,7 +119,18 @@ export function prepareSchemaMutation(
     };
   }
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
-    assertNode(available, mutation.baseSchemaId, "Base Schema");
+    assertDefinition(
+      available,
+      mutation.schemaId,
+      "Schema",
+      mutation.kind === "schema-extension-remove",
+    );
+    assertDefinition(
+      available,
+      mutation.baseSchemaId,
+      "Base Schema",
+      mutation.kind === "schema-extension-remove",
+    );
     const bases = available.schemaExtensions[mutation.schemaId] ?? [];
     if (mutation.kind === "schema-extension-add") {
       assertRelationAnchor(bases, mutation.anchor, "Schema Extension");
@@ -147,7 +142,14 @@ export function prepareSchemaMutation(
     }
     return { ...mutation, previousAnchor: anchorAt(bases, index) };
   }
+  if (
+    mutation.kind === "schema-template-node-add" ||
+    mutation.kind === "schema-template-node-remove"
+  ) {
+    return mutation;
+  }
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
+    assertDefinition(available, mutation.schemaId, "Schema", mutation.kind === "schema-remove");
     assertNode(available, mutation.nodeId, "Schema application target");
     const applications = available.schemaApplications[mutation.nodeId] ?? [];
     if (mutation.kind === "schema-apply") {
@@ -160,7 +162,18 @@ export function prepareSchemaMutation(
       return { ...mutation, previousAnchor: anchorAt(applications, index) };
     }
   } else {
-    assertNode(available, mutation.fieldDefinitionId, "Field Definition");
+    assertDefinition(
+      available,
+      mutation.schemaId,
+      "Schema",
+      mutation.kind === "schema-field-remove",
+    );
+    assertDefinition(
+      available,
+      mutation.fieldDefinitionId,
+      "Field Definition",
+      mutation.kind === "schema-field-remove",
+    );
     if (mutation.kind === "schema-field-add") {
       assertFieldAnchor(available, mutation.schemaId, mutation.anchor);
     } else {
@@ -173,6 +186,29 @@ export function prepareSchemaMutation(
     }
   }
   return mutation;
+}
+
+function assertDefinition(
+  projection: ProjectionGeneration["review"],
+  definitionId: string,
+  label: string,
+  allowDeleted: boolean,
+): void {
+  if (projection.nodes[definitionId]) {
+    return;
+  }
+  if (allowDeleted && projection.definitionStatuses[definitionId]?.state === "deleted") {
+    return;
+  }
+  throw new Error(`${label} Definition is deleted or does not exist: ${definitionId}`);
+}
+
+function assertActiveDefinition(
+  projection: ProjectionGeneration["review"],
+  definitionId: string,
+  label: string,
+): void {
+  assertDefinition(projection, definitionId, label, false);
 }
 
 function assertNode(

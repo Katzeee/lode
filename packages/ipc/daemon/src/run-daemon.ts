@@ -16,6 +16,10 @@ export async function runDaemon(argv: string[]): Promise<void> {
   await ensureDir(paths.logs);
   configureLogger({ file: { path: options.logFile ?? join(paths.logs, "daemon.log") } });
   const listen = options.listen ?? defaultEndpoint(home);
+  const accessToken = options.accessToken ?? process.env.LODE_ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error("App server access token is required via --access-token or LODE_ACCESS_TOKEN");
+  }
   const socketPath = socketPathOf(listen);
   if (socketPath) {
     await unlink(socketPath).catch(() => {});
@@ -29,6 +33,7 @@ export async function runDaemon(argv: string[]): Promise<void> {
   }
   const daemon = await startAppServerDaemon({
     listen,
+    accessToken,
     dataRoot: options.dataRoot ?? paths.data,
     onShutdown: resolveStop,
   });

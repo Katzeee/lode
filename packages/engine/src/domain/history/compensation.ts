@@ -83,7 +83,9 @@ export function planCompensation(
     { facts: counterfactualFacts, frontier: snapshot.frontier },
     versions,
   ).generation[view];
-  if (canonicalJson(scoped) === canonicalJson(counterfactual)) {
+  if (
+    canonicalJson(semanticProjection(scoped)) === canonicalJson(semanticProjection(counterfactual))
+  ) {
     return { kind: "unavailable", reason: "History Step has no attributable effect" };
   }
   const normalizedTargets = normalizeRepeatedOwners(eligibleTargets, projection);
@@ -108,6 +110,13 @@ export function planCompensation(
   return mutations.length === 0
     ? { kind: "unavailable", reason: "History Step has no attributable effect" }
     : { kind: "ready", mutations };
+}
+
+function semanticProjection(
+  projection: Projection,
+): Omit<Projection, "reviewScopes" | "supportByContribution"> {
+  const { reviewScopes: _reviewScopes, supportByContribution: _support, ...semantic } = projection;
+  return semantic;
 }
 
 function normalizeRepeatedOwners(
@@ -264,6 +273,8 @@ function compensateMutation(
     case "occurrence-restore":
       return compensateOccurrenceCreate(target, targetIds, activeFacts, projection);
     case "occurrence-delete":
+    case "field-value-delete":
+    case "materialized-field-delete":
       return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
     case "occurrence-move":
       return compensateMove(target, activeFacts, projection);
@@ -276,6 +287,8 @@ function compensateMutation(
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
       return compensateSchemaMutation(target, activeFacts, projection);
     case "text-splice":
     case "text-mark":
@@ -283,6 +296,7 @@ function compensateMutation(
     case "value-unset":
     case "field-materialize":
     case "field-initialize":
+    case "template-node-detach":
       return noCompensation();
   }
 }

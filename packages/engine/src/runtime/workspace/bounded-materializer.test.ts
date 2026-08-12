@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { rebuildGeneration } from "../../domain/reconcile/index.js";
-import { Facts, versions } from "../../domain/reconcile/reconcile-test-helpers.js";
+import { end, Facts, versions } from "../../domain/reconcile/reconcile-test-helpers.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { directoryPrefix } from "./materialized-generation-format.js";
@@ -29,6 +29,49 @@ describe("bounded derived materialization", () => {
     expect(first.entries).toHaveLength(25);
     expect(first.next).not.toBeNull();
     expect(Object.keys(first.nodes)).toHaveLength(25);
+    expect(materializer.retainedUnits()).toBeLessThanOrEqual(8);
+    expect(materializer.largestPageUnits()).toBe(25);
+  });
+
+  it("pages Schema Search from its membership index without reading the whole result", async () => {
+    const materializer = new BoundedProjectionMaterializer(new InMemoryDocumentStore(), {
+      capacity: 8,
+    });
+    const facts = new Facts();
+    for (const schemaId of ["anime", "book"]) {
+      facts.add({ kind: "node-create", nodeId: schemaId });
+    }
+    for (let index = 0; index < 250; index += 1) {
+      const nodeId = `anime-${String(index).padStart(3, "0")}`;
+      facts.add({ kind: "node-create", nodeId });
+      facts.add({ kind: "schema-apply", nodeId, schemaId: "anime", anchor: end });
+    }
+    for (let index = 0; index < 50; index += 1) {
+      const nodeId = `book-${String(index).padStart(3, "0")}`;
+      facts.add({ kind: "node-create", nodeId });
+      facts.add({ kind: "schema-apply", nodeId, schemaId: "book", anchor: end });
+    }
+    const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
+    await materializer.publish(generation);
+
+    const nodeIds: string[] = [];
+    let after: string | null = null;
+    do {
+      const page = await materializer.schemaSearch(
+        generation.identity.generationId,
+        "origin",
+        "anime",
+        after,
+        25,
+      );
+      nodeIds.push(...page.nodeIds);
+      after = page.next;
+    } while (after !== null);
+
+    expect(nodeIds).toHaveLength(250);
+    expect(nodeIds.at(0)).toBe("anime-000");
+    expect(nodeIds.at(-1)).toBe("anime-249");
+    expect(nodeIds).not.toContain("book-000");
     expect(materializer.retainedUnits()).toBeLessThanOrEqual(8);
     expect(materializer.largestPageUnits()).toBe(25);
   });

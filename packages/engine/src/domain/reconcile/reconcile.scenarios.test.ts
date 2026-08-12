@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { queryReview } from "../review/index.js";
 import { projectSnapshot, projectionText, rebuildGeneration, renderSemanticTree } from "./index.js";
 import { proposalLifecycleCases } from "./proposal-lifecycle-test-helpers.js";
-import { managedNodeId, managedOccurrenceId } from "./managed-identity.js";
-import { base, end, Facts, fullSurface, versions } from "./reconcile-test-helpers.js";
+import { base, end, fullSurface, versions } from "./reconcile-test-helpers.js";
+import type { Facts } from "./reconcile-test-helpers.js";
 
 describe("production Reconcile scenarios", () => {
   it("单人 Direct 全表面", () => {
@@ -45,11 +45,9 @@ describe("production Reconcile scenarios", () => {
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDeletion.id });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projectionText(projection, "node")).toBe("AB");
-    expect(projection.nodes.node?.properties).toMatchObject({
-      color: "blue",
-      schemaId: "schema",
-    });
-    expect(projection.managedChildren).toHaveLength(1);
+    expect(projection.nodes.node?.properties).toMatchObject({ color: "blue" });
+    expect(projection.schemaApplications.node).toEqual(["schema"]);
+    expect(projection.effectiveFields.node?.[0]?.fieldDefinitionId).toBe("field");
     expect(projection.canonicalOccurrences.node).toBe("reference");
     expect(projection.nodes.node?.metadata.favorite).toBe(true);
     expect(projectSnapshot("workspace", facts.snapshot(), "review", versions)).toMatchObject({
@@ -83,6 +81,10 @@ describe("production Reconcile scenarios", () => {
 
     const expectedKinds = [
       "canonical-occurrence-set",
+      "field-initialize",
+      "field-materialize",
+      "field-value-delete",
+      "materialized-field-delete",
       "node-create",
       "node-delete",
       "node-restore",
@@ -90,6 +92,16 @@ describe("production Reconcile scenarios", () => {
       "occurrence-delete",
       "occurrence-move",
       "occurrence-restore",
+      "schema-apply",
+      "schema-extension-add",
+      "schema-extension-remove",
+      "schema-field-add",
+      "schema-field-configure",
+      "schema-field-remove",
+      "schema-remove",
+      "schema-template-node-add",
+      "schema-template-node-remove",
+      "template-node-detach",
       "text-mark",
       "text-splice",
       "value-set",
@@ -109,13 +121,19 @@ describe("production Reconcile scenarios", () => {
           projectionPayload(pendingReview),
           `${entry.kind} must be pending in Review`,
         ).not.toEqual(projectionPayload(pendingOrigin));
-        expect(
-          queryReview(
-            "workspace",
-            pendingSnapshot,
-            rebuildGeneration("workspace", pendingSnapshot, versions).generation,
-          ).hunks.some((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id)),
-        ).toBe(true);
+        const pendingHunk = queryReview(
+          "workspace",
+          pendingSnapshot,
+          rebuildGeneration("workspace", pendingSnapshot, versions).generation,
+        ).hunks.find((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id));
+        expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
+        if (entry.kind === "schema-field-configure") {
+          expect(pendingHunk?.diffSpace.kind).toBe("field-configuration");
+          expect(pendingHunk?.selection.evidence.effects).toEqual([
+            expect.objectContaining({ kind: "field-configuration" }),
+          ]);
+          expect(pendingHunk?.selection.evidence.associatedImpactIds.length).toBeGreaterThan(0);
+        }
         entry.facts.resolve([entry.proposal.id], decision);
         const terminalSnapshot = entry.facts.snapshot();
         const terminalOrigin = projectSnapshot("workspace", terminalSnapshot, "origin", versions);
@@ -169,150 +187,6 @@ describe("production Reconcile scenarios", () => {
       expect(projectionPayload(terminalReview)).toEqual(projectionPayload(terminalOrigin));
       expect(terminalOrigin.nodes["proposal-node"] !== undefined).toBe(decision === "accept");
     }
-  });
-
-  it("Schema 与 managed children", () => {
-    const projection = projectSnapshot(
-      "workspace",
-      fullSurface("direct").snapshot(),
-      "origin",
-      versions,
-    );
-    expect(projection.managedChildren[0]).toMatchObject({
-      parentNodeId: "node",
-      schemaId: "schema",
-      fieldId: "field",
-    });
-    expect(projection.occurrences[managedOccurrenceId("node", "schema", "field")]).toMatchObject({
-      managed: true,
-      parentOccurrenceId: "reference",
-    });
-
-    const evolving = fullSurface("direct");
-    evolving.add({
-      kind: "text-splice",
-      nodeId: managedNodeId("node", "schema", "field"),
-      deleteAtomIds: [],
-      anchor: end,
-      insert: "kept value",
-    });
-    evolving.add({
-      kind: "value-unset",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "field",
-    });
-    evolving.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "replacement",
-      value: 1,
-    });
-    const evolved = projectSnapshot("workspace", evolving.snapshot(), "origin", versions);
-    expect(evolved.managedChildren.map((child) => child.fieldId)).toEqual(["replacement"]);
-    expect(projectionText(evolved, managedNodeId("node", "schema", "field"))).toBe("kept value");
-    expect(evolved.occurrences[managedOccurrenceId("node", "schema", "field")]).toMatchObject({
-      managed: false,
-      parentOccurrenceId: "reference",
-    });
-
-    const reordered = fullSurface("direct");
-    reordered.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "second",
-      value: 1,
-      previous: { kind: "unset" },
-    });
-    const proposalReorder = reordered.add(
-      {
-        kind: "value-set",
-        owner: { kind: "schema", id: "schema" },
-        namespace: "schema",
-        key: "second",
-        value: -1,
-        previous: { kind: "set", value: 1 },
-      },
-      "proposal",
-    );
-    const pending = reordered.snapshot();
-    expect(
-      projectSnapshot("workspace", pending, "origin", versions).managedChildren.map(
-        (child) => child.fieldId,
-      ),
-    ).toEqual(["field", "second"]);
-    expect(
-      projectSnapshot("workspace", pending, "review", versions).managedChildren.map(
-        (child) => child.fieldId,
-      ),
-    ).toEqual(["second", "field"]);
-    reordered.resolve([proposalReorder.id], "accept");
-    expect(
-      projectSnapshot("workspace", reordered.snapshot(), "origin", versions).managedChildren.map(
-        (child) => child.fieldId,
-      ),
-    ).toEqual(["second", "field"]);
-
-    const collision = new Facts();
-    for (const [nodeId, occurrenceId] of [
-      ["a:b", "o1"],
-      ["a", "o2"],
-    ] as const) {
-      collision.add({ kind: "node-create", nodeId });
-      collision.add({
-        kind: "occurrence-create",
-        occurrenceId,
-        nodeId,
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      });
-    }
-    collision.add({
-      kind: "value-set",
-      owner: { kind: "node", id: "a:b" },
-      namespace: "property",
-      key: "schemaId",
-      value: "c",
-    });
-    collision.add({
-      kind: "value-set",
-      owner: { kind: "node", id: "a" },
-      namespace: "property",
-      key: "schemaId",
-      value: "b",
-    });
-    collision.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "c" },
-      namespace: "schema",
-      key: "d",
-      value: 0,
-    });
-    collision.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "b" },
-      namespace: "schema",
-      key: "c:d",
-      value: 0,
-    });
-    const collisionProjection = projectSnapshot(
-      "workspace",
-      collision.snapshot(),
-      "origin",
-      versions,
-    );
-    expect(collisionProjection.managedChildren.map((child) => child.nodeId).sort()).toEqual(
-      [managedNodeId("a:b", "c", "d"), managedNodeId("a", "b", "c:d")].sort(),
-    );
-    expect(
-      collisionProjection.occurrences[managedOccurrenceId("a:b", "c", "d")]?.parentOccurrenceId,
-    ).toBe("o1");
-    expect(
-      collisionProjection.occurrences[managedOccurrenceId("a", "b", "c:d")]?.parentOccurrenceId,
-    ).toBe("o2");
   });
 
   it("Transclusion 与 self-reference", () => {
@@ -523,6 +397,16 @@ function projectionPayload(projection: ReturnType<typeof projectSnapshot>) {
     children: projection.children,
     canonicalOccurrences: projection.canonicalOccurrences,
     addressedValues: projection.addressedValues,
-    managedChildren: projection.managedChildren,
+    schemaApplications: projection.schemaApplications,
+    schemaFields: projection.schemaFields,
+    schemaFieldItems: projection.schemaFieldItems,
+    schemaTemplateNodes: projection.schemaTemplateNodes,
+    templateNodeInstances: projection.templateNodeInstances,
+    schemaExtensions: projection.schemaExtensions,
+    schemaSearchMembers: projection.schemaSearchMembers,
+    definitionStatuses: projection.definitionStatuses,
+    conflictIssues: projection.conflictIssues,
+    effectiveFields: projection.effectiveFields,
+    materializedFields: projection.materializedFields,
   };
 }

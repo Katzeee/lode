@@ -176,19 +176,23 @@ function projectionShards(
     "schemaApplications",
     "schemaFields",
     "schemaFieldItems",
+    "schemaTemplateNodes",
     "schemaExtensions",
     "schemaSearchMembers",
     "schemaExtensionConflicts",
+    "definitionStatuses",
     "conflictIssues",
     "effectiveFields",
     "materializedFields",
+    "reviewScopes",
+    "supportByContribution",
   ] as const) {
     for (const [identity, value] of Object.entries(projection[section])) {
       entries.push({ section, identity, value });
     }
   }
-  projection.managedChildren.forEach((value, index) =>
-    entries.push({ section: "managedChildren", identity: String(index), value }),
+  projection.templateNodeInstances.forEach((value, index) =>
+    entries.push({ section: "templateNodeInstances", identity: String(index), value }),
   );
   entries.push(...projectionIndexEntries(projection));
   return entries.map(({ section, identity, value }) => {

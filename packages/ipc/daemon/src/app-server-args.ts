@@ -3,6 +3,7 @@ export type ParsedAppServerArgs = Readonly<{
   dataRoot?: string;
   home?: string;
   logFile?: string;
+  accessToken?: string;
 }>;
 
 export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
@@ -11,6 +12,7 @@ export function parseAppServerArgs(argv: string[]): ParsedAppServerArgs {
     ...optionalValue(argv, "--data-root", "dataRoot"),
     ...optionalValue(argv, "--home", "home"),
     ...optionalValue(argv, "--log-file", "logFile"),
+    ...optionalValue(argv, "--access-token", "accessToken"),
   };
 }
 

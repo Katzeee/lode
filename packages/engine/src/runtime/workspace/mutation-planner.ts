@@ -7,7 +7,6 @@ import {
   type FactSnapshot,
   type Mutation,
   type PreviousValue,
-  type SequenceAnchor,
 } from "../../domain/fact/index.js";
 import {
   assertMaterializedField,
@@ -25,6 +24,9 @@ import {
   prepareTextMark,
   prepareTextSplice,
 } from "./text-mutation-planner.js";
+import { prepareTemplateDetachment } from "./template-node-mutation-planner.js";
+import { prepareFieldContentDeletion } from "./field-content-deletion-planner.js";
+import { assertSingleRoot, prepareMutableOccurrence } from "./occurrence-mutation-planner.js";
 
 export function prepareMutations(
   workspaceId: string,
@@ -54,9 +56,6 @@ export function prepareMutations(
       );
     }
     prepared.push(next);
-    if (index === pending.length - 1) {
-      continue;
-    }
     const sequence = (workingSnapshot.frontier[PLANNING_REPLICA] ?? 0) + 1;
     const lamport = maxLamport(workingSnapshot);
     const fact = makeFact({
@@ -82,6 +81,7 @@ export function prepareMutations(
       workingSnapshot,
     );
   }
+  assertSingleRoot(intent === "direct" ? workingGeneration.origin : workingGeneration.review);
   return prepared;
 }
 
@@ -100,6 +100,13 @@ function prepareMutation(
   if (isSchemaMutation(mutation)) {
     return prepareSchemaMutation(mutation, available);
   }
+  if (isFieldContentDeletion(mutation)) {
+    return prepareFieldContentDeletion(mutation, previous, available);
+  }
+  const preparedOccurrence = prepareMutableOccurrence(mutation, previous, available);
+  if (preparedOccurrence) {
+    return preparedOccurrence;
+  }
   switch (mutation.kind) {
     case "text-splice":
       return prepareTextSplice(mutation, available);
@@ -108,47 +115,6 @@ function prepareMutation(
     case "value-set":
     case "value-unset":
       return prepareValue(mutation, previous, available);
-    case "occurrence-move": {
-      const occurrence = available.occurrences[mutation.occurrenceId];
-      if (
-        !occurrence ||
-        (mutation.parentOccurrenceId !== null &&
-          !available.occurrences[mutation.parentOccurrenceId])
-      ) {
-        throw new Error(`Move target Occurrence does not exist: ${mutation.occurrenceId}`);
-      }
-      if (createsCycle(available, mutation.occurrenceId, mutation.parentOccurrenceId)) {
-        throw new Error("Move would create an Occurrence storage cycle");
-      }
-      const prior = previous.occurrences[mutation.occurrenceId] ?? occurrence;
-      return {
-        ...mutation,
-        previousParentOccurrenceId: prior?.parentOccurrenceId ?? null,
-        previousAnchor: prior
-          ? anchorFor(
-              previous.occurrences[mutation.occurrenceId] ? previous : available,
-              mutation.occurrenceId,
-            )
-          : mutation.anchor,
-      };
-    }
-    case "occurrence-delete": {
-      const occurrence = available.occurrences[mutation.occurrenceId];
-      if (!occurrence) {
-        throw new Error(`Delete target Occurrence does not exist: ${mutation.occurrenceId}`);
-      }
-      return {
-        ...mutation,
-        previousParentOccurrenceId:
-          previous.occurrences[mutation.occurrenceId]?.parentOccurrenceId ??
-          occurrence?.parentOccurrenceId ??
-          null,
-        previousAnchor: anchorFor(
-          previous.occurrences[mutation.occurrenceId] ? previous : available,
-          mutation.occurrenceId,
-        ),
-      };
-    }
     case "canonical-occurrence-set": {
       const occurrence = available.occurrences[mutation.occurrenceId];
       if (!occurrence || (occurrence && occurrence.nodeId !== mutation.nodeId)) {
@@ -185,6 +151,11 @@ function prepareMutation(
       return mutation;
     case "field-initialize":
       return prepareFieldInitialization(mutation, available);
+    case "template-node-detach":
+      return prepareTemplateDetachment(mutation, available);
+    case "occurrence-move":
+    case "occurrence-delete":
+      return prepareMutableOccurrence(mutation, previous, available) ?? mutation;
     case "node-create":
       return prepareNodeCreate(mutation);
   }
@@ -203,21 +174,10 @@ function isSchemaMutation(
   return mutation.kind.startsWith("schema-");
 }
 
-function createsCycle(
-  projection: ProjectionGeneration["review"],
-  occurrenceId: string,
-  parentOccurrenceId: string | null,
-): boolean {
-  let current = parentOccurrenceId;
-  const visited = new Set<string>();
-  while (current !== null) {
-    if (current === occurrenceId || visited.has(current)) {
-      return true;
-    }
-    visited.add(current);
-    current = projection.occurrences[current]?.parentOccurrenceId ?? null;
-  }
-  return false;
+function isFieldContentDeletion(
+  mutation: Mutation,
+): mutation is Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }> {
+  return mutation.kind === "field-value-delete" || mutation.kind === "materialized-field-delete";
 }
 
 function prepareValue(
@@ -245,10 +205,20 @@ function assertDeletion(
   const matches =
     kind === "node-delete"
       ? mutation?.kind === "node-delete" && mutation.nodeId === identity
-      : mutation?.kind === "occurrence-delete" && mutation.occurrenceId === identity;
+      : occurrenceDeletionIdentity(mutation) === identity;
   if (!matches) {
     throw new Error(`Restore does not reference an observed ${kind} Fact`);
   }
+}
+
+function occurrenceDeletionIdentity(mutation: Mutation | null): string | null {
+  if (mutation?.kind === "occurrence-delete") {
+    return mutation.occurrenceId;
+  }
+  if (mutation?.kind === "field-value-delete") {
+    return mutation.valueOccurrenceId;
+  }
+  return mutation?.kind === "materialized-field-delete" ? mutation.fieldOccurrenceId : null;
 }
 
 function assertParent(
@@ -282,19 +252,4 @@ function readValue(
 
 function previousValue(value: ReturnType<typeof readValue>): PreviousValue {
   return value === undefined ? { kind: "unset" } : { kind: "set", value };
-}
-
-function anchorFor(
-  projection: ProjectionGeneration["review"],
-  occurrenceId: string,
-): SequenceAnchor {
-  const occurrence = projection.occurrences[occurrenceId];
-  const siblings = projection.children[occurrence?.parentOccurrenceId ?? "$root"] ?? [];
-  const index = siblings.indexOf(occurrenceId);
-  return {
-    after: index > 0 ? (siblings[index - 1] ?? null) : null,
-    before: index >= 0 ? (siblings[index + 1] ?? null) : null,
-    affinity: "after",
-    fallback: index <= 0 ? "start" : "end",
-  };
 }

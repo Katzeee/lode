@@ -9,6 +9,7 @@ import { ConnectServerResource } from "./resources/connect-server-resource.js";
 
 export type AppServerDaemonOptions = Readonly<{
   listen: string;
+  accessToken: string;
   dataRoot?: string;
   persistence?: PersistenceOptions;
   onShutdown?: () => void;
@@ -28,7 +29,12 @@ export async function startAppServerDaemon(
     ...(persistence ? { persistence } : {}),
   });
   const connect = runtime.app.root.own(
-    new ConnectServerResource(runtime, parseEndpoint(options.listen), options.onShutdown),
+    new ConnectServerResource(
+      runtime,
+      parseEndpoint(options.listen),
+      options.accessToken,
+      options.onShutdown,
+    ),
   );
   await runtime.app.start();
   return { address: connect.address, stop: () => runtime.app.stop() };

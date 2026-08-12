@@ -2,11 +2,9 @@ import type { LoroDoc } from "loro-crdt";
 
 import {
   canonicalJson,
-  compareFacts,
   frontierEquals,
   type AuthorityReceipt,
   type AuthorityRecord,
-  type Fact,
   type FactFrontier,
   type InvocationId,
   type ReplicaId,
@@ -84,29 +82,6 @@ export function localReceiptsByInvocation(
     result.set(record.receipt.invocationId, record.receipt);
   }
   return result;
-}
-
-export function nextReplicaSequence(facts: readonly Fact[], replicaId: ReplicaId): number {
-  return (
-    facts.reduce(
-      (maximum, fact) =>
-        fact.coordinate.dot.replicaId === replicaId
-          ? Math.max(maximum, fact.coordinate.dot.sequence)
-          : maximum,
-      0,
-    ) + 1
-  );
-}
-
-export function maxLamportAtFrontier(facts: readonly Fact[], frontier: FactFrontier): number {
-  return (
-    facts
-      .filter(
-        (fact) => (frontier[fact.coordinate.dot.replicaId] ?? 0) >= fact.coordinate.dot.sequence,
-      )
-      .sort(compareFacts)
-      .at(-1)?.coordinate.lamport ?? 0
-  );
 }
 
 function parseStoredRecord(raw: unknown): unknown {

@@ -1,10 +1,50 @@
 import type { ConflictIssue } from "../domain/conflict/index.js";
-import type { FactFrontier } from "../domain/fact/index.js";
+import type { FactFrontier, SequenceAnchor } from "../domain/fact/index.js";
 import { parseFieldTemplateConfig, parseFieldValueSeeds } from "./schema-projection-validation.js";
 
 export function parseConflictIssue(value: unknown): ConflictIssue {
   const issue = record(value, "Conflict issue");
   const kind = string(issue.kind, "Conflict kind");
+  if (kind === "unsupported-direct-intent") {
+    exact(
+      issue,
+      [
+        "kind",
+        "identity",
+        "contributionId",
+        "mutationKind",
+        "actorId",
+        "replicaId",
+        "observedFrontier",
+        "missingSupportContributionIds",
+        "requiredNodeIds",
+        "recoveryActions",
+      ],
+      "Unsupported Direct intent",
+    );
+    const recoveryActions = strings(issue.recoveryActions, "Recovery actions");
+    if (recoveryActions.length !== 1 || recoveryActions[0] !== "restore-support") {
+      throw new Error("Unsupported Direct intent recovery actions are invalid");
+    }
+    return {
+      kind,
+      identity: string(issue.identity, "Conflict identity"),
+      contributionId: string(issue.contributionId, "Contribution identity"),
+      mutationKind: string(issue.mutationKind, "Mutation kind"),
+      actorId: string(issue.actorId, "Actor identity"),
+      replicaId: string(issue.replicaId, "Replica identity"),
+      observedFrontier: frontier(issue.observedFrontier),
+      missingSupportContributionIds: strings(
+        issue.missingSupportContributionIds,
+        "Missing support Contributions",
+      ),
+      requiredNodeIds: strings(issue.requiredNodeIds, "Required Node identities"),
+      recoveryActions: ["restore-support"],
+    };
+  }
+  if (kind === "placement-conflict") {
+    return parsePlacementConflict(issue);
+  }
   if (kind === "schema-extension-cycle") {
     exact(issue, ["kind", "identity", "schemaIds"], "Schema Extension conflict");
     return {
@@ -53,6 +93,73 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
       };
     }),
   };
+}
+
+function parsePlacementConflict(issue: Record<string, unknown>): ConflictIssue {
+  exact(
+    issue,
+    ["kind", "identity", "occurrenceId", "canonicalParentOccurrenceId", "candidates"],
+    "Placement conflict",
+  );
+  if (!Array.isArray(issue.candidates)) {
+    throw new Error("Placement candidates must be an array");
+  }
+  return {
+    kind: "placement-conflict",
+    identity: string(issue.identity, "Conflict identity"),
+    occurrenceId: string(issue.occurrenceId, "Occurrence identity"),
+    canonicalParentOccurrenceId: nullableString(
+      issue.canonicalParentOccurrenceId,
+      "canonical parent Occurrence identity",
+    ),
+    candidates: issue.candidates.map((value) => {
+      const candidate = record(value, "Placement candidate");
+      exact(
+        candidate,
+        [
+          "contributionId",
+          "parentOccurrenceId",
+          "anchor",
+          "actorId",
+          "replicaId",
+          "observedFrontier",
+        ],
+        "Placement candidate",
+      );
+      return {
+        contributionId: string(candidate.contributionId, "Contribution identity"),
+        parentOccurrenceId: nullableString(
+          candidate.parentOccurrenceId,
+          "parent Occurrence identity",
+        ),
+        anchor: sequenceAnchor(candidate.anchor),
+        actorId: string(candidate.actorId, "Actor identity"),
+        replicaId: string(candidate.replicaId, "Replica identity"),
+        observedFrontier: frontier(candidate.observedFrontier),
+      };
+    }),
+  };
+}
+
+function sequenceAnchor(value: unknown): SequenceAnchor {
+  const anchor = record(value, "Sequence anchor");
+  exact(anchor, ["after", "before", "affinity", "fallback"], "Sequence anchor");
+  if (
+    (anchor.affinity !== "after" && anchor.affinity !== "before") ||
+    (anchor.fallback !== "start" && anchor.fallback !== "end")
+  ) {
+    throw new Error("Sequence anchor policy is invalid");
+  }
+  return {
+    after: nullableString(anchor.after, "anchor after identity"),
+    before: nullableString(anchor.before, "anchor before identity"),
+    affinity: anchor.affinity,
+    fallback: anchor.fallback,
+  };
+}
+
+function nullableString(value: unknown, label: string): string | null {
+  return value === null ? null : string(value, label);
 }
 
 function parseFieldConfigConflict(issue: Record<string, unknown>): ConflictIssue {

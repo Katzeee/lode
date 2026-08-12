@@ -7,10 +7,10 @@ import type { ProjectionOwnerCache } from "../../domain/reconcile/index.js";
 
 export const MANIFEST_DOCUMENT_ID = "materialized-generation/manifest";
 export const MANIFEST_FORMAT = "lode-materialized-generation-manifest-v1";
-export const HEADER_FORMAT = "lode-materialized-generation-header-v6";
+export const HEADER_FORMAT = "lode-materialized-generation-header-v13";
 export const DIRECTORY_FORMAT = "lode-materialized-generation-directory-v2";
 export const SHARD_FORMAT = "lode-materialized-generation-shard-v2";
-export const OWNER_CACHE_FORMAT = "lode-materialized-generation-owner-cache-v1";
+export const OWNER_CACHE_FORMAT = "lode-materialized-generation-owner-cache-v2";
 export const DIRECTORY_FANOUT = 16;
 
 export const PROJECTION_SECTIONS = [
@@ -19,23 +19,29 @@ export const PROJECTION_SECTIONS = [
   "children",
   "canonicalOccurrences",
   "addressedValues",
-  "managedChildren",
   "schemaApplications",
   "schemaFields",
   "schemaFieldItems",
+  "schemaTemplateNodes",
+  "templateNodeInstances",
   "schemaExtensions",
   "schemaSearchMembers",
   "schemaExtensionConflicts",
+  "definitionStatuses",
   "conflictIssues",
   "effectiveFields",
   "materializedFields",
+  "reviewScopes",
+  "supportByContribution",
   "occurrenceIdsByNode",
   "nodeIdsBySchema",
-  "managedChildrenByParentNode",
-  "managedChildrenBySchema",
-  "managedChildrenByField",
-  "managedChildrenByNode",
-  "managedChildrenByOccurrence",
+  "nodeIdsByFieldDefinition",
+  "schemaInstanceMemberships",
+  "templateNodeInstancesByOwner",
+  "templateNodeInstancesByTemplate",
+  "templateNodeInstancesByNode",
+  "templateNodeInstancesByOccurrence",
+  "templateNodeInstancesBySchema",
 ] as const;
 
 export type ProjectionSection = (typeof PROJECTION_SECTIONS)[number];

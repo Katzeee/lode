@@ -18,6 +18,9 @@ import {
   type Projection,
 } from "../reconcile/index.js";
 import { validateSchemaEvidence } from "./schema-evidence.js";
+import { validateTemplateDetachmentEvidence } from "./template-node-evidence.js";
+import { validateFieldContentDeletionEvidence } from "./field-content-evidence.js";
+import { assertDeletion } from "./deletion-evidence.js";
 
 export function admitAuthorityRecords(
   workspaceId: WorkspaceId,
@@ -95,13 +98,22 @@ function validateMutationEvidence(
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
       validateSchemaEvidence(mutation, previous, available);
+      return;
+    case "template-node-detach":
+      validateTemplateDetachmentEvidence(mutation, available);
       return;
     case "field-materialize":
       assertMaterializedField(mutation, available);
       return;
     case "field-initialize":
       validateFieldInitializationEvidence(mutation, available);
+      return;
+    case "field-value-delete":
+    case "materialized-field-delete":
+      validateFieldContentDeletionEvidence(mutation, previous, available);
       return;
     case "node-delete":
       if (!available.nodes[mutation.nodeId]) {
@@ -254,23 +266,6 @@ function assertValueOwnerAvailable(
 function assertParent(projection: Projection, parentId: string | null): void {
   if (parentId !== null && !projection.occurrences[parentId]) {
     throw new Error("Parent Occurrence is absent from the observed projection");
-  }
-}
-
-function assertDeletion(
-  snapshot: FactSnapshot,
-  deletionFactId: string,
-  kind: "node-delete" | "occurrence-delete",
-  identity: string,
-): void {
-  const deletion = snapshot.facts.find((fact) => fact.id === deletionFactId);
-  const mutation = deletion?.body.kind === "contribution" ? deletion.body.mutation : null;
-  const matches =
-    kind === "node-delete"
-      ? mutation?.kind === kind && mutation.nodeId === identity
-      : mutation?.kind === kind && mutation.occurrenceId === identity;
-  if (!matches) {
-    throw new Error(`Restore does not reference an observed ${kind} Fact`);
   }
 }
 

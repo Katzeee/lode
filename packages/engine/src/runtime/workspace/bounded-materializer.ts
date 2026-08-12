@@ -2,18 +2,11 @@ import type { ProjectionPage, ProjectionQuery } from "../../application/contract
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import {
-  MANIFEST_DOCUMENT_ID,
-  MANIFEST_FORMAT,
-  cacheKey,
   directoryRoot,
-  encodeMaterialized,
   headerDocumentId,
-  ownerCacheDocumentId,
   type GenerationHeader,
-  type GenerationManifest,
   type ShardDescriptor,
 } from "./materialized-generation-format.js";
-import { materialize } from "./materialize-generation.js";
 import {
   isGenerationHeader,
   isStoredOwnerCaches,
@@ -21,27 +14,26 @@ import {
 } from "./materialized-format-validation.js";
 import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
 import { projectionPageMaps } from "./projection-page.js";
-import type {
-  BoundedMaterializerOptions,
-  MaterializedShard,
-} from "./bounded-materializer-types.js";
+import type { BoundedMaterializerOptions } from "./bounded-materializer-types.js";
 import { loadMaterializedProjection } from "./materialized-projection-loader.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
 import {
   loadAllDescriptors,
   loadExactDescriptors,
   loadPageDescriptors,
-  writeDirectoryNodes,
-  writeMaterializedEntry,
 } from "./materialized-directory.js";
 import { loadGenerationManifest, loadMaterializedSnapshot } from "./materialized-document-read.js";
 import { cleanupMaterializedGenerations } from "./materialized-cleanup.js";
+import { readSchemaSearchPage } from "./schema-search-reader.js";
+import { BoundedShardCache } from "./bounded-shard-cache.js";
+import { commitMaterializedPublication } from "./materialized-publication.js";
 
 export class BoundedProjectionMaterializer implements ProjectionGenerationStore {
   private readonly capacity: number;
   private generationIdValue: string | null = null;
-  private shards = new Map<string, MaterializedShard>();
+  private readonly shardCache: BoundedShardCache;
   private largestPageValue = 0;
+  private largestExactReadValue = 0;
   private nextPublicationOrdinal = 0;
   private publicationFenceOrdinal = 0;
   private readonly publications = new SerialExecutor();
@@ -54,6 +46,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     if (!Number.isSafeInteger(this.capacity) || this.capacity < 1) {
       throw new Error("Materializer capacity must be a positive safe integer");
     }
+    this.shardCache = new BoundedShardCache(this.capacity);
   }
 
   async publish(generation: ProjectionGeneration): Promise<void> {
@@ -70,51 +63,14 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
       return;
     }
     this.publicationFenceOrdinal = ordinal;
-    const previousManifest = await loadGenerationManifest(this.documents);
-    try {
-      await cleanupMaterializedGenerations(
-        this.documents,
-        previousManifest.generationIds,
-        this.pinned,
-      );
-    } catch {
-      // A later successful publication repeats cleanup from the durable manifest.
-    }
-    const materialized = materialize(generation);
-    for (const shard of materialized.shards) {
-      await writeMaterializedEntry(this.documents, generation.identity.generationId, shard);
-    }
-    await writeDirectoryNodes(this.documents, materialized.directoryNodes);
-    await this.documents.writeSnapshot(
-      ownerCacheDocumentId(generation.identity.generationId),
-      encodeMaterialized(materialized.ownerCaches),
+    await commitMaterializedPublication(
+      this.documents,
+      generation,
+      this.shardCache,
+      this.capacity,
+      this.pinned,
     );
-    await this.documents.writeSnapshot(
-      headerDocumentId(generation.identity.generationId),
-      encodeMaterialized(materialized.header),
-    );
-
-    const generationIds = [
-      ...previousManifest.generationIds.filter(
-        (generationId) => generationId !== generation.identity.generationId,
-      ),
-      generation.identity.generationId,
-    ].slice(-2);
-    await this.documents.writeSnapshot(
-      MANIFEST_DOCUMENT_ID,
-      encodeMaterialized({ format: MANIFEST_FORMAT, generationIds } satisfies GenerationManifest),
-    );
-
-    this.shards = new Map();
-    for (const shard of materialized.shards.slice(0, this.capacity)) {
-      this.cache(shard.descriptor.key, generation.identity.generationId, shard.value);
-    }
     this.generationIdValue = generation.identity.generationId;
-    try {
-      await cleanupMaterializedGenerations(this.documents, generationIds, this.pinned);
-    } catch {
-      // The manifest already defines the bounded live set; orphan cleanup is retried by later publishes.
-    }
   }
 
   async load(generationId: string): Promise<ProjectionGeneration> {
@@ -137,6 +93,44 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
         origin,
         review,
         ownerCaches,
+      };
+    });
+  }
+
+  async ownerCaches(generationId: string): Promise<ProjectionGeneration["ownerCaches"]> {
+    return this.withReadLease(generationId, async () => {
+      const header = await this.loadHeader(generationId);
+      return this.loadOwnerCaches(generationId, header);
+    });
+  }
+
+  async reviewScopes(generationId: string, after: string | null, limit: number) {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("Review page limit must be between 1 and 100");
+    }
+    return this.withReadLease(generationId, async () => {
+      const header = await this.loadHeader(generationId);
+      const page = await loadPageDescriptors(
+        this.documents,
+        generationId,
+        "review",
+        "reviewScopes",
+        directoryRoot(header, "review", "reviewScopes"),
+        after,
+        limit,
+      );
+      const scopes = [];
+      for (const descriptor of page.descriptors) {
+        scopes.push({
+          identity: descriptor.identity,
+          contributionIds: (await this.loadShard(generationId, descriptor)) as readonly string[],
+        });
+      }
+      this.largestPageValue = Math.max(this.largestPageValue, scopes.length);
+      return {
+        identity: header.identity,
+        scopes,
+        next: page.hasMore ? (scopes.at(-1)?.identity ?? null) : null,
       };
     });
   }
@@ -179,6 +173,33 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     });
   }
 
+  async schemaSearch(
+    generationId: string,
+    view: "origin" | "review",
+    schemaId: string,
+    after: string | null,
+    limit: number,
+  ) {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 99) {
+      throw new Error("Schema Search page limit must be between 1 and 99");
+    }
+    return this.withReadLease(generationId, async () => {
+      const header = await this.loadHeader(generationId);
+      const result = await readSchemaSearchPage(
+        this.documents,
+        generationId,
+        view,
+        schemaId,
+        after,
+        limit,
+        header,
+        (descriptor) => this.loadShard(generationId, descriptor),
+      );
+      this.largestPageValue = Math.max(this.largestPageValue, result.nodeIds.length);
+      return result;
+    });
+  }
+
   async read(
     generationId: string,
     view: "origin" | "review",
@@ -186,6 +207,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     identities: readonly string[],
   ) {
     return this.withReadLease(generationId, async () => {
+      this.largestExactReadValue = Math.max(this.largestExactReadValue, identities.length);
       const header = await this.loadHeader(generationId);
       const descriptors = await loadExactDescriptors(
         this.documents,
@@ -232,19 +254,26 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     return this.generationIdValue;
   }
 
+  resetReadMetrics(): void {
+    this.largestPageValue = 0;
+    this.largestExactReadValue = 0;
+  }
+
   retainedUnits(): number {
-    return this.shards.size;
+    return this.shardCache.size();
   }
 
   largestPageUnits(): number {
     return this.largestPageValue;
   }
 
+  largestExactReadUnits(): number {
+    return this.largestExactReadValue;
+  }
+
   private async loadShard(generationId: string, descriptor: ShardDescriptor): Promise<unknown> {
-    const cached = this.shards.get(cacheKey(generationId, descriptor.key));
-    if (cached) {
-      this.shards.delete(cacheKey(generationId, descriptor.key));
-      this.shards.set(cacheKey(generationId, descriptor.key), cached);
+    const cached = this.shardCache.get(generationId, descriptor.key);
+    if (cached.hit) {
       return cached.value;
     }
     const stored = await loadMaterializedSnapshot(this.documents, descriptor.documentId);
@@ -252,21 +281,8 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     if (!isStoredShard(parsed, generationId, descriptor)) {
       throw new Error("Published Projection shard is corrupt");
     }
-    this.cache(descriptor.key, generationId, parsed.value);
+    this.shardCache.set(descriptor.key, generationId, parsed.value);
     return parsed.value;
-  }
-
-  private cache(key: string, generationId: string, value: unknown): void {
-    const indexed = cacheKey(generationId, key);
-    this.shards.delete(indexed);
-    this.shards.set(indexed, { key, generationId, value });
-    while (this.shards.size > this.capacity) {
-      const oldest = this.shards.keys().next().value;
-      if (oldest === undefined) {
-        break;
-      }
-      this.shards.delete(oldest);
-    }
   }
 
   private async loadHeader(generationId: string): Promise<GenerationHeader> {

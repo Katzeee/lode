@@ -14,6 +14,7 @@ import { dialTarget } from "./endpoint.js";
 export function createPeerSyncTransport(
   endpoint: string,
   workspaceId: string,
+  accessToken: string,
 ): Readonly<{ transport: SyncTransport; close(): void }> {
   const dial = dialTarget(endpoint);
   const manager =
@@ -29,11 +30,14 @@ export function createPeerSyncTransport(
       sessionManager: manager,
     }),
   );
+  const headers = new Headers({ authorization: `Bearer ${accessToken}` });
   return {
     transport: {
       profile: async () =>
         (
-          await rpc.syncProfile(create(WorkspaceSyncProfileRequestSchema, { workspaceId }))
+          await rpc.syncProfile(create(WorkspaceSyncProfileRequestSchema, { workspaceId }), {
+            headers,
+          })
         ).entries.map((entry) => ({
           documentId: entry.documentId,
           version: entry.version,
@@ -42,11 +46,13 @@ export function createPeerSyncTransport(
         (
           await rpc.syncFetch(
             create(WorkspaceSyncFetchRequestSchema, { workspaceId, documentId, from }),
+            { headers },
           )
         ).payload,
       send: async (documentId, payload) => {
         await rpc.syncSend(
           create(WorkspaceSyncSendRequestSchema, { workspaceId, documentId, payload }),
+          { headers },
         );
       },
     },

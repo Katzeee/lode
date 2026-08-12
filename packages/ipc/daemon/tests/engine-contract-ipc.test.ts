@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createAppServerClient } from "@lode/client";
+import { Code } from "@connectrpc/connect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { startAppServerDaemon } from "../src/app-server-daemon.js";
 import { dialTarget } from "../src/endpoint.js";
 
+const accessToken = "lode-test-transport-access-token";
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -20,9 +22,17 @@ describe("local IPC typed EngineContract adapter", () => {
   it("preserves completion, retry and read-your-write semantics", async () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-ipc-contract-"));
     temporaryDirectories.push(dataRoot);
-    const daemon = await startAppServerDaemon({ listen: "tcp://127.0.0.1:0", dataRoot });
-    const client = createAppServerClient(dialTarget(daemon.address));
+    const daemon = await startAppServerDaemon({
+      listen: "tcp://127.0.0.1:0",
+      dataRoot,
+      accessToken,
+    });
+    const client = createAppServerClient(dialTarget(daemon.address), accessToken);
+    const unauthenticated = createAppServerClient(dialTarget(daemon.address), "wrong-token");
     try {
+      await expect(unauthenticated.openWorkspace("workspace")).rejects.toMatchObject({
+        code: Code.Unauthenticated,
+      });
       expect(Object.keys(client).sort()).toEqual([
         "close",
         "engine",
@@ -68,6 +78,7 @@ describe("local IPC typed EngineContract adapter", () => {
         }),
       ).toMatchObject({ status: "ok", value: { nodes: { node: { nodeId: "node" } } } });
     } finally {
+      unauthenticated.close();
       client.close();
       await daemon.stop();
     }
@@ -80,13 +91,15 @@ describe("local IPC typed EngineContract adapter", () => {
     const leftDaemon = await startAppServerDaemon({
       listen: "tcp://127.0.0.1:0",
       dataRoot: leftRoot,
+      accessToken,
     });
     const rightDaemon = await startAppServerDaemon({
       listen: "tcp://127.0.0.1:0",
       dataRoot: rightRoot,
+      accessToken,
     });
-    const left = createAppServerClient(dialTarget(leftDaemon.address));
-    const right = createAppServerClient(dialTarget(rightDaemon.address));
+    const left = createAppServerClient(dialTarget(leftDaemon.address), accessToken);
+    const right = createAppServerClient(dialTarget(rightDaemon.address), accessToken);
     try {
       await Promise.all([left.openWorkspace("workspace"), right.openWorkspace("workspace")]);
       expect(

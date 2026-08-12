@@ -19,7 +19,7 @@ export const end = {
 } as const;
 export const versions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-5",
+  schemaVersion: "lode-schema-12",
 } as const;
 
 export class HistoryFixture {

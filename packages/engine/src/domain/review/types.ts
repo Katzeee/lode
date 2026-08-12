@@ -1,6 +1,7 @@
 import type {
   ContributionId,
   FactFrontier,
+  FieldTemplateConfig,
   PreviousValue,
   ResolutionBody,
   SequenceAnchor,
@@ -59,7 +60,7 @@ export type LifecycleDecisionEffect = Readonly<{
 
 export type SchemaRelationDecisionEffect = Readonly<{
   kind: "schema-relation";
-  relation: "application" | "field" | "extension";
+  relation: "application" | "field" | "extension" | "template-node";
   ownerId: string;
   targetId: string;
   originIndex: number | null;
@@ -76,12 +77,21 @@ export type FieldMaterializationDecisionEffect = Readonly<{
   reviewFieldOccurrenceId: string | null;
 }>;
 
+export type FieldConfigurationDecisionEffect = Readonly<{
+  kind: "field-configuration";
+  schemaId: string;
+  fieldDefinitionId: string;
+  origin: FieldTemplateConfig | null;
+  review: FieldTemplateConfig | null;
+}>;
+
 export type DecisionEffect =
   | TextDecisionEffect
   | StructureDecisionEffect
   | ValueDecisionEffect
   | LifecycleDecisionEffect
   | SchemaRelationDecisionEffect
+  | FieldConfigurationDecisionEffect
   | FieldMaterializationDecisionEffect;
 
 export type DecisionEvidence = Readonly<{
@@ -113,6 +123,7 @@ export type ReviewHunk = Readonly<{
       | "canonical"
       | "schema-application"
       | "schema-template"
+      | "field-configuration"
       | "materialized-field";
     identity: string;
   }>;

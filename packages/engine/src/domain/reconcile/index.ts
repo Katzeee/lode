@@ -7,3 +7,5 @@ export * from "./semantic-tree.js";
 export * from "./targeted-replay.js";
 export * from "./value-address.js";
 export * from "./materialized-field.js";
+export * from "./template-node-identity.js";
+export * from "./schema-extension-graph.js";

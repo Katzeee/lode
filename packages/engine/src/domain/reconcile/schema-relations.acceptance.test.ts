@@ -31,6 +31,55 @@ describe("Schema applications and effective Fields", () => {
     ]);
   });
 
+  it("keeps deleted Definition identity and restores its existing relationships and configuration", () => {
+    const facts = schemaFixture();
+    facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });
+
+    const schemaDeletion = facts.add({ kind: "node-delete", nodeId: "project-schema" });
+    let projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.schemaApplications.task).toEqual(["project-schema"]);
+    expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
+    expect(projection.definitionStatuses["project-schema"]).toEqual({
+      definitionId: "project-schema",
+      kinds: ["schema"],
+      state: "deleted",
+      deletionFactIds: [schemaDeletion.id],
+    });
+    expect(projection.effectiveFields.task).toEqual([]);
+
+    facts.add({
+      kind: "node-restore",
+      nodeId: "project-schema",
+      deletionFactId: schemaDeletion.id,
+    });
+    const fieldDeletion = facts.add({ kind: "node-delete", nodeId: "status-field" });
+    projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.schemaApplications.task).toEqual(["project-schema"]);
+    expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
+    expect(projection.definitionStatuses["status-field"]).toMatchObject({
+      kinds: ["field"],
+      state: "deleted",
+      deletionFactIds: [fieldDeletion.id],
+    });
+    expect(projection.effectiveFields.task).toEqual([]);
+
+    facts.add({
+      kind: "node-restore",
+      nodeId: "status-field",
+      deletionFactId: fieldDeletion.id,
+    });
+    projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.definitionStatuses["project-schema"]?.state).toBe("active");
+    expect(projection.definitionStatuses["status-field"]?.state).toBe("active");
+    expect(fieldSummaries(projection.effectiveFields.task)).toEqual([
+      {
+        fieldDefinitionId: "status-field",
+        sourceSchemaIds: ["project-schema"],
+        materializedFieldNodeId: null,
+      },
+    ]);
+  });
+
   it("keeps concurrent Field Template configs until an observing edit resolves them", () => {
     const facts = schemaFixture();
     facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });

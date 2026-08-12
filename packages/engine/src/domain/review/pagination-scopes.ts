@@ -3,25 +3,22 @@ import {
   compareFacts,
   stableStringCompare,
   type ContributionFact,
-  type Fact,
   type Mutation,
 } from "../fact/index.js";
-import { deriveActivation } from "../reconcile/support.js";
-
-type ManagedAssociations = Readonly<{
-  schemasByNode: ReadonlyMap<string, ReadonlySet<string>>;
-  schemasByField: ReadonlyMap<string, ReadonlySet<string>>;
-}>;
+import {
+  fieldContentDeletionScopes,
+  isFieldContentDeletion,
+  isTemplateNodeMutation,
+  templateNodeScopes,
+} from "./domain-pagination-scopes.js";
 
 export function reviewPaginationScopes(
   pending: ReadonlyMap<string, ContributionFact>,
-  facts: readonly Fact[],
+  occurrenceNodeId: (occurrenceId: string) => string | null,
 ): ReadonlyMap<string, readonly ContributionFact[]> {
-  const nodeByOccurrence = occurrenceNodeIndex(facts);
-  const managed = managedAssociations(facts);
   const groups: { keys: Set<string>; facts: ContributionFact[] }[] = [];
   for (const fact of pending.values()) {
-    const keys = new Set(scopeKeys(fact.body.mutation, nodeByOccurrence, managed));
+    const keys = new Set(scopeKeys(fact.body.mutation, occurrenceNodeId));
     const matching = groups
       .map((group, index) => ({ group, index }))
       .filter(({ group }) => [...keys].some((key) => group.keys.has(key)));
@@ -48,9 +45,23 @@ export function reviewPaginationScopes(
 
 function scopeKeys(
   mutation: Mutation,
-  nodeByOccurrence: ReadonlyMap<string, string>,
-  managed: ManagedAssociations,
+  occurrenceNodeId: (occurrenceId: string) => string | null,
 ): readonly string[] {
+  if (isTemplateNodeMutation(mutation)) {
+    return templateNodeScopes(mutation);
+  }
+  if (isFieldContentDeletion(mutation)) {
+    return fieldContentDeletionScopes(mutation);
+  }
+  if (isLifecycleMutation(mutation)) {
+    return [canonicalJson(["lifecycle", mutation.nodeId]), associatedNode(mutation.nodeId)];
+  }
+  if (mutation.kind === "canonical-occurrence-set") {
+    return [canonicalJson(["canonical", mutation.nodeId]), associatedNode(mutation.nodeId)];
+  }
+  if (isOccurrenceMutation(mutation)) {
+    return occurrenceScopes(mutation, occurrenceNodeId);
+  }
   switch (mutation.kind) {
     case "text-splice":
     case "text-mark":
@@ -65,7 +76,7 @@ function scopeKeys(
           mutation.namespace,
           mutation.key,
         ]),
-        ...valueAssociation(mutation, nodeByOccurrence, managed),
+        ...valueAssociation(mutation, occurrenceNodeId),
       ];
     case "schema-apply":
     case "schema-remove":
@@ -98,49 +109,59 @@ function scopeKeys(
       ];
     case "field-initialize":
       return fieldInitializationScopes(mutation);
-    case "occurrence-create":
-      return [
-        structureParent(mutation.parentOccurrenceId),
-        ...occurrenceAssociation(mutation.occurrenceId, mutation.nodeId),
-      ];
-    case "occurrence-restore":
-      return [
-        structureParent(mutation.parentOccurrenceId),
-        ...occurrenceAssociation(
-          mutation.occurrenceId,
-          nodeByOccurrence.get(mutation.occurrenceId),
-        ),
-      ];
-    case "occurrence-delete":
-      return [
-        ...(mutation.previousParentOccurrenceId === undefined
-          ? [canonicalJson(["structure-occurrence", mutation.occurrenceId])]
-          : [structureParent(mutation.previousParentOccurrenceId)]),
-        ...occurrenceAssociation(
-          mutation.occurrenceId,
-          nodeByOccurrence.get(mutation.occurrenceId),
-        ),
-      ];
-    case "occurrence-move":
-      return [
-        ...new Set([
-          structureParent(mutation.parentOccurrenceId),
-          ...(mutation.previousParentOccurrenceId === undefined
-            ? []
-            : [structureParent(mutation.previousParentOccurrenceId)]),
-          ...occurrenceAssociation(
-            mutation.occurrenceId,
-            nodeByOccurrence.get(mutation.occurrenceId),
-          ),
-        ]),
-      ];
-    case "canonical-occurrence-set":
-      return [canonicalJson(["canonical", mutation.nodeId]), associatedNode(mutation.nodeId)];
-    case "node-create":
-    case "node-delete":
-    case "node-restore":
-      return [canonicalJson(["lifecycle", mutation.nodeId]), associatedNode(mutation.nodeId)];
   }
+}
+
+type OccurrenceMutation = Extract<Mutation, { kind: `occurrence-${string}` }>;
+
+function isOccurrenceMutation(mutation: Mutation): mutation is OccurrenceMutation {
+  return mutation.kind.startsWith("occurrence-");
+}
+
+function occurrenceScopes(
+  mutation: OccurrenceMutation,
+  occurrenceNodeId: (occurrenceId: string) => string | null,
+): readonly string[] {
+  if (mutation.kind === "occurrence-create") {
+    return [
+      structureParent(mutation.parentOccurrenceId),
+      ...occurrenceAssociation(mutation.occurrenceId, mutation.nodeId),
+    ];
+  }
+  const association = occurrenceAssociation(
+    mutation.occurrenceId,
+    occurrenceNodeId(mutation.occurrenceId) ?? undefined,
+  );
+  if (mutation.kind === "occurrence-restore") {
+    return [structureParent(mutation.parentOccurrenceId), ...association];
+  }
+  if (mutation.kind === "occurrence-delete") {
+    return [
+      ...(mutation.previousParentOccurrenceId === undefined
+        ? [canonicalJson(["structure-occurrence", mutation.occurrenceId])]
+        : [structureParent(mutation.previousParentOccurrenceId)]),
+      ...association,
+    ];
+  }
+  return [
+    ...new Set([
+      structureParent(mutation.parentOccurrenceId),
+      ...(mutation.previousParentOccurrenceId === undefined
+        ? []
+        : [structureParent(mutation.previousParentOccurrenceId)]),
+      ...association,
+    ]),
+  ];
+}
+
+function isLifecycleMutation(
+  mutation: Mutation,
+): mutation is Extract<Mutation, { kind: "node-create" | "node-delete" | "node-restore" }> {
+  return (
+    mutation.kind === "node-create" ||
+    mutation.kind === "node-delete" ||
+    mutation.kind === "node-restore"
+  );
 }
 
 function fieldInitializationScopes(
@@ -157,16 +178,6 @@ function fieldInitializationScopes(
   ];
 }
 
-function occurrenceNodeIndex(facts: readonly Fact[]): ReadonlyMap<string, string> {
-  const result = new Map<string, string>();
-  for (const fact of facts) {
-    if (fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-create") {
-      result.set(fact.body.mutation.occurrenceId, fact.body.mutation.nodeId);
-    }
-  }
-  return result;
-}
-
 function occurrenceAssociation(occurrenceId: string, nodeId?: string): readonly string[] {
   return [
     canonicalJson(["associated-occurrence", occurrenceId]),
@@ -176,95 +187,27 @@ function occurrenceAssociation(occurrenceId: string, nodeId?: string): readonly 
 
 function valueAssociation(
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-  nodeByOccurrence: ReadonlyMap<string, string>,
-  managed: ManagedAssociations,
+  occurrenceNodeId: (occurrenceId: string) => string | null,
 ): readonly string[] {
   if (mutation.owner.kind === "node") {
-    return [
-      associatedNode(mutation.owner.id),
-      ...[...(managed.schemasByNode.get(mutation.owner.id) ?? [])].map(managedSchema),
-    ];
+    return [associatedNode(mutation.owner.id)];
   }
   if (mutation.owner.kind === "occurrence") {
-    return occurrenceAssociation(mutation.owner.id, nodeByOccurrence.get(mutation.owner.id));
+    return occurrenceAssociation(
+      mutation.owner.id,
+      occurrenceNodeId(mutation.owner.id) ?? undefined,
+    );
   }
   if (mutation.owner.kind === "schema") {
     return [
       canonicalJson(["associated-value-owner", "schema", mutation.owner.id]),
-      managedSchema(mutation.owner.id),
-      managedSchemaField(mutation.owner.id, mutation.key),
+      associatedNode(mutation.owner.id),
     ];
   }
-  const schemas = [...(managed.schemasByField.get(mutation.owner.id) ?? [])];
   return [
     canonicalJson(["associated-value-owner", "field", mutation.owner.id]),
-    ...schemas.flatMap((schemaId) => [
-      managedSchema(schemaId),
-      managedSchemaField(schemaId, mutation.owner.id),
-    ]),
+    associatedNode(mutation.owner.id),
   ];
-}
-
-function managedAssociations(facts: readonly Fact[]): ManagedAssociations {
-  const active = deriveActivation(facts, "review").activeContributionIds;
-  const winners = new Map<string, ContributionFact>();
-  for (const fact of facts) {
-    if (!isContribution(fact) || !active.has(fact.id)) {
-      continue;
-    }
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "value-set" && mutation.kind !== "value-unset") {
-      continue;
-    }
-    const address = canonicalJson([
-      mutation.owner.kind,
-      mutation.owner.id,
-      mutation.namespace,
-      mutation.key,
-    ]);
-    const previous = winners.get(address);
-    if (!previous || compareFacts(previous, fact) < 0) {
-      winners.set(address, fact);
-    }
-  }
-  const schemasByNode = new Map<string, Set<string>>();
-  const schemasByField = new Map<string, Set<string>>();
-  for (const fact of winners.values()) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "value-set") {
-      continue;
-    }
-    if (
-      mutation.owner.kind === "node" &&
-      mutation.namespace === "property" &&
-      mutation.key === "schemaId" &&
-      typeof mutation.value === "string"
-    ) {
-      addRelation(schemasByNode, mutation.owner.id, mutation.value);
-    }
-    if (mutation.owner.kind === "schema") {
-      addRelation(schemasByField, mutation.key, mutation.owner.id);
-    }
-  }
-  return { schemasByNode, schemasByField };
-}
-
-function isContribution(fact: Fact): fact is ContributionFact {
-  return fact.body.kind === "contribution";
-}
-
-function addRelation(map: Map<string, Set<string>>, key: string, value: string): void {
-  const values = map.get(key) ?? new Set<string>();
-  values.add(value);
-  map.set(key, values);
-}
-
-function managedSchema(schemaId: string): string {
-  return canonicalJson(["managed-schema", schemaId]);
-}
-
-function managedSchemaField(schemaId: string, fieldId: string): string {
-  return canonicalJson(["managed-schema-field", schemaId, fieldId]);
 }
 
 function associatedNode(nodeId: string): string {

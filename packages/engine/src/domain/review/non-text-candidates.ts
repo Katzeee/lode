@@ -4,7 +4,8 @@ import { mutationIdentity, normalizedEffects, valueAddress } from "./evidence.js
 import { mutationAnchor, occurrenceIdsForNode, structureEffect } from "./impacts.js";
 import { childSequenceIdentity } from "./structure-space.js";
 import type { HunkCandidate } from "./candidates.js";
-import { materializedFieldCandidates, schemaCandidates } from "./schema-review.js";
+import { schemaCandidates } from "./schema-candidates.js";
+import { materializedFieldCandidates } from "./schema-review.js";
 
 export function nonTextCandidates(
   generation: ProjectionGeneration,
@@ -26,14 +27,23 @@ function structureCandidates(
   const grouped = new Map<string, ContributionFact[]>();
   for (const fact of pending.values()) {
     if (
-      !["occurrence-create", "occurrence-delete", "occurrence-restore", "occurrence-move"].includes(
-        fact.body.mutation.kind,
-      )
+      ![
+        "occurrence-create",
+        "occurrence-delete",
+        "occurrence-restore",
+        "occurrence-move",
+        "field-value-delete",
+      ].includes(fact.body.mutation.kind)
     ) {
       continue;
     }
     const mutation = fact.body.mutation;
-    const occurrenceId = "occurrenceId" in mutation ? mutation.occurrenceId : fact.id;
+    const occurrenceId =
+      "occurrenceId" in mutation
+        ? mutation.occurrenceId
+        : mutation.kind === "field-value-delete"
+          ? mutation.valueOccurrenceId
+          : fact.id;
     const group = grouped.get(occurrenceId) ?? [];
     group.push(fact);
     grouped.set(occurrenceId, group);
@@ -96,9 +106,13 @@ function lifecycleCandidates(
   const groups = new Map<string, ContributionFact[]>();
   for (const fact of pending.values()) {
     if (
-      !["node-create", "node-delete", "node-restore", "canonical-occurrence-set"].includes(
-        fact.body.mutation.kind,
-      )
+      ![
+        "node-create",
+        "node-delete",
+        "node-restore",
+        "canonical-occurrence-set",
+        "template-node-detach",
+      ].includes(fact.body.mutation.kind)
     ) {
       continue;
     }
@@ -118,7 +132,20 @@ function lifecycleCandidates(
       const fact = ordered.at(-1)!;
       const mutation = fact.body.mutation;
       const nodeImpacts =
-        "nodeId" in mutation ? occurrenceIdsForNode(generation, mutation.nodeId) : [];
+        "nodeId" in mutation
+          ? occurrenceIdsForNode(generation, mutation.nodeId)
+          : mutation.kind === "template-node-detach"
+            ? [
+                ...generation.origin.templateNodeInstances,
+                ...generation.review.templateNodeInstances,
+              ]
+                .filter(
+                  (instance) =>
+                    instance.ownerNodeId === mutation.ownerNodeId &&
+                    instance.templateNodeId === mutation.templateNodeId,
+                )
+                .map((instance) => instance.instanceOccurrenceId)
+            : [];
       const identities = nodeImpacts.length > 0 ? nodeImpacts : [mutationIdentity(fact)];
       return identities.map((identity) => ({
         diffSpace: {

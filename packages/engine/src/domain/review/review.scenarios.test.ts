@@ -610,8 +610,10 @@ describe("production Review scenarios", () => {
     }
   });
 
-  it("managed-child placement changes invalidate related Schema evidence", () => {
+  it("Schema Application placement changes do not hide related Review evidence", () => {
     const facts = base();
+    facts.add({ kind: "node-create", nodeId: "schema" });
+    facts.add({ kind: "node-create", nodeId: "field" });
     facts.add({
       kind: "occurrence-create",
       occurrenceId: "second-occurrence",
@@ -620,27 +622,20 @@ describe("production Review scenarios", () => {
       parentPolicy: "cascade",
       anchor: end,
     });
-    facts.add({
-      kind: "value-set",
-      owner: { kind: "node", id: "node" },
-      namespace: "property",
-      key: "schemaId",
-      value: "schema",
-    });
+    facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
     facts.add(
       {
-        kind: "value-set",
-        owner: { kind: "schema", id: "schema" },
-        namespace: "schema",
-        key: "field",
-        value: 0,
+        kind: "schema-field-add",
+        schemaId: "schema",
+        fieldDefinitionId: "field",
+        anchor: end,
       },
       "proposal",
     );
     const before = facts.snapshot();
     const selected = queryReview("workspace", before, generation(before)).hunks[0]?.selection;
     if (!selected) {
-      throw new Error("Expected managed Schema Hunk");
+      throw new Error("Expected Schema Field Hunk");
     }
     facts.add({
       kind: "canonical-occurrence-set",
@@ -658,6 +653,6 @@ describe("production Review scenarios", () => {
         after,
         generation(after),
       ),
-    ).toMatchObject({ kind: "stale" });
+    ).toMatchObject({ kind: "valid" });
   });
 });

@@ -41,6 +41,40 @@ export function validateReceipts(
   validateLineages([...receipts.values()]);
 }
 
+export function validatePlannedReceiptAppend(
+  workspaceId: WorkspaceId,
+  records: readonly AuthorityRecord[],
+  previousHistoryReceipt: AuthorityReceipt | null,
+): void {
+  const facts = new Map(
+    records.flatMap((record) =>
+      record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [],
+    ),
+  );
+  const receipts = records.flatMap((record) =>
+    record.recordKind === "receipt" ? [record.receipt] : [],
+  );
+  const [receipt, ...additionalReceipts] = receipts;
+  if (!receipt || additionalReceipts.length > 0) {
+    throw new Error("Planned authority append requires exactly one Invocation receipt");
+  }
+  validateReceipt(workspaceId, receipt);
+  validateReceiptBatch(workspaceId, receipt, facts);
+  const lineage = receipt.lineage;
+  if (!lineage) {
+    return;
+  }
+  if (
+    lineage.ordinal !== (previousHistoryReceipt?.lineage?.ordinal ?? 0) + 1 ||
+    lineage.parentStepId !== (previousHistoryReceipt?.invocationId ?? null) ||
+    (previousHistoryReceipt?.lineage?.channelId ?? lineage.channelId) !== lineage.channelId
+  ) {
+    throw new Error(
+      `History lineage gap or parent mismatch: ${receipt.replicaId}/${lineage.channelId}`,
+    );
+  }
+}
+
 function validateReceipt(workspaceId: WorkspaceId, receipt: AuthorityReceipt): void {
   if (receipt.workspaceId !== workspaceId) {
     throw new Error(`Receipt workspace mismatch: ${receipt.invocationId}`);

@@ -6,7 +6,16 @@ import {
   type ResolutionFact,
   type ViewMode,
 } from "../fact/index.js";
-import { addFieldInitializationSupport, addSchemaMutationSupport } from "./schema-support.js";
+import { eligibleForView, resolutionsByContribution } from "./activation-view.js";
+import {
+  addFieldInitializationSupport,
+  addSchemaMutationSupport,
+  addTemplateDetachmentSupport,
+  registerFieldInitializationExistence,
+  registerTemplateDetachmentExistence,
+} from "./schema-support.js";
+import { addFieldContentDeletionSupport, isFieldContentDeletion } from "./field-content-support.js";
+import { registerNodeExistence } from "./support-node-existence.js";
 
 export type Activation = Readonly<{
   activeContributionIds: ReadonlySet<string>;
@@ -60,6 +69,7 @@ export function deriveSupport(
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
   const schemaApplicationSupport = new Map<string, ContributionFact[]>();
+  const schemaTemplateItemSupport = new Map<string, ContributionFact[]>();
   const viable = new Set<string>();
   const existence = {
     nodes: nodeExistenceSupport,
@@ -70,87 +80,116 @@ export function deriveSupport(
     nodes: nodeExistenceSupport,
     viable,
     applications: schemaApplicationSupport,
+    templateItems: schemaTemplateItemSupport,
   };
   const result = new Map<string, readonly string[]>();
+
+  registerNodeExistence(ordered, nodeExistenceSupport, eligibleContributionIds, viable);
 
   for (const fact of ordered) {
     const mutation = fact.body.mutation;
     const support = new Set<string>();
-    switch (mutation.kind) {
-      case "node-create":
-        addCandidate(nodeExistenceSupport, mutation.nodeId, fact.id);
-        break;
-      case "node-delete":
-      case "text-splice":
-      case "text-mark": {
-        addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-        break;
-      }
-      case "node-restore": {
-        addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-        support.add(mutation.deletionFactId);
-        nodeExistenceSupport.set(mutation.nodeId, [fact.id]);
-        break;
-      }
-      case "occurrence-create":
-        addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-        if (mutation.parentOccurrenceId !== null && mutation.parentPolicy === "cascade") {
+    if (isSchemaMutation(mutation)) {
+      addSchemaMutationSupport(support, mutation, fact, schemaSupport);
+    } else if (mutation.kind === "template-node-detach") {
+      addTemplateNodeSupport(support, mutation, fact, schemaSupport, existence);
+    } else if (isFieldContentDeletion(mutation)) {
+      addFieldContentDeletionSupport(support, mutation, existence);
+    } else {
+      switch (mutation.kind) {
+        case "node-create":
+          break;
+        case "node-delete":
+        case "text-splice":
+        case "text-mark": {
+          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+          break;
+        }
+        case "node-restore": {
+          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+          support.add(mutation.deletionFactId);
+          nodeExistenceSupport.set(mutation.nodeId, [fact.id]);
+          break;
+        }
+        case "occurrence-create":
+          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+          if (mutation.parentOccurrenceId !== null && mutation.parentPolicy === "cascade") {
+            addIfPresent(
+              support,
+              effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
+            );
+          }
+          addCandidate(occurrenceExistenceSupport, mutation.occurrenceId, fact.id);
+          break;
+        case "occurrence-delete":
+        case "occurrence-move":
+          addOccurrenceChangeSupport(support, occurrenceExistenceSupport, viable, mutation);
+          break;
+        case "occurrence-restore":
           addIfPresent(
             support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
+            effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
           );
-        }
-        addCandidate(occurrenceExistenceSupport, mutation.occurrenceId, fact.id);
-        break;
-      case "occurrence-delete":
-      case "occurrence-move":
-        addOccurrenceChangeSupport(support, occurrenceExistenceSupport, viable, mutation);
-        break;
-      case "occurrence-restore":
-        addIfPresent(
-          support,
-          effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-        );
-        support.add(mutation.deletionFactId);
-        if (mutation.parentOccurrenceId !== null) {
+          support.add(mutation.deletionFactId);
+          if (mutation.parentOccurrenceId !== null) {
+            addIfPresent(
+              support,
+              effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
+            );
+          }
+          occurrenceExistenceSupport.set(mutation.occurrenceId, [fact.id]);
+          break;
+        case "canonical-occurrence-set":
+          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
           addIfPresent(
             support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
+            effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
           );
-        }
-        occurrenceExistenceSupport.set(mutation.occurrenceId, [fact.id]);
-        break;
-      case "canonical-occurrence-set":
-        addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-        addIfPresent(
-          support,
-          effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-        );
-        break;
-      case "schema-apply":
-      case "schema-remove":
-      case "schema-field-add":
-      case "schema-field-remove":
-      case "schema-field-configure":
-      case "schema-extension-add":
-      case "schema-extension-remove":
-        addSchemaMutationSupport(support, mutation, fact, schemaSupport);
-        break;
-      case "field-materialize":
-        addMaterializedFieldSupport(support, mutation, existence);
-        break;
-      case "field-initialize":
-        addFieldInitializationSupport(support, mutation, fact, schemaSupport);
-        break;
-      case "value-set":
-      case "value-unset":
-        addValueOwnerSupport(support, mutation, existence);
-        break;
+          break;
+        case "field-materialize":
+          addMaterializedFieldSupport(support, mutation, existence);
+          break;
+        case "field-initialize":
+          addInitializationSupport(support, mutation, fact, schemaSupport, existence);
+          break;
+        case "value-set":
+        case "value-unset":
+          addValueOwnerSupport(support, mutation, existence);
+          break;
+      }
     }
     result.set(fact.id, [...support]);
     markViable(fact.id, support, eligibleContributionIds, viable);
   }
   return result;
+}
+
+function addInitializationSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+  fact: ContributionFact,
+  schemaSupport: Parameters<typeof addFieldInitializationSupport>[3],
+  existence: Readonly<{
+    nodes: Map<string, string[]>;
+    occurrences: Map<string, string[]>;
+  }>,
+): void {
+  addFieldInitializationSupport(support, mutation, fact, schemaSupport);
+  registerFieldInitializationExistence(existence.nodes, existence.occurrences, mutation, fact.id);
+}
+
+function addTemplateNodeSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
+  fact: ContributionFact,
+  schemaSupport: Parameters<typeof addTemplateDetachmentSupport>[3],
+  existence: Readonly<{
+    nodes: Map<string, string[]>;
+    occurrences: Map<string, string[]>;
+  }>,
+): void {
+  addTemplateDetachmentSupport(support, mutation, fact, schemaSupport);
+  registerTemplateDetachmentExistence(existence.nodes, existence.occurrences, mutation, fact.id);
 }
 
 function addValueOwnerSupport(
@@ -224,53 +263,14 @@ export function supportClosure(
   return [...closure].sort();
 }
 
-function resolutionsByContribution(
-  facts: readonly Fact[],
-): ReadonlyMap<string, readonly ResolutionFact[]> {
-  const resolutions = new Map<string, ResolutionFact[]>();
-  const superseded = new Set(
-    facts.flatMap((fact) => (isResolution(fact) ? fact.body.adjudicatesResolutionIds : [])),
-  );
-  for (const fact of facts) {
-    if (!isResolution(fact) || superseded.has(fact.id)) {
-      continue;
-    }
-    for (const contributionId of fact.body.proposalContributionIds) {
-      const current = resolutions.get(contributionId) ?? [];
-      current.push(fact);
-      resolutions.set(contributionId, current);
-    }
-  }
-  return resolutions;
-}
-
-function eligibleForView(
-  contribution: ContributionFact,
-  resolutions: readonly ResolutionFact[] | undefined,
-  mode: ViewMode,
-): boolean {
-  if (contribution.body.intent === "direct") {
-    return true;
-  }
-  const decisions = new Set(resolutions?.map((resolution) => resolution.body.decision) ?? []);
-  if (decisions.size > 1) {
-    return mode === "review";
-  }
-  if (decisions.has("reject")) {
-    return false;
-  }
-  if (decisions.has("accept")) {
-    return true;
-  }
-  return mode === "review";
-}
-
 function isContribution(fact: Fact): fact is ContributionFact {
   return fact.body.kind === "contribution";
 }
 
-function isResolution(fact: Fact): fact is ResolutionFact {
-  return fact.body.kind === "resolution";
+function isSchemaMutation(
+  mutation: Mutation,
+): mutation is Extract<Mutation, { kind: `schema-${string}` }> {
+  return mutation.kind.startsWith("schema-");
 }
 
 function addIfPresent(target: Set<string>, value: string | undefined): void {

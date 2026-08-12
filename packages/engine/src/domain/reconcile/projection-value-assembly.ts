@@ -5,13 +5,14 @@ import {
   type ViewMode,
 } from "../fact/index.js";
 import type {
-  ManagedChild,
   EffectiveField,
   MaterializedField,
+  DefinitionStatus,
   Projection,
   ProjectedNode,
   ProjectedOccurrence,
   SchemaFieldItem,
+  TemplateNodeInstance,
 } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { valueOwnerAddress } from "./value-address.js";
@@ -27,16 +28,20 @@ export function assembleProjection(
     children: ReadonlyMap<string, readonly string[]>;
     addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
     canonicalOccurrences: Readonly<Record<string, string>>;
-    managedChildren: readonly ManagedChild[];
     schemaApplications: Readonly<Record<string, readonly string[]>>;
     schemaFields: Readonly<Record<string, readonly string[]>>;
     schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+    schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+    templateNodeInstances: readonly TemplateNodeInstance[];
     schemaExtensions: Readonly<Record<string, readonly string[]>>;
     schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
     schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+    definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
     conflictIssues: Readonly<Record<string, ConflictIssue>>;
     effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
     materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+    reviewScopes: Readonly<Record<string, readonly string[]>>;
+    supportByContribution: Readonly<Record<string, readonly string[]>>;
   }>,
 ): Projection {
   const values = applyProjectedValues(input.nodes, input.occurrences, input.addressedValues);
@@ -52,16 +57,20 @@ export function assembleProjection(
     ),
     canonicalOccurrences: input.canonicalOccurrences,
     addressedValues: input.addressedValues,
-    managedChildren: input.managedChildren,
     schemaApplications: input.schemaApplications,
     schemaFields: input.schemaFields,
     schemaFieldItems: input.schemaFieldItems,
+    schemaTemplateNodes: input.schemaTemplateNodes,
+    templateNodeInstances: input.templateNodeInstances,
     schemaExtensions: input.schemaExtensions,
     schemaSearchMembers: input.schemaSearchMembers,
     schemaExtensionConflicts: input.schemaExtensionConflicts,
+    definitionStatuses: input.definitionStatuses,
     conflictIssues: input.conflictIssues,
     effectiveFields: input.effectiveFields,
     materializedFields: input.materializedFields,
+    reviewScopes: input.reviewScopes,
+    supportByContribution: input.supportByContribution,
   };
 }
 

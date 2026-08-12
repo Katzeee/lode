@@ -69,6 +69,14 @@ function applyToProjection(
     schemaFieldItems: Object.fromEntries(
       Object.entries(projection.schemaFieldItems).map(([id, items]) => [id, [...items]]),
     ),
+    schemaTemplateNodes: Object.fromEntries(
+      Object.entries(projection.schemaTemplateNodes).map(([id, nodeIds]) => [id, [...nodeIds]]),
+    ),
+    templateNodeInstances: projection.templateNodeInstances.map((instance) => ({
+      ...instance,
+      sources: instance.sources.map((source) => ({ ...source })),
+      detachmentContributionIds: [...instance.detachmentContributionIds],
+    })),
     schemaExtensions: Object.fromEntries(
       Object.entries(projection.schemaExtensions).map(([id, schemaIds]) => [id, [...schemaIds]]),
     ),
@@ -81,11 +89,19 @@ function applyToProjection(
         [...schemaIds],
       ]),
     ),
+    definitionStatuses: Object.fromEntries(
+      Object.entries(projection.definitionStatuses).map(([id, status]) => [
+        id,
+        { ...status, kinds: [...status.kinds], deletionFactIds: [...status.deletionFactIds] },
+      ]),
+    ),
     conflictIssues: projection.conflictIssues,
     effectiveFields: projection.effectiveFields,
     materializedFields: Object.fromEntries(
       Object.entries(projection.materializedFields).map(([id, fields]) => [id, [...fields]]),
     ),
+    reviewScopes: projection.reviewScopes,
+    supportByContribution: projection.supportByContribution,
   };
   applyMutationToPlanningProjection(next, mutation, factId, snapshot, view);
   return next;

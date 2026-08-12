@@ -49,7 +49,33 @@ function addIdentityFields(scope: MutationReadScope, mutation: Mutation): void {
     scope.nodes.add(mutation.baseSchemaId);
     scope.schemas.add(mutation.baseSchemaId);
   }
+  if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
+    scope.instanceSchemas.add(mutation.schemaId);
+    scope.instanceSchemas.add(mutation.baseSchemaId);
+  }
+  if ("templateNodeId" in mutation) {
+    scope.nodes.add(mutation.templateNodeId);
+  }
+  if (mutation.kind === "template-node-detach") {
+    scope.nodes.add(mutation.ownerNodeId);
+    mutation.sourceSchemaIds?.forEach((schemaId) => scope.schemas.add(schemaId));
+    mutation.sourceApplicationSchemaIds?.forEach((schemaId) => {
+      scope.schemas.add(schemaId);
+      scope.instanceSchemas.add(schemaId);
+    });
+  }
   if (mutation.kind === "field-materialize") {
+    scope.nodes.add(mutation.ownerNodeId);
+    scope.nodes.add(mutation.fieldNodeId);
+    scope.occurrences.add(mutation.fieldOccurrenceId);
+    scope.children.add(mutation.fieldOccurrenceId);
+  }
+  if (mutation.kind === "field-value-delete") {
+    scope.nodes.add(mutation.ownerNodeId);
+    scope.occurrences.add(mutation.valueOccurrenceId);
+    scope.children.add(mutation.valueOccurrenceId);
+  }
+  if (mutation.kind === "materialized-field-delete") {
     scope.nodes.add(mutation.ownerNodeId);
     scope.nodes.add(mutation.fieldNodeId);
     scope.occurrences.add(mutation.fieldOccurrenceId);
@@ -109,23 +135,24 @@ function addAnchorEndpoints(
   }
 }
 
-export function isManagedChild(value: unknown): value is Projection["managedChildren"][number] {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "parentNodeId" in value &&
-    "schemaId" in value &&
-    "fieldId" in value &&
-    "nodeId" in value &&
-    "occurrenceId" in value
-  );
-}
-
 export function isProjectedOccurrence(value: unknown): value is Projection["occurrences"][string] {
   return (
     typeof value === "object" &&
     value !== null &&
     "nodeId" in value &&
     "parentOccurrenceId" in value
+  );
+}
+
+export function isTemplateNodeInstance(
+  value: unknown,
+): value is Projection["templateNodeInstances"][number] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "ownerNodeId" in value &&
+    "templateNodeId" in value &&
+    "instanceOccurrenceId" in value &&
+    "state" in value
   );
 }

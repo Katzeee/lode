@@ -3,20 +3,22 @@ import type {
   EngineQueryValue,
   InvocationOutcome,
 } from "../../application/contract.js";
-import type { FactSnapshot } from "../../domain/fact/index.js";
+import type { AuthorityReceipt, Fact, FactSnapshot } from "../../domain/fact/index.js";
 import { frontierCovers } from "../../domain/fact/index.js";
 import { queryHistory } from "../../domain/history/index.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import type { ConflictIssue } from "../../domain/conflict/index.js";
 import { queryReview } from "../../domain/review/index.js";
-import type { ReviewGenerationPage } from "./mutation-generation-reader.js";
+import type { ReviewGenerationPage } from "./proposal-workspace-types.js";
 import { readFactGeneration, readReviewGeneration } from "./mutation-generation-reader.js";
 import { historyTargetFactIds } from "../../domain/history/index.js";
 import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
 import type { FactStore } from "../authority/fact-store.js";
 import { receiptsCoveredBySnapshot } from "./published-receipts.js";
 import { pendingResult, publishedResult } from "./workspace-results.js";
+import { hardDeletePreview } from "./hard-delete.js";
+import { readView } from "./view-reader.js";
 
 export async function queryWorkspace(
   workspaceId: string,
@@ -51,15 +53,53 @@ export async function queryWorkspace(
       next: page.next,
     };
   }
-  const receipts = facts.receipts();
+  if (query.kind === "schema-search") {
+    const page = await generations.schemaSearch(
+      generationId,
+      query.view,
+      query.schemaId,
+      query.after ?? null,
+      query.limit ?? 50,
+    );
+    return {
+      generationId: page.identity.generationId,
+      frontier: page.identity.frontier,
+      view: query.view,
+      schemaId: query.schemaId,
+      nodeIds: page.nodeIds,
+      next: page.next,
+    };
+  }
+  if (query.kind === "view") {
+    return readView(
+      generations,
+      generationId,
+      query.view,
+      query.viewNodeId,
+      query.after ?? null,
+      query.limit ?? 50,
+    );
+  }
+  if (query.kind === "hard-delete-preview") {
+    return hardDeletePreview(workspaceId, query.nodeId, snapshot, facts, generationId);
+  }
   const reviewPage =
     query.kind === "review"
-      ? await readReviewGeneration(generations, generationId, snapshot, query)
+      ? await readReviewGeneration(generations, generationId, query, facts)
       : undefined;
-  const factIds = query.kind === "history" ? historyTargetFactIds(query.channelId, receipts) : [];
+  const historyReceipts =
+    query.kind === "history" ? facts.receiptsForChannel(query.channelId) : undefined;
+  const factIds =
+    query.kind === "history" ? historyTargetFactIds(query.channelId, historyReceipts ?? []) : [];
+  const historyFacts = query.kind === "history" ? facts.relatedFacts(factIds) : undefined;
   const generation =
     reviewPage?.generation ??
-    (await readFactGeneration(generations, generationId, snapshot, factIds));
+    (await readFactGeneration(
+      generations,
+      generationId,
+      historyFacts ? { facts: historyFacts, frontier: snapshot.frontier } : snapshot,
+      factIds,
+    ));
   return queryPublishedWorkspace(
     workspaceId,
     query,
@@ -70,6 +110,8 @@ export async function queryWorkspace(
     reviewCapabilityKey,
     reviewPage,
     historyPlanningObserver,
+    historyReceipts,
+    historyFacts,
   );
 }
 
@@ -83,6 +125,8 @@ function queryPublishedWorkspace(
   reviewCapabilityKey?: string,
   reviewPage?: ReviewGenerationPage,
   historyPlanningObserver?: HistoryPlanningObserver,
+  historyReceipts?: readonly AuthorityReceipt[],
+  historyFacts?: readonly Fact[],
 ): EngineQueryValue {
   if (query.workspaceId !== workspaceId) {
     throw new Error("Query belongs to another Workspace");
@@ -93,23 +137,34 @@ function queryPublishedWorkspace(
     case "review":
       return queryReview(
         workspaceId,
-        snapshot,
+        reviewPage ? { facts: reviewPage.facts, frontier: snapshot.frontier } : snapshot,
         generation,
         reviewCapabilityKey,
-        reviewPage ? { pending: reviewPage.pending, next: reviewPage.next } : undefined,
+        reviewPage
+          ? { pending: reviewPage.pending, context: reviewPage.context, next: reviewPage.next }
+          : undefined,
       );
     case "history":
       return queryHistory(
         query.channelId,
-        receiptsCoveredBySnapshot(facts.receipts(), snapshot),
-        snapshot,
+        receiptsCoveredBySnapshot(historyReceipts ?? facts.receipts(), snapshot),
+        historyFacts ? { facts: historyFacts, frontier: snapshot.frontier } : snapshot,
         generation,
         historyPlanningObserver,
       );
-    case "invocation":
-      return invocationOutcome(query.invocationId, facts, generation, projectionFailure);
+    case "invocation": {
+      const outcome = invocationOutcome(query.invocationId, facts, generation, projectionFailure);
+      facts.settleInvocation(query.invocationId);
+      return outcome;
+    }
     case "conflicts":
       throw new Error("Conflict pages are read before scoped generation loading");
+    case "schema-search":
+      throw new Error("Schema Search pages are read before scoped generation loading");
+    case "view":
+      throw new Error("Views are read before scoped generation loading");
+    case "hard-delete-preview":
+      throw new Error("Hard Delete previews are read before scoped generation loading");
   }
 }
 

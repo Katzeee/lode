@@ -88,7 +88,7 @@ describe("production Fact contracts", () => {
 
   it("VER-1 unsupported format schema rules and checkpoints fail closed", () => {
     const supported = contribution(1);
-    const unsupported = { ...supported, schemaVersion: 2 } as unknown as Fact;
+    const unsupported = { ...supported, schemaVersion: 5 } as unknown as Fact;
     const admission = admitAuthorityRecords("workspace", [
       { recordKind: "fact", fact: unsupported },
     ]);

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import http2 from "node:http2";
 
 import { create } from "@bufbuild/protobuf";
@@ -22,29 +23,37 @@ import { createPeerSyncTransport } from "./peer-sync-transport.js";
 
 export function createLodeServer(
   runtime: EngineRuntime,
+  accessToken: string,
   onShutdown?: () => void,
 ): Readonly<{ server: http2.Http2Server; closeConnections(): void }> {
+  if (accessToken.length === 0) {
+    throw new Error("App server access token must not be empty");
+  }
   const transport = createEngineTransportServer(runtime.engine);
   const sessions = new Set<http2.Http2Session>();
   const handler = connectNodeAdapter({
     grpc: true,
     routes: (router) =>
       router.service(LodeCommands, {
-        openWorkspace: unary(async (request: OpenWorkspaceRequest) => {
+        openWorkspace: unary(accessToken, async (request: OpenWorkspaceRequest) => {
           await runtime.openWorkspace(request.workspaceId);
           return create(EmptySchema);
         }),
-        recoverWorkspaceAuthority: unary(async (request: OpenWorkspaceRequest) => {
+        recoverWorkspaceAuthority: unary(accessToken, async (request: OpenWorkspaceRequest) => {
           if (!(await runtime.recoverWorkspaceAuthority(request.workspaceId))) {
             throw new Error(`Workspace is not loaded: ${request.workspaceId}`);
           }
           return create(EmptySchema);
         }),
-        request: unary(async (request: EngineEnvelope) =>
+        request: unary(accessToken, async (request: EngineEnvelope) =>
           create(EngineEnvelopeSchema, { payload: await transport.request(request.payload) }),
         ),
-        syncWorkspace: unary(async (request: WorkspaceSyncRequest) => {
-          const peer = createPeerSyncTransport(request.remoteEndpoint, request.workspaceId);
+        syncWorkspace: unary(accessToken, async (request: WorkspaceSyncRequest) => {
+          const peer = createPeerSyncTransport(
+            request.remoteEndpoint,
+            request.workspaceId,
+            accessToken,
+          );
           try {
             await runtime.syncWorkspace(request.workspaceId, peer.transport);
           } finally {
@@ -52,28 +61,30 @@ export function createLodeServer(
           }
           return create(EmptySchema);
         }),
-        syncProfile: unary(async (request: WorkspaceSyncProfileRequest) => {
+        syncProfile: unary(accessToken, async (request: WorkspaceSyncProfileRequest) => {
           const entries = await runtime.workspaceSyncTransport(request.workspaceId).profile();
           return create(WorkspaceSyncProfileSchema, {
             entries: entries.map((entry) => create(WorkspaceSyncProfileEntrySchema, entry)),
           });
         }),
-        syncFetch: unary(async (request: WorkspaceSyncFetchRequest) =>
+        syncFetch: unary(accessToken, async (request: WorkspaceSyncFetchRequest) =>
           create(EngineEnvelopeSchema, {
             payload: await runtime
               .workspaceSyncTransport(request.workspaceId)
               .fetch(request.documentId, request.from),
           }),
         ),
-        syncSend: unary(async (request: WorkspaceSyncSendRequest) => {
+        syncSend: unary(accessToken, async (request: WorkspaceSyncSendRequest) => {
           await runtime
             .workspaceSyncTransport(request.workspaceId)
             .send(request.documentId, request.payload);
           return create(EmptySchema);
         }),
-        listenEngineEvents: (_request: Empty, context: HandlerContext) =>
-          eventStream(transport.subscribe ?? (() => () => {}), context.signal),
-        shutdown: unary(() => {
+        listenEngineEvents: (_request: Empty, context: HandlerContext) => {
+          authenticate(context, accessToken);
+          return eventStream(transport.subscribe ?? (() => () => {}), context.signal);
+        },
+        shutdown: unary(accessToken, () => {
           if (onShutdown) {
             setImmediate(onShutdown);
           }
@@ -105,14 +116,24 @@ export function toConnectError(error: unknown): ConnectError {
     : new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
 }
 
-function unary<I, O>(handler: (request: I) => Promise<O> | O) {
-  return async (request: I): Promise<O> => {
+function unary<I, O>(accessToken: string, handler: (request: I) => Promise<O> | O) {
+  return async (request: I, context: HandlerContext): Promise<O> => {
     try {
+      authenticate(context, accessToken);
       return await handler(request);
     } catch (error) {
       throw toConnectError(error);
     }
   };
+}
+
+function authenticate(context: HandlerContext, accessToken: string): void {
+  const authorization = context.requestHeader.get("authorization");
+  const expected = Buffer.from(`Bearer ${accessToken}`);
+  const actual = Buffer.from(authorization ?? "");
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new ConnectError("App server authentication failed", Code.Unauthenticated);
+  }
 }
 
 function eventStream(

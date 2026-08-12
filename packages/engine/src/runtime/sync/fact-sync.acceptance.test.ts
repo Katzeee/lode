@@ -9,7 +9,7 @@ import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js"
 import { FactSyncComposite } from "./fact-sync.js";
 import { InMemorySyncTransport, SyncExchange, syncPair } from "./sync-exchange.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 
 async function replica(peerId: `${number}`, replicaId = createReplicaId()) {
   return LoroFactStore.open({

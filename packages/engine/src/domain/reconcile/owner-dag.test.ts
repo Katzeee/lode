@@ -10,7 +10,7 @@ import {
 import { PROJECTION_OWNER_DAG } from "./projection-owner-plan.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 
 describe("projection owner dataflow", () => {
   it("production owner outputs are statically single-writer partitions", () => {

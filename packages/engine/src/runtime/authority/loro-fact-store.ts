@@ -7,7 +7,6 @@ import {
   canonicalJson,
   frontierEquals,
   requestDigest,
-  stableStringCompare,
   type Admission,
   type AuthorityReceipt,
   type AuthorityRecord,
@@ -34,7 +33,6 @@ import { recoverAuthorityDocument } from "./authority-recovery.js";
 import { validateReplicaId } from "./replica-identity.js";
 import { addFactsToSyncProjection, createFactSyncDoc } from "./fact-sync-projection.js";
 import {
-  deriveAuthorityCaches,
   healFactSyncProjection,
   loadAuthorityDocument,
   loadSyncProjection,
@@ -46,6 +44,8 @@ import {
   FACT_AUTHORITY_DOCUMENT_ID,
   type LoroFactStoreOptions,
 } from "./loro-fact-store-options.js";
+import { admittedSnapshot, sortedInvocationIds } from "./authority-store-queries.js";
+import { AuthorityStoreCache } from "./authority-store-cache.js";
 
 export { createReplicaId } from "./replica-identity.js";
 export { FACT_AUTHORITY_DOCUMENT_ID } from "./loro-fact-store-options.js";
@@ -56,10 +56,8 @@ export class LoroFactStore implements FactStore {
   private syncProjection: LoroDoc;
   private readonly serial = new SerialExecutor();
   private updatesSinceSnapshot: number;
-  private cachedRecords: readonly unknown[] = [];
-  private cachedParsedRecords: readonly AuthorityRecord[] = [];
-  private cachedAdmission!: Admission;
-  private cachedReceipts = new Map<InvocationId, AuthorityReceipt>();
+  private readonly cache: AuthorityStoreCache;
+  private readonly uncertain = new Set<InvocationId>();
   private readonly admitRecords: AuthorityAdmissionPolicy;
 
   private constructor(
@@ -73,7 +71,13 @@ export class LoroFactStore implements FactStore {
     this.doc = doc;
     this.syncProjection = syncProjection;
     this.updatesSinceSnapshot = updatesSinceSnapshot;
-    this.refreshCaches(readAuthorityRecords(doc));
+    this.cache = new AuthorityStoreCache(
+      options.workspaceId,
+      replicaId,
+      this.admitRecords,
+      options.onIndexedWork,
+    );
+    this.cache.refresh(readAuthorityRecords(doc));
     this.syncDoc = createFactSyncDoc(
       FACT_AUTHORITY_DOCUMENT_ID,
       () => this.syncProjection,
@@ -97,42 +101,46 @@ export class LoroFactStore implements FactStore {
     return new LoroFactStore(options, doc, syncProjection, loaded.updateCount, options.replicaId);
   }
 
-  admission(): Admission {
-    return this.cachedAdmission;
+  admission = (): Admission => this.cache.admission();
+
+  snapshot = () => admittedSnapshot(this.admission());
+
+  receipt = (invocationId: InvocationId): AuthorityReceipt | null =>
+    this.cache.receipt(invocationId);
+
+  receipts = (): readonly AuthorityReceipt[] => this.cache.receipts();
+
+  receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
+    return this.cache.receiptsForChannel(channelId);
   }
 
-  snapshot() {
-    const admission = this.admission();
-    if (admission.kind === "fault") {
-      throw new AuthorityFaultError(admission.fault ?? "Authority admission fault");
-    }
-    return admission.snapshot;
+  facts(factIds: readonly string[]) {
+    return this.cache.facts(factIds);
   }
 
-  receipt(invocationId: InvocationId): AuthorityReceipt | null {
-    return this.cachedReceipts.get(invocationId) ?? null;
+  relatedFacts(factIds: readonly string[]) {
+    return this.cache.relatedFacts(factIds);
   }
 
-  receipts(): readonly AuthorityReceipt[] {
-    return [...this.cachedReceipts.values()].sort(
-      (left, right) =>
-        (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) -
-          (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
-        stableStringCompare(left.invocationId, right.invocationId),
-    );
+  occurrenceNodeId(occurrenceId: string): string | null {
+    return this.cache.occurrenceNodeId(occurrenceId);
   }
 
-  recoverToLastValidPrefix(): Promise<FactSnapshot> {
-    return this.serial.run(() => this.recoverExclusive());
+  historyImpacts(nodeId: string) {
+    return this.cache.historyImpacts(nodeId);
   }
 
-  compact(): Promise<void> {
-    return this.serial.run(() => this.compactExclusive());
-  }
+  uncertainInvocations = (): readonly InvocationId[] => sortedInvocationIds(this.uncertain);
 
-  async commit(input: AuthorityCommit): Promise<AuthorityCommitResult> {
-    return this.serial.run(() => this.commitExclusive(input));
-  }
+  settleInvocation = (invocationId: InvocationId): void => void this.uncertain.delete(invocationId);
+
+  recoverToLastValidPrefix = (): Promise<FactSnapshot> =>
+    this.serial.run(() => this.recoverExclusive());
+
+  compact = (): Promise<void> => this.serial.run(() => this.compactExclusive());
+
+  commit = (input: AuthorityCommit): Promise<AuthorityCommitResult> =>
+    this.serial.run(() => this.commitExclusive(input));
 
   private async commitExclusive(input: AuthorityCommit): Promise<AuthorityCommitResult> {
     const digest = requestDigest(input.request);
@@ -142,6 +150,7 @@ export class LoroFactStore implements FactStore {
         throw new InvocationConflictError(`Invocation request conflict: ${input.invocationId}`);
       }
       await healFactSyncProjection(this.options.documents, this.syncProjection, this.admission());
+      this.uncertain.delete(input.invocationId);
       return { receipt: existing, created: false };
     }
     if (input.bodies.length === 0) {
@@ -164,12 +173,14 @@ export class LoroFactStore implements FactStore {
       input,
       digest,
       before.snapshot,
+      this.cache.maximumLamport(),
     );
     const candidate = admitPlannedAuthorityAppend(
       this.options.workspaceId,
       before.snapshot,
-      this.cachedParsedRecords,
       records,
+      this.cache.maximumLamport(),
+      input.lineage ? this.cache.lastReceiptForChannel(input.lineage.channelId) : null,
     );
     if (candidate.kind !== "ready") {
       throw new Error(candidate.fault ?? "Local Fact batch did not admit completely");
@@ -178,6 +189,7 @@ export class LoroFactStore implements FactStore {
       await this.appendRecords(records, candidate, false);
     } catch (error) {
       await this.adoptDurableAuthorityAfterUnknown();
+      this.uncertain.add(input.invocationId);
       throw new AuthorityCommitUnknownError(input.invocationId, { cause: error });
     }
     addFactsToSyncProjection(this.syncProjection, facts);
@@ -185,6 +197,7 @@ export class LoroFactStore implements FactStore {
       await persistSyncProjection(this.options.documents, this.syncProjection);
       await this.compactIfNeeded();
     } catch (error) {
+      this.uncertain.add(input.invocationId);
       throw new AuthorityCommitUnknownError(input.invocationId, { cause: error });
     }
     return { receipt, created: true };
@@ -207,12 +220,16 @@ export class LoroFactStore implements FactStore {
     const update = staged.export({ mode: "update", from: beforeVersion });
     await this.options.documents.appendUpdate(FACT_AUTHORITY_DOCUMENT_ID, update);
     this.doc = staged;
-    this.refreshCaches([...this.cachedRecords, ...records], admitted);
+    if (admitted) {
+      this.cache.append(records, admitted);
+    } else {
+      this.cache.refresh([...this.cache.records(), ...records]);
+    }
     this.updatesSinceSnapshot += 1;
     if (compact) {
       await this.compactIfNeeded();
     }
-    notifyAdmissionAdvance(before, this.cachedAdmission, this.options.onAuthorityAdvanced);
+    notifyAdmissionAdvance(before, this.admission(), this.options.onAuthorityAdvanced);
   }
 
   private async importUpdate(bytes: SyncBytes): Promise<void> {
@@ -224,7 +241,7 @@ export class LoroFactStore implements FactStore {
     if (before.kind === "fault") {
       throw new AuthorityFaultError(before.fault ?? "Authority admission fault");
     }
-    const authorityRecords = this.cachedRecords;
+    const authorityRecords = this.cache.records();
     const stagedSync = this.syncProjection.fork();
     stagedSync.setPeerId(this.options.loroPeerId);
     stagedSync.import(bytes);
@@ -270,7 +287,7 @@ export class LoroFactStore implements FactStore {
     this.syncProjection = recovered.syncProjection;
     await persistSyncProjection(this.options.documents, this.syncProjection);
     this.updatesSinceSnapshot = 0;
-    this.refreshCaches(readAuthorityRecords(this.doc));
+    this.cache.refresh(readAuthorityRecords(this.doc));
     return recovered.snapshot;
   }
 
@@ -298,26 +315,13 @@ export class LoroFactStore implements FactStore {
       );
       this.doc = loaded.doc;
       this.updatesSinceSnapshot = loaded.updateCount;
-      this.refreshCaches(readAuthorityRecords(loaded.doc));
-      if (this.cachedAdmission.kind === "ready") {
-        addFactsToSyncProjection(this.syncProjection, this.cachedAdmission.snapshot.facts);
+      this.cache.refresh(readAuthorityRecords(loaded.doc));
+      if (this.admission().kind === "ready") {
+        addFactsToSyncProjection(this.syncProjection, this.admission().snapshot.facts);
       }
-      notifyAdmissionAdvance(before, this.cachedAdmission, this.options.onAuthorityAdvanced);
+      notifyAdmissionAdvance(before, this.admission(), this.options.onAuthorityAdvanced);
     } catch {
       // The caller retains outcome-unknown when durable authority cannot be audited.
     }
-  }
-  private refreshCaches(records: readonly unknown[], admitted?: Admission): void {
-    this.cachedRecords = records;
-    const caches = deriveAuthorityCaches(
-      this.options.workspaceId,
-      this.replicaId,
-      records,
-      this.admitRecords,
-      admitted,
-    );
-    this.cachedAdmission = caches.admission;
-    this.cachedParsedRecords = caches.parsedRecords;
-    this.cachedReceipts = new Map(caches.receipts);
   }
 }

@@ -28,6 +28,15 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
     return;
   }
   requireString(value.schemaId, "Schema identity");
+  if (value.kind === "schema-template-node-add" || value.kind === "schema-template-node-remove") {
+    requireString(value.templateNodeId, "Template Node identity");
+    if (value.kind === "schema-template-node-add") {
+      assertSequenceAnchor(value.anchor, "Template Node anchor");
+    } else if (value.previousAnchor !== undefined) {
+      assertSequenceAnchor(value.previousAnchor, "Template Node previous anchor");
+    }
+    return;
+  }
   if (value.kind === "schema-field-configure") {
     requireString(value.fieldDefinitionId, "Field Definition identity");
     assertFieldTemplateConfig(value.config, "Field Template config");

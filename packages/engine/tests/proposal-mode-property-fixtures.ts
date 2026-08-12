@@ -17,9 +17,8 @@ import {
   reconcileFromCheckpoint,
 } from "../src/runtime/workspace/generation-checkpoint.js";
 import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
-import { managedNodeId } from "../src/domain/reconcile/managed-identity.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
@@ -35,7 +34,11 @@ export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: num
     .map(
       (fact) =>
         `${fact.body.kind}/${
-          fact.body.kind === "contribution" ? fact.body.mutation.kind : fact.body.decision
+          fact.body.kind === "contribution"
+            ? fact.body.mutation.kind
+            : fact.body.kind === "resolution"
+              ? fact.body.decision
+              : fact.body.action.kind
         }@${fact.id}`,
     )
     .join(", ");
@@ -61,38 +64,22 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     occurrenceId: "shared-b",
     previousOccurrenceId: "shared-a",
   });
+  for (const nodeId of ["generated-schema", "first", "second"]) {
+    facts.add({ kind: "node-create", nodeId });
+  }
   facts.add({
-    kind: "value-set",
-    owner: { kind: "node", id: "shared" },
-    namespace: "property",
-    key: "schemaId",
-    value: "generated-schema",
-    previous: { kind: "unset" },
+    kind: "schema-field-add",
+    schemaId: "generated-schema",
+    fieldDefinitionId: "first",
+    anchor: end,
   });
   facts.add({
-    kind: "value-set",
-    owner: { kind: "schema", id: "generated-schema" },
-    namespace: "schema",
-    key: "first",
-    value: seed % 3,
-    previous: { kind: "unset" },
+    kind: "schema-field-add",
+    schemaId: "generated-schema",
+    fieldDefinitionId: "second",
+    anchor: { ...end, after: "first" },
   });
-  facts.add({
-    kind: "value-set",
-    owner: { kind: "schema", id: "generated-schema" },
-    namespace: "schema",
-    key: "second",
-    value: (seed + 1) % 3,
-    previous: { kind: "unset" },
-  });
-  facts.add({
-    kind: "value-set",
-    owner: { kind: "node", id: managedNodeId("shared", "generated-schema", "first") },
-    namespace: "property",
-    key: "generated",
-    value: seed,
-    previous: { kind: "unset" },
-  });
+  facts.add({ kind: "schema-apply", nodeId: "shared", schemaId: "generated-schema", anchor: end });
   const text = facts.add({
     kind: "text-splice",
     nodeId: "shared",

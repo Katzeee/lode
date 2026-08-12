@@ -1,5 +1,6 @@
 import type { JsonValue, PreviousValue, SequenceAnchor, TextAtomId } from "../domain/fact/index.js";
 import type { DecisionEffect, PlacementRelation } from "../domain/review/index.js";
+import { parseFieldTemplateConfig } from "./schema-projection-validation.js";
 
 export function parseDecisionEffect(value: unknown): DecisionEffect {
   const effect = object(value, "Decision effect");
@@ -78,6 +79,9 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   if (kind === "field-materialization") {
     return fieldMaterializationEffect(effect);
   }
+  if (kind === "field-configuration") {
+    return fieldConfigurationEffect(effect);
+  }
   if (kind === "lifecycle" || kind === "canonical") {
     exact(effect, ["kind", "identity", "origin", "review"], `${kind} Decision effect`);
     return {
@@ -90,6 +94,21 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   throw new Error(`Unknown Decision effect kind: ${kind}`);
 }
 
+function fieldConfigurationEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(
+    effect,
+    ["kind", "schemaId", "fieldDefinitionId", "origin", "review"],
+    "Field configuration Decision effect",
+  );
+  return {
+    kind: "field-configuration",
+    schemaId: nonempty(effect.schemaId, "Field configuration Schema"),
+    fieldDefinitionId: nonempty(effect.fieldDefinitionId, "Field configuration Field Definition"),
+    origin: effect.origin === null ? null : parseFieldTemplateConfig(effect.origin),
+    review: effect.review === null ? null : parseFieldTemplateConfig(effect.review),
+  };
+}
+
 function schemaRelationEffect(effect: Record<string, unknown>): DecisionEffect {
   exact(
     effect,
@@ -100,7 +119,7 @@ function schemaRelationEffect(effect: Record<string, unknown>): DecisionEffect {
     kind: "schema-relation",
     relation: oneOf(
       effect.relation,
-      ["application", "field", "extension"] as const,
+      ["application", "field", "extension", "template-node"] as const,
       "Schema relation kind",
     ),
     ownerId: nonempty(effect.ownerId, "Schema relation owner"),

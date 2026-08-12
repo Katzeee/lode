@@ -1,13 +1,9 @@
-import type {
-  AuthorityReceipt,
-  AuthorityRecord,
-  Fact,
-  FactBody,
-  Mutation,
-  SequenceAnchor,
-} from "./types.js";
+import type { AuthorityReceipt, AuthorityRecord, Fact, Mutation, SequenceAnchor } from "./types.js";
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
 import { assertSchemaMutationShape } from "./schema-mutation-shape.js";
+import { assertFactBody } from "./fact-body-shape-validation.js";
+import { assertTemplateDetachmentShape } from "./template-node-validation.js";
+import { assertFieldContentDeletionShape } from "./field-content-validation.js";
 import {
   assertJsonValue,
   assertFrontier,
@@ -114,36 +110,10 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
   requireNumber(value.coordinate.dot.sequence, "Fact sequence");
   requireNumber(value.coordinate.lamport, "Fact Lamport rank");
   assertFrontier(value.coordinate.observed, "Fact observed frontier");
-  assertBody(value.body);
+  assertFactBody(value.body, assertMutationShape);
 }
 
-function assertBody(value: unknown): asserts value is FactBody {
-  assertObject(value, "Fact body");
-  requireString(value.actorId, "Fact actor identity");
-  if (value.kind === "resolution") {
-    assertKeys(
-      value,
-      ["kind", "actorId", "decision", "proposalContributionIds", "adjudicatesResolutionIds"],
-      "Resolution",
-    );
-    if (value.decision !== "accept" && value.decision !== "reject") {
-      throw new Error("Invalid Resolution decision shape");
-    }
-    assertStringArray(value.proposalContributionIds, "Resolution targets");
-    assertStringArray(value.adjudicatesResolutionIds, "adjudicated Resolution identities");
-    return;
-  }
-  if (value.kind !== "contribution") {
-    throw new Error("Unknown Fact body kind");
-  }
-  assertKeys(value, ["kind", "actorId", "intent", "mutation"], "Contribution");
-  if (value.intent !== "direct" && value.intent !== "proposal") {
-    throw new Error("Invalid Contribution intent shape");
-  }
-  assertMutation(value.mutation);
-}
-
-function assertMutation(value: unknown): asserts value is Mutation {
+export function assertMutationShape(value: unknown): asserts value is Mutation {
   assertObject(value, "Mutation");
   requireString(value.kind, "Mutation kind");
   const keys = MUTATION_SHAPE_KEYS[value.kind];
@@ -198,9 +168,18 @@ function assertMutation(value: unknown): asserts value is Mutation {
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
     case "field-materialize":
     case "field-initialize":
       assertSchemaMutationShape(value);
+      return;
+    case "field-value-delete":
+    case "materialized-field-delete":
+      assertFieldContentDeletionShape(value, assertOptionalNullableString, assertOptionalAnchor);
+      return;
+    case "template-node-detach":
+      assertTemplateDetachmentShape(value);
       return;
     case "text-splice":
       requireString(value.nodeId, value.kind);
@@ -233,7 +212,7 @@ function assertMutation(value: unknown): asserts value is Mutation {
 }
 
 export function parseMutation(value: unknown): Mutation {
-  assertMutation(value);
+  assertMutationShape(value);
   return value;
 }
 

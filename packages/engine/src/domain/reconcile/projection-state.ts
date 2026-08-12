@@ -1,6 +1,12 @@
 import { type ContributionFact, type JsonValue, type SequenceAnchor } from "../fact/index.js";
 import type { TextAtom } from "./projection-types.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
+import {
+  hasUnrestoredDeletion,
+  occurrenceDeletionIds,
+  restoreMaterializedFieldDescendants,
+} from "./field-content-deletion.js";
+import { removeOccurrencesWithMissingNodes } from "./occurrence-tree.js";
 
 export type MutableOccurrence = {
   occurrenceId: string;
@@ -17,6 +23,11 @@ export type MutableNode = {
   properties: Record<string, JsonValue>;
   metadata: Record<string, JsonValue>;
 };
+
+type OccurrenceState = Readonly<{
+  occurrences: Map<string, MutableOccurrence>;
+  children: Map<string, string[]>;
+}>;
 
 export function createNodes(active: readonly ContributionFact[]): Map<string, MutableNode> {
   const created = new Map<string, MutableNode>();
@@ -52,10 +63,7 @@ export function createNodes(active: readonly ContributionFact[]): Map<string, Mu
 export function createOccurrences(
   active: readonly ContributionFact[],
   nodes: ReadonlyMap<string, MutableNode>,
-): {
-  occurrences: Map<string, MutableOccurrence>;
-  children: Map<string, string[]>;
-} {
+): OccurrenceState {
   const occurrences = new Map<string, MutableOccurrence>();
   const children = new Map<string, string[]>();
   const createdIdentities = new Set<string>();
@@ -108,10 +116,22 @@ export function createOccurrences(
           deleteOccurrence(mutation.occurrenceId, mutation.childPolicy, occurrences, children);
         }
         break;
+      case "field-value-delete":
+        deleteOccurrence(mutation.valueOccurrenceId, "cascade", occurrences, children);
+        break;
+      case "materialized-field-delete":
+        deleteOccurrence(mutation.fieldOccurrenceId, "cascade", occurrences, children);
+        break;
       case "occurrence-restore":
-        if (!hasUnrestoredDeletion(mutation.occurrenceId, deletionIds, restoredDeletionIds)) {
-          restoreOccurrence(active, mutation, occurrences, children, nodes);
-        }
+        applyOccurrenceRestore(
+          active,
+          mutation,
+          deletionIds,
+          restoredDeletionIds,
+          occurrences,
+          children,
+          nodes,
+        );
         break;
       case "node-create":
       case "node-delete":
@@ -124,6 +144,9 @@ export function createOccurrences(
       case "schema-field-configure":
       case "schema-extension-add":
       case "schema-extension-remove":
+      case "schema-template-node-add":
+      case "schema-template-node-remove":
+      case "template-node-detach":
       case "field-materialize":
       case "field-initialize":
       case "text-splice":
@@ -134,51 +157,33 @@ export function createOccurrences(
     }
   }
 
-  for (const [id, occurrence] of occurrences) {
-    if (!nodes.has(occurrence.nodeId)) {
-      deleteOccurrence(id, "cascade", occurrences, children);
-    }
-  }
+  removeOccurrencesWithMissingNodes(nodes, occurrences, children);
   return { occurrences, children };
 }
 
-function occurrenceDeletionIds(
+function applyOccurrenceRestore(
   active: readonly ContributionFact[],
-): ReadonlyMap<string, readonly string[]> {
-  const result = new Map<string, string[]>();
-  for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind === "occurrence-delete") {
-      const ids = result.get(mutation.occurrenceId) ?? [];
-      ids.push(fact.id);
-      result.set(mutation.occurrenceId, ids);
-    }
-  }
-  return result;
-}
-
-function hasUnrestoredDeletion(
-  occurrenceId: string,
+  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-restore" }>,
   deletionIds: ReadonlyMap<string, readonly string[]>,
   restoredDeletionIds: ReadonlySet<string>,
-): boolean {
-  return (deletionIds.get(occurrenceId) ?? []).some(
-    (deletionId) => !restoredDeletionIds.has(deletionId),
-  );
-}
-
-export function validateStoredTree(occurrences: ReadonlyMap<string, MutableOccurrence>): void {
-  for (const occurrence of occurrences.values()) {
-    const seen = new Set<string>();
-    let cursor: MutableOccurrence | undefined = occurrence;
-    while (cursor) {
-      if (seen.has(cursor.occurrenceId)) {
-        throw new Error(`Occurrence tree cycle: ${occurrence.occurrenceId}`);
-      }
-      seen.add(cursor.occurrenceId);
-      cursor = cursor.parentOccurrenceId ? occurrences.get(cursor.parentOccurrenceId) : undefined;
-    }
+  occurrences: Map<string, MutableOccurrence>,
+  children: Map<string, string[]>,
+  nodes: ReadonlyMap<string, MutableNode>,
+): void {
+  if (hasUnrestoredDeletion(mutation.occurrenceId, deletionIds, restoredDeletionIds)) {
+    return;
   }
+  restoreOccurrence(active, mutation, occurrences, children, nodes);
+  restoreMaterializedFieldDescendants(
+    active,
+    mutation.deletionFactId,
+    mutation.occurrenceId,
+    deletionIds,
+    restoredDeletionIds,
+    occurrences,
+    children,
+    nodes,
+  );
 }
 
 function restoreOccurrence(

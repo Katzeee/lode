@@ -10,6 +10,7 @@ import {
 import {
   valueKeyAddress,
   valueOwnerAddress,
+  templateInstanceNodeId,
   type Projection,
   type ProjectionGeneration,
 } from "../reconcile/index.js";
@@ -17,6 +18,7 @@ import { deriveActivation, supportClosure } from "../reconcile/support.js";
 import { associatedImpacts, mutationAnchor, structureEffect } from "./impacts.js";
 import type { DecisionEffect, DecisionEvidence, TextDecisionEffect } from "./types.js";
 import { fieldMaterializationEffect, schemaRelationEffect } from "./schema-review.js";
+import { fieldConfigurationEffect } from "./schema-candidates.js";
 
 export function evidenceForTargets(
   snapshot: FactSnapshot,
@@ -103,19 +105,30 @@ export function normalizedEffects(
       mutation.kind === "occurrence-create" ||
       mutation.kind === "occurrence-delete" ||
       mutation.kind === "occurrence-restore" ||
-      mutation.kind === "occurrence-move"
+      mutation.kind === "occurrence-move" ||
+      mutation.kind === "field-value-delete"
     ) {
-      const effect = structureEffect(mutation.occurrenceId, generation, mutationAnchor(mutation));
+      const occurrenceId =
+        mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.occurrenceId;
+      const effect = structureEffect(occurrenceId, generation, mutationAnchor(mutation));
       if (
         canonicalJson([effect.originPresent, effect.originParentId, effect.originRelation]) !==
         canonicalJson([effect.reviewPresent, effect.reviewParentId, effect.reviewRelation])
       ) {
-        effects.set(`structure/${mutation.occurrenceId}`, effect);
+        effects.set(`structure/${occurrenceId}`, effect);
       }
     } else if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
       const effect = valueEffect(mutation, generation);
       if (canonicalJson(effect.origin) !== canonicalJson(effect.review)) {
         effects.set(`value/${valueAddress(mutation)}`, effect);
+      }
+    } else if (mutation.kind === "schema-field-configure") {
+      const effect = fieldConfigurationEffect(fact, generation);
+      if (canonicalJson(effect.origin) !== canonicalJson(effect.review)) {
+        effects.set(
+          canonicalJson(["field-configuration", effect.schemaId, effect.fieldDefinitionId]),
+          effect,
+        );
       }
     } else if (mutation.kind.startsWith("schema-")) {
       const effect = schemaRelationEffect(fact, generation);
@@ -125,7 +138,11 @@ export function normalizedEffects(
           effect,
         );
       }
-    } else if (mutation.kind === "field-materialize" || mutation.kind === "field-initialize") {
+    } else if (
+      mutation.kind === "field-materialize" ||
+      mutation.kind === "field-initialize" ||
+      mutation.kind === "materialized-field-delete"
+    ) {
       const effect = fieldMaterializationEffect(fact, generation);
       if (effect.originFieldNodeId !== effect.reviewFieldNodeId) {
         effects.set(
@@ -171,6 +188,15 @@ export function mutationIdentity(fact: ContributionFact): string {
   }
   if ("occurrenceId" in mutation) {
     return mutation.occurrenceId;
+  }
+  if (mutation.kind === "template-node-detach") {
+    return templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId);
+  }
+  if (mutation.kind === "field-value-delete") {
+    return mutation.valueOccurrenceId;
+  }
+  if (mutation.kind === "materialized-field-delete") {
+    return mutation.fieldNodeId;
   }
   return fact.id;
 }
@@ -276,7 +302,7 @@ function valueState(
 }
 
 function lifecycleVisible(identity: string, mutationKind: string, projection: Projection): boolean {
-  return mutationKind.startsWith("node-")
+  return mutationKind.startsWith("node-") || mutationKind === "template-node-detach"
     ? projection.nodes[identity] !== undefined
     : projection.occurrences[identity] !== undefined;
 }

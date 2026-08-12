@@ -18,7 +18,7 @@ import {
 } from "../../domain/reconcile/index.js";
 
 export type GenerationCheckpoint = Readonly<{
-  format: "lode-generation-checkpoint-v1";
+  format: "lode-generation-checkpoint-v2";
   workspaceId: string;
   factsDigest: string;
   projectionDigest: string;
@@ -36,7 +36,7 @@ export function createGenerationCheckpoint(
     throw new Error("Checkpoint generation frontier does not match its Facts");
   }
   const unsigned = {
-    format: "lode-generation-checkpoint-v1" as const,
+    format: "lode-generation-checkpoint-v2" as const,
     workspaceId,
     factsDigest: canonicalDigest([...snapshot.facts].sort(compareFacts)),
     projectionDigest: canonicalDigest(generation),
@@ -144,7 +144,7 @@ function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCh
     "integrity",
     "generation",
   ]);
-  if (checkpoint.format !== "lode-generation-checkpoint-v1") {
+  if (checkpoint.format !== "lode-generation-checkpoint-v2") {
     throw new Error("Checkpoint format is unsupported");
   }
   const generation = record(checkpoint.generation);
@@ -152,7 +152,11 @@ function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCh
   const ownerCaches = record(generation.ownerCaches);
   assertExactKeys(ownerCaches, ["origin", "review"]);
   for (const cache of [ownerCaches.origin, ownerCaches.review]) {
-    assertExactKeys(record(cache), ["activeContributionIds", "supportPasses"]);
+    assertExactKeys(record(cache), [
+      "activeContributionIds",
+      "supportByContribution",
+      "supportPasses",
+    ]);
   }
   for (const identity of [
     generation.identity,

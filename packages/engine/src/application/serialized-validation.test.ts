@@ -21,7 +21,7 @@ const selection = {
     ],
     associatedImpactIds: [],
     rulesVersion: "proposal-rules-1",
-    schemaVersion: "lode-schema-5",
+    schemaVersion: "lode-schema-12",
   },
 } as const;
 
@@ -167,7 +167,7 @@ describe("serialized contract deep validation", () => {
               generationId: "generation",
               frontier: {},
               rulesVersion: "proposal-rules-1",
-              schemaVersion: "lode-schema-5",
+              schemaVersion: "lode-schema-12",
             },
             view: "origin",
             section: "nodes",
@@ -178,7 +178,6 @@ describe("serialized contract deep validation", () => {
             children: {},
             canonicalOccurrences: {},
             addressedValues: {},
-            managedChildren: [],
           },
         },
         {
@@ -239,6 +238,178 @@ describe("serialized contract deep validation", () => {
         error: { code: "projection-unavailable" },
       });
     }
+  });
+
+  it("validates serialized Placement Conflict provenance and candidate anchors", async () => {
+    const replicaId = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const issue = {
+      kind: "placement-conflict",
+      identity: "placement-conflict",
+      occurrenceId: "value-occurrence",
+      canonicalParentOccurrenceId: "parent-a",
+      candidates: [
+        {
+          contributionId: "move-a",
+          parentOccurrenceId: "parent-a",
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+          actorId: "mover",
+          replicaId,
+          observedFrontier: { [replicaId]: 1 },
+        },
+      ],
+    } as const;
+    const query = { kind: "conflicts", workspaceId: "workspace" } as const;
+    const result = {
+      status: "ok",
+      value: {
+        generationId: "generation",
+        frontier: { [replicaId]: 2 },
+        issues: [issue],
+        next: null,
+      },
+    } as const;
+    expect(await queryResponse(result, query)).toEqual(result);
+    expect(
+      await queryResponse(
+        {
+          ...result,
+          value: {
+            ...result.value,
+            issues: [
+              {
+                ...issue,
+                candidates: [
+                  {
+                    ...issue.candidates[0],
+                    anchor: { ...issue.candidates[0].anchor, affinity: "near" },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        query,
+      ),
+    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
+  });
+
+  it("validates serialized unsupported Direct intent provenance and recovery actions", async () => {
+    const replicaId = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const issue = {
+      kind: "unsupported-direct-intent",
+      identity: "unsupported-direct",
+      contributionId: "direct-edit",
+      mutationKind: "text-splice",
+      actorId: "author",
+      replicaId,
+      observedFrontier: { [replicaId]: 2 },
+      missingSupportContributionIds: ["rejected-provider"],
+      requiredNodeIds: ["proposal-node"],
+      recoveryActions: ["restore-support"],
+    } as const;
+    const query = { kind: "conflicts", workspaceId: "workspace" } as const;
+    const result = {
+      status: "ok",
+      value: {
+        generationId: "generation",
+        frontier: { [replicaId]: 3 },
+        issues: [issue],
+        next: null,
+      },
+    } as const;
+    expect(await queryResponse(result, query)).toEqual(result);
+    expect(
+      await queryResponse(
+        {
+          ...result,
+          value: {
+            ...result.value,
+            issues: [{ ...issue, recoveryActions: ["discard"] }],
+          },
+        },
+        query,
+      ),
+    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
+  });
+
+  it("accepts typed Schema Search results and rejects unbounded or malformed pages", async () => {
+    const query = {
+      kind: "schema-search",
+      workspaceId: "workspace",
+      view: "origin",
+      schemaId: "anime",
+      limit: 2,
+    } as const;
+    const result = {
+      status: "ok",
+      value: {
+        generationId: "generation",
+        frontier: {},
+        view: "origin",
+        schemaId: "anime",
+        nodeIds: ["a", "b"],
+        next: "b",
+      },
+    } as const;
+    expect(await queryResponse(result, query)).toEqual(result);
+    expect(
+      await queryResponse({ ...result, value: { ...result.value, nodeIds: ["a", 1] } }, query),
+    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
+    expect(await queryResponse(result, { ...query, limit: 100 })).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
+  });
+
+  it("validates the bounded Hard Delete History impact summary exactly", async () => {
+    const replicaId = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const query = {
+      kind: "hard-delete-preview",
+      workspaceId: "workspace",
+      nodeId: "node",
+    } as const;
+    const result = {
+      status: "ok",
+      value: {
+        generationId: "generation",
+        selection: {
+          workspaceId: "workspace",
+          frontier: { [replicaId]: 2 },
+          nodeId: "node",
+          deletionFactIds: ["deletion"],
+          acknowledgementFactIds: [],
+          retiredReplicaIds: [],
+        },
+        referenceOccurrenceIds: [],
+        schemaApplicationNodeIds: [],
+        materializedFieldNodeIds: [],
+        pendingProposalContributionIds: [],
+        knownReplicaIds: [replicaId],
+        acknowledgedReplicaIds: [],
+        outcomeUnknownInvocationIds: [],
+        historyImpact: {
+          affectedInvocationIds: ["edit-node"],
+          affectedChannelIds: ["desktop"],
+          totalAffectedInvocations: 1,
+          truncated: false,
+        },
+        blockers: ["replica-unconfirmed"],
+        canExecute: false,
+      },
+    } as const;
+    expect(await queryResponse(result, query)).toEqual(result);
+    expect(
+      await queryResponse(
+        {
+          ...result,
+          value: {
+            ...result.value,
+            historyImpact: { ...result.value.historyImpact, futureScope: true },
+          },
+        },
+        query,
+      ),
+    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
   });
 
   it("rejects malformed Review, Adjudication, and History capabilities before sending", async () => {

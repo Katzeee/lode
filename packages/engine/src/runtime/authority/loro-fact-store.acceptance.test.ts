@@ -126,6 +126,9 @@ describe("production Loro-backed FactStore", () => {
     expect(store.snapshot().facts).toHaveLength(2);
     expect(durable.appendCount).toBe(1);
     expect(advanced).toEqual([{ [REPLICA_A]: 2 }]);
+    const reopened = await open(durable, REPLICA_A, "102");
+    expect(reopened.snapshot().facts).toHaveLength(2);
+    expect(reopened.receipt("invocation")).toEqual(result.receipt);
   });
 
   it("Durable crash boundaries", async () => {
@@ -494,7 +497,7 @@ describe("production Loro-backed FactStore", () => {
       lamport: 1,
       body,
     });
-    const unsigned = { ...unsignedFact(valid), schemaVersion: 2 };
+    const unsigned = { ...unsignedFact(valid), schemaVersion: 5 };
     const unsupported = {
       ...unsigned,
       contentDigest: canonicalDigest(unsigned),

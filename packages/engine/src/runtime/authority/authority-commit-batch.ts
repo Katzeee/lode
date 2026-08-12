@@ -9,22 +9,21 @@ import {
   type WorkspaceId,
 } from "../../domain/fact/index.js";
 import type { AuthorityCommit } from "./fact-store.js";
-import { maxLamportAtFrontier, nextReplicaSequence } from "./loro-authority-records.js";
-
 export function createAuthorityCommitBatch(
   workspaceId: WorkspaceId,
   replicaId: ReplicaId,
   input: AuthorityCommit,
   requestDigest: string,
   before: FactSnapshot,
+  maximumLamport: number,
 ): Readonly<{
   facts: readonly Fact[];
   receipt: AuthorityReceipt;
   records: readonly AuthorityRecord[];
 }> {
-  let sequence = nextReplicaSequence(before.facts, replicaId);
+  let sequence = (before.frontier[replicaId] ?? 0) + 1;
   let observed = before.frontier;
-  let lamport = maxLamportAtFrontier(before.facts, observed) + 1;
+  let lamport = maximumLamport + 1;
   const facts: Fact[] = [];
   for (const body of input.bodies) {
     facts.push(

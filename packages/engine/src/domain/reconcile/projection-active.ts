@@ -4,7 +4,7 @@ import {
   type FactSnapshot,
   type ViewMode,
 } from "../fact/index.js";
-import { deriveActivation } from "./support.js";
+import { deriveActivation, deriveSupport } from "./support.js";
 import type { ProjectionOwnerCache } from "./projection-types.js";
 
 export function activeContributions(
@@ -22,6 +22,7 @@ export function activeContributions(
     facts,
     cache: {
       activeContributionIds: facts.map((fact) => fact.id),
+      supportByContribution: Object.fromEntries(activation.supportByContribution),
       supportPasses: activation.convergencePasses,
     },
   };
@@ -43,9 +44,16 @@ export function activeFactsFromCache(
 export function incrementalOwnerCache(
   previous: ProjectionOwnerCache,
   tail: readonly ContributionFact[],
+  snapshot: FactSnapshot,
 ): ProjectionOwnerCache {
+  const active = activeFactsFromCache(snapshot, previous, tail);
+  const support = deriveSupport(active, new Set(active.map((fact) => fact.id)));
   return {
     activeContributionIds: [...previous.activeContributionIds, ...tail.map((fact) => fact.id)],
+    supportByContribution: {
+      ...previous.supportByContribution,
+      ...Object.fromEntries(tail.map((fact) => [fact.id, support.get(fact.id) ?? []])),
+    },
     supportPasses: previous.supportPasses,
   };
 }

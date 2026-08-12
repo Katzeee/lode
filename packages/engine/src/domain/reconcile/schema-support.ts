@@ -1,4 +1,15 @@
 import { compareFacts, type ContributionFact, type Mutation } from "../fact/index.js";
+import {
+  templateInstanceNodeId,
+  templateInstanceOccurrenceId,
+  templateNodeItemId,
+} from "./template-node-identity.js";
+import {
+  initializedFieldNodeId,
+  initializedFieldOccurrenceId,
+  initializedValueNodeId,
+  initializedValueOccurrenceId,
+} from "./initialized-field.js";
 
 export function addSchemaMutationSupport(
   support: Set<string>,
@@ -13,6 +24,11 @@ export function addSchemaMutationSupport(
     mutation.kind === "schema-extension-remove"
   ) {
     addCandidateSupport(support, context.nodes, mutation.baseSchemaId, context.viable);
+  } else if (
+    mutation.kind === "schema-template-node-add" ||
+    mutation.kind === "schema-template-node-remove"
+  ) {
+    addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
   } else {
     addCandidateSupport(support, context.nodes, mutation.fieldDefinitionId, context.viable);
   }
@@ -22,7 +38,49 @@ export function addSchemaMutationSupport(
     const values = context.applications.get(key) ?? [];
     values.push(fact);
     context.applications.set(key, values);
+  } else if (mutation.kind === "schema-template-node-add") {
+    const key = templateNodeItemId(mutation.schemaId, mutation.templateNodeId);
+    const values = context.templateItems.get(key) ?? [];
+    values.push(fact);
+    context.templateItems.set(key, values);
   }
+}
+
+export function addTemplateDetachmentSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
+  fact: ContributionFact,
+  context: SchemaSupportContext,
+): void {
+  addCandidateSupport(support, context.nodes, mutation.ownerNodeId, context.viable);
+  addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
+  for (const templateItemId of mutation.sourceTemplateItemIds ?? []) {
+    const item = latestObservedCandidate(context.templateItems.get(templateItemId) ?? [], fact);
+    if (item !== null) {
+      support.add(item.id);
+    }
+  }
+  for (const appliedSchemaId of mutation.sourceApplicationSchemaIds ?? []) {
+    const application = latestObservedCandidate(
+      context.applications.get(schemaApplicationKey(mutation.ownerNodeId, appliedSchemaId)) ?? [],
+      fact,
+    );
+    if (application !== null) {
+      support.add(application.id);
+    }
+  }
+}
+
+export function registerTemplateDetachmentExistence(
+  nodes: Map<string, string[]>,
+  occurrences: Map<string, string[]>,
+  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
+  factId: string,
+): void {
+  nodes.set(templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId), [factId]);
+  occurrences.set(templateInstanceOccurrenceId(mutation.ownerNodeId, mutation.templateNodeId), [
+    factId,
+  ]);
 }
 
 export function addFieldInitializationSupport(
@@ -48,10 +106,32 @@ export function addFieldInitializationSupport(
   }
 }
 
+export function registerFieldInitializationExistence(
+  nodes: Map<string, string[]>,
+  occurrences: Map<string, string[]>,
+  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+  factId: string,
+): void {
+  const fieldNodeId = initializedFieldNodeId(mutation.ownerNodeId, mutation.fieldDefinitionId);
+  const fieldOccurrenceId = initializedFieldOccurrenceId(
+    mutation.ownerNodeId,
+    mutation.fieldDefinitionId,
+  );
+  nodes.set(fieldNodeId, [factId]);
+  occurrences.set(fieldOccurrenceId, [factId]);
+  mutation.values.forEach((value, index) => {
+    if (value.kind === "text") {
+      nodes.set(initializedValueNodeId(fieldNodeId, index), [factId]);
+    }
+    occurrences.set(initializedValueOccurrenceId(fieldOccurrenceId, index), [factId]);
+  });
+}
+
 export type SchemaSupportContext = Readonly<{
   nodes: ReadonlyMap<string, readonly string[]>;
   viable: ReadonlySet<string>;
   applications: Map<string, ContributionFact[]>;
+  templateItems: Map<string, ContributionFact[]>;
 }>;
 
 function schemaApplicationKey(nodeId: string, schemaId: string): string {

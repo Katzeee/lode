@@ -14,13 +14,15 @@ export function projectionPageMaps(
   | "children"
   | "canonicalOccurrences"
   | "addressedValues"
-  | "managedChildren"
   | "schemaApplications"
   | "schemaFields"
   | "schemaFieldItems"
+  | "schemaTemplateNodes"
+  | "templateNodeInstances"
   | "schemaExtensions"
   | "schemaSearchMembers"
   | "schemaExtensionConflicts"
+  | "definitionStatuses"
   | "conflictIssues"
   | "effectiveFields"
   | "materializedFields"
@@ -34,15 +36,17 @@ export function projectionPageMaps(
       section === "canonicalOccurrences" ? (indexed as ProjectionPage["canonicalOccurrences"]) : {},
     addressedValues:
       section === "addressedValues" ? (indexed as ProjectionPage["addressedValues"]) : {},
-    managedChildren:
-      section === "managedChildren"
-        ? (entries.map((entry) => entry.value) as ProjectionPage["managedChildren"])
-        : [],
     schemaApplications:
       section === "schemaApplications" ? (indexed as ProjectionPage["schemaApplications"]) : {},
     schemaFields: section === "schemaFields" ? (indexed as ProjectionPage["schemaFields"]) : {},
     schemaFieldItems:
       section === "schemaFieldItems" ? (indexed as ProjectionPage["schemaFieldItems"]) : {},
+    schemaTemplateNodes:
+      section === "schemaTemplateNodes" ? (indexed as ProjectionPage["schemaTemplateNodes"]) : {},
+    templateNodeInstances:
+      section === "templateNodeInstances"
+        ? (entries.map((entry) => entry.value) as ProjectionPage["templateNodeInstances"])
+        : [],
     schemaExtensions:
       section === "schemaExtensions" ? (indexed as ProjectionPage["schemaExtensions"]) : {},
     schemaSearchMembers:
@@ -51,6 +55,8 @@ export function projectionPageMaps(
       section === "schemaExtensionConflicts"
         ? (indexed as ProjectionPage["schemaExtensionConflicts"])
         : {},
+    definitionStatuses:
+      section === "definitionStatuses" ? (indexed as ProjectionPage["definitionStatuses"]) : {},
     conflictIssues:
       section === "conflictIssues" ? (indexed as ProjectionPage["conflictIssues"]) : {},
     effectiveFields:

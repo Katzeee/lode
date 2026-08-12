@@ -1,5 +1,7 @@
 import type { Fact, Mutation } from "../fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
+import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
+import { schemaProposalLifecycleCases } from "./proposal-schema-lifecycle-test-helpers.js";
 
 export type ProposalLifecycleCase = Readonly<{
   kind: Mutation["kind"];
@@ -8,21 +10,55 @@ export type ProposalLifecycleCase = Readonly<{
 }>;
 
 export function proposalLifecycleCases(): readonly ProposalLifecycleCase[] {
-  return [
-    nodeCreateCase(),
-    nodeDeleteCase(),
-    nodeRestoreCase(),
-    occurrenceCreateCase(),
-    occurrenceDeleteCase(),
-    occurrenceRestoreCase(),
-    occurrenceMoveCase(),
-    canonicalCase(),
-    textSpliceCase(),
-    textMarkCase(),
-    valueSetCase(),
-    valueUnsetCase(),
-  ];
+  return Object.values(PROPOSAL_LIFECYCLE_CASES).map((createCase) => createCase());
 }
+
+export function historyLifecycleCases(): readonly ProposalLifecycleCase[] {
+  return proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
+}
+
+const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
+  "node-create",
+  "node-delete",
+  "node-restore",
+  "occurrence-create",
+  "occurrence-delete",
+  "occurrence-restore",
+  "occurrence-move",
+  "canonical-occurrence-set",
+  "schema-apply",
+  "schema-remove",
+  "schema-field-add",
+  "schema-field-remove",
+  "schema-field-configure",
+  "schema-extension-add",
+  "schema-extension-remove",
+  "schema-template-node-add",
+  "schema-template-node-remove",
+  "field-value-delete",
+  "materialized-field-delete",
+  "text-splice",
+  "text-mark",
+  "value-set",
+  "value-unset",
+]);
+
+const PROPOSAL_LIFECYCLE_CASES = {
+  "node-create": nodeCreateCase,
+  "node-delete": nodeDeleteCase,
+  "node-restore": nodeRestoreCase,
+  "occurrence-create": occurrenceCreateCase,
+  "occurrence-delete": occurrenceDeleteCase,
+  "occurrence-restore": occurrenceRestoreCase,
+  "occurrence-move": occurrenceMoveCase,
+  "canonical-occurrence-set": canonicalCase,
+  ...schemaProposalLifecycleCases,
+  ...fieldProposalLifecycleCases,
+  "text-splice": textSpliceCase,
+  "text-mark": textMarkCase,
+  "value-set": valueSetCase,
+  "value-unset": valueUnsetCase,
+} satisfies Record<Mutation["kind"], () => ProposalLifecycleCase>;
 
 function nodeCreateCase(): ProposalLifecycleCase {
   const facts = new Facts();
@@ -50,7 +86,7 @@ function occurrenceCreateCase(): ProposalLifecycleCase {
     kind: "occurrence-create",
     occurrenceId: "created-occurrence",
     nodeId: "node",
-    parentOccurrenceId: null,
+    parentOccurrenceId: "occurrence",
     parentPolicy: "cascade",
     anchor: end,
   });
@@ -84,13 +120,13 @@ function occurrenceRestoreCase(): ProposalLifecycleCase {
 }
 
 function occurrenceMoveCase(): ProposalLifecycleCase {
-  const facts = base();
+  const facts = nestedOccurrenceBase();
   facts.add({ kind: "node-create", nodeId: "parent" });
   facts.add({
     kind: "occurrence-create",
     occurrenceId: "parent",
     nodeId: "parent",
-    parentOccurrenceId: null,
+    parentOccurrenceId: "workspace-root",
     parentPolicy: "cascade",
     anchor: end,
   });
@@ -99,7 +135,7 @@ function occurrenceMoveCase(): ProposalLifecycleCase {
     occurrenceId: "occurrence",
     parentOccurrenceId: "parent",
     anchor: end,
-    previousParentOccurrenceId: null,
+    previousParentOccurrenceId: "workspace-root",
     previousAnchor: end,
   });
 }
@@ -110,7 +146,7 @@ function canonicalCase(): ProposalLifecycleCase {
     kind: "occurrence-create",
     occurrenceId: "reference",
     nodeId: "node",
-    parentOccurrenceId: null,
+    parentOccurrenceId: "occurrence",
     parentPolicy: "cascade",
     anchor: end,
   });
@@ -120,6 +156,29 @@ function canonicalCase(): ProposalLifecycleCase {
     occurrenceId: "reference",
     previousOccurrenceId: "occurrence",
   });
+}
+
+function nestedOccurrenceBase(): Facts {
+  const facts = new Facts();
+  facts.add({ kind: "node-create", nodeId: "workspace-root-node" });
+  facts.add({ kind: "node-create", nodeId: "node" });
+  facts.add({
+    kind: "occurrence-create",
+    occurrenceId: "workspace-root",
+    nodeId: "workspace-root-node",
+    parentOccurrenceId: null,
+    parentPolicy: "cascade",
+    anchor: end,
+  });
+  facts.add({
+    kind: "occurrence-create",
+    occurrenceId: "occurrence",
+    nodeId: "node",
+    parentOccurrenceId: "workspace-root",
+    parentPolicy: "cascade",
+    anchor: end,
+  });
+  return facts;
 }
 
 function textSpliceCase(): ProposalLifecycleCase {

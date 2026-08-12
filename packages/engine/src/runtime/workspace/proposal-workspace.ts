@@ -18,11 +18,7 @@ import type {
 import type { FactStore } from "../authority/fact-store.js";
 import { AuthorityFaultError } from "../authority/errors.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
-import {
-  buildAndPublishGeneration,
-  emitWorkspaceEvent,
-  freezePublishedGeneration,
-} from "./generation-publication.js";
+import { buildAndPublishGeneration, freezePublishedGeneration } from "./generation-publication.js";
 import type {
   ProjectionGenerationStore,
   ProposalWorkspaceOptions,
@@ -38,14 +34,14 @@ import {
 import { planWorkspaceCommand } from "./workspace-command-planner.js";
 import { readCommandGeneration } from "./command-generation-reader.js";
 import { openWorkspaceGeneration } from "./workspace-opening.js";
+import { WorkspaceSignals } from "./workspace-signals.js";
 
 export class ProposalWorkspace {
   private generationIdentity: ProjectionGeneration["identity"];
   private publishedSnapshot: FactSnapshot;
-  private readonly listeners = new Set<(event: EngineEvent) => void>();
+  private readonly signals: WorkspaceSignals;
   private readonly serial = new SerialExecutor();
   private projectionFailure: string | null = null;
-  private authorityFault: string | null;
   private stopped = false;
   private constructor(
     private readonly options: ProposalWorkspaceOptions,
@@ -56,7 +52,7 @@ export class ProposalWorkspace {
   ) {
     this.generationIdentity = generation.identity;
     this.publishedSnapshot = publishedSnapshot;
-    this.authorityFault = authorityFault;
+    this.signals = new WorkspaceSignals(options.workspaceId, authorityFault);
   }
   static async open(options: ProposalWorkspaceOptions): Promise<ProposalWorkspace> {
     const opened = await openWorkspaceGeneration(options);
@@ -95,28 +91,47 @@ export class ProposalWorkspace {
       const admission = this.options.facts.admission();
       if (admission.kind === "fault") {
         const fault = admission.fault ?? "Authority admission fault";
-        this.noteAuthorityFault(fault);
+        this.signals.recordAuthorityFault(fault, this.generationIdentity);
         throw new AuthorityFaultError(fault);
       }
-      this.authorityFault = null;
+      this.signals.clearAuthorityFault();
       if (!frontierEquals(this.generationIdentity.frontier, admission.snapshot.frontier)) {
         return this.rejected(
           "projection-unavailable",
           "Projection Generation does not cover the admitted authority frontier",
         );
       }
+      const commandFactIds =
+        command.kind === "resolve-review"
+          ? command.selection.evidence.proposalTargets
+          : command.kind === "adjudicate-resolution"
+            ? [...command.proposalContributionIds, ...command.resolutionIds]
+            : command.kind === "undo" || command.kind === "redo"
+              ? command.selection.evidence.targetFactIds
+              : [];
+      const scopedFacts = commandFactIds.length
+        ? this.options.facts.relatedFacts(commandFactIds)
+        : admission.snapshot.facts;
+      const commandSnapshot = { facts: scopedFacts, frontier: admission.snapshot.frontier };
       const generation = await readCommandGeneration(
         this.generations,
         this.generationIdentity.generationId,
-        this.publishedSnapshot,
+        commandSnapshot,
         command,
       );
+      const historyChannelId =
+        command.kind === "mutate"
+          ? command.historyChannelId
+          : command.kind === "undo" || command.kind === "redo"
+            ? command.selection.channelId
+            : null;
       const planned = planWorkspaceCommand(
         this.options.workspaceId,
         command,
-        this.options.facts.snapshot(),
+        commandSnapshot,
         generation,
-        this.options.facts.receipts(),
+        historyChannelId === null ? [] : this.options.facts.receiptsForChannel(historyChannelId),
+        this.options.facts,
         this.options.reviewCapabilityKey,
         this.options.historyPlanningObserver,
       );
@@ -131,7 +146,7 @@ export class ProposalWorkspace {
         publishedFrontier: this.generationIdentity.frontier,
       });
       if (committed.created) {
-        this.emit("authority-advanced", committed.receipt.committedFrontier, null, []);
+        this.signals.emit("authority-advanced", committed.receipt.committedFrontier, null, []);
       }
       return await this.publishToReceipt(committed.receipt);
     } catch (error) {
@@ -152,8 +167,7 @@ export class ProposalWorkspace {
     );
   }
   subscribe(listener: (event: EngineEvent) => void): Unsubscribe {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+    return this.signals.subscribe(listener);
   }
 
   async reconcileAuthorityAdvance(): Promise<void> {
@@ -166,15 +180,18 @@ export class ProposalWorkspace {
   private async reconcileAuthorityAdvanceExclusive(): Promise<void> {
     const admission = this.options.facts.admission();
     if (admission.kind === "fault") {
-      this.noteAuthorityFault(admission.fault ?? "Authority admission fault");
+      this.signals.recordAuthorityFault(
+        admission.fault ?? "Authority admission fault",
+        this.generationIdentity,
+      );
       return;
     }
-    this.authorityFault = null;
+    this.signals.clearAuthorityFault();
     const snapshot = admission.snapshot;
     if (frontierCovers(this.generationIdentity.frontier, snapshot.frontier)) {
       return;
     }
-    this.emit("authority-advanced", snapshot.frontier, null, []);
+    this.signals.emit("authority-advanced", snapshot.frontier, null, []);
     await this.publish(snapshot);
   }
 
@@ -187,11 +204,11 @@ export class ProposalWorkspace {
         return;
       }
       const snapshot = await this.options.facts.recoverToLastValidPrefix();
-      this.authorityFault = null;
+      this.signals.clearAuthorityFault();
       if (!frontierCovers(this.generationIdentity.frontier, snapshot.frontier)) {
         await this.publish(snapshot);
       }
-      this.emit(
+      this.signals.emit(
         "projection-recovered",
         snapshot.frontier,
         this.generationIdentity.generationId,
@@ -203,7 +220,7 @@ export class ProposalWorkspace {
   async close(): Promise<void> {
     this.stopped = true;
     await this.serial.run(() => Promise.resolve());
-    this.listeners.clear();
+    this.signals.clear();
   }
 
   private async finishReceipt(receipt: AuthorityReceipt): Promise<WriteResult> {
@@ -231,7 +248,7 @@ export class ProposalWorkspace {
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error);
       this.projectionFailure = failure;
-      this.emit("projection-failed", receipt.committedFrontier, null, []);
+      this.signals.emit("projection-failed", receipt.committedFrontier, null, []);
       return pendingResult(receipt, this.generationIdentity.generationId, failure);
     }
   }
@@ -251,7 +268,7 @@ export class ProposalWorkspace {
       this.generationIdentity = next.generation.identity;
       this.publishedSnapshot = snapshot;
       this.projectionFailure = null;
-      this.emit(
+      this.signals.emit(
         recovered ? "projection-recovered" : "projection-published",
         snapshot.frontier,
         next.generation.identity.generationId,
@@ -268,34 +285,5 @@ export class ProposalWorkspace {
 
   private rejected(code: Parameters<typeof rejectedResult>[0], message: string): RejectedResult {
     return rejectedResult(code, message, this.generationIdentity.generationId);
-  }
-
-  private emit(
-    kind: EngineEvent["kind"],
-    frontier: EngineEvent["frontier"],
-    generationId: string | null,
-    affectedOwnerIds: readonly string[],
-  ): void {
-    emitWorkspaceEvent(
-      this.listeners,
-      this.options.workspaceId,
-      kind,
-      frontier,
-      generationId,
-      affectedOwnerIds,
-    );
-  }
-
-  private noteAuthorityFault(message: string): void {
-    const transitioned = this.authorityFault === null;
-    this.authorityFault = message;
-    if (transitioned) {
-      this.emit(
-        "projection-failed",
-        this.generationIdentity.frontier,
-        this.generationIdentity.generationId,
-        [],
-      );
-    }
   }
 }

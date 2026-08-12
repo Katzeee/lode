@@ -13,6 +13,13 @@ export function readCommandGeneration(
   if (command.kind === "mutate") {
     return readMutationGeneration(store, generationId, command.mutations);
   }
+  if (
+    command.kind === "acknowledge-deletion" ||
+    command.kind === "retire-replica" ||
+    command.kind === "hard-delete"
+  ) {
+    return readMutationGeneration(store, generationId, []);
+  }
   const factIds =
     command.kind === "resolve-review"
       ? command.selection.evidence.proposalTargets

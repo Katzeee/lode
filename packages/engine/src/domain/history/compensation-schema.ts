@@ -85,11 +85,41 @@ export function compensateSchemaMutation(
         })
       : noCompensation();
   }
+  if (mutation.kind === "schema-extension-remove") {
+    return !contains(projection, mutation) && mutation.previousAnchor
+      ? ready({
+          kind: "schema-extension-add",
+          schemaId: mutation.schemaId,
+          baseSchemaId: mutation.baseSchemaId,
+          anchor: mutation.previousAnchor,
+        })
+      : noCompensation();
+  }
+  return compensateTemplateNodeRelation(mutation, projection);
+}
+
+function compensateTemplateNodeRelation(
+  mutation: Extract<Mutation, { kind: "schema-template-node-add" | "schema-template-node-remove" }>,
+  projection: Projection,
+): CompensationStep {
+  if (mutation.kind === "schema-template-node-add") {
+    return contains(projection, mutation)
+      ? ready({
+          kind: "schema-template-node-remove",
+          schemaId: mutation.schemaId,
+          templateNodeId: mutation.templateNodeId,
+          previousAnchor: currentAnchor(
+            projection.schemaTemplateNodes[mutation.schemaId] ?? [],
+            mutation.templateNodeId,
+          ),
+        })
+      : noCompensation();
+  }
   return !contains(projection, mutation) && mutation.previousAnchor
     ? ready({
-        kind: "schema-extension-add",
+        kind: "schema-template-node-add",
         schemaId: mutation.schemaId,
-        baseSchemaId: mutation.baseSchemaId,
+        templateNodeId: mutation.templateNodeId,
         anchor: mutation.previousAnchor,
       })
     : noCompensation();
@@ -113,7 +143,12 @@ function contains(
   ) {
     return (projection.schemaFields[mutation.schemaId] ?? []).includes(mutation.fieldDefinitionId);
   }
-  return (projection.schemaExtensions[mutation.schemaId] ?? []).includes(mutation.baseSchemaId);
+  if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
+    return (projection.schemaExtensions[mutation.schemaId] ?? []).includes(mutation.baseSchemaId);
+  }
+  return (projection.schemaTemplateNodes[mutation.schemaId] ?? []).includes(
+    mutation.templateNodeId,
+  );
 }
 
 function currentAnchor(identities: readonly string[], identity: string) {
@@ -159,5 +194,8 @@ function relationOwner(mutation: Extract<Mutation, { kind: `schema-${string}` }>
   ) {
     return JSON.stringify(["field", mutation.schemaId, mutation.fieldDefinitionId]);
   }
-  return JSON.stringify(["extension", mutation.schemaId, mutation.baseSchemaId]);
+  if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
+    return JSON.stringify(["extension", mutation.schemaId, mutation.baseSchemaId]);
+  }
+  return JSON.stringify(["template-node", mutation.schemaId, mutation.templateNodeId]);
 }

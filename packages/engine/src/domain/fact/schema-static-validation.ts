@@ -6,6 +6,19 @@ export function validateSchemaMutation(
   factIdentity: string,
 ): void {
   requireIdentity(mutation.schemaId, "Schema", factIdentity);
+  if (
+    mutation.kind === "schema-template-node-add" ||
+    mutation.kind === "schema-template-node-remove"
+  ) {
+    requireIdentity(mutation.templateNodeId, "Template Node", factIdentity);
+    const anchor =
+      mutation.kind === "schema-template-node-add" ? mutation.anchor : mutation.previousAnchor;
+    if (anchor === undefined) {
+      throw new Error(`Template Node removal lacks semantic evidence: ${factIdentity}`);
+    }
+    validateNodeAnchor(anchor, factIdentity);
+    return;
+  }
   if (mutation.kind === "schema-field-configure") {
     validateFieldConfiguration(mutation, factIdentity);
     return;

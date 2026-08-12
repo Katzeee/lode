@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import type { EngineEvent, MutationCommand } from "../../application/contract.js";
 import { canonicalJson, requestDigest } from "../../domain/fact/index.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
-import { managedNodeId } from "../../domain/reconcile/managed-identity.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
@@ -15,7 +14,7 @@ import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import type { ProjectionPublisher } from "./proposal-workspace-types.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 
 async function setup(
   publisher?: ProjectionPublisher,
@@ -103,6 +102,56 @@ async function boldValues(workspace: ProposalWorkspace): Promise<readonly unknow
     throw new Error("Expected Node projection");
   }
   return projection.nodes.node?.text.map((atom) => atom.attributes.bold) ?? [];
+}
+
+async function expectUnsupportedDirect(
+  workspace: ProposalWorkspace,
+  contributionId: string,
+  actorId: string,
+): Promise<void> {
+  const conflicts = await workspace.query({
+    kind: "conflicts",
+    workspaceId: "workspace",
+    limit: 10,
+  });
+  if (!("issues" in conflicts)) {
+    throw new Error("Expected conflict query");
+  }
+  expect(conflicts.issues).toContainEqual(
+    expect.objectContaining({
+      kind: "unsupported-direct-intent",
+      contributionId,
+      mutationKind: "text-splice",
+      actorId,
+      recoveryActions: ["restore-support"],
+    }),
+  );
+}
+
+async function expectNoUnsupportedDirect(workspace: ProposalWorkspace): Promise<void> {
+  const conflicts = await workspace.query({
+    kind: "conflicts",
+    workspaceId: "workspace",
+    limit: 10,
+  });
+  if (!("issues" in conflicts)) {
+    throw new Error("Expected conflict query");
+  }
+  expect(conflicts.issues.some((issue) => issue.kind === "unsupported-direct-intent")).toBe(false);
+}
+
+async function projectedText(workspace: ProposalWorkspace, nodeId: string): Promise<string> {
+  const projection = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    view: "origin",
+    section: "nodes",
+    limit: 100,
+  });
+  if (!("nodes" in projection)) {
+    throw new Error("Expected Node projection");
+  }
+  return projection.nodes[nodeId]?.text.map((atom) => atom.value).join("") ?? "";
 }
 
 describe("Proposal Workspace coordinator", () => {
@@ -234,14 +283,23 @@ describe("Proposal Workspace coordinator", () => {
           intent: "direct",
           historyChannelId: "setup",
           mutations: [
+            { kind: "node-create", nodeId: "workspace-root-node" },
             { kind: "node-create", nodeId: "p1-node" },
             { kind: "node-create", nodeId: "p2-node" },
             { kind: "node-create", nodeId: "shared" },
             {
               kind: "occurrence-create",
+              occurrenceId: "workspace-root",
+              nodeId: "workspace-root-node",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            },
+            {
+              kind: "occurrence-create",
               occurrenceId: "p1",
               nodeId: "p1-node",
-              parentOccurrenceId: null,
+              parentOccurrenceId: "workspace-root",
               parentPolicy: "cascade",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
@@ -249,7 +307,7 @@ describe("Proposal Workspace coordinator", () => {
               kind: "occurrence-create",
               occurrenceId: "p2",
               nodeId: "p2-node",
-              parentOccurrenceId: null,
+              parentOccurrenceId: "workspace-root",
               parentPolicy: "cascade",
               anchor: { after: "p1", before: null, affinity: "after", fallback: "end" },
             },
@@ -320,19 +378,21 @@ describe("Proposal Workspace coordinator", () => {
     expect(complete.hunks.every((hunk) => hunk.linkedHunkIds.length === 2)).toBe(true);
   });
 
-  it("Review pagination preserves managed Schema and Field association links", async () => {
+  it("Review pagination preserves Schema Field Definition association", async () => {
     const { workspace } = await setup();
     expect(
       (
         await workspace.execute({
           kind: "mutate",
           workspaceId: "workspace",
-          invocationId: "managed-link-setup",
+          invocationId: "schema-link-setup",
           actorId: "actor",
           intent: "direct",
           historyChannelId: "setup",
           mutations: [
             { kind: "node-create", nodeId: "parent" },
+            { kind: "node-create", nodeId: "schema" },
+            { kind: "node-create", nodeId: "field" },
             {
               kind: "occurrence-create",
               occurrenceId: "parent-occ",
@@ -342,18 +402,16 @@ describe("Proposal Workspace coordinator", () => {
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
             {
-              kind: "value-set",
-              owner: { kind: "node", id: "parent" },
-              namespace: "property",
-              key: "schemaId",
-              value: "schema",
+              kind: "schema-field-add",
+              schemaId: "schema",
+              fieldDefinitionId: "field",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
             {
-              kind: "value-set",
-              owner: { kind: "schema", id: "schema" },
-              namespace: "schema",
-              key: "field",
-              value: 0,
+              kind: "schema-apply",
+              nodeId: "parent",
+              schemaId: "schema",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
           ],
         })
@@ -364,17 +422,20 @@ describe("Proposal Workspace coordinator", () => {
         await workspace.execute({
           kind: "mutate",
           workspaceId: "workspace",
-          invocationId: "managed-schema-proposal",
+          invocationId: "schema-config-proposal",
           actorId: "actor",
           intent: "proposal",
           historyChannelId: "proposal",
           mutations: [
             {
-              kind: "value-set",
-              owner: { kind: "schema", id: "schema" },
-              namespace: "schema",
-              key: "field",
-              value: 1,
+              kind: "schema-field-configure",
+              schemaId: "schema",
+              fieldDefinitionId: "field",
+              config: {
+                visibility: "normal",
+                staticDefault: null,
+                initializer: null,
+              },
             },
           ],
         })
@@ -385,7 +446,7 @@ describe("Proposal Workspace coordinator", () => {
         await workspace.execute({
           kind: "mutate",
           workspaceId: "workspace",
-          invocationId: "managed-field-proposal",
+          invocationId: "field-label-proposal",
           actorId: "actor",
           intent: "proposal",
           historyChannelId: "proposal",
@@ -408,7 +469,7 @@ describe("Proposal Workspace coordinator", () => {
       limit: 100,
     });
     if (!("hunks" in complete)) {
-      throw new Error("Expected managed Review Hunks");
+      throw new Error("Expected Schema Review Hunks");
     }
     const paged = [];
     let after: string | null = null;
@@ -420,14 +481,16 @@ describe("Proposal Workspace coordinator", () => {
         limit: 1,
       });
       if (!("hunks" in page)) {
-        throw new Error("Expected paged managed Review Hunks");
+        throw new Error("Expected paged Schema Review Hunks");
       }
       paged.push(...page.hunks);
       after = page.next;
     } while (after !== null);
     expect(paged).toEqual(complete.hunks);
-    expect(complete.hunks).toHaveLength(2);
-    expect(complete.hunks.every((hunk) => hunk.linkedHunkIds.length === 1)).toBe(true);
+    expect(complete.hunks).toHaveLength(1);
+    expect(complete.hunks[0]).toMatchObject({
+      diffSpace: { kind: "value", identity: "field/field/property/label" },
+    });
   });
 
   it("partially overlapping text marks restore atom state through public Undo and Redo", async () => {
@@ -883,12 +946,21 @@ describe("Proposal Workspace coordinator", () => {
     const structure = await workspace.execute({
       ...createNode("sequential-structure"),
       mutations: [
+        { kind: "node-create", nodeId: "structure-root-node" },
         { kind: "node-create", nodeId: "parent-node" },
+        {
+          kind: "occurrence-create",
+          occurrenceId: "structure-root",
+          nodeId: "structure-root-node",
+          parentOccurrenceId: null,
+          parentPolicy: "cascade",
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+        },
         {
           kind: "occurrence-create",
           occurrenceId: "parent",
           nodeId: "parent-node",
-          parentOccurrenceId: null,
+          parentOccurrenceId: "structure-root",
           parentPolicy: "cascade",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
@@ -896,7 +968,7 @@ describe("Proposal Workspace coordinator", () => {
           kind: "occurrence-create",
           occurrenceId: "child",
           nodeId: "node",
-          parentOccurrenceId: null,
+          parentOccurrenceId: "structure-root",
           parentPolicy: "cascade",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
@@ -1015,7 +1087,7 @@ describe("Proposal Workspace coordinator", () => {
           kind: "occurrence-create",
           occurrenceId: "restored-occurrence",
           nodeId: "restored-node",
-          parentOccurrenceId: null,
+          parentOccurrenceId: "parent-occurrence",
           parentPolicy: "cascade",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
@@ -1524,6 +1596,77 @@ describe("Proposal Workspace coordinator", () => {
     }
   });
 
+  it("exposes rejected unsupported Direct intent and restores it after restart and sync", async () => {
+    const documents = new InMemoryDocumentStore();
+    const first = await setupReplica(documents, "301");
+    const proposal = await first.workspace.execute({
+      ...createNode("proposal-create", "proposal"),
+      mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+    });
+    const direct = await first.workspace.execute({
+      ...createNode("direct-text"),
+      actorId: "direct-author",
+      mutations: [
+        {
+          kind: "text-splice",
+          nodeId: "proposal-node",
+          deleteAtomIds: [],
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+          insert: "preserved intent",
+        },
+      ],
+    });
+    if (proposal.status !== "published" || direct.status !== "published") {
+      throw new Error("Expected Proposal and dependent Direct publication");
+    }
+    const directFactId = direct.receipt.factIds[0];
+    if (!directFactId) {
+      throw new Error("Expected Direct contribution identity");
+    }
+    const review = await first.workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || !review.hunks[0]) {
+      throw new Error("Expected Proposal Review Hunk");
+    }
+    expect(review.hunks[0].selection.evidence.associatedImpactIds).toContain(directFactId);
+    expect(
+      (
+        await first.workspace.execute({
+          kind: "resolve-review",
+          workspaceId: "workspace",
+          invocationId: "reject-provider",
+          actorId: "reviewer",
+          decision: "reject",
+          selection: review.hunks[0].selection,
+        })
+      ).status,
+    ).toBe("published");
+
+    await expectUnsupportedDirect(first.workspace, directFactId, "direct-author");
+    const restarted = await setupReplica(documents, "302");
+    await expectUnsupportedDirect(restarted.workspace, directFactId, "direct-author");
+
+    const remote = await setupReplica(new InMemoryDocumentStore(), "303");
+    await syncPair(new FactSyncComposite(restarted.facts), new FactSyncComposite(remote.facts));
+    await remote.workspace.reconcileAuthorityAdvance();
+    await expectUnsupportedDirect(remote.workspace, directFactId, "direct-author");
+
+    expect(
+      (
+        await remote.workspace.execute({
+          ...createNode("restore-independent-support"),
+          mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+        })
+      ).status,
+    ).toBe("published");
+    await expectNoUnsupportedDirect(remote.workspace);
+    expect(await projectedText(remote.workspace, "proposal-node")).toBe("preserved intent");
+
+    await syncPair(new FactSyncComposite(remote.facts), new FactSyncComposite(restarted.facts));
+    await restarted.workspace.reconcileAuthorityAdvance();
+    await expectNoUnsupportedDirect(restarted.workspace);
+    expect(await projectedText(restarted.workspace, "proposal-node")).toBe("preserved intent");
+  });
+
   it("History executes occurrence and current-anchor text compensations through admission", async () => {
     const { workspace } = await setup();
     await workspace.execute(createNode("history-base"));
@@ -1663,11 +1806,20 @@ describe("Proposal Workspace coordinator", () => {
             { kind: "node-create", nodeId: "node-a" },
             { kind: "node-create", nodeId: "node-b" },
             { kind: "node-create", nodeId: "node-child" },
+            { kind: "node-create", nodeId: "placement-root-node" },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "placement-root",
+              nodeId: "placement-root-node",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            },
             {
               kind: "occurrence-create",
               occurrenceId: "parent-a",
               nodeId: "node-a",
-              parentOccurrenceId: null,
+              parentOccurrenceId: "placement-root",
               parentPolicy: "cascade",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
@@ -1675,7 +1827,7 @@ describe("Proposal Workspace coordinator", () => {
               kind: "occurrence-create",
               occurrenceId: "parent-b",
               nodeId: "node-b",
-              parentOccurrenceId: null,
+              parentOccurrenceId: "placement-root",
               parentPolicy: "cascade",
               anchor: {
                 after: "parent-a",
@@ -1840,89 +1992,6 @@ describe("Proposal Workspace coordinator", () => {
     ).toBe("");
   });
 
-  it("Reject Apply Schema preserves Direct values in an inactive managed child", async () => {
-    const { workspace } = await setup();
-    const managedFieldId = managedNodeId("parent", "schema", "field");
-    await workspace.execute({
-      ...createNode("parent"),
-      mutations: [
-        { kind: "node-create", nodeId: "parent" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "parent-occurrence",
-          nodeId: "parent",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-      ],
-    });
-    const applied = await workspace.execute({
-      ...createNode("apply-schema", "proposal"),
-      mutations: [
-        {
-          kind: "value-set",
-          owner: { kind: "node", id: "parent" },
-          namespace: "property",
-          key: "schemaId",
-          value: "schema",
-        },
-        {
-          kind: "value-set",
-          owner: { kind: "schema", id: "schema" },
-          namespace: "schema",
-          key: "field",
-          value: 0,
-        },
-      ],
-    });
-    if (applied.status !== "published") {
-      throw new Error(`Apply Schema Proposal must publish: ${JSON.stringify(applied)}`);
-    }
-    await workspace.execute({
-      ...createNode("managed-value"),
-      mutations: [
-        {
-          kind: "value-set",
-          owner: { kind: "node", id: managedFieldId },
-          namespace: "property",
-          key: "answer",
-          value: 42,
-        },
-      ],
-    });
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    if (!("hunks" in review)) {
-      throw new Error("Expected Review query");
-    }
-    const schemaIdFact = applied.receipt.factIds[0];
-    const selection = review.hunks.find(
-      (hunk) => schemaIdFact !== undefined && hunk.proposalContributionIds.includes(schemaIdFact),
-    )?.selection;
-    if (!selection) {
-      throw new Error("Expected Apply Schema selection");
-    }
-    await workspace.execute({
-      kind: "resolve-review",
-      workspaceId: "workspace",
-      invocationId: "reject-apply-schema",
-      actorId: "reviewer",
-      decision: "reject",
-      selection,
-    });
-    const origin = await workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      view: "origin",
-    });
-    expect("nodes" in origin ? origin.nodes[managedFieldId]?.properties.answer : undefined).toBe(
-      42,
-    );
-    expect(
-      "nodes" in origin ? origin.nodes[managedFieldId]?.metadata.inactiveField : undefined,
-    ).toBe(true);
-  });
-
   it("semantic command validation rejects missing restore and text mark targets before commit", async () => {
     const { facts, workspace } = await setup();
     await workspace.execute(createNode());
@@ -1938,7 +2007,7 @@ describe("Proposal Workspace coordinator", () => {
           value: { kind: "set", value: true },
         },
       ],
-      [{ kind: "node-create", nodeId: "managed:v1:node:schema:field" }],
+      [{ kind: "node-create", nodeId: "initialized-field:v1:node:field" }],
       [
         {
           kind: "occurrence-create",
@@ -2057,6 +2126,64 @@ describe("Proposal Workspace coordinator", () => {
         invocationId: "uncertain",
       }),
     ).toMatchObject({ status: "published", receipt: { invocationId: "uncertain" } });
+  });
+
+  it("blocks Hard Delete until an outcome-unknown Invocation is explicitly audited", async () => {
+    const documents = new PersistThenFailDocumentStore();
+    documents.fail = false;
+    const { workspace } = await setup(undefined, documents);
+    expect((await workspace.execute(createNode("purge-target-setup"))).status).toBe("published");
+    const deletion = await workspace.execute({
+      ...createNode("purge-target-delete"),
+      mutations: [{ kind: "node-delete", nodeId: "node" }],
+    });
+    if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
+      throw new Error("Expected purge target tombstone");
+    }
+    expect(
+      (
+        await workspace.execute({
+          kind: "acknowledge-deletion",
+          workspaceId: "workspace",
+          invocationId: "purge-target-ack",
+          actorId: "maintainer",
+          nodeId: "node",
+          deletionFactIds: [deletion.receipt.factIds[0]],
+        })
+      ).status,
+    ).toBe("published");
+
+    documents.fail = true;
+    expect(
+      await workspace.execute({
+        ...createNode("uncertain-before-purge"),
+        mutations: [{ kind: "node-create", nodeId: "uncertain-node" }],
+      }),
+    ).toEqual({
+      status: "outcome-unknown",
+      invocationId: "uncertain-before-purge",
+    });
+    const blocked = await workspace.query({
+      kind: "hard-delete-preview",
+      workspaceId: "workspace",
+      nodeId: "node",
+    });
+    expect("blockers" in blocked && blocked.blockers).toContain("outcome-unknown");
+    expect("blockers" in blocked && blocked.outcomeUnknownInvocationIds).toEqual([
+      "uncertain-before-purge",
+    ]);
+
+    await workspace.query({
+      kind: "invocation",
+      workspaceId: "workspace",
+      invocationId: "uncertain-before-purge",
+    });
+    const audited = await workspace.query({
+      kind: "hard-delete-preview",
+      workspaceId: "workspace",
+      nodeId: "node",
+    });
+    expect("blockers" in audited && audited.blockers).not.toContain("outcome-unknown");
   });
 
   it("receipt-only retry remains committed-pending until its Fact frontier is admitted", async () => {

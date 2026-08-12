@@ -12,4 +12,5 @@ export type LoroFactStoreOptions = Readonly<{
   onAuthorityAdvanced?: (frontier: FactFrontier) => void;
   snapshotInterval?: number;
   admitRecords?: AuthorityAdmissionPolicy;
+  onIndexedWork?: (work: Readonly<{ operation: string; units: number }>) => void;
 }>;

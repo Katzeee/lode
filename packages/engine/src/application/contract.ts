@@ -13,15 +13,18 @@ import type {
 import type { HistoryQuery, HistorySelection } from "../domain/history/index.js";
 import type { JsonValue, ProjectionIdentity } from "../domain/fact/index.js";
 import type {
-  ManagedChild,
   EffectiveField,
   MaterializedField,
+  DefinitionStatus,
   ProjectedNode,
   ProjectedOccurrence,
   SchemaFieldItem,
+  TemplateNodeInstance,
 } from "../domain/reconcile/index.js";
 import type { ReviewQuery, ReviewSelection } from "../domain/review/index.js";
 import type { ConflictIssue, ConflictQuery } from "../domain/conflict/index.js";
+import type { ViewResult } from "../domain/view/index.js";
+import type { ViewQueryRequest } from "./view-contract.js";
 
 export type MutationCommand = Readonly<{
   kind: "mutate";
@@ -60,8 +63,48 @@ export type HistoryCommand = Readonly<{
   selection: HistorySelection;
 }>;
 
+export type AcknowledgeDeletionCommand = Readonly<{
+  kind: "acknowledge-deletion";
+  workspaceId: WorkspaceId;
+  invocationId: InvocationId;
+  actorId: ActorId;
+  nodeId: string;
+  deletionFactIds: readonly string[];
+}>;
+
+export type RetireReplicaCommand = Readonly<{
+  kind: "retire-replica";
+  workspaceId: WorkspaceId;
+  invocationId: InvocationId;
+  actorId: ActorId;
+  replicaId: string;
+}>;
+
+export type HardDeleteSelection = Readonly<{
+  workspaceId: WorkspaceId;
+  frontier: FactFrontier;
+  nodeId: string;
+  deletionFactIds: readonly string[];
+  acknowledgementFactIds: readonly string[];
+  retiredReplicaIds: readonly string[];
+}>;
+
+export type HardDeleteCommand = Readonly<{
+  kind: "hard-delete";
+  workspaceId: WorkspaceId;
+  invocationId: InvocationId;
+  actorId: ActorId;
+  selection: HardDeleteSelection;
+}>;
+
 export type EngineCommand =
-  MutationCommand | ReviewCommand | AdjudicateResolutionCommand | HistoryCommand;
+  | MutationCommand
+  | ReviewCommand
+  | AdjudicateResolutionCommand
+  | HistoryCommand
+  | AcknowledgeDeletionCommand
+  | RetireReplicaCommand
+  | HardDeleteCommand;
 
 export type EngineErrorCode =
   | "invalid-input"
@@ -69,7 +112,8 @@ export type EngineErrorCode =
   | "projection-unavailable"
   | "invocation-conflict"
   | "authority-fault"
-  | "history-unavailable";
+  | "history-unavailable"
+  | "maintenance-blocked";
 
 export type EngineError = Readonly<{
   code: EngineErrorCode;
@@ -118,13 +162,15 @@ export type ProjectionPageSection =
   | "children"
   | "canonicalOccurrences"
   | "addressedValues"
-  | "managedChildren"
   | "schemaApplications"
   | "schemaFields"
   | "schemaFieldItems"
+  | "schemaTemplateNodes"
+  | "templateNodeInstances"
   | "schemaExtensions"
   | "schemaSearchMembers"
   | "schemaExtensionConflicts"
+  | "definitionStatuses"
   | "conflictIssues"
   | "effectiveFields"
   | "materializedFields";
@@ -135,10 +181,11 @@ export type ProjectionPageValue =
   | readonly string[]
   | string
   | Readonly<Record<string, JsonValue>>
-  | ManagedChild
   | readonly EffectiveField[]
   | readonly MaterializedField[]
   | readonly SchemaFieldItem[]
+  | TemplateNodeInstance
+  | DefinitionStatus
   | ConflictIssue;
 
 export type ProjectionPage = Readonly<{
@@ -152,13 +199,15 @@ export type ProjectionPage = Readonly<{
   children: Readonly<Record<string, readonly string[]>>;
   canonicalOccurrences: Readonly<Record<string, string>>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  managedChildren: readonly ManagedChild[];
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  templateNodeInstances: readonly TemplateNodeInstance[];
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
@@ -190,18 +239,79 @@ export type ConflictQueryRequest = Readonly<{
   limit?: number;
 }>;
 
+export type SchemaSearchQueryRequest = Readonly<{
+  kind: "schema-search";
+  workspaceId: WorkspaceId;
+  view: ViewMode;
+  schemaId: string;
+  after?: string | null;
+  limit?: number;
+}>;
+
+export type SchemaSearchResult = Readonly<{
+  generationId: string;
+  frontier: FactFrontier;
+  view: ViewMode;
+  schemaId: string;
+  nodeIds: readonly string[];
+  next: string | null;
+}>;
+
+export type HardDeletePreviewQuery = Readonly<{
+  kind: "hard-delete-preview";
+  workspaceId: WorkspaceId;
+  nodeId: string;
+}>;
+
+export type HardDeleteBlocker =
+  | "already-purged"
+  | "not-tombstoned"
+  | "pending-proposal"
+  | "replica-unconfirmed"
+  | "outcome-unknown";
+
+export type HardDeletePreview = Readonly<{
+  generationId: string;
+  selection: HardDeleteSelection;
+  referenceOccurrenceIds: readonly string[];
+  schemaApplicationNodeIds: readonly string[];
+  materializedFieldNodeIds: readonly string[];
+  pendingProposalContributionIds: readonly string[];
+  knownReplicaIds: readonly string[];
+  acknowledgedReplicaIds: readonly string[];
+  outcomeUnknownInvocationIds: readonly string[];
+  historyImpact: Readonly<{
+    affectedInvocationIds: readonly string[];
+    affectedChannelIds: readonly string[];
+    totalAffectedInvocations: number;
+    truncated: boolean;
+  }>;
+  blockers: readonly HardDeleteBlocker[];
+  canExecute: boolean;
+}>;
+
 export type EngineQuery =
   | ProjectionQuery
   | ReviewQueryRequest
   | HistoryQueryRequest
   | InvocationQuery
-  | ConflictQueryRequest;
+  | ConflictQueryRequest
+  | SchemaSearchQueryRequest
+  | ViewQueryRequest
+  | HardDeletePreviewQuery;
 
 export type InvocationOutcome =
   Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
 export type EngineQueryValue =
-  ProjectionPage | ReviewQuery | HistoryQuery | InvocationOutcome | ConflictQuery;
+  | ProjectionPage
+  | ReviewQuery
+  | HistoryQuery
+  | InvocationOutcome
+  | ConflictQuery
+  | SchemaSearchResult
+  | ViewResult
+  | HardDeletePreview;
 
 export type EngineQueryResult =
   | Readonly<{ status: "ok"; value: EngineQueryValue }>

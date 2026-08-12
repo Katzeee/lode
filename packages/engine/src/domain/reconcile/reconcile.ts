@@ -7,11 +7,8 @@ import {
 } from "../fact/index.js";
 import type { OwnerKey } from "./owner-dag.js";
 import { advanceDirectProjection } from "./incremental-projection.js";
-import {
-  PROJECTION_OWNER_DAG,
-  projectWithOwnerPlan,
-  type ProjectionOwnerObserver,
-} from "./projection-owner-plan.js";
+import { PROJECTION_OWNER_DAG, type ProjectionOwnerObserver } from "./projection-owner-plan.js";
+import { projectWithOwnerPlan } from "./projection-owner-api.js";
 import {
   assertSupportedProjectionVersions,
   type ProjectionGeneration,
@@ -155,7 +152,13 @@ export function snapshotAtFrontier(
 function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
   const owners = new Set<OwnerKey>();
   for (const fact of facts) {
-    if (fact.body.kind === "resolution" || fact.body.intent === "proposal") {
+    if (fact.body.kind === "maintenance" || fact.body.kind === "resolution") {
+      for (const owner of PROJECTION_OWNER_DAG.ordered) {
+        owners.add(owner.key);
+      }
+      continue;
+    }
+    if (fact.body.intent === "proposal") {
       for (const owner of PROJECTION_OWNER_DAG.ordered) {
         owners.add(owner.key);
       }
@@ -171,6 +174,8 @@ function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
       case "occurrence-delete":
       case "occurrence-restore":
       case "occurrence-move":
+      case "field-value-delete":
+      case "materialized-field-delete":
         owners.add("occurrence");
         break;
       case "text-splice":
@@ -188,6 +193,9 @@ function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
       case "schema-field-configure":
       case "schema-extension-add":
       case "schema-extension-remove":
+      case "schema-template-node-add":
+      case "schema-template-node-remove":
+      case "template-node-detach":
       case "field-materialize":
       case "field-initialize":
         owners.add("schema");

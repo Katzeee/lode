@@ -3,6 +3,11 @@ import { factId, isReplicaId, unsignedFact } from "./fact.js";
 import { isReservedNodeIdentity, isReservedOccurrenceIdentity } from "./identity.js";
 import { validateFieldInitialization, validateSchemaMutation } from "./schema-static-validation.js";
 import { isWellFormedUnicode } from "./text-validation.js";
+import { validateTemplateDetachment } from "./template-node-validation.js";
+import {
+  validateStaticFieldContentDeletion,
+  validateStaticFieldMaterialization,
+} from "./field-content-validation.js";
 import {
   FACT_SCHEMA_VERSION,
   FORMAT_GENERATION,
@@ -68,19 +73,46 @@ function validateBody(body: FactBody, id: string): void {
     }
     return;
   }
+  if (body.kind === "maintenance") {
+    validateMaintenanceAction(body.action, id);
+    return;
+  }
   if (body.intent !== "direct" && body.intent !== "proposal") {
     throw new Error(`Invalid Contribution intent: ${id}`);
   }
   validateMutation(body.mutation, id);
 }
 
+function validateMaintenanceAction(
+  action: Extract<FactBody, { kind: "maintenance" }>["action"],
+  id: string,
+): void {
+  if (action.kind === "replica-retire") {
+    if (!isReplicaId(action.replicaId)) {
+      throw new Error(`Invalid retired Replica identity: ${id}`);
+    }
+    return;
+  }
+  requireIdentity(action.nodeId, "Maintenance Node", id);
+  const identities =
+    action.kind === "node-purge"
+      ? [...action.deletionFactIds, ...action.acknowledgementFactIds, ...action.retiredReplicaIds]
+      : action.deletionFactIds;
+  if (identities.length === 0 || new Set(identities).size !== identities.length) {
+    throw new Error(`Maintenance evidence is empty or duplicated: ${id}`);
+  }
+  if (
+    action.kind === "node-purge" &&
+    action.retiredReplicaIds.some((replicaId) => !isReplicaId(replicaId))
+  ) {
+    throw new Error(`Invalid retired Replica evidence: ${id}`);
+  }
+}
+
 function validateMutation(mutation: Mutation, factIdentity: string): void {
   switch (mutation.kind) {
     case "node-create":
-      requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
-      if (isReservedNodeIdentity(mutation.nodeId)) {
-        throw new Error(`Node uses a reserved managed identity: ${factIdentity}`);
-      }
+      validateNodeCreation(mutation.nodeId, factIdentity);
       return;
     case "node-delete":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
@@ -114,17 +146,19 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
       validateSchemaMutation(mutation, factIdentity);
       return;
+    case "template-node-detach":
+      validateTemplateDetachment(mutation, factIdentity);
+      return;
     case "field-materialize":
-      requireIdentity(mutation.ownerNodeId, "Field owner Node", factIdentity);
-      requireIdentity(mutation.fieldDefinitionId, "Field Definition", factIdentity);
-      requireIdentity(mutation.fieldNodeId, "Materialized Field Node", factIdentity);
-      requireOccurrenceIdentity(
-        mutation.fieldOccurrenceId,
-        "Materialized Field Occurrence",
-        factIdentity,
-      );
+      validateStaticFieldMaterialization(mutation, factIdentity);
+      return;
+    case "field-value-delete":
+    case "materialized-field-delete":
+      validateStaticFieldContentDeletion(mutation, factIdentity);
       return;
     case "field-initialize":
       validateFieldInitialization(mutation, factIdentity);
@@ -171,10 +205,24 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
   }
 }
 
+function validateNodeCreation(nodeId: string, factIdentity: string): void {
+  requireIdentity(nodeId, "node-create", factIdentity);
+  if (isReservedNodeIdentity(nodeId)) {
+    throw new Error(`Node uses a reserved managed identity: ${factIdentity}`);
+  }
+}
+
 function validateOccurrenceMutation(
   mutation: Extract<Mutation, { kind: `occurrence-${string}` }>,
   factIdentity: string,
 ): void {
+  if (mutation.kind === "occurrence-restore") {
+    requireIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
+    requireIdentity(mutation.deletionFactId, "deletion Fact", factIdentity);
+    requireNullableIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
+    validateRestorationAnchor(mutation.anchor, factIdentity);
+    return;
+  }
   requireOccurrenceIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
   if (mutation.kind === "occurrence-create") {
     requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
@@ -197,12 +245,6 @@ function validateOccurrenceMutation(
     validateAnchor(mutation.previousAnchor, factIdentity);
     return;
   }
-  if (mutation.kind === "occurrence-restore") {
-    requireIdentity(mutation.deletionFactId, "deletion Fact", factIdentity);
-    requireNullableOccurrenceIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
-    validateAnchor(mutation.anchor, factIdentity);
-    return;
-  }
   requireNullableOccurrenceIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
   validateAnchor(mutation.anchor, factIdentity);
   if (mutation.previousParentOccurrenceId === undefined || mutation.previousAnchor === undefined) {
@@ -216,6 +258,14 @@ function validateOccurrenceMutation(
   validateAnchor(mutation.previousAnchor, factIdentity);
 }
 
+function validateRestorationAnchor(anchor: SequenceAnchor, factIdentity: string): void {
+  if (anchor.after !== null && anchor.before !== null && anchor.after === anchor.before) {
+    throw new Error(`Sequence anchor repeats one identity: ${factIdentity}`);
+  }
+  requireNullableIdentity(anchor.after, "anchor endpoint", factIdentity);
+  requireNullableIdentity(anchor.before, "anchor endpoint", factIdentity);
+}
+
 function validateAnchor(anchor: SequenceAnchor, factIdentity: string): void {
   if (anchor.after !== null && anchor.before !== null && anchor.after === anchor.before) {
     throw new Error(`Sequence anchor repeats one identity: ${factIdentity}`);
@@ -227,6 +277,12 @@ function validateAnchor(anchor: SequenceAnchor, factIdentity: string): void {
 function requireIdentity(value: string, label: string, factIdentity: string): void {
   if (value.length === 0) {
     throw new Error(`${label} identity is empty: ${factIdentity}`);
+  }
+}
+
+function requireNullableIdentity(value: string | null, label: string, factIdentity: string): void {
+  if (value !== null) {
+    requireIdentity(value, label, factIdentity);
   }
 }
 

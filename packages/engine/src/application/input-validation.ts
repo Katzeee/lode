@@ -4,6 +4,7 @@ import {
   parseHistorySelectionContract,
   parseReviewSelectionContract,
 } from "./selection-validation.js";
+import { parseMaintenanceCommand, parseMaintenanceQuery } from "./maintenance-input-validation.js";
 
 export function parseEngineCommand(value: unknown): EngineCommand {
   const command = object(value, "Engine command");
@@ -71,6 +72,10 @@ export function parseEngineCommand(value: unknown): EngineCommand {
       resolutionIds: identities(command.resolutionIds, "Resolution targets"),
     };
   }
+  const maintenance = parseMaintenanceCommand(kind, command);
+  if (maintenance) {
+    return maintenance;
+  }
   if (kind === "undo" || kind === "redo") {
     keys(command, ["kind", "workspaceId", "invocationId", "actorId", "selection"]);
     return {
@@ -88,49 +93,7 @@ export function parseEngineQuery(value: unknown): EngineQuery {
   const query = object(value, "Engine query");
   const kind = nonempty(query.kind, "query kind");
   if (kind === "projection") {
-    keys(query, ["kind", "workspaceId", "view", "section", "after", "limit"]);
-    if (query.view !== "origin" && query.view !== "review") {
-      throw new Error("Invalid projection view");
-    }
-    const section =
-      query.section === undefined
-        ? "nodes"
-        : oneOf(
-            query.section,
-            [
-              "nodes",
-              "occurrences",
-              "children",
-              "canonicalOccurrences",
-              "addressedValues",
-              "managedChildren",
-              "schemaApplications",
-              "schemaFields",
-              "schemaFieldItems",
-              "schemaExtensions",
-              "schemaSearchMembers",
-              "schemaExtensionConflicts",
-              "conflictIssues",
-              "effectiveFields",
-              "materializedFields",
-            ] as const,
-            "Projection section",
-          );
-    const limit = query.limit === undefined ? 100 : query.limit;
-    if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 100) {
-      throw new Error("Projection page limit must be between 1 and 100");
-    }
-    return {
-      kind,
-      workspaceId: nonempty(query.workspaceId, "Workspace identity"),
-      view: query.view,
-      section,
-      after:
-        query.after === undefined || query.after === null
-          ? null
-          : nonempty(query.after, "Projection cursor"),
-      limit: limit as number,
-    };
+    return parseProjectionQuery(query);
   }
   if (kind === "review") {
     keys(query, ["kind", "workspaceId", "after", "limit"]);
@@ -172,6 +135,16 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       limit: limit as number,
     };
   }
+  if (kind === "schema-search") {
+    return parseSchemaSearch(query);
+  }
+  if (kind === "view") {
+    return parseViewQuery(query);
+  }
+  const maintenance = parseMaintenanceQuery(kind, query);
+  if (maintenance) {
+    return maintenance;
+  }
   if (kind === "invocation") {
     keys(query, ["kind", "workspaceId", "invocationId"]);
     return {
@@ -181,6 +154,93 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     };
   }
   throw new Error(`Unknown Engine query kind: ${kind}`);
+}
+
+function parseViewQuery(query: Record<string, unknown>): EngineQuery {
+  keys(query, ["kind", "workspaceId", "view", "viewNodeId", "after", "limit"]);
+  if (query.view !== "origin" && query.view !== "review") {
+    throw new Error("Invalid View projection mode");
+  }
+  const limit = query.limit === undefined ? 50 : query.limit;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 50) {
+    throw new Error("View page limit must be between 1 and 50");
+  }
+  return {
+    kind: "view",
+    workspaceId: nonempty(query.workspaceId, "Workspace identity"),
+    view: query.view,
+    viewNodeId: nonempty(query.viewNodeId, "View Node identity"),
+    after:
+      query.after === undefined || query.after === null
+        ? null
+        : nonempty(query.after, "View cursor"),
+    limit: limit as number,
+  };
+}
+
+function parseProjectionQuery(query: Record<string, unknown>): EngineQuery {
+  keys(query, ["kind", "workspaceId", "view", "section", "after", "limit"]);
+  if (query.view !== "origin" && query.view !== "review") {
+    throw new Error("Invalid projection view");
+  }
+  const sections = [
+    "nodes",
+    "occurrences",
+    "children",
+    "canonicalOccurrences",
+    "addressedValues",
+    "schemaApplications",
+    "schemaFields",
+    "schemaFieldItems",
+    "schemaTemplateNodes",
+    "templateNodeInstances",
+    "schemaExtensions",
+    "schemaSearchMembers",
+    "schemaExtensionConflicts",
+    "definitionStatuses",
+    "conflictIssues",
+    "effectiveFields",
+    "materializedFields",
+  ] as const;
+  const section =
+    query.section === undefined ? "nodes" : oneOf(query.section, sections, "Projection section");
+  const limit = query.limit === undefined ? 100 : query.limit;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 100) {
+    throw new Error("Projection page limit must be between 1 and 100");
+  }
+  return {
+    kind: "projection",
+    workspaceId: nonempty(query.workspaceId, "Workspace identity"),
+    view: query.view,
+    section,
+    after:
+      query.after === undefined || query.after === null
+        ? null
+        : nonempty(query.after, "Projection cursor"),
+    limit: limit as number,
+  };
+}
+
+function parseSchemaSearch(query: Record<string, unknown>): EngineQuery {
+  keys(query, ["kind", "workspaceId", "view", "schemaId", "after", "limit"]);
+  if (query.view !== "origin" && query.view !== "review") {
+    throw new Error("Invalid Schema Search view");
+  }
+  const limit = query.limit === undefined ? 50 : query.limit;
+  if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 99) {
+    throw new Error("Schema Search page limit must be between 1 and 99");
+  }
+  return {
+    kind: "schema-search",
+    workspaceId: nonempty(query.workspaceId, "Workspace identity"),
+    view: query.view,
+    schemaId: nonempty(query.schemaId, "Schema identity"),
+    after:
+      query.after === undefined || query.after === null
+        ? null
+        : nonempty(query.after, "Schema Search cursor"),
+    limit: limit as number,
+  };
 }
 
 function identities(value: unknown, label: string): readonly string[] {

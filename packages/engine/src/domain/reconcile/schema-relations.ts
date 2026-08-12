@@ -1,9 +1,4 @@
-import {
-  compareFacts,
-  stableStringCompare,
-  type ContributionFact,
-  type SequenceAnchor,
-} from "../fact/index.js";
+import { compareFacts, stableStringCompare, type ContributionFact } from "../fact/index.js";
 import type { EffectiveField, MaterializedField, SchemaFieldItem } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { schemaExtensionGraph } from "./schema-extension-graph.js";
@@ -12,11 +7,19 @@ import {
   fieldInitializations,
   projectEffectiveFields,
 } from "./schema-field-config.js";
+import {
+  observedRelations,
+  schemaApplicationEvent,
+  schemaExtensionEvent,
+  schemaFieldEvent,
+  schemaTemplateNodeEvent,
+} from "./schema-relation-events.js";
 
 export type SchemaRelations = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
@@ -27,13 +30,25 @@ export type SchemaRelations = Readonly<{
 export function deriveSchemaRelations(
   active: readonly ContributionFact[],
   existingNodeIds: ReadonlySet<string>,
+  knownNodeIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   children: ReadonlyMap<string, readonly string[]>,
   initializedFields: Readonly<Record<string, readonly MaterializedField[]>> = {},
 ): SchemaRelations {
-  const applications = observedRelations(active, schemaApplicationEvent, existingNodeIds);
-  const fields = observedRelations(active, schemaFieldEvent, existingNodeIds);
-  const extensions = observedRelations(active, schemaExtensionEvent, existingNodeIds);
+  const applications = observedRelations(
+    active,
+    schemaApplicationEvent,
+    existingNodeIds,
+    knownNodeIds,
+  );
+  const fields = observedRelations(active, schemaFieldEvent, knownNodeIds, knownNodeIds);
+  const extensions = observedRelations(active, schemaExtensionEvent, knownNodeIds, knownNodeIds);
+  const templateNodes = observedRelations(
+    active,
+    schemaTemplateNodeEvent,
+    knownNodeIds,
+    knownNodeIds,
+  );
   const schemaApplications = record(applications);
   const schemaFields = record(fields);
   const schemaFieldItems = configuredFieldItems(active, schemaFields);
@@ -44,17 +59,35 @@ export function deriveSchemaRelations(
     initializedFields,
   );
   const initializations = fieldInitializations(active);
+  const activeApplications = filterRelationTargets(schemaApplications, existingNodeIds);
+  const activeFieldItems = Object.fromEntries(
+    Object.entries(schemaFieldItems)
+      .filter(([schemaId]) => existingNodeIds.has(schemaId))
+      .map(([schemaId, items]) => [
+        schemaId,
+        items.filter((item) => existingNodeIds.has(item.fieldDefinitionId)),
+      ]),
+  );
+  const activeExtensions = Object.fromEntries(
+    Object.entries(schemaExtensions)
+      .filter(([schemaId]) => existingNodeIds.has(schemaId))
+      .map(([schemaId, baseIds]) => [
+        schemaId,
+        baseIds.filter((baseId) => existingNodeIds.has(baseId)),
+      ]),
+  );
   return {
     schemaApplications,
     schemaFields,
     schemaFieldItems,
+    schemaTemplateNodes: record(templateNodes),
     schemaExtensions,
     schemaSearchMembers: extensionGraph.searchMembers,
     schemaExtensionConflicts: extensionGraph.conflicts,
     effectiveFields: projectEffectiveFields(
-      schemaApplications,
-      schemaFieldItems,
-      schemaExtensions,
+      activeApplications,
+      activeFieldItems,
+      activeExtensions,
       materializedFields,
       initializations,
     ),
@@ -113,7 +146,9 @@ function materialized(
     candidates.set(ownerKey, values);
   }
   const byOwner = new Map<string, MaterializedField[]>();
-  for (const ownerCandidates of [...candidates.values()].sort(compareCandidateGroups)) {
+  for (const ownerCandidates of [...candidates.values()].sort((left, right) =>
+    compareCandidateGroups(left, right, occurrences, children),
+  )) {
     const available = ownerCandidates
       .sort((left, right) => compareFacts(left.fact, right.fact))
       .filter(
@@ -157,100 +192,41 @@ type MaterializationCandidate = Readonly<{
 function compareCandidateGroups(
   left: readonly MaterializationCandidate[],
   right: readonly MaterializationCandidate[],
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
+  children: ReadonlyMap<string, readonly string[]>,
 ): number {
   const leftCandidate = left[0];
   const rightCandidate = right[0];
   if (!leftCandidate || !rightCandidate) {
     return left.length - right.length;
   }
+  const leftOccurrence = occurrences.get(leftCandidate.fieldOccurrenceId);
+  const rightOccurrence = occurrences.get(rightCandidate.fieldOccurrenceId);
+  const leftParent = leftOccurrence?.parentOccurrenceId ?? null;
+  const rightParent = rightOccurrence?.parentOccurrenceId ?? null;
+  const sharedParent = leftParent === rightParent ? leftParent : null;
+  const placementOrder =
+    sharedParent !== null
+      ? (children.get(sharedParent)?.indexOf(leftCandidate.fieldOccurrenceId) ?? -1) -
+        (children.get(sharedParent)?.indexOf(rightCandidate.fieldOccurrenceId) ?? -1)
+      : 0;
   return (
+    placementOrder ||
     stableStringCompare(leftCandidate.ownerNodeId, rightCandidate.ownerNodeId) ||
     stableStringCompare(leftCandidate.fieldDefinitionId, rightCandidate.fieldDefinitionId)
   );
 }
 
-type RelationEvent = Readonly<{
-  fact: ContributionFact;
-  operation: "add" | "remove";
-  ownerId: string;
-  targetId: string;
-  anchor?: SequenceAnchor;
-}>;
-
-function observedRelations(
-  active: readonly ContributionFact[],
-  eventOf: (fact: ContributionFact) => RelationEvent | null,
-  existingNodeIds: ReadonlySet<string>,
-): Map<string, string[]> {
-  const events = active.map(eventOf).filter((event) => event !== null);
-  const additions = events.filter((event) => event.operation === "add");
-  const removals = events.filter((event) => event.operation === "remove");
-  const relations = new Map<string, string[]>();
-  for (const addition of additions) {
-    if (
-      !addition.anchor ||
-      !existingNodeIds.has(addition.ownerId) ||
-      !existingNodeIds.has(addition.targetId) ||
-      removals.some((removal) => {
-        return (
-          removal.ownerId === addition.ownerId &&
-          removal.targetId === addition.targetId &&
-          observes(removal.fact, addition.fact)
-        );
-      })
-    ) {
-      continue;
-    }
-    insertUnique(list(relations, addition.ownerId), addition.targetId, addition.anchor);
-  }
-  return relations;
-}
-
-function schemaApplicationEvent(fact: ContributionFact): RelationEvent | null {
-  const mutation = fact.body.mutation;
-  if (mutation.kind !== "schema-apply" && mutation.kind !== "schema-remove") {
-    return null;
-  }
-  return {
-    fact,
-    operation: mutation.kind === "schema-apply" ? "add" : "remove",
-    ownerId: mutation.nodeId,
-    targetId: mutation.schemaId,
-    ...(mutation.kind === "schema-apply" ? { anchor: mutation.anchor } : {}),
-  };
-}
-
-function schemaFieldEvent(fact: ContributionFact): RelationEvent | null {
-  const mutation = fact.body.mutation;
-  if (mutation.kind !== "schema-field-add" && mutation.kind !== "schema-field-remove") {
-    return null;
-  }
-  return {
-    fact,
-    operation: mutation.kind === "schema-field-add" ? "add" : "remove",
-    ownerId: mutation.schemaId,
-    targetId: mutation.fieldDefinitionId,
-    ...(mutation.kind === "schema-field-add" ? { anchor: mutation.anchor } : {}),
-  };
-}
-
-function schemaExtensionEvent(fact: ContributionFact): RelationEvent | null {
-  const mutation = fact.body.mutation;
-  if (mutation.kind !== "schema-extension-add" && mutation.kind !== "schema-extension-remove") {
-    return null;
-  }
-  return {
-    fact,
-    operation: mutation.kind === "schema-extension-add" ? "add" : "remove",
-    ownerId: mutation.schemaId,
-    targetId: mutation.baseSchemaId,
-    ...(mutation.kind === "schema-extension-add" ? { anchor: mutation.anchor } : {}),
-  };
-}
-
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
+function filterRelationTargets(
+  relations: Readonly<Record<string, readonly string[]>>,
+  targetNodeIds: ReadonlySet<string>,
+): Readonly<Record<string, readonly string[]>> {
+  return Object.fromEntries(
+    Object.entries(relations).map(([ownerId, targetIds]) => [
+      ownerId,
+      targetIds.filter((targetId) => targetNodeIds.has(targetId)),
+    ]),
+  );
 }
 
 function recordFields(
@@ -263,32 +239,10 @@ function recordFields(
   );
 }
 
-function list(map: Map<string, string[]>, key: string): string[] {
-  const value = map.get(key) ?? [];
-  map.set(key, value);
-  return value;
-}
-
 function appendUnique(values: string[], value: string): void {
   if (!values.includes(value)) {
     values.push(value);
   }
-}
-
-function remove(values: string[], value: string): void {
-  const index = values.indexOf(value);
-  if (index >= 0) {
-    values.splice(index, 1);
-  }
-}
-
-function insertUnique(values: string[], value: string, anchor: SequenceAnchor): void {
-  remove(values, value);
-  const after = anchor.after === null ? -1 : values.indexOf(anchor.after);
-  const before = anchor.before === null ? -1 : values.indexOf(anchor.before);
-  const index =
-    after >= 0 ? after + 1 : before >= 0 ? before : anchor.fallback === "start" ? 0 : values.length;
-  values.splice(index, 0, value);
 }
 
 function record(

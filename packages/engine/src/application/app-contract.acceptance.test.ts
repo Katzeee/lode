@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { admitAuthorityRecords } from "../domain/admission/index.js";
+import { templateInstanceNodeId, templateInstanceOccurrenceId } from "../domain/reconcile/index.js";
 import { LoroFactStore, createReplicaId } from "../runtime/authority/loro-fact-store.js";
 import { ProposalWorkspace } from "../runtime/workspace/proposal-workspace.js";
 import { createEngineContract } from "./engine-contract.js";
@@ -22,7 +23,7 @@ async function setup() {
   const workspace = await ProposalWorkspace.open({
     workspaceId: "workspace",
     facts,
-    versions: { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" },
+    versions: { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" },
   });
   const direct = createEngineContract([workspace]);
   return {
@@ -73,6 +74,297 @@ describe("transport-neutral App contract", () => {
     const retry = await serialized.execute(command);
     expect(retry).toEqual(first);
     expect(facts.snapshot().facts).toHaveLength(1);
+  });
+
+  it("Schema Search is a bounded serialized query with stable cursors", async () => {
+    const { serialized } = await setup();
+    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "schema-search-setup",
+          mutations: [
+            { kind: "node-create", nodeId: "anime" },
+            ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
+              { kind: "node-create" as const, nodeId },
+              { kind: "schema-apply" as const, nodeId, schemaId: "anime", anchor: end },
+            ]),
+          ],
+        })
+      ).status,
+    ).toBe("published");
+
+    const first = await serialized.query({
+      kind: "schema-search",
+      workspaceId: "workspace",
+      view: "origin",
+      schemaId: "anime",
+      limit: 2,
+    });
+    expect(first).toMatchObject({
+      status: "ok",
+      value: { view: "origin", schemaId: "anime", nodeIds: ["a", "b"], next: "b" },
+    });
+    if (first.status !== "ok" || !("nodeIds" in first.value)) {
+      throw new Error("Expected Schema Search result");
+    }
+    const second = await serialized.query({
+      kind: "schema-search",
+      workspaceId: "workspace",
+      view: "origin",
+      schemaId: "anime",
+      after: first.value.next,
+      limit: 2,
+    });
+    expect(second).toMatchObject({
+      status: "ok",
+      value: { nodeIds: ["c", "d"], next: "d" },
+    });
+
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "delete-search-schema",
+          mutations: [{ kind: "node-delete", nodeId: "anime" }],
+        })
+      ).status,
+    ).toBe("published");
+    const statuses = await serialized.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      view: "origin",
+      section: "definitionStatuses",
+    });
+    expect(statuses).toMatchObject({
+      status: "ok",
+      value: {
+        definitionStatuses: {
+          anime: { definitionId: "anime", kinds: ["schema"], state: "deleted" },
+        },
+      },
+    });
+  });
+
+  it("ordinary Template Nodes detach through the serialized contract", async () => {
+    const { serialized } = await setup();
+    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-template-setup",
+          mutations: [
+            { kind: "node-create", nodeId: "note-schema" },
+            { kind: "node-create", nodeId: "guidance" },
+            { kind: "node-create", nodeId: "note" },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "note-occurrence",
+              nodeId: "note",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "schema-template-node-add",
+              schemaId: "note-schema",
+              templateNodeId: "guidance",
+              anchor: end,
+            },
+            { kind: "schema-apply", nodeId: "note", schemaId: "note-schema", anchor: end },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+
+    const instanceNodeId = templateInstanceNodeId("note", "guidance");
+    const instanceOccurrenceId = templateInstanceOccurrenceId("note", "guidance");
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-template-detach",
+          mutations: [
+            { kind: "template-node-detach", ownerNodeId: "note", templateNodeId: "guidance" },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        view: "origin",
+        section: "templateNodeInstances",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: {
+        templateNodeInstances: [
+          {
+            ownerNodeId: "note",
+            templateNodeId: "guidance",
+            instanceNodeId,
+            instanceOccurrenceId,
+            state: "detached",
+          },
+        ],
+      },
+    });
+  });
+
+  it("instance Field content deletion crosses the closed serialized contract", async () => {
+    const { serialized } = await setup();
+    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+    const occurrence = (
+      occurrenceId: string,
+      nodeId: string,
+      parentOccurrenceId: string | null,
+    ) => ({
+      kind: "occurrence-create" as const,
+      occurrenceId,
+      nodeId,
+      parentOccurrenceId,
+      parentPolicy: "cascade" as const,
+      anchor: end,
+    });
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-field-setup",
+          mutations: [
+            ...["schema", "field-definition", "owner", "field-node", "value"].map((nodeId) => ({
+              kind: "node-create" as const,
+              nodeId,
+            })),
+            occurrence("owner-occurrence", "owner", null),
+            occurrence("field-occurrence", "field-node", "owner-occurrence"),
+            {
+              kind: "schema-field-add",
+              schemaId: "schema",
+              fieldDefinitionId: "field-definition",
+              anchor: end,
+            },
+            { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
+            {
+              kind: "field-materialize",
+              ownerNodeId: "owner",
+              fieldDefinitionId: "field-definition",
+              fieldNodeId: "field-node",
+              fieldOccurrenceId: "field-occurrence",
+            },
+            occurrence("value-occurrence", "value", "field-occurrence"),
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      (
+        await serialized.execute({
+          ...command,
+          invocationId: "serialized-value-delete",
+          mutations: [
+            {
+              kind: "field-value-delete",
+              ownerNodeId: "owner",
+              fieldDefinitionId: "field-definition",
+              valueOccurrenceId: "value-occurrence",
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        view: "origin",
+        section: "materializedFields",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: { materializedFields: { owner: [{ valueOccurrenceIds: [] }] } },
+    });
+    expect(
+      await serialized.execute({
+        ...command,
+        invocationId: "reject-open-field-delete-shape",
+        mutations: [
+          {
+            kind: "materialized-field-delete",
+            ownerNodeId: "owner",
+            fieldDefinitionId: "field-definition",
+            fieldNodeId: "field-node",
+            fieldOccurrenceId: "field-occurrence",
+            unknown: true,
+          } as never,
+        ],
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+  });
+
+  it("Hard Delete maintenance remains a closed serialized contract", async () => {
+    const { serialized } = await setup();
+    expect((await serialized.execute(command)).status).toBe("published");
+    const deletion = await serialized.execute({
+      ...command,
+      invocationId: "serialized-delete",
+      mutations: [{ kind: "node-delete", nodeId: "node" }],
+    });
+    if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
+      throw new Error("Expected serialized tombstone");
+    }
+    const deletionFactIds = [deletion.receipt.factIds[0]];
+    let preview = await serialized.query({
+      kind: "hard-delete-preview",
+      workspaceId: "workspace",
+      nodeId: "node",
+    });
+    if (preview.status !== "ok" || !("blockers" in preview.value)) {
+      throw new Error("Expected serialized Hard Delete preview");
+    }
+    expect(preview.value.blockers).toContain("replica-unconfirmed");
+    expect(preview.value.historyImpact).toMatchObject({
+      affectedChannelIds: ["surface"],
+      totalAffectedInvocations: 2,
+      truncated: false,
+    });
+
+    expect(
+      (
+        await serialized.execute({
+          kind: "acknowledge-deletion",
+          workspaceId: "workspace",
+          invocationId: "serialized-ack",
+          actorId: "maintainer",
+          nodeId: "node",
+          deletionFactIds,
+        })
+      ).status,
+    ).toBe("published");
+    preview = await serialized.query({
+      kind: "hard-delete-preview",
+      workspaceId: "workspace",
+      nodeId: "node",
+    });
+    if (preview.status !== "ok" || !("blockers" in preview.value)) {
+      throw new Error("Expected executable Hard Delete preview");
+    }
+    expect(preview.value.canExecute).toBe(true);
+    expect(
+      (
+        await serialized.execute({
+          kind: "hard-delete",
+          workspaceId: "workspace",
+          invocationId: "serialized-purge",
+          actorId: "maintainer",
+          selection: preview.value.selection,
+        })
+      ).status,
+    ).toBe("published");
   });
 
   it("Invocation identity conflict", async () => {

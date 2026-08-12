@@ -28,7 +28,8 @@
     "test:proposal-fact-causality": "vitest run experiments/proposal-fact-causality",
     "test:proposal-fact-admission": "vitest run experiments/proposal-fact-admission-lifecycle",
     "benchmark:proposal-reconcile-scheduler": "node --expose-gc node_modules/tsx/dist/cli.mjs experiments/proposal-reconcile-scheduler/benchmark.ts",
-    "verify": "npm run build && npm run typecheck && npm run lint && npm run test",
+    "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
+    "verify": "npm run build && npm run typecheck && npm run lint && npm run test && npm run verify:acceptance-catalog",
     "prepare": "husky"
   },
   "lint-staged": {

@@ -26,37 +26,50 @@ type AppServerTransport = Readonly<{
 class SocketEngineTransport implements EngineTransport {
   readonly engine: EngineContract;
   private readonly abortEvents = new AbortController();
+  private readonly requestHeaders: Headers;
 
-  constructor(private readonly transport: AppServerTransport) {
+  constructor(
+    private readonly transport: AppServerTransport,
+    accessToken: string,
+  ) {
+    if (accessToken.length === 0) {
+      throw new Error("App server access token must not be empty");
+    }
+    this.requestHeaders = new Headers({ authorization: `Bearer ${accessToken}` });
     this.engine = createTransportEngineContract(this);
   }
 
   async openWorkspace(workspaceId: string): Promise<void> {
-    await this.transport.rpc.openWorkspace(create(OpenWorkspaceRequestSchema, { workspaceId }));
+    await this.transport.rpc.openWorkspace(create(OpenWorkspaceRequestSchema, { workspaceId }), {
+      headers: this.requestHeaders,
+    });
   }
 
   async recoverWorkspaceAuthority(workspaceId: string): Promise<void> {
     await this.transport.rpc.recoverWorkspaceAuthority(
       create(OpenWorkspaceRequestSchema, { workspaceId }),
+      { headers: this.requestHeaders },
     );
   }
 
   async syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<void> {
     await this.transport.rpc.syncWorkspace(
       create(WorkspaceSyncRequestSchema, { workspaceId, remoteEndpoint }),
+      { headers: this.requestHeaders },
     );
   }
 
   async request(bytes: Uint8Array): Promise<Uint8Array> {
     const response = await this.transport.rpc.request(
       create(EngineEnvelopeSchema, { payload: bytes }),
+      { headers: this.requestHeaders },
     );
     return response.payload;
   }
 
   subscribe(listener: (bytes: Uint8Array) => void): Unsubscribe {
     const iterator = this.transport.rpc
-      .listenEngineEvents({}, { signal: this.abortEvents.signal })
+      .listenEngineEvents({}, { signal: this.abortEvents.signal, headers: this.requestHeaders })
       [Symbol.asyncIterator]();
     let active = true;
     void (async () => {
@@ -112,8 +125,8 @@ export type AppServerClient = Readonly<{
   close(): void;
 }>;
 
-export function createAppServerClient(dial: SocketDial): AppServerClient {
-  const transport = new SocketEngineTransport(createSocketTransport(dial));
+export function createAppServerClient(dial: SocketDial, accessToken: string): AppServerClient {
+  const transport = new SocketEngineTransport(createSocketTransport(dial), accessToken);
   return {
     engine: transport.engine,
     openWorkspace: (workspaceId) => transport.openWorkspace(workspaceId),

@@ -12,7 +12,7 @@ import { deriveActivation, deriveSupport } from "./support.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {

@@ -126,11 +126,21 @@ function isOwnerCaches(value: unknown): boolean {
   }
   return [value.origin, value.review].every(
     (cache) =>
-      hasExactKeys(cache, ["activeContributionIds", "supportPasses"]) &&
+      hasExactKeys(cache, ["activeContributionIds", "supportByContribution", "supportPasses"]) &&
       Array.isArray(cache.activeContributionIds) &&
       cache.activeContributionIds.every((id) => typeof id === "string") &&
+      isStringArrayRecord(cache.supportByContribution) &&
       Number.isSafeInteger(cache.supportPasses) &&
       (cache.supportPasses as number) >= 0,
+  );
+}
+
+function isStringArrayRecord(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (entry) => Array.isArray(entry) && entry.every((item) => typeof item === "string"),
+    )
   );
 }
 
@@ -170,20 +180,38 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
     section === "children" ||
     section === "schemaApplications" ||
     section === "schemaFields" ||
+    section === "schemaTemplateNodes" ||
     section === "schemaExtensions" ||
     section === "schemaSearchMembers" ||
     section === "schemaExtensionConflicts" ||
-    section.startsWith("managedChildrenBy") ||
+    section.startsWith("templateNodeInstancesBy") ||
     section === "occurrenceIdsByNode" ||
-    section === "nodeIdsBySchema"
+    section === "nodeIdsBySchema" ||
+    section === "nodeIdsByFieldDefinition" ||
+    section === "reviewScopes" ||
+    section === "supportByContribution"
   ) {
     return Array.isArray(value) && value.every((item) => typeof item === "string");
   }
   if (section === "canonicalOccurrences") {
     return typeof value === "string";
   }
+  if (section === "schemaInstanceMemberships") {
+    return typeof value === "string";
+  }
   if (section === "conflictIssues") {
     return isRecord(value) && value.identity === identity && typeof value.kind === "string";
+  }
+  if (section === "definitionStatuses") {
+    return (
+      hasExactKeys(value, ["definitionId", "kinds", "state", "deletionFactIds"]) &&
+      value.definitionId === identity &&
+      Array.isArray(value.kinds) &&
+      value.kinds.every((kind) => kind === "schema" || kind === "field") &&
+      (value.state === "active" || value.state === "deleted") &&
+      Array.isArray(value.deletionFactIds) &&
+      value.deletionFactIds.every((factId) => typeof factId === "string")
+    );
   }
   if (section === "addressedValues") {
     return isRecord(value);
@@ -209,8 +237,35 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
       )
     );
   }
+  if (section === "templateNodeInstances") {
+    return isTemplateNodeInstance(value);
+  }
+  return false;
+}
+
+function isTemplateNodeInstance(value: unknown): boolean {
   return (
-    hasExactKeys(value, ["parentNodeId", "schemaId", "fieldId", "nodeId", "occurrenceId"]) &&
-    Object.values(value).every((item) => typeof item === "string")
+    hasExactKeys(value, [
+      "ownerNodeId",
+      "templateNodeId",
+      "instanceNodeId",
+      "instanceOccurrenceId",
+      "state",
+      "sources",
+      "detachmentContributionIds",
+    ]) &&
+    typeof value.ownerNodeId === "string" &&
+    typeof value.templateNodeId === "string" &&
+    (value.instanceNodeId === null || typeof value.instanceNodeId === "string") &&
+    typeof value.instanceOccurrenceId === "string" &&
+    (value.state === "linked" || value.state === "detached") &&
+    Array.isArray(value.sources) &&
+    value.sources.every(
+      (source) =>
+        hasExactKeys(source, ["schemaId", "appliedSchemaId", "templateItemId"]) &&
+        Object.values(source).every((item) => typeof item === "string"),
+    ) &&
+    Array.isArray(value.detachmentContributionIds) &&
+    value.detachmentContributionIds.every((item) => typeof item === "string")
   );
 }

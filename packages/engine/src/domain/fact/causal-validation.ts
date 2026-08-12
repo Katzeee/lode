@@ -1,17 +1,25 @@
 import { canonicalJson } from "./canonical.js";
+import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
 import {
   DEFAULT_FIELD_TEMPLATE_CONFIG,
   type Fact,
   type FieldTemplateConfig,
+  type Mutation,
   type ResolutionFact,
 } from "./types.js";
 
-export function validateAdmissibleFact(fact: Fact, admitted: readonly Fact[]): void {
-  let maxObservedLamport = 0;
-  for (const predecessor of admitted) {
-    const { replicaId, sequence } = predecessor.coordinate.dot;
-    if ((fact.coordinate.observed[replicaId] ?? 0) >= sequence) {
-      maxObservedLamport = Math.max(maxObservedLamport, predecessor.coordinate.lamport);
+export function validateAdmissibleFact(
+  fact: Fact,
+  admitted: readonly Fact[],
+  indexedMaximumObservedLamport?: number,
+): void {
+  let maxObservedLamport = indexedMaximumObservedLamport ?? 0;
+  if (indexedMaximumObservedLamport === undefined) {
+    for (const predecessor of admitted) {
+      const { replicaId, sequence } = predecessor.coordinate.dot;
+      if ((fact.coordinate.observed[replicaId] ?? 0) >= sequence) {
+        maxObservedLamport = Math.max(maxObservedLamport, predecessor.coordinate.lamport);
+      }
     }
   }
   if (fact.coordinate.lamport !== maxObservedLamport + 1) {
@@ -21,6 +29,7 @@ export function validateAdmissibleFact(fact: Fact, admitted: readonly Fact[]): v
   validateFieldConfiguration(fact, admitted);
   validateFieldInitialization(fact, admitted);
   validateRestore(fact, admitted);
+  validateMaintenanceFact(fact, admitted);
 }
 
 function validateFieldInitialization(fact: Fact, admitted: readonly Fact[]): void {
@@ -196,11 +205,20 @@ function validateRestore(fact: Fact, admitted: readonly Fact[]): void {
       deleted.kind === "node-delete" &&
       deleted.nodeId === mutation.nodeId) ||
     (mutation.kind === "occurrence-restore" &&
-      deleted.kind === "occurrence-delete" &&
-      deleted.occurrenceId === mutation.occurrenceId);
+      occurrenceDeletionIdentity(deleted) === mutation.occurrenceId);
   if (!matches) {
     throw new Error(`Restore deletion target mismatch: ${fact.id}`);
   }
+}
+
+function occurrenceDeletionIdentity(mutation: Mutation): string | null {
+  if (mutation.kind === "occurrence-delete") {
+    return mutation.occurrenceId;
+  }
+  if (mutation.kind === "field-value-delete") {
+    return mutation.valueOccurrenceId;
+  }
+  return mutation.kind === "materialized-field-delete" ? mutation.fieldOccurrenceId : null;
 }
 
 function observesFact(observer: Fact, observed: Fact): boolean {

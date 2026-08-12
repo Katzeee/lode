@@ -1,5 +1,8 @@
+import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-types.js";
+import type { FieldContentDeletionMutation } from "./field-content-types.js";
+
 export const FORMAT_GENERATION = 1 as const;
-export const FACT_SCHEMA_VERSION = 1 as const;
+export const FACT_SCHEMA_VERSION = 4 as const;
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
@@ -153,12 +156,33 @@ export type Mutation =
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
+      kind: "schema-template-node-add";
+      schemaId: string;
+      templateNodeId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-template-node-remove";
+      schemaId: string;
+      templateNodeId: string;
+      previousAnchor?: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "template-node-detach";
+      ownerNodeId: string;
+      templateNodeId: string;
+      sourceSchemaIds?: readonly string[];
+      sourceApplicationSchemaIds?: readonly string[];
+      sourceTemplateItemIds?: readonly string[];
+    }>
+  | Readonly<{
       kind: "field-materialize";
       ownerNodeId: string;
       fieldDefinitionId: string;
       fieldNodeId: string;
       fieldOccurrenceId: string;
     }>
+  | FieldContentDeletionMutation
   | Readonly<{
       kind: "field-initialize";
       ownerNodeId: string;
@@ -220,7 +244,28 @@ export type ResolutionBody = Readonly<{
   adjudicatesResolutionIds: readonly ResolutionId[];
 }>;
 
-export type FactBody = ContributionBody | ResolutionBody;
+export type MaintenanceAction =
+  | Readonly<{
+      kind: "deletion-acknowledge";
+      nodeId: string;
+      deletionFactIds: readonly FactId[];
+    }>
+  | Readonly<{ kind: "replica-retire"; replicaId: ReplicaId }>
+  | Readonly<{
+      kind: "node-purge";
+      nodeId: string;
+      deletionFactIds: readonly FactId[];
+      acknowledgementFactIds: readonly FactId[];
+      retiredReplicaIds: readonly ReplicaId[];
+    }>;
+
+export type MaintenanceBody = Readonly<{
+  kind: "maintenance";
+  actorId: ActorId;
+  action: MaintenanceAction;
+}>;
+
+export type FactBody = ContributionBody | ResolutionBody | MaintenanceBody;
 
 export type Fact = Readonly<{
   formatGeneration: typeof FORMAT_GENERATION;
@@ -234,6 +279,7 @@ export type Fact = Readonly<{
 
 export type ContributionFact = Fact & Readonly<{ body: ContributionBody }>;
 export type ResolutionFact = Fact & Readonly<{ body: ResolutionBody }>;
+export type MaintenanceFact = Fact & Readonly<{ body: MaintenanceBody }>;
 
 export type FactSnapshot = Readonly<{
   facts: readonly Fact[];
@@ -247,29 +293,12 @@ export type Admission = Readonly<{
   fault: string | null;
 }>;
 
-export type HistoryOperation = "normal" | "undo" | "redo";
-
-export type ReceiptLineage = Readonly<{
-  channelId: HistoryChannelId;
-  ordinal: number;
-  parentStepId: InvocationId | null;
-  operation: HistoryOperation;
-  targetStepId: InvocationId | null;
-}>;
-
-export type AuthorityReceipt = Readonly<{
-  workspaceId: WorkspaceId;
-  replicaId: ReplicaId;
-  invocationId: InvocationId;
-  requestDigest: string;
-  factIds: readonly FactId[];
-  committedFrontier: FactFrontier;
-  lineage: ReceiptLineage | null;
-}>;
+export type { AuthorityReceipt, HistoryOperation, ReceiptLineage } from "./authority-types.js";
+export type { FieldContentDeletionMutation } from "./field-content-types.js";
 
 export type AuthorityRecord =
   | Readonly<{ recordKind: "fact"; fact: Fact }>
-  | Readonly<{ recordKind: "receipt"; receipt: AuthorityReceipt }>
+  | Readonly<{ recordKind: "receipt"; receipt: AuthorityReceiptValue }>
   | Readonly<{
       recordKind: "quarantine";
       reason: string;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
-import { frontierOf, makeFact } from "../fact/index.js";
+import { frontierOf, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
 import { projectionText, rebuildGeneration } from "../reconcile/index.js";
 import {
   base,
@@ -112,4 +112,183 @@ describe("Conflict lifecycle", () => {
     expect(queryConflicts(admission.snapshot, terminal).issues).toEqual([]);
     expect(frontierOf(admission.snapshot.facts)).toEqual(admission.snapshot.frontier);
   });
+
+  it("surfaces concurrent cross-parent moves and clears them through an observed move", () => {
+    const facts = base();
+    for (const suffix of ["b", "c"]) {
+      facts.add({ kind: "node-create", nodeId: `parent-${suffix}` });
+      facts.add({
+        kind: "occurrence-create",
+        occurrenceId: `parent-${suffix}-occurrence`,
+        nodeId: `parent-${suffix}`,
+        parentOccurrenceId: null,
+        parentPolicy: "cascade",
+        anchor: end,
+      });
+    }
+    const observed = { [REPLICA_A]: facts.values.length };
+    const previousAnchor = {
+      after: null,
+      before: "parent-b-occurrence",
+      affinity: "after",
+      fallback: "start",
+    } as const;
+    const moveB = remoteFact({
+      replicaId: REPLICA_B,
+      observed,
+      lamport: facts.values.length + 1,
+      body: {
+        kind: "contribution",
+        actorId: "mover-b",
+        intent: "direct",
+        mutation: {
+          kind: "occurrence-move",
+          occurrenceId: "occurrence",
+          parentOccurrenceId: "parent-b-occurrence",
+          anchor: end,
+          previousParentOccurrenceId: null,
+          previousAnchor,
+        },
+      },
+    });
+    const moveC = remoteFact({
+      replicaId: REPLICA_C,
+      observed,
+      lamport: facts.values.length + 1,
+      body: {
+        kind: "contribution",
+        actorId: "mover-c",
+        intent: "direct",
+        mutation: {
+          kind: "occurrence-move",
+          occurrenceId: "occurrence",
+          parentOccurrenceId: "parent-c-occurrence",
+          anchor: end,
+          previousParentOccurrenceId: null,
+          previousAnchor,
+        },
+      },
+    });
+    const conflicted = admitted(facts.snapshot([moveB, moveC]));
+    const generation = rebuildGeneration("workspace", conflicted, versions).generation;
+    const issue = queryConflicts(conflicted, generation).issues[0];
+    expect(issue).toMatchObject({
+      kind: "placement-conflict",
+      occurrenceId: "occurrence",
+      candidates: [
+        { contributionId: moveB.id, parentOccurrenceId: "parent-b-occurrence", actorId: "mover-b" },
+        { contributionId: moveC.id, parentOccurrenceId: "parent-c-occurrence", actorId: "mover-c" },
+      ],
+    });
+    if (!issue || issue.kind !== "placement-conflict") {
+      throw new Error("Expected Placement Conflict");
+    }
+    expect(["parent-b-occurrence", "parent-c-occurrence"]).toContain(
+      issue.canonicalParentOccurrenceId,
+    );
+
+    const currentParent = generation.origin.occurrences.occurrence?.parentOccurrenceId ?? null;
+    const siblings = generation.origin.children[currentParent ?? "$root"] ?? [];
+    const index = siblings.indexOf("occurrence");
+    const resolution = remoteFact({
+      replicaId: REPLICA_D,
+      observed: conflicted.frontier,
+      lamport: facts.values.length + 2,
+      body: {
+        kind: "contribution",
+        actorId: "resolver",
+        intent: "direct",
+        mutation: {
+          kind: "occurrence-move",
+          occurrenceId: "occurrence",
+          parentOccurrenceId: "parent-b-occurrence",
+          anchor: end,
+          previousParentOccurrenceId: currentParent,
+          previousAnchor: {
+            after: siblings[index - 1] ?? null,
+            before: siblings[index + 1] ?? null,
+            affinity: "after",
+            fallback: index <= 0 ? "start" : "end",
+          },
+        },
+      },
+    });
+    const resolved = admitted({
+      facts: [...conflicted.facts, resolution],
+      frontier: frontierOf([...conflicted.facts, resolution]),
+    });
+    const terminal = rebuildGeneration("workspace", resolved, versions).generation;
+    expect(terminal.origin.occurrences.occurrence?.parentOccurrenceId).toBe("parent-b-occurrence");
+    expect(queryConflicts(resolved, terminal).issues).toEqual([]);
+  });
+
+  it("keeps concurrent same-parent reorders as a convergent sequence choice", () => {
+    const facts = base();
+    facts.add({ kind: "node-create", nodeId: "parent" });
+    facts.add({
+      kind: "occurrence-create",
+      occurrenceId: "parent-occurrence",
+      nodeId: "parent",
+      parentOccurrenceId: null,
+      parentPolicy: "cascade",
+      anchor: end,
+    });
+    for (const identity of ["left", "right"]) {
+      facts.add({ kind: "node-create", nodeId: identity });
+      facts.add({
+        kind: "occurrence-create",
+        occurrenceId: identity,
+        nodeId: identity,
+        parentOccurrenceId: "parent-occurrence",
+        parentPolicy: "cascade",
+        anchor: end,
+      });
+    }
+    const observed = { [REPLICA_A]: facts.values.length };
+    const move = (replicaId: string, anchor: SequenceAnchor) =>
+      remoteFact({
+        replicaId,
+        observed,
+        lamport: facts.values.length + 1,
+        body: {
+          kind: "contribution",
+          actorId: replicaId,
+          intent: "direct",
+          mutation: {
+            kind: "occurrence-move",
+            occurrenceId: "occurrence",
+            parentOccurrenceId: "parent-occurrence",
+            anchor,
+            previousParentOccurrenceId: null,
+            previousAnchor: {
+              after: null,
+              before: "parent-occurrence",
+              affinity: "after",
+              fallback: "start",
+            },
+          },
+        },
+      });
+    const snapshot = admitted(
+      facts.snapshot([
+        move(REPLICA_B, { after: null, before: "left", affinity: "before", fallback: "start" }),
+        move(REPLICA_C, { after: "right", before: null, affinity: "after", fallback: "end" }),
+      ]),
+    );
+    const generation = rebuildGeneration("workspace", snapshot, versions).generation;
+    expect(generation.origin.occurrences.occurrence?.parentOccurrenceId).toBe("parent-occurrence");
+    expect(generation.origin.children["parent-occurrence"]).toContain("occurrence");
+    expect(queryConflicts(snapshot, generation).issues).toEqual([]);
+  });
 });
+
+function admitted(snapshot: FactSnapshot) {
+  const admission = admitAuthorityRecords(
+    "workspace",
+    snapshot.facts.map((fact) => ({ recordKind: "fact" as const, fact })),
+  );
+  if (admission.kind === "fault") {
+    throw new Error(admission.fault ?? "Conflict fixture admission failed");
+  }
+  return admission.snapshot;
+}

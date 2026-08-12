@@ -8,6 +8,11 @@ import {
 import type { MaterializedField, TextAtom } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 
+type InitializationMutation = Extract<
+  ContributionFact["body"]["mutation"],
+  { kind: "field-initialize" }
+>;
+
 export function projectInitializedFields(
   active: readonly ContributionFact[],
   nodes: Map<string, MutableNode>,
@@ -16,6 +21,7 @@ export function projectInitializedFields(
   canonicalOccurrences: Readonly<Record<string, string>>,
 ): Readonly<Record<string, readonly MaterializedField[]>> {
   removeInitializedOutputs(nodes, occurrences, children);
+  const deletedOccurrences = unrestoredFieldContentDeletions(active);
   const groups = maximalInitializations(active);
   const explicitFields = new Set(
     active.flatMap((fact) => {
@@ -60,6 +66,19 @@ export function projectInitializedFields(
       properties: { fieldDefinitionId: mutation.fieldDefinitionId },
       metadata: { initializedBy: mutation.source },
     });
+    const valueOccurrenceIds = projectInitializedValues({
+      sourceId: source.id,
+      mutation,
+      fieldNodeId,
+      fieldOccurrenceId,
+      deletedOccurrences,
+      nodes,
+      occurrences,
+      children,
+    });
+    if (deletedOccurrences.has(fieldOccurrenceId)) {
+      continue;
+    }
     occurrences.set(fieldOccurrenceId, {
       occurrenceId: fieldOccurrenceId,
       nodeId: fieldNodeId,
@@ -69,32 +88,6 @@ export function projectInitializedFields(
       managed: false,
     });
     appendUnique(childList(children, parentOccurrenceId), fieldOccurrenceId);
-    const valueOccurrenceIds = mutation.values.flatMap((seed, index) => {
-      const occurrenceId = initializedValueOccurrenceId(fieldOccurrenceId, index);
-      const nodeId =
-        seed.kind === "reference" ? seed.nodeId : initializedValueNodeId(fieldNodeId, index);
-      if (seed.kind === "text") {
-        nodes.set(nodeId, {
-          nodeId,
-          text: textAtoms(source.id, index, seed.value),
-          properties: {},
-          metadata: { initializedBy: mutation.source },
-        });
-      }
-      if (!nodes.has(nodeId)) {
-        return [];
-      }
-      occurrences.set(occurrenceId, {
-        occurrenceId,
-        nodeId,
-        parentOccurrenceId: fieldOccurrenceId,
-        properties: {},
-        metadata: seed.kind === "reference" ? { reference: true } : {},
-        managed: false,
-      });
-      childList(children, fieldOccurrenceId).push(occurrenceId);
-      return [occurrenceId];
-    });
     const ownerFields = fields.get(mutation.ownerNodeId) ?? [];
     ownerFields.push({
       ownerNodeId: mutation.ownerNodeId,
@@ -106,6 +99,50 @@ export function projectInitializedFields(
     fields.set(mutation.ownerNodeId, ownerFields);
   }
   return Object.fromEntries(fields);
+}
+
+function projectInitializedValues(
+  context: Readonly<{
+    sourceId: string;
+    mutation: InitializationMutation;
+    fieldNodeId: string;
+    fieldOccurrenceId: string;
+    deletedOccurrences: ReadonlySet<string>;
+    nodes: Map<string, MutableNode>;
+    occurrences: Map<string, MutableOccurrence>;
+    children: Map<string, string[]>;
+  }>,
+): readonly string[] {
+  return context.mutation.values.flatMap((seed, index) => {
+    const occurrenceId = initializedValueOccurrenceId(context.fieldOccurrenceId, index);
+    const nodeId =
+      seed.kind === "reference" ? seed.nodeId : initializedValueNodeId(context.fieldNodeId, index);
+    if (seed.kind === "text") {
+      context.nodes.set(nodeId, {
+        nodeId,
+        text: textAtoms(context.sourceId, index, seed.value),
+        properties: {},
+        metadata: { initializedBy: context.mutation.source },
+      });
+    }
+    if (
+      !context.nodes.has(nodeId) ||
+      context.deletedOccurrences.has(context.fieldOccurrenceId) ||
+      context.deletedOccurrences.has(occurrenceId)
+    ) {
+      return [];
+    }
+    context.occurrences.set(occurrenceId, {
+      occurrenceId,
+      nodeId,
+      parentOccurrenceId: context.fieldOccurrenceId,
+      properties: {},
+      metadata: seed.kind === "reference" ? { reference: true } : {},
+      managed: false,
+    });
+    childList(context.children, context.fieldOccurrenceId).push(occurrenceId);
+    return [occurrenceId];
+  });
 }
 
 function maximalInitializations(
@@ -134,20 +171,44 @@ function maximalInitializations(
   return groups;
 }
 
-function initializedFieldNodeId(ownerNodeId: string, fieldDefinitionId: string): string {
+export function initializedFieldNodeId(ownerNodeId: string, fieldDefinitionId: string): string {
   return `${INITIALIZED_FIELD_NODE_PREFIX}${encodeURIComponent(ownerNodeId)}:${encodeURIComponent(fieldDefinitionId)}`;
 }
 
-function initializedFieldOccurrenceId(ownerNodeId: string, fieldDefinitionId: string): string {
+export function initializedFieldOccurrenceId(
+  ownerNodeId: string,
+  fieldDefinitionId: string,
+): string {
   return `${INITIALIZED_FIELD_OCCURRENCE_PREFIX}${encodeURIComponent(ownerNodeId)}:${encodeURIComponent(fieldDefinitionId)}`;
 }
 
-function initializedValueNodeId(fieldNodeId: string, index: number): string {
+export function initializedValueNodeId(fieldNodeId: string, index: number): string {
   return `${fieldNodeId}:value:${index}`;
 }
 
-function initializedValueOccurrenceId(fieldOccurrenceId: string, index: number): string {
+export function initializedValueOccurrenceId(fieldOccurrenceId: string, index: number): string {
   return `${fieldOccurrenceId}:value:${index}`;
+}
+
+function unrestoredFieldContentDeletions(active: readonly ContributionFact[]): ReadonlySet<string> {
+  const restored = new Set(
+    active.flatMap((fact) =>
+      fact.body.mutation.kind === "occurrence-restore" ? [fact.body.mutation.deletionFactId] : [],
+    ),
+  );
+  return new Set(
+    active.flatMap((fact) => {
+      if (restored.has(fact.id)) {
+        return [];
+      }
+      const mutation = fact.body.mutation;
+      return mutation.kind === "field-value-delete"
+        ? [mutation.valueOccurrenceId]
+        : mutation.kind === "materialized-field-delete"
+          ? [mutation.fieldOccurrenceId]
+          : [];
+    }),
+  );
 }
 
 function textAtoms(contributionId: string, valueIndex: number, value: string): TextAtom[] {

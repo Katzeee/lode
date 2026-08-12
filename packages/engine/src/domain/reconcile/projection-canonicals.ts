@@ -1,6 +1,5 @@
 import { stableStringCompare, type ContributionFact } from "../fact/index.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
-import type { ManagedChild } from "./projection-types.js";
 
 export function normalizedCanonicals(
   current: Readonly<Record<string, string>>,
@@ -37,27 +36,4 @@ export function normalizedCanonicals(
   return Object.fromEntries(
     [...canonicals].sort(([left], [right]) => stableStringCompare(left, right)),
   );
-}
-
-export function removeManagedOutputs(
-  managedChildren: readonly ManagedChild[],
-  nodes: Map<string, MutableNode>,
-  occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
-  canonicals: Readonly<Record<string, string>>,
-): Readonly<Record<string, string>> {
-  const result = { ...canonicals };
-  const managedOccurrenceIds = new Set(managedChildren.map((child) => child.occurrenceId));
-  for (const child of managedChildren) {
-    nodes.delete(child.nodeId);
-    occurrences.delete(child.occurrenceId);
-    delete result[child.nodeId];
-  }
-  for (const [parent, childIds] of children) {
-    children.set(
-      parent,
-      childIds.filter((id) => !managedOccurrenceIds.has(id)),
-    );
-  }
-  return result;
 }

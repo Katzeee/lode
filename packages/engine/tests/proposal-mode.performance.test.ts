@@ -16,14 +16,16 @@ import {
   reconcileFromCheckpoint,
 } from "../src/runtime/workspace/generation-checkpoint.js";
 import { InMemoryDocumentStore } from "../src/persistence/in-memory-document-store.js";
+import type { DocumentStore, LoadedDocumentBytes } from "../src/persistence/document-store.js";
 import { LoroFactStore } from "../src/runtime/authority/loro-fact-store.js";
 import { BoundedProjectionMaterializer } from "../src/runtime/workspace/bounded-materializer.js";
 import { queryReview } from "../src/domain/review/review.js";
+import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.js";
 
 const CHECKPOINT_KEY = "performance-checkpoint-key";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const limits = {
   fullRebuildMilliseconds: 2_000,
@@ -36,6 +38,7 @@ const limits = {
   syncTailBytes: 32_000,
   authorityCommandsMilliseconds: 2_000,
   reviewQueryMilliseconds: 500,
+  restartMilliseconds: 2_000,
 } as const;
 
 describe("Proposal Mode deterministic performance and retention gates", () => {
@@ -255,6 +258,49 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     expect(store.snapshot().facts).toHaveLength(201);
   });
 
+  it("bounds durable workspace restart and first bounded read", async () => {
+    const documents = new InMemoryDocumentStore();
+    const replicaId = REPLICA;
+    const initial = await LoroFactStore.open({
+      workspaceId: "workspace",
+      replicaId,
+      loroPeerId: "904",
+      documents,
+      admitRecords: admitAuthorityRecords,
+    });
+    await initial.commit({
+      invocationId: "restart-workload",
+      request: { kind: "restart-workload" },
+      bodies: Array.from({ length: 300 }, (_, index) => nodeBody(`restart-${index}`)),
+      lineage: null,
+      publishedFrontier: {},
+    });
+
+    const started = performance.now();
+    const restartedFacts = await LoroFactStore.open({
+      workspaceId: "workspace",
+      replicaId,
+      loroPeerId: "905",
+      documents,
+      admitRecords: admitAuthorityRecords,
+    });
+    const workspace = await ProposalWorkspace.open({
+      workspaceId: "workspace",
+      facts: restartedFacts,
+      versions,
+    });
+    const page = await workspace.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      view: "origin",
+      section: "nodes",
+      limit: 25,
+    });
+    expect(performance.now() - started).toBeLessThan(limits.restartMilliseconds);
+    expect("entries" in page && page.entries).toHaveLength(25);
+    await workspace.close();
+  });
+
   it("bounds one Review evaluation across many independent Hunks", () => {
     const facts: Fact[] = [];
     for (let index = 0; index < 400; index += 1) {
@@ -305,7 +351,154 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     expect(review.hunks[0]?.linkedHunkIds).toHaveLength(399);
     expect(elapsed).toBeLessThan(limits.reviewQueryMilliseconds);
   });
+
+  it("keeps indexed authority Review and History work independent of 250 or 1000 unrelated Nodes", async () => {
+    const small = await indexedWorkspaceWorkload(250);
+    const large = await indexedWorkspaceWorkload(1_000);
+
+    expect(small.authorityAppendUnits).toEqual([2]);
+    expect(large.authorityAppendUnits).toEqual([2]);
+    expect(large.authorityUpdateBytes).toBeLessThanOrEqual(small.authorityUpdateBytes * 1.5);
+    expect(small.reviewIndexedUnits).toBeLessThanOrEqual(2);
+    expect(large.reviewIndexedUnits).toBeLessThanOrEqual(2);
+    expect(small.historyIndexedUnits).toBeLessThanOrEqual(2);
+    expect(large.historyIndexedUnits).toBeLessThanOrEqual(2);
+    expect(large.reviewReadBytes).toBeLessThanOrEqual(small.reviewReadBytes * 3);
+    expect(large.historyReadBytes).toBeLessThanOrEqual(small.historyReadBytes * 3);
+    expect(large.largestExactReadUnits).toBeLessThanOrEqual(1);
+  }, 30_000);
 });
+
+async function indexedWorkspaceWorkload(unrelatedNodeCount: number) {
+  const documents = new MeasuredDocumentStore();
+  const indexedWork: { operation: string; units: number }[] = [];
+  const facts = await LoroFactStore.open({
+    workspaceId: "workspace",
+    replicaId: REPLICA,
+    loroPeerId: unrelatedNodeCount === 250 ? "920" : "921",
+    documents,
+    admitRecords: admitAuthorityRecords,
+    snapshotInterval: 10_000,
+    onIndexedWork: (work) => indexedWork.push(work),
+  });
+  const generations = new BoundedProjectionMaterializer(documents, { capacity: 1 });
+  const workspace = await ProposalWorkspace.open({
+    workspaceId: "workspace",
+    facts,
+    versions,
+    generations,
+  });
+  await workspace.execute({
+    kind: "mutate",
+    workspaceId: "workspace",
+    invocationId: "unrelated",
+    actorId: "actor",
+    intent: "direct",
+    historyChannelId: "bulk",
+    mutations: Array.from({ length: unrelatedNodeCount }, (_, index) => ({
+      kind: "node-create" as const,
+      nodeId: `unrelated-${index}`,
+    })),
+  });
+  await workspace.execute({
+    kind: "mutate",
+    workspaceId: "workspace",
+    invocationId: "history-target",
+    actorId: "actor",
+    intent: "direct",
+    historyChannelId: "target-channel",
+    mutations: [{ kind: "node-create", nodeId: "history-node" }],
+  });
+
+  indexedWork.length = 0;
+  await workspace.execute({
+    kind: "mutate",
+    workspaceId: "workspace",
+    invocationId: "review-target",
+    actorId: "actor",
+    intent: "proposal",
+    historyChannelId: "proposal-channel",
+    mutations: [{ kind: "node-create", nodeId: "review-node" }],
+  });
+  const authorityAppendUnits = indexedWork
+    .filter((work) => work.operation === "authority-local-append")
+    .map((work) => work.units);
+  const authorityUpdateBytes = documents.lastAuthorityUpdateBytes;
+
+  indexedWork.length = 0;
+  generations.resetReadMetrics();
+  documents.resetReadBytes();
+  const review = await workspace.query({
+    kind: "review",
+    workspaceId: "workspace",
+    limit: 1,
+  });
+  if (!("hunks" in review) || review.hunks.length !== 1) {
+    throw new Error("Indexed performance fixture must expose one Review Hunk");
+  }
+  const reviewIndexedUnits = indexedWork.reduce((total, work) => total + work.units, 0);
+  const reviewReadBytes = documents.readBytes;
+
+  indexedWork.length = 0;
+  documents.resetReadBytes();
+  const history = await workspace.query({
+    kind: "history",
+    workspaceId: "workspace",
+    channelId: "target-channel",
+  });
+  if (!("undo" in history) || history.undo?.targetInvocationId !== "history-target") {
+    throw new Error("Indexed performance fixture must expose the target History step");
+  }
+  const historyIndexedUnits = indexedWork.reduce((total, work) => total + work.units, 0);
+  const historyReadBytes = documents.readBytes;
+  await workspace.close();
+  return {
+    authorityAppendUnits,
+    authorityUpdateBytes,
+    reviewIndexedUnits,
+    reviewReadBytes,
+    historyIndexedUnits,
+    historyReadBytes,
+    largestExactReadUnits: generations.largestExactReadUnits(),
+  };
+}
+
+class MeasuredDocumentStore implements DocumentStore {
+  private readonly inner = new InMemoryDocumentStore();
+  readBytes = 0;
+  lastAuthorityUpdateBytes = 0;
+
+  async load(id: string): Promise<LoadedDocumentBytes | null> {
+    const loaded = await this.inner.load(id);
+    this.readBytes +=
+      (loaded?.snapshot?.length ?? 0) +
+      (loaded?.updates.reduce((total, update) => total + update.length, 0) ?? 0);
+    return loaded;
+  }
+
+  listIds(query?: Parameters<DocumentStore["listIds"]>[0]): Promise<string[]> {
+    return this.inner.listIds(query);
+  }
+
+  appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
+    if (id === "facts") {
+      this.lastAuthorityUpdateBytes = bytes.length;
+    }
+    return this.inner.appendUpdate(id, bytes);
+  }
+
+  writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
+    return this.inner.writeSnapshot(id, bytes);
+  }
+
+  delete(id: string): Promise<void> {
+    return this.inner.delete(id);
+  }
+
+  resetReadBytes(): void {
+    this.readBytes = 0;
+  }
+}
 
 function textWorkload(count: number, intent: "direct" | "proposal" = "direct"): Fact[] {
   const facts: Fact[] = [];

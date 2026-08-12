@@ -7,6 +7,8 @@ import { validateReviewSelection } from "../../domain/review/index.js";
 import { resolutionAdjudicationProblem } from "../../domain/conflict/index.js";
 import { prepareMutations } from "./mutation-planner.js";
 import { rejectedResult } from "./workspace-results.js";
+import type { FactStore } from "../authority/fact-store.js";
+import { isMaintenanceCommand, planMaintenanceCommand } from "./maintenance-command-planner.js";
 
 export type WorkspaceCommandPlan =
   Readonly<{ bodies: readonly FactBody[]; lineage: AuthorityReceipt["lineage"] }> | RejectedResult;
@@ -17,9 +19,13 @@ export function planWorkspaceCommand(
   snapshot: FactSnapshot,
   generation: ProjectionGeneration,
   receipts: readonly AuthorityReceipt[],
+  facts: FactStore,
   reviewCapabilityKey?: string,
   historyPlanningObserver?: HistoryPlanningObserver,
 ): WorkspaceCommandPlan {
+  if (isMaintenanceCommand(command)) {
+    return planMaintenanceCommand(workspaceId, command, snapshot, generation, facts);
+  }
   if (command.kind === "mutate") {
     const mutations = prepareMutations(
       workspaceId,

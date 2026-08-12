@@ -20,6 +20,8 @@ import {
   parseHistorySelectionContract,
   parseReviewSelectionContract,
 } from "./selection-validation.js";
+import { parseHardDeletePreview } from "./maintenance-output-validation.js";
+import { parseViewResult } from "./view-output-validation.js";
 
 export function parseWriteResult(value: unknown): WriteResult {
   const result = object(value, "write result");
@@ -106,7 +108,32 @@ function queryValue(value: unknown): EngineQueryValue {
   if ("issues" in candidate) {
     return conflictQuery(candidate);
   }
+  if ("schemaId" in candidate && "nodeIds" in candidate) {
+    return schemaSearchResult(candidate);
+  }
+  if ("viewNodeId" in candidate && "rows" in candidate) {
+    return parseViewResult(candidate, frontier);
+  }
+  if ("blockers" in candidate && "selection" in candidate) {
+    return parseHardDeletePreview(candidate);
+  }
   return invocationOutcome(candidate);
+}
+
+function schemaSearchResult(value: Record<string, unknown>) {
+  exact(
+    value,
+    ["generationId", "frontier", "view", "schemaId", "nodeIds", "next"],
+    "Schema Search result",
+  );
+  return {
+    generationId: string(value.generationId, "Schema Search generation"),
+    frontier: frontier(value.frontier),
+    view: oneOf(value.view, ["origin", "review"] as const, "Schema Search view"),
+    schemaId: string(value.schemaId, "Schema identity"),
+    nodeIds: strings(value.nodeIds, "Schema Search Node identities"),
+    next: nullableString(value.next, "Schema Search cursor"),
+  };
 }
 
 function conflictQuery(value: Record<string, unknown>): ConflictQuery {
@@ -167,6 +194,7 @@ function reviewQuery(value: Record<string, unknown>): ReviewQuery {
               "canonical",
               "schema-application",
               "schema-template",
+              "field-configuration",
               "materialized-field",
             ] as const,
             "Diff Space kind",
@@ -218,6 +246,7 @@ function engineError(value: unknown): EngineError {
         "invocation-conflict",
         "authority-fault",
         "history-unavailable",
+        "maintenance-blocked",
       ] as const,
       "Engine error code",
     ),

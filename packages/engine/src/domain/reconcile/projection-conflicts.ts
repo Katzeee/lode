@@ -1,11 +1,13 @@
 import {
   canonicalJson,
   stableStringCompare,
+  type ContributionFact,
   type FactSnapshot,
   type ResolutionFact,
 } from "../fact/index.js";
 import type { ConflictIssue } from "../conflict/types.js";
 import type { EffectiveField, SchemaFieldItem } from "./projection-types.js";
+import type { MutableOccurrence } from "./projection-state.js";
 import { deriveActivation } from "./support.js";
 
 export function projectConflictIssues(
@@ -13,17 +15,135 @@ export function projectConflictIssues(
   extensionConflicts: Readonly<Record<string, readonly string[]>>,
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
+  active: readonly ContributionFact[],
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
 ): Readonly<Record<string, ConflictIssue>> {
   const issues = [
+    ...unsupportedDirectIntents(snapshot),
     ...resolutionConflicts(snapshot),
     ...schemaExtensionConflicts(extensionConflicts),
     ...fieldConfigConflicts(schemaFieldItems, effectiveFields),
+    ...placementConflicts(active, occurrences),
   ];
   return Object.fromEntries(
     issues
       .sort((left, right) => stableStringCompare(left.identity, right.identity))
       .map((issue) => [issue.identity, issue]),
   );
+}
+
+function unsupportedDirectIntents(snapshot: FactSnapshot): readonly ConflictIssue[] {
+  const activation = deriveActivation(snapshot.facts, "origin");
+  const contributions = new Map<string, ContributionFact>(
+    snapshot.facts
+      .filter((fact): fact is ContributionFact => fact.body.kind === "contribution")
+      .map((fact) => [fact.id, fact] as const),
+  );
+  return snapshot.facts.flatMap((fact): readonly ConflictIssue[] => {
+    if (
+      fact.body.kind !== "contribution" ||
+      fact.body.intent !== "direct" ||
+      activation.activeContributionIds.has(fact.id)
+    ) {
+      return [];
+    }
+    const missingSupportContributionIds = (activation.supportByContribution.get(fact.id) ?? [])
+      .filter((supportId) => !activation.activeContributionIds.has(supportId))
+      .filter((supportId) => rejectedProposalSupport(activation, supportId))
+      .sort(stableStringCompare);
+    if (missingSupportContributionIds.length === 0) {
+      return [];
+    }
+    return [
+      {
+        kind: "unsupported-direct-intent",
+        identity: canonicalJson(["unsupported-direct-intent", fact.id]),
+        contributionId: fact.id,
+        mutationKind: fact.body.mutation.kind,
+        actorId: fact.body.actorId,
+        replicaId: fact.coordinate.dot.replicaId,
+        observedFrontier: fact.coordinate.observed,
+        missingSupportContributionIds,
+        requiredNodeIds: missingSupportContributionIds
+          .flatMap((supportId) => {
+            const support = contributions.get(supportId);
+            return support?.body.mutation.kind === "node-create"
+              ? [support.body.mutation.nodeId]
+              : [];
+          })
+          .sort(stableStringCompare),
+        recoveryActions: ["restore-support"],
+      },
+    ];
+  });
+}
+
+function rejectedProposalSupport(
+  activation: ReturnType<typeof deriveActivation>,
+  contributionId: string,
+): boolean {
+  const decisions = new Set(
+    (activation.resolutionByContribution.get(contributionId) ?? []).map(
+      (resolution) => resolution.body.decision,
+    ),
+  );
+  return decisions.size === 1 && decisions.has("reject");
+}
+
+function placementConflicts(
+  active: readonly ContributionFact[],
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
+): readonly ConflictIssue[] {
+  const moves = new Map<string, ContributionFact[]>();
+  for (const fact of active) {
+    if (
+      fact.body.mutation.kind === "occurrence-move" &&
+      occurrences.has(fact.body.mutation.occurrenceId)
+    ) {
+      const candidates = moves.get(fact.body.mutation.occurrenceId) ?? [];
+      candidates.push(fact);
+      moves.set(fact.body.mutation.occurrenceId, candidates);
+    }
+  }
+  const issues: ConflictIssue[] = [];
+  for (const [occurrenceId, candidates] of moves) {
+    const maximal = candidates.filter(
+      (candidate) =>
+        !candidates.some((other) => other.id !== candidate.id && observes(other, candidate)),
+    );
+    if (new Set(maximal.map((fact) => moveOf(fact).parentOccurrenceId)).size < 2) {
+      continue;
+    }
+    const ordered = maximal.sort((left, right) => stableStringCompare(left.id, right.id));
+    issues.push({
+      kind: "placement-conflict",
+      identity: canonicalJson(["placement-conflict", occurrenceId, ordered.map((fact) => fact.id)]),
+      occurrenceId,
+      canonicalParentOccurrenceId: occurrences.get(occurrenceId)?.parentOccurrenceId ?? null,
+      candidates: ordered.map((fact) => ({
+        contributionId: fact.id,
+        parentOccurrenceId: moveOf(fact).parentOccurrenceId,
+        anchor: moveOf(fact).anchor,
+        actorId: fact.body.actorId,
+        replicaId: fact.coordinate.dot.replicaId,
+        observedFrontier: fact.coordinate.observed,
+      })),
+    });
+  }
+  return issues;
+}
+
+function moveOf(fact: ContributionFact) {
+  const mutation = fact.body.mutation;
+  if (mutation.kind !== "occurrence-move") {
+    throw new Error("Placement candidate is not an Occurrence move");
+  }
+  return mutation;
+}
+
+function observes(observer: ContributionFact, observed: ContributionFact): boolean {
+  const { replicaId, sequence } = observed.coordinate.dot;
+  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
 }
 
 function fieldConfigConflicts(

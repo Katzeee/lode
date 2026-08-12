@@ -27,7 +27,10 @@ import { queryReview, validateReviewSelection } from "../src/domain/review/revie
 import { compileOwnerDag } from "../src/domain/reconcile/owner-dag.js";
 import { PROJECTION_OWNER_DAG } from "../src/domain/reconcile/projection-owner-plan.js";
 import { fullSurface } from "../src/domain/reconcile/reconcile-test-helpers.js";
-import { proposalLifecycleCases } from "../src/domain/reconcile/proposal-lifecycle-test-helpers.js";
+import {
+  historyLifecycleCases,
+  proposalLifecycleCases,
+} from "../src/domain/reconcile/proposal-lifecycle-test-helpers.js";
 import { InMemoryDocumentStore } from "../src/persistence/in-memory-document-store.js";
 import { LoroFactStore } from "../src/runtime/authority/loro-fact-store.js";
 import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.js";
@@ -41,7 +44,7 @@ const CHECKPOINT_KEY = "property-test-key";
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "cccccccccccccccccccccccccc";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 
 describe("seeded Proposal Mode property and permutation contracts", () => {
   it("arrival order and duplicate delivery preserve one admitted snapshot", () => {
@@ -117,6 +120,48 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, CHECKPOINT_KEY)
           ?.generation,
       ).toEqual(expected);
+    }
+  });
+
+  it("three replicas converge without choosing divergent Field initialization results", () => {
+    for (let seed = 1; seed <= 32; seed += 1) {
+      const { prefix, concurrent, resolved } = initializationFixture(seed);
+      const concurrentSnapshot = { facts: concurrent, frontier: frontierOf(concurrent) };
+      const concurrentGeneration = rebuildGeneration(
+        "workspace",
+        concurrentSnapshot,
+        versions,
+      ).generation;
+      const divergent = seed % 2 === 0;
+      expect(
+        Object.values(concurrentGeneration.origin.conflictIssues).some(
+          (issue) => issue.kind === "field-initialization-conflict",
+        ),
+      ).toBe(divergent);
+      expect(concurrentGeneration.origin.materializedFields.task ?? []).toHaveLength(
+        divergent ? 0 : 1,
+      );
+      expect(admitAuthorityRecords("workspace", records(concurrent)).kind).toBe("ready");
+
+      const snapshot = { facts: resolved, frontier: frontierOf(resolved) };
+      const expected = rebuildGeneration("workspace", snapshot, versions).generation;
+      expect(expected.origin.conflictIssues).toEqual({});
+      expect(expected.origin.materializedFields.task ?? []).toHaveLength(1);
+      const checkpointSnapshot = { facts: prefix, frontier: frontierOf(prefix) };
+      const checkpoint = createGenerationCheckpoint(
+        "workspace",
+        checkpointSnapshot,
+        rebuildGeneration("workspace", checkpointSnapshot, versions).generation,
+        CHECKPOINT_KEY,
+      );
+      for (const topology of [seed, seed + 101, seed + 997]) {
+        const delivered = { facts: shuffle(resolved, topology), frontier: snapshot.frontier };
+        expect(rebuildGeneration("workspace", delivered, versions).generation).toEqual(expected);
+        expect(
+          reconcileFromCheckpoint(checkpoint, "workspace", delivered, versions, CHECKPOINT_KEY)
+            ?.generation,
+        ).toEqual(expected);
+      }
     }
   });
 
@@ -293,7 +338,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
 
   it("seeded History programs cover every mutation owner through Undo and Redo", () => {
     for (let seed = 1; seed <= 4; seed += 1) {
-      for (const [index, ownerCase] of shuffle([...proposalLifecycleCases()], seed).entries()) {
+      for (const [index, ownerCase] of shuffle([...historyLifecycleCases()], seed).entries()) {
         for (const intent of ["direct", "proposal"] as const) {
           const history = historyFor(ownerCase.facts.values.slice(0, -1));
           const targetInvocationId = `seed-${seed}-${intent}-${ownerCase.kind}`;
@@ -373,7 +418,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
   });
 
   it("generated History command matrix covers partial no-effect stale and atomic outcomes", () => {
-    for (const [index, ownerCase] of proposalLifecycleCases().entries()) {
+    for (const [index, ownerCase] of historyLifecycleCases().entries()) {
       for (const intent of ["direct", "proposal"] as const) {
         const mutation = caseMutation(ownerCase.proposal);
         const channelId = `matrix-${index}-${intent}`;
@@ -525,6 +570,10 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           status: "ok",
           value: { status: "published", receipt: { invocationId } },
         });
+        if (!historyLifecycleCases().some((entry) => entry.kind === ownerCase.kind)) {
+          await workspace.close();
+          continue;
+        }
         const channelId = `channel-${index}`;
         const history = await workspace.query({
           kind: "history",
@@ -679,8 +728,14 @@ function generationFingerprint(value: ReturnType<HistoryFixture["generation"]>):
 }
 
 function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>["origin"]) {
-  const { identity: _identity, nodes, ...rest } = projection;
-  return {
+  const {
+    identity: _identity,
+    reviewScopes: _reviewScopes,
+    supportByContribution: _supportByContribution,
+    nodes,
+    ...rest
+  } = projection;
+  const semantic = {
     ...rest,
     nodes: Object.fromEntries(
       Object.entries(nodes).map(([id, node]) => [
@@ -692,6 +747,15 @@ function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>
       ]),
     ),
   };
+  return JSON.stringify(semantic, omitSemanticProvenance);
+}
+
+function omitSemanticProvenance(key: string, value: unknown): unknown {
+  return key === "contributionIds" ||
+    key === "detachmentContributionIds" ||
+    key === "initializationId"
+    ? undefined
+    : value;
 }
 
 function causalFixture(): Fact[] {
@@ -755,6 +819,81 @@ function extensionCycleFixture(): Fact[] {
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
   ];
+}
+
+function initializationFixture(seed: number): Readonly<{
+  prefix: readonly Fact[];
+  concurrent: readonly Fact[];
+  resolved: readonly Fact[];
+}> {
+  const mutations: readonly Mutation[] = [
+    { kind: "node-create", nodeId: "task" },
+    { kind: "node-create", nodeId: "task-schema" },
+    { kind: "node-create", nodeId: "status-field" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "task-occurrence",
+      nodeId: "task",
+      parentOccurrenceId: null,
+      parentPolicy: "cascade",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    {
+      kind: "schema-field-add",
+      schemaId: "task-schema",
+      fieldDefinitionId: "status-field",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    {
+      kind: "schema-field-configure",
+      schemaId: "task-schema",
+      fieldDefinitionId: "status-field",
+      config: {
+        visibility: "normal",
+        staticDefault: null,
+        initializer: { kind: "literal", values: [] },
+      },
+      previousConfig: { visibility: "normal", staticDefault: null, initializer: null },
+      observedConfigFactIds: [],
+    },
+    {
+      kind: "schema-apply",
+      nodeId: "task",
+      schemaId: "task-schema",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+  ];
+  const prefix = mutations.map((mutation, index) =>
+    mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
+  );
+  const observed = { [A]: prefix.length };
+  const first = mutationFact(B, 1, observed, prefix.length + 1, initialization("Alpha"));
+  const secondValue = seed % 2 === 0 ? "Beta" : "Alpha";
+  const second = mutationFact(C, 1, observed, prefix.length + 1, initialization(secondValue));
+  const concurrent = [...prefix, first, second];
+  const choice = mutationFact(
+    A,
+    prefix.length + 1,
+    { [A]: prefix.length, [B]: 1, [C]: 1 },
+    prefix.length + 2,
+    {
+      ...initialization("Alpha"),
+      observedInitializationFactIds: [first.id, second.id],
+    },
+  );
+  return { prefix, concurrent, resolved: [...concurrent, choice] };
+}
+
+function initialization(value: string): Extract<Mutation, { kind: "field-initialize" }> {
+  return {
+    kind: "field-initialize",
+    ownerNodeId: "task",
+    schemaId: "task-schema",
+    fieldDefinitionId: "status-field",
+    source: "auto-initialize",
+    values: [{ kind: "text", value }],
+    observedInitializationFactIds: [],
+  };
 }
 
 function mutationFact(

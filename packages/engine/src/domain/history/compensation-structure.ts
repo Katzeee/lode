@@ -1,4 +1,4 @@
-import { compareFacts, type ContributionFact } from "../fact/index.js";
+import { compareFacts, type ContributionFact, type SequenceAnchor } from "../fact/index.js";
 import type { Projection } from "../reconcile/index.js";
 import { deriveSupport } from "../reconcile/support.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
@@ -92,15 +92,14 @@ export function compensateOccurrenceDelete(
   activeFacts: readonly ContributionFact[],
   projection: Projection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "occurrence-delete" || projection.occurrences[mutation.occurrenceId]) {
+  const mutation = occurrenceDeletion(target);
+  if (!mutation || projection.occurrences[mutation.occurrenceId]) {
     return noCompensation();
   }
   const independentDelete = activeFacts.some(
     (fact) =>
       !targetIds.has(fact.id) &&
-      fact.body.mutation.kind === "occurrence-delete" &&
-      fact.body.mutation.occurrenceId === mutation.occurrenceId &&
+      occurrenceDeletion(fact)?.occurrenceId === mutation.occurrenceId &&
       !activeFacts.some(
         (restore) =>
           restore.body.mutation.kind === "occurrence-restore" &&
@@ -126,6 +125,23 @@ export function compensateOccurrenceDelete(
       },
     ],
   };
+}
+
+function occurrenceDeletion(fact: ContributionFact): Readonly<{
+  occurrenceId: string;
+  previousParentOccurrenceId?: string | null;
+  previousAnchor?: SequenceAnchor;
+}> | null {
+  const mutation = fact.body.mutation;
+  if (mutation.kind === "occurrence-delete") {
+    return mutation;
+  }
+  if (mutation.kind === "field-value-delete") {
+    return { ...mutation, occurrenceId: mutation.valueOccurrenceId };
+  }
+  return mutation.kind === "materialized-field-delete"
+    ? { ...mutation, occurrenceId: mutation.fieldOccurrenceId }
+    : null;
 }
 
 export function compensateMove(

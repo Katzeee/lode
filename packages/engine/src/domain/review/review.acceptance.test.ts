@@ -293,7 +293,7 @@ describe("production Review contracts", () => {
 
     const newVersions = {
       rulesVersion: "unknown-rules",
-      schemaVersion: "lode-schema-5",
+      schemaVersion: "lode-schema-12",
     } as const;
     expect(() => generation(current, newVersions)).toThrow("Unsupported projection versions");
   });

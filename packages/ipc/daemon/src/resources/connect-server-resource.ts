@@ -15,15 +15,22 @@ export class ConnectServerResource implements RuntimeResource {
   readonly id = "connect-server";
   private readonly runtime: EngineRuntime;
   private readonly endpoint: ParsedEndpoint;
+  private readonly accessToken: string;
   private readonly onShutdown?: () => void;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
   private closePromise?: Promise<void>;
 
-  constructor(runtime: EngineRuntime, endpoint: ParsedEndpoint, onShutdown?: () => void) {
+  constructor(
+    runtime: EngineRuntime,
+    endpoint: ParsedEndpoint,
+    accessToken: string,
+    onShutdown?: () => void,
+  ) {
     this.runtime = runtime;
     this.endpoint = endpoint;
+    this.accessToken = accessToken;
     this.onShutdown = onShutdown;
   }
 
@@ -33,7 +40,11 @@ export class ConnectServerResource implements RuntimeResource {
   }
 
   async start(): Promise<void> {
-    const { server, closeConnections } = createLodeServer(this.runtime, this.onShutdown);
+    const { server, closeConnections } = createLodeServer(
+      this.runtime,
+      this.accessToken,
+      this.onShutdown,
+    );
     this.server = server;
     this.closeConnections = closeConnections;
     await new Promise<void>((resolve) => {

@@ -10,7 +10,7 @@ import {
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 export const versions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-5",
+  schemaVersion: "lode-schema-12",
 } as const;
 export const end = {
   after: null,
@@ -74,6 +74,8 @@ export function base(intent: "direct" | "proposal" = "direct"): Facts {
 
 export function fullSurface(intent: "direct" | "proposal"): Facts {
   const facts = base(intent);
+  facts.add({ kind: "node-create", nodeId: "schema" }, intent);
+  facts.add({ kind: "node-create", nodeId: "field" }, intent);
   const splice = facts.add(
     {
       kind: "text-splice",
@@ -108,27 +110,10 @@ export function fullSurface(intent: "direct" | "proposal"): Facts {
     intent,
   );
   facts.add(
-    {
-      kind: "value-set",
-      owner: { kind: "node", id: "node" },
-      namespace: "property",
-      key: "schemaId",
-      value: "schema",
-      previous: { kind: "unset" },
-    },
+    { kind: "schema-field-add", schemaId: "schema", fieldDefinitionId: "field", anchor: end },
     intent,
   );
-  facts.add(
-    {
-      kind: "value-set",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "field",
-      value: 0,
-      previous: { kind: "unset" },
-    },
-    intent,
-  );
+  facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end }, intent);
   facts.add(
     {
       kind: "value-set",

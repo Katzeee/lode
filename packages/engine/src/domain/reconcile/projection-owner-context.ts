@@ -8,13 +8,14 @@ import type {
 import type { OwnerKey } from "./owner-dag.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type {
-  ManagedChild,
   EffectiveField,
   MaterializedField,
+  DefinitionStatus,
   Projection,
   ProjectionOwnerCache,
   ProjectionVersions,
   SchemaFieldItem,
+  TemplateNodeInstance,
 } from "./projection-types.js";
 import type { ConflictIssue } from "../conflict/types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
@@ -38,16 +39,20 @@ export type ProjectionOwnerContext = {
   children: Map<string, string[]>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
   canonicalOccurrences: Readonly<Record<string, string>>;
-  managedChildren: readonly ManagedChild[];
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  templateNodeInstances: readonly TemplateNodeInstance[];
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  reviewScopes: Readonly<Record<string, readonly string[]>>;
+  supportByContribution: Readonly<Record<string, readonly string[]>>;
   managedTextReplayNodeIds: ReadonlySet<string>;
   projection: Projection | null;
   ownerCache: ProjectionOwnerCache;
@@ -75,20 +80,24 @@ export function emptyOwnerContext(
     children: new Map(),
     addressedValues: {},
     canonicalOccurrences: {},
-    managedChildren: [],
     schemaApplications: {},
     schemaFields: {},
     schemaFieldItems: {},
+    schemaTemplateNodes: {},
+    templateNodeInstances: [],
     schemaExtensions: {},
     schemaSearchMembers: {},
     schemaExtensionConflicts: {},
+    definitionStatuses: {},
     conflictIssues: {},
     effectiveFields: {},
     materializedFields: {},
+    reviewScopes: {},
+    supportByContribution: {},
     managedTextReplayNodeIds: new Set(),
     projection: null,
-    ownerCache: { activeContributionIds: [], supportPasses: 0 },
-    previousOwnerCache: { activeContributionIds: [], supportPasses: 0 },
+    ownerCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+    previousOwnerCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
   };
 }
 
@@ -127,16 +136,20 @@ export function incrementalOwnerContext(
       Object.entries(previous.addressedValues).map(([address, values]) => [address, { ...values }]),
     ),
     canonicalOccurrences: { ...previous.canonicalOccurrences },
-    managedChildren: [...previous.managedChildren],
     schemaApplications: previous.schemaApplications,
     schemaFields: previous.schemaFields,
     schemaFieldItems: previous.schemaFieldItems,
+    schemaTemplateNodes: previous.schemaTemplateNodes,
+    templateNodeInstances: [...previous.templateNodeInstances],
     schemaExtensions: previous.schemaExtensions,
     schemaSearchMembers: previous.schemaSearchMembers,
     schemaExtensionConflicts: previous.schemaExtensionConflicts,
+    definitionStatuses: previous.definitionStatuses,
     conflictIssues: previous.conflictIssues,
     effectiveFields: previous.effectiveFields,
     materializedFields: previous.materializedFields,
+    reviewScopes: previous.reviewScopes,
+    supportByContribution: previous.supportByContribution,
     managedTextReplayNodeIds: new Set(),
     projection: null,
     ownerCache: previousCache,

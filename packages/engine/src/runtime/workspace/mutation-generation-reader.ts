@@ -1,21 +1,23 @@
 import type { ReviewQueryRequest } from "../../application/contract.js";
 import {
-  stableStringCompare,
   type ContributionFact,
   type FactSnapshot,
   type Mutation,
   type ViewMode,
 } from "../../domain/fact/index.js";
-import { pendingProposalFacts } from "../../domain/review/evidence.js";
-import { reviewPaginationScopes } from "../../domain/review/index.js";
 import { type Projection, type ProjectionGeneration } from "../../domain/reconcile/index.js";
-import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
+import type {
+  ProjectionGenerationStore,
+  ReviewGenerationPage,
+} from "./proposal-workspace-types.js";
+import { isProjectedOccurrence, mutationReadScope } from "./mutation-read-scope.js";
 import {
-  isManagedChild,
-  isProjectedOccurrence,
-  mutationReadScope,
-  type MutationReadScope,
-} from "./mutation-read-scope.js";
+  readTemplateNodeInstances,
+  templateNodeInstancesOf,
+} from "./template-node-generation-reader.js";
+import { readIndex } from "./mutation-generation-index-reader.js";
+import type { FactStore } from "../authority/fact-store.js";
+import { expandLifecycleReadScope } from "./lifecycle-generation-reader.js";
 
 export async function readMutationGeneration(
   store: ProjectionGenerationStore,
@@ -30,42 +32,49 @@ export async function readMutationGeneration(
       origin,
       review,
       ownerCaches: {
-        origin: { activeContributionIds: [], supportPasses: 0 },
-        review: { activeContributionIds: [], supportPasses: 0 },
+        origin: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+        review: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
       },
     };
   });
 }
 
-export type ReviewGenerationPage = Readonly<{
-  generation: ProjectionGeneration;
-  pending: ReadonlyMap<string, ContributionFact>;
-  next: string | null;
-}>;
-
 export async function readReviewGeneration(
   store: ProjectionGenerationStore,
   generationId: string,
-  snapshot: FactSnapshot,
   query: ReviewQueryRequest,
+  facts: FactStore,
 ): Promise<ReviewGenerationPage> {
-  const pending = pendingProposalFacts(snapshot);
-  const byScope = reviewPaginationScopes(pending, snapshot.facts);
-  const allKeys = [...byScope.keys()].sort(stableStringCompare);
   const after = query.after ?? null;
-  const remaining =
-    after === null ? allKeys : allKeys.filter((key) => stableStringCompare(key, after) > 0);
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
-  const selectedKeys = remaining.slice(0, limit);
-  const selectedFacts = selectedKeys.flatMap((key) => byScope.get(key) ?? []);
+  const scopePage = await store.reviewScopes(generationId, after, limit);
+  const selectedIds = scopePage.scopes.flatMap((scope) => scope.contributionIds);
+  const selectedFacts = facts
+    .facts(selectedIds)
+    .filter(
+      (fact): fact is ContributionFact =>
+        fact.body.kind === "contribution" && fact.body.intent === "proposal",
+    );
+  const selectedPending = new Map(selectedFacts.map((fact) => [fact.id, fact]));
+  const supportBatch = await store.read(
+    generationId,
+    "review",
+    "supportByContribution",
+    selectedIds,
+  );
+  const supportByContribution = new Map(
+    supportBatch.entries.map((entry) => [entry.identity, entry.value as readonly string[]]),
+  );
   return {
     generation: await readMutationGeneration(
       store,
       generationId,
       selectedFacts.map((fact) => fact.body.mutation),
     ),
-    pending: new Map(selectedFacts.map((fact) => [fact.id, fact])),
-    next: remaining.length > selectedKeys.length ? (selectedKeys.at(-1) ?? null) : null,
+    pending: selectedPending,
+    context: { pending: selectedPending, supportByContribution },
+    facts: facts.relatedFacts(selectedFacts.map((fact) => fact.id)),
+    next: scopePage.next,
   };
 }
 
@@ -92,24 +101,20 @@ async function readView(
   mutations: readonly Mutation[],
 ): Promise<Projection> {
   const wanted = mutationReadScope(mutations);
+  await expandLifecycleReadScope(store, generationId, view, mutations, wanted);
+  const fieldInstanceNodeIds = await readIndex(
+    store,
+    generationId,
+    view,
+    "nodeIdsByFieldDefinition",
+    [...wanted.fields],
+  );
+  fieldInstanceNodeIds.forEach((nodeId) => wanted.nodes.add(nodeId));
   const schemaInstanceNodeIds = await readIndex(store, generationId, view, "nodeIdsBySchema", [
     ...wanted.instanceSchemas,
   ]);
   schemaInstanceNodeIds.forEach((nodeId) => wanted.nodes.add(nodeId));
-  const managedIds = await managedChildIds(store, generationId, view, wanted);
-  const managedChildren = await readSection(
-    store,
-    generationId,
-    view,
-    "managedChildren",
-    managedIds,
-  );
-  for (const value of Object.values(managedChildren)) {
-    if (isManagedChild(value)) {
-      wanted.nodes.add(value.nodeId);
-      wanted.occurrences.add(value.occurrenceId);
-    }
-  }
+  const templateNodeInstances = await readTemplateNodeInstances(store, generationId, view, wanted);
   const occurrenceIds = new Set([
     ...wanted.occurrences,
     ...(await readIndex(store, generationId, view, "occurrenceIdsByNode", [...wanted.nodes])),
@@ -168,8 +173,10 @@ async function readView(
     children: children as Projection["children"],
     canonicalOccurrences: canonicalOccurrences as Projection["canonicalOccurrences"],
     addressedValues: addressedValues as Projection["addressedValues"],
-    managedChildren: Object.values(managedChildren) as Projection["managedChildren"],
+    templateNodeInstances: templateNodeInstancesOf(templateNodeInstances),
     ...schema,
+    reviewScopes: {},
+    supportByContribution: {},
   };
 }
 
@@ -185,9 +192,11 @@ async function readSchemaProjection(
     | "schemaApplications"
     | "schemaFields"
     | "schemaFieldItems"
+    | "schemaTemplateNodes"
     | "schemaExtensions"
     | "schemaSearchMembers"
     | "schemaExtensionConflicts"
+    | "definitionStatuses"
     | "conflictIssues"
     | "effectiveFields"
     | "materializedFields"
@@ -199,24 +208,38 @@ async function readSchemaProjection(
   ) => readSection(store, generationId, view, section, ids);
   const nodes = [...nodeIds];
   const schemas = [...schemaIds];
-  const [applications, fields, fieldItems, extensions, search, conflicts, effective, materialized] =
-    await Promise.all([
-      read("schemaApplications", nodes),
-      read("schemaFields", schemas),
-      read("schemaFieldItems", schemas),
-      read("schemaExtensions", schemas),
-      read("schemaSearchMembers", schemas),
-      read("schemaExtensionConflicts", schemas),
-      read("effectiveFields", nodes),
-      read("materializedFields", nodes),
-    ]);
+  const [
+    applications,
+    fields,
+    fieldItems,
+    templateNodes,
+    extensions,
+    search,
+    conflicts,
+    statuses,
+    effective,
+    materialized,
+  ] = await Promise.all([
+    read("schemaApplications", nodes),
+    read("schemaFields", schemas),
+    read("schemaFieldItems", schemas),
+    read("schemaTemplateNodes", schemas),
+    read("schemaExtensions", schemas),
+    read("schemaSearchMembers", schemas),
+    read("schemaExtensionConflicts", schemas),
+    read("definitionStatuses", [...new Set([...schemas, ...nodeIds])]),
+    read("effectiveFields", nodes),
+    read("materializedFields", nodes),
+  ]);
   return {
     schemaApplications: applications as Projection["schemaApplications"],
     schemaFields: fields as Projection["schemaFields"],
     schemaFieldItems: fieldItems as Projection["schemaFieldItems"],
+    schemaTemplateNodes: templateNodes as Projection["schemaTemplateNodes"],
     schemaExtensions: extensions as Projection["schemaExtensions"],
     schemaSearchMembers: search as Projection["schemaSearchMembers"],
     schemaExtensionConflicts: conflicts as Projection["schemaExtensionConflicts"],
+    definitionStatuses: statuses as Projection["definitionStatuses"],
     conflictIssues: {},
     effectiveFields: effective as Projection["effectiveFields"],
     materializedFields: materialized as Projection["materializedFields"],
@@ -232,21 +255,6 @@ async function readSection(
 ): Promise<Record<string, unknown>> {
   const batch = await store.read(generationId, view, section, [...new Set(identities)]);
   return Object.fromEntries(batch.entries.map((entry) => [entry.identity, entry.value]));
-}
-
-async function readIndex(
-  store: ProjectionGenerationStore,
-  generationId: string,
-  view: ViewMode,
-  section: Parameters<ProjectionGenerationStore["read"]>[2],
-  identities: readonly string[],
-): Promise<readonly string[]> {
-  const values = await readSection(store, generationId, view, section, identities);
-  return Object.values(values).flatMap((value) =>
-    Array.isArray(value)
-      ? value.filter((identity): identity is string => typeof identity === "string")
-      : [],
-  );
 }
 
 async function includeOccurrenceAncestors(
@@ -281,20 +289,4 @@ function parentIds(values: readonly unknown[]): string[] {
       ? [value.parentOccurrenceId]
       : [],
   );
-}
-
-async function managedChildIds(
-  store: ProjectionGenerationStore,
-  generationId: string,
-  view: ViewMode,
-  wanted: MutationReadScope,
-): Promise<readonly string[]> {
-  const groups = await Promise.all([
-    readIndex(store, generationId, view, "managedChildrenByParentNode", [...wanted.nodes]),
-    readIndex(store, generationId, view, "managedChildrenBySchema", [...wanted.schemas]),
-    readIndex(store, generationId, view, "managedChildrenByField", [...wanted.fields]),
-    readIndex(store, generationId, view, "managedChildrenByNode", [...wanted.nodes]),
-    readIndex(store, generationId, view, "managedChildrenByOccurrence", [...wanted.occurrences]),
-  ]);
-  return [...new Set(groups.flat())];
 }

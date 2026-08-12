@@ -3,6 +3,7 @@ import type {
   FieldTemplateConfig,
   FieldValueSeed,
   ResolutionDecision,
+  SequenceAnchor,
 } from "../fact/index.js";
 
 export type ResolutionConflictCandidate = Readonly<{
@@ -15,10 +16,36 @@ export type ResolutionConflictCandidate = Readonly<{
 
 export type ConflictIssue =
   | Readonly<{
+      kind: "unsupported-direct-intent";
+      identity: string;
+      contributionId: string;
+      mutationKind: string;
+      actorId: string;
+      replicaId: string;
+      observedFrontier: FactFrontier;
+      missingSupportContributionIds: readonly string[];
+      requiredNodeIds: readonly string[];
+      recoveryActions: readonly ["restore-support"];
+    }>
+  | Readonly<{
       kind: "resolution-conflict";
       identity: string;
       proposalContributionIds: readonly string[];
       candidates: readonly ResolutionConflictCandidate[];
+    }>
+  | Readonly<{
+      kind: "placement-conflict";
+      identity: string;
+      occurrenceId: string;
+      canonicalParentOccurrenceId: string | null;
+      candidates: readonly Readonly<{
+        contributionId: string;
+        parentOccurrenceId: string | null;
+        anchor: SequenceAnchor;
+        actorId: string;
+        replicaId: string;
+        observedFrontier: FactFrontier;
+      }>[];
     }>
   | Readonly<{
       kind: "schema-extension-cycle";

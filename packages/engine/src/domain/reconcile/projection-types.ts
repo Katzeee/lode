@@ -32,14 +32,6 @@ export type ProjectedOccurrence = Readonly<{
   managed: boolean;
 }>;
 
-export type ManagedChild = Readonly<{
-  parentNodeId: string;
-  schemaId: string;
-  fieldId: string;
-  nodeId: string;
-  occurrenceId: string;
-}>;
-
 export type FieldConfigCandidate = Readonly<{
   config: FieldTemplateConfig;
   sourceSchemaIds: readonly string[];
@@ -82,6 +74,29 @@ export type MaterializedField = Readonly<{
   valueOccurrenceIds: readonly string[];
 }>;
 
+export type DefinitionStatus = Readonly<{
+  definitionId: string;
+  kinds: readonly ("schema" | "field")[];
+  state: "active" | "deleted";
+  deletionFactIds: readonly string[];
+}>;
+
+export type TemplateNodeSource = Readonly<{
+  schemaId: string;
+  appliedSchemaId: string;
+  templateItemId: string;
+}>;
+
+export type TemplateNodeInstance = Readonly<{
+  ownerNodeId: string;
+  templateNodeId: string;
+  instanceNodeId: string | null;
+  instanceOccurrenceId: string;
+  state: "linked" | "detached";
+  sources: readonly TemplateNodeSource[];
+  detachmentContributionIds: readonly string[];
+}>;
+
 export type Projection = Readonly<{
   view: ViewMode;
   identity: ProjectionIdentity;
@@ -90,16 +105,20 @@ export type Projection = Readonly<{
   children: Readonly<Record<string, readonly string[]>>;
   canonicalOccurrences: Readonly<Record<string, string>>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  managedChildren: readonly ManagedChild[];
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
   schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  templateNodeInstances: readonly TemplateNodeInstance[];
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  reviewScopes: Readonly<Record<string, readonly string[]>>;
+  supportByContribution: Readonly<Record<string, readonly string[]>>;
 }>;
 
 export type ProjectionGeneration = Readonly<{
@@ -114,6 +133,7 @@ export type ProjectionGeneration = Readonly<{
 
 export type ProjectionOwnerCache = Readonly<{
   activeContributionIds: readonly string[];
+  supportByContribution: Readonly<Record<string, readonly string[]>>;
   supportPasses: number;
 }>;
 
@@ -124,7 +144,7 @@ export type ProjectionVersions = Readonly<{
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-5",
+  schemaVersion: "lode-schema-12",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

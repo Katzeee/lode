@@ -33,11 +33,12 @@ export function queryReview(
   capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
   page?: Readonly<{
     pending: ReadonlyMap<string, ContributionFact>;
+    context?: ReviewEvidenceContext;
     next: string | null;
   }>,
 ): ReviewQuery {
   assertGeneration(snapshot, generation);
-  const context = createReviewEvidenceContext(snapshot);
+  const context = page?.context ?? createReviewEvidenceContext(snapshot);
   const pending = page?.pending ?? context.pending;
   const evidenceCache = new Map<string, DecisionEvidence>();
   const hunks = collectReviewCandidates(snapshot, generation, pending).map((candidate) =>

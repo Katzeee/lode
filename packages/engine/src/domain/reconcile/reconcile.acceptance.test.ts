@@ -7,7 +7,6 @@ import {
   validateGenerationCheckpoint,
 } from "../../runtime/workspace/generation-checkpoint.js";
 import { advanceGeneration, projectSnapshot, projectionText, rebuildGeneration } from "./index.js";
-import { managedNodeId } from "./managed-identity.js";
 import { base, end, Facts, fullSurface, versions } from "./reconcile-test-helpers.js";
 
 const CHECKPOINT_KEY = "reconcile-acceptance-key";
@@ -147,127 +146,6 @@ describe("production Reconcile", () => {
       reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY)?.generation,
     ).toEqual(full.generation);
     expect(projectionText(full.generation.origin, "node")).toBe("BA");
-  });
-
-  it("incremental Direct value tails re-evaluate declared downstream and match a full rebuild", () => {
-    const facts = fullSurface("direct");
-    const before = facts.snapshot();
-    const generation = rebuildGeneration("workspace", before, versions).generation;
-    facts.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "replacement",
-      value: 1,
-    });
-    facts.add({
-      kind: "value-unset",
-      owner: { kind: "schema", id: "schema" },
-      namespace: "schema",
-      key: "field",
-      previous: { kind: "set", value: 0 },
-    });
-    const after = facts.snapshot();
-    const incremental = advanceGeneration("workspace", before, after, versions, generation);
-
-    expect(incremental.generation).toEqual(
-      rebuildGeneration("workspace", after, versions).generation,
-    );
-    expect(incremental.stats.evaluatedOwners).toEqual([
-      "activation",
-      "value",
-      "schema",
-      "text",
-      "assembly",
-    ]);
-    expect(incremental.generation.origin.managedChildren[0]?.fieldId).toBe("replacement");
-  });
-
-  it("managed Field lifecycle tails preserve existing text across inactive, active, and Schema states", () => {
-    const facts = fullSurface("direct");
-    const schemaChild = managedNodeId("node", "schema", "field");
-    facts.add({
-      kind: "text-splice",
-      nodeId: schemaChild,
-      deleteAtomIds: [],
-      deletedAtoms: [],
-      anchor: end,
-      insert: "X",
-    });
-
-    const advanceAndCompare = (tail: () => void) => {
-      const before = facts.snapshot();
-      const generation = rebuildGeneration("workspace", before, versions).generation;
-      const checkpoint = createGenerationCheckpoint(
-        "workspace",
-        before,
-        generation,
-        CHECKPOINT_KEY,
-      );
-      tail();
-      const after = facts.snapshot();
-      const incremental = advanceGeneration("workspace", before, after, versions, generation);
-      const full = rebuildGeneration("workspace", after, versions);
-      const checkpointTail = reconcileFromCheckpoint(
-        checkpoint,
-        "workspace",
-        after,
-        versions,
-        CHECKPOINT_KEY,
-      );
-
-      expect(incremental.generation).toEqual(full.generation);
-      expect(checkpointTail?.generation).toEqual(full.generation);
-      return incremental.generation;
-    };
-
-    const inactive = advanceAndCompare(() => {
-      facts.add({
-        kind: "value-unset",
-        owner: { kind: "schema", id: "schema" },
-        namespace: "schema",
-        key: "field",
-        previous: { kind: "set", value: 0 },
-      });
-    });
-    expect(projectionText(inactive.origin, schemaChild)).toBe("X");
-    expect(inactive.origin.managedChildren).toEqual([]);
-
-    const activeAgain = advanceAndCompare(() => {
-      facts.add({
-        kind: "value-set",
-        owner: { kind: "schema", id: "schema" },
-        namespace: "schema",
-        key: "field",
-        value: 0,
-        previous: { kind: "unset" },
-      });
-    });
-    expect(projectionText(activeAgain.origin, schemaChild)).toBe("X");
-    expect(activeAgain.origin.managedChildren.map((child) => child.nodeId)).toContain(schemaChild);
-
-    facts.add({
-      kind: "value-set",
-      owner: { kind: "schema", id: "second-schema" },
-      namespace: "schema",
-      key: "second-field",
-      value: 0,
-      previous: { kind: "unset" },
-    });
-    const switched = advanceAndCompare(() => {
-      facts.add({
-        kind: "value-set",
-        owner: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "schemaId",
-        value: "second-schema",
-        previous: { kind: "set", value: "schema" },
-      });
-    });
-    expect(projectionText(switched.origin, schemaChild)).toBe("X");
-    expect(switched.origin.managedChildren.map((child) => child.nodeId)).toEqual([
-      managedNodeId("node", "second-schema", "second-field"),
-    ]);
   });
 
   it("Direct lifecycle and structure tails stay on their owner-local incremental paths", () => {

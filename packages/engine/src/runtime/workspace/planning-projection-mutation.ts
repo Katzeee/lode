@@ -2,7 +2,6 @@ import type { FactSnapshot, JsonValue, Mutation, ViewMode } from "../../domain/f
 import {
   replayNodeIdentity,
   replayOccurrenceIdentity,
-  valueOwnerAddress,
   type Projection,
   type ProjectedNode,
   type TextAtom,
@@ -14,6 +13,7 @@ import {
   removeOccurrence,
 } from "./planning-projection-sequence.js";
 import { applySchemaPlanningMutation } from "./planning-schema-relations.js";
+import { applyPlanningValueMutation, withoutValue } from "./planning-projection-values.js";
 
 export type MutableProjection = Omit<
   Projection,
@@ -25,9 +25,12 @@ export type MutableProjection = Omit<
   | "schemaApplications"
   | "schemaFields"
   | "schemaFieldItems"
+  | "schemaTemplateNodes"
+  | "templateNodeInstances"
   | "schemaExtensions"
   | "schemaSearchMembers"
   | "schemaExtensionConflicts"
+  | "definitionStatuses"
   | "conflictIssues"
   | "effectiveFields"
   | "materializedFields"
@@ -40,9 +43,12 @@ export type MutableProjection = Omit<
   schemaApplications: Record<string, string[]>;
   schemaFields: Record<string, string[]>;
   schemaFieldItems: Record<string, Projection["schemaFieldItems"][string][number][]>;
+  schemaTemplateNodes: Record<string, string[]>;
+  templateNodeInstances: Projection["templateNodeInstances"][number][];
   schemaExtensions: Record<string, string[]>;
   schemaSearchMembers: Record<string, string[]>;
   schemaExtensionConflicts: Record<string, string[]>;
+  definitionStatuses: Record<string, Projection["definitionStatuses"][string]>;
   conflictIssues: Projection["conflictIssues"];
   effectiveFields: Projection["effectiveFields"];
   materializedFields: Record<string, Projection["materializedFields"][string][number][]>;
@@ -60,7 +66,7 @@ export function applyMutationToPlanningProjection(
   snapshot: FactSnapshot,
   view: ViewMode,
 ): void {
-  if (applyNodeLifecycle(projection, mutation, snapshot, view)) {
+  if (applyNodeLifecycle(projection, mutation, factId, snapshot, view)) {
     return;
   }
   if (applyOccurrenceMutation(projection, mutation, snapshot, view)) {
@@ -72,6 +78,7 @@ export function applyMutationToPlanningProjection(
 function applyNodeLifecycle(
   projection: MutableProjection,
   mutation: Mutation,
+  factId: string,
   snapshot: FactSnapshot,
   view: ViewMode,
 ): boolean {
@@ -94,12 +101,31 @@ function applyNodeLifecycle(
         metadata: { ...restored.metadata },
       };
     }
+    const status = projection.definitionStatuses[mutation.nodeId];
+    if (status) {
+      const deletionFactIds = status.deletionFactIds.filter(
+        (deletionFactId) => deletionFactId !== mutation.deletionFactId,
+      );
+      projection.definitionStatuses[mutation.nodeId] = {
+        ...status,
+        state: deletionFactIds.length === 0 ? "active" : "deleted",
+        deletionFactIds,
+      };
+    }
     return true;
   }
   if (mutation.kind !== "node-delete") {
     return false;
   }
   delete projection.nodes[mutation.nodeId];
+  const status = projection.definitionStatuses[mutation.nodeId];
+  if (status) {
+    projection.definitionStatuses[mutation.nodeId] = {
+      ...status,
+      state: "deleted",
+      deletionFactIds: [...status.deletionFactIds, factId],
+    };
+  }
   for (const occurrence of Object.values(projection.occurrences)) {
     if (occurrence.nodeId === mutation.nodeId) {
       removeOccurrence(projection, occurrence.occurrenceId, "cascade");
@@ -145,6 +171,27 @@ function applyOccurrenceMutation(
     case "occurrence-delete":
       removeOccurrence(projection, mutation.occurrenceId, mutation.childPolicy);
       return true;
+    case "field-value-delete":
+      removeOccurrence(projection, mutation.valueOccurrenceId, "cascade");
+      projection.materializedFields[mutation.ownerNodeId] = (
+        projection.materializedFields[mutation.ownerNodeId] ?? []
+      ).map((field) =>
+        field.fieldDefinitionId === mutation.fieldDefinitionId
+          ? {
+              ...field,
+              valueOccurrenceIds: field.valueOccurrenceIds.filter(
+                (occurrenceId) => occurrenceId !== mutation.valueOccurrenceId,
+              ),
+            }
+          : field,
+      );
+      return true;
+    case "materialized-field-delete":
+      removeOccurrence(projection, mutation.fieldOccurrenceId, "cascade");
+      projection.materializedFields[mutation.ownerNodeId] = (
+        projection.materializedFields[mutation.ownerNodeId] ?? []
+      ).filter((field) => field.fieldDefinitionId !== mutation.fieldDefinitionId);
+      return true;
     case "occurrence-move": {
       const occurrence = projection.occurrences[mutation.occurrenceId];
       if (occurrence) {
@@ -179,6 +226,9 @@ function applyOccurrenceMutation(
     case "schema-field-configure":
     case "schema-extension-add":
     case "schema-extension-remove":
+    case "schema-template-node-add":
+    case "schema-template-node-remove":
+    case "template-node-detach":
     case "field-materialize":
     case "field-initialize":
       return false;
@@ -220,7 +270,7 @@ function applyContentMutation(
             ...atom,
             attributes:
               mutation.value.kind === "unset"
-                ? without(atom.attributes, mutation.key)
+                ? withoutValue(atom.attributes, mutation.key)
                 : { ...atom.attributes, [mutation.key]: mutation.value.value },
           }
         : atom,
@@ -228,58 +278,6 @@ function applyContentMutation(
     return;
   }
   if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    applyValue(projection, mutation);
+    applyPlanningValueMutation(projection, mutation);
   }
-}
-
-function applyValue(
-  projection: MutableProjection,
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-): void {
-  const values = mutableValues(projection, mutation);
-  if (!values) {
-    return;
-  }
-  if (mutation.kind === "value-set") {
-    values[mutation.key] = mutation.value;
-  } else {
-    delete values[mutation.key];
-  }
-}
-
-function mutableValues(
-  projection: MutableProjection,
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-): Record<string, JsonValue> | null {
-  if (mutation.owner.kind === "node") {
-    const node = projection.nodes[mutation.owner.id];
-    if (!node) {
-      return null;
-    }
-    return mutation.namespace === "metadata" ? node.metadata : node.properties;
-  }
-  if (mutation.owner.kind === "occurrence") {
-    const occurrence = projection.occurrences[mutation.owner.id];
-    if (!occurrence) {
-      return null;
-    }
-    const values = {
-      ...(mutation.namespace === "metadata" ? occurrence.metadata : occurrence.properties),
-    };
-    projection.occurrences[mutation.owner.id] = {
-      ...occurrence,
-      [mutation.namespace === "metadata" ? "metadata" : "properties"]: values,
-    };
-    return values;
-  }
-  const address = valueOwnerAddress(mutation.owner, mutation.namespace);
-  const values = { ...projection.addressedValues[address] };
-  projection.addressedValues[address] = values;
-  return values;
-}
-
-function without(values: Readonly<Record<string, JsonValue>>, key: string) {
-  const next = { ...values };
-  delete next[key];
-  return next;
 }

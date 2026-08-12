@@ -1,24 +1,28 @@
-import { type ContributionFact, type FactSnapshot, type ViewMode } from "../fact/index.js";
+import { type ContributionFact } from "../fact/index.js";
 import { compileOwnerDag, type OwnerKey } from "./owner-dag.js";
 import {
   activeContributions,
   activeFactsFromCache,
   incrementalOwnerCache,
 } from "./projection-active.js";
-import { applyText, applyValues, deriveManagedChildren } from "./projection-content.js";
-import { createNodes, createOccurrences, validateStoredTree } from "./projection-state.js";
-import { normalizedCanonicals, removeManagedOutputs } from "./projection-canonicals.js";
-import type { Projection, ProjectionOwnerCache, ProjectionVersions } from "./projection-types.js";
+import { applyText, applyValues } from "./projection-content.js";
+import { createNodes, createOccurrences } from "./projection-state.js";
+import { validateStoredTree } from "./occurrence-tree.js";
+import { normalizedCanonicals } from "./projection-canonicals.js";
 import { assembleProjection } from "./projection-value-assembly.js";
 import { deriveSchemaRelations } from "./schema-relations.js";
 import { projectConflictIssues } from "./projection-conflicts.js";
 import { projectInitializedFields } from "./initialized-field.js";
+import type { ProjectionOwnerContext } from "./projection-owner-context.js";
+import { projectDefinitionStatuses } from "./definition-status.js";
+import { knownNodeIds, nodeDeletionFactIds } from "./node-lifecycle.js";
+import { excludePurgedContributions, purgedNodeIds } from "./maintenance-projection.js";
 import {
-  emptyOwnerContext,
-  incrementalOwnerContext,
-  type ProjectionOwnerContext,
-  type ProjectionOwnerObserver,
-} from "./projection-owner-context.js";
+  projectTemplateNodeInstances,
+  removeTemplateNodeOutputs,
+} from "./template-node-projection.js";
+import { pendingProposalFacts } from "../review/evidence.js";
+import { reviewPaginationScopes } from "../review/pagination-scopes.js";
 
 export type { ProjectionOwnerObserver } from "./projection-owner-context.js";
 function evaluated(
@@ -37,15 +41,23 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
     writes: ["active-contributions", "support-index"],
     evaluate: evaluated("activation", (context) => {
       if (context.incremental) {
-        context.ownerCache = incrementalOwnerCache(context.previousOwnerCache, context.active);
+        context.ownerCache = incrementalOwnerCache(
+          context.previousOwnerCache,
+          context.active,
+          context.snapshot,
+        );
         context.allActive = context.requiresAllActive
           ? activeFactsFromCache(context.snapshot, context.previousOwnerCache, context.active)
           : context.active;
+        const purged = purgedNodeIds(context.snapshot.facts);
+        context.active = excludePurgedContributions(context.active, purged);
+        context.allActive = excludePurgedContributions(context.allActive, purged);
         return;
       }
       const activation = activeContributions(context.snapshot, context.view);
-      context.active = activation.facts;
-      context.allActive = activation.facts;
+      const purged = purgedNodeIds(context.snapshot.facts);
+      context.active = excludePurgedContributions(activation.facts, purged);
+      context.allActive = context.active;
       context.ownerCache = activation.cache;
     }),
   },
@@ -77,14 +89,21 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
     evaluate: evaluated("text", (context) => {
       if (context.replayAllActive) {
         for (const node of context.nodes.values()) {
-          node.text = [];
+          if (!context.managedTextReplayNodeIds.has(node.nodeId)) {
+            node.text = [];
+          }
         }
         applyText(context.allActive, context.nodes);
         return;
       }
+      const templateSnapshotNodeIds = new Set(
+        context.templateNodeInstances.flatMap((instance) =>
+          instance.instanceNodeId === null ? [] : [instance.instanceNodeId],
+        ),
+      );
       for (const nodeId of context.managedTextReplayNodeIds) {
         const node = context.nodes.get(nodeId);
-        if (node) {
+        if (node && !templateSnapshotNodeIds.has(nodeId)) {
           node.text = [];
         }
       }
@@ -131,13 +150,7 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
   {
     key: "schema",
     dependencies: ["value", "occurrence", "canonical"],
-    writes: [
-      "managed-nodes",
-      "managed-occurrences",
-      "managed-children-sequences",
-      "managed-canonicals",
-      "managed-children",
-    ],
+    writes: ["schema-relations", "effective-fields", "materialized-fields"],
     evaluate: evaluated("schema", (context) => {
       const initializedFields = projectInitializedFields(
         context.allActive,
@@ -149,6 +162,7 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
       const relations = deriveSchemaRelations(
         context.allActive,
         new Set(context.nodes.keys()),
+        knownNodeIds(context.allActive),
         context.occurrences,
         context.children,
         initializedFields,
@@ -156,38 +170,55 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
       context.schemaApplications = relations.schemaApplications;
       context.schemaFields = relations.schemaFields;
       context.schemaFieldItems = relations.schemaFieldItems;
+      context.schemaTemplateNodes = relations.schemaTemplateNodes;
       context.schemaExtensions = relations.schemaExtensions;
       context.schemaSearchMembers = relations.schemaSearchMembers;
       context.schemaExtensionConflicts = relations.schemaExtensionConflicts;
+      context.definitionStatuses = projectDefinitionStatuses(
+        context.allActive,
+        new Set(context.nodes.keys()),
+        nodeDeletionFactIds(context.allActive),
+      );
       context.conflictIssues = projectConflictIssues(
         context.snapshot,
         relations.schemaExtensionConflicts,
         relations.schemaFieldItems,
         relations.effectiveFields,
+        context.allActive,
+        context.occurrences,
       );
       context.effectiveFields = relations.effectiveFields;
       context.materializedFields = relations.materializedFields;
-      const rebuiltManagedNodeIds = new Set(context.managedChildren.map((child) => child.nodeId));
+      const rebuiltManagedNodeIds = new Set<string>();
+      for (const instance of context.templateNodeInstances) {
+        if (instance.instanceNodeId !== null) {
+          rebuiltManagedNodeIds.add(instance.instanceNodeId);
+        }
+      }
       if (context.incremental) {
-        context.canonicalOccurrences = removeManagedOutputs(
-          context.managedChildren,
+        context.canonicalOccurrences = removeTemplateNodeOutputs(
+          context.templateNodeInstances,
           context.nodes,
           context.occurrences,
           context.children,
           context.canonicalOccurrences,
         );
-        context.managedChildren = [];
+        context.templateNodeInstances = [];
       }
-      context.managedChildren = deriveManagedChildren(
+      context.templateNodeInstances = projectTemplateNodeInstances(
+        context.allActive,
+        context.schemaApplications,
+        context.schemaTemplateNodes,
+        context.schemaExtensions,
         context.nodes,
         context.occurrences,
         context.children,
         context.canonicalOccurrences,
-        context.addressedValues,
-        context.allActive,
       );
-      for (const child of context.managedChildren) {
-        rebuiltManagedNodeIds.add(child.nodeId);
+      for (const instance of context.templateNodeInstances) {
+        if (instance.instanceNodeId !== null) {
+          rebuiltManagedNodeIds.add(instance.instanceNodeId);
+        }
       }
       context.managedTextReplayNodeIds = rebuiltManagedNodeIds;
       context.canonicalOccurrences = normalizedCanonicals(
@@ -204,58 +235,24 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
     writes: ["projection"],
     evaluate: evaluated("assembly", (context) => {
       validateStoredTree(context.occurrences);
+      context.supportByContribution = context.ownerCache.supportByContribution;
+      if (!context.incremental) {
+        context.reviewScopes =
+          context.view === "review"
+            ? Object.fromEntries(
+                [
+                  ...reviewPaginationScopes(
+                    pendingProposalFacts(context.snapshot),
+                    (occurrenceId) => context.occurrences.get(occurrenceId)?.nodeId ?? null,
+                  ),
+                ].map(([identity, facts]) => [identity, facts.map((fact) => fact.id)]),
+              )
+            : {};
+      }
       context.projection = assembleProjection(context);
     }),
   },
 ]);
-export function projectWithOwnerPlan(
-  workspaceId: string,
-  snapshot: FactSnapshot,
-  view: ViewMode,
-  versions: ProjectionVersions,
-  observer?: ProjectionOwnerObserver,
-): Readonly<{
-  projection: Projection;
-  ownerCache: ProjectionOwnerCache;
-  evaluatedOwners: readonly OwnerKey[];
-}> {
-  const context = emptyOwnerContext(workspaceId, snapshot, view, versions, observer);
-  const evaluatedOwners = PROJECTION_OWNER_DAG.run(context);
-  if (!context.projection) {
-    throw new Error("Projection owner plan did not assemble a Projection");
-  }
-  return { projection: context.projection, ownerCache: context.ownerCache, evaluatedOwners };
-}
-export function advanceWithOwnerPlan(
-  workspaceId: string,
-  previous: Projection,
-  previousCache: ProjectionOwnerCache,
-  snapshot: FactSnapshot,
-  activeTail: readonly ContributionFact[],
-  versions: ProjectionVersions,
-  selected: ReadonlySet<OwnerKey>,
-  observer?: ProjectionOwnerObserver,
-): Readonly<{
-  projection: Projection;
-  ownerCache: ProjectionOwnerCache;
-  evaluatedOwners: readonly OwnerKey[];
-}> {
-  const context = incrementalOwnerContext(
-    workspaceId,
-    previous,
-    previousCache,
-    snapshot,
-    activeTail,
-    versions,
-    selected,
-    observer,
-  );
-  const evaluatedOwners = PROJECTION_OWNER_DAG.run(context, selected);
-  if (!context.projection) {
-    throw new Error("Incremental owner plan did not assemble a Projection");
-  }
-  return { projection: context.projection, ownerCache: context.ownerCache, evaluatedOwners };
-}
 function textNodeId(fact: ContributionFact): string | null {
   const mutation = fact.body.mutation;
   return mutation.kind === "text-splice" || mutation.kind === "text-mark" ? mutation.nodeId : null;

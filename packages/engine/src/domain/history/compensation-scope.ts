@@ -18,7 +18,7 @@ export function scopedHistoryFacts(
   const scope = emptyScope();
   const selected = new Set(targets.map((target) => target.id));
   targets.forEach((target) => addMutation(scope, target.body.mutation));
-  addManagedScope(scope, projection);
+  addTemplateScope(scope, projection);
   let changed = true;
   while (changed) {
     changed = false;
@@ -33,10 +33,13 @@ export function scopedHistoryFacts(
         }
         continue;
       }
+      if (fact.body.kind === "maintenance") {
+        continue;
+      }
       if (scope.factIds.has(fact.id) || mutationTouches(scope, fact.body.mutation)) {
         selected.add(fact.id);
         addMutation(scope, fact.body.mutation);
-        addManagedScope(scope, projection);
+        addTemplateScope(scope, projection);
         changed = true;
       }
     }
@@ -55,20 +58,22 @@ function emptyScope(): HistoryScope {
   };
 }
 
-function addManagedScope(scope: HistoryScope, projection: Projection): void {
-  for (const child of projection.managedChildren) {
+function addTemplateScope(scope: HistoryScope, projection: Projection): void {
+  for (const instance of projection.templateNodeInstances) {
     if (
-      scope.nodes.has(child.nodeId) ||
-      scope.occurrences.has(child.occurrenceId) ||
-      scope.nodes.has(child.parentNodeId) ||
-      scope.schemas.has(child.schemaId) ||
-      scope.fields.has(child.fieldId)
+      scope.nodes.has(instance.ownerNodeId) ||
+      scope.nodes.has(instance.templateNodeId) ||
+      (instance.instanceNodeId !== null && scope.nodes.has(instance.instanceNodeId)) ||
+      scope.occurrences.has(instance.instanceOccurrenceId) ||
+      instance.sources.some((source) => scope.schemas.has(source.schemaId))
     ) {
-      scope.nodes.add(child.nodeId);
-      scope.nodes.add(child.parentNodeId);
-      scope.occurrences.add(child.occurrenceId);
-      scope.schemas.add(child.schemaId);
-      scope.fields.add(child.fieldId);
+      scope.nodes.add(instance.ownerNodeId);
+      scope.nodes.add(instance.templateNodeId);
+      if (instance.instanceNodeId !== null) {
+        scope.nodes.add(instance.instanceNodeId);
+      }
+      scope.occurrences.add(instance.instanceOccurrenceId);
+      instance.sources.forEach((source) => scope.schemas.add(source.schemaId));
     }
   }
 }
@@ -107,9 +112,39 @@ function addMutation(scope: HistoryScope, mutation: Mutation): void {
     ) {
       scope.schemas.add(mutation.baseSchemaId);
       scope.nodes.add(mutation.baseSchemaId);
+    } else if (
+      mutation.kind === "schema-template-node-add" ||
+      mutation.kind === "schema-template-node-remove"
+    ) {
+      scope.nodes.add(mutation.templateNodeId);
     } else {
       scope.fields.add(mutation.fieldDefinitionId);
       scope.nodes.add(mutation.fieldDefinitionId);
+    }
+  }
+  if (mutation.kind === "template-node-detach") {
+    scope.nodes.add(mutation.ownerNodeId);
+    scope.nodes.add(mutation.templateNodeId);
+    mutation.sourceSchemaIds?.forEach((schemaId) => scope.schemas.add(schemaId));
+  }
+  if (
+    mutation.kind === "field-materialize" ||
+    mutation.kind === "field-initialize" ||
+    mutation.kind === "field-value-delete" ||
+    mutation.kind === "materialized-field-delete"
+  ) {
+    scope.nodes.add(mutation.ownerNodeId);
+    scope.fields.add(mutation.fieldDefinitionId);
+    if (mutation.kind === "field-initialize") {
+      scope.schemas.add(mutation.schemaId);
+    } else if (
+      mutation.kind === "field-materialize" ||
+      mutation.kind === "materialized-field-delete"
+    ) {
+      scope.nodes.add(mutation.fieldNodeId);
+      scope.occurrences.add(mutation.fieldOccurrenceId);
+    } else {
+      scope.occurrences.add(mutation.valueOccurrenceId);
     }
   }
   if (mutation.kind === "text-splice") {
@@ -149,7 +184,33 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
         ? scope.nodes.has(mutation.nodeId)
         : mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
           ? scope.schemas.has(mutation.baseSchemaId)
-          : scope.fields.has(mutation.fieldDefinitionId))
+          : mutation.kind === "schema-template-node-add" ||
+              mutation.kind === "schema-template-node-remove"
+            ? scope.nodes.has(mutation.templateNodeId)
+            : scope.fields.has(mutation.fieldDefinitionId))
+    );
+  }
+  if (mutation.kind === "template-node-detach") {
+    return (
+      scope.nodes.has(mutation.ownerNodeId) ||
+      scope.nodes.has(mutation.templateNodeId) ||
+      (mutation.sourceSchemaIds ?? []).some((schemaId) => scope.schemas.has(schemaId))
+    );
+  }
+  if (
+    mutation.kind === "field-materialize" ||
+    mutation.kind === "field-initialize" ||
+    mutation.kind === "field-value-delete" ||
+    mutation.kind === "materialized-field-delete"
+  ) {
+    return (
+      scope.nodes.has(mutation.ownerNodeId) ||
+      scope.fields.has(mutation.fieldDefinitionId) ||
+      (mutation.kind === "field-initialize" && scope.schemas.has(mutation.schemaId)) ||
+      ((mutation.kind === "field-materialize" || mutation.kind === "materialized-field-delete") &&
+        (scope.nodes.has(mutation.fieldNodeId) ||
+          scope.occurrences.has(mutation.fieldOccurrenceId))) ||
+      (mutation.kind === "field-value-delete" && scope.occurrences.has(mutation.valueOccurrenceId))
     );
   }
   if (

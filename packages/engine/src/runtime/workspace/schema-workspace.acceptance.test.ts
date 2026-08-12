@@ -5,7 +5,7 @@ import { InMemoryDocumentStore } from "../../persistence/in-memory-document-stor
 import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Schema product model", () => {
@@ -42,6 +42,466 @@ describe("Schema product model", () => {
       ).status,
     ).toBe("published");
     await expectSchemaProjection(restarted.workspace, ["work-schema"]);
+  });
+
+  it("shows deleted Definitions, blocks new use, permits cleanup, and restores the same identity", async () => {
+    const documents = new InMemoryDocumentStore();
+    const opened = await open(documents, "111");
+    const setup = await opened.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "definition-lifecycle-setup",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      mutations: [...schemaProgram(), { kind: "node-create", nodeId: "other" }],
+    });
+    expect(setup.status).toBe("published");
+
+    const deletion = await opened.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "delete-project-definition",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      mutations: [{ kind: "node-delete", nodeId: "project-schema" }],
+    });
+    if (deletion.status !== "published") {
+      throw new Error("Expected Definition tombstone to publish");
+    }
+    const deletionFactId = deletion.receipt.factIds[0];
+    if (!deletionFactId) {
+      throw new Error("Expected Definition deletion Fact identity");
+    }
+    expect(await readDefinitionStatus(opened.workspace, "project-schema")).toMatchObject({
+      definitionId: "project-schema",
+      state: "deleted",
+      deletionFactIds: [deletionFactId],
+    });
+    expect(await readSchemaApplications(opened.workspace, "origin")).toMatchObject({
+      task: ["project-schema", "work-schema"],
+    });
+
+    const blocked = await opened.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "apply-deleted-definition",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      mutations: [
+        { kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end },
+      ],
+    });
+    expect(blocked).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "remove-deleted-definition-application",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [{ kind: "schema-remove", nodeId: "task", schemaId: "project-schema" }],
+        })
+      ).status,
+    ).toBe("published");
+
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "restore-project-definition",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            {
+              kind: "node-restore",
+              nodeId: "project-schema",
+              deletionFactId,
+            },
+            { kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(await readDefinitionStatus(opened.workspace, "project-schema")).toMatchObject({
+      state: "active",
+      deletionFactIds: [],
+    });
+    expect(await readSchemaApplications(opened.workspace, "origin")).toMatchObject({
+      other: ["project-schema"],
+    });
+  });
+
+  it("reviews a Definition tombstone before it changes Origin", async () => {
+    const documents = new InMemoryDocumentStore();
+    const opened = await open(documents, "112");
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "proposal-tombstone-setup",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: schemaProgram(),
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "propose-schema-tombstone",
+          actorId: "actor",
+          intent: "proposal",
+          historyChannelId: "desktop",
+          mutations: [{ kind: "node-delete", nodeId: "project-schema" }],
+        })
+      ).status,
+    ).toBe("published");
+
+    expect(await readDefinitionStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
+      state: "active",
+    });
+    expect(await readDefinitionStatus(opened.workspace, "project-schema", "review")).toMatchObject({
+      state: "deleted",
+    });
+    expect(await readSchemaApplications(opened.workspace, "origin")).toMatchObject({
+      task: ["project-schema", "work-schema"],
+    });
+    expect(await readSchemaApplications(opened.workspace, "review")).toMatchObject({
+      task: ["project-schema", "work-schema"],
+    });
+
+    const review = await opened.workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || !review.hunks[0]) {
+      throw new Error("Expected Definition tombstone Review Hunk");
+    }
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "resolve-review",
+          workspaceId: "workspace",
+          invocationId: "accept-schema-tombstone",
+          actorId: "reviewer",
+          decision: "accept",
+          selection: review.hunks[0].selection,
+        })
+      ).status,
+    ).toBe("published");
+    expect(await readDefinitionStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
+      state: "deleted",
+    });
+  });
+
+  it("makes a Definition tombstone selection stale when a newly related instance appears", async () => {
+    const opened = await open(new InMemoryDocumentStore(), "113");
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "field-tombstone-setup",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [...schemaProgram(), { kind: "node-create", nodeId: "task-2" }],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "propose-field-tombstone",
+          actorId: "actor",
+          intent: "proposal",
+          historyChannelId: "desktop",
+          mutations: [{ kind: "node-delete", nodeId: "status-field" }],
+        })
+      ).status,
+    ).toBe("published");
+    const review = await opened.workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || !review.hunks[0]) {
+      throw new Error("Expected Field Definition tombstone Review Hunk");
+    }
+    const selection = review.hunks[0].selection;
+    expect(
+      selection.evidence.associatedImpactIds.some((impact) =>
+        impact.startsWith("seffective-field/stask/sstatus-field/"),
+      ),
+    ).toBe(true);
+
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "new-related-instance",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            { kind: "schema-apply", nodeId: "task-2", schemaId: "project-schema", anchor: end },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await opened.workspace.execute({
+        kind: "resolve-review",
+        workspaceId: "workspace",
+        invocationId: "accept-stale-tombstone",
+        actorId: "reviewer",
+        decision: "accept",
+        selection,
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "stale-selection" } });
+    const refreshed = await opened.workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in refreshed) || !refreshed.hunks[0]) {
+      throw new Error("Expected refreshed Field Definition tombstone Review Hunk");
+    }
+    expect(
+      refreshed.hunks[0].selection.evidence.associatedImpactIds.some((impact) =>
+        impact.startsWith("seffective-field/stask-2/sstatus-field/"),
+      ),
+    ).toBe(true);
+  });
+
+  it("makes Schema tombstone and Extension selections stale when affected Fields materialize", async () => {
+    const tombstone = await open(new InMemoryDocumentStore(), "114");
+    expect(
+      (
+        await tombstone.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "schema-tombstone-materialization-setup",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            ...schemaProgram(),
+            { kind: "node-create", nodeId: "late-field-node" },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "task-root",
+              nodeId: "task",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "late-field-occurrence",
+              nodeId: "late-field-node",
+              parentOccurrenceId: "task-root",
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    await tombstone.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "propose-schema-tombstone-for-materialization",
+      actorId: "actor",
+      intent: "proposal",
+      historyChannelId: "desktop",
+      mutations: [{ kind: "node-delete", nodeId: "project-schema" }],
+    });
+    const tombstoneReview = await tombstone.workspace.query({
+      kind: "review",
+      workspaceId: "workspace",
+    });
+    if (!("hunks" in tombstoneReview) || !tombstoneReview.hunks[0]) {
+      throw new Error("Expected Schema tombstone Review Hunk");
+    }
+    const tombstoneSelection = tombstoneReview.hunks[0].selection;
+    expect(
+      tombstoneSelection.evidence.associatedImpactIds.some((impact) =>
+        impact.startsWith("seffective-field/stask/sstatus-field/"),
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await tombstone.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "materialize-during-schema-tombstone",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            {
+              kind: "field-materialize",
+              ownerNodeId: "task",
+              fieldDefinitionId: "status-field",
+              fieldNodeId: "late-field-node",
+              fieldOccurrenceId: "late-field-occurrence",
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await tombstone.workspace.execute({
+        kind: "resolve-review",
+        workspaceId: "workspace",
+        invocationId: "reject-stale-schema-tombstone",
+        actorId: "reviewer",
+        decision: "accept",
+        selection: tombstoneSelection,
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "stale-selection" } });
+    const refreshedTombstone = await tombstone.workspace.query({
+      kind: "review",
+      workspaceId: "workspace",
+    });
+    if (!("hunks" in refreshedTombstone) || !refreshedTombstone.hunks[0]) {
+      throw new Error("Expected refreshed Schema tombstone Review Hunk");
+    }
+    expect(refreshedTombstone.hunks[0].selection.evidence.associatedImpactIds).toEqual(
+      expect.arrayContaining([
+        "smaterialized-field/stask/sstatus-field",
+        "late-field-node",
+        "late-field-occurrence",
+      ]),
+    );
+
+    const extension = await open(new InMemoryDocumentStore(), "115");
+    expect(
+      (
+        await extension.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "extension-materialization-setup",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            { kind: "node-create", nodeId: "note" },
+            { kind: "node-create", nodeId: "base-schema" },
+            { kind: "node-create", nodeId: "child-schema" },
+            { kind: "node-create", nodeId: "base-field" },
+            { kind: "node-create", nodeId: "extension-field-node" },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "note-root",
+              nodeId: "note",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "extension-field-occurrence",
+              nodeId: "extension-field-node",
+              parentOccurrenceId: "note-root",
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "schema-field-add",
+              schemaId: "base-schema",
+              fieldDefinitionId: "base-field",
+              anchor: end,
+            },
+            { kind: "schema-apply", nodeId: "note", schemaId: "child-schema", anchor: end },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    await extension.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "propose-extension-for-materialization",
+      actorId: "actor",
+      intent: "proposal",
+      historyChannelId: "desktop",
+      mutations: [
+        {
+          kind: "schema-extension-add",
+          schemaId: "child-schema",
+          baseSchemaId: "base-schema",
+          anchor: end,
+        },
+      ],
+    });
+    const extensionReview = await extension.workspace.query({
+      kind: "review",
+      workspaceId: "workspace",
+    });
+    if (!("hunks" in extensionReview) || !extensionReview.hunks[0]) {
+      throw new Error("Expected Extension Review Hunk");
+    }
+    const extensionSelection = extensionReview.hunks[0].selection;
+    expect(
+      extensionSelection.evidence.associatedImpactIds.some((impact) =>
+        impact.startsWith("seffective-field/snote/sbase-field/"),
+      ),
+    ).toBe(true);
+    expect(
+      extensionSelection.evidence.associatedImpactIds.some((impact) =>
+        impact.startsWith("seffective-field/schild-schema/"),
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await extension.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "materialize-during-extension-proposal",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            {
+              kind: "field-materialize",
+              ownerNodeId: "note",
+              fieldDefinitionId: "base-field",
+              fieldNodeId: "extension-field-node",
+              fieldOccurrenceId: "extension-field-occurrence",
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await extension.workspace.execute({
+        kind: "resolve-review",
+        workspaceId: "workspace",
+        invocationId: "reject-stale-extension",
+        actorId: "reviewer",
+        decision: "accept",
+        selection: extensionSelection,
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "stale-selection" } });
+    const refreshedExtension = await extension.workspace.query({
+      kind: "review",
+      workspaceId: "workspace",
+    });
+    if (!("hunks" in refreshedExtension) || !refreshedExtension.hunks[0]) {
+      throw new Error("Expected refreshed Extension Review Hunk");
+    }
+    expect(refreshedExtension.hunks[0].selection.evidence.associatedImpactIds).toEqual(
+      expect.arrayContaining([
+        "smaterialized-field/snote/sbase-field",
+        "extension-field-node",
+        "extension-field-occurrence",
+      ]),
+    );
   });
 
   it("projects stable Field Template Items and keeps independent defaults as a conflict", async () => {
@@ -872,6 +1332,180 @@ describe("Schema product model", () => {
     await expectMaterializedField(restarted.workspace, []);
   });
 
+  it("keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values", async () => {
+    const documents = new InMemoryDocumentStore();
+    const first = await open(documents, "615");
+    expect(
+      (
+        await first.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "optional-field-setup",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            ...["task", "task-schema", "notes-field"].map((nodeId): Mutation => ({
+              kind: "node-create",
+              nodeId,
+            })),
+            {
+              kind: "occurrence-create",
+              occurrenceId: "task-occurrence",
+              nodeId: "task",
+              parentOccurrenceId: null,
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "schema-field-add",
+              schemaId: "task-schema",
+              fieldDefinitionId: "notes-field",
+              anchor: end,
+            },
+            {
+              kind: "schema-field-configure",
+              schemaId: "task-schema",
+              fieldDefinitionId: "notes-field",
+              config: { visibility: "optional", staticDefault: null, initializer: null },
+            },
+            { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect((await readProjectionMap(first.workspace, "origin", "effectiveFields")).task).toEqual(
+      [],
+    );
+    expect(await projectionEntries(first.workspace, "materializedFields")).toEqual({});
+    const items = await first.workspace.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      view: "origin",
+      section: "schemaFieldItems",
+    });
+    expect(
+      "schemaFieldItems" in items ? items.schemaFieldItems["task-schema"] : null,
+    ).toMatchObject([
+      { fieldDefinitionId: "notes-field", effectiveConfig: { visibility: "optional" } },
+    ]);
+
+    expect(
+      (
+        await first.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "select-empty-optional-field",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            { kind: "node-create", nodeId: "notes-on-task" },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "notes-on-task-occurrence",
+              nodeId: "notes-on-task",
+              parentOccurrenceId: "task-occurrence",
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "field-materialize",
+              ownerNodeId: "task",
+              fieldDefinitionId: "notes-field",
+              fieldNodeId: "notes-on-task",
+              fieldOccurrenceId: "notes-on-task-occurrence",
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect((await projectionEntries(first.workspace, "materializedFields")).task).toMatchObject([
+      { fieldDefinitionId: "notes-field", valueOccurrenceIds: [] },
+    ]);
+
+    expect(
+      (
+        await first.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "nested-field-value",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [
+            { kind: "node-create", nodeId: "value" },
+            { kind: "node-create", nodeId: "nested" },
+            {
+              kind: "text-splice",
+              nodeId: "value",
+              deleteAtomIds: [],
+              anchor: end,
+              insert: "value content",
+            },
+            {
+              kind: "text-splice",
+              nodeId: "nested",
+              deleteAtomIds: [],
+              anchor: end,
+              insert: "nested content",
+            },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "value-occurrence",
+              nodeId: "value",
+              parentOccurrenceId: "notes-on-task-occurrence",
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+            {
+              kind: "occurrence-create",
+              occurrenceId: "nested-occurrence",
+              nodeId: "nested",
+              parentOccurrenceId: "value-occurrence",
+              parentPolicy: "cascade",
+              anchor: end,
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect((await projectionEntries(first.workspace, "children"))["value-occurrence"]).toEqual([
+      "nested-occurrence",
+    ]);
+
+    expect(
+      (
+        await first.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "remove-optional-source",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [{ kind: "schema-remove", nodeId: "task", schemaId: "task-schema" }],
+        })
+      ).status,
+    ).toBe("published");
+    await first.workspace.close();
+
+    const restarted = await open(documents, "616");
+    expect((await projectionEntries(restarted.workspace, "materializedFields")).task).toMatchObject(
+      [
+        {
+          fieldDefinitionId: "notes-field",
+          fieldNodeId: "notes-on-task",
+          valueOccurrenceIds: ["value-occurrence"],
+        },
+      ],
+    );
+    expect((await projectionEntries(restarted.workspace, "children"))["value-occurrence"]).toEqual([
+      "nested-occurrence",
+    ]);
+    await expectNodeText(restarted.workspace, "value", "value content");
+    await expectNodeText(restarted.workspace, "nested", "nested content");
+  });
+
   it("undoes and redoes ordered Schema Application and Field Contribution relations", async () => {
     const documents = new InMemoryDocumentStore();
     const { workspace } = await open(documents, "707");
@@ -1135,6 +1769,23 @@ async function readSchemaFields(
   return result.schemaFields;
 }
 
+async function readDefinitionStatus(
+  workspace: ProposalWorkspace,
+  definitionId: string,
+  view: "origin" | "review" = "origin",
+) {
+  const result = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    view,
+    section: "definitionStatuses",
+  });
+  if (!("definitionStatuses" in result)) {
+    throw new Error("Expected Definition Status Projection");
+  }
+  return result.definitionStatuses[definitionId];
+}
+
 async function readProjectionMap(
   workspace: ProposalWorkspace,
   view: "origin" | "review",
@@ -1146,6 +1797,23 @@ async function readProjectionMap(
     workspaceId: "workspace",
     view,
     section,
+  });
+  if (!("entries" in result) || result.section !== section) {
+    throw new Error(`Expected ${section} Projection`);
+  }
+  return Object.fromEntries(result.entries.map((entry) => [entry.identity, entry.value]));
+}
+
+async function projectionEntries(
+  workspace: ProposalWorkspace,
+  section: "children" | "materializedFields",
+): Promise<Readonly<Record<string, unknown>>> {
+  const result = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    view: "origin",
+    section,
+    limit: 100,
   });
   if (!("entries" in result) || result.section !== section) {
     throw new Error(`Expected ${section} Projection`);

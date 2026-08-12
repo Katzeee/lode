@@ -35,13 +35,15 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
       "children",
       "canonicalOccurrences",
       "addressedValues",
-      "managedChildren",
       "schemaApplications",
       "schemaFields",
       "schemaFieldItems",
+      "schemaTemplateNodes",
+      "templateNodeInstances",
       "schemaExtensions",
       "schemaSearchMembers",
       "schemaExtensionConflicts",
+      "definitionStatuses",
       "conflictIssues",
       "effectiveFields",
       "materializedFields",
@@ -71,30 +73,27 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     section === "addressedValues"
       ? parseIndexed(value.addressedValues, "values", jsonRecord)
       : empty(value.addressedValues, "values");
-  const managedChildren =
-    section === "managedChildren"
-      ? array(value.managedChildren, "managed children", managedChild)
-      : emptyArray(value.managedChildren, "managed children");
+  const templateNodeInstances =
+    section === "templateNodeInstances"
+      ? array(value.templateNodeInstances, "Template Node instances", templateNodeInstance)
+      : emptyArray(value.templateNodeInstances, "Template Node instances");
   const schema = parseSchemaProjectionMaps(section, value);
   const conflictIssues =
     section === "conflictIssues"
       ? parseIndexed(value.conflictIssues, "conflict issues", parseConflictIssue)
       : empty(value.conflictIssues, "conflict issues");
-  const consistent =
-    section === "managedChildren"
-      ? JSON.stringify(managedChildren) === JSON.stringify(entries.map((entry) => entry.value))
-      : JSON.stringify(
-          {
-            nodes,
-            occurrences,
-            children,
-            canonicalOccurrences,
-            addressedValues,
-            ...schema,
-            conflictIssues,
-          }[section],
-        ) === JSON.stringify(expected);
-  if (!consistent) {
+  if (
+    !pageEntriesAgree(section, entries, expected, {
+      nodes,
+      occurrences,
+      children,
+      canonicalOccurrences,
+      addressedValues,
+      templateNodeInstances,
+      ...schema,
+      conflictIssues,
+    })
+  ) {
     throw new Error("Projection page entries and section map disagree");
   }
   return {
@@ -108,10 +107,22 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     children,
     canonicalOccurrences,
     addressedValues,
-    managedChildren,
+    templateNodeInstances,
     ...schema,
     conflictIssues,
   };
+}
+
+function pageEntriesAgree(
+  section: ProjectionPageSection,
+  entries: readonly Readonly<{ value: ProjectionPageValue }>[],
+  expected: Readonly<Record<string, ProjectionPageValue>>,
+  page: Readonly<Record<ProjectionPageSection, unknown>>,
+): boolean {
+  const actual = page[section];
+  const expectedValue =
+    section === "templateNodeInstances" ? entries.map((entry) => entry.value) : expected;
+  return JSON.stringify(actual) === JSON.stringify(expectedValue);
 }
 
 const PROJECTION_PAGE_SECTIONS = [
@@ -120,13 +131,15 @@ const PROJECTION_PAGE_SECTIONS = [
   "children",
   "canonicalOccurrences",
   "addressedValues",
-  "managedChildren",
   "schemaApplications",
   "schemaFields",
   "schemaFieldItems",
+  "schemaTemplateNodes",
+  "templateNodeInstances",
   "schemaExtensions",
   "schemaSearchMembers",
   "schemaExtensionConflicts",
+  "definitionStatuses",
   "conflictIssues",
   "effectiveFields",
   "materializedFields",
@@ -150,8 +163,8 @@ function parseEntry(
             ? nonempty(entry.value, "canonical Occurrence")
             : section === "addressedValues"
               ? jsonRecord(entry.value)
-              : section === "managedChildren"
-                ? managedChild(entry.value)
+              : section === "templateNodeInstances"
+                ? templateNodeInstance(entry.value)
                 : section === "conflictIssues"
                   ? parseConflictIssue(entry.value)
                   : parseSchemaProjectionValue(section, entry.value);
@@ -198,15 +211,39 @@ function occurrence(value: unknown) {
   };
 }
 
-function managedChild(value: unknown) {
-  const item = object(value, "Managed child");
-  exact(item, ["parentNodeId", "schemaId", "fieldId", "nodeId", "occurrenceId"], "Managed child");
+function templateNodeInstance(value: unknown) {
+  const item = object(value, "Template Node instance");
+  exact(
+    item,
+    [
+      "ownerNodeId",
+      "templateNodeId",
+      "instanceNodeId",
+      "instanceOccurrenceId",
+      "state",
+      "sources",
+      "detachmentContributionIds",
+    ],
+    "Template Node instance",
+  );
+  const state = enumValue(item.state, ["linked", "detached"] as const, "Template Node state");
   return {
-    parentNodeId: nonempty(item.parentNodeId, "managed parent"),
-    schemaId: nonempty(item.schemaId, "Schema identity"),
-    fieldId: nonempty(item.fieldId, "Field identity"),
-    nodeId: nonempty(item.nodeId, "Node identity"),
-    occurrenceId: nonempty(item.occurrenceId, "Occurrence identity"),
+    ownerNodeId: nonempty(item.ownerNodeId, "Template owner"),
+    templateNodeId: nonempty(item.templateNodeId, "Template Node"),
+    instanceNodeId:
+      item.instanceNodeId === null ? null : nonempty(item.instanceNodeId, "instance Node"),
+    instanceOccurrenceId: nonempty(item.instanceOccurrenceId, "instance Occurrence"),
+    state,
+    sources: array(item.sources, "Template Node sources", (sourceValue) => {
+      const source = object(sourceValue, "Template Node source");
+      exact(source, ["schemaId", "appliedSchemaId", "templateItemId"], "Template Node source");
+      return {
+        schemaId: nonempty(source.schemaId, "source Schema"),
+        appliedSchemaId: nonempty(source.appliedSchemaId, "applied Schema"),
+        templateItemId: nonempty(source.templateItemId, "Template Item"),
+      };
+    }),
+    detachmentContributionIds: stringArray(item.detachmentContributionIds),
   };
 }
 
