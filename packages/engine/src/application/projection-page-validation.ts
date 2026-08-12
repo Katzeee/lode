@@ -1,6 +1,25 @@
 import type { ProjectionPage, ProjectionPageSection, ProjectionPageValue } from "./contract.js";
-import type { FactFrontier, JsonValue } from "../domain/fact/index.js";
+import type { FactFrontier } from "../domain/fact/index.js";
 import { parseTextAtomId } from "./decision-effect-validation.js";
+import { parseConflictIssue } from "./conflict-validation.js";
+import {
+  array,
+  empty,
+  emptyArray,
+  enumValue,
+  exact,
+  jsonRecord,
+  nonempty,
+  nullableString,
+  object,
+  parseIndexed,
+  stringArray,
+  stringValue,
+} from "./projection-page-validation-primitives.js";
+import {
+  parseSchemaProjectionMaps,
+  parseSchemaProjectionValue,
+} from "./schema-projection-validation.js";
 
 export function parseProjectionPage(value: Record<string, unknown>): ProjectionPage {
   exact(
@@ -17,21 +36,19 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
       "canonicalOccurrences",
       "addressedValues",
       "managedChildren",
+      "schemaApplications",
+      "schemaFields",
+      "schemaFieldItems",
+      "schemaExtensions",
+      "schemaSearchMembers",
+      "schemaExtensionConflicts",
+      "conflictIssues",
+      "effectiveFields",
+      "materializedFields",
     ],
     "Projection page",
   );
-  const section = enumValue(
-    value.section,
-    [
-      "nodes",
-      "occurrences",
-      "children",
-      "canonicalOccurrences",
-      "addressedValues",
-      "managedChildren",
-    ] as const,
-    "Projection section",
-  );
+  const section = enumValue(value.section, PROJECTION_PAGE_SECTIONS, "Projection section");
   const entries = array(value.entries, "Projection entries", (item) => parseEntry(section, item));
   const expected = Object.fromEntries(entries.map((entry) => [entry.identity, entry.value]));
   const nodes =
@@ -58,11 +75,24 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     section === "managedChildren"
       ? array(value.managedChildren, "managed children", managedChild)
       : emptyArray(value.managedChildren, "managed children");
+  const schema = parseSchemaProjectionMaps(section, value);
+  const conflictIssues =
+    section === "conflictIssues"
+      ? parseIndexed(value.conflictIssues, "conflict issues", parseConflictIssue)
+      : empty(value.conflictIssues, "conflict issues");
   const consistent =
     section === "managedChildren"
       ? JSON.stringify(managedChildren) === JSON.stringify(entries.map((entry) => entry.value))
       : JSON.stringify(
-          { nodes, occurrences, children, canonicalOccurrences, addressedValues }[section],
+          {
+            nodes,
+            occurrences,
+            children,
+            canonicalOccurrences,
+            addressedValues,
+            ...schema,
+            conflictIssues,
+          }[section],
         ) === JSON.stringify(expected);
   if (!consistent) {
     throw new Error("Projection page entries and section map disagree");
@@ -79,8 +109,28 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     canonicalOccurrences,
     addressedValues,
     managedChildren,
+    ...schema,
+    conflictIssues,
   };
 }
+
+const PROJECTION_PAGE_SECTIONS = [
+  "nodes",
+  "occurrences",
+  "children",
+  "canonicalOccurrences",
+  "addressedValues",
+  "managedChildren",
+  "schemaApplications",
+  "schemaFields",
+  "schemaFieldItems",
+  "schemaExtensions",
+  "schemaSearchMembers",
+  "schemaExtensionConflicts",
+  "conflictIssues",
+  "effectiveFields",
+  "materializedFields",
+] as const;
 
 function parseEntry(
   section: ProjectionPageSection,
@@ -100,7 +150,11 @@ function parseEntry(
             ? nonempty(entry.value, "canonical Occurrence")
             : section === "addressedValues"
               ? jsonRecord(entry.value)
-              : managedChild(entry.value);
+              : section === "managedChildren"
+                ? managedChild(entry.value)
+                : section === "conflictIssues"
+                  ? parseConflictIssue(entry.value)
+                  : parseSchemaProjectionValue(section, entry.value);
   return { identity, value: parsed };
 }
 
@@ -175,101 +229,4 @@ function projectionIdentity(value: unknown) {
     rulesVersion: nonempty(item.rulesVersion, "rules version"),
     schemaVersion: nonempty(item.schemaVersion, "schema version"),
   };
-}
-
-function parseIndexed<T>(
-  value: unknown,
-  label: string,
-  parse: (value: unknown) => T,
-): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(object(value, label)).map(([key, item]) => [key, parse(item)]),
-  );
-}
-function empty(value: unknown, label: string): Record<string, never> {
-  const result = object(value, label);
-  if (Object.keys(result).length > 0) {
-    throw new Error(`${label} must be empty outside its page section`);
-  }
-  return {};
-}
-function emptyArray(value: unknown, label: string): readonly never[] {
-  if (!Array.isArray(value) || value.length > 0) {
-    throw new Error(`${label} must be empty outside its page section`);
-  }
-  return [];
-}
-function jsonRecord(value: unknown): Record<string, JsonValue> {
-  const result = object(value, "JSON object");
-  for (const child of Object.values(result)) {
-    json(child);
-  }
-  return result as Record<string, JsonValue>;
-}
-function json(value: unknown): void {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value))
-  ) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    value.forEach(json);
-    return;
-  }
-  if (typeof value === "object" && value !== null) {
-    Object.values(value).forEach(json);
-    return;
-  }
-  throw new Error("Value is not JSON");
-}
-function stringArray(value: unknown): string[] {
-  return array(value, "string array", (item) => nonempty(item, "identity"));
-}
-function array<T>(value: unknown, label: string, parse: (value: unknown) => T): T[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-  return value.map(parse);
-}
-function object(value: unknown, label: string): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`${label} must be an object`);
-  }
-  return value as Record<string, unknown>;
-}
-function exact(value: Record<string, unknown>, keys: readonly string[], label: string): void {
-  if (
-    Object.keys(value).length !== keys.length ||
-    Object.keys(value).some((key) => !keys.includes(key))
-  ) {
-    throw new Error(`${label} has unknown or missing fields`);
-  }
-}
-function nonempty(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value;
-}
-function stringValue(value: unknown, label: string): string {
-  if (typeof value !== "string") {
-    throw new Error(`${label} is invalid`);
-  }
-  return value;
-}
-function nullableString(value: unknown, label: string): string | null {
-  return value === null ? null : nonempty(value, label);
-}
-function enumValue<const T extends readonly string[]>(
-  value: unknown,
-  allowed: T,
-  label: string,
-): T[number] {
-  if (typeof value !== "string" || !allowed.includes(value)) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value;
 }

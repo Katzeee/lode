@@ -4,6 +4,7 @@ import type { Projection } from "../../domain/reconcile/index.js";
 export type ProjectionIndexEntry = Readonly<{
   section:
     | "occurrenceIdsByNode"
+    | "nodeIdsBySchema"
     | "managedChildrenByParentNode"
     | "managedChildrenBySchema"
     | "managedChildrenByField"
@@ -30,6 +31,20 @@ export function projectionIndexEntries(projection: Projection): readonly Project
   };
   for (const occurrence of Object.values(projection.occurrences)) {
     add("occurrenceIdsByNode", occurrence.nodeId, occurrence.occurrenceId);
+  }
+  for (const [nodeId, schemaIds] of Object.entries(projection.schemaApplications)) {
+    for (const [searchSchemaId, memberSchemaIds] of Object.entries(
+      projection.schemaSearchMembers,
+    )) {
+      if (schemaIds.some((schemaId) => memberSchemaIds.includes(schemaId))) {
+        add("nodeIdsBySchema", searchSchemaId, nodeId);
+      }
+    }
+    for (const schemaId of schemaIds.filter(
+      (schemaId) => projection.schemaSearchMembers[schemaId] === undefined,
+    )) {
+      add("nodeIdsBySchema", schemaId, nodeId);
+    }
   }
   projection.managedChildren.forEach((child, index) => {
     const identity = String(index);

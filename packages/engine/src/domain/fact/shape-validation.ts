@@ -7,8 +7,10 @@ import type {
   SequenceAnchor,
 } from "./types.js";
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
+import { assertSchemaMutationShape } from "./schema-mutation-shape.js";
 import {
   assertJsonValue,
+  assertFrontier,
   assertKeys,
   assertNullableString,
   assertObject,
@@ -119,11 +121,16 @@ function assertBody(value: unknown): asserts value is FactBody {
   assertObject(value, "Fact body");
   requireString(value.actorId, "Fact actor identity");
   if (value.kind === "resolution") {
-    assertKeys(value, ["kind", "actorId", "decision", "proposalContributionIds"], "Resolution");
+    assertKeys(
+      value,
+      ["kind", "actorId", "decision", "proposalContributionIds", "adjudicatesResolutionIds"],
+      "Resolution",
+    );
     if (value.decision !== "accept" && value.decision !== "reject") {
       throw new Error("Invalid Resolution decision shape");
     }
     assertStringArray(value.proposalContributionIds, "Resolution targets");
+    assertStringArray(value.adjudicatesResolutionIds, "adjudicated Resolution identities");
     return;
   }
   if (value.kind !== "contribution") {
@@ -183,6 +190,17 @@ function assertMutation(value: unknown): asserts value is Mutation {
       requireString(value.nodeId, value.kind);
       requireString(value.occurrenceId, value.kind);
       assertOptionalNullableString(value.previousOccurrenceId, "previous canonical");
+      return;
+    case "schema-apply":
+    case "schema-remove":
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+    case "field-materialize":
+    case "field-initialize":
+      assertSchemaMutationShape(value);
       return;
     case "text-splice":
       requireString(value.nodeId, value.kind);
@@ -288,14 +306,6 @@ function assertPrevious(value: unknown, label: string): void {
     return;
   }
   throw new Error(`Unknown ${label} kind`);
-}
-
-function assertFrontier(value: unknown, label: string): void {
-  assertObject(value, label);
-  for (const [replicaId, sequence] of Object.entries(value)) {
-    requireString(replicaId, `${label} Replica identity`);
-    requireSafeInteger(sequence, 0, `${label} sequence`);
-  }
 }
 
 function assertOptionalNullableString(value: unknown, label: string): void {

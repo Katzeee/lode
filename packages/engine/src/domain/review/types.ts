@@ -57,8 +57,32 @@ export type LifecycleDecisionEffect = Readonly<{
   review: string | boolean | null;
 }>;
 
+export type SchemaRelationDecisionEffect = Readonly<{
+  kind: "schema-relation";
+  relation: "application" | "field" | "extension";
+  ownerId: string;
+  targetId: string;
+  originIndex: number | null;
+  reviewIndex: number | null;
+}>;
+
+export type FieldMaterializationDecisionEffect = Readonly<{
+  kind: "field-materialization";
+  ownerNodeId: string;
+  fieldDefinitionId: string;
+  originFieldNodeId: string | null;
+  reviewFieldNodeId: string | null;
+  originFieldOccurrenceId: string | null;
+  reviewFieldOccurrenceId: string | null;
+}>;
+
 export type DecisionEffect =
-  TextDecisionEffect | StructureDecisionEffect | ValueDecisionEffect | LifecycleDecisionEffect;
+  | TextDecisionEffect
+  | StructureDecisionEffect
+  | ValueDecisionEffect
+  | LifecycleDecisionEffect
+  | SchemaRelationDecisionEffect
+  | FieldMaterializationDecisionEffect;
 
 export type DecisionEvidence = Readonly<{
   proposalTargets: readonly ContributionId[];
@@ -81,7 +105,15 @@ export type ReviewSelection = Readonly<{
 export type ReviewHunk = Readonly<{
   id: string;
   diffSpace: Readonly<{
-    kind: "node-content" | "child-sequence" | "value" | "lifecycle" | "canonical";
+    kind:
+      | "node-content"
+      | "child-sequence"
+      | "value"
+      | "lifecycle"
+      | "canonical"
+      | "schema-application"
+      | "schema-template"
+      | "materialized-field";
     identity: string;
   }>;
   proposalContributionIds: readonly ContributionId[];

@@ -50,6 +50,30 @@ export function mutationTargets(mutation: Mutation): readonly string[] {
     case "node-restore":
     case "canonical-occurrence-set":
       return [mutation.nodeId];
+    case "schema-apply":
+    case "schema-remove":
+      return [mutation.nodeId, mutation.schemaId];
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+      return [mutation.schemaId, mutation.fieldDefinitionId];
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      return [mutation.schemaId, mutation.baseSchemaId];
+    case "field-materialize":
+      return [
+        mutation.ownerNodeId,
+        mutation.fieldDefinitionId,
+        mutation.fieldNodeId,
+        mutation.fieldOccurrenceId,
+      ];
+    case "field-initialize":
+      return [
+        mutation.ownerNodeId,
+        mutation.schemaId,
+        mutation.fieldDefinitionId,
+        ...mutation.values.flatMap((value) => (value.kind === "reference" ? [value.nodeId] : [])),
+      ];
     case "occurrence-create":
     case "occurrence-delete":
     case "occurrence-restore":

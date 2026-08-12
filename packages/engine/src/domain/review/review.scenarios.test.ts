@@ -424,6 +424,7 @@ describe("production Review scenarios", () => {
     )!.selection;
     facts.addBody({
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId: "other",
       decision: "reject",
       proposalContributionIds: [proposal.id],
@@ -451,6 +452,7 @@ describe("production Review scenarios", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "b",
         decision: "accept",
         proposalContributionIds: [proposal.id],
@@ -462,6 +464,7 @@ describe("production Review scenarios", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "c",
         decision: "reject",
         proposalContributionIds: [proposal.id],
@@ -526,6 +529,7 @@ describe("production Review scenarios", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "b",
         decision: "accept",
         proposalContributionIds: [second.id, third.id],
@@ -537,6 +541,7 @@ describe("production Review scenarios", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "c",
         decision: "reject",
         proposalContributionIds: [second.id],
@@ -590,6 +595,7 @@ describe("production Review scenarios", () => {
       }
       facts.addBody({
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision,
         proposalContributionIds: hunk.selection.evidence.supportClosure,

@@ -12,7 +12,7 @@ import { deriveActivation, deriveSupport } from "./support.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {
@@ -82,6 +82,7 @@ describe("semantic support policy", () => {
       lamport: 4,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "reject",
         proposalContributionIds: [proposalCreate.id],
@@ -205,7 +206,13 @@ function resolution(
     sequence,
     observed: { [REPLICA]: sequence - 1 },
     lamport: sequence,
-    body: { kind: "resolution", actorId: "reviewer", decision, proposalContributionIds },
+    body: {
+      kind: "resolution",
+      adjudicatesResolutionIds: [],
+      actorId: "reviewer",
+      decision,
+      proposalContributionIds,
+    },
   });
 }
 

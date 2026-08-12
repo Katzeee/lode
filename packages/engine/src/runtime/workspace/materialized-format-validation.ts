@@ -3,22 +3,24 @@ import {
   DIRECTORY_FORMAT,
   HEADER_FORMAT,
   MANIFEST_FORMAT,
-  OWNER_CACHE_FORMAT,
   PROJECTION_SECTIONS,
-  SHARD_FORMAT,
   directoryNodeDocumentId,
-  ownerCacheDocumentId,
-  projectionShardKey,
-  shardDocumentId,
   type DirectoryNodeReference,
   type GenerationHeader,
   type GenerationManifest,
   type ProjectionSection,
-  type ShardDescriptor,
   type StoredDirectoryNode,
-  type StoredOwnerCaches,
-  type StoredShard,
 } from "./materialized-generation-format.js";
+import {
+  hasExactKeys,
+  isNullableString,
+  isOwnerCacheDescriptor,
+  isProjectionHeader,
+  isProjectionIdentity,
+  isRecord,
+  isShardDescriptor,
+} from "./materialized-value-validation.js";
+export { isStoredOwnerCaches, isStoredShard } from "./materialized-value-validation.js";
 
 export function isManifest(value: unknown): value is GenerationManifest {
   return (
@@ -56,21 +58,6 @@ export function isGenerationHeader(
   }
   const { contentDigest: _contentDigest, ...content } = value as GenerationHeader;
   return value.contentDigest === canonicalDigest(content);
-}
-
-export function isStoredOwnerCaches(
-  value: unknown,
-  generationId: string,
-  contentDigest: string,
-): value is StoredOwnerCaches {
-  return (
-    hasExactKeys(value, ["format", "generationId", "contentDigest", "value"]) &&
-    value.format === OWNER_CACHE_FORMAT &&
-    value.generationId === generationId &&
-    value.contentDigest === contentDigest &&
-    canonicalDigest(value.value) === contentDigest &&
-    isOwnerCaches(value.value)
-  );
 }
 
 export function isStoredDirectoryNode(
@@ -269,158 +256,8 @@ function matchesReference(
   );
 }
 
-export function isStoredShard(
-  value: unknown,
-  generationId: string,
-  descriptor: ShardDescriptor,
-): value is StoredShard {
-  return (
-    hasExactKeys(value, ["format", "generationId", "key", "contentDigest", "value"]) &&
-    value.format === SHARD_FORMAT &&
-    value.generationId === generationId &&
-    value.key === descriptor.key &&
-    value.contentDigest === descriptor.contentDigest &&
-    canonicalDigest(value.value) === descriptor.contentDigest &&
-    isSectionValue(descriptor.section, descriptor.identity, value.value)
-  );
-}
-
-function isProjectionHeader(value: unknown, view: ViewMode, generationId: string): boolean {
-  return (
-    hasExactKeys(value, ["view", "identity"]) &&
-    value.view === view &&
-    isProjectionIdentity(value.identity, generationId)
-  );
-}
-
-function isShardDescriptor(
-  value: unknown,
-  generationId: string,
-  view?: ViewMode,
-  section?: ProjectionSection,
-): value is ShardDescriptor {
-  if (
-    !hasExactKeys(value, ["documentId", "key", "view", "section", "identity", "contentDigest"]) ||
-    typeof value.documentId !== "string" ||
-    typeof value.key !== "string" ||
-    (value.view !== "origin" && value.view !== "review") ||
-    !PROJECTION_SECTIONS.includes(value.section as ProjectionSection) ||
-    typeof value.identity !== "string" ||
-    typeof value.contentDigest !== "string" ||
-    (view !== undefined && value.view !== view) ||
-    (section !== undefined && value.section !== section)
-  ) {
-    return false;
-  }
-  const key = projectionShardKey(value.view, value.section as ProjectionSection, value.identity);
-  return value.key === key && value.documentId === shardDocumentId(generationId, key);
-}
-
-function isProjectionIdentity(value: unknown, generationId: string): boolean {
-  if (
-    !hasExactKeys(value, ["generationId", "frontier", "rulesVersion", "schemaVersion"]) ||
-    value.generationId !== generationId ||
-    typeof value.rulesVersion !== "string" ||
-    typeof value.schemaVersion !== "string" ||
-    !isRecord(value.frontier)
-  ) {
-    return false;
-  }
-  return Object.entries(value.frontier).every(
-    ([replicaId, sequence]) =>
-      /^[a-z2-7]{26}$/.test(replicaId) &&
-      Number.isSafeInteger(sequence) &&
-      (sequence as number) >= 0,
-  );
-}
-
-function isOwnerCaches(value: unknown): boolean {
-  if (!hasExactKeys(value, ["origin", "review"])) {
-    return false;
-  }
-  return [value.origin, value.review].every(
-    (cache) =>
-      hasExactKeys(cache, ["activeContributionIds", "supportPasses"]) &&
-      Array.isArray(cache.activeContributionIds) &&
-      cache.activeContributionIds.every((id) => typeof id === "string") &&
-      Number.isSafeInteger(cache.supportPasses) &&
-      (cache.supportPasses as number) >= 0,
-  );
-}
-
-function isOwnerCacheDescriptor(value: unknown, generationId: string): boolean {
-  return (
-    hasExactKeys(value, ["documentId", "contentDigest"]) &&
-    value.documentId === ownerCacheDocumentId(generationId) &&
-    typeof value.contentDigest === "string"
-  );
-}
-
-function isSectionValue(section: ProjectionSection, identity: string, value: unknown): boolean {
-  if (section === "nodes") {
-    return (
-      hasExactKeys(value, ["nodeId", "text", "properties", "metadata"]) &&
-      value.nodeId === identity &&
-      Array.isArray(value.text) &&
-      isRecord(value.properties) &&
-      isRecord(value.metadata)
-    );
-  }
-  if (section === "occurrences") {
-    return (
-      hasExactKeys(value, [
-        "occurrenceId",
-        "nodeId",
-        "parentOccurrenceId",
-        "properties",
-        "metadata",
-        "managed",
-      ]) &&
-      value.occurrenceId === identity &&
-      typeof value.nodeId === "string" &&
-      (value.parentOccurrenceId === null || typeof value.parentOccurrenceId === "string") &&
-      isRecord(value.properties) &&
-      isRecord(value.metadata) &&
-      typeof value.managed === "boolean"
-    );
-  }
-  if (
-    section === "children" ||
-    section.startsWith("managedChildrenBy") ||
-    section === "occurrenceIdsByNode"
-  ) {
-    return Array.isArray(value) && value.every((item) => typeof item === "string");
-  }
-  if (section === "canonicalOccurrences") {
-    return typeof value === "string";
-  }
-  if (section === "addressedValues") {
-    return isRecord(value);
-  }
-  return (
-    hasExactKeys(value, ["parentNodeId", "schemaId", "fieldId", "nodeId", "occurrenceId"]) &&
-    Object.values(value).every((item) => typeof item === "string")
-  );
-}
-
 function isStrictlyOrdered(values: readonly string[]): boolean {
   return values.every(
     (value, index) => index === 0 || stableStringCompare(values[index - 1] ?? "", value) < 0,
-  );
-}
-
-function isNullableString(value: unknown): value is string | null {
-  return value === null || typeof value === "string";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return (
-    isRecord(value) &&
-    Object.keys(value).length === keys.length &&
-    Object.keys(value).every((key) => keys.includes(key))
   );
 }

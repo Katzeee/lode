@@ -21,6 +21,7 @@ import {
   compensateOccurrenceDelete,
 } from "./compensation-structure.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { compensateSchemaMutation } from "./compensation-schema.js";
 import { scopedHistoryFacts } from "./compensation-scope.js";
 
 export type Compensation =
@@ -227,6 +228,19 @@ function mutationOwnerKey(mutation: Mutation): string | null {
   if (mutation.kind === "canonical-occurrence-set") {
     return `canonical/${mutation.nodeId}`;
   }
+  if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
+    return `schema-application/${mutation.nodeId}/${mutation.schemaId}`;
+  }
+  if (
+    mutation.kind === "schema-field-add" ||
+    mutation.kind === "schema-field-remove" ||
+    mutation.kind === "schema-field-configure"
+  ) {
+    return `schema-field/${mutation.schemaId}/${mutation.fieldDefinitionId}`;
+  }
+  if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
+    return `schema-extension/${mutation.schemaId}/${mutation.baseSchemaId}`;
+  }
   return null;
 }
 
@@ -255,10 +269,20 @@ function compensateMutation(
       return compensateMove(target, activeFacts, projection);
     case "canonical-occurrence-set":
       return compensateCanonical(target, activeFacts, projection);
+    case "schema-apply":
+    case "schema-remove":
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      return compensateSchemaMutation(target, activeFacts, projection);
     case "text-splice":
     case "text-mark":
     case "value-set":
     case "value-unset":
+    case "field-materialize":
+    case "field-initialize":
       return noCompensation();
   }
 }

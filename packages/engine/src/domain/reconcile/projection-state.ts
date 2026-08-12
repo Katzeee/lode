@@ -117,6 +117,15 @@ export function createOccurrences(
       case "node-delete":
       case "node-restore":
       case "canonical-occurrence-set":
+      case "schema-apply":
+      case "schema-remove":
+      case "schema-field-add":
+      case "schema-field-remove":
+      case "schema-field-configure":
+      case "schema-extension-add":
+      case "schema-extension-remove":
+      case "field-materialize":
+      case "field-initialize":
       case "text-splice":
       case "text-mark":
       case "value-set":

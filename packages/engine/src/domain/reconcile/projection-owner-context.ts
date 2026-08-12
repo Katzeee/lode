@@ -9,10 +9,14 @@ import type { OwnerKey } from "./owner-dag.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type {
   ManagedChild,
+  EffectiveField,
+  MaterializedField,
   Projection,
   ProjectionOwnerCache,
   ProjectionVersions,
+  SchemaFieldItem,
 } from "./projection-types.js";
+import type { ConflictIssue } from "../conflict/types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { stripProjectedValues } from "./projection-value-assembly.js";
 
@@ -35,6 +39,15 @@ export type ProjectionOwnerContext = {
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
   canonicalOccurrences: Readonly<Record<string, string>>;
   managedChildren: readonly ManagedChild[];
+  schemaApplications: Readonly<Record<string, readonly string[]>>;
+  schemaFields: Readonly<Record<string, readonly string[]>>;
+  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaExtensions: Readonly<Record<string, readonly string[]>>;
+  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
+  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  conflictIssues: Readonly<Record<string, ConflictIssue>>;
+  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
   managedTextReplayNodeIds: ReadonlySet<string>;
   projection: Projection | null;
   ownerCache: ProjectionOwnerCache;
@@ -63,6 +76,15 @@ export function emptyOwnerContext(
     addressedValues: {},
     canonicalOccurrences: {},
     managedChildren: [],
+    schemaApplications: {},
+    schemaFields: {},
+    schemaFieldItems: {},
+    schemaExtensions: {},
+    schemaSearchMembers: {},
+    schemaExtensionConflicts: {},
+    conflictIssues: {},
+    effectiveFields: {},
+    materializedFields: {},
     managedTextReplayNodeIds: new Set(),
     projection: null,
     ownerCache: { activeContributionIds: [], supportPasses: 0 },
@@ -106,6 +128,15 @@ export function incrementalOwnerContext(
     ),
     canonicalOccurrences: { ...previous.canonicalOccurrences },
     managedChildren: [...previous.managedChildren],
+    schemaApplications: previous.schemaApplications,
+    schemaFields: previous.schemaFields,
+    schemaFieldItems: previous.schemaFieldItems,
+    schemaExtensions: previous.schemaExtensions,
+    schemaSearchMembers: previous.schemaSearchMembers,
+    schemaExtensionConflicts: previous.schemaExtensionConflicts,
+    conflictIssues: previous.conflictIssues,
+    effectiveFields: previous.effectiveFields,
+    materializedFields: previous.materializedFields,
     managedTextReplayNodeIds: new Set(),
     projection: null,
     ownerCache: previousCache,

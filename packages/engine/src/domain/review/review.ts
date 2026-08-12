@@ -96,6 +96,7 @@ export function validateReviewSelection(
     kind: "valid",
     resolution: {
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId,
       decision,
       proposalContributionIds: current.supportClosure,

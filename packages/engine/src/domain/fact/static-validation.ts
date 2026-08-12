@@ -1,6 +1,7 @@
 import { canonicalDigest, canonicalJson } from "./canonical.js";
 import { factId, isReplicaId, unsignedFact } from "./fact.js";
 import { isReservedNodeIdentity, isReservedOccurrenceIdentity } from "./identity.js";
+import { validateFieldInitialization, validateSchemaMutation } from "./schema-static-validation.js";
 import { isWellFormedUnicode } from "./text-validation.js";
 import {
   FACT_SCHEMA_VERSION,
@@ -60,7 +61,8 @@ function validateBody(body: FactBody, id: string): void {
     }
     if (
       body.proposalContributionIds.length === 0 ||
-      new Set(body.proposalContributionIds).size !== body.proposalContributionIds.length
+      new Set(body.proposalContributionIds).size !== body.proposalContributionIds.length ||
+      new Set(body.adjudicatesResolutionIds).size !== body.adjudicatesResolutionIds.length
     ) {
       throw new Error(`Resolution target set is empty or duplicated: ${id}`);
     }
@@ -104,6 +106,28 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
         "previous canonical",
         factIdentity,
       );
+      return;
+    case "schema-apply":
+    case "schema-remove":
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      validateSchemaMutation(mutation, factIdentity);
+      return;
+    case "field-materialize":
+      requireIdentity(mutation.ownerNodeId, "Field owner Node", factIdentity);
+      requireIdentity(mutation.fieldDefinitionId, "Field Definition", factIdentity);
+      requireIdentity(mutation.fieldNodeId, "Materialized Field Node", factIdentity);
+      requireOccurrenceIdentity(
+        mutation.fieldOccurrenceId,
+        "Materialized Field Occurrence",
+        factIdentity,
+      );
+      return;
+    case "field-initialize":
+      validateFieldInitialization(mutation, factIdentity);
       return;
     case "text-splice":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);

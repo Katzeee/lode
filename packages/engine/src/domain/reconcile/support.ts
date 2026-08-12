@@ -2,21 +2,23 @@ import {
   compareFacts,
   type ContributionFact,
   type Fact,
+  type Mutation,
   type ResolutionFact,
   type ViewMode,
 } from "../fact/index.js";
+import { addFieldInitializationSupport, addSchemaMutationSupport } from "./schema-support.js";
 
 export type Activation = Readonly<{
   activeContributionIds: ReadonlySet<string>;
   supportByContribution: ReadonlyMap<string, readonly string[]>;
-  resolutionByContribution: ReadonlyMap<string, ResolutionFact>;
+  resolutionByContribution: ReadonlyMap<string, readonly ResolutionFact[]>;
   convergencePasses: number;
 }>;
 
 export function deriveActivation(facts: readonly Fact[], mode: ViewMode): Activation {
   const ordered = [...facts].sort(compareFacts);
   const contributions = ordered.filter(isContribution);
-  const resolutions = winningResolutions(ordered);
+  const resolutions = resolutionsByContribution(ordered);
   const initiallyEligible = new Set(
     contributions
       .filter((fact) => eligibleForView(fact, resolutions.get(fact.id), mode))
@@ -57,7 +59,18 @@ export function deriveSupport(
   const ordered = [...contributions].sort(compareFacts);
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
+  const schemaApplicationSupport = new Map<string, ContributionFact[]>();
   const viable = new Set<string>();
+  const existence = {
+    nodes: nodeExistenceSupport,
+    occurrences: occurrenceExistenceSupport,
+    viable,
+  };
+  const schemaSupport = {
+    nodes: nodeExistenceSupport,
+    viable,
+    applications: schemaApplicationSupport,
+  };
   const result = new Map<string, readonly string[]>();
 
   for (const fact of ordered) {
@@ -91,16 +104,7 @@ export function deriveSupport(
         break;
       case "occurrence-delete":
       case "occurrence-move":
-        addIfPresent(
-          support,
-          effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-        );
-        if (mutation.kind === "occurrence-move" && mutation.parentOccurrenceId !== null) {
-          addIfPresent(
-            support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
-          );
-        }
+        addOccurrenceChangeSupport(support, occurrenceExistenceSupport, viable, mutation);
         break;
       case "occurrence-restore":
         addIfPresent(
@@ -123,25 +127,82 @@ export function deriveSupport(
           effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
         );
         break;
+      case "schema-apply":
+      case "schema-remove":
+      case "schema-field-add":
+      case "schema-field-remove":
+      case "schema-field-configure":
+      case "schema-extension-add":
+      case "schema-extension-remove":
+        addSchemaMutationSupport(support, mutation, fact, schemaSupport);
+        break;
+      case "field-materialize":
+        addMaterializedFieldSupport(support, mutation, existence);
+        break;
+      case "field-initialize":
+        addFieldInitializationSupport(support, mutation, fact, schemaSupport);
+        break;
       case "value-set":
       case "value-unset":
-        if (mutation.owner.kind === "node") {
-          addIfPresent(
-            support,
-            effectiveCandidate(nodeExistenceSupport, mutation.owner.id, viable),
-          );
-        } else if (mutation.owner.kind === "occurrence") {
-          addIfPresent(
-            support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.owner.id, viable),
-          );
-        }
+        addValueOwnerSupport(support, mutation, existence);
         break;
     }
     result.set(fact.id, [...support]);
     markViable(fact.id, support, eligibleContributionIds, viable);
   }
   return result;
+}
+
+function addValueOwnerSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
+  existence: Readonly<{
+    nodes: ReadonlyMap<string, readonly string[]>;
+    occurrences: ReadonlyMap<string, readonly string[]>;
+    viable: ReadonlySet<string>;
+  }>,
+): void {
+  if (mutation.owner.kind === "node") {
+    addIfPresent(support, effectiveCandidate(existence.nodes, mutation.owner.id, existence.viable));
+  } else if (mutation.owner.kind === "occurrence") {
+    addIfPresent(
+      support,
+      effectiveCandidate(existence.occurrences, mutation.owner.id, existence.viable),
+    );
+  }
+}
+
+function addOccurrenceChangeSupport(
+  support: Set<string>,
+  occurrenceSupport: ReadonlyMap<string, readonly string[]>,
+  viable: ReadonlySet<string>,
+  mutation: Extract<Mutation, { kind: "occurrence-delete" | "occurrence-move" }>,
+): void {
+  addIfPresent(support, effectiveCandidate(occurrenceSupport, mutation.occurrenceId, viable));
+  if (mutation.kind === "occurrence-move" && mutation.parentOccurrenceId !== null) {
+    addIfPresent(
+      support,
+      effectiveCandidate(occurrenceSupport, mutation.parentOccurrenceId, viable),
+    );
+  }
+}
+
+function addMaterializedFieldSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "field-materialize" }>,
+  existence: Readonly<{
+    nodes: ReadonlyMap<string, readonly string[]>;
+    occurrences: ReadonlyMap<string, readonly string[]>;
+    viable: ReadonlySet<string>;
+  }>,
+): void {
+  for (const nodeId of [mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId]) {
+    addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
+  }
+  addIfPresent(
+    support,
+    effectiveCandidate(existence.occurrences, mutation.fieldOccurrenceId, existence.viable),
+  );
 }
 
 export function supportClosure(
@@ -163,34 +224,42 @@ export function supportClosure(
   return [...closure].sort();
 }
 
-function winningResolutions(facts: readonly Fact[]): ReadonlyMap<string, ResolutionFact> {
-  const winners = new Map<string, ResolutionFact>();
+function resolutionsByContribution(
+  facts: readonly Fact[],
+): ReadonlyMap<string, readonly ResolutionFact[]> {
+  const resolutions = new Map<string, ResolutionFact[]>();
+  const superseded = new Set(
+    facts.flatMap((fact) => (isResolution(fact) ? fact.body.adjudicatesResolutionIds : [])),
+  );
   for (const fact of facts) {
-    if (!isResolution(fact)) {
+    if (!isResolution(fact) || superseded.has(fact.id)) {
       continue;
     }
     for (const contributionId of fact.body.proposalContributionIds) {
-      const current = winners.get(contributionId);
-      if (!current || compareFacts(current, fact) < 0) {
-        winners.set(contributionId, fact);
-      }
+      const current = resolutions.get(contributionId) ?? [];
+      current.push(fact);
+      resolutions.set(contributionId, current);
     }
   }
-  return winners;
+  return resolutions;
 }
 
 function eligibleForView(
   contribution: ContributionFact,
-  resolution: ResolutionFact | undefined,
+  resolutions: readonly ResolutionFact[] | undefined,
   mode: ViewMode,
 ): boolean {
   if (contribution.body.intent === "direct") {
     return true;
   }
-  if (resolution?.body.decision === "reject") {
+  const decisions = new Set(resolutions?.map((resolution) => resolution.body.decision) ?? []);
+  if (decisions.size > 1) {
+    return mode === "review";
+  }
+  if (decisions.has("reject")) {
     return false;
   }
-  if (resolution?.body.decision === "accept") {
+  if (decisions.has("accept")) {
     return true;
   }
   return mode === "review";

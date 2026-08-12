@@ -21,7 +21,7 @@ const selection = {
     ],
     associatedImpactIds: [],
     rulesVersion: "proposal-rules-1",
-    schemaVersion: "proposal-schema-1",
+    schemaVersion: "lode-schema-5",
   },
 } as const;
 
@@ -167,7 +167,7 @@ describe("serialized contract deep validation", () => {
               generationId: "generation",
               frontier: {},
               rulesVersion: "proposal-rules-1",
-              schemaVersion: "proposal-schema-1",
+              schemaVersion: "lode-schema-5",
             },
             view: "origin",
             section: "nodes",
@@ -193,7 +193,55 @@ describe("serialized contract deep validation", () => {
     });
   });
 
-  it("rejects malformed Review and History capabilities before sending", async () => {
+  it("accepts typed Conflict queries and rejects malformed candidate provenance", async () => {
+    const replicaId = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const issue = {
+      kind: "resolution-conflict",
+      identity: "conflict",
+      proposalContributionIds: ["proposal"],
+      candidates: [
+        {
+          resolutionId: "resolution",
+          decision: "accept",
+          actorId: "reviewer",
+          replicaId,
+          observedFrontier: { [replicaId]: 1 },
+        },
+      ],
+    } as const;
+    const query = { kind: "conflicts", workspaceId: "workspace" } as const;
+    const result = {
+      status: "ok",
+      value: {
+        generationId: "generation",
+        frontier: { [replicaId]: 2 },
+        issues: [issue],
+        next: null,
+      },
+    };
+    expect(await queryResponse(result, query)).toEqual(result);
+
+    for (const candidate of [
+      { ...issue.candidates[0], decision: "defer" },
+      { ...issue.candidates[0], observedFrontier: { malformed: 1 } },
+      { ...issue.candidates[0], futureProvenance: true },
+    ]) {
+      expect(
+        await queryResponse(
+          {
+            ...result,
+            value: { ...result.value, issues: [{ ...issue, candidates: [candidate] }] },
+          },
+          query,
+        ),
+      ).toMatchObject({
+        status: "rejected",
+        error: { code: "projection-unavailable" },
+      });
+    }
+  });
+
+  it("rejects malformed Review, Adjudication, and History capabilities before sending", async () => {
     let sends = 0;
     const adapter = createTransportEngineContract({
       request() {
@@ -205,6 +253,17 @@ describe("serialized contract deep validation", () => {
       ...selection,
       evidence: { ...selection.evidence, effects: [{ kind: "future-effect" }] },
     };
+    expect(
+      await adapter.execute({
+        kind: "adjudicate-resolution",
+        workspaceId: "workspace",
+        invocationId: "adjudication",
+        actorId: "actor",
+        decision: "accept",
+        proposalContributionIds: ["proposal"],
+        resolutionIds: ["resolution", "resolution"],
+      } as never),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     expect(
       await adapter.execute({
         kind: "resolve-review",

@@ -96,6 +96,39 @@ function canApplyDirectTail(
         projection.nodes[mutation.nodeId] !== undefined &&
         projection.occurrences[mutation.occurrenceId]?.nodeId === mutation.nodeId
       );
+    case "schema-apply":
+    case "schema-remove":
+      return (
+        projection.nodes[mutation.nodeId] !== undefined &&
+        projection.nodes[mutation.schemaId] !== undefined
+      );
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      return (
+        projection.nodes[mutation.schemaId] !== undefined &&
+        projection.nodes[
+          "fieldDefinitionId" in mutation ? mutation.fieldDefinitionId : mutation.baseSchemaId
+        ] !== undefined
+      );
+    case "field-materialize":
+      return (
+        projection.nodes[mutation.ownerNodeId] !== undefined &&
+        projection.nodes[mutation.fieldDefinitionId] !== undefined &&
+        projection.nodes[mutation.fieldNodeId] !== undefined &&
+        projection.occurrences[mutation.fieldOccurrenceId]?.nodeId === mutation.fieldNodeId
+      );
+    case "field-initialize":
+      return (
+        projection.nodes[mutation.ownerNodeId] !== undefined &&
+        projection.nodes[mutation.schemaId] !== undefined &&
+        projection.nodes[mutation.fieldDefinitionId] !== undefined &&
+        mutation.values.every(
+          (value) => value.kind !== "reference" || projection.nodes[value.nodeId] !== undefined,
+        )
+      );
     case "node-create":
       return projection.nodes[mutation.nodeId] === undefined;
     case "node-delete":

@@ -5,6 +5,7 @@ import {
   type SequenceAnchor,
 } from "../fact/index.js";
 import { impactAddress, type Projection, type ProjectionGeneration } from "../reconcile/index.js";
+import { addSchemaRelationImpacts } from "./schema-review.js";
 
 export function associatedImpacts(
   targets: readonly ContributionFact[],
@@ -51,6 +52,7 @@ export function associatedImpacts(
     if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
       addValueImpacts(impacts, mutation, generation);
     }
+    addSchemaRelationImpacts(impacts, fact, generation);
   }
   return [...impacts].sort(stableStringCompare);
 }
@@ -206,6 +208,15 @@ export function mutationAnchor(
     case "text-mark":
     case "value-set":
     case "value-unset":
+    case "schema-apply":
+    case "schema-remove":
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+    case "field-materialize":
+    case "field-initialize":
       return null;
   }
 }

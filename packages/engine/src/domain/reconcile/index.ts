@@ -6,3 +6,4 @@ export * from "./reconcile.js";
 export * from "./semantic-tree.js";
 export * from "./targeted-replay.js";
 export * from "./value-address.js";
+export * from "./materialized-field.js";

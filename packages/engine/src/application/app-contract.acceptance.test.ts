@@ -22,7 +22,7 @@ async function setup() {
   const workspace = await ProposalWorkspace.open({
     workspaceId: "workspace",
     facts,
-    versions: { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" },
+    versions: { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" },
   });
   const direct = createEngineContract([workspace]);
   return {

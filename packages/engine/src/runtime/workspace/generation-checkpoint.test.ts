@@ -9,7 +9,7 @@ import {
 import { rebuildGeneration } from "../../domain/reconcile/reconcile.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 const INTEGRITY_KEY = "checkpoint-test-key";
 
 describe("projection checkpoints", () => {

@@ -6,21 +6,15 @@ import {
   canonicalDigest,
   canonicalJson,
   frontierEquals,
-  makeFact,
-  normalizeFrontier,
   requestDigest,
   stableStringCompare,
   type Admission,
   type AuthorityReceipt,
   type AuthorityRecord,
-  type Fact,
-  type FactFrontier,
   type FactSnapshot,
   type InvocationId,
   type ReplicaId,
-  type WorkspaceId,
 } from "../../domain/fact/index.js";
-import type { DocumentStore } from "../../persistence/document-store.js";
 import type { SyncBytes, SyncableDoc } from "../../sync/syncable.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
 import type {
@@ -35,39 +29,28 @@ import {
   InvocationConflictError,
   ProjectionUnavailableError,
 } from "./errors.js";
-import {
-  maxLamportAtFrontier,
-  nextReplicaSequence,
-  notifyAdmissionAdvance,
-  readAuthorityRecords,
-} from "./loro-authority-records.js";
+import { notifyAdmissionAdvance, readAuthorityRecords } from "./loro-authority-records.js";
 import { recoverAuthorityDocument } from "./authority-recovery.js";
 import { validateReplicaId } from "./replica-identity.js";
 import { addFactsToSyncProjection, createFactSyncDoc } from "./fact-sync-projection.js";
 import {
   deriveAuthorityCaches,
+  healFactSyncProjection,
   loadAuthorityDocument,
   loadSyncProjection,
   persistSyncProjection,
 } from "./authority-store-state.js";
 import { validateStagedSyncImport } from "./sync-import-validation.js";
+import { createAuthorityCommitBatch } from "./authority-commit-batch.js";
+import {
+  FACT_AUTHORITY_DOCUMENT_ID,
+  type LoroFactStoreOptions,
+} from "./loro-fact-store-options.js";
 
 export { createReplicaId } from "./replica-identity.js";
-
-export const FACT_AUTHORITY_DOCUMENT_ID = "facts";
-
-export type LoroFactStoreOptions = Readonly<{
-  workspaceId: WorkspaceId;
-  replicaId: ReplicaId;
-  loroPeerId: `${number}`;
-  documents: DocumentStore;
-  onAuthorityAdvanced?: (frontier: FactFrontier) => void;
-  snapshotInterval?: number;
-  admitRecords?: AuthorityAdmissionPolicy;
-}>;
+export { FACT_AUTHORITY_DOCUMENT_ID } from "./loro-fact-store-options.js";
 
 export class LoroFactStore implements FactStore {
-  readonly replicaId: ReplicaId;
   readonly syncDoc: SyncableDoc;
   private doc: LoroDoc;
   private syncProjection: LoroDoc;
@@ -84,8 +67,8 @@ export class LoroFactStore implements FactStore {
     doc: LoroDoc,
     syncProjection: LoroDoc,
     updatesSinceSnapshot: number,
+    readonly replicaId: ReplicaId,
   ) {
-    this.replicaId = options.replicaId;
     this.admitRecords = options.admitRecords ?? admitAuthorityRecordShapes;
     this.doc = doc;
     this.syncProjection = syncProjection;
@@ -95,7 +78,10 @@ export class LoroFactStore implements FactStore {
       FACT_AUTHORITY_DOCUMENT_ID,
       () => this.syncProjection,
       (bytes) => this.importUpdate(bytes),
-      () => this.serial.run(() => this.healSyncProjection()),
+      () =>
+        this.serial.run(() =>
+          healFactSyncProjection(this.options.documents, this.syncProjection, this.admission()),
+        ),
     );
   }
 
@@ -108,7 +94,7 @@ export class LoroFactStore implements FactStore {
     );
     const doc = loaded.doc;
     const syncProjection = await loadSyncProjection(options, doc);
-    return new LoroFactStore(options, doc, syncProjection, loaded.updateCount);
+    return new LoroFactStore(options, doc, syncProjection, loaded.updateCount, options.replicaId);
   }
 
   admission(): Admission {
@@ -155,7 +141,7 @@ export class LoroFactStore implements FactStore {
       if (existing.requestDigest !== digest) {
         throw new InvocationConflictError(`Invocation request conflict: ${input.invocationId}`);
       }
-      await this.healSyncProjection();
+      await healFactSyncProjection(this.options.documents, this.syncProjection, this.admission());
       return { receipt: existing, created: false };
     }
     if (input.bodies.length === 0) {
@@ -172,38 +158,13 @@ export class LoroFactStore implements FactStore {
       );
     }
 
-    let sequence = nextReplicaSequence(before.snapshot.facts, this.replicaId);
-    let observed = before.snapshot.frontier;
-    let lamport = maxLamportAtFrontier(before.snapshot.facts, observed) + 1;
-    const facts: Fact[] = [];
-    for (const body of input.bodies) {
-      const fact = makeFact({
-        workspaceId: this.options.workspaceId,
-        replicaId: this.replicaId,
-        sequence,
-        observed,
-        lamport,
-        body,
-      });
-      facts.push(fact);
-      observed = normalizeFrontier({ ...observed, [this.replicaId]: sequence });
-      sequence += 1;
-      lamport += 1;
-    }
-
-    const receipt: AuthorityReceipt = {
-      workspaceId: this.options.workspaceId,
-      replicaId: this.replicaId,
-      invocationId: input.invocationId,
-      requestDigest: digest,
-      factIds: facts.map((fact) => fact.id),
-      committedFrontier: observed,
-      lineage: input.lineage,
-    };
-    const records: AuthorityRecord[] = [
-      ...facts.map((fact): AuthorityRecord => ({ recordKind: "fact", fact })),
-      { recordKind: "receipt", receipt },
-    ];
+    const { facts, receipt, records } = createAuthorityCommitBatch(
+      this.options.workspaceId,
+      this.replicaId,
+      input,
+      digest,
+      before.snapshot,
+    );
     const candidate = admitPlannedAuthorityAppend(
       this.options.workspaceId,
       before.snapshot,
@@ -325,15 +286,6 @@ export class LoroFactStore implements FactStore {
       this.doc.export({ mode: "snapshot" }),
     );
     this.updatesSinceSnapshot = 0;
-  }
-
-  private async healSyncProjection(): Promise<void> {
-    const admission = this.admission();
-    if (admission.kind === "fault") {
-      return;
-    }
-    addFactsToSyncProjection(this.syncProjection, admission.snapshot.facts);
-    await persistSyncProjection(this.options.documents, this.syncProjection);
   }
 
   private async adoptDurableAuthorityAfterUnknown(): Promise<void> {

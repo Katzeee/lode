@@ -87,6 +87,7 @@ describe("production Review contracts", () => {
       );
       facts.addBody({
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "accept",
         proposalContributionIds: [proposal.id],
@@ -194,6 +195,7 @@ describe("production Review contracts", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "b",
         decision: "accept",
         proposalContributionIds: [proposal.id],
@@ -205,6 +207,7 @@ describe("production Review contracts", () => {
       lamport: facts.values.length + 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "c",
         decision: "reject",
         proposalContributionIds: [proposal.id],
@@ -214,6 +217,8 @@ describe("production Review contracts", () => {
     const right = generation(facts.snapshot([reject, accept]));
     expect(left).toEqual(right);
     expect(projectionText(left.origin, "node")).toBe("");
+    expect(projectionText(left.review, "node")).toBe("P");
+    expect(queryReview("workspace", facts.snapshot([accept, reject]), left).hunks).toHaveLength(1);
   });
 
   it("REVIEW-4 neutral text bridges preserve direct atoms", () => {
@@ -288,7 +293,7 @@ describe("production Review contracts", () => {
 
     const newVersions = {
       rulesVersion: "unknown-rules",
-      schemaVersion: "proposal-schema-1",
+      schemaVersion: "lode-schema-5",
     } as const;
     expect(() => generation(current, newVersions)).toThrow("Unsupported projection versions");
   });
@@ -298,12 +303,14 @@ describe("production Review contracts", () => {
     const proposal = facts.add({ kind: "node-create", nodeId: "proposal" }, "proposal");
     const first = facts.addBody({
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "accept",
       proposalContributionIds: [proposal.id],
     });
     const repeated = facts.addBody({
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "reject",
       proposalContributionIds: [proposal.id],

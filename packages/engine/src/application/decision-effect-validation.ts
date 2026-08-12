@@ -72,6 +72,12 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
       review: previousValue(effect.review),
     };
   }
+  if (kind === "schema-relation") {
+    return schemaRelationEffect(effect);
+  }
+  if (kind === "field-materialization") {
+    return fieldMaterializationEffect(effect);
+  }
   if (kind === "lifecycle" || kind === "canonical") {
     exact(effect, ["kind", "identity", "origin", "review"], `${kind} Decision effect`);
     return {
@@ -82,6 +88,57 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
     };
   }
   throw new Error(`Unknown Decision effect kind: ${kind}`);
+}
+
+function schemaRelationEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(
+    effect,
+    ["kind", "relation", "ownerId", "targetId", "originIndex", "reviewIndex"],
+    "Schema relation Decision effect",
+  );
+  return {
+    kind: "schema-relation",
+    relation: oneOf(
+      effect.relation,
+      ["application", "field", "extension"] as const,
+      "Schema relation kind",
+    ),
+    ownerId: nonempty(effect.ownerId, "Schema relation owner"),
+    targetId: nonempty(effect.targetId, "Schema relation target"),
+    originIndex: nullableIndex(effect.originIndex, "origin Schema relation index"),
+    reviewIndex: nullableIndex(effect.reviewIndex, "review Schema relation index"),
+  };
+}
+
+function fieldMaterializationEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(
+    effect,
+    [
+      "kind",
+      "ownerNodeId",
+      "fieldDefinitionId",
+      "originFieldNodeId",
+      "reviewFieldNodeId",
+      "originFieldOccurrenceId",
+      "reviewFieldOccurrenceId",
+    ],
+    "Field materialization Decision effect",
+  );
+  return {
+    kind: "field-materialization",
+    ownerNodeId: nonempty(effect.ownerNodeId, "Field owner Node"),
+    fieldDefinitionId: nonempty(effect.fieldDefinitionId, "Field Definition"),
+    originFieldNodeId: nullableString(effect.originFieldNodeId, "origin Field Node"),
+    reviewFieldNodeId: nullableString(effect.reviewFieldNodeId, "review Field Node"),
+    originFieldOccurrenceId: nullableString(
+      effect.originFieldOccurrenceId,
+      "origin Field Occurrence",
+    ),
+    reviewFieldOccurrenceId: nullableString(
+      effect.reviewFieldOccurrenceId,
+      "review Field Occurrence",
+    ),
+  };
 }
 
 function markChange(value: unknown) {
@@ -139,6 +196,16 @@ function lifecycleValue(value: unknown, label: string): string | boolean | null 
     return value;
   }
   return nonempty(value, label);
+}
+
+function nullableIndex(value: unknown, label: string): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new Error(`${label} is invalid`);
+  }
+  return value as number;
 }
 
 export function parseTextAtomId(value: unknown): TextAtomId {

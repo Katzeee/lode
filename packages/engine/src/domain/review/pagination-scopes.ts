@@ -67,6 +67,37 @@ function scopeKeys(
         ]),
         ...valueAssociation(mutation, nodeByOccurrence, managed),
       ];
+    case "schema-apply":
+    case "schema-remove":
+      return [
+        canonicalJson(["schema-application", mutation.nodeId]),
+        associatedNode(mutation.nodeId),
+        associatedNode(mutation.schemaId),
+      ];
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+      return [
+        canonicalJson(["schema-template", mutation.schemaId]),
+        associatedNode(mutation.schemaId),
+        associatedNode(mutation.fieldDefinitionId),
+      ];
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      return [
+        canonicalJson(["schema-extension", mutation.schemaId]),
+        associatedNode(mutation.schemaId),
+        associatedNode(mutation.baseSchemaId),
+      ];
+    case "field-materialize":
+      return [
+        canonicalJson(["materialized-field", mutation.ownerNodeId, mutation.fieldDefinitionId]),
+        associatedNode(mutation.ownerNodeId),
+        associatedNode(mutation.fieldDefinitionId),
+        associatedNode(mutation.fieldNodeId),
+      ];
+    case "field-initialize":
+      return fieldInitializationScopes(mutation);
     case "occurrence-create":
       return [
         structureParent(mutation.parentOccurrenceId),
@@ -110,6 +141,20 @@ function scopeKeys(
     case "node-restore":
       return [canonicalJson(["lifecycle", mutation.nodeId]), associatedNode(mutation.nodeId)];
   }
+}
+
+function fieldInitializationScopes(
+  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+): readonly string[] {
+  return [
+    canonicalJson(["materialized-field", mutation.ownerNodeId, mutation.fieldDefinitionId]),
+    associatedNode(mutation.ownerNodeId),
+    associatedNode(mutation.schemaId),
+    associatedNode(mutation.fieldDefinitionId),
+    ...mutation.values.flatMap((value) =>
+      value.kind === "reference" ? [associatedNode(value.nodeId)] : [],
+    ),
+  ];
 }
 
 function occurrenceNodeIndex(facts: readonly Fact[]): ReadonlyMap<string, string> {

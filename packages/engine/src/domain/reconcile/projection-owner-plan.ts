@@ -10,6 +10,9 @@ import { createNodes, createOccurrences, validateStoredTree } from "./projection
 import { normalizedCanonicals, removeManagedOutputs } from "./projection-canonicals.js";
 import type { Projection, ProjectionOwnerCache, ProjectionVersions } from "./projection-types.js";
 import { assembleProjection } from "./projection-value-assembly.js";
+import { deriveSchemaRelations } from "./schema-relations.js";
+import { projectConflictIssues } from "./projection-conflicts.js";
+import { projectInitializedFields } from "./initialized-field.js";
 import {
   emptyOwnerContext,
   incrementalOwnerContext,
@@ -136,6 +139,34 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
       "managed-children",
     ],
     evaluate: evaluated("schema", (context) => {
+      const initializedFields = projectInitializedFields(
+        context.allActive,
+        context.nodes,
+        context.occurrences,
+        context.children,
+        context.canonicalOccurrences,
+      );
+      const relations = deriveSchemaRelations(
+        context.allActive,
+        new Set(context.nodes.keys()),
+        context.occurrences,
+        context.children,
+        initializedFields,
+      );
+      context.schemaApplications = relations.schemaApplications;
+      context.schemaFields = relations.schemaFields;
+      context.schemaFieldItems = relations.schemaFieldItems;
+      context.schemaExtensions = relations.schemaExtensions;
+      context.schemaSearchMembers = relations.schemaSearchMembers;
+      context.schemaExtensionConflicts = relations.schemaExtensionConflicts;
+      context.conflictIssues = projectConflictIssues(
+        context.snapshot,
+        relations.schemaExtensionConflicts,
+        relations.schemaFieldItems,
+        relations.effectiveFields,
+      );
+      context.effectiveFields = relations.effectiveFields;
+      context.materializedFields = relations.materializedFields;
       const rebuiltManagedNodeIds = new Set(context.managedChildren.map((child) => child.nodeId));
       if (context.incremental) {
         context.canonicalOccurrences = removeManagedOutputs(

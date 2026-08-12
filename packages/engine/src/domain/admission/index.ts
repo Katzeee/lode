@@ -13,9 +13,11 @@ import {
 import {
   CURRENT_PROJECTION_VERSIONS,
   rebuildGeneration,
+  assertMaterializedField,
   valueOwnerAddress,
   type Projection,
 } from "../reconcile/index.js";
+import { validateSchemaEvidence } from "./schema-evidence.js";
 
 export function admitAuthorityRecords(
   workspaceId: WorkspaceId,
@@ -57,41 +59,12 @@ function validateMutationEvidence(
   observed: FactSnapshot,
 ): void {
   switch (mutation.kind) {
-    case "text-splice": {
-      const atoms = available.nodes[mutation.nodeId]?.text;
-      if (!atoms) {
-        throw new Error("Text target Node is absent from the observed projection");
-      }
-      const byId = new Map(atoms.map((atom) => [atom.id, atom]));
-      const expected = mutation.deleteAtomIds.map((id) => {
-        const atom = byId.get(id);
-        if (!atom) {
-          throw new Error(`Text Atom is absent from the observed projection: ${id}`);
-        }
-        return { id, value: atom.value, attributes: atom.attributes };
-      });
-      assertSame(expected, mutation.deletedAtoms, "Text deletion evidence");
-      assertTextAnchor(
-        mutation.anchor,
-        atoms.map((atom) => atom.id),
-      );
+    case "text-splice":
+      validateTextSpliceEvidence(mutation, available);
       return;
-    }
-    case "text-mark": {
-      const availableAtoms = available.nodes[mutation.nodeId]?.text ?? [];
-      if (mutation.atomIds.some((id) => !availableAtoms.some((atom) => atom.id === id))) {
-        throw new Error("Text mark targets an Atom outside the observed projection");
-      }
-      const previousAtoms = previous.nodes[mutation.nodeId]?.text ?? [];
-      const states = mutation.atomIds.map((id) =>
-        previousValue(previousAtoms.find((atom) => atom.id === id)?.attributes[mutation.key]),
-      );
-      if (states.some((state) => canonicalJson(state) !== canonicalJson(states[0]))) {
-        throw new Error("Text mark targets have different observed previous values");
-      }
-      assertSame(states[0], mutation.previous, "Text mark previous evidence");
+    case "text-mark":
+      validateTextMarkEvidence(mutation, previous, available);
       return;
-    }
     case "value-set":
     case "value-unset":
       assertValueOwnerAvailable(mutation, available);
@@ -102,27 +75,9 @@ function validateMutationEvidence(
       );
       return;
     case "occurrence-move":
-    case "occurrence-delete": {
-      const occurrence = available.occurrences[mutation.occurrenceId];
-      if (!occurrence) {
-        throw new Error("Occurrence target is absent from the observed projection");
-      }
-      const prior = previous.occurrences[mutation.occurrenceId] ?? occurrence;
-      assertSame(
-        prior.parentOccurrenceId,
-        mutation.previousParentOccurrenceId,
-        "Occurrence previous parent evidence",
-      );
-      assertSame(
-        anchorFor(
-          previous.occurrences[mutation.occurrenceId] ? previous : available,
-          mutation.occurrenceId,
-        ),
-        mutation.previousAnchor,
-        "Occurrence previous anchor evidence",
-      );
+    case "occurrence-delete":
+      validateOccurrenceEvidence(mutation, previous, available);
       return;
-    }
     case "canonical-occurrence-set":
       if (available.occurrences[mutation.occurrenceId]?.nodeId !== mutation.nodeId) {
         throw new Error("Canonical target is absent from the observed projection");
@@ -132,6 +87,21 @@ function validateMutationEvidence(
         mutation.previousOccurrenceId,
         "Canonical previous evidence",
       );
+      return;
+    case "schema-apply":
+    case "schema-remove":
+    case "schema-field-add":
+    case "schema-field-remove":
+    case "schema-field-configure":
+    case "schema-extension-add":
+    case "schema-extension-remove":
+      validateSchemaEvidence(mutation, previous, available);
+      return;
+    case "field-materialize":
+      assertMaterializedField(mutation, available);
+      return;
+    case "field-initialize":
+      validateFieldInitializationEvidence(mutation, available);
       return;
     case "node-delete":
       if (!available.nodes[mutation.nodeId]) {
@@ -152,6 +122,100 @@ function validateMutationEvidence(
     case "node-restore":
       break;
   }
+}
+
+function validateFieldInitializationEvidence(
+  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+  available: Projection,
+): void {
+  for (const nodeId of [mutation.ownerNodeId, mutation.schemaId, mutation.fieldDefinitionId]) {
+    if (!available.nodes[nodeId]) {
+      throw new Error(`Field initialization dependency is absent: ${nodeId}`);
+    }
+  }
+  const field = available.effectiveFields[mutation.ownerNodeId]?.find(
+    (candidate) => candidate.fieldDefinitionId === mutation.fieldDefinitionId,
+  );
+  if (!field) {
+    throw new Error("Field initialization has no effective Schema source");
+  }
+  if (field.materializedFieldNodeId !== null) {
+    throw new Error("Field is already materialized");
+  }
+  const expectedIds = field.initializationCandidates.map((candidate) => candidate.initializationId);
+  if (
+    canonicalJson([...expectedIds].sort()) !==
+    canonicalJson([...(mutation.observedInitializationFactIds ?? [])].sort())
+  ) {
+    throw new Error("Field initialization evidence does not match current candidates");
+  }
+}
+
+function validateTextSpliceEvidence(
+  mutation: Extract<Mutation, { kind: "text-splice" }>,
+  available: Projection,
+): void {
+  const atoms = available.nodes[mutation.nodeId]?.text;
+  if (!atoms) {
+    throw new Error("Text target Node is absent from the observed projection");
+  }
+  const byId = new Map(atoms.map((atom) => [atom.id, atom]));
+  const expected = mutation.deleteAtomIds.map((id) => {
+    const atom = byId.get(id);
+    if (!atom) {
+      throw new Error(`Text Atom is absent from the observed projection: ${id}`);
+    }
+    return { id, value: atom.value, attributes: atom.attributes };
+  });
+  assertSame(expected, mutation.deletedAtoms, "Text deletion evidence");
+  assertTextAnchor(
+    mutation.anchor,
+    atoms.map((atom) => atom.id),
+  );
+}
+
+function validateTextMarkEvidence(
+  mutation: Extract<Mutation, { kind: "text-mark" }>,
+  previous: Projection,
+  available: Projection,
+): void {
+  const availableAtoms = available.nodes[mutation.nodeId]?.text ?? [];
+  if (mutation.atomIds.some((id) => !availableAtoms.some((atom) => atom.id === id))) {
+    throw new Error("Text mark targets an Atom outside the observed projection");
+  }
+  const previousAtoms = previous.nodes[mutation.nodeId]?.text ?? [];
+  const states = mutation.atomIds.map((id) =>
+    previousValue(previousAtoms.find((atom) => atom.id === id)?.attributes[mutation.key]),
+  );
+  if (states.some((state) => canonicalJson(state) !== canonicalJson(states[0]))) {
+    throw new Error("Text mark targets have different observed previous values");
+  }
+  assertSame(states[0], mutation.previous, "Text mark previous evidence");
+}
+
+function validateOccurrenceEvidence(
+  mutation: Extract<Mutation, { kind: "occurrence-move" | "occurrence-delete" }>,
+  previous: Projection,
+  available: Projection,
+): void {
+  const occurrence = available.occurrences[mutation.occurrenceId];
+  if (!occurrence) {
+    throw new Error("Occurrence target is absent from the observed projection");
+  }
+  const prior = previous.occurrences[mutation.occurrenceId] ?? occurrence;
+  assertSame(
+    prior.parentOccurrenceId,
+    mutation.previousParentOccurrenceId,
+    "Occurrence previous parent evidence",
+  );
+  assertSame(
+    anchorFor(
+      previous.occurrences[mutation.occurrenceId] ? previous : available,
+      mutation.occurrenceId,
+    ),
+    mutation.previousAnchor,
+    "Occurrence previous anchor evidence",
+  );
 }
 
 function readValue(

@@ -15,6 +15,15 @@ export function projectionPageMaps(
   | "canonicalOccurrences"
   | "addressedValues"
   | "managedChildren"
+  | "schemaApplications"
+  | "schemaFields"
+  | "schemaFieldItems"
+  | "schemaExtensions"
+  | "schemaSearchMembers"
+  | "schemaExtensionConflicts"
+  | "conflictIssues"
+  | "effectiveFields"
+  | "materializedFields"
 > {
   const indexed = Object.fromEntries(entries.map((entry) => [entry.identity, entry.value]));
   return {
@@ -29,5 +38,24 @@ export function projectionPageMaps(
       section === "managedChildren"
         ? (entries.map((entry) => entry.value) as ProjectionPage["managedChildren"])
         : [],
+    schemaApplications:
+      section === "schemaApplications" ? (indexed as ProjectionPage["schemaApplications"]) : {},
+    schemaFields: section === "schemaFields" ? (indexed as ProjectionPage["schemaFields"]) : {},
+    schemaFieldItems:
+      section === "schemaFieldItems" ? (indexed as ProjectionPage["schemaFieldItems"]) : {},
+    schemaExtensions:
+      section === "schemaExtensions" ? (indexed as ProjectionPage["schemaExtensions"]) : {},
+    schemaSearchMembers:
+      section === "schemaSearchMembers" ? (indexed as ProjectionPage["schemaSearchMembers"]) : {},
+    schemaExtensionConflicts:
+      section === "schemaExtensionConflicts"
+        ? (indexed as ProjectionPage["schemaExtensionConflicts"])
+        : {},
+    conflictIssues:
+      section === "conflictIssues" ? (indexed as ProjectionPage["conflictIssues"]) : {},
+    effectiveFields:
+      section === "effectiveFields" ? (indexed as ProjectionPage["effectiveFields"]) : {},
+    materializedFields:
+      section === "materializedFields" ? (indexed as ProjectionPage["materializedFields"]) : {},
   };
 }

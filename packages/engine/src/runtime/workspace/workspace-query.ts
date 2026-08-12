@@ -8,6 +8,7 @@ import { frontierCovers } from "../../domain/fact/index.js";
 import { queryHistory } from "../../domain/history/index.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
+import type { ConflictIssue } from "../../domain/conflict/index.js";
 import { queryReview } from "../../domain/review/index.js";
 import type { ReviewGenerationPage } from "./mutation-generation-reader.js";
 import { readFactGeneration, readReviewGeneration } from "./mutation-generation-reader.js";
@@ -33,6 +34,22 @@ export async function queryWorkspace(
   }
   if (query.kind === "projection") {
     return generations.page(generationId, query);
+  }
+  if (query.kind === "conflicts") {
+    const page = await generations.page(generationId, {
+      kind: "projection",
+      workspaceId,
+      view: "review",
+      section: "conflictIssues",
+      after: query.after,
+      limit: query.limit,
+    });
+    return {
+      generationId: page.identity.generationId,
+      frontier: page.identity.frontier,
+      issues: page.entries.map((entry) => entry.value as ConflictIssue),
+      next: page.next,
+    };
   }
   const receipts = facts.receipts();
   const reviewPage =
@@ -91,6 +108,8 @@ function queryPublishedWorkspace(
       );
     case "invocation":
       return invocationOutcome(query.invocationId, facts, generation, projectionFailure);
+    case "conflicts":
+      throw new Error("Conflict pages are read before scoped generation loading");
   }
 }
 

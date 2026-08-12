@@ -47,6 +47,27 @@ export type ValueOwner = Readonly<{
 export type PreviousValue =
   Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
 
+export type FieldVisibility = "pinned" | "normal" | "optional";
+
+export type FieldValueSeed =
+  Readonly<{ kind: "text"; value: string }> | Readonly<{ kind: "reference"; nodeId: string }>;
+
+export type FieldInitializer =
+  | Readonly<{ kind: "literal"; values: readonly FieldValueSeed[] }>
+  | Readonly<{ kind: "application-node-text" }>;
+
+export type FieldTemplateConfig = Readonly<{
+  visibility: FieldVisibility;
+  staticDefault: readonly FieldValueSeed[] | null;
+  initializer: FieldInitializer | null;
+}>;
+
+export const DEFAULT_FIELD_TEMPLATE_CONFIG: FieldTemplateConfig = {
+  visibility: "normal",
+  staticDefault: null,
+  initializer: null,
+};
+
 export type Mutation =
   | Readonly<{ kind: "node-create"; nodeId: string }>
   | Readonly<{ kind: "node-delete"; nodeId: string }>
@@ -86,6 +107,66 @@ export type Mutation =
       nodeId: string;
       occurrenceId: string;
       previousOccurrenceId?: string | null;
+    }>
+  | Readonly<{
+      kind: "schema-apply";
+      nodeId: string;
+      schemaId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-remove";
+      nodeId: string;
+      schemaId: string;
+      previousAnchor?: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-field-add";
+      schemaId: string;
+      fieldDefinitionId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-field-remove";
+      schemaId: string;
+      fieldDefinitionId: string;
+      previousAnchor?: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-field-configure";
+      schemaId: string;
+      fieldDefinitionId: string;
+      config: FieldTemplateConfig;
+      previousConfig?: FieldTemplateConfig | null;
+      observedConfigFactIds?: readonly FactId[];
+    }>
+  | Readonly<{
+      kind: "schema-extension-add";
+      schemaId: string;
+      baseSchemaId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "schema-extension-remove";
+      schemaId: string;
+      baseSchemaId: string;
+      previousAnchor?: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "field-materialize";
+      ownerNodeId: string;
+      fieldDefinitionId: string;
+      fieldNodeId: string;
+      fieldOccurrenceId: string;
+    }>
+  | Readonly<{
+      kind: "field-initialize";
+      ownerNodeId: string;
+      schemaId: string;
+      fieldDefinitionId: string;
+      source: "static-default" | "auto-initialize";
+      values: readonly FieldValueSeed[];
+      observedInitializationFactIds?: readonly FactId[];
     }>
   | Readonly<{
       kind: "text-splice";
@@ -136,6 +217,7 @@ export type ResolutionBody = Readonly<{
   actorId: ActorId;
   decision: ResolutionDecision;
   proposalContributionIds: readonly ContributionId[];
+  adjudicatesResolutionIds: readonly ResolutionId[];
 }>;
 
 export type FactBody = ContributionBody | ResolutionBody;

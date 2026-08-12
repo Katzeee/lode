@@ -173,6 +173,15 @@ function projectionShards(
     "children",
     "canonicalOccurrences",
     "addressedValues",
+    "schemaApplications",
+    "schemaFields",
+    "schemaFieldItems",
+    "schemaExtensions",
+    "schemaSearchMembers",
+    "schemaExtensionConflicts",
+    "conflictIssues",
+    "effectiveFields",
+    "materializedFields",
   ] as const) {
     for (const [identity, value] of Object.entries(projection[section])) {
       entries.push({ section, identity, value });

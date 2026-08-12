@@ -4,6 +4,7 @@ import { nextHistoryLineage, validateHistorySelection } from "../../domain/histo
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import { validateReviewSelection } from "../../domain/review/index.js";
+import { resolutionAdjudicationProblem } from "../../domain/conflict/index.js";
 import { prepareMutations } from "./mutation-planner.js";
 import { rejectedResult } from "./workspace-results.js";
 
@@ -50,6 +51,27 @@ export function planWorkspaceCommand(
     return validation.kind === "valid"
       ? { bodies: [validation.resolution], lineage: null }
       : rejectedResult("stale-selection", validation.reason, generation.identity.generationId);
+  }
+  if (command.kind === "adjudicate-resolution") {
+    const problem = resolutionAdjudicationProblem(
+      snapshot,
+      command.proposalContributionIds,
+      command.resolutionIds,
+    );
+    return problem
+      ? rejectedResult("stale-selection", problem, generation.identity.generationId)
+      : {
+          bodies: [
+            {
+              kind: "resolution",
+              actorId: command.actorId,
+              decision: command.decision,
+              proposalContributionIds: command.proposalContributionIds,
+              adjudicatesResolutionIds: command.resolutionIds,
+            },
+          ],
+          lineage: null,
+        };
   }
   const validation = validateHistorySelection(
     command.selection,

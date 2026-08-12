@@ -23,7 +23,7 @@ import { queryReview } from "../src/domain/review/review.js";
 const CHECKPOINT_KEY = "performance-checkpoint-key";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const limits = {
   fullRebuildMilliseconds: 2_000,
@@ -135,6 +135,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
       facts.push(
         nextFact(facts, {
           kind: "resolution",
+          adjudicatesResolutionIds: [],
           actorId: "reviewer",
           decision: index % 2 === 0 ? "accept" : "reject",
           proposalContributionIds: [proposal.id],

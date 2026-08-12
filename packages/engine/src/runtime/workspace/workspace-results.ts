@@ -5,7 +5,7 @@ import type {
   RejectedResult,
   WriteResult,
 } from "../../application/contract.js";
-import type { AuthorityReceipt } from "../../domain/fact/index.js";
+import { frontierCovers, type Admission, type AuthorityReceipt } from "../../domain/fact/index.js";
 import {
   AuthorityCommitUnknownError,
   AuthorityFaultError,
@@ -50,5 +50,23 @@ export function executionErrorResult(error: unknown, currentGenerationId: string
     "invalid-input",
     error instanceof Error ? error.message : String(error),
     currentGenerationId,
+  );
+}
+
+export async function finishWorkspaceReceipt(
+  receipt: AuthorityReceipt,
+  generationId: string,
+  admission: Admission,
+  publish: (receipt: AuthorityReceipt) => Promise<WriteResult>,
+): Promise<WriteResult> {
+  if (frontierCovers(admission.snapshot.frontier, receipt.committedFrontier)) {
+    return publish(receipt);
+  }
+  return pendingResult(
+    receipt,
+    generationId,
+    admission.kind === "fault"
+      ? (admission.fault ?? "authority is faulted")
+      : "authority Facts remain pending causal admission",
   );
 }

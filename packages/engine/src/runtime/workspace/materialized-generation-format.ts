@@ -7,7 +7,7 @@ import type { ProjectionOwnerCache } from "../../domain/reconcile/index.js";
 
 export const MANIFEST_DOCUMENT_ID = "materialized-generation/manifest";
 export const MANIFEST_FORMAT = "lode-materialized-generation-manifest-v1";
-export const HEADER_FORMAT = "lode-materialized-generation-header-v3";
+export const HEADER_FORMAT = "lode-materialized-generation-header-v6";
 export const DIRECTORY_FORMAT = "lode-materialized-generation-directory-v2";
 export const SHARD_FORMAT = "lode-materialized-generation-shard-v2";
 export const OWNER_CACHE_FORMAT = "lode-materialized-generation-owner-cache-v1";
@@ -20,7 +20,17 @@ export const PROJECTION_SECTIONS = [
   "canonicalOccurrences",
   "addressedValues",
   "managedChildren",
+  "schemaApplications",
+  "schemaFields",
+  "schemaFieldItems",
+  "schemaExtensions",
+  "schemaSearchMembers",
+  "schemaExtensionConflicts",
+  "conflictIssues",
+  "effectiveFields",
+  "materializedFields",
   "occurrenceIdsByNode",
+  "nodeIdsBySchema",
   "managedChildrenByParentNode",
   "managedChildrenBySchema",
   "managedChildrenByField",

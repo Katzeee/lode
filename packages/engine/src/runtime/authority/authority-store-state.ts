@@ -131,3 +131,15 @@ export async function persistSyncProjection(
     /* Derived sync state is rebuilt from immutable Facts. */
   }
 }
+
+export async function healFactSyncProjection(
+  documents: DocumentStore,
+  projection: LoroDoc,
+  admission: Admission,
+): Promise<void> {
+  if (admission.kind === "fault") {
+    return;
+  }
+  addFactsToSyncProjection(projection, admission.snapshot.facts);
+  await persistSyncProjection(documents, projection);
+}

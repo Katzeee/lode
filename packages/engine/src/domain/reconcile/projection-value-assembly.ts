@@ -6,13 +6,17 @@ import {
 } from "../fact/index.js";
 import type {
   ManagedChild,
+  EffectiveField,
+  MaterializedField,
   Projection,
   ProjectedNode,
   ProjectedOccurrence,
+  SchemaFieldItem,
 } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { valueOwnerAddress } from "./value-address.js";
 import { sortedRecord } from "./sorted-record.js";
+import type { ConflictIssue } from "../conflict/types.js";
 
 export function assembleProjection(
   input: Readonly<{
@@ -24,6 +28,15 @@ export function assembleProjection(
     addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
     canonicalOccurrences: Readonly<Record<string, string>>;
     managedChildren: readonly ManagedChild[];
+    schemaApplications: Readonly<Record<string, readonly string[]>>;
+    schemaFields: Readonly<Record<string, readonly string[]>>;
+    schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+    schemaExtensions: Readonly<Record<string, readonly string[]>>;
+    schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
+    schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+    conflictIssues: Readonly<Record<string, ConflictIssue>>;
+    effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+    materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
   }>,
 ): Projection {
   const values = applyProjectedValues(input.nodes, input.occurrences, input.addressedValues);
@@ -40,6 +53,15 @@ export function assembleProjection(
     canonicalOccurrences: input.canonicalOccurrences,
     addressedValues: input.addressedValues,
     managedChildren: input.managedChildren,
+    schemaApplications: input.schemaApplications,
+    schemaFields: input.schemaFields,
+    schemaFieldItems: input.schemaFieldItems,
+    schemaExtensions: input.schemaExtensions,
+    schemaSearchMembers: input.schemaSearchMembers,
+    schemaExtensionConflicts: input.schemaExtensionConflicts,
+    conflictIssues: input.conflictIssues,
+    effectiveFields: input.effectiveFields,
+    materializedFields: input.materializedFields,
   };
 }
 

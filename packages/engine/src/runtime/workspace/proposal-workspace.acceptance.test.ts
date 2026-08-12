@@ -8,12 +8,14 @@ import { managedNodeId } from "../../domain/reconcile/managed-identity.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import { FactSyncComposite } from "../sync/fact-sync.js";
+import { syncPair } from "../sync/sync-exchange.js";
 import { ProjectionCheckpointRepository } from "./projection-checkpoints.js";
 import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import type { ProjectionPublisher } from "./proposal-workspace-types.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 
 async function setup(
   publisher?: ProjectionPublisher,
@@ -36,6 +38,23 @@ async function setup(
       publisher,
       publicationTimeoutMs,
       historyPlanningObserver,
+    }),
+  };
+}
+
+async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`) {
+  const facts = await LoroFactStore.open({
+    workspaceId: "workspace",
+    replicaId: createReplicaId(),
+    loroPeerId,
+    documents,
+  });
+  return {
+    facts,
+    workspace: await ProposalWorkspace.open({
+      workspaceId: "workspace",
+      facts,
+      versions,
     }),
   };
 }
@@ -87,6 +106,122 @@ async function boldValues(workspace: ProposalWorkspace): Promise<readonly unknow
 }
 
 describe("Proposal Workspace coordinator", () => {
+  it("queries and adjudicates concurrent opposite Resolutions through the public Engine contract", async () => {
+    const documentsA = new InMemoryDocumentStore();
+    const a = await setupReplica(documentsA, "201");
+    const b = await setupReplica(new InMemoryDocumentStore(), "202");
+    const c = await setupReplica(new InMemoryDocumentStore(), "203");
+    expect(
+      (
+        await a.workspace.execute({
+          kind: "mutate",
+          workspaceId: "workspace",
+          invocationId: "propose-node",
+          actorId: "author",
+          intent: "proposal",
+          historyChannelId: "desktop",
+          mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+        })
+      ).status,
+    ).toBe("published");
+    await syncPair(new FactSyncComposite(a.facts), new FactSyncComposite(b.facts));
+    await syncPair(new FactSyncComposite(a.facts), new FactSyncComposite(c.facts));
+    await b.workspace.reconcileAuthorityAdvance();
+    await c.workspace.reconcileAuthorityAdvance();
+
+    const reviewB = await b.workspace.query({ kind: "review", workspaceId: "workspace" });
+    const reviewC = await c.workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in reviewB) || !reviewB.hunks[0] || !("hunks" in reviewC) || !reviewC.hunks[0]) {
+      throw new Error("Expected Proposal Review Hunk on both replicas");
+    }
+    expect(
+      (
+        await b.workspace.execute({
+          kind: "resolve-review",
+          workspaceId: "workspace",
+          invocationId: "accept-offline",
+          actorId: "accept-reviewer",
+          decision: "accept",
+          selection: reviewB.hunks[0].selection,
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      (
+        await c.workspace.execute({
+          kind: "resolve-review",
+          workspaceId: "workspace",
+          invocationId: "reject-offline",
+          actorId: "reject-reviewer",
+          decision: "reject",
+          selection: reviewC.hunks[0].selection,
+        })
+      ).status,
+    ).toBe("published");
+    await syncPair(new FactSyncComposite(b.facts), new FactSyncComposite(a.facts));
+    await syncPair(new FactSyncComposite(c.facts), new FactSyncComposite(a.facts));
+    await a.workspace.reconcileAuthorityAdvance();
+
+    const conflicts = await a.workspace.query({
+      kind: "conflicts",
+      workspaceId: "workspace",
+    });
+    if (!("issues" in conflicts) || conflicts.issues[0]?.kind !== "resolution-conflict") {
+      throw new Error("Expected public Resolution conflict");
+    }
+    const conflict = conflicts.issues[0];
+    const firstCandidate = conflict.candidates[0];
+    if (!firstCandidate) {
+      throw new Error("Expected Resolution conflict candidate");
+    }
+    expect(conflict.candidates.map((candidate) => candidate.decision).sort()).toEqual([
+      "accept",
+      "reject",
+    ]);
+    const beforeAdjudication = a.facts.snapshot().facts.length;
+    expect(
+      await a.workspace.execute({
+        kind: "adjudicate-resolution",
+        workspaceId: "workspace",
+        invocationId: "adjudicate-incomplete",
+        actorId: "adjudicator",
+        decision: "accept",
+        proposalContributionIds: conflict.proposalContributionIds,
+        resolutionIds: [firstCandidate.resolutionId],
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "stale-selection" } });
+    expect(a.facts.snapshot().facts).toHaveLength(beforeAdjudication);
+    expect(
+      (
+        await a.workspace.execute({
+          kind: "adjudicate-resolution",
+          workspaceId: "workspace",
+          invocationId: "adjudicate-accept",
+          actorId: "adjudicator",
+          decision: "accept",
+          proposalContributionIds: conflict.proposalContributionIds,
+          resolutionIds: conflict.candidates.map((candidate) => candidate.resolutionId),
+        })
+      ).status,
+    ).toBe("published");
+    const origin = await a.workspace.query({
+      kind: "projection",
+      workspaceId: "workspace",
+      view: "origin",
+      section: "nodes",
+    });
+    expect("nodes" in origin && origin.nodes["proposal-node"]).toBeDefined();
+    const resolved = await a.workspace.query({ kind: "conflicts", workspaceId: "workspace" });
+    expect("issues" in resolved && resolved.issues).toEqual([]);
+
+    await a.workspace.close();
+    const restarted = await setupReplica(documentsA, "204");
+    const afterRestart = await restarted.workspace.query({
+      kind: "conflicts",
+      workspaceId: "workspace",
+    });
+    expect("issues" in afterRestart && afterRestart.issues).toEqual([]);
+  });
   it("Review pagination preserves shared Node links across cross-position Move endpoints", async () => {
     const { workspace } = await setup();
     expect(

@@ -5,7 +5,7 @@ import {
   type AuthorityReceipt,
   type FactSnapshot,
 } from "../../domain/fact/index.js";
-import { rebuildGeneration, type ProjectionGeneration } from "../../domain/reconcile/index.js";
+import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import type {
   EngineCommand,
   EngineEvent,
@@ -16,29 +16,28 @@ import type {
   WriteResult,
 } from "../../application/contract.js";
 import type { FactStore } from "../authority/fact-store.js";
-import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { AuthorityFaultError } from "../authority/errors.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
 import {
   buildAndPublishGeneration,
   emitWorkspaceEvent,
   freezePublishedGeneration,
-  publicationStep,
 } from "./generation-publication.js";
 import type {
   ProjectionGenerationStore,
   ProposalWorkspaceOptions,
 } from "./proposal-workspace-types.js";
-import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { queryWorkspace } from "./workspace-query.js";
 import {
   executionErrorResult,
+  finishWorkspaceReceipt,
   pendingResult,
   publishedResult,
   rejectedResult,
 } from "./workspace-results.js";
 import { planWorkspaceCommand } from "./workspace-command-planner.js";
-import { readFactGeneration, readMutationGeneration } from "./mutation-generation-reader.js";
+import { readCommandGeneration } from "./command-generation-reader.js";
+import { openWorkspaceGeneration } from "./workspace-opening.js";
 
 export class ProposalWorkspace {
   private generationIdentity: ProjectionGeneration["identity"];
@@ -60,29 +59,13 @@ export class ProposalWorkspace {
     this.authorityFault = authorityFault;
   }
   static async open(options: ProposalWorkspaceOptions): Promise<ProposalWorkspace> {
-    const admission = options.facts.admission();
-    const snapshot = admission.snapshot;
-    const checkpoint = await options.checkpoints?.load(
-      options.workspaceId,
-      snapshot,
-      options.versions,
-    );
-    const generation =
-      checkpoint?.kind === "valid"
-        ? checkpoint.generation
-        : rebuildGeneration(options.workspaceId, snapshot, options.versions).generation;
-    const generations =
-      options.generations ?? new BoundedProjectionMaterializer(new InMemoryDocumentStore());
-    if (options.publisher) {
-      await publicationStep(options.publisher.publish(generation), options.publicationTimeoutMs);
-    }
-    await publicationStep(generations.publish(generation), options.publicationTimeoutMs);
+    const opened = await openWorkspaceGeneration(options);
     return new ProposalWorkspace(
       options,
-      generations,
-      generation,
-      snapshot,
-      admission.kind === "fault" ? (admission.fault ?? "Authority admission fault") : null,
+      opened.generations,
+      opened.generation,
+      opened.snapshot,
+      opened.authorityFault,
     );
   }
   get workspaceId(): string {
@@ -122,21 +105,12 @@ export class ProposalWorkspace {
           "Projection Generation does not cover the admitted authority frontier",
         );
       }
-      const generation =
-        command.kind === "mutate"
-          ? await readMutationGeneration(
-              this.generations,
-              this.generationIdentity.generationId,
-              command.mutations,
-            )
-          : await readFactGeneration(
-              this.generations,
-              this.generationIdentity.generationId,
-              this.publishedSnapshot,
-              command.kind === "resolve-review"
-                ? command.selection.evidence.proposalTargets
-                : command.selection.evidence.targetFactIds,
-            );
+      const generation = await readCommandGeneration(
+        this.generations,
+        this.generationIdentity.generationId,
+        this.publishedSnapshot,
+        command,
+      );
       const planned = planWorkspaceCommand(
         this.options.workspaceId,
         command,
@@ -236,22 +210,12 @@ export class ProposalWorkspace {
     if (frontierCovers(this.generationIdentity.frontier, receipt.committedFrontier)) {
       return publishedResult(receipt, this.generationIdentity.generationId);
     }
-    const admission = this.options.facts.admission();
-    if (admission.kind === "fault") {
-      return pendingResult(
-        receipt,
-        this.generationIdentity.generationId,
-        admission.fault ?? "authority is faulted",
-      );
-    }
-    if (!frontierCovers(admission.snapshot.frontier, receipt.committedFrontier)) {
-      return pendingResult(
-        receipt,
-        this.generationIdentity.generationId,
-        "authority Facts remain pending causal admission",
-      );
-    }
-    return this.publishToReceipt(receipt);
+    return finishWorkspaceReceipt(
+      receipt,
+      this.generationIdentity.generationId,
+      this.options.facts.admission(),
+      (pendingReceipt) => this.publishToReceipt(pendingReceipt),
+    );
   }
 
   private async publishToReceipt(receipt: AuthorityReceipt): Promise<WriteResult> {
@@ -296,13 +260,14 @@ export class ProposalWorkspace {
     });
   }
 
-  private rejected(code: Parameters<typeof rejectedResult>[0], message: string): RejectedResult {
-    return rejectedResult(code, message, this.generationIdentity.generationId);
-  }
   private async currentGeneration(): Promise<ProjectionGeneration> {
     return freezePublishedGeneration(
       await this.generations.load(this.generationIdentity.generationId),
     );
+  }
+
+  private rejected(code: Parameters<typeof rejectedResult>[0], message: string): RejectedResult {
+    return rejectedResult(code, message, this.generationIdentity.generationId);
   }
 
   private emit(

@@ -4,6 +4,7 @@ import { mutationIdentity, normalizedEffects, valueAddress } from "./evidence.js
 import { mutationAnchor, occurrenceIdsForNode, structureEffect } from "./impacts.js";
 import { childSequenceIdentity } from "./structure-space.js";
 import type { HunkCandidate } from "./candidates.js";
+import { materializedFieldCandidates, schemaCandidates } from "./schema-review.js";
 
 export function nonTextCandidates(
   generation: ProjectionGeneration,
@@ -13,6 +14,8 @@ export function nonTextCandidates(
     ...structureCandidates(generation, pending),
     ...valueCandidates(generation, pending),
     ...lifecycleCandidates(generation, pending),
+    ...schemaCandidates(generation, pending),
+    ...materializedFieldCandidates(generation, pending),
   ];
 }
 

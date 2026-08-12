@@ -48,6 +48,29 @@ export function parseEngineCommand(value: unknown): EngineCommand {
       selection: parseReviewSelectionContract(command.selection),
     };
   }
+  if (kind === "adjudicate-resolution") {
+    keys(command, [
+      "kind",
+      "workspaceId",
+      "invocationId",
+      "actorId",
+      "decision",
+      "proposalContributionIds",
+      "resolutionIds",
+    ]);
+    if (command.decision !== "accept" && command.decision !== "reject") {
+      throw new Error("Invalid adjudication decision");
+    }
+    return {
+      kind,
+      workspaceId: nonempty(command.workspaceId, "Workspace identity"),
+      invocationId: nonempty(command.invocationId, "Invocation identity"),
+      actorId: nonempty(command.actorId, "Actor identity"),
+      decision: command.decision,
+      proposalContributionIds: identities(command.proposalContributionIds, "Proposal targets"),
+      resolutionIds: identities(command.resolutionIds, "Resolution targets"),
+    };
+  }
   if (kind === "undo" || kind === "redo") {
     keys(command, ["kind", "workspaceId", "invocationId", "actorId", "selection"]);
     return {
@@ -81,6 +104,15 @@ export function parseEngineQuery(value: unknown): EngineQuery {
               "canonicalOccurrences",
               "addressedValues",
               "managedChildren",
+              "schemaApplications",
+              "schemaFields",
+              "schemaFieldItems",
+              "schemaExtensions",
+              "schemaSearchMembers",
+              "schemaExtensionConflicts",
+              "conflictIssues",
+              "effectiveFields",
+              "materializedFields",
             ] as const,
             "Projection section",
           );
@@ -124,6 +156,22 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       channelId: nonempty(query.channelId, "History channel"),
     };
   }
+  if (kind === "conflicts") {
+    keys(query, ["kind", "workspaceId", "after", "limit"]);
+    const limit = query.limit === undefined ? 50 : query.limit;
+    if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 100) {
+      throw new Error("Conflict page limit must be between 1 and 100");
+    }
+    return {
+      kind,
+      workspaceId: nonempty(query.workspaceId, "Workspace identity"),
+      after:
+        query.after === undefined || query.after === null
+          ? null
+          : nonempty(query.after, "Conflict cursor"),
+      limit: limit as number,
+    };
+  }
   if (kind === "invocation") {
     keys(query, ["kind", "workspaceId", "invocationId"]);
     return {
@@ -133,6 +181,17 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     };
   }
   throw new Error(`Unknown Engine query kind: ${kind}`);
+}
+
+function identities(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} must be a non-empty identity array`);
+  }
+  const result = value.map((item) => nonempty(item, label));
+  if (new Set(result).size !== result.length) {
+    throw new Error(`${label} contains duplicate identities`);
+  }
+  return result;
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {

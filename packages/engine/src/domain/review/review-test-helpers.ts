@@ -17,7 +17,7 @@ export const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 export const REPLICA_C = "cccccccccccccccccccccccccc";
 export const versions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "proposal-schema-1",
+  schemaVersion: "lode-schema-5",
 } as const;
 export const end = {
   after: null,

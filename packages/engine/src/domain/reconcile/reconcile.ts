@@ -181,6 +181,17 @@ function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
       case "value-unset":
         owners.add("value");
         break;
+      case "schema-apply":
+      case "schema-remove":
+      case "schema-field-add":
+      case "schema-field-remove":
+      case "schema-field-configure":
+      case "schema-extension-add":
+      case "schema-extension-remove":
+      case "field-materialize":
+      case "field-initialize":
+        owners.add("schema");
+        break;
       case "canonical-occurrence-set":
         owners.add("canonical");
         break;

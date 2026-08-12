@@ -5,6 +5,8 @@ import {
 } from "../domain/fact/index.js";
 import type { HistoryQuery } from "../domain/history/index.js";
 import type { ReviewQuery } from "../domain/review/index.js";
+import type { ConflictQuery } from "../domain/conflict/index.js";
+import { parseConflictIssue } from "./conflict-validation.js";
 import type {
   EngineError,
   EngineEvent,
@@ -101,7 +103,20 @@ function queryValue(value: unknown): EngineQueryValue {
   if ("channelId" in candidate) {
     return historyQuery(candidate);
   }
+  if ("issues" in candidate) {
+    return conflictQuery(candidate);
+  }
   return invocationOutcome(candidate);
+}
+
+function conflictQuery(value: Record<string, unknown>): ConflictQuery {
+  exact(value, ["generationId", "frontier", "issues", "next"], "Conflict query");
+  return {
+    generationId: string(value.generationId, "Conflict generation"),
+    frontier: frontier(value.frontier),
+    issues: array(value.issues, "Conflict issues", parseConflictIssue),
+    next: nullableString(value.next, "Conflict cursor"),
+  };
 }
 
 function invocationOutcome(
@@ -144,7 +159,16 @@ function reviewQuery(value: Record<string, unknown>): ReviewQuery {
         diffSpace: {
           kind: oneOf(
             diffSpace.kind,
-            ["node-content", "child-sequence", "value", "lifecycle", "canonical"] as const,
+            [
+              "node-content",
+              "child-sequence",
+              "value",
+              "lifecycle",
+              "canonical",
+              "schema-application",
+              "schema-template",
+              "materialized-field",
+            ] as const,
             "Diff Space kind",
           ),
           identity: string(diffSpace.identity, "Diff Space identity"),

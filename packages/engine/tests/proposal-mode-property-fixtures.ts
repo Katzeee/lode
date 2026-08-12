@@ -19,7 +19,7 @@ import {
 import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
 import { managedNodeId } from "../src/domain/reconcile/managed-identity.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {

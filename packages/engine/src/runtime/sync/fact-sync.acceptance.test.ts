@@ -4,11 +4,12 @@ import { describe, expect, it } from "vitest";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { rebuildGeneration } from "../../domain/reconcile/index.js";
+import { queryReview } from "../../domain/review/index.js";
 import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
 import { FactSyncComposite } from "./fact-sync.js";
 import { InMemorySyncTransport, SyncExchange, syncPair } from "./sync-exchange.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 
 async function replica(peerId: `${number}`, replicaId = createReplicaId()) {
   return LoroFactStore.open({
@@ -137,7 +138,7 @@ describe("Fact-only production sync", () => {
     }
   });
 
-  it("三副本 merge permutations", async () => {
+  it("keeps concurrent opposite Resolutions out of Origin and visible in Review", async () => {
     const result = await runTopology([
       [0, 1],
       [0, 2],
@@ -146,7 +147,8 @@ describe("Fact-only production sync", () => {
     ]);
     expect(result.factIds).toHaveLength(5);
     expect(result.originNodeIds).toEqual(["direct-b", "direct-c"]);
-    expect(result.reviewNodeIds).toEqual(["direct-b", "direct-c"]);
+    expect(result.reviewNodeIds).toEqual(["direct-b", "direct-c", "proposal"]);
+    expect(result.reviewHunkCount).toBe(1);
   });
 
   it("Sync push 与 anti-entropy", async () => {
@@ -289,6 +291,7 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
       },
       {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "b",
         decision: "accept",
         proposalContributionIds: proposal.receipt.factIds,
@@ -309,6 +312,7 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
       },
       {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "c",
         decision: "reject",
         proposalContributionIds: proposal.receipt.factIds,
@@ -345,6 +349,7 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     factIds: firstSnapshot.facts.map((fact) => fact.id).sort(),
     originNodeIds: Object.keys(generation.origin.nodes).sort(),
     reviewNodeIds: Object.keys(generation.review.nodes).sort(),
+    reviewHunkCount: queryReview("workspace", firstSnapshot, generation).hunks.length,
   };
 }
 

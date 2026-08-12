@@ -41,7 +41,7 @@ const CHECKPOINT_KEY = "property-test-key";
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "cccccccccccccccccccccccccc";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "proposal-schema-1" } as const;
+const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-5" } as const;
 
 describe("seeded Proposal Mode property and permutation contracts", () => {
   it("arrival order and duplicate delivery preserve one admitted snapshot", () => {
@@ -88,6 +88,38 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
+  it("Schema Extension cycle and search projections converge across seeded arrival and checkpoints", () => {
+    const facts = extensionCycleFixture();
+    const prefixFacts = facts.slice(0, 6);
+    const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
+    const checkpoint = createGenerationCheckpoint(
+      "workspace",
+      prefix,
+      rebuildGeneration("workspace", prefix, versions).generation,
+      CHECKPOINT_KEY,
+    );
+    const expected = rebuildGeneration(
+      "workspace",
+      { facts, frontier: frontierOf(facts) },
+      versions,
+    ).generation;
+    expect(expected.origin.schemaExtensionConflicts).toEqual({
+      "schema-a": ["schema-a", "schema-b"],
+      "schema-b": ["schema-a", "schema-b"],
+    });
+    expect(expected.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual([
+      "field-a",
+    ]);
+    for (let seed = 1; seed <= 32; seed += 1) {
+      const snapshot = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
+      expect(rebuildGeneration("workspace", snapshot, versions).generation).toEqual(expected);
+      expect(
+        reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, CHECKPOINT_KEY)
+          ?.generation,
+      ).toEqual(expected);
+    }
+  });
+
   it("Review and History selections distinguish seeded unrelated and related interleavings", () => {
     for (let seed = 1; seed <= 32; seed += 1) {
       const reviewFacts = base();
@@ -127,6 +159,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       ).toBe("valid");
       reviewFacts.addBody({
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "other-reviewer",
         decision: "reject",
         proposalContributionIds: [proposal.id],
@@ -674,12 +707,71 @@ function causalFixture(): Fact[] {
     lamport: 2,
     body: {
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "accept",
       proposalContributionIds: [proposal.id],
     },
   });
   return [a1, b1, proposal, a2, resolution];
+}
+
+function extensionCycleFixture(): Fact[] {
+  const mutations: readonly Mutation[] = [
+    { kind: "node-create", nodeId: "base" },
+    { kind: "node-create", nodeId: "schema-a" },
+    { kind: "node-create", nodeId: "schema-b" },
+    { kind: "node-create", nodeId: "task" },
+    { kind: "node-create", nodeId: "field-a" },
+    {
+      kind: "schema-field-add",
+      schemaId: "schema-a",
+      fieldDefinitionId: "field-a",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+  ];
+  const prefix = mutations.map((mutation, index) =>
+    mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
+  );
+  const observed = { [A]: 6 };
+  return [
+    ...prefix,
+    mutationFact(B, 1, observed, 7, {
+      kind: "schema-extension-add",
+      schemaId: "schema-a",
+      baseSchemaId: "schema-b",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    }),
+    mutationFact(C, 1, observed, 7, {
+      kind: "schema-extension-add",
+      schemaId: "schema-b",
+      baseSchemaId: "schema-a",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    }),
+    mutationFact(A, 7, observed, 7, {
+      kind: "schema-apply",
+      nodeId: "task",
+      schemaId: "schema-a",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    }),
+  ];
+}
+
+function mutationFact(
+  replicaId: string,
+  sequence: number,
+  observed: Readonly<Record<string, number>>,
+  lamport: number,
+  mutation: Mutation,
+): Fact {
+  return makeFact({
+    workspaceId: "workspace",
+    replicaId,
+    sequence,
+    observed,
+    lamport,
+    body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+  });
 }
 
 function fact(

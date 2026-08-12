@@ -16,6 +16,7 @@ import {
 import { deriveActivation, supportClosure } from "../reconcile/support.js";
 import { associatedImpacts, mutationAnchor, structureEffect } from "./impacts.js";
 import type { DecisionEffect, DecisionEvidence, TextDecisionEffect } from "./types.js";
+import { fieldMaterializationEffect, schemaRelationEffect } from "./schema-review.js";
 
 export function evidenceForTargets(
   snapshot: FactSnapshot,
@@ -115,6 +116,22 @@ export function normalizedEffects(
       const effect = valueEffect(mutation, generation);
       if (canonicalJson(effect.origin) !== canonicalJson(effect.review)) {
         effects.set(`value/${valueAddress(mutation)}`, effect);
+      }
+    } else if (mutation.kind.startsWith("schema-")) {
+      const effect = schemaRelationEffect(fact, generation);
+      if (effect.originIndex !== effect.reviewIndex) {
+        effects.set(
+          canonicalJson(["schema-relation", effect.relation, effect.ownerId, effect.targetId]),
+          effect,
+        );
+      }
+    } else if (mutation.kind === "field-materialize" || mutation.kind === "field-initialize") {
+      const effect = fieldMaterializationEffect(fact, generation);
+      if (effect.originFieldNodeId !== effect.reviewFieldNodeId) {
+        effects.set(
+          canonicalJson(["field-materialization", effect.ownerNodeId, effect.fieldDefinitionId]),
+          effect,
+        );
       }
     } else if (mutation.kind === "canonical-occurrence-set") {
       const origin = generation.origin.canonicalOccurrences[mutation.nodeId] ?? null;

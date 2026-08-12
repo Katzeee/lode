@@ -14,10 +14,14 @@ import type { HistoryQuery, HistorySelection } from "../domain/history/index.js"
 import type { JsonValue, ProjectionIdentity } from "../domain/fact/index.js";
 import type {
   ManagedChild,
+  EffectiveField,
+  MaterializedField,
   ProjectedNode,
   ProjectedOccurrence,
+  SchemaFieldItem,
 } from "../domain/reconcile/index.js";
 import type { ReviewQuery, ReviewSelection } from "../domain/review/index.js";
+import type { ConflictIssue, ConflictQuery } from "../domain/conflict/index.js";
 
 export type MutationCommand = Readonly<{
   kind: "mutate";
@@ -38,6 +42,16 @@ export type ReviewCommand = Readonly<{
   selection: ReviewSelection;
 }>;
 
+export type AdjudicateResolutionCommand = Readonly<{
+  kind: "adjudicate-resolution";
+  workspaceId: WorkspaceId;
+  invocationId: InvocationId;
+  actorId: ActorId;
+  decision: ResolutionDecision;
+  proposalContributionIds: readonly string[];
+  resolutionIds: readonly string[];
+}>;
+
 export type HistoryCommand = Readonly<{
   kind: "undo" | "redo";
   workspaceId: WorkspaceId;
@@ -46,7 +60,8 @@ export type HistoryCommand = Readonly<{
   selection: HistorySelection;
 }>;
 
-export type EngineCommand = MutationCommand | ReviewCommand | HistoryCommand;
+export type EngineCommand =
+  MutationCommand | ReviewCommand | AdjudicateResolutionCommand | HistoryCommand;
 
 export type EngineErrorCode =
   | "invalid-input"
@@ -103,7 +118,16 @@ export type ProjectionPageSection =
   | "children"
   | "canonicalOccurrences"
   | "addressedValues"
-  | "managedChildren";
+  | "managedChildren"
+  | "schemaApplications"
+  | "schemaFields"
+  | "schemaFieldItems"
+  | "schemaExtensions"
+  | "schemaSearchMembers"
+  | "schemaExtensionConflicts"
+  | "conflictIssues"
+  | "effectiveFields"
+  | "materializedFields";
 
 export type ProjectionPageValue =
   | ProjectedNode
@@ -111,7 +135,11 @@ export type ProjectionPageValue =
   | readonly string[]
   | string
   | Readonly<Record<string, JsonValue>>
-  | ManagedChild;
+  | ManagedChild
+  | readonly EffectiveField[]
+  | readonly MaterializedField[]
+  | readonly SchemaFieldItem[]
+  | ConflictIssue;
 
 export type ProjectionPage = Readonly<{
   identity: ProjectionIdentity;
@@ -125,6 +153,15 @@ export type ProjectionPage = Readonly<{
   canonicalOccurrences: Readonly<Record<string, string>>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
   managedChildren: readonly ManagedChild[];
+  schemaApplications: Readonly<Record<string, readonly string[]>>;
+  schemaFields: Readonly<Record<string, readonly string[]>>;
+  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaExtensions: Readonly<Record<string, readonly string[]>>;
+  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
+  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  conflictIssues: Readonly<Record<string, ConflictIssue>>;
+  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
 }>;
 
 export type ReviewQueryRequest = Readonly<{
@@ -146,13 +183,25 @@ export type InvocationQuery = Readonly<{
   invocationId: InvocationId;
 }>;
 
+export type ConflictQueryRequest = Readonly<{
+  kind: "conflicts";
+  workspaceId: WorkspaceId;
+  after?: string | null;
+  limit?: number;
+}>;
+
 export type EngineQuery =
-  ProjectionQuery | ReviewQueryRequest | HistoryQueryRequest | InvocationQuery;
+  | ProjectionQuery
+  | ReviewQueryRequest
+  | HistoryQueryRequest
+  | InvocationQuery
+  | ConflictQueryRequest;
 
 export type InvocationOutcome =
   Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
-export type EngineQueryValue = ProjectionPage | ReviewQuery | HistoryQuery | InvocationOutcome;
+export type EngineQueryValue =
+  ProjectionPage | ReviewQuery | HistoryQuery | InvocationOutcome | ConflictQuery;
 
 export type EngineQueryResult =
   | Readonly<{ status: "ok"; value: EngineQueryValue }>

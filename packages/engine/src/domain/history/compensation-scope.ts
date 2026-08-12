@@ -96,6 +96,22 @@ function addMutation(scope: HistoryScope, mutation: Mutation): void {
   if ("previousAnchor" in mutation && mutation.previousAnchor !== undefined) {
     addAnchor(scope, mutation.previousAnchor);
   }
+  if (isSchemaRelation(mutation)) {
+    scope.schemas.add(mutation.schemaId);
+    scope.nodes.add(mutation.schemaId);
+    if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
+      scope.nodes.add(mutation.nodeId);
+    } else if (
+      mutation.kind === "schema-extension-add" ||
+      mutation.kind === "schema-extension-remove"
+    ) {
+      scope.schemas.add(mutation.baseSchemaId);
+      scope.nodes.add(mutation.baseSchemaId);
+    } else {
+      scope.fields.add(mutation.fieldDefinitionId);
+      scope.nodes.add(mutation.fieldDefinitionId);
+    }
+  }
   if (mutation.kind === "text-splice") {
     mutation.deleteAtomIds.forEach((id) => scope.factIds.add(atomContributionId(id)));
   }
@@ -126,6 +142,16 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
   if (mutation.kind === "occurrence-create" && scope.nodes.has(mutation.nodeId)) {
     return true;
   }
+  if (isSchemaRelation(mutation)) {
+    return (
+      scope.schemas.has(mutation.schemaId) ||
+      (mutation.kind === "schema-apply" || mutation.kind === "schema-remove"
+        ? scope.nodes.has(mutation.nodeId)
+        : mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
+          ? scope.schemas.has(mutation.baseSchemaId)
+          : scope.fields.has(mutation.fieldDefinitionId))
+    );
+  }
   if (
     "parentOccurrenceId" in mutation &&
     mutation.parentOccurrenceId !== null &&
@@ -149,6 +175,12 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
     return scope.fields.has(mutation.owner.id);
   }
   return false;
+}
+
+function isSchemaRelation(
+  mutation: Mutation,
+): mutation is Extract<Mutation, { kind: `schema-${string}` }> {
+  return mutation.kind.startsWith("schema-");
 }
 
 function addAnchor(

@@ -16,7 +16,6 @@ import {
 import { materialize } from "./materialize-generation.js";
 import {
   isGenerationHeader,
-  isManifest,
   isStoredOwnerCaches,
   isStoredShard,
 } from "./materialized-format-validation.js";
@@ -29,14 +28,14 @@ import type {
 import { loadMaterializedProjection } from "./materialized-projection-loader.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
 import {
-  deleteGenerationDocuments,
-  deleteOrphanMaterializedDocuments,
   loadAllDescriptors,
   loadExactDescriptors,
   loadPageDescriptors,
   writeDirectoryNodes,
   writeMaterializedEntry,
 } from "./materialized-directory.js";
+import { loadGenerationManifest, loadMaterializedSnapshot } from "./materialized-document-read.js";
+import { cleanupMaterializedGenerations } from "./materialized-cleanup.js";
 
 export class BoundedProjectionMaterializer implements ProjectionGenerationStore {
   private readonly capacity: number;
@@ -71,9 +70,13 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
       return;
     }
     this.publicationFenceOrdinal = ordinal;
-    const previousManifest = await this.loadManifest();
+    const previousManifest = await loadGenerationManifest(this.documents);
     try {
-      await this.removeUnreferencedGenerations(previousManifest.generationIds);
+      await cleanupMaterializedGenerations(
+        this.documents,
+        previousManifest.generationIds,
+        this.pinned,
+      );
     } catch {
       // A later successful publication repeats cleanup from the durable manifest.
     }
@@ -108,7 +111,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     }
     this.generationIdValue = generation.identity.generationId;
     try {
-      await this.removeUnreferencedGenerations(generationIds);
+      await cleanupMaterializedGenerations(this.documents, generationIds, this.pinned);
     } catch {
       // The manifest already defines the bounded live set; orphan cleanup is retried by later publishes.
     }
@@ -211,8 +214,13 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
       release();
       if (!this.pinned.has(generationId)) {
         try {
-          const manifest = await this.loadManifest();
-          await this.removeUnreferencedGenerations(manifest.generationIds, false);
+          const manifest = await loadGenerationManifest(this.documents);
+          await cleanupMaterializedGenerations(
+            this.documents,
+            manifest.generationIds,
+            this.pinned,
+            false,
+          );
         } catch {
           // Publication retries cleanup; a read result never depends on cleanup succeeding.
         }
@@ -239,7 +247,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
       this.shards.set(cacheKey(generationId, descriptor.key), cached);
       return cached.value;
     }
-    const stored = await loadSnapshot(this.documents, descriptor.documentId);
+    const stored = await loadMaterializedSnapshot(this.documents, descriptor.documentId);
     const parsed: unknown = JSON.parse(new TextDecoder().decode(stored));
     if (!isStoredShard(parsed, generationId, descriptor)) {
       throw new Error("Published Projection shard is corrupt");
@@ -262,7 +270,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
   }
 
   private async loadHeader(generationId: string): Promise<GenerationHeader> {
-    const stored = await loadSnapshot(this.documents, headerDocumentId(generationId));
+    const stored = await loadMaterializedSnapshot(this.documents, headerDocumentId(generationId));
     const parsed: unknown = JSON.parse(new TextDecoder().decode(stored));
     if (!isGenerationHeader(parsed, generationId)) {
       throw new Error("Published Projection Generation header is corrupt");
@@ -274,46 +282,12 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     generationId: string,
     header: GenerationHeader,
   ): Promise<ProjectionGeneration["ownerCaches"]> {
-    const stored = await loadSnapshot(this.documents, header.ownerCache.documentId);
+    const stored = await loadMaterializedSnapshot(this.documents, header.ownerCache.documentId);
     const parsed: unknown = JSON.parse(new TextDecoder().decode(stored));
     if (!isStoredOwnerCaches(parsed, generationId, header.ownerCache.contentDigest)) {
       throw new Error("Published Projection owner cache is corrupt");
     }
     return parsed.value;
-  }
-
-  private async loadManifest(): Promise<GenerationManifest> {
-    const stored = await this.documents.load(MANIFEST_DOCUMENT_ID);
-    if (!stored) {
-      return { format: MANIFEST_FORMAT, generationIds: [] };
-    }
-    if (!stored.snapshot || stored.updates.length > 0) {
-      throw new Error("Published Projection Generation manifest is corrupt");
-    }
-    const parsed: unknown = JSON.parse(new TextDecoder().decode(stored.snapshot));
-    if (!isManifest(parsed)) {
-      throw new Error("Published Projection Generation manifest is corrupt");
-    }
-    return parsed;
-  }
-
-  private async removeUnreferencedGenerations(
-    retainedIds: readonly string[],
-    scanOrphanShards = true,
-  ): Promise<void> {
-    const retained = new Set(retainedIds);
-    const headerPrefix = "materialized-generation/header/";
-    const headerIds = await this.documents.listIds({ prefix: headerPrefix });
-    const storedIds = headerIds.map((id) => id.slice(headerPrefix.length));
-    for (const generationId of storedIds.filter(
-      (id) => !retained.has(id) && !this.pinned.has(id),
-    )) {
-      await deleteGenerationDocuments(this.documents, generationId);
-    }
-    if (this.pinned.size > 0 || !scanOrphanShards) {
-      return;
-    }
-    await deleteOrphanMaterializedDocuments(this.documents, retained);
   }
 
   private readonly pinned = new Map<string, number>();
@@ -329,12 +303,4 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
       }
     };
   }
-}
-
-async function loadSnapshot(documents: DocumentStore, id: string): Promise<Uint8Array> {
-  const stored = await documents.load(id);
-  if (!stored?.snapshot || stored.updates.length > 0) {
-    throw new Error("Published Projection Generation is unavailable");
-  }
-  return stored.snapshot;
 }

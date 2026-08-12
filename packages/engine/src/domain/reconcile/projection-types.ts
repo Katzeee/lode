@@ -1,4 +1,13 @@
-import type { JsonValue, ProjectionIdentity, TextAtomId, ViewMode } from "../fact/index.js";
+import type {
+  FieldTemplateConfig,
+  FieldValueSeed,
+  FieldVisibility,
+  JsonValue,
+  ProjectionIdentity,
+  TextAtomId,
+  ViewMode,
+} from "../fact/index.js";
+import type { ConflictIssue } from "../conflict/types.js";
 
 export type TextAtom = Readonly<{
   id: TextAtomId;
@@ -31,6 +40,48 @@ export type ManagedChild = Readonly<{
   occurrenceId: string;
 }>;
 
+export type FieldConfigCandidate = Readonly<{
+  config: FieldTemplateConfig;
+  sourceSchemaIds: readonly string[];
+  sourceTemplateItemIds: readonly string[];
+  contributionIds: readonly string[];
+}>;
+
+export type FieldInitializationCandidate = Readonly<{
+  initializationId: string;
+  schemaId: string;
+  source: "static-default" | "auto-initialize";
+  values: readonly FieldValueSeed[];
+}>;
+
+export type SchemaFieldItem = Readonly<{
+  templateItemId: string;
+  schemaId: string;
+  fieldDefinitionId: string;
+  configCandidates: readonly FieldConfigCandidate[];
+  effectiveConfig: FieldTemplateConfig | null;
+}>;
+
+export type EffectiveField = Readonly<{
+  fieldDefinitionId: string;
+  sourceSchemaIds: readonly string[];
+  sourceTemplateItemIds: readonly string[];
+  visibility: FieldVisibility;
+  configCandidates: readonly FieldConfigCandidate[];
+  effectiveConfig: FieldTemplateConfig | null;
+  initializationCandidates: readonly FieldInitializationCandidate[];
+  initializedValues: readonly FieldValueSeed[] | null;
+  materializedFieldNodeId: string | null;
+}>;
+
+export type MaterializedField = Readonly<{
+  ownerNodeId: string;
+  fieldDefinitionId: string;
+  fieldNodeId: string;
+  fieldOccurrenceId: string;
+  valueOccurrenceIds: readonly string[];
+}>;
+
 export type Projection = Readonly<{
   view: ViewMode;
   identity: ProjectionIdentity;
@@ -40,6 +91,15 @@ export type Projection = Readonly<{
   canonicalOccurrences: Readonly<Record<string, string>>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
   managedChildren: readonly ManagedChild[];
+  schemaApplications: Readonly<Record<string, readonly string[]>>;
+  schemaFields: Readonly<Record<string, readonly string[]>>;
+  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  schemaExtensions: Readonly<Record<string, readonly string[]>>;
+  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
+  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+  conflictIssues: Readonly<Record<string, ConflictIssue>>;
+  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
 }>;
 
 export type ProjectionGeneration = Readonly<{
@@ -64,7 +124,7 @@ export type ProjectionVersions = Readonly<{
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "proposal-schema-1",
+  schemaVersion: "lode-schema-5",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

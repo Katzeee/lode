@@ -19,7 +19,7 @@ export const end = {
 } as const;
 export const versions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "proposal-schema-1",
+  schemaVersion: "lode-schema-5",
 } as const;
 
 export class HistoryFixture {
@@ -50,6 +50,7 @@ export class HistoryFixture {
       lamport: sequence,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision,
         proposalContributionIds: targets,

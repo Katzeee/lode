@@ -10,7 +10,7 @@ import {
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 export const versions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "proposal-schema-1",
+  schemaVersion: "lode-schema-5",
 } as const;
 export const end = {
   after: null,
@@ -29,6 +29,7 @@ export class Facts {
   resolve(targets: readonly string[], decision: "accept" | "reject"): Fact {
     return this.body({
       kind: "resolution",
+      adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision,
       proposalContributionIds: targets,

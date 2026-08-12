@@ -9,8 +9,17 @@ import {
   type PreviousValue,
   type SequenceAnchor,
 } from "../../domain/fact/index.js";
-import { valueOwnerAddress, type ProjectionGeneration } from "../../domain/reconcile/index.js";
+import {
+  assertMaterializedField,
+  valueOwnerAddress,
+  type ProjectionGeneration,
+} from "../../domain/reconcile/index.js";
 import { applyPlanningMutation } from "./planning-projection.js";
+import { prepareSchemaMutation } from "./planning-schema-relations.js";
+import {
+  prepareFieldInitialization,
+  schemaApplicationInitializations,
+} from "./field-initialization-planner.js";
 import {
   assertNoBatchCreatedAtomReference,
   prepareTextMark,
@@ -28,21 +37,34 @@ export function prepareMutations(
   let workingSnapshot = snapshot;
   const prepared: Mutation[] = [];
   const batchCreatedAtomIds = new Set<string>();
-  for (const [index, mutation] of mutations.entries()) {
+  const pending = [...mutations];
+  for (let index = 0; index < pending.length; index += 1) {
+    const mutation = pending[index];
+    if (!mutation) {
+      continue;
+    }
     assertNoBatchCreatedAtomReference(mutation, batchCreatedAtomIds);
     const previous = intent === "direct" ? workingGeneration.origin : workingGeneration.review;
     const next = prepareMutation(mutation, previous, workingGeneration.review, workingSnapshot);
+    if (next.kind === "schema-apply") {
+      pending.splice(
+        index + 1,
+        0,
+        ...schemaApplicationInitializations(next, workingGeneration.review),
+      );
+    }
     prepared.push(next);
-    if (index === mutations.length - 1) {
+    if (index === pending.length - 1) {
       continue;
     }
     const sequence = (workingSnapshot.frontier[PLANNING_REPLICA] ?? 0) + 1;
+    const lamport = maxLamport(workingSnapshot);
     const fact = makeFact({
       workspaceId,
       replicaId: PLANNING_REPLICA,
       sequence,
       observed: workingSnapshot.frontier,
-      lamport: maxLamport(workingSnapshot) + 1 + index,
+      lamport: lamport + 1 + index,
       body: { kind: "contribution", actorId: "planner", intent, mutation: next },
     });
     if (next.kind === "text-splice") {
@@ -75,6 +97,9 @@ function prepareMutation(
   available: ProjectionGeneration["review"],
   snapshot: FactSnapshot,
 ): Mutation {
+  if (isSchemaMutation(mutation)) {
+    return prepareSchemaMutation(mutation, available);
+  }
   switch (mutation.kind) {
     case "text-splice":
       return prepareTextSplice(mutation, available);
@@ -155,12 +180,27 @@ function prepareMutation(
       assertDeletion(snapshot, mutation.deletionFactId, "occurrence-delete", mutation.occurrenceId);
       assertParent(available, mutation.parentOccurrenceId);
       return mutation;
-    case "node-create":
-      if (isReservedNodeIdentity(mutation.nodeId)) {
-        throw new Error("Node identity is reserved for managed children");
-      }
+    case "field-materialize":
+      assertMaterializedField(mutation, available);
       return mutation;
+    case "field-initialize":
+      return prepareFieldInitialization(mutation, available);
+    case "node-create":
+      return prepareNodeCreate(mutation);
   }
+}
+
+function prepareNodeCreate(mutation: Extract<Mutation, { kind: "node-create" }>): Mutation {
+  if (isReservedNodeIdentity(mutation.nodeId)) {
+    throw new Error("Node identity is reserved for managed children");
+  }
+  return mutation;
+}
+
+function isSchemaMutation(
+  mutation: Mutation,
+): mutation is Extract<Mutation, { kind: `schema-${string}` }> {
+  return mutation.kind.startsWith("schema-");
 }
 
 function createsCycle(

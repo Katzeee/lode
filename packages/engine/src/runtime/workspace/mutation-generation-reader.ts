@@ -8,12 +8,14 @@ import {
 } from "../../domain/fact/index.js";
 import { pendingProposalFacts } from "../../domain/review/evidence.js";
 import { reviewPaginationScopes } from "../../domain/review/index.js";
-import {
-  valueOwnerAddress,
-  type Projection,
-  type ProjectionGeneration,
-} from "../../domain/reconcile/index.js";
+import { type Projection, type ProjectionGeneration } from "../../domain/reconcile/index.js";
 import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
+import {
+  isManagedChild,
+  isProjectedOccurrence,
+  mutationReadScope,
+  type MutationReadScope,
+} from "./mutation-read-scope.js";
 
 export async function readMutationGeneration(
   store: ProjectionGenerationStore,
@@ -89,7 +91,11 @@ async function readView(
   view: ViewMode,
   mutations: readonly Mutation[],
 ): Promise<Projection> {
-  const wanted = mutationIdentities(mutations);
+  const wanted = mutationReadScope(mutations);
+  const schemaInstanceNodeIds = await readIndex(store, generationId, view, "nodeIdsBySchema", [
+    ...wanted.instanceSchemas,
+  ]);
+  schemaInstanceNodeIds.forEach((nodeId) => wanted.nodes.add(nodeId));
   const managedIds = await managedChildIds(store, generationId, view, wanted);
   const managedChildren = await readSection(
     store,
@@ -110,7 +116,7 @@ async function readView(
   ]);
   let occurrences = await readSection(store, generationId, view, "occurrences", [...occurrenceIds]);
   for (const occurrence of Object.values(occurrences)) {
-    if (isOccurrence(occurrence)) {
+    if (isProjectedOccurrence(occurrence)) {
       wanted.nodes.add(occurrence.nodeId);
       wanted.children.add(occurrence.parentOccurrenceId ?? "$root");
     }
@@ -127,7 +133,7 @@ async function readView(
   };
   occurrences = await includeOccurrenceAncestors(store, generationId, view, occurrences);
   for (const occurrence of Object.values(occurrences)) {
-    if (isOccurrence(occurrence)) {
+    if (isProjectedOccurrence(occurrence)) {
       wanted.nodes.add(occurrence.nodeId);
       wanted.children.add(occurrence.parentOccurrenceId ?? "$root");
     }
@@ -147,6 +153,13 @@ async function readView(
   const addressedValues = await readSection(store, generationId, view, "addressedValues", [
     ...wanted.values,
   ]);
+  const schema = await readSchemaProjection(
+    store,
+    generationId,
+    view,
+    wanted.nodes,
+    wanted.schemas,
+  );
   return {
     view,
     identity: nodesBatch.identity,
@@ -156,6 +169,57 @@ async function readView(
     canonicalOccurrences: canonicalOccurrences as Projection["canonicalOccurrences"],
     addressedValues: addressedValues as Projection["addressedValues"],
     managedChildren: Object.values(managedChildren) as Projection["managedChildren"],
+    ...schema,
+  };
+}
+
+async function readSchemaProjection(
+  store: ProjectionGenerationStore,
+  generationId: string,
+  view: ViewMode,
+  nodeIds: ReadonlySet<string>,
+  schemaIds: ReadonlySet<string>,
+): Promise<
+  Pick<
+    Projection,
+    | "schemaApplications"
+    | "schemaFields"
+    | "schemaFieldItems"
+    | "schemaExtensions"
+    | "schemaSearchMembers"
+    | "schemaExtensionConflicts"
+    | "conflictIssues"
+    | "effectiveFields"
+    | "materializedFields"
+  >
+> {
+  const read = (
+    section: Parameters<ProjectionGenerationStore["read"]>[2],
+    ids: readonly string[],
+  ) => readSection(store, generationId, view, section, ids);
+  const nodes = [...nodeIds];
+  const schemas = [...schemaIds];
+  const [applications, fields, fieldItems, extensions, search, conflicts, effective, materialized] =
+    await Promise.all([
+      read("schemaApplications", nodes),
+      read("schemaFields", schemas),
+      read("schemaFieldItems", schemas),
+      read("schemaExtensions", schemas),
+      read("schemaSearchMembers", schemas),
+      read("schemaExtensionConflicts", schemas),
+      read("effectiveFields", nodes),
+      read("materializedFields", nodes),
+    ]);
+  return {
+    schemaApplications: applications as Projection["schemaApplications"],
+    schemaFields: fields as Projection["schemaFields"],
+    schemaFieldItems: fieldItems as Projection["schemaFieldItems"],
+    schemaExtensions: extensions as Projection["schemaExtensions"],
+    schemaSearchMembers: search as Projection["schemaSearchMembers"],
+    schemaExtensionConflicts: conflicts as Projection["schemaExtensionConflicts"],
+    conflictIssues: {},
+    effectiveFields: effective as Projection["effectiveFields"],
+    materializedFields: materialized as Projection["materializedFields"],
   };
 }
 
@@ -213,7 +277,9 @@ async function includeOccurrenceAncestors(
 
 function parentIds(values: readonly unknown[]): string[] {
   return values.flatMap((value) =>
-    isOccurrence(value) && value.parentOccurrenceId !== null ? [value.parentOccurrenceId] : [],
+    isProjectedOccurrence(value) && value.parentOccurrenceId !== null
+      ? [value.parentOccurrenceId]
+      : [],
   );
 }
 
@@ -221,7 +287,7 @@ async function managedChildIds(
   store: ProjectionGenerationStore,
   generationId: string,
   view: ViewMode,
-  wanted: ReturnType<typeof mutationIdentities>,
+  wanted: MutationReadScope,
 ): Promise<readonly string[]> {
   const groups = await Promise.all([
     readIndex(store, generationId, view, "managedChildrenByParentNode", [...wanted.nodes]),
@@ -231,91 +297,4 @@ async function managedChildIds(
     readIndex(store, generationId, view, "managedChildrenByOccurrence", [...wanted.occurrences]),
   ]);
   return [...new Set(groups.flat())];
-}
-
-function mutationIdentities(mutations: readonly Mutation[]) {
-  const nodes = new Set<string>();
-  const occurrences = new Set<string>();
-  const children = new Set<string>();
-  const values = new Set<string>();
-  const schemas = new Set<string>();
-  const fields = new Set<string>();
-  for (const mutation of mutations) {
-    if ("nodeId" in mutation) {
-      nodes.add(mutation.nodeId);
-    }
-    if ("occurrenceId" in mutation) {
-      occurrences.add(mutation.occurrenceId);
-      children.add(mutation.occurrenceId);
-    }
-    if ("parentOccurrenceId" in mutation) {
-      children.add(mutation.parentOccurrenceId ?? "$root");
-      if (mutation.parentOccurrenceId !== null) {
-        occurrences.add(mutation.parentOccurrenceId);
-      }
-    }
-    if (
-      "previousParentOccurrenceId" in mutation &&
-      mutation.previousParentOccurrenceId !== undefined
-    ) {
-      children.add(mutation.previousParentOccurrenceId ?? "$root");
-      if (mutation.previousParentOccurrenceId !== null) {
-        occurrences.add(mutation.previousParentOccurrenceId);
-      }
-    }
-    if ("anchor" in mutation) {
-      addAnchorEndpoints(occurrences, mutation.anchor);
-    }
-    if ("previousAnchor" in mutation && mutation.previousAnchor !== undefined) {
-      addAnchorEndpoints(occurrences, mutation.previousAnchor);
-    }
-    if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-      if (mutation.owner.kind === "node") {
-        nodes.add(mutation.owner.id);
-      } else if (mutation.owner.kind === "occurrence") {
-        occurrences.add(mutation.owner.id);
-      } else {
-        values.add(valueOwnerAddress(mutation.owner, mutation.namespace));
-        if (mutation.owner.kind === "schema") {
-          schemas.add(mutation.owner.id);
-        } else {
-          fields.add(mutation.owner.id);
-        }
-      }
-    }
-  }
-  return { nodes, occurrences, children, values, schemas, fields };
-}
-
-function addAnchorEndpoints(
-  occurrences: Set<string>,
-  anchor: Readonly<{ after: string | null; before: string | null }>,
-): void {
-  if (anchor.after) {
-    occurrences.add(anchor.after);
-  }
-  if (anchor.before) {
-    occurrences.add(anchor.before);
-  }
-}
-
-function isManagedChild(value: unknown): value is Projection["managedChildren"][number] {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "parentNodeId" in value &&
-    "schemaId" in value &&
-    "fieldId" in value &&
-    "nodeId" in value &&
-    "occurrenceId" in value
-  );
-}
-
-function isOccurrence(value: unknown): value is Projection["occurrences"][string] {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "nodeId" in value &&
-    "parentOccurrenceId" in value
-  );
 }

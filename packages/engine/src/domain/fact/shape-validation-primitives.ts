@@ -37,6 +37,14 @@ export function assertNullableString(value: unknown, label: string): void {
   }
 }
 
+export function assertFrontier(value: unknown, label: string): void {
+  assertObject(value, label);
+  for (const [replicaId, sequence] of Object.entries(value)) {
+    requireString(replicaId, `${label} Replica identity`);
+    requireSafeInteger(sequence, 0, `${label} sequence`);
+  }
+}
+
 export function assertOneOf(value: unknown, allowed: readonly string[], label: string): void {
   if (typeof value !== "string" || !allowed.includes(value)) {
     throw new Error(`Invalid ${label}`);

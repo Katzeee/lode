@@ -67,6 +67,7 @@ describe("production Fact contracts", () => {
       lamport: 2,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "accept",
         proposalContributionIds: [proposal.id],
@@ -386,6 +387,7 @@ describe("production Fact contracts", () => {
       lamport: 1,
       body: {
         kind: "resolution",
+        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "accept",
         proposalContributionIds: [proposal.id],
