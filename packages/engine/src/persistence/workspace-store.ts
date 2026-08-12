@@ -3,15 +3,9 @@ import type { SqlDatabase } from "./sql-database.js";
 import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 
 /**
- * The per-workspace sqlite store. Holds the workspace's CRDT bytes keyed by `sub_doc` (the sync
- * channel id) + a per-sub-doc seq — there is no level-2 `doc_id`: a workspace IS one outliner, so
- * the doc axis collapsed away. The tree sub-doc persists incrementally (update stream + periodic
- * snapshots); shards AND the membership log persist as their latest snapshot only. Membership is a
- * content sub-doc under its own id (no separate table) — one shape, id → bytes.
- *
- * The store is a persistence leaf: it knows bytes + ids, nothing about CRDTs or the outliner. Ids
- * (including the `sys:` structure prefix) arrive opaque from the runtime; this layer does not parse
- * them and may not import core.
+ * The per-workspace SQLite byte store keeps independently sequenced document updates and compacted
+ * snapshots. Document identities remain opaque here so the persistence leaf has no knowledge of
+ * Facts, checkpoints, CRDT containers, or derived materializations.
  */
 export class WorkspaceStore {
   private constructor(private readonly db: SqlDatabase) {}
@@ -58,17 +52,29 @@ export class WorkspaceStore {
     coveredUpdateSeq: number;
     snapshotBytes: Uint8Array;
   }): Promise<void> {
-    await this.db.run(
-      `INSERT INTO content_snapshots (sub_doc, covered_update_seq, snapshot_bytes, created_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(sub_doc, covered_update_seq) DO UPDATE SET
-         snapshot_bytes = excluded.snapshot_bytes,
-         created_at = excluded.created_at`,
-      input.subDoc,
-      input.coveredUpdateSeq,
-      bytesToBuffer(input.snapshotBytes),
-      Date.now(),
-    );
+    await this.db.transaction(async () => {
+      await this.db.run(
+        `INSERT INTO content_snapshots (sub_doc, covered_update_seq, snapshot_bytes, created_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(sub_doc, covered_update_seq) DO UPDATE SET
+           snapshot_bytes = excluded.snapshot_bytes,
+           created_at = excluded.created_at`,
+        input.subDoc,
+        input.coveredUpdateSeq,
+        bytesToBuffer(input.snapshotBytes),
+        Date.now(),
+      );
+      await this.db.run(
+        `DELETE FROM content_updates WHERE sub_doc = ? AND seq <= ?`,
+        input.subDoc,
+        input.coveredUpdateSeq,
+      );
+      await this.db.run(
+        `DELETE FROM content_snapshots WHERE sub_doc = ? AND covered_update_seq < ?`,
+        input.subDoc,
+        input.coveredUpdateSeq,
+      );
+    });
   }
 
   /** Load a content sub-doc's bytes: the latest snapshot (null if none) + every update after it.
@@ -105,16 +111,45 @@ export class WorkspaceStore {
   }
 
   /** Distinct content sub-doc names that have any persisted bytes. */
-  async listSubDocs(): Promise<string[]> {
+  async listSubDocs(
+    query: Readonly<{
+      prefix?: string;
+      after?: string;
+      limit?: number;
+    }> = {},
+  ): Promise<string[]> {
+    const filters: string[] = [];
+    const parameters: string[] = [];
+    if (query.prefix !== undefined) {
+      filters.push("sub_doc LIKE ?");
+      parameters.push(`${query.prefix}%`);
+    }
+    if (query.after !== undefined) {
+      filters.push("sub_doc > ?");
+      parameters.push(query.after);
+    }
+    const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
+    const limit = query.limit === undefined ? "" : "LIMIT ?";
     const rows = await this.db.all<{ sub_doc: string }>(
       `SELECT DISTINCT sub_doc FROM (
           SELECT sub_doc FROM content_updates
           UNION
           SELECT sub_doc FROM content_snapshots
        )
-       ORDER BY sub_doc ASC`,
+       ${where}
+       ORDER BY sub_doc ASC
+       ${limit}`,
+      ...parameters,
+      ...(query.limit === undefined ? [] : [query.limit]),
     );
     return rows.map((row) => row.sub_doc);
+  }
+
+  async deleteSubDoc(subDoc: string): Promise<void> {
+    await this.db.transaction(async () => {
+      await this.db.run(`DELETE FROM content_updates WHERE sub_doc = ?`, subDoc);
+      await this.db.run(`DELETE FROM content_snapshots WHERE sub_doc = ?`, subDoc);
+    });
   }
 
   async close(): Promise<void> {
@@ -125,7 +160,12 @@ export class WorkspaceStore {
    *  supply a snapshot's `coveredUpdateSeq` (the leaf's own latest-seq) without the port exposing it. */
   async latestSeq(subDoc: string): Promise<number> {
     const row = await this.db.get<{ seq: number }>(
-      `SELECT MAX(seq) AS seq FROM content_updates WHERE sub_doc = ?`,
+      `SELECT MAX(seq) AS seq FROM (
+         SELECT seq FROM content_updates WHERE sub_doc = ?
+         UNION ALL
+         SELECT covered_update_seq AS seq FROM content_snapshots WHERE sub_doc = ?
+       )`,
+      subDoc,
       subDoc,
     );
     return row?.seq ?? 0;

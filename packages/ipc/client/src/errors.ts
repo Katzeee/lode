@@ -19,9 +19,6 @@ export function describeError(error: unknown): string {
       return `Invalid input: ${detail}`;
     }
     if (error.code === Code.FailedPrecondition) {
-      if (isVaultLockedError(error)) {
-        return `Vault locked — run "lode unlock" first (${detail}).`;
-      }
       return `Precondition not met: ${detail}`;
     }
     if (error.code === Code.PermissionDenied) {
@@ -29,18 +26,4 @@ export function describeError(error: unknown): string {
     }
   }
   return detail;
-}
-
-/**
- * True if `error` is the daemon's `VaultLockedError` surfaced over Connect: FailedPrecondition carrying
- * the stable `x-lode-vault-locked` trailer marker the daemon's `toConnectError` attaches. Matching on
- * the marker (not a substring of the message) keeps detection robust to message-wording changes. The
- * CLI uses this to trigger the lazy unlock flow; PIN-vs-passphrase is chosen via `getVaultStatus`.
- */
-export function isVaultLockedError(error: unknown): boolean {
-  return (
-    error instanceof ConnectError &&
-    error.code === Code.FailedPrecondition &&
-    error.metadata.get("x-lode-vault-locked") !== null
-  );
 }

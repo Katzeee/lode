@@ -17,7 +17,7 @@
   "dependencies": {
     "@lode/client": "file:../../packages/ipc/client",
     "@lode/daemon": "file:../../packages/ipc/daemon",
-    "@lode/protocol": "file:../../packages/protocol"
+    "@lode/engine": "file:../../packages/engine"
   },
   "devDependencies": {
     "@types/node": "^20.19.39",

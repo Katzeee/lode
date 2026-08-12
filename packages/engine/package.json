@@ -6,6 +6,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
     }
   },
   "scripts": {
@@ -20,13 +24,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@bufbuild/protobuf": "^2.12.1",
-    "@connectrpc/connect": "^2.1.2",
-    "@connectrpc/connect-node": "^2.1.2",
     "@lode/logger": "file:../logger",
-    "@lode/protocol": "file:../protocol",
-    "@noble/curves": "^1.9.0",
-    "@scure/bip39": "^2.0.0",
     "better-sqlite3": "^12.0.0",
     "loro-crdt": "^1.11.0"
   },

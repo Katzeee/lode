@@ -1,5 +1,5 @@
 import { chmod } from "node:fs/promises";
-import type { EngineRuntime, RuntimeResource } from "@lode/engine";
+import type { EngineRuntime, RuntimeResource } from "@lode/engine/server";
 import { canonicalAddress, type ParsedEndpoint, listenTarget } from "../endpoint.js";
 import { createLodeServer } from "../connect-server.js";
 

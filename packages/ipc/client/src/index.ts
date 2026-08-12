@@ -1,14 +1,3 @@
-export {
-  AppServerClient,
-  createSocketTransport,
-  createInProcessTransport,
-} from "./app-server-client.js";
-export type {
-  AppServerTransport,
-  AuthenticateOptions,
-  InProcessCommands,
-  LodeCommandsClient,
-  NotificationHandler,
-  SocketDial,
-} from "./app-server-client.js";
-export { describeError, isVaultLockedError } from "./errors.js";
+export { createAppServerClient, createInProcessClient } from "./app-server-client.js";
+export type { AppServerClient, SocketDial } from "./app-server-client.js";
+export { describeError } from "./errors.js";

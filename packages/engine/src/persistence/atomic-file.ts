@@ -1,9 +1,5 @@
-// The single owner of the crash-safe small-file protocol (temp + fsync + rename, with a Windows
-// rename-over-existing fallback), plus the matching best-effort readers. A crash leaves either the
-// previous complete file or the new complete file, never a partial write. Pure (node built-ins only):
-// the lowest engine substrate, consumed by the identity vault, the daemon's home metadata, and — via
-// the daemon's `@lode/daemon/home` facade — the CLI (which is layered above the daemon and so cannot
-// reach the engine directly).
+// The single owner of the crash-safe small-file protocol. A crash leaves either the previous complete
+// file or the new complete file, never a partial write.
 
 import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";

@@ -2,14 +2,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 import { WorkspaceStore } from "./workspace-store.js";
 
 let tempDir: string;
+let filePath: string;
 let store: WorkspaceStore;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "be-workspace-"));
-  store = await WorkspaceStore.open(join(tempDir, "workspace.sqlite"));
+  filePath = join(tempDir, "workspace.sqlite");
+  store = await WorkspaceStore.open(filePath);
 });
 
 afterEach(async () => {
@@ -59,7 +62,47 @@ describe("WorkspaceStore — content sub-doc streams", () => {
     expect(loaded?.snapshotBytes ? [...loaded.snapshotBytes] : []).toEqual([2]);
   });
 
-  it("persists independent sub-doc streams (tree + shards), each independently sequenced", async () => {
+  it("atomically removes covered updates and superseded snapshots", async () => {
+    await store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([1]) });
+    await store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([2]) });
+    await store.writeSnapshot({
+      subDoc: "facts",
+      coveredUpdateSeq: 2,
+      snapshotBytes: new Uint8Array([20]),
+    });
+    await expect(
+      store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([3]) }),
+    ).resolves.toBe(3);
+    await store.writeSnapshot({
+      subDoc: "facts",
+      coveredUpdateSeq: 3,
+      snapshotBytes: new Uint8Array([30]),
+    });
+
+    const database = await openSqliteDatabase(filePath);
+    const updates = await database.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM content_updates WHERE sub_doc = ?",
+      "facts",
+    );
+    const snapshots = await database.get<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM content_snapshots WHERE sub_doc = ?",
+      "facts",
+    );
+    await database.close();
+    expect(updates?.count).toBe(0);
+    expect(snapshots?.count).toBe(1);
+
+    await store.close();
+    store = await WorkspaceStore.open(filePath);
+    await expect(
+      store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([4]) }),
+    ).resolves.toBe(4);
+    expect((await store.loadDocBytes("facts"))?.updateBytes.map((bytes) => [...bytes])).toEqual([
+      [4],
+    ]);
+  });
+
+  it("persists independent opaque document streams with separate sequences", async () => {
     await store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([1, 2]) });
     await store.appendUpdate({ subDoc: "s3", updateBytes: new Uint8Array([7]) });
     await store.appendUpdate({ subDoc: "s3", updateBytes: new Uint8Array([8]) });

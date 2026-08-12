@@ -10,7 +10,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/client && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",
@@ -26,6 +26,7 @@
     "benchmark:proposal-retention": "node --expose-gc node_modules/tsx/dist/cli.mjs experiments/proposal-authority-model/retention-benchmark.ts",
     "test:proposal-reconcile-scheduler": "vitest run experiments/proposal-reconcile-scheduler",
     "test:proposal-fact-causality": "vitest run experiments/proposal-fact-causality",
+    "test:proposal-fact-admission": "vitest run experiments/proposal-fact-admission-lifecycle",
     "benchmark:proposal-reconcile-scheduler": "node --expose-gc node_modules/tsx/dist/cli.mjs experiments/proposal-reconcile-scheduler/benchmark.ts",
     "verify": "npm run build && npm run typecheck && npm run lint && npm run test",
     "prepare": "husky"

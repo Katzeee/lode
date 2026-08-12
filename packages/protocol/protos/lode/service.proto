@@ -3,120 +3,16 @@ syntax = "proto3";
 package lode;
 
 import "google/protobuf/empty.proto";
-import "google/protobuf/wrappers.proto";
 import "lode/commands.proto";
-import "lode/events.proto";
 
-// The single client-facing service. Every client surface (cli/gui/tui over Connect,
-// mobile in-process) speaks this contract. Future Rust engine implements the same
-// service — this is the stable migration boundary.
 service LodeCommands {
-  // session + subscription
-  rpc SessionHello(SessionHelloRequest) returns (SessionInfo);
-  rpc SubscribeDoc(SubscribeDocRequest) returns (google.protobuf.Empty);
-  rpc UnsubscribeDoc(UnsubscribeDocRequest) returns (google.protobuf.Empty);
-  rpc ListenNotifications(ListenNotificationsRequest) returns (stream Notification);
-
-  // vault — daemon-side encrypted identity store. Open (identity bootstrap + unlock-on-demand; the
-  // endpoint is already permission-isolated to the OS user). CreateIdentity/ImportIdentity require the
-  // vault to be unlocked (they reject with FailedPrecondition if not).
-  rpc InitVault(InitVaultRequest) returns (VaultStatus);
-  rpc CreateIdentity(CreateIdentityRequest) returns (CreateIdentityResponse);
-  rpc ImportIdentity(ImportIdentityRequest) returns (ImportIdentityResponse);
-  rpc ListIdentities(google.protobuf.Empty) returns (VaultStatus);
-  rpc UnlockVault(UnlockVaultRequest) returns (VaultStatus);
-  rpc LockVault(google.protobuf.Empty) returns (VaultStatus);
-  // Set/change the PIN (requires the vault UNLOCKED — the caller has already proven the passphrase).
-  // The PIN only re-confirms identity during a GRACE re-lock; it never decrypts the vault.
-  rpc SetPin(SetPinRequest) returns (VaultStatus);
-  // Re-unlock from GRACE with the PIN (keys still in memory). 5 wrong attempts disable PIN until the
-  // passphrase is supplied via UnlockVault.
-  rpc UnlockWithPin(UnlockWithPinRequest) returns (VaultStatus);
-  rpc GetVaultStatus(google.protobuf.Empty) returns (VaultStatus);
-
-  // daemon lifecycle — gracefully stop the daemon process (`lode daemon stop`). Open (the endpoint is
-  // already permission-isolated to the OS user); the handler acks, then the daemon tears itself down.
+  rpc OpenWorkspace(OpenWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc RecoverWorkspaceAuthority(OpenWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc Request(EngineEnvelope) returns (EngineEnvelope);
+  rpc SyncWorkspace(WorkspaceSyncRequest) returns (google.protobuf.Empty);
+  rpc SyncProfile(WorkspaceSyncProfileRequest) returns (WorkspaceSyncProfile);
+  rpc SyncFetch(WorkspaceSyncFetchRequest) returns (EngineEnvelope);
+  rpc SyncSend(WorkspaceSyncSendRequest) returns (google.protobuf.Empty);
+  rpc ListenEngineEvents(google.protobuf.Empty) returns (stream EngineEnvelope);
   rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
-
-  // workspace
-  rpc CreateWorkspace(CreateWorkspaceRequest) returns (WorkspaceInfo);
-  rpc ForkWorkspace(ForkWorkspaceRequest) returns (WorkspaceInfo);
-  rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResponse);
-  rpc RemoveWorkspace(RemoveWorkspaceRequest) returns (google.protobuf.BoolValue);
-
-  // node
-  rpc CreatePlainNode(CreatePlainNodeRequest) returns (NodeOccurrenceWire);
-  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
-  rpc GetNodeById(GetNodeByIdRequest) returns (GetNodeResponse);
-  rpc GetNodeChildren(GetNodeChildrenRequest) returns (GetNodeChildrenResponse);
-  rpc ListRoots(ListRootsRequest) returns (ListRootsResponse);
-  rpc MoveNode(MoveNodeRequest) returns (google.protobuf.Empty);
-  rpc RemoveNodeOccurrence(RemoveNodeOccurrenceRequest) returns (google.protobuf.Empty);
-  rpc HardDeleteNode(HardDeleteNodeRequest) returns (google.protobuf.Empty);
-  rpc PromoteCanonicalNode(PromoteCanonicalNodeRequest) returns (google.protobuf.Empty);
-  rpc ReplaceNodeText(ReplaceNodeTextRequest) returns (google.protobuf.Empty);
-  rpc SetNodeProp(SetNodePropRequest) returns (google.protobuf.Empty);
-  rpc UnsetNodeProp(UnsetNodePropRequest) returns (google.protobuf.Empty);
-  rpc SetOccurrenceProp(SetOccurrencePropRequest) returns (google.protobuf.Empty);
-  rpc UnsetOccurrenceProp(UnsetOccurrencePropRequest) returns (google.protobuf.Empty);
-
-  // editing — composite/intent ops (one undo step each)
-  rpc PasteNodes(PasteNodesRequest) returns (PasteNodesResult);
-  rpc DuplicateNode(DuplicateNodeRequest) returns (NodeOccurrenceRef);
-  rpc IndentNodes(IndentRequest) returns (google.protobuf.Empty);
-  rpc OutdentNode(OutdentRequest) returns (google.protobuf.Empty);
-  rpc MoveSiblingNode(MoveSiblingRequest) returns (google.protobuf.Empty);
-
-  // ref
-  rpc CreateRef(CreateRefRequest) returns (NodeOccurrenceWire);
-  rpc CloneRef(CloneRefRequest) returns (NodeOccurrenceWire);
-
-  // schema
-  rpc CreateSchema(CreateSchemaRequest) returns (NodeOccurrenceRef);
-  rpc ApplySchema(ApplySchemaRequest) returns (SchemaChangeResult);
-  rpc RemoveSchema(RemoveSchemaRequest) returns (SchemaChangeResult);
-  rpc ReconcileSchema(ReconcileSchemaRequest) returns (SchemaChangeResult);
-
-  // fieldDef
-  rpc CreateFieldDef(CreateFieldDefRequest) returns (NodeOccurrenceRef);
-  rpc SetFieldDefType(SetFieldDefTypeRequest) returns (google.protobuf.Empty);
-  rpc SetFieldDefPresence(SetFieldDefPresenceRequest) returns (google.protobuf.Empty);
-
-  // field
-  rpc AddField(AddFieldRequest) returns (AddFieldResult);
-  rpc SetFieldValues(SetFieldValuesRequest) returns (SetFieldValuesResult);
-  rpc RemoveField(RemoveFieldRequest) returns (google.protobuf.Empty);
-
-  // history
-  rpc UndoHistory(UndoHistoryRequest) returns (google.protobuf.BoolValue);
-  rpc RedoHistory(RedoHistoryRequest) returns (google.protobuf.BoolValue);
-  rpc CanUndoHistory(CanUndoHistoryRequest) returns (google.protobuf.BoolValue);
-  rpc CanRedoHistory(CanRedoHistoryRequest) returns (google.protobuf.BoolValue);
-
-  // sync — runtime governance + share/join + register (host-side; the daemon owns the sync runner,
-  // never an identity — every syncing workspace is registered by a session that supplies the actor).
-  rpc AddMember(AddMemberRequest) returns (google.protobuf.Empty);
-  // The current roster (peers + owner), projected from the membership log — backs `lode member list`.
-  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
-  // Owner revokes one peer (peer_id) or every peer of an actor (actor_id). Atomic removeAndRotate.
-  rpc RevokePeer(RevokePeerRequest) returns (google.protobuf.Empty);
-  // An actor self-adds their own further peer (signer == owning actor, owns ≥1 admitted peer).
-  rpc AddPeer(AddPeerRequest) returns (google.protobuf.Empty);
-  // Owner transfers governance to an existing member actor (must own ≥1 peer).
-  rpc TransferOwner(TransferOwnerRequest) returns (google.protobuf.Empty);
-  // Owner manually re-keys the workspace (forward-secrecy rotation, same roster).
-  rpc RotateTransit(RotateTransitRequest) returns (google.protobuf.Empty);
-  rpc GetActorPublicKeys(google.protobuf.Empty) returns (ActorPublicKeys);
-  // This session's local peer identity (peerId + X25519 enc pub + actor) — the tuple a joiner hands
-  // to an owner out-of-band so the owner can AddMember it.
-  rpc GetPeerPublicKeys(google.protobuf.Empty) returns (GetPeerPublicKeysResponse);
-  rpc ShareWorkspace(ShareWorkspaceRequest) returns (WorkspaceCoordinate);
-  rpc JoinWorkspace(JoinWorkspaceRequest) returns (google.protobuf.Empty);
-  // Register the session's actor to drive sync for a workspace via a relay. The daemon captures the
-  // actor keypair so the tick keeps running while the client is disconnected (the daemon has no
-  // identity of its own — every syncing workspace is registered by a session that supplies the actor).
-  rpc RegisterSync(RegisterSyncRequest) returns (google.protobuf.Empty);
-  // Manual trigger: run one sync round for `workspace_id` now (`lode sync now`) instead of waiting
-  // for the next tick. Session-gated like the rest; reuses the registered actor keypair.
-  rpc SyncNow(SyncNowRequest) returns (google.protobuf.Empty);
 }

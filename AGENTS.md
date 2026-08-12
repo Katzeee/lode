@@ -26,6 +26,10 @@ for type-only dependencies.
 - Refactor toward a better architecture: high cohesion, low coupling, abstractions and seams that
   make future change cheap. Judge each change by whether the design is genuinely improved — not by
   how much or how little it abstracts; either can be right. The goal is the cleaner architecture.
+- The project has no production data or released compatibility surface. Unless the user explicitly
+  asks otherwise, changes do not preserve old data, APIs, durable storage formats, code paths,
+  module locations, or behavior. Define the requested system in the present tense and update every
+  caller, test, fixture, and generated contract directly; do not add migration paths.
 - No compat shims, alias re-exports, dual paths, or deprecated wrappers for moved internal code.
   Update callers and tests directly.
 - Smells are fixed when found, never deferred — properly, with the right mechanism, not a stopgap.
@@ -73,15 +77,23 @@ tests or the type system.
 
 ## Documentation
 
-Put written content where its lifespan matches:
+Documentation is deliberately sparse and its audience is explicit:
 
-- `docs/` (git-tracked) — durable design decisions: the "why" behind architecture and choices.
-  `docs/design/` holds the design-decision records. This is the source of truth that outlives any
-  workstream.
-- `experiments/<name>/` (git-tracked) — the playground's own record (`README.md` / `PROGRESS.md` /
-  `TEST-MODEL.md`); lives with the experiment, deleted when it's ported to production.
-- `_local/` (git-ignored) — ephemeral local-only handoff/resume notes for a workstream. Not a
-  contract; point at `docs/`, don't duplicate decisions here.
+- `docs/agents/` (git-tracked) contains instructions or configuration intended for agents. Read the
+  relevant material when using the corresponding tool or workflow.
+- `docs/human/` (git-tracked) contains architecture context written for people. It is explanatory,
+  non-authoritative, and may lag behind the implementation. Do not infer requirements from it or
+  use it to resolve a disagreement with the user's request, the code, tests, generated contracts,
+  or enforced architecture rules. Verify a statement against those live sources before relying on
+  it in development.
+- `experiments/<name>/` (git-tracked) contains only the playground's own validation record
+  (`README.md` / `PROGRESS.md` / `TEST-MODEL.md`) and is deleted when the experiment is ported.
+- `_local/` (git-ignored) contains ephemeral handoff and resume notes for a workstream. It is not a
+  contract.
 
-Rule of thumb: outlives the workstream → `docs/`; the experiment's validation record →
-`experiments/<name>/`; "where are we now / what's next" → `_local/`.
+Human documentation earns its maintenance cost only when it explains a small number of durable
+architectural boundaries or invariants. Do not preserve implementation snapshots, file trees,
+class or message inventories, workstream status, rejected alternatives, supersession history,
+compatibility or migration narratives, known-gap lists, or detailed product behavior there. The
+implementation and its tests describe the present system; tickets and `_local/` material describe
+work in progress.
