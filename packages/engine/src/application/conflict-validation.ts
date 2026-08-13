@@ -98,7 +98,7 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
 function parsePlacementConflict(issue: Record<string, unknown>): ConflictIssue {
   exact(
     issue,
-    ["kind", "identity", "occurrenceId", "canonicalParentOccurrenceId", "candidates"],
+    ["kind", "identity", "occurrenceId", "canonicalParentNodeId", "candidates"],
     "Placement conflict",
   );
   if (!Array.isArray(issue.candidates)) {
@@ -108,30 +108,17 @@ function parsePlacementConflict(issue: Record<string, unknown>): ConflictIssue {
     kind: "placement-conflict",
     identity: string(issue.identity, "Conflict identity"),
     occurrenceId: string(issue.occurrenceId, "Occurrence identity"),
-    canonicalParentOccurrenceId: nullableString(
-      issue.canonicalParentOccurrenceId,
-      "canonical parent Occurrence identity",
-    ),
+    canonicalParentNodeId: string(issue.canonicalParentNodeId, "canonical parent Node identity"),
     candidates: issue.candidates.map((value) => {
       const candidate = record(value, "Placement candidate");
       exact(
         candidate,
-        [
-          "contributionId",
-          "parentOccurrenceId",
-          "anchor",
-          "actorId",
-          "replicaId",
-          "observedFrontier",
-        ],
+        ["contributionId", "parentNodeId", "anchor", "actorId", "replicaId", "observedFrontier"],
         "Placement candidate",
       );
       return {
         contributionId: string(candidate.contributionId, "Contribution identity"),
-        parentOccurrenceId: nullableString(
-          candidate.parentOccurrenceId,
-          "parent Occurrence identity",
-        ),
+        parentNodeId: string(candidate.parentNodeId, "parent Node identity"),
         anchor: sequenceAnchor(candidate.anchor),
         actorId: string(candidate.actorId, "Actor identity"),
         replicaId: string(candidate.replicaId, "Replica identity"),
@@ -171,7 +158,7 @@ function parseFieldConfigConflict(issue: Record<string, unknown>): ConflictIssue
       "ownerNodeId",
       "fieldDefinitionId",
       "schemaIds",
-      "templateItemIds",
+      "templateOccurrenceIds",
       "candidates",
     ],
     "Field config conflict",
@@ -186,7 +173,7 @@ function parseFieldConfigConflict(issue: Record<string, unknown>): ConflictIssue
       issue.ownerNodeId === null ? null : string(issue.ownerNodeId, "Field owner identity"),
     fieldDefinitionId: string(issue.fieldDefinitionId, "Field Definition identity"),
     schemaIds: strings(issue.schemaIds, "conflicting Schemas"),
-    templateItemIds: strings(issue.templateItemIds, "conflicting Template Items"),
+    templateOccurrenceIds: strings(issue.templateOccurrenceIds, "conflicting Template Fields"),
     candidates: issue.candidates.map((value) => {
       const candidate = record(value, "Field config candidate");
       exact(candidate, ["config", "contributionIds"], "Field config candidate");

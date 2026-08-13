@@ -3,6 +3,7 @@ import { expect } from "vitest";
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 import {
   canonicalJson,
+  factTransactionId,
   makeFact,
   type Fact,
   type FactFrontier,
@@ -19,7 +20,7 @@ import {
   reconcileFromCheckpoint,
 } from "../src/runtime/workspace/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const checkpointKey = "schema-convergence-property";
 
 export function remoteBranch(
@@ -28,6 +29,7 @@ export function remoteBranch(
   lamport: number,
   mutations: readonly Mutation[],
 ): readonly Fact[] {
+  const transactionId = factTransactionId("workspace", replicaId, 1);
   return mutations.map((mutation, index) =>
     makeFact({
       workspaceId: "workspace",
@@ -35,6 +37,7 @@ export function remoteBranch(
       sequence: index + 1,
       observed: { ...observed, ...(index === 0 ? {} : { [replicaId]: index }) },
       lamport: lamport + index,
+      transaction: { transactionId, index, size: mutations.length },
       body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
     }),
   );

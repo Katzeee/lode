@@ -1,5 +1,6 @@
 import type { Mutation } from "../../domain/fact/index.js";
-import { valueOwnerAddress, type Projection } from "../../domain/reconcile/index.js";
+import type { EditMutation } from "../../domain/edit/index.js";
+import type { Projection } from "../../domain/reconcile/index.js";
 
 export type MutationReadScope = Readonly<{
   nodes: Set<string>;
@@ -11,7 +12,9 @@ export type MutationReadScope = Readonly<{
   fields: Set<string>;
 }>;
 
-export function mutationReadScope(mutations: readonly Mutation[]): MutationReadScope {
+export function mutationReadScope(
+  mutations: readonly (Mutation | EditMutation)[],
+): MutationReadScope {
   const scope: MutationReadScope = {
     nodes: new Set(),
     occurrences: new Set(),
@@ -24,13 +27,13 @@ export function mutationReadScope(mutations: readonly Mutation[]): MutationReadS
   for (const mutation of mutations) {
     addIdentityFields(scope, mutation);
     if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-      addValueOwner(scope, mutation);
+      addValueTarget(scope, mutation);
     }
   }
   return scope;
 }
 
-function addIdentityFields(scope: MutationReadScope, mutation: Mutation): void {
+function addIdentityFields(scope: MutationReadScope, mutation: Mutation | EditMutation): void {
   if ("nodeId" in mutation) {
     scope.nodes.add(mutation.nodeId);
   }
@@ -45,6 +48,12 @@ function addIdentityFields(scope: MutationReadScope, mutation: Mutation): void {
       scope.instanceSchemas.add(mutation.schemaId);
     }
   }
+  if ("fieldNodeId" in mutation) {
+    scope.nodes.add(mutation.fieldNodeId);
+  }
+  if ("fieldOccurrenceId" in mutation) {
+    scope.occurrences.add(mutation.fieldOccurrenceId);
+  }
   if ("baseSchemaId" in mutation) {
     scope.nodes.add(mutation.baseSchemaId);
     scope.schemas.add(mutation.baseSchemaId);
@@ -58,43 +67,50 @@ function addIdentityFields(scope: MutationReadScope, mutation: Mutation): void {
   }
   if (mutation.kind === "template-node-detach") {
     scope.nodes.add(mutation.ownerNodeId);
-    mutation.sourceSchemaIds?.forEach((schemaId) => scope.schemas.add(schemaId));
-    mutation.sourceApplicationSchemaIds?.forEach((schemaId) => {
-      scope.schemas.add(schemaId);
-      scope.instanceSchemas.add(schemaId);
-    });
+    if ("sourceSchemaIds" in mutation) {
+      mutation.sourceSchemaIds?.forEach((schemaId) => scope.schemas.add(schemaId));
+    }
+    if ("sourceApplicationSchemaIds" in mutation) {
+      mutation.sourceApplicationSchemaIds?.forEach((schemaId) => {
+        scope.schemas.add(schemaId);
+        scope.instanceSchemas.add(schemaId);
+      });
+    }
+  }
+  if (mutation.kind === "node-owner-set") {
+    scope.nodes.add(mutation.ownerNodeId);
+    scope.children.add(mutation.ownerNodeId);
+    if (mutation.previousOwnerNodeId !== undefined) {
+      scope.nodes.add(mutation.previousOwnerNodeId);
+      scope.children.add(mutation.previousOwnerNodeId);
+    }
   }
   if (mutation.kind === "field-materialize") {
     scope.nodes.add(mutation.ownerNodeId);
     scope.nodes.add(mutation.fieldNodeId);
     scope.occurrences.add(mutation.fieldOccurrenceId);
-    scope.children.add(mutation.fieldOccurrenceId);
+    scope.children.add(mutation.fieldNodeId);
   }
   if (mutation.kind === "field-value-delete") {
     scope.nodes.add(mutation.ownerNodeId);
     scope.occurrences.add(mutation.valueOccurrenceId);
-    scope.children.add(mutation.valueOccurrenceId);
   }
   if (mutation.kind === "materialized-field-delete") {
     scope.nodes.add(mutation.ownerNodeId);
     scope.nodes.add(mutation.fieldNodeId);
     scope.occurrences.add(mutation.fieldOccurrenceId);
-    scope.children.add(mutation.fieldOccurrenceId);
+    scope.children.add(mutation.fieldNodeId);
   }
   if ("occurrenceId" in mutation) {
     scope.occurrences.add(mutation.occurrenceId);
-    scope.children.add(mutation.occurrenceId);
   }
-  if ("parentOccurrenceId" in mutation) {
-    addParent(scope, mutation.parentOccurrenceId);
+  if ("parentNodeId" in mutation) {
+    addParent(scope, mutation.parentNodeId);
   }
-  if (
-    "previousParentOccurrenceId" in mutation &&
-    mutation.previousParentOccurrenceId !== undefined
-  ) {
-    addParent(scope, mutation.previousParentOccurrenceId);
+  if ("previousParentNodeId" in mutation && mutation.previousParentNodeId !== undefined) {
+    addParent(scope, mutation.previousParentNodeId);
   }
-  if ("anchor" in mutation && mutation.kind !== "schema-field-add") {
+  if ("anchor" in mutation) {
     addAnchorEndpoints(scope.occurrences, mutation.anchor);
   }
   if ("previousAnchor" in mutation && mutation.previousAnchor !== undefined) {
@@ -102,24 +118,19 @@ function addIdentityFields(scope: MutationReadScope, mutation: Mutation): void {
   }
 }
 
-function addParent(scope: MutationReadScope, parent: string | null): void {
-  scope.children.add(parent ?? "$root");
-  if (parent !== null) {
-    scope.occurrences.add(parent);
-  }
+function addParent(scope: MutationReadScope, parent: string): void {
+  scope.nodes.add(parent);
+  scope.children.add(parent);
 }
 
-function addValueOwner(
+function addValueTarget(
   scope: MutationReadScope,
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
 ): void {
-  if (mutation.owner.kind === "node") {
-    scope.nodes.add(mutation.owner.id);
-  } else if (mutation.owner.kind === "occurrence") {
-    scope.occurrences.add(mutation.owner.id);
+  if (mutation.target.kind === "node") {
+    scope.nodes.add(mutation.target.id);
   } else {
-    scope.values.add(valueOwnerAddress(mutation.owner, mutation.namespace));
-    (mutation.owner.kind === "schema" ? scope.schemas : scope.fields).add(mutation.owner.id);
+    scope.occurrences.add(mutation.target.id);
   }
 }
 
@@ -137,10 +148,7 @@ function addAnchorEndpoints(
 
 export function isProjectedOccurrence(value: unknown): value is Projection["occurrences"][string] {
   return (
-    typeof value === "object" &&
-    value !== null &&
-    "nodeId" in value &&
-    "parentOccurrenceId" in value
+    typeof value === "object" && value !== null && "nodeId" in value && "parentNodeId" in value
   );
 }
 

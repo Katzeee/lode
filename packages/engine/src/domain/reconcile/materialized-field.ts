@@ -18,11 +18,7 @@ export function materializedFieldProblem(
   if (occurrence?.nodeId !== mutation.fieldNodeId) {
     return "Materialized Field Occurrence does not present the Field Node";
   }
-  const parentNodeId =
-    occurrence.parentOccurrenceId === null
-      ? null
-      : projection.occurrences[occurrence.parentOccurrenceId]?.nodeId;
-  if (parentNodeId !== mutation.ownerNodeId) {
+  if (occurrence.parentNodeId !== mutation.ownerNodeId) {
     return "Materialized Field Occurrence is not stored under its owner Node";
   }
   for (const fields of Object.values(projection.materializedFields)) {

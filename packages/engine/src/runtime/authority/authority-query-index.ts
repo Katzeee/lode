@@ -12,6 +12,7 @@ import {
 export class AuthorityQueryIndex {
   private readonly factsById = new Map<string, Fact>();
   private readonly factIdsByScope = new Map<string, Set<string>>();
+  private readonly factIdsByTransaction = new Map<string, Set<string>>();
   private readonly receiptsByChannel = new Map<string, AuthorityReceipt[]>();
   private readonly historyReceiptByInvocation = new Map<string, AuthorityReceipt>();
   private readonly historyInvocationIdsByFact = new Map<string, Set<string>>();
@@ -61,6 +62,11 @@ export class AuthorityQueryIndex {
         continue;
       }
       selected.add(factId);
+      for (const relatedId of this.factIdsByTransaction.get(fact.transaction.transactionId) ?? []) {
+        if (!selected.has(relatedId)) {
+          queue.push(relatedId);
+        }
+      }
       for (const key of scopeKeys(fact)) {
         for (const relatedId of this.factIdsByScope.get(key) ?? []) {
           if (!selected.has(relatedId)) {
@@ -114,6 +120,10 @@ export class AuthorityQueryIndex {
       return;
     }
     this.factsById.set(fact.id, fact);
+    const transactionFacts =
+      this.factIdsByTransaction.get(fact.transaction.transactionId) ?? new Set<string>();
+    transactionFacts.add(fact.id);
+    this.factIdsByTransaction.set(fact.transaction.transactionId, transactionFacts);
     this.maximumLamportValue = Math.max(this.maximumLamportValue, fact.coordinate.lamport);
     if (fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-create") {
       this.occurrenceNodes.set(fact.body.mutation.occurrenceId, fact.body.mutation.nodeId);
@@ -204,15 +214,11 @@ function mutationScopeKeys(mutation: Mutation): readonly string[] {
   if ("valueOccurrenceId" in mutation) {
     keys.add(occurrenceKey(mutation.valueOccurrenceId));
   }
-  if ("parentOccurrenceId" in mutation && mutation.parentOccurrenceId !== null) {
-    keys.add(occurrenceKey(mutation.parentOccurrenceId));
+  if ("parentNodeId" in mutation) {
+    keys.add(nodeKey(mutation.parentNodeId));
   }
-  if (
-    "previousParentOccurrenceId" in mutation &&
-    mutation.previousParentOccurrenceId !== undefined &&
-    mutation.previousParentOccurrenceId !== null
-  ) {
-    keys.add(occurrenceKey(mutation.previousParentOccurrenceId));
+  if ("previousParentNodeId" in mutation && mutation.previousParentNodeId !== undefined) {
+    keys.add(nodeKey(mutation.previousParentNodeId));
   }
   if ("anchor" in mutation) {
     addAnchorKeys(keys, mutation.anchor);
@@ -229,9 +235,9 @@ function mutationScopeKeys(mutation: Mutation): readonly string[] {
     mutation.atomIds.forEach((id) => keys.add(factKey(atomContributionId(id))));
   } else if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
     keys.add(
-      mutation.owner.kind === "occurrence"
-        ? occurrenceKey(mutation.owner.id)
-        : nodeKey(mutation.owner.id),
+      mutation.target.kind === "occurrence"
+        ? occurrenceKey(mutation.target.id)
+        : nodeKey(mutation.target.id),
     );
   } else if (mutation.kind === "field-initialize") {
     mutation.values.forEach((value) => {

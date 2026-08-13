@@ -12,7 +12,7 @@ import { deriveActivation, deriveSupport } from "./support.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {
@@ -102,8 +102,7 @@ describe("semantic support policy", () => {
         kind: "occurrence-create",
         occurrenceId: "occurrence",
         nodeId: "node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
+        parentNodeId: "workspace",
         anchor: end,
       },
       "direct",
@@ -124,75 +123,51 @@ describe("semantic support policy", () => {
     expect(occurrence.body.intent).toBe("direct");
   });
 
-  it("Cascade 与 rehome", () => {
-    const node = contribution(1, { kind: "node-create", nodeId: "node" });
-    const cascadeParent = contribution(
-      2,
-      {
-        kind: "occurrence-create",
-        occurrenceId: "cascade-parent",
-        nodeId: "node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      },
-      "proposal",
-    );
-    const rehomeParent = contribution(
-      3,
-      {
-        kind: "occurrence-create",
-        occurrenceId: "rehome-parent",
-        nodeId: "node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      },
-      "proposal",
-    );
-    const cascadeChild = contribution(4, {
+  it("an occurrence depends on the parent Node contribution", () => {
+    const childNode = contribution(1, { kind: "node-create", nodeId: "child" });
+    const parentNode = contribution(2, { kind: "node-create", nodeId: "parent" }, "proposal");
+    const child = contribution(3, {
       kind: "occurrence-create",
-      occurrenceId: "cascade-child",
-      nodeId: "node",
-      parentOccurrenceId: "cascade-parent",
-      parentPolicy: "cascade",
+      occurrenceId: "child-placement",
+      nodeId: "child",
+      parentNodeId: "parent",
       anchor: end,
     });
-    const rehomeChild = contribution(5, {
-      kind: "occurrence-create",
-      occurrenceId: "rehome-child",
-      nodeId: "node",
-      parentOccurrenceId: "rehome-parent",
-      parentPolicy: "rehome",
-      anchor: end,
-    });
-    const pending = [node, cascadeParent, rehomeParent, cascadeChild, rehomeChild];
+    const pending = [childNode, parentNode, child];
     const support = deriveSupport(pending);
-    expect(support.get(cascadeChild.id)).toContain(cascadeParent.id);
-    expect(support.get(rehomeChild.id)).not.toContain(rehomeParent.id);
-    expect(project(pending, "origin").occurrences["cascade-child"]).toBeUndefined();
-    expect(project(pending, "origin").occurrences["rehome-child"]?.parentOccurrenceId).toBeNull();
-    expect(project(pending, "review").occurrences["cascade-child"]?.parentOccurrenceId).toBe(
-      "cascade-parent",
-    );
+    expect(support.get(child.id)).toContain(parentNode.id);
+    expect(project(pending, "origin").occurrences["child-placement"]).toBeUndefined();
+    expect(project(pending, "review").occurrences["child-placement"]?.parentNodeId).toBe("parent");
 
-    const rejected = [...pending, resolution(6, [cascadeParent.id, rehomeParent.id], "reject")];
-    const rejectedProjection = project(rejected, "review");
-    expect(rejectedProjection.occurrences["cascade-child"]).toBeUndefined();
-    expect(rejectedProjection.occurrences["rehome-child"]?.parentOccurrenceId).toBeNull();
+    const rejected = [...pending, resolution(4, [parentNode.id], "reject")];
+    expect(project(rejected, "review").occurrences["child-placement"]).toBeUndefined();
 
-    const accepted = [...pending, resolution(6, [cascadeParent.id, rehomeParent.id], "accept")];
-    expect(project(accepted, "origin").occurrences["cascade-child"]?.parentOccurrenceId).toBe(
-      "cascade-parent",
-    );
-    expect(project(accepted, "origin").occurrences["rehome-child"]?.parentOccurrenceId).toBe(
-      "rehome-parent",
-    );
+    const accepted = [...pending, resolution(4, [parentNode.id], "accept")];
+    expect(project(accepted, "origin").occurrences["child-placement"]?.parentNodeId).toBe("parent");
   });
 });
 
 function project(facts: readonly Fact[], view: "origin" | "review") {
-  return projectSnapshot("workspace", { facts, frontier: frontierOf(facts) }, view, versions);
+  const workspace = makeFact({
+    workspaceId: "workspace",
+    replicaId: "zzzzzzzzzzzzzzzzzzzzzzzzzz",
+    sequence: 1,
+    observed: {},
+    lamport: 1,
+    body: {
+      kind: "contribution",
+      actorId: "workspace-genesis",
+      intent: "direct",
+      mutation: { kind: "node-create", nodeId: "workspace" },
+    },
+  });
+  const projectedFacts = [workspace, ...facts];
+  return projectSnapshot(
+    "workspace",
+    { facts: projectedFacts, frontier: frontierOf(projectedFacts) },
+    view,
+    versions,
+  );
 }
 
 function resolution(

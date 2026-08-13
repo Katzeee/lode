@@ -2,16 +2,16 @@ import { LoroDoc } from "loro-crdt";
 import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import { admitAuthorityRecordShapes } from "../../domain/fact/index.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 
 async function store(peerId: `${number}`) {
-  return LoroFactStore.open({
+  return FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId: peerId,
     documents: new InMemoryDocumentStore(),
-    admitRecords: admitAuthorityRecords,
+    admitRecords: admitAuthorityRecordShapes,
   });
 }
 
@@ -19,7 +19,7 @@ async function commitNode(target: Awaited<ReturnType<typeof store>>): Promise<vo
   await target.commit({
     invocationId: "create",
     request: { command: "create" },
-    bodies: [
+    writes: [
       {
         kind: "contribution",
         actorId: "actor",
@@ -40,13 +40,13 @@ describe("Fact sync corruption boundaries", () => {
     remote.getMap("projection").set("leak", "derived");
     remote.commit({ message: "inject-derived-container" });
 
-    await expect(target.syncDoc.importUpdate(remote.export({ mode: "snapshot" }))).rejects.toThrow(
-      /unknown root container/i,
-    );
+    await expect(
+      target.replication.importUpdate(remote.export({ mode: "snapshot" })),
+    ).rejects.toThrow(/unknown root container/i);
     expect(target.admission().kind).toBe("fault");
     await target.recoverToLastValidPrefix();
     const exported = new LoroDoc();
-    exported.import(await target.syncDoc.exportSnapshot());
+    exported.import(await target.replication.exportSnapshot());
     expect(exported.toJSON()).toEqual({ facts: {} });
   });
 
@@ -55,7 +55,7 @@ describe("Fact sync corruption boundaries", () => {
     await commitNode(target);
     const remote = new LoroDoc();
     remote.setPeerId("202");
-    remote.import(await target.syncDoc.exportSnapshot());
+    remote.import(await target.replication.exportSnapshot());
     const facts = remote.getMap<string>("facts");
     const projection = remote.toJSON() as unknown;
     const key = factKeys(projection)[0];
@@ -67,38 +67,40 @@ describe("Fact sync corruption boundaries", () => {
     remote.commit({ message: "delete-immutable-fact" });
 
     await expect(
-      target.syncDoc.importUpdate(remote.export({ mode: "update", from: before })),
+      target.replication.importUpdate(remote.export({ mode: "update", from: before })),
     ).rejects.toThrow(/removes immutable authority content/i);
     expect(target.admission().kind).toBe("fault");
     await target.recoverToLastValidPrefix();
     const downstream = await store("303");
-    await downstream.syncDoc.importUpdate(await target.syncDoc.exportSnapshot());
+    await downstream.replication.importUpdate(await target.replication.exportSnapshot());
     expect(downstream.snapshot()).toEqual(target.snapshot());
   });
 
   it("persists a deterministic sync fault across restart until explicit recovery", async () => {
     const documents = new InMemoryDocumentStore();
     const replicaId = createReplicaId();
-    const target = await LoroFactStore.open({
+    const target = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecordShapes,
     });
     await commitNode(target);
     const remote = new LoroDoc();
     remote.setPeerId("202");
     remote.getMap("projection").set("leak", "derived");
     remote.commit({ message: "inject-derived-container" });
-    await expect(target.syncDoc.importUpdate(remote.export({ mode: "snapshot" }))).rejects.toThrow(
-      /unknown root container/i,
-    );
+    await expect(
+      target.replication.importUpdate(remote.export({ mode: "snapshot" })),
+    ).rejects.toThrow(/unknown root container/i);
 
-    const restarted = await LoroFactStore.open({
+    const restarted = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecordShapes,
     });
     expect(restarted.admission()).toMatchObject({
       kind: "fault",
@@ -108,7 +110,7 @@ describe("Fact sync corruption boundaries", () => {
       restarted.commit({
         invocationId: "new-write",
         request: { command: "new-write" },
-        bodies: [
+        writes: [
           {
             kind: "contribution",
             actorId: "actor",

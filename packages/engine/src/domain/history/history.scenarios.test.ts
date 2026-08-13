@@ -47,7 +47,7 @@ describe("production History scenarios", () => {
       invocationId: "undo",
       operation: "undo",
       targetStepId: "normal",
-      mutations: undoPlan.bodies.map((body) => body.mutation),
+      mutations: undoPlan.write.bodies.map((body) => body.mutation),
     });
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual(["undo"]);
 
@@ -71,7 +71,7 @@ describe("production History scenarios", () => {
       invocationId: "redo",
       operation: "redo",
       targetStepId: "undo",
-      mutations: redoPlan.bodies.map((body) => body.mutation),
+      mutations: redoPlan.write.bodies.map((body) => body.mutation),
     });
     expect(fixture.generation().origin.nodes.node?.properties.x).toBe(1);
 
@@ -114,7 +114,7 @@ describe("production History scenarios", () => {
     ).toEqual([
       {
         kind: "value-unset",
-        owner: { kind: "node", id: "node" },
+        target: { kind: "node", id: "node" },
         namespace: "property",
         key: "chain",
         previous: { kind: "set", value: 2 },
@@ -130,9 +130,15 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory("channel", cancelled.receipts, cancelled.snapshot(), cancelled.generation())
-        .undo,
-    ).toBeNull();
+      queryHistory("channel", cancelled.receipts, cancelled.snapshot(), cancelled.generation()).undo
+        ?.evidence.compensations,
+    ).toEqual([
+      {
+        kind: "node-restore",
+        nodeId: "temporary",
+        deletionFactId: cancelled.snapshot().facts[2]?.id,
+      },
+    ]);
   });
 
   it("partially superseded replacement restores only the still-attributable side", () => {
@@ -195,7 +201,7 @@ describe("production History scenarios", () => {
       invocationId: "replace-undo",
       operation: "undo",
       targetStepId: "replace",
-      mutations: plan.bodies.map((body) => body.mutation),
+      mutations: plan.write.bodies.map((body) => body.mutation),
     });
     expect(projectionText(fixture.generation().origin, "node")).toBe("ZB");
   });
@@ -290,7 +296,7 @@ describe("production History scenarios", () => {
       invocationId: "undo",
       operation: "undo",
       targetStepId: "text",
-      mutations: plan.bodies.map((body) => body.mutation),
+      mutations: plan.write.bodies.map((body) => body.mutation),
     });
     expect(projectionText(fixture.generation().origin, "node")).toBe("X");
 
@@ -376,7 +382,7 @@ describe("production History scenarios", () => {
       invocationId: "nullable-undo",
       operation: "undo",
       targetStepId: "nullable-mark",
-      mutations: nullableUndoPlan.bodies.map((body) => body.mutation),
+      mutations: nullableUndoPlan.write.bodies.map((body) => body.mutation),
     });
     expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBeNull();
     const nullableRedo = queryHistory(
@@ -399,7 +405,7 @@ describe("production History scenarios", () => {
       invocationId: "nullable-redo",
       operation: "redo",
       targetStepId: "nullable-undo",
-      mutations: nullableRedoPlan.bodies.map((body) => body.mutation),
+      mutations: nullableRedoPlan.write.bodies.map((body) => body.mutation),
     });
     expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBe(
       "changed",
@@ -556,7 +562,7 @@ describe("production History scenarios", () => {
     ).toBeNull();
     nodeCreate.fact({
       kind: "value-set",
-      owner: { kind: "node", id: "created" },
+      target: { kind: "node", id: "created" },
       namespace: "property",
       key: "offline-work",
       value: true,
@@ -576,8 +582,7 @@ describe("production History scenarios", () => {
           kind: "occurrence-create",
           occurrenceId: "created-occurrence",
           nodeId: "node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
+          parentNodeId: "workspace",
           anchor: end,
         },
       ],
@@ -595,7 +600,7 @@ describe("production History scenarios", () => {
     });
     occurrenceCreate.fact({
       kind: "value-set",
-      owner: { kind: "occurrence", id: "created-occurrence" },
+      target: { kind: "occurrence", id: "created-occurrence" },
       namespace: "metadata",
       key: "later",
       value: true,
@@ -667,8 +672,7 @@ describe("production History scenarios", () => {
         {
           kind: "occurrence-delete",
           occurrenceId: "occurrence",
-          childPolicy: "rehome",
-          previousParentOccurrenceId: null,
+          previousParentNodeId: "workspace",
           previousAnchor: end,
         },
       ],
@@ -688,7 +692,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-restore",
       occurrenceId: "occurrence",
       deletionFactId: occurrenceDeletionFactId,
-      parentOccurrenceId: null,
+      parentNodeId: "workspace",
       anchor: end,
     });
     occurrenceDelete.step({
@@ -698,7 +702,7 @@ describe("production History scenarios", () => {
           kind: "occurrence-restore",
           occurrenceId: "occurrence",
           deletionFactId: occurrenceDeletionFactId,
-          parentOccurrenceId: null,
+          parentNodeId: "workspace",
           anchor: end,
         },
       ],
@@ -718,7 +722,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-restore",
       occurrenceId: "occurrence",
       deletionFactId: occurrenceDeletionFactId,
-      parentOccurrenceId: null,
+      parentNodeId: "workspace",
       anchor: end,
     });
     expect(
@@ -736,8 +740,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-create",
       occurrenceId: "parent",
       nodeId: "parent",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     neutralLaterMove.fact({ kind: "node-create", nodeId: "child" });
@@ -745,8 +748,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-create",
       occurrenceId: "child",
       nodeId: "child",
-      parentOccurrenceId: "parent",
-      parentPolicy: "cascade",
+      parentNodeId: "parent",
       anchor: end,
     });
     neutralLaterMove.step({
@@ -755,9 +757,9 @@ describe("production History scenarios", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "child",
-          parentOccurrenceId: null,
+          parentNodeId: "workspace",
           anchor: end,
-          previousParentOccurrenceId: "parent",
+          previousParentNodeId: "parent",
           previousAnchor: end,
         },
       ],
@@ -765,9 +767,9 @@ describe("production History scenarios", () => {
     neutralLaterMove.fact({
       kind: "occurrence-move",
       occurrenceId: "child",
-      parentOccurrenceId: "child",
+      parentNodeId: "child",
       anchor: end,
-      previousParentOccurrenceId: null,
+      previousParentNodeId: "workspace",
       previousAnchor: end,
     });
     expect(
@@ -776,12 +778,8 @@ describe("production History scenarios", () => {
         neutralLaterMove.receipts,
         neutralLaterMove.snapshot(),
         neutralLaterMove.generation(),
-      ).undo?.evidence.compensations[0],
-    ).toMatchObject({
-      kind: "occurrence-move",
-      occurrenceId: "child",
-      parentOccurrenceId: "parent",
-    });
+      ).undo,
+    ).toBeNull();
 
     const move = baseFixture();
     move.fact({ kind: "node-create", nodeId: "parent" });
@@ -789,8 +787,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-create",
       occurrenceId: "parent",
       nodeId: "parent",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     move.step({
@@ -799,9 +796,9 @@ describe("production History scenarios", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "occurrence",
-          parentOccurrenceId: "parent",
+          parentNodeId: "parent",
           anchor: end,
-          previousParentOccurrenceId: null,
+          previousParentNodeId: "workspace",
           previousAnchor: end,
         },
       ],
@@ -811,14 +808,14 @@ describe("production History scenarios", () => {
         .compensations[0],
     ).toMatchObject({
       kind: "occurrence-move",
-      parentOccurrenceId: null,
+      parentNodeId: "workspace",
     });
     move.fact({
       kind: "occurrence-move",
       occurrenceId: "occurrence",
-      parentOccurrenceId: "parent",
+      parentNodeId: "parent",
       anchor: { ...end, fallback: "start" },
-      previousParentOccurrenceId: "parent",
+      previousParentNodeId: "parent",
       previousAnchor: end,
     });
     expect(
@@ -831,8 +828,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-create",
       occurrenceId: "parent",
       nodeId: "parent-node",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     missingDeleteParent.fact({ kind: "node-create", nodeId: "child-node" });
@@ -840,8 +836,7 @@ describe("production History scenarios", () => {
       kind: "occurrence-create",
       occurrenceId: "child",
       nodeId: "child-node",
-      parentOccurrenceId: "parent",
-      parentPolicy: "cascade",
+      parentNodeId: "parent",
       anchor: end,
     });
     missingDeleteParent.step({
@@ -850,8 +845,7 @@ describe("production History scenarios", () => {
         {
           kind: "occurrence-delete",
           occurrenceId: "child",
-          childPolicy: "rehome",
-          previousParentOccurrenceId: "parent",
+          previousParentNodeId: "parent",
           previousAnchor: end,
         },
       ],
@@ -859,8 +853,7 @@ describe("production History scenarios", () => {
     missingDeleteParent.fact({
       kind: "occurrence-delete",
       occurrenceId: "parent",
-      childPolicy: "cascade",
-      previousParentOccurrenceId: null,
+      previousParentNodeId: "workspace",
       previousAnchor: end,
     });
     expect(
@@ -880,9 +873,9 @@ describe("production History scenarios", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "child",
-          parentOccurrenceId: null,
+          parentNodeId: "workspace",
           anchor: end,
-          previousParentOccurrenceId: "parent",
+          previousParentNodeId: "parent",
           previousAnchor: end,
         },
       ],
@@ -890,8 +883,7 @@ describe("production History scenarios", () => {
     missingMoveParent.fact({
       kind: "occurrence-delete",
       occurrenceId: "parent",
-      childPolicy: "cascade",
-      previousParentOccurrenceId: null,
+      previousParentNodeId: "workspace",
       previousAnchor: end,
     });
     expect(
@@ -904,22 +896,29 @@ describe("production History scenarios", () => {
     ).toBeNull();
 
     const canonical = baseFixture();
+    canonical.fact({ kind: "node-create", nodeId: "reference-parent" });
+    canonical.fact({
+      kind: "occurrence-create",
+      occurrenceId: "reference-parent-original",
+      nodeId: "reference-parent",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
     canonical.fact({
       kind: "occurrence-create",
       occurrenceId: "reference",
       nodeId: "node",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "reference-parent",
       anchor: end,
     });
     canonical.step({
       invocationId: "canonical",
       mutations: [
         {
-          kind: "canonical-occurrence-set",
+          kind: "node-owner-set",
           nodeId: "node",
-          occurrenceId: "reference",
-          previousOccurrenceId: "occurrence",
+          ownerNodeId: "reference-parent",
+          previousOwnerNodeId: "workspace",
         },
       ],
     });
@@ -927,14 +926,14 @@ describe("production History scenarios", () => {
       queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation()).undo
         ?.evidence.compensations[0],
     ).toMatchObject({
-      kind: "canonical-occurrence-set",
-      occurrenceId: "occurrence",
+      kind: "node-owner-set",
+      ownerNodeId: "workspace",
     });
     canonical.fact({
-      kind: "canonical-occurrence-set",
+      kind: "node-owner-set",
       nodeId: "node",
-      occurrenceId: "reference",
-      previousOccurrenceId: "reference",
+      ownerNodeId: "reference-parent",
+      previousOwnerNodeId: "reference-parent",
     });
     expect(
       queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation())
@@ -944,12 +943,14 @@ describe("production History scenarios", () => {
 
   it("Schema/Field compensation", () => {
     const fixture = baseFixture();
+    fixture.fact({ kind: "node-create", nodeId: "schema" });
+    fixture.fact({ kind: "node-create", nodeId: "field" });
     fixture.step({
       invocationId: "schema",
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "schema", id: "schema" },
+          target: { kind: "node", id: "schema" },
           namespace: "schema",
           key: "field",
           value: 0,
@@ -957,7 +958,7 @@ describe("production History scenarios", () => {
         },
         {
           kind: "value-set",
-          owner: { kind: "field", id: "field" },
+          target: { kind: "node", id: "field" },
           namespace: "metadata",
           key: "label",
           value: "Field",
@@ -973,8 +974,8 @@ describe("production History scenarios", () => {
     ).undo!;
     expect(selection.evidence.compensations).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: "value-unset", owner: { kind: "schema", id: "schema" } }),
-        expect.objectContaining({ kind: "value-unset", owner: { kind: "field", id: "field" } }),
+        expect.objectContaining({ kind: "value-unset", target: { kind: "node", id: "schema" } }),
+        expect.objectContaining({ kind: "value-unset", target: { kind: "node", id: "field" } }),
       ]),
     );
   });
@@ -1007,7 +1008,7 @@ describe("production History scenarios", () => {
       intent: "proposal",
       operation: "undo",
       targetStepId: "proposal",
-      mutations: plan.bodies.map((body) => body.mutation),
+      mutations: plan.write.bodies.map((body) => body.mutation),
     });
     expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks).toHaveLength(
       0,
@@ -1036,7 +1037,7 @@ describe("production History scenarios", () => {
       intent: "proposal",
       operation: "redo",
       targetStepId: "proposal-undo",
-      mutations: redoPlan.bodies.map((body) => body.mutation),
+      mutations: redoPlan.write.bodies.map((body) => body.mutation),
     });
     expect(
       queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks.length,
@@ -1047,7 +1048,7 @@ describe("production History scenarios", () => {
 function value(key: string, value: string | number | boolean) {
   return {
     kind: "value-set" as const,
-    owner: { kind: "node" as const, id: "node" },
+    target: { kind: "node" as const, id: "node" },
     namespace: "property" as const,
     key,
     value,

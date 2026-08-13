@@ -4,24 +4,24 @@ import {
   type Fact,
   type FactSnapshot,
 } from "../fact/index.js";
-import type { OwnerKey } from "./owner-dag.js";
-import { advanceWithOwnerPlan } from "./projection-owner-api.js";
-import type { ProjectionOwnerObserver } from "./projection-owner-plan.js";
-import type { Projection, ProjectionOwnerCache, ProjectionVersions } from "./projection-types.js";
+import type { ProjectionStageKey } from "./projection-plan-dag.js";
+import { advanceWithPlan } from "./projection-plan-api.js";
+import type { ProjectionStageObserver } from "./projection-plan.js";
+import type { Projection, ProjectionPlanCache, ProjectionVersions } from "./projection-types.js";
 
 export function advanceDirectProjection(
   workspaceId: string,
   previous: Projection,
-  previousCache: ProjectionOwnerCache,
+  previousCache: ProjectionPlanCache,
   snapshot: FactSnapshot,
   changed: readonly Fact[],
   versions: ProjectionVersions,
-  selectedOwners: ReadonlySet<OwnerKey>,
-  observer?: ProjectionOwnerObserver,
+  selectedStages: ReadonlySet<ProjectionStageKey>,
+  observer?: ProjectionStageObserver,
 ): Readonly<{
   projection: Projection;
-  ownerCache: ProjectionOwnerCache;
-  evaluatedOwners: readonly OwnerKey[];
+  planCache: ProjectionPlanCache;
+  evaluatedStages: readonly ProjectionStageKey[];
 }> | null {
   const orderedTail = suffixInNeutralOrder(snapshot.facts, changed);
   if (!orderedTail) {
@@ -31,14 +31,14 @@ export function advanceDirectProjection(
   if (!contributions) {
     return null;
   }
-  return advanceWithOwnerPlan(
+  return advanceWithPlan(
     workspaceId,
     previous,
     previousCache,
     snapshot,
     contributions,
     versions,
-    selectedOwners,
+    selectedStages,
     observer,
   );
 }
@@ -97,17 +97,18 @@ function canApplyDirectTail(
       return projection.nodes[mutation.nodeId] !== undefined;
     case "value-set":
     case "value-unset":
-      return (
-        mutation.owner.kind === "schema" ||
-        mutation.owner.kind === "field" ||
-        (mutation.owner.kind === "node"
-          ? projection.nodes[mutation.owner.id] !== undefined
-          : projection.occurrences[mutation.owner.id] !== undefined)
-      );
-    case "canonical-occurrence-set":
+      return mutation.target.kind === "node"
+        ? projection.nodes[mutation.target.id] !== undefined
+        : projection.occurrences[mutation.target.id] !== undefined;
+    case "node-owner-set":
       return (
         projection.nodes[mutation.nodeId] !== undefined &&
-        projection.occurrences[mutation.occurrenceId]?.nodeId === mutation.nodeId
+        projection.nodes[mutation.ownerNodeId] !== undefined &&
+        Object.values(projection.occurrences).some(
+          (occurrence) =>
+            occurrence.nodeId === mutation.nodeId &&
+            occurrence.parentNodeId === mutation.ownerNodeId,
+        )
       );
     case "schema-apply":
     case "schema-remove":
@@ -159,8 +160,7 @@ function canApplyDirectTail(
       return (
         projection.occurrences[mutation.occurrenceId] === undefined &&
         projection.nodes[mutation.nodeId] !== undefined &&
-        (mutation.parentOccurrenceId === null ||
-          projection.occurrences[mutation.parentOccurrenceId] !== undefined)
+        projection.nodes[mutation.parentNodeId] !== undefined
       );
     case "occurrence-delete":
     case "occurrence-restore":
@@ -215,8 +215,7 @@ function canApplyOccurrenceMutation(
     (mutation.kind === "occurrence-restore"
       ? projection.occurrences[mutation.occurrenceId] === undefined
       : projection.occurrences[mutation.occurrenceId] !== undefined) &&
-    (mutation.parentOccurrenceId === null ||
-      projection.occurrences[mutation.parentOccurrenceId] !== undefined)
+    projection.nodes[mutation.parentNodeId] !== undefined
   );
 }
 

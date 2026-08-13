@@ -19,53 +19,69 @@ export function prepareMutableOccurrence(
     throw new Error(`Occurrence does not exist: ${mutation.occurrenceId}`);
   }
   if (mutation.kind === "occurrence-move") {
+    if (!available.nodes[mutation.parentNodeId]) {
+      throw new Error("Move target parent Node is absent");
+    }
     if (
-      (mutation.parentOccurrenceId !== null &&
-        !available.occurrences[mutation.parentOccurrenceId]) ||
-      createsCycle(available, mutation.occurrenceId, mutation.parentOccurrenceId)
+      Object.values(available.occurrences).some(
+        (candidate) =>
+          candidate.occurrenceId !== mutation.occurrenceId &&
+          candidate.nodeId === occurrence.nodeId &&
+          candidate.parentNodeId === mutation.parentNodeId,
+      )
     ) {
-      throw new Error("Move target is absent or would create an Occurrence storage cycle");
+      throw new Error("A Node cannot appear twice in one parent Node children list");
     }
   }
   const evidence = previous.occurrences[mutation.occurrenceId] ? previous : available;
   return withEvidence(mutation, evidence);
 }
 
-export function assertSingleRoot(projection: Projection): void {
-  if ((projection.children.$root ?? []).length > 1) {
-    throw new Error("Workspace already has its single root Occurrence");
+export function prepareOccurrenceCreate(
+  mutation: Extract<Mutation, { kind: "occurrence-create" }>,
+  available: Projection,
+): Mutation {
+  if (!available.nodes[mutation.nodeId]) {
+    throw new Error(`Occurrence target Node does not exist: ${mutation.nodeId}`);
+  }
+  assertParent(available, mutation.parentNodeId);
+  const existing = available.occurrences[mutation.occurrenceId];
+  if (
+    existing &&
+    (existing.nodeId !== mutation.nodeId || existing.parentNodeId !== mutation.parentNodeId)
+  ) {
+    throw new Error("Occurrence identity already names another placement");
+  }
+  if (
+    Object.values(available.occurrences).some(
+      (occurrence) =>
+        occurrence.occurrenceId !== mutation.occurrenceId &&
+        occurrence.nodeId === mutation.nodeId &&
+        occurrence.parentNodeId === mutation.parentNodeId,
+    )
+  ) {
+    throw new Error("A Node cannot appear twice in one parent Node children list");
+  }
+  return mutation;
+}
+
+export function assertParent(projection: Projection, parentNodeId: string): void {
+  if (!projection.nodes[parentNodeId]) {
+    throw new Error(`Parent Node does not exist: ${parentNodeId}`);
   }
 }
 
 function withEvidence(mutation: MutableOccurrenceMutation, evidence: Projection): Mutation {
   return {
     ...mutation,
-    previousParentOccurrenceId:
-      evidence.occurrences[mutation.occurrenceId]?.parentOccurrenceId ?? null,
+    previousParentNodeId: evidence.occurrences[mutation.occurrenceId]?.parentNodeId,
     previousAnchor: anchorFor(evidence, mutation.occurrenceId),
   };
 }
 
-function createsCycle(
-  projection: Projection,
-  occurrenceId: string,
-  parentOccurrenceId: string | null,
-): boolean {
-  let current = parentOccurrenceId;
-  const visited = new Set<string>();
-  while (current !== null) {
-    if (current === occurrenceId || visited.has(current)) {
-      return true;
-    }
-    visited.add(current);
-    current = projection.occurrences[current]?.parentOccurrenceId ?? null;
-  }
-  return false;
-}
-
 function anchorFor(projection: Projection, occurrenceId: string): SequenceAnchor {
   const occurrence = projection.occurrences[occurrenceId];
-  const siblings = projection.children[occurrence?.parentOccurrenceId ?? "$root"] ?? [];
+  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
   const index = siblings.indexOf(occurrenceId);
   return {
     after: index > 0 ? (siblings[index - 1] ?? null) : null,

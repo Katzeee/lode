@@ -1,5 +1,6 @@
 import type { Fact, Mutation } from "../fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
+import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
 import { schemaProposalLifecycleCases } from "./proposal-schema-lifecycle-test-helpers.js";
 
@@ -25,7 +26,7 @@ const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
   "occurrence-delete",
   "occurrence-restore",
   "occurrence-move",
-  "canonical-occurrence-set",
+  "node-owner-set",
   "schema-apply",
   "schema-remove",
   "schema-field-add",
@@ -51,7 +52,7 @@ const PROPOSAL_LIFECYCLE_CASES = {
   "occurrence-delete": occurrenceDeleteCase,
   "occurrence-restore": occurrenceRestoreCase,
   "occurrence-move": occurrenceMoveCase,
-  "canonical-occurrence-set": canonicalCase,
+  "node-owner-set": nodeOwnerCase,
   ...schemaProposalLifecycleCases,
   ...fieldProposalLifecycleCases,
   "text-splice": textSpliceCase,
@@ -62,7 +63,11 @@ const PROPOSAL_LIFECYCLE_CASES = {
 
 function nodeCreateCase(): ProposalLifecycleCase {
   const facts = new Facts();
-  return lifecycle(facts, { kind: "node-create", nodeId: "created" });
+  const proposal = facts.addPlaced("created", "workspace", "created-original", "proposal")[0];
+  if (!proposal) {
+    throw new Error("Expected a Node creation proposal");
+  }
+  return { kind: "node-create", facts, proposal };
 }
 
 function nodeDeleteCase(): ProposalLifecycleCase {
@@ -86,35 +91,47 @@ function occurrenceCreateCase(): ProposalLifecycleCase {
     kind: "occurrence-create",
     occurrenceId: "created-occurrence",
     nodeId: "node",
-    parentOccurrenceId: "occurrence",
-    parentPolicy: "cascade",
+    parentNodeId: "node",
     anchor: end,
   });
 }
 
 function occurrenceDeleteCase(): ProposalLifecycleCase {
   const facts = base();
+  addReferencePlacement(facts);
   return lifecycle(facts, {
     kind: "occurrence-delete",
-    occurrenceId: "occurrence",
-    childPolicy: "rehome",
-    previousParentOccurrenceId: null,
-    previousAnchor: end,
+    occurrenceId: "reference",
+    previousParentNodeId: "reference-parent",
+    previousAnchor: { ...end, fallback: "start" },
   });
 }
 
 function occurrenceRestoreCase(): ProposalLifecycleCase {
   const facts = base();
+  addReferencePlacement(facts);
   const deletion = facts.add({
     kind: "occurrence-delete",
-    occurrenceId: "occurrence",
-    childPolicy: "rehome",
+    occurrenceId: "reference",
+    previousParentNodeId: "reference-parent",
+    previousAnchor: { ...end, fallback: "start" },
   });
   return lifecycle(facts, {
     kind: "occurrence-restore",
-    occurrenceId: "occurrence",
+    occurrenceId: "reference",
     deletionFactId: deletion.id,
-    parentOccurrenceId: null,
+    parentNodeId: "reference-parent",
+    anchor: end,
+  });
+}
+
+function addReferencePlacement(facts: Facts): void {
+  addPlacedNode(facts, "reference-parent");
+  facts.add({
+    kind: "occurrence-create",
+    occurrenceId: "reference",
+    nodeId: "node",
+    parentNodeId: "reference-parent",
     anchor: end,
   });
 }
@@ -126,56 +143,53 @@ function occurrenceMoveCase(): ProposalLifecycleCase {
     kind: "occurrence-create",
     occurrenceId: "parent",
     nodeId: "parent",
-    parentOccurrenceId: "workspace-root",
-    parentPolicy: "cascade",
+    parentNodeId: "outline-root-node",
     anchor: end,
   });
   return lifecycle(facts, {
     kind: "occurrence-move",
     occurrenceId: "occurrence",
-    parentOccurrenceId: "parent",
+    parentNodeId: "parent",
     anchor: end,
-    previousParentOccurrenceId: "workspace-root",
+    previousParentNodeId: "outline-root-node",
     previousAnchor: end,
   });
 }
 
-function canonicalCase(): ProposalLifecycleCase {
+function nodeOwnerCase(): ProposalLifecycleCase {
   const facts = base();
+  addPlacedNode(facts, "reference-parent");
   facts.add({
     kind: "occurrence-create",
     occurrenceId: "reference",
     nodeId: "node",
-    parentOccurrenceId: "occurrence",
-    parentPolicy: "cascade",
+    parentNodeId: "reference-parent",
     anchor: end,
   });
   return lifecycle(facts, {
-    kind: "canonical-occurrence-set",
+    kind: "node-owner-set",
     nodeId: "node",
-    occurrenceId: "reference",
-    previousOccurrenceId: "occurrence",
+    ownerNodeId: "reference-parent",
+    previousOwnerNodeId: "workspace",
   });
 }
 
 function nestedOccurrenceBase(): Facts {
   const facts = new Facts();
-  facts.add({ kind: "node-create", nodeId: "workspace-root-node" });
+  facts.add({ kind: "node-create", nodeId: "outline-root-node" });
   facts.add({ kind: "node-create", nodeId: "node" });
   facts.add({
     kind: "occurrence-create",
-    occurrenceId: "workspace-root",
-    nodeId: "workspace-root-node",
-    parentOccurrenceId: null,
-    parentPolicy: "cascade",
+    occurrenceId: "outline-root-occurrence",
+    nodeId: "outline-root-node",
+    parentNodeId: "workspace",
     anchor: end,
   });
   facts.add({
     kind: "occurrence-create",
     occurrenceId: "occurrence",
     nodeId: "node",
-    parentOccurrenceId: "workspace-root",
-    parentPolicy: "cascade",
+    parentNodeId: "outline-root-node",
     anchor: end,
   });
   return facts;
@@ -212,9 +226,18 @@ function textMarkCase(): ProposalLifecycleCase {
 }
 
 function valueSetCase(): ProposalLifecycleCase {
-  return lifecycle(base(), {
+  const facts = base();
+  facts.add({ kind: "node-create", nodeId: "field" });
+  facts.add({
+    kind: "occurrence-create",
+    occurrenceId: "field-original",
+    nodeId: "field",
+    parentNodeId: "workspace",
+    anchor: end,
+  });
+  return lifecycle(facts, {
     kind: "value-set",
-    owner: { kind: "field", id: "field" },
+    target: { kind: "node", id: "field" },
     namespace: "metadata",
     key: "label",
     value: "Proposal",
@@ -226,14 +249,14 @@ function valueUnsetCase(): ProposalLifecycleCase {
   const facts = base();
   facts.add({
     kind: "value-set",
-    owner: { kind: "node", id: "node" },
+    target: { kind: "node", id: "node" },
     namespace: "property",
     key: "color",
     value: "blue",
   });
   return lifecycle(facts, {
     kind: "value-unset",
-    owner: { kind: "node", id: "node" },
+    target: { kind: "node", id: "node" },
     namespace: "property",
     key: "color",
     previous: { kind: "set", value: "blue" },

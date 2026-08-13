@@ -37,7 +37,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     let right: AppServerDaemon | null = null;
     try {
       await executeProgram(left.address, "build-anime-notes", animeNotesProgram());
-      await expectAnimeNotes(left.address);
+      await expectAnimeNotes(left.address, "initial publication");
 
       await left.stop();
       left = await startAppServerDaemon({
@@ -45,7 +45,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: leftRoot,
         accessToken,
       });
-      await expectAnimeNotes(left.address);
+      await expectAnimeNotes(left.address, "daemon restart");
 
       await execute(left.address, "propose-mood-field", "proposal", moodProposal());
       await execute(left.address, "edit-pending-mood-field", "direct", pendingMoodEdit());
@@ -57,15 +57,17 @@ describe("Anime Notes through the public CLI and daemon", () => {
       );
       const templateHunk = await reviewHunk(left.address, "schema-template");
       const templateEvidence = evidence(templateHunk);
-      expect(templateEvidence.supportClosure).toHaveLength(2);
-      expect(array(templateEvidence.effects, "Template effects")).toEqual([
-        expect.objectContaining({
-          kind: "schema-relation",
-          relation: "field",
-          ownerId: "quick-impression",
-          targetId: "mood-field",
-        }),
-      ]);
+      expect(templateEvidence.supportClosure).toHaveLength(5);
+      expect(array(templateEvidence.effects, "Template effects")).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            kind: "schema-relation",
+            relation: "field",
+            ownerId: "quick-impression",
+            targetId: "mood-field",
+          }),
+        ]),
+      );
       const templateImpacts = array(templateEvidence.associatedImpactIds, "Template impacts");
       expect(templateImpacts).toContain("sschema-field/squick-impression/smood-field");
       expect(
@@ -130,7 +132,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         "--access-token",
         accessToken,
       ]);
-      await expectAnimeNotes(right.address);
+      await expectAnimeNotes(right.address, "peer synchronization", true);
       expect(await materializedFieldDefinitions(right.address, "origin", "quick-note")).toContain(
         "mood-field",
       );
@@ -141,7 +143,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     }
   });
 
-  it("runs an authenticated single-root outline on two fresh machines in both directions", async () => {
+  it("runs an authenticated Workspace-rooted outline on two fresh machines in both directions", async () => {
     const leftRoot = await temporaryDirectory("outline-left");
     const rightRoot = await temporaryDirectory("outline-right");
     let left = await startAppServerDaemon({
@@ -152,21 +154,8 @@ describe("Anime Notes through the public CLI and daemon", () => {
     let right: AppServerDaemon | null = null;
     try {
       await executeOutline(left.address, "create-outline", [
-        { kind: "node-create", nodeId: "outline-root" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "outline-root-occurrence",
-          nodeId: "outline-root",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "canonical-occurrence-set",
-          nodeId: "outline-root",
-          occurrenceId: "outline-root-occurrence",
-        },
-        { kind: "node-create", nodeId: "alpha" },
+        nodeAt("outline-root", outlineWorkspaceId, "outline-root-occurrence"),
+        nodeAt("alpha", "outline-root", "alpha-occurrence"),
         {
           kind: "text-splice",
           nodeId: "alpha",
@@ -174,20 +163,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
           anchor: end,
           insert: "Alpha",
         },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "alpha-occurrence",
-          nodeId: "alpha",
-          parentOccurrenceId: "outline-root-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "canonical-occurrence-set",
-          nodeId: "alpha",
-          occurrenceId: "alpha-occurrence",
-        },
-        { kind: "node-create", nodeId: "beta" },
+        nodeAt("beta", "outline-root", "beta-occurrence"),
         {
           kind: "text-splice",
           nodeId: "beta",
@@ -197,62 +173,32 @@ describe("Anime Notes through the public CLI and daemon", () => {
         },
         {
           kind: "occurrence-create",
-          occurrenceId: "beta-occurrence",
-          nodeId: "beta",
-          parentOccurrenceId: "outline-root-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "canonical-occurrence-set",
-          nodeId: "beta",
-          occurrenceId: "beta-occurrence",
-        },
-        {
-          kind: "occurrence-create",
           occurrenceId: "alpha-reference",
           nodeId: "alpha",
-          parentOccurrenceId: "beta-occurrence",
-          parentPolicy: "cascade",
+          parentNodeId: "beta",
           anchor: end,
         },
-        { kind: "node-create", nodeId: "discarded" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "discarded-occurrence",
-          nodeId: "discarded",
-          parentOccurrenceId: "outline-root-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
+        nodeAt("discarded", "outline-root", "discarded-occurrence"),
       ]);
 
-      expect(await outlineChildren(left.address, "$root")).toEqual(["outline-root-occurrence"]);
+      expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual([
+        "outline-root-occurrence",
+      ]);
       const extraRoot = await cliRequest("execute", left.address, {
         kind: "mutate",
         workspaceId: outlineWorkspaceId,
-        invocationId: "reject-extra-root-occurrence",
+        invocationId: "create-extra-root-occurrence",
         actorId: "outline-user",
         intent: "direct",
         historyChannelId: "outline",
-        mutations: [
-          { kind: "node-create", nodeId: "extra-root" },
-          {
-            kind: "occurrence-create",
-            occurrenceId: "extra-root-occurrence",
-            nodeId: "extra-root",
-            parentOccurrenceId: null,
-            parentPolicy: "cascade",
-            anchor: end,
-          },
-        ],
+        mutations: [nodeAt("extra-root", outlineWorkspaceId, "extra-root-occurrence")],
       });
-      expect(extraRoot).toMatchObject({
-        status: "rejected",
-        error: { code: "invalid-input" },
-      });
-      expect(await outlineChildren(left.address, "$root")).toEqual(["outline-root-occurrence"]);
-      expect(await outlineChildren(left.address, "outline-root-occurrence")).toEqual([
+      expect(extraRoot).toMatchObject({ status: "published" });
+      expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual([
+        "outline-root-occurrence",
+        "extra-root-occurrence",
+      ]);
+      expect(await outlineChildren(left.address, "outline-root")).toEqual([
         "alpha-occurrence",
         "beta-occurrence",
         "discarded-occurrence",
@@ -271,7 +217,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "beta-occurrence",
-          parentOccurrenceId: "outline-root-occurrence",
+          parentNodeId: "outline-root",
           anchor: {
             after: null,
             before: "alpha-occurrence",
@@ -280,7 +226,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
           },
         },
       ]);
-      expect(await outlineChildren(left.address, "outline-root-occurrence")).toEqual([
+      expect(await outlineChildren(left.address, "outline-root")).toEqual([
         "beta-occurrence",
         "alpha-occurrence",
         "discarded-occurrence",
@@ -301,6 +247,8 @@ describe("Anime Notes through the public CLI and daemon", () => {
         "alpha",
         "beta",
         "discarded",
+        "extra-root",
+        outlineWorkspaceId,
         "outline-root",
       ]);
       const restartedOccurrences = await outlineProjection(left.address, "occurrences");
@@ -308,7 +256,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         "alpha-occurrence": { nodeId: "alpha" },
         "beta-occurrence": { nodeId: "beta" },
       });
-      expect(await outlineChildren(left.address, "outline-root-occurrence")).toEqual([
+      expect(await outlineChildren(left.address, "outline-root")).toEqual([
         "beta-occurrence",
         "alpha-occurrence",
         "discarded-occurrence",
@@ -343,7 +291,6 @@ describe("Anime Notes through the public CLI and daemon", () => {
         {
           kind: "occurrence-delete",
           occurrenceId: "discarded-occurrence",
-          childPolicy: "cascade",
         },
       ]);
       expect(
@@ -356,13 +303,21 @@ describe("Anime Notes through the public CLI and daemon", () => {
         view: "origin",
         section: "nodes",
       });
-      expect(record(isolated.nodes, "Isolated workspace Nodes")).toEqual({});
+      const isolatedNodes = record(isolated.nodes, "Isolated workspace Nodes");
+      expect(Object.keys(isolatedNodes)).toEqual(["isolated-workspace"]);
+      expect(record(isolatedNodes["isolated-workspace"], "Isolated Workspace Node").nodeId).toBe(
+        "isolated-workspace",
+      );
     } finally {
       await left.stop();
       await right?.stop();
     }
   });
 });
+
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
+  return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end };
+}
 
 async function executeOutline(
   endpoint: string,
@@ -379,6 +334,11 @@ async function executeOutline(
       historyChannelId: "outline",
       mutations: [mutation],
     });
+    if (result.status !== "published") {
+      throw new Error(
+        `Outline mutation ${index} ${JSON.stringify(mutation)} failed: ${JSON.stringify(result)}`,
+      );
+    }
     expect(result.status).toBe("published");
   }
 }
@@ -419,11 +379,11 @@ async function outlineProjection(
   return collected;
 }
 
-async function outlineChildren(endpoint: string, parentOccurrenceId: string): Promise<unknown[]> {
+async function outlineChildren(endpoint: string, parentNodeId: string): Promise<unknown[]> {
   const children = await outlineProjection(endpoint, "children");
   return array(
-    children[parentOccurrenceId],
-    `Children for ${parentOccurrenceId} in ${JSON.stringify(children)}`,
+    children[parentNodeId],
+    `Children for ${parentNodeId} in ${JSON.stringify(children)}`,
   );
 }
 
@@ -447,14 +407,18 @@ async function occurrenceNodeInWorkspace(endpoint: string, occurrenceId: string)
   ).nodeId;
 }
 
-async function expectAnimeNotes(endpoint: string): Promise<void> {
-  expect(await outlineNodeIds(endpoint, "$root")).toEqual(["root"]);
-  expect(await outlineNodeIds(endpoint, "root-occurrence")).toEqual([
+async function expectAnimeNotes(
+  endpoint: string,
+  stage: string,
+  includesMoodField = false,
+): Promise<void> {
+  expect(await outlineNodeIds(endpoint, workspaceId)).toEqual(["root"]);
+  expect(await outlineNodeIds(endpoint, "root")).toEqual([
     "definition-library",
     "library",
     "notes",
   ]);
-  expect(await outlineNodeIds(endpoint, "definition-library-occurrence")).toEqual([
+  expect(await outlineNodeIds(endpoint, "definition-library")).toEqual([
     "anime-work",
     "character",
     "anime-context",
@@ -466,17 +430,26 @@ async function expectAnimeNotes(endpoint: string): Promise<void> {
     "impression-field",
     "rating-field",
     "review-view",
+    ...(includesMoodField ? ["mood-field"] : []),
   ]);
-  expect(await outlineNodeIds(endpoint, "library-occurrence")).toEqual(["frieren", "fern"]);
-  expect(await outlineNodeIds(endpoint, "notes-occurrence")).toEqual(["quick-note", "review-note"]);
-  const canonical = await projectionMap(endpoint, "origin", "canonicalOccurrences");
-  expect(canonical).toMatchObject({
-    root: "root-occurrence",
-    frieren: "frieren-occurrence",
-    "quick-note": "quick-note-occurrence",
-    "review-note": "review-note-occurrence",
+  expect(await outlineNodeIds(endpoint, "library")).toEqual(["frieren", "fern"]);
+  expect(await outlineNodeIds(endpoint, "notes")).toEqual(["quick-note", "review-note"]);
+  const owners = await projectionMap(endpoint, "origin", "nodeOwners");
+  expect(owners).toMatchObject({
+    root: workspaceId,
+    frieren: "library",
+    "quick-note": "notes",
+    "review-note": "notes",
   });
-  expect(await nodeText(endpoint, "origin", "frieren")).toBe("Frieren: Beyond Journey's End");
+  const frierenNodes = await projectionMap(endpoint, "origin", "nodes");
+  const frierenAtoms = array(record(frierenNodes.frieren, "Frieren Node").text, "Frieren text");
+  expect(
+    frierenAtoms.map((atom) => record(atom, "Frieren atom").id),
+    `${stage} atom identities`,
+  ).toEqual([...new Set(frierenAtoms.map((atom) => record(atom, "Frieren atom").id))]);
+  expect(await nodeText(endpoint, "origin", "frieren"), stage).toBe(
+    "Frieren: Beyond Journey's End",
+  );
   expect(await nodeText(endpoint, "origin", "impression-text")).toBe("Quiet, patient, and humane");
   expect(await schemaApplications(endpoint, "origin", "quick-note")).toEqual([
     "quick-impression",
@@ -502,10 +475,10 @@ async function expectAnimeNotes(endpoint: string): Promise<void> {
   expect(record(cells[1], "Rating cell").valueNodeIds).toEqual(["rating-text"]);
 }
 
-async function outlineNodeIds(endpoint: string, parentOccurrenceId: string): Promise<unknown[]> {
+async function outlineNodeIds(endpoint: string, parentNodeId: string): Promise<unknown[]> {
   const children = await projectionMap(endpoint, "origin", "children");
   const occurrences = await projectionMap(endpoint, "origin", "occurrences");
-  return array(children[parentOccurrenceId], `Children of ${parentOccurrenceId}`).map(
+  return array(children[parentNodeId], `Children of ${parentNodeId}`).map(
     (occurrenceId) =>
       record(occurrences[String(occurrenceId)], `Occurrence ${String(occurrenceId)}`).nodeId,
   );

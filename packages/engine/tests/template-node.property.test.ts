@@ -3,23 +3,22 @@ import { describe, expect, it } from "vitest";
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 import {
   canonicalJson,
+  factTransactionId,
   makeFact,
+  templateInstanceNodeId,
+  templateInstanceOccurrenceId,
   type Fact,
   type FactFrontier,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import {
-  advanceGeneration,
-  rebuildGeneration,
-  templateInstanceNodeId,
-} from "../src/domain/reconcile/index.js";
+import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/workspace/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const removeReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const addReplica = "cccccccccccccccccccccccccc";
 const detachReplica = "dddddddddddddddddddddddddd";
@@ -30,33 +29,87 @@ describe("Template Node convergence", () => {
     const base = fixture();
     const baseSnapshot = admitted(base.values);
     const frontier = baseSnapshot.frontier;
-    const remove = remoteFact(removeReplica, frontier, base.values.length + 1, {
-      kind: "schema-template-node-remove",
-      schemaId: "schema",
-      templateNodeId: "guidance",
-      previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
-    });
+    const [remove, removePlacement] = remoteFacts(removeReplica, frontier, base.values.length + 1, [
+      {
+        kind: "schema-template-node-remove",
+        schemaId: "schema",
+        templateNodeId: "guidance",
+        templateOccurrenceId: "schema-guidance-template-occurrence",
+        previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
+      },
+      {
+        kind: "occurrence-delete",
+        occurrenceId: "schema-guidance-template-occurrence",
+        previousParentNodeId: "schema",
+        previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
+      },
+    ]);
     const add = remoteFact(addReplica, frontier, base.values.length + 1, {
       kind: "schema-template-node-add",
       schemaId: "schema",
       templateNodeId: "guidance",
+      templateOccurrenceId: "schema-guidance-template-occurrence",
       anchor: end,
     });
-    const merged = admitted([...base.values, remove, add]);
-    const detach = remoteFact(detachReplica, merged.frontier, base.values.length + 2, {
-      kind: "template-node-detach",
-      ownerNodeId: "note",
-      templateNodeId: "guidance",
-      sourceSchemaIds: ["schema"],
-      sourceApplicationSchemaIds: ["schema"],
-      sourceTemplateItemIds: ["node-template:v1:schema:guidance"],
-    });
+    const merged = admitted([...base.values, remove, removePlacement, add]);
+    const [detachedNode, detach, detachedOccurrence] = remoteFacts(
+      detachReplica,
+      merged.frontier,
+      Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
+      [
+        {
+          kind: "node-create",
+          nodeId: templateInstanceNodeId("note", "guidance"),
+          seed: {
+            text: [..."Guidance"].map((value) => ({ value, attributes: {} })),
+            properties: {},
+            metadata: {},
+          },
+        },
+        {
+          kind: "template-node-detach",
+          ownerNodeId: "note",
+          templateNodeId: "guidance",
+          instanceNodeId: templateInstanceNodeId("note", "guidance"),
+          instanceOccurrenceId: templateInstanceOccurrenceId("note", "guidance"),
+          anchor: end,
+          sourceSchemaIds: ["schema"],
+          sourceApplicationSchemaIds: ["schema"],
+          sourceTemplateOccurrenceIds: ["schema-guidance-template-occurrence"],
+        },
+        {
+          kind: "occurrence-create",
+          occurrenceId: templateInstanceOccurrenceId("note", "guidance"),
+          nodeId: templateInstanceNodeId("note", "guidance"),
+          parentNodeId: "note",
+          anchor: end,
+        },
+      ],
+    );
     const expected = summary(
-      rebuildGeneration("workspace", admitted([...merged.facts, detach]), versions),
+      rebuildGeneration(
+        "workspace",
+        admitted([...merged.facts, detachedNode, detach, detachedOccurrence]),
+        versions,
+      ),
     );
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const snapshot = admitted(shuffle([...base.values, remove, add, detach, add], seed));
+      const snapshot = admitted(
+        shuffle(
+          [
+            ...base.values,
+            remove,
+            removePlacement,
+            add,
+            detachedNode,
+            detach,
+            detachedOccurrence,
+            add,
+          ],
+          seed,
+        ),
+      );
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
       expect(full.generation.origin.schemaTemplateNodes.schema).toEqual(["guidance"]);
@@ -74,7 +127,15 @@ describe("Template Node convergence", () => {
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
-    const finalSnapshot = admitted([...base.values, remove, add, detach]);
+    const finalSnapshot = admitted([
+      ...base.values,
+      remove,
+      removePlacement,
+      add,
+      detachedNode,
+      detach,
+      detachedOccurrence,
+    ]);
     const incremental = advanceGeneration(
       "workspace",
       baseSnapshot,
@@ -96,17 +157,9 @@ describe("Template Node convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  for (const nodeId of ["schema", "guidance", "note"]) {
-    facts.add({ kind: "node-create", nodeId });
-  }
-  facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "note-occurrence",
-    nodeId: "note",
-    parentOccurrenceId: null,
-    parentPolicy: "cascade",
-    anchor: end,
-  });
+  facts.addPlaced("schema");
+  facts.addPlaced("guidance");
+  facts.addPlaced("note", "workspace", "note-occurrence");
   facts.add({
     kind: "text-splice",
     nodeId: "guidance",
@@ -119,6 +172,7 @@ function fixture(): Facts {
     kind: "schema-template-node-add",
     schemaId: "schema",
     templateNodeId: "guidance",
+    templateOccurrenceId: "schema-guidance-template-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "note", schemaId: "schema", anchor: end });
@@ -139,6 +193,38 @@ function remoteFact(
     lamport,
     body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
   });
+}
+
+function remoteFacts(
+  replicaId: string,
+  observed: FactFrontier,
+  lamport: number,
+  mutations: readonly [Mutation, Mutation],
+): readonly [Fact, Fact];
+function remoteFacts(
+  replicaId: string,
+  observed: FactFrontier,
+  lamport: number,
+  mutations: readonly [Mutation, Mutation, Mutation],
+): readonly [Fact, Fact, Fact];
+function remoteFacts(
+  replicaId: string,
+  observed: FactFrontier,
+  lamport: number,
+  mutations: readonly Mutation[],
+): readonly Fact[] {
+  const transactionId = factTransactionId("workspace", replicaId, 1);
+  return mutations.map((mutation, index) =>
+    makeFact({
+      workspaceId: "workspace",
+      replicaId,
+      sequence: index + 1,
+      observed: { ...observed, ...(index > 0 ? { [replicaId]: index } : {}) },
+      lamport: lamport + index,
+      transaction: { transactionId, index, size: mutations.length },
+      body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+    }),
+  );
 }
 
 function admitted(facts: readonly Fact[]) {

@@ -2,7 +2,7 @@ import { stableStringCompare, type ContributionFact, type JsonValue } from "../f
 import type { TextAtom } from "./projection-types.js";
 import type { MutableNode } from "./projection-state.js";
 import { insertManyAtAnchor } from "./sequence.js";
-import { valueOwnerAddress } from "./value-address.js";
+import { valueTargetAddress } from "./value-address.js";
 
 export function applyText(
   active: readonly ContributionFact[],
@@ -57,7 +57,7 @@ export function applyValues(
     if (mutation.kind !== "value-set" && mutation.kind !== "value-unset") {
       continue;
     }
-    const address = valueOwnerAddress(mutation.owner, mutation.namespace);
+    const address = valueTargetAddress(mutation.target, mutation.namespace);
     const namespace = standalone.get(address) ?? {};
     standalone.set(address, namespace);
     if (mutation.kind === "value-set") {

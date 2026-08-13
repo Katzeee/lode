@@ -45,7 +45,7 @@ export function createEngineRuntime(config: RuntimeConfig = {}): Promise<EngineR
           return;
         }
         const opened = await openProposalWorkspace(workspaceId, config.persistence?.dataRoot);
-        const sync = new FactSyncComposite(opened.facts, () =>
+        const sync = new FactSyncComposite(opened.factReplica, () =>
           opened.workspace.reconcileAuthorityAdvance(),
         );
         registry.register(opened.workspace);

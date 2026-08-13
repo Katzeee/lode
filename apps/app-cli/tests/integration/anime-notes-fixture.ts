@@ -14,36 +14,9 @@ const end = {
   fallback: "end",
 } as const;
 
-export function animeNotesProgram(): readonly Mutation[] {
-  const nodes = [
-    "root",
-    "definition-library",
-    "library",
-    "notes",
-    "anime-work",
-    "character",
-    "anime-context",
-    "quick-impression",
-    "review",
-    "review-view",
-    "title-field",
-    "work-field",
-    "context-field",
-    "impression-field",
-    "rating-field",
-    "frieren",
-    "fern",
-    "quick-note",
-    "review-note",
-    "quick-work",
-    "quick-impression-value",
-    "review-work",
-    "review-rating",
-    "impression-text",
-    "rating-text",
-  ];
+export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mutation[] {
   return [
-    ...nodes.map((nodeId): Mutation => ({ kind: "node-create", nodeId })),
+    ...outline(workspaceNodeId),
     viewProperty(VIEW_SCHEMA_PROPERTY, "review"),
     viewProperty(VIEW_LAYOUT_PROPERTY, "table"),
     viewProperty(VIEW_FIELDS_PROPERTY, ["work-field", "rating-field"]),
@@ -57,18 +30,14 @@ export function animeNotesProgram(): readonly Mutation[] {
         ["fern", "Fern"],
         ["quick-note", "Quick note"],
         ["review-note", "Review note"],
-        ["impression-text", "Quiet, patient, and humane"],
-        ["rating-text", "9/10"],
       ] as const
     ).map(([nodeId, insert]): Mutation => ({
       kind: "text-splice",
       nodeId,
       deleteAtomIds: [],
-      deletedAtoms: [],
       anchor: end,
       insert,
     })),
-    ...outline(),
     ...schemaFields("anime-work", ["title-field"]),
     ...schemaFields("character", ["work-field"]),
     ...schemaFields("anime-context", ["context-field"]),
@@ -81,7 +50,6 @@ export function animeNotesProgram(): readonly Mutation[] {
     schemaApplication("review-note", "review"),
     ...materializedField(
       "quick-note",
-      "quick-note-occurrence",
       "work-field",
       "quick-work",
       "quick-work-reference",
@@ -89,15 +57,14 @@ export function animeNotesProgram(): readonly Mutation[] {
     ),
     ...materializedField(
       "quick-note",
-      "quick-note-occurrence",
       "impression-field",
       "quick-impression-value",
       "quick-impression-text",
       "impression-text",
+      "Quiet, patient, and humane",
     ),
     ...materializedField(
       "review-note",
-      "review-note-occurrence",
       "work-field",
       "review-work",
       "review-work-reference",
@@ -105,46 +72,46 @@ export function animeNotesProgram(): readonly Mutation[] {
     ),
     ...materializedField(
       "review-note",
-      "review-note-occurrence",
       "rating-field",
       "review-rating",
       "review-rating-text",
       "rating-text",
+      "9/10",
     ),
   ];
 }
 
-function outline(): readonly Mutation[] {
+function outline(workspaceNodeId: string): readonly Mutation[] {
   const placements = [
-    ["root", "root-occurrence", null],
-    ["definition-library", "definition-library-occurrence", "root-occurrence"],
-    ["library", "library-occurrence", "root-occurrence"],
-    ["notes", "notes-occurrence", "root-occurrence"],
-    ["anime-work", "anime-work-occurrence", "definition-library-occurrence"],
-    ["character", "character-occurrence", "definition-library-occurrence"],
-    ["anime-context", "anime-context-occurrence", "definition-library-occurrence"],
-    ["quick-impression", "quick-impression-occurrence", "definition-library-occurrence"],
-    ["review", "review-occurrence", "definition-library-occurrence"],
-    ["title-field", "title-field-occurrence", "definition-library-occurrence"],
-    ["work-field", "work-field-occurrence", "definition-library-occurrence"],
-    ["context-field", "context-field-occurrence", "definition-library-occurrence"],
-    ["impression-field", "impression-field-occurrence", "definition-library-occurrence"],
-    ["rating-field", "rating-field-occurrence", "definition-library-occurrence"],
-    ["review-view", "review-view-occurrence", "definition-library-occurrence"],
-    ["frieren", "frieren-occurrence", "library-occurrence"],
-    ["fern", "fern-occurrence", "library-occurrence"],
-    ["quick-note", "quick-note-occurrence", "notes-occurrence"],
-    ["review-note", "review-note-occurrence", "notes-occurrence"],
+    ["root", "root-occurrence", workspaceNodeId],
+    ["definition-library", "definition-library-occurrence", "root"],
+    ["library", "library-occurrence", "root"],
+    ["notes", "notes-occurrence", "root"],
+    ["anime-work", "anime-work-occurrence", "definition-library"],
+    ["character", "character-occurrence", "definition-library"],
+    ["anime-context", "anime-context-occurrence", "definition-library"],
+    ["quick-impression", "quick-impression-occurrence", "definition-library"],
+    ["review", "review-occurrence", "definition-library"],
+    ["title-field", "title-field-occurrence", "definition-library"],
+    ["work-field", "work-field-occurrence", "definition-library"],
+    ["context-field", "context-field-occurrence", "definition-library"],
+    ["impression-field", "impression-field-occurrence", "definition-library"],
+    ["rating-field", "rating-field-occurrence", "definition-library"],
+    ["review-view", "review-view-occurrence", "definition-library"],
+    ["frieren", "frieren-occurrence", "library"],
+    ["fern", "fern-occurrence", "library"],
+    ["quick-note", "quick-note-occurrence", "notes"],
+    ["review-note", "review-note-occurrence", "notes"],
   ] as const;
-  return placements.map(([nodeId, occurrenceId, parentOccurrenceId]) =>
-    occurrence(occurrenceId, nodeId, parentOccurrenceId),
+  return placements.map(([nodeId, occurrenceId, parentNodeId]) =>
+    nodeAt(nodeId, parentNodeId, occurrenceId),
   );
 }
 
 function viewProperty(key: string, value: string | string[]): Mutation {
   return {
     kind: "value-set",
-    owner: { kind: "node", id: "review-view" },
+    target: { kind: "node", id: "review-view" },
     namespace: "property",
     key,
     value,
@@ -153,11 +120,13 @@ function viewProperty(key: string, value: string | string[]): Mutation {
 
 export function moodProposal(): readonly Mutation[] {
   return [
-    { kind: "node-create", nodeId: "mood-field" },
+    nodeAt("mood-field", "definition-library", "mood-field-original"),
     {
       kind: "schema-field-add",
       schemaId: "quick-impression",
       fieldDefinitionId: "mood-field",
+      fieldNodeId: "quick-impression-mood-field-template-field",
+      fieldOccurrenceId: "quick-impression-mood-field-template-field-occurrence",
       anchor: end,
     },
   ];
@@ -165,17 +134,15 @@ export function moodProposal(): readonly Mutation[] {
 
 export function pendingMoodEdit(): readonly Mutation[] {
   return [
-    { kind: "node-create", nodeId: "mood-on-quick-note" },
-    { kind: "node-create", nodeId: "mood-text" },
+    nodeAt("mood-on-quick-note", "quick-note", "mood-on-quick-note-occurrence"),
+    nodeAt("mood-text", "mood-on-quick-note", "mood-text-occurrence"),
     {
       kind: "text-splice",
       nodeId: "mood-text",
       deleteAtomIds: [],
-      deletedAtoms: [],
       anchor: end,
       insert: "Reflective",
     },
-    occurrence("mood-on-quick-note-occurrence", "mood-on-quick-note", "quick-note-occurrence"),
     {
       kind: "field-materialize",
       ownerNodeId: "quick-note",
@@ -183,7 +150,6 @@ export function pendingMoodEdit(): readonly Mutation[] {
       fieldNodeId: "mood-on-quick-note",
       fieldOccurrenceId: "mood-on-quick-note-occurrence",
     },
-    occurrence("mood-text-occurrence", "mood-text", "mood-on-quick-note-occurrence"),
   ];
 }
 
@@ -196,6 +162,8 @@ function schemaFields(schemaId: string, fieldDefinitionIds: readonly string[]): 
     kind: "schema-field-add",
     schemaId,
     fieldDefinitionId,
+    fieldNodeId: `${schemaId}-${fieldDefinitionId}-template-field`,
+    fieldOccurrenceId: `${schemaId}-${fieldDefinitionId}-template-field-occurrence`,
     anchor: end,
   }));
 }
@@ -206,15 +174,15 @@ function schemaApplication(nodeId: string, schemaId: string): Mutation {
 
 function materializedField(
   ownerNodeId: string,
-  ownerOccurrenceId: string,
   fieldDefinitionId: string,
   fieldNodeId: string,
   valueOccurrenceId: string,
   valueNodeId: string,
+  valueText?: string,
 ): readonly Mutation[] {
   const fieldOccurrenceId = `${fieldNodeId}-occurrence`;
   return [
-    occurrence(fieldOccurrenceId, fieldNodeId, ownerOccurrenceId),
+    nodeAt(fieldNodeId, ownerNodeId, fieldOccurrenceId),
     {
       kind: "field-materialize",
       ownerNodeId,
@@ -222,21 +190,42 @@ function materializedField(
       fieldNodeId,
       fieldOccurrenceId,
     },
-    occurrence(valueOccurrenceId, valueNodeId, fieldOccurrenceId),
+    valueText === undefined
+      ? occurrence(valueOccurrenceId, valueNodeId, fieldNodeId)
+      : nodeAt(valueNodeId, fieldNodeId, valueOccurrenceId, valueText),
   ];
 }
 
-function occurrence(
-  occurrenceId: string,
+function nodeAt(
   nodeId: string,
-  parentOccurrenceId: string | null,
+  parentNodeId: string,
+  occurrenceId: string,
+  text?: string,
 ): Mutation {
+  return {
+    kind: "node-create",
+    nodeId,
+    occurrenceId,
+    parentNodeId,
+    anchor: end,
+    ...(text === undefined
+      ? {}
+      : {
+          seed: {
+            text: [...text].map((value) => ({ value, attributes: {} })),
+            properties: {},
+            metadata: {},
+          },
+        }),
+  };
+}
+
+function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): Mutation {
   return {
     kind: "occurrence-create",
     occurrenceId,
     nodeId,
-    parentOccurrenceId,
-    parentPolicy: "cascade",
+    parentNodeId,
     anchor: end,
   };
 }

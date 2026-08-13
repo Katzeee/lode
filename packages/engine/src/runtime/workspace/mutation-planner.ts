@@ -1,16 +1,18 @@
 import {
-  isReservedNodeIdentity,
-  isReservedOccurrenceIdentity,
   frontierOf,
-  makeFact,
   type EditIntent,
   type FactSnapshot,
   type Mutation,
-  type PreviousValue,
 } from "../../domain/fact/index.js";
 import {
+  expandEditMutation,
+  mutationWriteMembers,
+  singleMutationWrite,
+  type EditMutation,
+  type MutationWrite,
+} from "../../domain/edit/index.js";
+import {
   assertMaterializedField,
-  valueOwnerAddress,
   type ProjectionGeneration,
 } from "../../domain/reconcile/index.js";
 import { applyPlanningMutation } from "./planning-projection.js";
@@ -26,46 +28,93 @@ import {
 } from "./text-mutation-planner.js";
 import { prepareTemplateDetachment } from "./template-node-mutation-planner.js";
 import { prepareFieldContentDeletion } from "./field-content-deletion-planner.js";
-import { assertSingleRoot, prepareMutableOccurrence } from "./occurrence-mutation-planner.js";
+import {
+  assertParent,
+  prepareMutableOccurrence,
+  prepareOccurrenceCreate,
+} from "./occurrence-mutation-planner.js";
+import { prepareValueMutation } from "./value-mutation-planner.js";
+import { expandMutation } from "./mutation-expansion.js";
+import { createPlanningFact } from "./planning-fact.js";
+import {
+  absorbWriteBoundary,
+  editWriteAccumulators,
+  editWriteAt,
+  finishEditWrite,
+} from "./edit-write-accumulator.js";
 
-export function prepareMutations(
+export function prepareEdits(
   workspaceId: string,
-  mutations: readonly Mutation[],
+  operations: readonly EditMutation[],
   generation: ProjectionGeneration,
   intent: EditIntent,
   snapshot: FactSnapshot,
-): readonly Mutation[] {
+): readonly MutationWrite[] {
   let workingGeneration = generation;
   let workingSnapshot = snapshot;
-  const prepared: Mutation[] = [];
+  const prepared = editWriteAccumulators(operations.length);
   const batchCreatedAtomIds = new Set<string>();
-  const pending = [...mutations];
+  assertNoWorkspaceCreation(workspaceId, operations);
+  const pending = pendingItems(operations);
   for (let index = 0; index < pending.length; index += 1) {
-    const mutation = pending[index];
-    if (!mutation) {
+    const item = pending[index];
+    if (!item) {
       continue;
     }
-    assertNoBatchCreatedAtomReference(mutation, batchCreatedAtomIds);
     const previous = intent === "direct" ? workingGeneration.origin : workingGeneration.review;
+    if (item.stage === "edit") {
+      const expansion =
+        item.operation.kind === "reference-promote"
+          ? singleMutationWrite(
+              prepareReferencePromotion(item.operation.occurrenceId, workingGeneration.review),
+            )
+          : expandEditMutation(item.operation);
+      absorbWriteBoundary(editWriteAt(prepared, item.editIndex), expansion);
+      pending.splice(
+        index,
+        1,
+        ...mutationWriteMembers(expansion).map((mutation): PendingItem => ({
+          stage: "expand",
+          editIndex: item.editIndex,
+          mutation,
+        })),
+      );
+      index -= 1;
+      continue;
+    }
+    if (item.stage === "expand") {
+      const expansion = expandMutation(item.mutation, workingGeneration.review);
+      absorbWriteBoundary(editWriteAt(prepared, item.editIndex), expansion);
+      pending.splice(
+        index,
+        1,
+        ...mutationWriteMembers(expansion).map((mutation): PendingItem => ({
+          stage: "prepare",
+          editIndex: item.editIndex,
+          mutation,
+        })),
+      );
+      index -= 1;
+      continue;
+    }
+    const mutation = item.mutation;
+    assertNoBatchCreatedAtomReference(mutation, batchCreatedAtomIds);
     const next = prepareMutation(mutation, previous, workingGeneration.review, workingSnapshot);
     if (next.kind === "schema-apply") {
       pending.splice(
         index + 1,
         0,
-        ...schemaApplicationInitializations(next, workingGeneration.review),
+        ...schemaApplicationInitializations(next, workingGeneration.review).map(
+          (mutation): PendingItem => ({
+            stage: "expand",
+            editIndex: item.editIndex,
+            mutation,
+          }),
+        ),
       );
     }
-    prepared.push(next);
-    const sequence = (workingSnapshot.frontier[PLANNING_REPLICA] ?? 0) + 1;
-    const lamport = maxLamport(workingSnapshot);
-    const fact = makeFact({
-      workspaceId,
-      replicaId: PLANNING_REPLICA,
-      sequence,
-      observed: workingSnapshot.frontier,
-      lamport: lamport + 1 + index,
-      body: { kind: "contribution", actorId: "planner", intent, mutation: next },
-    });
+    editWriteAt(prepared, item.editIndex).mutations.push(next);
+    const fact = createPlanningFact(workspaceId, workingSnapshot, intent, next);
     if (next.kind === "text-splice") {
       [...next.insert].forEach((_, atomIndex) => {
         batchCreatedAtomIds.add(`${fact.id}#${atomIndex}`);
@@ -81,14 +130,51 @@ export function prepareMutations(
       workingSnapshot,
     );
   }
-  assertSingleRoot(intent === "direct" ? workingGeneration.origin : workingGeneration.review);
-  return prepared;
+  return prepared.map(finishEditWrite);
 }
 
-const PLANNING_REPLICA = "77777777777777777777777777";
+function pendingItems(operations: readonly EditMutation[]): PendingItem[] {
+  return operations.map((operation, editIndex) => ({
+    stage: "edit",
+    editIndex,
+    operation,
+  }));
+}
 
-function maxLamport(snapshot: FactSnapshot): number {
-  return snapshot.facts.reduce((maximum, fact) => Math.max(maximum, fact.coordinate.lamport), 0);
+function assertNoWorkspaceCreation(workspaceId: string, operations: readonly EditMutation[]): void {
+  if (
+    operations.some(
+      (operation) => operation.kind === "node-create" && operation.nodeId === workspaceId,
+    )
+  ) {
+    throw new Error("Workspace identity is created only by Workspace genesis");
+  }
+}
+
+type PendingItem =
+  | Readonly<{ stage: "edit"; editIndex: number; operation: EditMutation }>
+  | Readonly<{
+      stage: "expand" | "prepare";
+      editIndex: number;
+      mutation: Mutation;
+    }>;
+
+function prepareReferencePromotion(
+  occurrenceId: string,
+  available: ProjectionGeneration["review"],
+): Mutation {
+  const occurrence = available.occurrences[occurrenceId];
+  if (!occurrence) {
+    throw new Error("Reference promotion target is absent from the current Projection");
+  }
+  if (available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId) {
+    throw new Error("Reference promotion target is already the Original Occurrence");
+  }
+  return {
+    kind: "node-owner-set",
+    nodeId: occurrence.nodeId,
+    ownerNodeId: occurrence.parentNodeId,
+  };
 }
 
 function prepareMutation(
@@ -114,15 +200,34 @@ function prepareMutation(
       return prepareTextMark(mutation, previous, available);
     case "value-set":
     case "value-unset":
-      return prepareValue(mutation, previous, available);
-    case "canonical-occurrence-set": {
-      const occurrence = available.occurrences[mutation.occurrenceId];
-      if (!occurrence || (occurrence && occurrence.nodeId !== mutation.nodeId)) {
-        throw new Error("Canonical target is not an observed Occurrence of the Node");
+      return prepareValueMutation(mutation, previous, available);
+    case "node-owner-set": {
+      if (
+        !available.nodes[mutation.ownerNodeId] ||
+        !Object.values(available.occurrences).some(
+          (occurrence) =>
+            occurrence.nodeId === mutation.nodeId &&
+            occurrence.parentNodeId === mutation.ownerNodeId,
+        )
+      ) {
+        throw new Error("Owner target is not an observed parent Node placement");
+      }
+      const previousOwnerNodeId = previous.nodeOwners[mutation.nodeId];
+      if (!previousOwnerNodeId) {
+        throw new Error("Workspace Node ownership cannot change");
+      }
+      let ancestor: string | null | undefined = mutation.ownerNodeId;
+      const visited = new Set<string>();
+      while (ancestor !== null && ancestor !== undefined) {
+        if (ancestor === mutation.nodeId || visited.has(ancestor)) {
+          throw new Error("Node ownership would form a cycle");
+        }
+        visited.add(ancestor);
+        ancestor = previous.nodeOwners[ancestor];
       }
       return {
         ...mutation,
-        previousOccurrenceId: previous.canonicalOccurrences[mutation.nodeId] ?? null,
+        previousOwnerNodeId,
       };
     }
     case "node-delete":
@@ -134,17 +239,10 @@ function prepareMutation(
       assertDeletion(snapshot, mutation.deletionFactId, "node-delete", mutation.nodeId);
       return mutation;
     case "occurrence-create":
-      if (isReservedOccurrenceIdentity(mutation.occurrenceId)) {
-        throw new Error("Occurrence identity is reserved for derived structure");
-      }
-      if (!available.nodes[mutation.nodeId]) {
-        throw new Error(`Occurrence target Node does not exist: ${mutation.nodeId}`);
-      }
-      assertParent(available, mutation.parentOccurrenceId);
-      return mutation;
+      return prepareOccurrenceCreate(mutation, available);
     case "occurrence-restore":
       assertDeletion(snapshot, mutation.deletionFactId, "occurrence-delete", mutation.occurrenceId);
-      assertParent(available, mutation.parentOccurrenceId);
+      assertParent(available, mutation.parentNodeId);
       return mutation;
     case "field-materialize":
       assertMaterializedField(mutation, available);
@@ -162,9 +260,6 @@ function prepareMutation(
 }
 
 function prepareNodeCreate(mutation: Extract<Mutation, { kind: "node-create" }>): Mutation {
-  if (isReservedNodeIdentity(mutation.nodeId)) {
-    throw new Error("Node identity is reserved for managed children");
-  }
   return mutation;
 }
 
@@ -178,20 +273,6 @@ function isFieldContentDeletion(
   mutation: Mutation,
 ): mutation is Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }> {
   return mutation.kind === "field-value-delete" || mutation.kind === "materialized-field-delete";
-}
-
-function prepareValue(
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-  previous: ProjectionGeneration["review"],
-  available: ProjectionGeneration["review"],
-): Mutation {
-  if (mutation.owner.kind === "node" && !available.nodes[mutation.owner.id]) {
-    throw new Error(`Value target Node does not exist: ${mutation.owner.id}`);
-  }
-  if (mutation.owner.kind === "occurrence" && !available.occurrences[mutation.owner.id]) {
-    throw new Error(`Value target Occurrence does not exist: ${mutation.owner.id}`);
-  }
-  return { ...mutation, previous: previousValue(readValue(previous, mutation)) };
 }
 
 function assertDeletion(
@@ -219,37 +300,4 @@ function occurrenceDeletionIdentity(mutation: Mutation | null): string | null {
     return mutation.valueOccurrenceId;
   }
   return mutation?.kind === "materialized-field-delete" ? mutation.fieldOccurrenceId : null;
-}
-
-function assertParent(
-  projection: ProjectionGeneration["review"],
-  parentOccurrenceId: string | null,
-): void {
-  if (parentOccurrenceId !== null && !projection.occurrences[parentOccurrenceId]) {
-    throw new Error(`Parent Occurrence does not exist: ${parentOccurrenceId}`);
-  }
-}
-
-function readValue(
-  projection: ProjectionGeneration["review"],
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-) {
-  if (mutation.owner.kind === "node") {
-    const node = projection.nodes[mutation.owner.id];
-    return mutation.namespace === "metadata"
-      ? node?.metadata[mutation.key]
-      : node?.properties[mutation.key];
-  }
-  if (mutation.owner.kind === "occurrence") {
-    const occurrence = projection.occurrences[mutation.owner.id];
-    return mutation.namespace === "metadata"
-      ? occurrence?.metadata[mutation.key]
-      : occurrence?.properties[mutation.key];
-  }
-  const address = valueOwnerAddress(mutation.owner, mutation.namespace);
-  return projection.addressedValues[address]?.[mutation.key];
-}
-
-function previousValue(value: ReturnType<typeof readValue>): PreviousValue {
-  return value === undefined ? { kind: "unset" } : { kind: "set", value };
 }

@@ -9,32 +9,32 @@ export async function expandLifecycleReadScope(
   mutations: readonly Mutation[],
   wanted: MutationReadScope,
 ): Promise<void> {
-  const definitionIds = mutations.flatMap((mutation) =>
+  const nodeIds = mutations.flatMap((mutation) =>
     mutation.kind === "node-delete" || mutation.kind === "node-restore" ? [mutation.nodeId] : [],
   );
-  const batch = await store.read(generationId, view, "definitionStatuses", definitionIds);
+  const batch = await store.read(generationId, view, "nodeStatuses", nodeIds);
   for (const entry of batch.entries) {
-    if (!isDefinitionStatus(entry.value)) {
+    if (!isNodeStatus(entry.value)) {
       continue;
     }
-    if (entry.value.kinds.includes("schema")) {
+    if (entry.value.roles.includes("schema")) {
       wanted.schemas.add(entry.identity);
       wanted.instanceSchemas.add(entry.identity);
     }
-    if (entry.value.kinds.includes("field")) {
+    if (entry.value.roles.includes("field")) {
       wanted.fields.add(entry.identity);
     }
   }
 }
 
-function isDefinitionStatus(
+function isNodeStatus(
   value: unknown,
-): value is Readonly<{ kinds: readonly ("schema" | "field")[] }> {
+): value is Readonly<{ roles: readonly ("schema" | "field")[] }> {
   return (
     typeof value === "object" &&
     value !== null &&
-    "kinds" in value &&
-    Array.isArray(value.kinds) &&
-    value.kinds.every((kind) => kind === "schema" || kind === "field")
+    "roles" in value &&
+    Array.isArray(value.roles) &&
+    value.roles.every((role) => role === "schema" || role === "field")
   );
 }

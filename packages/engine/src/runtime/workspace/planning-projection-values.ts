@@ -1,5 +1,4 @@
 import type { JsonValue, Mutation } from "../../domain/fact/index.js";
-import { valueOwnerAddress } from "../../domain/reconcile/index.js";
 import type { MutableProjection } from "./planning-projection-mutation.js";
 
 export function applyPlanningValueMutation(
@@ -30,26 +29,23 @@ function mutableValues(
   projection: MutableProjection,
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
 ): Record<string, JsonValue> | null {
-  if (mutation.owner.kind === "node") {
-    const node = projection.nodes[mutation.owner.id];
+  if (mutation.target.kind === "node") {
+    const node = projection.nodes[mutation.target.id];
     return node ? (mutation.namespace === "metadata" ? node.metadata : node.properties) : null;
   }
-  if (mutation.owner.kind === "occurrence") {
-    const occurrence = projection.occurrences[mutation.owner.id];
+  if (mutation.target.kind === "occurrence") {
+    const occurrence = projection.occurrences[mutation.target.id];
     if (!occurrence) {
       return null;
     }
     const values = {
       ...(mutation.namespace === "metadata" ? occurrence.metadata : occurrence.properties),
     };
-    projection.occurrences[mutation.owner.id] = {
+    projection.occurrences[mutation.target.id] = {
       ...occurrence,
       [mutation.namespace === "metadata" ? "metadata" : "properties"]: values,
     };
     return values;
   }
-  const address = valueOwnerAddress(mutation.owner, mutation.namespace);
-  const values = { ...projection.addressedValues[address] };
-  projection.addressedValues[address] = values;
-  return values;
+  return null;
 }

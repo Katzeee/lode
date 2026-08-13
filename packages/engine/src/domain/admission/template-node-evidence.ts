@@ -17,8 +17,8 @@ export function validateTemplateDetachmentEvidence(
       canonicalJson(mutation.sourceSchemaIds) ||
     canonicalJson(instance.sources.map((source) => source.appliedSchemaId)) !==
       canonicalJson(mutation.sourceApplicationSchemaIds) ||
-    canonicalJson(instance.sources.map((source) => source.templateItemId)) !==
-      canonicalJson(mutation.sourceTemplateItemIds)
+    canonicalJson(instance.sources.map((source) => source.templateOccurrenceId)) !==
+      canonicalJson(mutation.sourceTemplateOccurrenceIds)
   ) {
     throw new Error("Template detachment source evidence does not match the observed Projection");
   }

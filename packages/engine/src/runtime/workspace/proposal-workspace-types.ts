@@ -6,7 +6,7 @@ import type {
 } from "../../domain/fact/index.js";
 import type { ProjectionGeneration, ProjectionVersions } from "../../domain/reconcile/index.js";
 import type { ProjectionPage, ProjectionQuery } from "../../application/contract.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import type { ProjectionCheckpointRepository } from "./projection-checkpoints.js";
 import type { ProjectionSection } from "./materialized-generation-format.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
@@ -32,7 +32,7 @@ export type ProjectionPublisher = Readonly<{
 export type ProjectionGenerationStore = ProjectionPublisher &
   Readonly<{
     load(generationId: string): Promise<ProjectionGeneration>;
-    ownerCaches(generationId: string): Promise<ProjectionGeneration["ownerCaches"]>;
+    planCaches(generationId: string): Promise<ProjectionGeneration["planCaches"]>;
     reviewScopes(
       generationId: string,
       after: string | null,
@@ -65,7 +65,7 @@ export type ProjectionGenerationStore = ProjectionPublisher &
 
 export type ProposalWorkspaceOptions = Readonly<{
   workspaceId: string;
-  facts: FactStore;
+  facts: FactAuthority;
   versions: ProjectionVersions;
   reviewCapabilityKey?: string;
   publisher?: ProjectionPublisher;

@@ -15,7 +15,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > SYNC-1 only the authority FactStore enters domain sync"
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > SYNC-1 only the authority FactAuthority enters domain sync"
         }
       ]
     },
@@ -203,7 +203,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion while retaining Nodes and the Effective placeholder"
+          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder"
         },
         {
           "workspace": "engine",
@@ -279,7 +279,7 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/authority/loro-fact-store.acceptance.test.ts > production Loro-backed FactStore > Durable crash boundaries audit and adopt a durable commit after its acknowledgement is lost"
+          "test": "src/runtime/authority/fact-authority-store.acceptance.test.ts > production Fact authority store > Durable crash boundaries audit and adopt a durable commit after its acknowledgement is lost"
         },
         {
           "workspace": "engine",
@@ -345,7 +345,7 @@
     },
     {
       "id": "product.outline-transport",
-      "contract": "The public CLI and daemon enforce authenticated transport while a single-root outline supports CRUD, reorder, rich-text marks, Reference transclusion, restart, isolation, and bidirectional fresh-replica sync.",
+      "contract": "The public CLI and daemon enforce authenticated transport while a Workspace-rooted outline supports multiple top-level placements, CRUD, reorder, rich-text marks, Reference transclusion, restart, isolation, and bidirectional fresh-replica sync.",
       "legacySources": [
         "apps/app-cli/tests/integration/two-fresh-machines.test.ts",
         "apps/app-cli/tests/integration/two-fresh-machines-fork.test.ts",
@@ -354,7 +354,7 @@
       "tests": [
         {
           "workspace": "app-cli",
-          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > runs an authenticated single-root outline on two fresh machines in both directions"
+          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > runs an authenticated Workspace-rooted outline on two fresh machines in both directions"
         },
         {
           "workspace": "daemon",

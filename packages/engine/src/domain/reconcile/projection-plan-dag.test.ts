@@ -3,50 +3,48 @@ import { describe, expect, it } from "vitest";
 import { frontierOf, makeFact, type Fact, type Mutation } from "../fact/index.js";
 import {
   advanceGeneration,
-  compileOwnerDag,
+  compileProjectionPlan,
   deriveActivation,
   rebuildGeneration,
 } from "./index.js";
-import { PROJECTION_OWNER_DAG } from "./projection-owner-plan.js";
+import { PROJECTION_PLAN } from "./projection-plan.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 
-describe("projection owner dataflow", () => {
-  it("production owner outputs are statically single-writer partitions", () => {
-    const outputs = PROJECTION_OWNER_DAG.ordered.flatMap((owner) => owner.writes);
+describe("Projection plan dataflow", () => {
+  it("production stage outputs are statically single-writer partitions", () => {
+    const outputs = PROJECTION_PLAN.ordered.flatMap((stage) => stage.writes);
     expect(new Set(outputs).size).toBe(outputs.length);
-    expect(PROJECTION_OWNER_DAG.ordered.find((owner) => owner.key === "text")?.writes).toEqual([
-      "text",
-    ]);
-    expect(PROJECTION_OWNER_DAG.ordered.find((owner) => owner.key === "value")?.writes).toEqual([
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "text")?.writes).toEqual(["text"]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "value")?.writes).toEqual([
       "values",
     ]);
-    expect(PROJECTION_OWNER_DAG.ordered.find((owner) => owner.key === "assembly")?.writes).toEqual([
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "assembly")?.writes).toEqual([
       "projection",
     ]);
   });
 
-  it("RULE-1 owner DAG rejects missing dependencies duplicate writers and cycles", () => {
+  it("RULE-1 Projection plan rejects missing dependencies duplicate writers and cycles", () => {
     const evaluate = () => undefined;
     expect(() =>
-      compileOwnerDag([{ key: "a", dependencies: ["missing"], writes: ["a"], evaluate }]),
+      compileProjectionPlan([{ key: "a", dependencies: ["missing"], writes: ["a"], evaluate }]),
     ).toThrow("missing dependency");
     expect(() =>
-      compileOwnerDag([
+      compileProjectionPlan([
         { key: "a", dependencies: [], writes: ["same"], evaluate },
         { key: "b", dependencies: [], writes: ["same"], evaluate },
       ]),
     ).toThrow("Duplicate writer");
     expect(() =>
-      compileOwnerDag([
+      compileProjectionPlan([
         { key: "a", dependencies: ["b"], writes: ["a"], evaluate },
         { key: "b", dependencies: ["a"], writes: ["b"], evaluate },
       ]),
     ).toThrow("dependency cycle");
   });
 
-  it("RULE-2 owner convergence has a finite hard bound", () => {
+  it("RULE-2 Projection convergence has a finite hard bound", () => {
     const facts = [
       contribution(1, { kind: "node-create", nodeId: "node" }, "proposal"),
       contribution(
@@ -55,8 +53,7 @@ describe("projection owner dataflow", () => {
           kind: "occurrence-create",
           occurrenceId: "occurrence",
           nodeId: "node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
+          parentNodeId: "workspace",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         "proposal",
@@ -67,7 +64,7 @@ describe("projection owner dataflow", () => {
     expect(activation.activeContributionIds.size).toBe(0);
   });
 
-  it("RULE-3 invalidation reaches only declared owner downstream", () => {
+  it("RULE-3 invalidation reaches only declared stage downstream", () => {
     const beforeFacts = [contribution(1, { kind: "node-create", nodeId: "node" })];
     const afterFacts = [
       ...beforeFacts,
@@ -87,31 +84,31 @@ describe("projection owner dataflow", () => {
       versions,
       rebuildGeneration("workspace", before, versions).generation,
     );
-    expect(result.stats.evaluatedOwners).toEqual(["activation", "text", "assembly"]);
-    expect(result.generation.ownerCaches.origin.activeContributionIds).toEqual(
+    expect(result.stats.evaluatedStages).toEqual(["activation", "text", "assembly"]);
+    expect(result.generation.planCaches.origin.activeContributionIds).toEqual(
       afterFacts.map((fact) => fact.id),
     );
   });
 
-  it("production owner evaluators execute in compiled order and fail at an atomic boundary", () => {
+  it("production stage evaluators execute in compiled order and fail at an atomic boundary", () => {
     const facts = [contribution(1, { kind: "node-create", nodeId: "node" })];
     const observed: string[] = [];
     expect(() =>
       rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions, {
-        ownerObserver(owner, view) {
-          observed.push(`${view}/${owner}`);
-          if (view === "review" && owner === "schema") {
-            throw new Error("injected owner failure");
+        stageObserver(stage, view) {
+          observed.push(`${view}/${stage}`);
+          if (view === "review" && stage === "schema") {
+            throw new Error("injected stage failure");
           }
         },
       }),
-    ).toThrow("injected owner failure");
+    ).toThrow("injected stage failure");
     expect(observed.slice(0, 8)).toEqual([
       "origin/activation",
       "origin/node",
       "origin/value",
       "origin/occurrence",
-      "origin/canonical",
+      "origin/owner",
       "origin/schema",
       "origin/text",
       "origin/assembly",

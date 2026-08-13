@@ -1,4 +1,4 @@
-import type { Mutation } from "../../domain/fact/index.js";
+import type { Mutation, SequenceAnchor } from "../../domain/fact/index.js";
 
 import type { MutableProjection } from "./planning-projection-mutation.js";
 
@@ -8,48 +8,22 @@ export function detachChild(projection: MutableProjection, occurrenceId: string)
   }
 }
 
-export function removeOccurrence(
-  projection: MutableProjection,
-  occurrenceId: string,
-  policy: "cascade" | "rehome",
-): void {
+export function removeOccurrence(projection: MutableProjection, occurrenceId: string): void {
   const occurrence = projection.occurrences[occurrenceId];
   if (!occurrence) {
     return;
   }
-  const nested = [...(projection.children[occurrenceId] ?? [])];
   detachChild(projection, occurrenceId);
-  if (policy === "cascade") {
-    nested.forEach((child) => removeOccurrence(projection, child, "cascade"));
-  } else {
-    nested.forEach((child) => rehomeChild(projection, child, occurrence.parentOccurrenceId));
-  }
-  delete projection.children[occurrenceId];
   delete projection.occurrences[occurrenceId];
-}
-
-function rehomeChild(projection: MutableProjection, child: string, parent: string | null): void {
-  const occurrence = projection.occurrences[child];
-  if (!occurrence) {
-    return;
-  }
-  projection.occurrences[child] = { ...occurrence, parentOccurrenceId: parent };
-  insertChild(projection, child, parent, {
-    after: null,
-    before: null,
-    affinity: "after",
-    fallback: "end",
-  });
 }
 
 export function insertChild(
   projection: MutableProjection,
   occurrenceId: string,
-  parent: string | null,
+  parent: string,
   anchor: Extract<Mutation, { kind: "occurrence-create" }>["anchor"],
 ): void {
-  const key = parent ?? "$root";
-  const ids = [...(projection.children[key] ?? [])].filter((id) => id !== occurrenceId);
+  const ids = [...(projection.children[parent] ?? [])].filter((id) => id !== occurrenceId);
   ids.splice(
     insertionIndex(
       ids.map((id) => ({ id })),
@@ -58,7 +32,7 @@ export function insertChild(
     0,
     occurrenceId,
   );
-  projection.children[key] = ids;
+  projection.children[parent] = ids;
 }
 
 export function insertionIndex(
@@ -72,4 +46,23 @@ export function insertionIndex(
   const before =
     anchor.before === null ? -1 : values.findIndex((value) => value.id === anchor.before);
   return before >= 0 ? before : anchor.fallback === "start" ? 0 : values.length;
+}
+
+export function assertRelationAnchor(
+  identities: readonly string[],
+  anchor: SequenceAnchor,
+  label: string,
+): void {
+  if ([anchor.after, anchor.before].some((id) => id !== null && !identities.includes(id))) {
+    throw new Error(`${label} anchor does not exist`);
+  }
+}
+
+export function anchorAt(identities: readonly string[], index: number): SequenceAnchor {
+  return {
+    after: identities[index - 1] ?? null,
+    before: identities[index + 1] ?? null,
+    affinity: index === 0 ? "before" : "after",
+    fallback: index === 0 ? "start" : "end",
+  };
 }

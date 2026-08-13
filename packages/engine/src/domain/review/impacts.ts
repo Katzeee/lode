@@ -94,8 +94,8 @@ function addDefinitionLifecycleImpacts(
   generation: ProjectionGeneration,
 ): void {
   const kinds = new Set([
-    ...(generation.origin.definitionStatuses[definitionId]?.kinds ?? []),
-    ...(generation.review.definitionStatuses[definitionId]?.kinds ?? []),
+    ...(generation.origin.nodeStatuses[definitionId]?.roles ?? []),
+    ...(generation.review.nodeStatuses[definitionId]?.roles ?? []),
   ]);
   const isField =
     kinds.has("field") ||
@@ -208,8 +208,8 @@ export function structureEffect(
     occurrenceId,
     originPresent: origin !== undefined,
     reviewPresent: review !== undefined,
-    originParentId: origin?.parentOccurrenceId ?? null,
-    reviewParentId: review?.parentOccurrenceId ?? null,
+    originParentId: origin?.parentNodeId ?? null,
+    reviewParentId: review?.parentNodeId ?? null,
     anchor,
     originRelation:
       origin && anchor ? placementRelation(generation.origin, occurrenceId, anchor) : null,
@@ -223,17 +223,17 @@ function addValueImpacts(
   mutation: Extract<ContributionFact["body"]["mutation"], { kind: "value-set" | "value-unset" }>,
   generation: ProjectionGeneration,
 ): void {
-  if (mutation.owner.kind === "node") {
-    for (const occurrenceId of occurrenceIdsForNode(generation, mutation.owner.id)) {
+  if (mutation.target.kind === "node") {
+    for (const occurrenceId of occurrenceIdsForNode(generation, mutation.target.id)) {
       impacts.add(occurrenceId);
     }
     return;
   }
-  if (mutation.owner.kind === "occurrence") {
-    impacts.add(mutation.owner.id);
+  if (mutation.target.kind === "occurrence") {
+    impacts.add(mutation.target.id);
     return;
   }
-  impacts.add(impactAddress("value-owner", mutation.owner.kind, mutation.owner.id));
+  impacts.add(impactAddress("value-target", mutation.target.kind, mutation.target.id));
 }
 
 function placementRelation(projection: Projection, occurrenceId: string, anchor: SequenceAnchor) {
@@ -241,7 +241,7 @@ function placementRelation(projection: Projection, occurrenceId: string, anchor:
   if (!occurrence) {
     return null;
   }
-  const siblings = projection.children[occurrence.parentOccurrenceId ?? "$root"] ?? [];
+  const siblings = projection.children[occurrence.parentNodeId] ?? [];
   const index = siblings.indexOf(occurrenceId);
   return {
     parentMatches: true,
@@ -277,7 +277,7 @@ export function mutationAnchor(
     case "node-create":
     case "node-delete":
     case "node-restore":
-    case "canonical-occurrence-set":
+    case "node-owner-set":
     case "text-splice":
     case "text-mark":
     case "value-set":

@@ -1,5 +1,6 @@
 import type {
   ContributionBody,
+  FactTransactionPlan,
   FactFrontier,
   HistoryChannelId,
   InvocationId,
@@ -35,7 +36,7 @@ export type HistoryQuery = Readonly<{
 export type HistoryPlan =
   | Readonly<{
       kind: "ready";
-      bodies: readonly ContributionBody[];
+      write: FactTransactionPlan<ContributionBody>;
       targetInvocationId: InvocationId;
     }>
   | Readonly<{ kind: "unavailable"; reason: string }>

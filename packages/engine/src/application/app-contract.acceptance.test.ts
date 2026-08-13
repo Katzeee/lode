@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { admitAuthorityRecords } from "../domain/admission/index.js";
-import { templateInstanceNodeId, templateInstanceOccurrenceId } from "../domain/reconcile/index.js";
-import { LoroFactStore, createReplicaId } from "../runtime/authority/loro-fact-store.js";
+import { templateInstanceNodeId, templateInstanceOccurrenceId } from "../domain/fact/index.js";
+import { FactAuthorityStore, createReplicaId } from "../runtime/authority/fact-authority-store.js";
 import { ProposalWorkspace } from "../runtime/workspace/proposal-workspace.js";
 import { createEngineContract } from "./engine-contract.js";
 import {
@@ -12,8 +12,18 @@ import {
   type EngineTransport,
 } from "./transport.js";
 
+const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+
+function nodeAtWorkspace(nodeId: string) {
+  return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
+}
+
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
+  return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor: end };
+}
+
 async function setup() {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId: "101",
@@ -23,7 +33,7 @@ async function setup() {
   const workspace = await ProposalWorkspace.open({
     workspaceId: "workspace",
     facts,
-    versions: { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" },
+    versions: { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" },
   });
   const direct = createEngineContract([workspace]);
   return {
@@ -40,7 +50,15 @@ const command = {
   actorId: "actor",
   intent: "direct",
   historyChannelId: "surface",
-  mutations: [{ kind: "node-create", nodeId: "node" }],
+  mutations: [
+    {
+      kind: "node-create",
+      occurrenceId: "node-original",
+      nodeId: "node",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+  ],
 } as const;
 
 describe("transport-neutral App contract", () => {
@@ -73,21 +91,20 @@ describe("transport-neutral App contract", () => {
     const first = await serialized.execute(command);
     const retry = await serialized.execute(command);
     expect(retry).toEqual(first);
-    expect(facts.snapshot().facts).toHaveLength(1);
+    expect(facts.snapshot().facts).toHaveLength(3);
   });
 
   it("Schema Search is a bounded serialized query with stable cursors", async () => {
     const { serialized } = await setup();
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
     expect(
       (
         await serialized.execute({
           ...command,
           invocationId: "schema-search-setup",
           mutations: [
-            { kind: "node-create", nodeId: "anime" },
+            ...nodeAtWorkspace("anime"),
             ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
-              { kind: "node-create" as const, nodeId },
+              ...nodeAtWorkspace(nodeId),
               { kind: "schema-apply" as const, nodeId, schemaId: "anime", anchor: end },
             ]),
           ],
@@ -135,13 +152,13 @@ describe("transport-neutral App contract", () => {
       kind: "projection",
       workspaceId: "workspace",
       view: "origin",
-      section: "definitionStatuses",
+      section: "nodeStatuses",
     });
     expect(statuses).toMatchObject({
       status: "ok",
       value: {
-        definitionStatuses: {
-          anime: { definitionId: "anime", kinds: ["schema"], state: "deleted" },
+        nodeStatuses: {
+          anime: { nodeId: "anime", roles: ["schema"], state: "deleted" },
         },
       },
     });
@@ -156,21 +173,14 @@ describe("transport-neutral App contract", () => {
           ...command,
           invocationId: "serialized-template-setup",
           mutations: [
-            { kind: "node-create", nodeId: "note-schema" },
-            { kind: "node-create", nodeId: "guidance" },
-            { kind: "node-create", nodeId: "note" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "note-occurrence",
-              nodeId: "note",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("note-schema", "workspace", "note-schema-original"),
+            nodeAt("guidance", "note-schema", "note-schema-guidance-template-occurrence"),
+            nodeAt("note", "workspace", "note-occurrence"),
             {
               kind: "schema-template-node-add",
               schemaId: "note-schema",
               templateNodeId: "guidance",
+              templateOccurrenceId: "note-schema-guidance-template-occurrence",
               anchor: end,
             },
             { kind: "schema-apply", nodeId: "note", schemaId: "note-schema", anchor: end },
@@ -187,7 +197,14 @@ describe("transport-neutral App contract", () => {
           ...command,
           invocationId: "serialized-template-detach",
           mutations: [
-            { kind: "template-node-detach", ownerNodeId: "note", templateNodeId: "guidance" },
+            {
+              kind: "template-node-detach",
+              ownerNodeId: "note",
+              templateNodeId: "guidance",
+              instanceNodeId,
+              instanceOccurrenceId,
+              anchor: end,
+            },
           ],
         })
       ).status,
@@ -218,34 +235,23 @@ describe("transport-neutral App contract", () => {
   it("instance Field content deletion crosses the closed serialized contract", async () => {
     const { serialized } = await setup();
     const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-    const occurrence = (
-      occurrenceId: string,
-      nodeId: string,
-      parentOccurrenceId: string | null,
-    ) => ({
-      kind: "occurrence-create" as const,
-      occurrenceId,
-      nodeId,
-      parentOccurrenceId,
-      parentPolicy: "cascade" as const,
-      anchor: end,
-    });
     expect(
       (
         await serialized.execute({
           ...command,
           invocationId: "serialized-field-setup",
           mutations: [
-            ...["schema", "field-definition", "owner", "field-node", "value"].map((nodeId) => ({
-              kind: "node-create" as const,
-              nodeId,
-            })),
-            occurrence("owner-occurrence", "owner", null),
-            occurrence("field-occurrence", "field-node", "owner-occurrence"),
+            nodeAt("owner", "workspace", "owner-occurrence"),
+            nodeAt("schema", "workspace", "schema-original"),
+            nodeAt("field-definition", "workspace", "field-definition-original"),
+            nodeAt("field-node", "owner", "field-occurrence"),
+            nodeAt("value", "field-node", "value-occurrence"),
             {
               kind: "schema-field-add",
               schemaId: "schema",
               fieldDefinitionId: "field-definition",
+              fieldNodeId: "schema-field-definition-template-field",
+              fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
               anchor: end,
             },
             { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
@@ -256,7 +262,6 @@ describe("transport-neutral App contract", () => {
               fieldNodeId: "field-node",
               fieldOccurrenceId: "field-occurrence",
             },
-            occurrence("value-occurrence", "value", "field-occurrence"),
           ],
         })
       ).status,
@@ -373,13 +378,20 @@ describe("transport-neutral App contract", () => {
     expect(
       await serialized.execute({
         ...command,
-        mutations: [{ kind: "node-create", nodeId: "other" }],
+        mutations: nodeAtWorkspace("other"),
       }),
     ).toMatchObject({ status: "rejected", error: { code: "invocation-conflict" } });
   });
 
   it("wire and in-process invalid inputs reject before any authority record is written", async () => {
     const { direct, facts } = await setup();
+    expect(
+      await direct.execute({
+        ...command,
+        invocationId: "bare-node-identity",
+        mutations: [{ kind: "node-create", nodeId: "bare" }],
+      } as never),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     const invalid = {
       ...command,
       invocationId: "",
@@ -401,8 +413,8 @@ describe("transport-neutral App contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    expect(facts.admission().snapshot.facts).toHaveLength(0);
-    expect(facts.receipts()).toHaveLength(0);
+    expect(facts.admission().snapshot.facts).toHaveLength(1);
+    expect(facts.receipts()).toHaveLength(1);
   });
 
   it("pre-send encoding failures and raw malformed envelopes are typed invalid input", async () => {
@@ -412,7 +424,7 @@ describe("transport-neutral App contract", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "bigint",
           value: 1n,
@@ -440,8 +452,8 @@ describe("transport-neutral App contract", () => {
         result: { status: "rejected", error: { code: "invalid-input" } },
       });
     }
-    expect(facts.admission().snapshot.facts).toHaveLength(0);
-    expect(facts.receipts()).toHaveLength(0);
+    expect(facts.admission().snapshot.facts).toHaveLength(1);
+    expect(facts.receipts()).toHaveLength(1);
   });
 
   it("Command outcome unknown", async () => {

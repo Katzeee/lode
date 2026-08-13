@@ -12,12 +12,12 @@ import type {
   FieldConfigCandidate,
   FieldInitializationCandidate,
   MaterializedField,
-  SchemaFieldItem,
+  TemplateField,
 } from "./projection-types.js";
 
 export function projectEffectiveFields(
   applications: Readonly<Record<string, readonly string[]>>,
-  fieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
+  fieldItems: Readonly<Record<string, readonly TemplateField[]>>,
   extensions: Readonly<Record<string, readonly string[]>>,
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>,
   initializations: ReadonlyMap<string, readonly FieldInitializationCandidate[]> = new Map(),
@@ -33,7 +33,7 @@ export function projectEffectiveFields(
 
 function effective(
   applications: Readonly<Record<string, readonly string[]>>,
-  fieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
+  fieldItems: Readonly<Record<string, readonly TemplateField[]>>,
   extensionGraph: SchemaExtensionGraph,
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>,
   initializations: ReadonlyMap<string, readonly FieldInitializationCandidate[]>,
@@ -69,15 +69,15 @@ function effective(
 
 function effectiveItems(
   schemaIds: readonly string[],
-  fieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
+  fieldItems: Readonly<Record<string, readonly TemplateField[]>>,
   extensionGraph: SchemaExtensionGraph,
-): Map<string, SchemaFieldItem[]> {
-  const byField = new Map<string, SchemaFieldItem[]>();
+): Map<string, TemplateField[]> {
+  const byField = new Map<string, TemplateField[]>();
   for (const appliedSchemaId of schemaIds) {
     for (const schemaId of extensionGraph.lineage(appliedSchemaId)) {
       for (const item of fieldItems[schemaId] ?? []) {
         const items = byField.get(item.fieldDefinitionId) ?? [];
-        if (!items.some((candidate) => candidate.templateItemId === item.templateItemId)) {
+        if (!items.some((candidate) => candidate.fieldNodeId === item.fieldNodeId)) {
           items.push(item);
         }
         byField.set(item.fieldDefinitionId, items);
@@ -89,8 +89,8 @@ function effectiveItems(
 
 export function configuredFieldItems(
   active: readonly ContributionFact[],
-  schemaFields: Readonly<Record<string, readonly string[]>>,
-): Readonly<Record<string, readonly SchemaFieldItem[]>> {
+  schemaFields: Readonly<Record<string, readonly TemplateField[]>>,
+): Readonly<Record<string, readonly TemplateField[]>> {
   const configurations = active.filter(
     (fact) => fact.body.mutation.kind === "schema-field-configure",
   );
@@ -103,11 +103,9 @@ export function configuredFieldItems(
     }),
   );
   return Object.fromEntries(
-    Object.entries(schemaFields).map(([schemaId, fieldDefinitionIds]) => [
+    Object.entries(schemaFields).map(([schemaId, fields]) => [
       schemaId,
-      fieldDefinitionIds.map((fieldDefinitionId) =>
-        configuredFieldItem(configurations, superseded, schemaId, fieldDefinitionId),
-      ),
+      fields.map((field) => configuredFieldItem(configurations, superseded, field)),
     ]),
   );
 }
@@ -115,16 +113,13 @@ export function configuredFieldItems(
 function configuredFieldItem(
   configurations: readonly ContributionFact[],
   superseded: ReadonlySet<string>,
-  schemaId: string,
-  fieldDefinitionId: string,
-): SchemaFieldItem {
-  const templateItemId = fieldTemplateItemId(schemaId, fieldDefinitionId);
+  field: TemplateField,
+): TemplateField {
   const candidates = configurations.filter((fact) => {
     const mutation = fact.body.mutation;
     return (
       mutation.kind === "schema-field-configure" &&
-      mutation.schemaId === schemaId &&
-      mutation.fieldDefinitionId === fieldDefinitionId &&
+      mutation.fieldNodeId === field.fieldNodeId &&
       !superseded.has(fact.id)
     );
   });
@@ -134,15 +129,13 @@ function configuredFieldItem(
         fact.body.mutation.kind === "schema-field-configure"
           ? fact.body.mutation.config
           : DEFAULT_FIELD_TEMPLATE_CONFIG,
-      sourceSchemaId: schemaId,
-      sourceTemplateItemId: templateItemId,
+      sourceSchemaId: field.schemaId,
+      sourceFieldNodeId: field.fieldNodeId,
       contributionId: fact.id,
     })),
   );
   return {
-    templateItemId,
-    schemaId,
-    fieldDefinitionId,
+    ...field,
     configCandidates,
     effectiveConfig:
       configCandidates.length === 0
@@ -156,7 +149,7 @@ function configuredFieldItem(
 function effectiveField(
   ownerNodeId: string,
   fieldDefinitionId: string,
-  items: readonly SchemaFieldItem[],
+  items: readonly TemplateField[],
   extensionGraph: SchemaExtensionGraph,
   materialized: ReadonlyMap<string, MaterializedField>,
   initializations: ReadonlyMap<string, readonly FieldInitializationCandidate[]>,
@@ -182,7 +175,7 @@ function effectiveField(
   return {
     fieldDefinitionId,
     sourceSchemaIds: items.map((item) => item.schemaId),
-    sourceTemplateItemIds: items.map((item) => item.templateItemId),
+    sourceFieldNodeIds: items.map((item) => item.fieldNodeId),
     visibility: mostVisible(candidates.map((candidate) => candidate.config.visibility)),
     configCandidates: candidates,
     effectiveConfig,
@@ -192,7 +185,7 @@ function effectiveField(
   };
 }
 
-function itemCandidateValues(item: SchemaFieldItem) {
+function itemCandidateValues(item: TemplateField) {
   const candidates =
     item.configCandidates.length > 0
       ? item.configCandidates
@@ -200,7 +193,7 @@ function itemCandidateValues(item: SchemaFieldItem) {
           {
             config: DEFAULT_FIELD_TEMPLATE_CONFIG,
             sourceSchemaIds: [item.schemaId],
-            sourceTemplateItemIds: [item.templateItemId],
+            sourceFieldNodeIds: [item.fieldNodeId],
             contributionIds: [],
           },
         ];
@@ -210,7 +203,7 @@ function itemCandidateValues(item: SchemaFieldItem) {
         (contributionId) => ({
           config: candidate.config,
           sourceSchemaId,
-          sourceTemplateItemId: item.templateItemId,
+          sourceFieldNodeId: item.fieldNodeId,
           contributionId,
         }),
       ),
@@ -242,7 +235,11 @@ export function fieldInitializations(
       initializationId: fact.id,
       schemaId: mutation.schemaId,
       source: mutation.source,
-      values: mutation.values,
+      values: mutation.values.map((value) =>
+        value.kind === "text"
+          ? { kind: "text" as const, value: value.value }
+          : { kind: "reference" as const, nodeId: value.nodeId },
+      ),
     });
     values.set(key, candidates);
   }
@@ -257,7 +254,7 @@ function groupConfigCandidates(
   values: readonly Readonly<{
     config: FieldTemplateConfig;
     sourceSchemaId: string;
-    sourceTemplateItemId: string;
+    sourceFieldNodeId: string;
     contributionId: string | null;
   }>[],
 ): readonly FieldConfigCandidate[] {
@@ -268,9 +265,9 @@ function groupConfigCandidates(
     groups.set(key, {
       config: value.config,
       sourceSchemaIds: unique([...(existing?.sourceSchemaIds ?? []), value.sourceSchemaId]),
-      sourceTemplateItemIds: unique([
-        ...(existing?.sourceTemplateItemIds ?? []),
-        value.sourceTemplateItemId,
+      sourceFieldNodeIds: unique([
+        ...(existing?.sourceFieldNodeIds ?? []),
+        value.sourceFieldNodeId,
       ]),
       contributionIds: unique([
         ...(existing?.contributionIds ?? []),
@@ -285,10 +282,6 @@ function groupConfigCandidates(
 
 function mostVisible(values: readonly FieldVisibility[]): FieldVisibility {
   return values.includes("pinned") ? "pinned" : values.includes("normal") ? "normal" : "optional";
-}
-
-export function fieldTemplateItemId(schemaId: string, fieldDefinitionId: string): string {
-  return `field-template:v1:${encodeURIComponent(schemaId)}:${encodeURIComponent(fieldDefinitionId)}`;
 }
 
 function unique(values: readonly string[]): string[] {

@@ -53,7 +53,7 @@ function applyToProjection(
     children: Object.fromEntries(
       Object.entries(projection.children).map(([id, ids]) => [id, [...ids]]),
     ),
-    canonicalOccurrences: { ...projection.canonicalOccurrences },
+    nodeOwners: { ...projection.nodeOwners },
     addressedValues: Object.fromEntries(
       Object.entries(projection.addressedValues).map(([address, values]) => [
         address,
@@ -66,8 +66,8 @@ function applyToProjection(
     schemaFields: Object.fromEntries(
       Object.entries(projection.schemaFields).map(([id, fieldIds]) => [id, [...fieldIds]]),
     ),
-    schemaFieldItems: Object.fromEntries(
-      Object.entries(projection.schemaFieldItems).map(([id, items]) => [id, [...items]]),
+    templateFields: Object.fromEntries(
+      Object.entries(projection.templateFields).map(([id, items]) => [id, [...items]]),
     ),
     schemaTemplateNodes: Object.fromEntries(
       Object.entries(projection.schemaTemplateNodes).map(([id, nodeIds]) => [id, [...nodeIds]]),
@@ -89,10 +89,10 @@ function applyToProjection(
         [...schemaIds],
       ]),
     ),
-    definitionStatuses: Object.fromEntries(
-      Object.entries(projection.definitionStatuses).map(([id, status]) => [
+    nodeStatuses: Object.fromEntries(
+      Object.entries(projection.nodeStatuses).map(([id, status]) => [
         id,
-        { ...status, kinds: [...status.kinds], deletionFactIds: [...status.deletionFactIds] },
+        { ...status, roles: [...status.roles], deletionFactIds: [...status.deletionFactIds] },
       ]),
     ),
     conflictIssues: projection.conflictIssues,

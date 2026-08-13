@@ -1,9 +1,9 @@
 import type { ContributionFact, FactSnapshot, ViewMode } from "../fact/index.js";
 import { activeContributions } from "./projection-active.js";
 import { applyText, applyValues } from "./projection-content.js";
-import { createNodes } from "./projection-state.js";
+import { createNodes } from "./node-state.js";
 import type { ProjectedNode, ProjectedOccurrence } from "./projection-types.js";
-import { valueOwnerAddress } from "./value-address.js";
+import { valueTargetAddress } from "./value-address.js";
 
 export function replayNodeIdentity(
   snapshot: FactSnapshot,
@@ -21,8 +21,8 @@ export function replayNodeIdentity(
   const values = applyValues(relevant);
   return {
     ...node,
-    properties: values[valueOwnerAddress({ kind: "node", id: nodeId }, "property")] ?? {},
-    metadata: values[valueOwnerAddress({ kind: "node", id: nodeId }, "metadata")] ?? {},
+    properties: values[valueTargetAddress({ kind: "node", id: nodeId }, "property")] ?? {},
+    metadata: values[valueTargetAddress({ kind: "node", id: nodeId }, "metadata")] ?? {},
   };
 }
 
@@ -30,7 +30,7 @@ export function replayOccurrenceIdentity(
   snapshot: FactSnapshot,
   view: ViewMode,
   occurrenceId: string,
-): Omit<ProjectedOccurrence, "parentOccurrenceId"> | null {
+): Omit<ProjectedOccurrence, "parentNodeId"> | null {
   const active = activeContributions(snapshot, view).facts;
   const create = active.find(
     (fact) =>
@@ -60,8 +60,8 @@ export function replayOccurrenceIdentity(
     const mutation = fact.body.mutation;
     return (
       (mutation.kind === "value-set" || mutation.kind === "value-unset") &&
-      mutation.owner.kind === "occurrence" &&
-      mutation.owner.id === occurrenceId
+      mutation.target.kind === "occurrence" &&
+      mutation.target.id === occurrenceId
     );
   });
   const values = applyValues(relevant);
@@ -69,9 +69,10 @@ export function replayOccurrenceIdentity(
     occurrenceId,
     nodeId: create.body.mutation.nodeId,
     properties:
-      values[valueOwnerAddress({ kind: "occurrence", id: occurrenceId }, "property")] ?? {},
-    metadata: values[valueOwnerAddress({ kind: "occurrence", id: occurrenceId }, "metadata")] ?? {},
-    managed: false,
+      values[valueTargetAddress({ kind: "occurrence", id: occurrenceId }, "property")] ?? {},
+    metadata:
+      values[valueTargetAddress({ kind: "occurrence", id: occurrenceId }, "metadata")] ?? {},
+    derived: false,
   };
 }
 
@@ -82,7 +83,7 @@ function mutationTouchesNode(fact: ContributionFact, nodeId: string): boolean {
   }
   return (
     (mutation.kind === "value-set" || mutation.kind === "value-unset") &&
-    mutation.owner.kind === "node" &&
-    mutation.owner.id === nodeId
+    mutation.target.kind === "node" &&
+    mutation.target.id === nodeId
   );
 }

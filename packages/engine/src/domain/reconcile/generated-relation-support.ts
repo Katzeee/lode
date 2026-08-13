@@ -1,0 +1,97 @@
+import type { ContributionFact, Mutation } from "../fact/index.js";
+import {
+  addFieldInitializationSupport,
+  addTemplateDetachmentSupport,
+  type SchemaSupportContext,
+} from "./schema-support.js";
+import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
+
+type ExistenceSupport = Readonly<{
+  nodes: Map<string, string[]>;
+  occurrences: Map<string, string[]>;
+  viable: Set<string>;
+}>;
+
+type OccurrenceLifecycleFacts = ReadonlyMap<string, readonly ContributionFact[]>;
+
+export function addInitializationSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+  fact: ContributionFact,
+  schemaSupport: SchemaSupportContext,
+  existence: ExistenceSupport,
+): void {
+  addFieldInitializationSupport(support, mutation, fact, schemaSupport);
+  for (const nodeId of [
+    mutation.fieldNodeId,
+    ...mutation.values.flatMap((value) => (value.kind === "text" ? [value.nodeId] : [])),
+  ]) {
+    addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
+  }
+  for (const occurrenceId of [
+    mutation.fieldOccurrenceId,
+    ...mutation.values.map((value) => value.occurrenceId),
+  ]) {
+    addIfPresent(
+      support,
+      effectiveCandidate(existence.occurrences, occurrenceId, existence.viable),
+    );
+  }
+}
+
+export function addTemplateNodeSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
+  fact: ContributionFact,
+  schemaSupport: SchemaSupportContext,
+  existence: ExistenceSupport,
+): void {
+  addTemplateDetachmentSupport(support, mutation, fact, schemaSupport);
+  addIfPresent(
+    support,
+    effectiveCandidate(existence.nodes, mutation.instanceNodeId, existence.viable),
+  );
+}
+
+export function addGeneratedOccurrenceSupport(
+  support: Set<string>,
+  mutation: Mutation,
+  fact: ContributionFact,
+  lifecycleFacts: OccurrenceLifecycleFacts,
+): void {
+  const expected = generatedOccurrenceEffect(mutation);
+  if (expected === null) {
+    return;
+  }
+  const candidate = lifecycleFacts
+    .get(`${expected.kind}/${expected.occurrenceId}`)
+    ?.find((lifecycle) => observes(lifecycle, fact));
+  if (candidate !== undefined) {
+    support.add(candidate.id);
+  }
+}
+
+function generatedOccurrenceEffect(
+  mutation: Mutation,
+): Readonly<{ kind: "occurrence-create" | "occurrence-delete"; occurrenceId: string }> | null {
+  if (mutation.kind === "schema-field-remove") {
+    return { kind: "occurrence-delete", occurrenceId: mutation.fieldOccurrenceId };
+  }
+  if (mutation.kind === "schema-template-node-remove") {
+    return { kind: "occurrence-delete", occurrenceId: mutation.templateOccurrenceId };
+  }
+  if (mutation.kind === "field-value-delete") {
+    return { kind: "occurrence-delete", occurrenceId: mutation.valueOccurrenceId };
+  }
+  if (mutation.kind === "materialized-field-delete") {
+    return { kind: "occurrence-delete", occurrenceId: mutation.fieldOccurrenceId };
+  }
+  return mutation.kind === "template-node-detach"
+    ? { kind: "occurrence-create", occurrenceId: mutation.instanceOccurrenceId }
+    : null;
+}
+
+function observes(observer: ContributionFact, observed: ContributionFact): boolean {
+  const { replicaId, sequence } = observed.coordinate.dot;
+  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
+}

@@ -1,20 +1,21 @@
 import { type ContributionFact } from "../fact/index.js";
-import { compileOwnerDag, type OwnerKey } from "./owner-dag.js";
+import { compileProjectionPlan, type ProjectionStageKey } from "./projection-plan-dag.js";
 import {
   activeContributions,
   activeFactsFromCache,
-  incrementalOwnerCache,
+  incrementalPlanCache,
 } from "./projection-active.js";
 import { applyText, applyValues } from "./projection-content.js";
-import { createNodes, createOccurrences } from "./projection-state.js";
+import { createOccurrences } from "./projection-state.js";
+import { createNodes } from "./node-state.js";
 import { validateStoredTree } from "./occurrence-tree.js";
-import { normalizedCanonicals } from "./projection-canonicals.js";
+import { projectNodeOwners } from "./node-ownership.js";
 import { assembleProjection } from "./projection-value-assembly.js";
 import { deriveSchemaRelations } from "./schema-relations.js";
 import { projectConflictIssues } from "./projection-conflicts.js";
 import { projectInitializedFields } from "./initialized-field.js";
-import type { ProjectionOwnerContext } from "./projection-owner-context.js";
-import { projectDefinitionStatuses } from "./definition-status.js";
+import type { ProjectionPlanContext } from "./projection-plan-context.js";
+import { projectNodeStatuses } from "./node-status.js";
 import { knownNodeIds, nodeDeletionFactIds } from "./node-lifecycle.js";
 import { excludePurgedContributions, purgedNodeIds } from "./maintenance-projection.js";
 import {
@@ -24,30 +25,30 @@ import {
 import { pendingProposalFacts } from "../review/evidence.js";
 import { reviewPaginationScopes } from "../review/pagination-scopes.js";
 
-export type { ProjectionOwnerObserver } from "./projection-owner-context.js";
+export type { ProjectionStageObserver } from "./projection-plan-context.js";
 function evaluated(
-  key: OwnerKey,
-  evaluate: (context: ProjectionOwnerContext) => void,
-): (context: ProjectionOwnerContext) => void {
+  key: ProjectionStageKey,
+  evaluate: (context: ProjectionPlanContext) => void,
+): (context: ProjectionPlanContext) => void {
   return (context) => {
     context.observer?.(key, context.view);
     evaluate(context);
   };
 }
-export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
+export const PROJECTION_PLAN = compileProjectionPlan<ProjectionPlanContext>([
   {
     key: "activation",
     dependencies: [],
     writes: ["active-contributions", "support-index"],
     evaluate: evaluated("activation", (context) => {
       if (context.incremental) {
-        context.ownerCache = incrementalOwnerCache(
-          context.previousOwnerCache,
+        context.planCache = incrementalPlanCache(
+          context.previousPlanCache,
           context.active,
           context.snapshot,
         );
         context.allActive = context.requiresAllActive
-          ? activeFactsFromCache(context.snapshot, context.previousOwnerCache, context.active)
+          ? activeFactsFromCache(context.snapshot, context.previousPlanCache, context.active)
           : context.active;
         const purged = purgedNodeIds(context.snapshot.facts);
         context.active = excludePurgedContributions(context.active, purged);
@@ -58,7 +59,7 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
       const purged = purgedNodeIds(context.snapshot.facts);
       context.active = excludePurgedContributions(activation.facts, purged);
       context.allActive = context.active;
-      context.ownerCache = activation.cache;
+      context.planCache = activation.cache;
     }),
   },
   {
@@ -88,22 +89,12 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
     writes: ["text"],
     evaluate: evaluated("text", (context) => {
       if (context.replayAllActive) {
-        for (const node of context.nodes.values()) {
-          if (!context.managedTextReplayNodeIds.has(node.nodeId)) {
-            node.text = [];
-          }
-        }
         applyText(context.allActive, context.nodes);
         return;
       }
-      const templateSnapshotNodeIds = new Set(
-        context.templateNodeInstances.flatMap((instance) =>
-          instance.instanceNodeId === null ? [] : [instance.instanceNodeId],
-        ),
-      );
       for (const nodeId of context.managedTextReplayNodeIds) {
         const node = context.nodes.get(nodeId);
-        if (node && !templateSnapshotNodeIds.has(nodeId)) {
+        if (node) {
           node.text = [];
         }
       }
@@ -135,12 +126,13 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
     }),
   },
   {
-    key: "canonical",
+    key: "owner",
     dependencies: ["node", "occurrence"],
-    writes: ["stored-canonicals"],
-    evaluate: evaluated("canonical", (context) => {
-      context.canonicalOccurrences = normalizedCanonicals(
-        context.replayAllActive ? {} : context.canonicalOccurrences,
+    writes: ["node-owners"],
+    evaluate: evaluated("owner", (context) => {
+      context.nodeOwners = projectNodeOwners(
+        context.workspaceNodeId,
+        context.replayAllActive ? {} : context.nodeOwners,
         context.replayAllActive ? context.allActive : context.active,
         context.nodes,
         context.occurrences,
@@ -149,15 +141,14 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
   },
   {
     key: "schema",
-    dependencies: ["value", "occurrence", "canonical"],
+    dependencies: ["value", "occurrence", "owner"],
     writes: ["schema-relations", "effective-fields", "materialized-fields"],
     evaluate: evaluated("schema", (context) => {
       const initializedFields = projectInitializedFields(
         context.allActive,
         context.nodes,
         context.occurrences,
-        context.children,
-        context.canonicalOccurrences,
+        context.nodeOwners,
       );
       const relations = deriveSchemaRelations(
         context.allActive,
@@ -169,39 +160,33 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
       );
       context.schemaApplications = relations.schemaApplications;
       context.schemaFields = relations.schemaFields;
-      context.schemaFieldItems = relations.schemaFieldItems;
+      context.templateFields = relations.templateFields;
       context.schemaTemplateNodes = relations.schemaTemplateNodes;
       context.schemaExtensions = relations.schemaExtensions;
       context.schemaSearchMembers = relations.schemaSearchMembers;
       context.schemaExtensionConflicts = relations.schemaExtensionConflicts;
-      context.definitionStatuses = projectDefinitionStatuses(
+      context.nodeStatuses = projectNodeStatuses(
         context.allActive,
-        new Set(context.nodes.keys()),
+        knownNodeIds(context.allActive),
+        new Set(Object.keys(context.nodeOwners)),
         nodeDeletionFactIds(context.allActive),
       );
       context.conflictIssues = projectConflictIssues(
         context.snapshot,
         relations.schemaExtensionConflicts,
-        relations.schemaFieldItems,
+        relations.templateFields,
         relations.effectiveFields,
         context.allActive,
         context.occurrences,
       );
       context.effectiveFields = relations.effectiveFields;
       context.materializedFields = relations.materializedFields;
-      const rebuiltManagedNodeIds = new Set<string>();
-      for (const instance of context.templateNodeInstances) {
-        if (instance.instanceNodeId !== null) {
-          rebuiltManagedNodeIds.add(instance.instanceNodeId);
-        }
-      }
       if (context.incremental) {
-        context.canonicalOccurrences = removeTemplateNodeOutputs(
+        context.nodeOwners = removeTemplateNodeOutputs(
           context.templateNodeInstances,
-          context.nodes,
           context.occurrences,
           context.children,
-          context.canonicalOccurrences,
+          context.nodeOwners,
         );
         context.templateNodeInstances = [];
       }
@@ -213,16 +198,12 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
         context.nodes,
         context.occurrences,
         context.children,
-        context.canonicalOccurrences,
+        context.nodeOwners,
       );
-      for (const instance of context.templateNodeInstances) {
-        if (instance.instanceNodeId !== null) {
-          rebuiltManagedNodeIds.add(instance.instanceNodeId);
-        }
-      }
-      context.managedTextReplayNodeIds = rebuiltManagedNodeIds;
-      context.canonicalOccurrences = normalizedCanonicals(
-        context.canonicalOccurrences,
+      context.managedTextReplayNodeIds = new Set();
+      context.nodeOwners = projectNodeOwners(
+        context.workspaceNodeId,
+        context.nodeOwners,
         context.allActive,
         context.nodes,
         context.occurrences,
@@ -231,11 +212,11 @@ export const PROJECTION_OWNER_DAG = compileOwnerDag<ProjectionOwnerContext>([
   },
   {
     key: "assembly",
-    dependencies: ["text", "schema", "canonical"],
+    dependencies: ["text", "schema", "owner"],
     writes: ["projection"],
     evaluate: evaluated("assembly", (context) => {
-      validateStoredTree(context.occurrences);
-      context.supportByContribution = context.ownerCache.supportByContribution;
+      validateStoredTree(context.nodes, context.occurrences);
+      context.supportByContribution = context.planCache.supportByContribution;
       if (!context.incremental) {
         context.reviewScopes =
           context.view === "review"

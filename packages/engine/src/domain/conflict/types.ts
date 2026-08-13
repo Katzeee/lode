@@ -37,10 +37,10 @@ export type ConflictIssue =
       kind: "placement-conflict";
       identity: string;
       occurrenceId: string;
-      canonicalParentOccurrenceId: string | null;
+      canonicalParentNodeId: string;
       candidates: readonly Readonly<{
         contributionId: string;
-        parentOccurrenceId: string | null;
+        parentNodeId: string;
         anchor: SequenceAnchor;
         actorId: string;
         replicaId: string;
@@ -58,7 +58,7 @@ export type ConflictIssue =
       ownerNodeId: string | null;
       fieldDefinitionId: string;
       schemaIds: readonly string[];
-      templateItemIds: readonly string[];
+      templateOccurrenceIds: readonly string[];
       candidates: readonly Readonly<{
         config: FieldTemplateConfig;
         contributionIds: readonly string[];

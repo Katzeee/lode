@@ -2,8 +2,8 @@ import { LoroDoc } from "loro-crdt";
 import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import {
+  admitAuthorityRecordShapes,
   canonicalDigest,
   canonicalJson,
   makeFact,
@@ -19,7 +19,11 @@ import {
   InvocationConflictError,
   ProjectionUnavailableError,
 } from "./errors.js";
-import { FACT_AUTHORITY_DOCUMENT_ID, LoroFactStore, createReplicaId } from "./loro-fact-store.js";
+import {
+  FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
+  FactAuthorityStore,
+  createReplicaId,
+} from "./fact-authority-store.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../sync/sync-exchange.js";
 
@@ -39,28 +43,24 @@ async function open(
   peerId: `${number}` = "101",
   onAuthorityAdvanced?: (frontier: Readonly<Record<string, number>>) => void,
 ) {
-  return LoroFactStore.open({
+  return FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId,
     loroPeerId: peerId,
     documents,
-    admitRecords: admitAuthorityRecords,
+    admitRecords: admitAuthorityRecordShapes,
     ...(onAuthorityAdvanced ? { onAuthorityAdvanced } : {}),
   });
 }
 
 async function seed(documents: DocumentStore, records: readonly AuthorityRecord[]): Promise<void> {
-  const doc = new LoroDoc();
-  doc.setPeerId("991");
-  const list = doc.getList<string>("authority-records");
-  for (const record of records) {
-    list.push(canonicalJson(record));
-  }
-  doc.commit({ message: "test-authority-records" });
-  await documents.appendUpdate(FACT_AUTHORITY_DOCUMENT_ID, doc.export({ mode: "update" }));
+  await documents.appendUpdate(
+    FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
+    new TextEncoder().encode(canonicalJson(records)),
+  );
 }
 
-describe("production Loro-backed FactStore", () => {
+describe("production Fact authority store", () => {
   it("AUTH-2 immutable idempotent records fail closed on conflicts", async () => {
     const documents = new InMemoryDocumentStore();
     const first = makeFact({
@@ -102,9 +102,24 @@ describe("production Loro-backed FactStore", () => {
 
     expect(store.admission()).toMatchObject({
       kind: "pending",
-      pendingFactIds: [second.id],
+      pendingTransactionIds: [second.transaction.transactionId],
       snapshot: { facts: [], frontier: {} },
       fault: null,
+    });
+
+    const local = await store.commit({
+      invocationId: "local-while-remote-transaction-is-incomplete",
+      request: { command: "local" },
+      writes: [body],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    expect(store.admission()).toMatchObject({
+      kind: "pending",
+      snapshot: {
+        facts: [{ id: local.receipt.factIds[0] }],
+        frontier: { [REPLICA_A]: 1 },
+      },
     });
   });
 
@@ -115,7 +130,12 @@ describe("production Loro-backed FactStore", () => {
     const result = await store.commit({
       invocationId: "invocation",
       request,
-      bodies: [body, { ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
+      writes: [
+        {
+          kind: "transaction",
+          bodies: [body, { ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
+        },
+      ],
       lineage: null,
       publishedFrontier: {},
     });
@@ -124,6 +144,10 @@ describe("production Loro-backed FactStore", () => {
     expect(result.receipt.factIds).toHaveLength(2);
     expect(result.receipt.committedFrontier).toEqual({ [REPLICA_A]: 2 });
     expect(store.snapshot().facts).toHaveLength(2);
+    expect(store.snapshot().facts.map((fact) => fact.transaction)).toEqual([
+      { transactionId: `t1/workspace/${REPLICA_A}/1`, index: 0, size: 2 },
+      { transactionId: `t1/workspace/${REPLICA_A}/1`, index: 1, size: 2 },
+    ]);
     expect(durable.appendCount).toBe(1);
     expect(advanced).toEqual([{ [REPLICA_A]: 2 }]);
     const reopened = await open(durable, REPLICA_A, "102");
@@ -138,7 +162,7 @@ describe("production Loro-backed FactStore", () => {
       store.commit({
         invocationId: "invocation",
         request,
-        bodies: [body],
+        writes: [body],
         lineage: null,
         publishedFrontier: {},
       }),
@@ -155,7 +179,7 @@ describe("production Loro-backed FactStore", () => {
       store.commit({
         invocationId: "durable-before-crash",
         request,
-        bodies: [body],
+        writes: [body],
         lineage: null,
         publishedFrontier: {},
       }),
@@ -175,18 +199,19 @@ describe("production Loro-backed FactStore", () => {
 
   it("Durable crash boundaries heal Fact sync after authority snapshot compaction fails", async () => {
     const sourceDocuments = new FailingAuthoritySnapshotStore();
-    const source = await LoroFactStore.open({
+    const source = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
       loroPeerId: "101",
       documents: sourceDocuments,
       snapshotInterval: 1,
+      admitRecords: admitAuthorityRecordShapes,
     });
     await expect(
       source.commit({
         invocationId: "compaction-failed",
         request,
-        bodies: [body],
+        writes: [body],
         lineage: null,
         publishedFrontier: {},
       }),
@@ -200,14 +225,17 @@ describe("production Loro-backed FactStore", () => {
         await source.commit({
           invocationId: "compaction-failed",
           request,
-          bodies: [body],
+          writes: [body],
           lineage: null,
           publishedFrontier: {},
         })
       ).created,
     ).toBe(false);
     const destination = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
-    await syncPair(new FactSyncComposite(source), new FactSyncComposite(destination));
+    await syncPair(
+      new FactSyncComposite(source.replication),
+      new FactSyncComposite(destination.replication),
+    );
     expect(destination.snapshot().facts).toHaveLength(1);
   });
 
@@ -217,14 +245,14 @@ describe("production Loro-backed FactStore", () => {
     const first = await store.commit({
       invocationId: "invocation",
       request,
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     });
     const retry = await store.commit({
       invocationId: "invocation",
       request: { nodeId: "node", command: "create-node" },
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     });
@@ -235,7 +263,7 @@ describe("production Loro-backed FactStore", () => {
       store.commit({
         invocationId: "invocation",
         request: { ...request, nodeId: "other" },
-        bodies: [body],
+        writes: [body],
         lineage: null,
         publishedFrontier: first.receipt.committedFrontier,
       }),
@@ -247,7 +275,7 @@ describe("production Loro-backed FactStore", () => {
     const commit = {
       invocationId: "concurrent-retry",
       request,
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     } as const;
@@ -265,7 +293,7 @@ describe("production Loro-backed FactStore", () => {
     const first = await store.commit({
       invocationId: "first",
       request,
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     });
@@ -273,7 +301,7 @@ describe("production Loro-backed FactStore", () => {
       store.commit({
         invocationId: "second",
         request: { ...request, nodeId: "node-2" },
-        bodies: [{ ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
+        writes: [{ ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
         lineage: null,
         publishedFrontier: {},
       }),
@@ -288,7 +316,7 @@ describe("production Loro-backed FactStore", () => {
     const committed = await storeA.commit({
       invocationId: "invocation",
       request,
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     });
@@ -297,7 +325,7 @@ describe("production Loro-backed FactStore", () => {
     expect(restarted.snapshot()).toEqual(storeA.snapshot());
 
     const storeB = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
-    await storeB.syncDoc.importUpdate(await storeA.syncDoc.exportUpdate());
+    await storeB.replication.importUpdate(await storeA.replication.exportUpdate());
     expect(storeB.snapshot()).toEqual(storeA.snapshot());
     expect(storeB.receipt("invocation")).toBeNull();
   });
@@ -333,14 +361,14 @@ describe("production Loro-backed FactStore", () => {
     const left = await first.commit({
       invocationId: "left",
       request: { side: "left" },
-      bodies: [body],
+      writes: [body],
       lineage: null,
       publishedFrontier: {},
     });
     const right = await second.commit({
       invocationId: "right",
       request: { side: "right" },
-      bodies: [{ ...body, mutation: { kind: "node-create", nodeId: "right" } }],
+      writes: [{ ...body, mutation: { kind: "node-create", nodeId: "right" } }],
       lineage: null,
       publishedFrontier: {},
     });
@@ -355,7 +383,7 @@ describe("production Loro-backed FactStore", () => {
       await store.commit({
         invocationId: `offline-${index}`,
         request: { index },
-        bodies: [{ ...body, mutation: { kind: "node-create", nodeId: `offline-${index}` } }],
+        writes: [{ ...body, mutation: { kind: "node-create", nodeId: `offline-${index}` } }],
         lineage: null,
         publishedFrontier: store.snapshot().frontier,
       });
@@ -363,59 +391,70 @@ describe("production Loro-backed FactStore", () => {
     await store.compact();
     const restarted = await open(documents);
     const remote = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
-    await remote.syncDoc.importUpdate(await restarted.syncDoc.exportUpdate());
+    await remote.replication.importUpdate(await restarted.replication.exportUpdate());
     expect(restarted.snapshot().facts).toHaveLength(40);
     expect(remote.snapshot()).toEqual(restarted.snapshot());
   });
 
   it("production compaction bounds the external update replay chain without deleting Facts", async () => {
     const documents = new InMemoryDocumentStore();
-    const store = await LoroFactStore.open({
+    const store = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
       loroPeerId: "101",
       documents,
       snapshotInterval: 4,
+      admitRecords: admitAuthorityRecordShapes,
     });
     for (let index = 0; index < 9; index += 1) {
       await store.commit({
         invocationId: `compact-${index}`,
         request: { index },
-        bodies: [{ ...body, mutation: { kind: "node-create", nodeId: `compact-${index}` } }],
+        writes: [{ ...body, mutation: { kind: "node-create", nodeId: `compact-${index}` } }],
         lineage: null,
         publishedFrontier: store.snapshot().frontier,
       });
     }
 
-    expect((await documents.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(1);
+    expect((await documents.load(FACT_AUTHORITY_JOURNAL_DOCUMENT_ID))?.updates).toHaveLength(1);
     const restarted = await open(documents);
     expect(restarted.snapshot().facts).toHaveLength(9);
   });
 
   it("反序、重复与迟到 support", async () => {
     const documents = new InMemoryDocumentStore();
-    const node = makeFact({
+    const workspace = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
       sequence: 1,
       observed: {},
       lamport: 1,
-      body,
+      body: {
+        ...body,
+        mutation: { kind: "node-create", nodeId: "workspace" },
+      },
     });
-    const occurrence = makeFact({
+    const node = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
       sequence: 2,
       observed: { [REPLICA_A]: 1 },
       lamport: 2,
+      body,
+    });
+    const occurrence = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA_A,
+      sequence: 3,
+      observed: { [REPLICA_A]: 2 },
+      lamport: 3,
       body: {
         ...body,
         mutation: {
           kind: "occurrence-create",
           occurrenceId: "occurrence",
           nodeId: "node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
+          parentNodeId: "workspace",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
       },
@@ -423,11 +462,12 @@ describe("production Loro-backed FactStore", () => {
     await seed(documents, [
       { recordKind: "fact", fact: occurrence },
       { recordKind: "fact", fact: node },
+      { recordKind: "fact", fact: workspace },
       { recordKind: "fact", fact: occurrence },
     ]);
     expect((await open(documents)).admission()).toMatchObject({
       kind: "ready",
-      snapshot: { facts: [{ id: node.id }, { id: occurrence.id }] },
+      snapshot: { facts: [{ id: workspace.id }, { id: node.id }, { id: occurrence.id }] },
     });
   });
 
@@ -478,7 +518,7 @@ describe("production Loro-backed FactStore", () => {
         canonicalJson({ recordKind: "fact", fact: first }),
       );
     remote.commit({ message: "fill-admission-gap" });
-    await store.syncDoc.importUpdate(remote.export({ mode: "update" }));
+    await store.replication.importUpdate(remote.export({ mode: "update" }));
 
     expect(store.admission()).toMatchObject({
       kind: "ready",
@@ -497,7 +537,7 @@ describe("production Loro-backed FactStore", () => {
       lamport: 1,
       body,
     });
-    const unsigned = { ...unsignedFact(valid), schemaVersion: 5 };
+    const unsigned = { ...unsignedFact(valid), schemaVersion: 7 };
     const unsupported = {
       ...unsigned,
       contentDigest: canonicalDigest(unsigned),
@@ -556,7 +596,7 @@ class FailingAuthoritySnapshotStore extends InMemoryDocumentStore {
   failAuthoritySnapshot = true;
 
   override writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
-    if (id === FACT_AUTHORITY_DOCUMENT_ID && this.failAuthoritySnapshot) {
+    if (id === FACT_AUTHORITY_JOURNAL_DOCUMENT_ID && this.failAuthoritySnapshot) {
       return Promise.reject(new Error("injected authority snapshot failure"));
     }
     return super.writeSnapshot(id, bytes);

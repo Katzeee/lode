@@ -5,12 +5,12 @@ import {
   type ViewMode,
 } from "../fact/index.js";
 import { deriveActivation, deriveSupport } from "./support.js";
-import type { ProjectionOwnerCache } from "./projection-types.js";
+import type { ProjectionPlanCache } from "./projection-types.js";
 
 export function activeContributions(
   snapshot: FactSnapshot,
   view: ViewMode,
-): Readonly<{ facts: readonly ContributionFact[]; cache: ProjectionOwnerCache }> {
+): Readonly<{ facts: readonly ContributionFact[]; cache: ProjectionPlanCache }> {
   const activation = deriveActivation(snapshot.facts, view);
   const facts = snapshot.facts
     .filter(
@@ -30,7 +30,7 @@ export function activeContributions(
 
 export function activeFactsFromCache(
   snapshot: FactSnapshot,
-  previous: ProjectionOwnerCache,
+  previous: ProjectionPlanCache,
   tail: readonly ContributionFact[],
 ): readonly ContributionFact[] {
   const ids = new Set([...previous.activeContributionIds, ...tail.map((fact) => fact.id)]);
@@ -41,11 +41,11 @@ export function activeFactsFromCache(
     .sort(compareFacts);
 }
 
-export function incrementalOwnerCache(
-  previous: ProjectionOwnerCache,
+export function incrementalPlanCache(
+  previous: ProjectionPlanCache,
   tail: readonly ContributionFact[],
   snapshot: FactSnapshot,
-): ProjectionOwnerCache {
+): ProjectionPlanCache {
   const active = activeFactsFromCache(snapshot, previous, tail);
   const support = deriveSupport(active, new Set(active.map((fact) => fact.id)));
   return {

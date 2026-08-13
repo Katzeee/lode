@@ -6,6 +6,7 @@ import type {
   TemplateNodeInstance,
 } from "../../domain/reconcile/index.js";
 import type { ProjectionHeader, ShardDescriptor } from "./materialized-generation-format.js";
+import { isProjectionIndexSection } from "./materialized-projection-index.js";
 
 export async function loadMaterializedProjection(
   header: ProjectionHeader,
@@ -18,17 +19,17 @@ export async function loadMaterializedProjection(
     nodes: {},
     occurrences: {},
     children: {},
-    canonicalOccurrences: {},
+    nodeOwners: {},
     addressedValues: {},
     schemaApplications: {},
     schemaFields: {},
-    schemaFieldItems: {},
+    templateFields: {},
     schemaTemplateNodes: {},
     templateNodeInstances: [],
     schemaExtensions: {},
     schemaSearchMembers: {},
     schemaExtensionConflicts: {},
-    definitionStatuses: {},
+    nodeStatuses: {},
     conflictIssues: {},
     effectiveFields: {},
     materializedFields: {},
@@ -46,7 +47,10 @@ function assignMaterializedValue(
   descriptor: ShardDescriptor,
   value: unknown,
 ): void {
-  if (assignTemplateValue(projection, descriptor, value)) {
+  if (
+    assignTemplateValue(projection, descriptor, value) ||
+    isProjectionIndexSection(descriptor.section)
+  ) {
     return;
   }
   switch (descriptor.section) {
@@ -62,9 +66,10 @@ function assignMaterializedValue(
       (projection.children as Record<string, readonly string[]>)[descriptor.identity] =
         value as readonly string[];
       break;
-    case "canonicalOccurrences":
-      (projection.canonicalOccurrences as Record<string, string>)[descriptor.identity] =
-        value as string;
+    case "nodeOwners":
+      (projection.nodeOwners as Record<string, Projection["nodeOwners"][string]>)[
+        descriptor.identity
+      ] = value as Projection["nodeOwners"][string];
       break;
     case "addressedValues":
       (projection.addressedValues as Record<string, Readonly<Record<string, JsonValue>>>)[
@@ -79,10 +84,10 @@ function assignMaterializedValue(
       (projection.schemaFields as Record<string, readonly string[]>)[descriptor.identity] =
         value as readonly string[];
       break;
-    case "schemaFieldItems":
-      (projection.schemaFieldItems as Record<string, Projection["schemaFieldItems"][string]>)[
+    case "templateFields":
+      (projection.templateFields as Record<string, Projection["templateFields"][string]>)[
         descriptor.identity
-      ] = value as Projection["schemaFieldItems"][string];
+      ] = value as Projection["templateFields"][string];
       break;
     case "schemaTemplateNodes":
     case "templateNodeInstances":
@@ -100,10 +105,10 @@ function assignMaterializedValue(
         descriptor.identity
       ] = value as readonly string[];
       break;
-    case "definitionStatuses":
-      (projection.definitionStatuses as Record<string, Projection["definitionStatuses"][string]>)[
+    case "nodeStatuses":
+      (projection.nodeStatuses as Record<string, Projection["nodeStatuses"][string]>)[
         descriptor.identity
-      ] = value as Projection["definitionStatuses"][string];
+      ] = value as Projection["nodeStatuses"][string];
       break;
     case "conflictIssues":
       (projection.conflictIssues as Record<string, Projection["conflictIssues"][string]>)[
@@ -127,16 +132,6 @@ function assignMaterializedValue(
     case "supportByContribution":
       (projection.supportByContribution as Record<string, readonly string[]>)[descriptor.identity] =
         value as readonly string[];
-      break;
-    case "occurrenceIdsByNode":
-    case "nodeIdsBySchema":
-    case "nodeIdsByFieldDefinition":
-    case "schemaInstanceMemberships":
-    case "templateNodeInstancesByOwner":
-    case "templateNodeInstancesByTemplate":
-    case "templateNodeInstancesByNode":
-    case "templateNodeInstancesByOccurrence":
-    case "templateNodeInstancesBySchema":
       break;
   }
 }

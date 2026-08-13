@@ -41,14 +41,14 @@ export function prepareFieldContentDeletion(
   const evidence = previous.occurrences[occurrenceId] ? previous : available;
   return {
     ...mutation,
-    previousParentOccurrenceId: evidence.occurrences[occurrenceId]?.parentOccurrenceId ?? null,
+    previousParentNodeId: evidence.occurrences[occurrenceId]?.parentNodeId,
     previousAnchor: anchorFor(evidence, occurrenceId),
   };
 }
 
 function anchorFor(projection: Projection, occurrenceId: string): SequenceAnchor {
   const occurrence = projection.occurrences[occurrenceId];
-  const siblings = projection.children[occurrence?.parentOccurrenceId ?? "$root"] ?? [];
+  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
   const index = siblings.indexOf(occurrenceId);
   return {
     after: index > 0 ? (siblings[index - 1] ?? null) : null,

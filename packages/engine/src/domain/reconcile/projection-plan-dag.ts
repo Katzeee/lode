@@ -1,28 +1,28 @@
 import { stableStringCompare } from "../fact/index.js";
 
-export type OwnerKey = string;
+export type ProjectionStageKey = string;
 
-export type OwnerRule<Context = unknown> = Readonly<{
-  key: OwnerKey;
-  dependencies: readonly OwnerKey[];
+export type ProjectionStage<Context = unknown> = Readonly<{
+  key: ProjectionStageKey;
+  dependencies: readonly ProjectionStageKey[];
   writes: readonly string[];
   evaluate(context: Context): void;
 }>;
 
-export type CompiledOwnerDag<Context = unknown> = Readonly<{
-  ordered: readonly OwnerRule<Context>[];
-  downstream(ownerKeys: ReadonlySet<OwnerKey>): ReadonlySet<OwnerKey>;
-  run(context: Context, selected?: ReadonlySet<OwnerKey>): readonly OwnerKey[];
+export type CompiledProjectionPlan<Context = unknown> = Readonly<{
+  ordered: readonly ProjectionStage<Context>[];
+  downstream(stageKeys: ReadonlySet<ProjectionStageKey>): ReadonlySet<ProjectionStageKey>;
+  run(context: Context, selected?: ReadonlySet<ProjectionStageKey>): readonly ProjectionStageKey[];
 }>;
 
-export function compileOwnerDag<Context>(
-  rules: readonly OwnerRule<Context>[],
-): CompiledOwnerDag<Context> {
-  const byKey = new Map<string, OwnerRule<Context>>();
+export function compileProjectionPlan<Context>(
+  stages: readonly ProjectionStage<Context>[],
+): CompiledProjectionPlan<Context> {
+  const byKey = new Map<string, ProjectionStage<Context>>();
   const writerByOutput = new Map<string, string>();
-  for (const rule of rules) {
+  for (const rule of stages) {
     if (byKey.has(rule.key)) {
-      throw new Error(`Duplicate owner identity: ${rule.key}`);
+      throw new Error(`Duplicate projection stage: ${rule.key}`);
     }
     byKey.set(rule.key, rule);
     for (const output of rule.writes) {
@@ -33,15 +33,15 @@ export function compileOwnerDag<Context>(
       writerByOutput.set(output, rule.key);
     }
   }
-  for (const rule of rules) {
+  for (const rule of stages) {
     for (const dependency of rule.dependencies) {
       if (!byKey.has(dependency)) {
-        throw new Error(`Owner ${rule.key} has missing dependency ${dependency}`);
+        throw new Error(`Projection stage ${rule.key} has missing dependency ${dependency}`);
       }
     }
   }
 
-  const ordered: OwnerRule<Context>[] = [];
+  const ordered: ProjectionStage<Context>[] = [];
   const remaining = new Set(byKey.keys());
   while (remaining.size > 0) {
     const ready = [...remaining]
@@ -50,7 +50,7 @@ export function compileOwnerDag<Context>(
       )
       .sort(stableStringCompare);
     if (ready.length === 0) {
-      throw new Error(`Owner dependency cycle: ${[...remaining].sort().join(", ")}`);
+      throw new Error(`Projection stage dependency cycle: ${[...remaining].sort().join(", ")}`);
     }
     for (const key of ready) {
       ordered.push(byKey.get(key)!);
@@ -60,8 +60,8 @@ export function compileOwnerDag<Context>(
 
   return {
     ordered,
-    downstream(ownerKeys) {
-      const selected = new Set(ownerKeys);
+    downstream(stageKeys) {
+      const selected = new Set(stageKeys);
       let changed = true;
       while (changed) {
         changed = false;
@@ -78,7 +78,7 @@ export function compileOwnerDag<Context>(
       return selected;
     },
     run(context, selected) {
-      const evaluated: OwnerKey[] = [];
+      const evaluated: ProjectionStageKey[] = [];
       for (const rule of ordered) {
         if (!selected || selected.has(rule.key)) {
           rule.evaluate(context);

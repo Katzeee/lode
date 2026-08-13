@@ -1,4 +1,12 @@
-import type { Mutation } from "../../domain/fact/index.js";
+import {
+  initializedFieldNodeId,
+  initializedFieldOccurrenceId,
+  initializedValueNodeId,
+  initializedValueOccurrenceId,
+  type FieldValueSeed,
+  type InitializedFieldValue,
+  type Mutation,
+} from "../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import { projectEffectiveFields } from "../../domain/reconcile/schema-field-config.js";
 
@@ -19,7 +27,7 @@ export function schemaApplicationInitializations(
   const fields =
     projectEffectiveFields(
       applications,
-      projection.schemaFieldItems,
+      projection.templateFields,
       projection.schemaExtensions,
       projection.materializedFields,
     )[mutation.nodeId] ?? [];
@@ -32,6 +40,11 @@ export function schemaApplicationInitializations(
       return [];
     }
     const initialized = initializationValues(field.effectiveConfig, mutation.nodeId, projection);
+    const fieldNodeId = initializedFieldNodeId(mutation.nodeId, field.fieldDefinitionId);
+    const fieldOccurrenceId = initializedFieldOccurrenceId(
+      mutation.nodeId,
+      field.fieldDefinitionId,
+    );
     return initialized === null
       ? []
       : [
@@ -40,8 +53,10 @@ export function schemaApplicationInitializations(
             ownerNodeId: mutation.nodeId,
             schemaId: mutation.schemaId,
             fieldDefinitionId: field.fieldDefinitionId,
+            fieldNodeId,
+            fieldOccurrenceId,
             source: initialized.source,
-            values: initialized.values,
+            values: initializeValues(fieldNodeId, fieldOccurrenceId, initialized.values),
           },
         ];
   });
@@ -66,6 +81,18 @@ export function prepareFieldInitialization(
       (candidate) => candidate.initializationId,
     ),
   };
+}
+
+function initializeValues(
+  fieldNodeId: string,
+  fieldOccurrenceId: string,
+  seeds: readonly FieldValueSeed[],
+): readonly InitializedFieldValue[] {
+  return seeds.map((seed, index) => ({
+    ...seed,
+    nodeId: seed.kind === "reference" ? seed.nodeId : initializedValueNodeId(fieldNodeId, index),
+    occurrenceId: initializedValueOccurrenceId(fieldOccurrenceId, index),
+  }));
 }
 
 function initializationValues(

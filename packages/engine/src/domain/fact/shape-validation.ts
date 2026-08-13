@@ -1,5 +1,6 @@
 import type { AuthorityReceipt, AuthorityRecord, Fact, Mutation, SequenceAnchor } from "./types.js";
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
+import { assertOptionalNodeSeed } from "./node-create-shape.js";
 import { assertSchemaMutationShape } from "./schema-mutation-shape.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
 import { assertTemplateDetachmentShape } from "./template-node-validation.js";
@@ -91,6 +92,7 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
       "schemaVersion",
       "workspaceId",
       "id",
+      "transaction",
       "coordinate",
       "body",
       "contentDigest",
@@ -102,6 +104,11 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
   requireString(value.workspaceId, "Fact Workspace identity");
   requireString(value.id, "Fact identity");
   requireString(value.contentDigest, "Fact content digest");
+  assertObject(value.transaction, "Fact transaction position");
+  assertKeys(value.transaction, ["transactionId", "index", "size"], "Fact transaction position");
+  requireString(value.transaction.transactionId, "Fact transaction identity");
+  requireSafeInteger(value.transaction.index, 0, "Fact transaction index");
+  requireSafeInteger(value.transaction.size, 1, "Fact transaction size");
   assertObject(value.coordinate, "Fact coordinate");
   assertKeys(value.coordinate, ["dot", "observed", "lamport"], "Fact coordinate");
   assertObject(value.coordinate.dot, "Fact dot");
@@ -123,6 +130,9 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
   assertKeys(value, keys, `${value.kind} Mutation`);
   switch (value.kind) {
     case "node-create":
+      requireString(value.nodeId, value.kind);
+      assertOptionalNodeSeed(value.seed);
+      return;
     case "node-delete":
       requireString(value.nodeId, value.kind);
       return;
@@ -131,35 +141,17 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       requireString(value.deletionFactId, "node deletion Fact");
       return;
     case "occurrence-create":
-      requireString(value.occurrenceId, value.kind);
-      requireString(value.nodeId, value.kind);
-      assertNullableString(value.parentOccurrenceId, "Occurrence parent");
-      assertOneOf(value.parentPolicy, ["cascade", "rehome"], "Occurrence parent policy");
-      assertAnchor(value.anchor);
-      return;
     case "occurrence-delete":
-      requireString(value.occurrenceId, value.kind);
-      assertOneOf(value.childPolicy, ["cascade", "rehome"], "Occurrence child policy");
-      assertOptionalNullableString(value.previousParentOccurrenceId, "previous parent");
-      assertOptionalAnchor(value.previousAnchor);
-      return;
     case "occurrence-restore":
-      requireString(value.occurrenceId, value.kind);
-      requireString(value.deletionFactId, "occurrence deletion Fact");
-      assertNullableString(value.parentOccurrenceId, "Occurrence parent");
-      assertAnchor(value.anchor);
-      return;
     case "occurrence-move":
-      requireString(value.occurrenceId, value.kind);
-      assertNullableString(value.parentOccurrenceId, "Occurrence parent");
-      assertAnchor(value.anchor);
-      assertOptionalNullableString(value.previousParentOccurrenceId, "previous parent");
-      assertOptionalAnchor(value.previousAnchor);
+      assertOccurrenceMutationShape(value);
       return;
-    case "canonical-occurrence-set":
+    case "node-owner-set":
       requireString(value.nodeId, value.kind);
-      requireString(value.occurrenceId, value.kind);
-      assertOptionalNullableString(value.previousOccurrenceId, "previous canonical");
+      requireString(value.ownerNodeId, value.kind);
+      if (value.previousOwnerNodeId !== undefined) {
+        requireString(value.previousOwnerNodeId, "previous owner Node");
+      }
       return;
     case "schema-apply":
     case "schema-remove":
@@ -176,7 +168,7 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       return;
     case "field-value-delete":
     case "materialized-field-delete":
-      assertFieldContentDeletionShape(value, assertOptionalNullableString, assertOptionalAnchor);
+      assertFieldContentDeletionShape(value, assertOptionalAnchor);
       return;
     case "template-node-detach":
       assertTemplateDetachmentShape(value);
@@ -198,7 +190,7 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       return;
     case "value-set":
     case "value-unset":
-      assertValueOwner(value.owner);
+      assertValueTarget(value.target);
       assertOneOf(value.namespace, ["property", "metadata", "schema"], "value namespace");
       requireString(value.key, "value key");
       if (value.kind === "value-set") {
@@ -211,16 +203,43 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
   }
 }
 
+function assertOccurrenceMutationShape(value: Record<string, unknown>): void {
+  requireString(value.occurrenceId, "Occurrence identity");
+  if (value.kind === "occurrence-create") {
+    requireString(value.nodeId, "Occurrence Node identity");
+  }
+  if (value.kind === "occurrence-restore") {
+    requireString(value.deletionFactId, "occurrence deletion Fact");
+  }
+  if (
+    value.kind === "occurrence-create" ||
+    value.kind === "occurrence-restore" ||
+    value.kind === "occurrence-move"
+  ) {
+    requireString(value.parentNodeId, "Parent Node");
+    assertAnchor(value.anchor);
+  }
+  if (
+    (value.kind === "occurrence-delete" || value.kind === "occurrence-move") &&
+    value.previousParentNodeId !== undefined
+  ) {
+    requireString(value.previousParentNodeId, "previous parent Node");
+  }
+  if (value.kind === "occurrence-delete" || value.kind === "occurrence-move") {
+    assertOptionalAnchor(value.previousAnchor);
+  }
+}
+
 export function parseMutation(value: unknown): Mutation {
   assertMutationShape(value);
   return value;
 }
 
-function assertValueOwner(value: unknown): void {
-  assertObject(value, "value owner");
-  assertKeys(value, ["kind", "id"], "value owner");
-  assertOneOf(value.kind, ["node", "occurrence", "schema", "field"], "value owner kind");
-  requireString(value.id, "value owner identity");
+function assertValueTarget(value: unknown): void {
+  assertObject(value, "value target");
+  assertKeys(value, ["kind", "id"], "value target");
+  assertOneOf(value.kind, ["node", "occurrence"], "value target kind");
+  requireString(value.id, "value target identity");
 }
 
 function assertAnchor(value: unknown): asserts value is SequenceAnchor {
@@ -285,10 +304,4 @@ function assertPrevious(value: unknown, label: string): void {
     return;
   }
   throw new Error(`Unknown ${label} kind`);
-}
-
-function assertOptionalNullableString(value: unknown, label: string): void {
-  if (value !== undefined) {
-    assertNullableString(value, label);
-  }
 }

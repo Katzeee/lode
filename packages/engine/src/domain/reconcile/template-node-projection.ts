@@ -1,15 +1,12 @@
-import { stableStringCompare, type ContributionFact, type JsonValue } from "../fact/index.js";
-import { applyText, applyValues } from "./projection-content.js";
-import { createNodes, type MutableNode, type MutableOccurrence } from "./projection-state.js";
-import { schemaExtensionGraph } from "./schema-extension-graph.js";
 import {
-  templateInstanceNodeId,
+  stableStringCompare,
   templateInstanceOccurrenceId,
-  templateNodeItemId,
-} from "./template-node-identity.js";
+  type ContributionFact,
+} from "../fact/index.js";
+import type { MutableNode, MutableOccurrence } from "./projection-state.js";
+import { schemaExtensionGraph } from "./schema-extension-graph.js";
 import type { TemplateNodeInstance, TemplateNodeSource } from "./projection-types.js";
 import { listFor } from "./sequence.js";
-import { valueOwnerAddress } from "./value-address.js";
 
 export function projectTemplateNodeInstances(
   active: readonly ContributionFact[],
@@ -19,7 +16,7 @@ export function projectTemplateNodeInstances(
   nodes: Map<string, MutableNode>,
   occurrences: Map<string, MutableOccurrence>,
   children: Map<string, string[]>,
-  canonicalOccurrences: Readonly<Record<string, string>>,
+  nodeOwners: Readonly<Record<string, string | null>>,
 ): readonly TemplateNodeInstance[] {
   const extensionGraph = schemaExtensionGraph(schemaExtensions);
   const currentSources = new Map<string, TemplateNodeSource[]>();
@@ -27,10 +24,14 @@ export function projectTemplateNodeInstances(
     for (const appliedSchemaId of appliedSchemaIds) {
       for (const schemaId of extensionGraph.lineage(appliedSchemaId)) {
         for (const templateNodeId of schemaTemplateNodes[schemaId] ?? []) {
+          const templateOccurrenceId = activeTemplateOccurrenceId(active, schemaId, templateNodeId);
+          if (templateOccurrenceId === null) {
+            continue;
+          }
           appendSource(currentSources, ownerNodeId, templateNodeId, {
             schemaId,
             appliedSchemaId,
-            templateItemId: templateNodeItemId(schemaId, templateNodeId),
+            templateOccurrenceId,
           });
         }
       }
@@ -41,27 +42,33 @@ export function projectTemplateNodeInstances(
   const instances: TemplateNodeInstance[] = [];
   for (const identity of identities) {
     const [ownerNodeId, templateNodeId] = parseIdentity(identity);
-    const ownerOccurrenceId = canonicalOccurrences[ownerNodeId];
     const current = currentSources.get(identity) ?? [];
     const detachFacts = detaches.get(identity) ?? [];
-    if (!ownerOccurrenceId || (!nodes.has(templateNodeId) && detachFacts.length === 0)) {
+    if (!(ownerNodeId in nodeOwners) || (!nodes.has(templateNodeId) && detachFacts.length === 0)) {
       continue;
     }
-    const occurrenceId = templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
     const detached = detachFacts.length > 0;
-    const nodeId = detached ? templateInstanceNodeId(ownerNodeId, templateNodeId) : templateNodeId;
+    const detachment = detached ? detachmentMutation(detachFacts) : null;
+    const occurrenceId =
+      detachment?.instanceOccurrenceId ?? templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
+    const nodeId = detachment?.instanceNodeId ?? templateNodeId;
     if (detached) {
-      nodes.set(nodeId, detachedNode(active, detachFacts, templateNodeId, nodeId));
+      const occurrence = occurrences.get(occurrenceId);
+      if (occurrence) {
+        occurrence.metadata = { templateState: "detached" };
+        occurrence.derived = false;
+      }
+    } else {
+      occurrences.set(occurrenceId, {
+        occurrenceId,
+        nodeId,
+        parentNodeId: ownerNodeId,
+        properties: {},
+        metadata: { templateState: "linked" },
+        derived: true,
+      });
+      appendUnique(listFor(children, ownerNodeId), occurrenceId);
     }
-    occurrences.set(occurrenceId, {
-      occurrenceId,
-      nodeId,
-      parentOccurrenceId: ownerOccurrenceId,
-      properties: {},
-      metadata: { templateState: detached ? "detached" : "linked" },
-      managed: !detached,
-    });
-    listFor(children, ownerOccurrenceId).push(occurrenceId);
     const sources = current.length > 0 ? current : sourcesFromDetachments(detachFacts);
     instances.push({
       ownerNodeId,
@@ -76,20 +83,67 @@ export function projectTemplateNodeInstances(
   return instances;
 }
 
+function detachmentMutation(
+  facts: readonly ContributionFact[],
+): Extract<ContributionFact["body"]["mutation"], { kind: "template-node-detach" }> {
+  for (const fact of facts) {
+    if (fact.body.mutation.kind === "template-node-detach") {
+      return fact.body.mutation;
+    }
+  }
+  throw new Error("Detached Template content has no detachment Fact");
+}
+
+function activeTemplateOccurrenceId(
+  active: readonly ContributionFact[],
+  schemaId: string,
+  templateNodeId: string,
+): string | null {
+  const removals = active.filter(
+    (fact) => fact.body.mutation.kind === "schema-template-node-remove",
+  );
+  let result: string | null = null;
+  for (const fact of active) {
+    const mutation = fact.body.mutation;
+    if (
+      mutation.kind !== "schema-template-node-add" ||
+      mutation.schemaId !== schemaId ||
+      mutation.templateNodeId !== templateNodeId
+    ) {
+      continue;
+    }
+    const removed = removals.some((candidate) => {
+      const removal = candidate.body.mutation;
+      return (
+        removal.kind === "schema-template-node-remove" &&
+        removal.schemaId === mutation.schemaId &&
+        removal.templateNodeId === mutation.templateNodeId &&
+        removal.templateOccurrenceId === mutation.templateOccurrenceId &&
+        observes(candidate, fact)
+      );
+    });
+    if (!removed) {
+      result = mutation.templateOccurrenceId;
+    }
+  }
+  return result;
+}
+
 export function removeTemplateNodeOutputs(
   instances: readonly TemplateNodeInstance[],
-  nodes: Map<string, MutableNode>,
   occurrences: Map<string, MutableOccurrence>,
   children: Map<string, string[]>,
-  canonicalOccurrences: Readonly<Record<string, string>>,
-): Readonly<Record<string, string>> {
-  const result = { ...canonicalOccurrences };
-  const occurrenceIds = new Set(instances.map((instance) => instance.instanceOccurrenceId));
+  nodeOwners: Readonly<Record<string, string | null>>,
+): Readonly<Record<string, string | null>> {
+  const result = { ...nodeOwners };
+  const occurrenceIds = new Set<string>();
   for (const instance of instances) {
-    occurrences.delete(instance.instanceOccurrenceId);
-    if (instance.instanceNodeId !== null) {
-      nodes.delete(instance.instanceNodeId);
-      delete result[instance.instanceNodeId];
+    const occurrence = occurrences.get(instance.instanceOccurrenceId);
+    const stillProjected =
+      instance.instanceNodeId === null && occurrence?.nodeId === instance.templateNodeId;
+    if (stillProjected) {
+      occurrenceIds.add(instance.instanceOccurrenceId);
+      occurrences.delete(instance.instanceOccurrenceId);
     }
   }
   for (const [parent, childIds] of children) {
@@ -118,39 +172,6 @@ function detachments(
   return result;
 }
 
-function detachedNode(
-  active: readonly ContributionFact[],
-  detachFacts: readonly ContributionFact[],
-  templateNodeId: string,
-  instanceNodeId: string,
-): MutableNode {
-  const observed = active.filter((candidate) =>
-    detachFacts.some((detachment) => observes(detachment, candidate)),
-  );
-  const sourceNodes = createNodes(observed);
-  applyText(observed, sourceNodes);
-  const source = sourceNodes.get(templateNodeId);
-  const values = applyValues(observed);
-  return {
-    nodeId: instanceNodeId,
-    text: source?.text.map((atom) => ({ ...atom, attributes: { ...atom.attributes } })) ?? [],
-    properties: copiedValues(values, templateNodeId, "property", "schema"),
-    metadata: copiedValues(values, templateNodeId, "metadata"),
-  };
-}
-
-function copiedValues(
-  values: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>,
-  nodeId: string,
-  ...namespaces: readonly ("property" | "metadata" | "schema")[]
-): Record<string, JsonValue> {
-  const result: Record<string, JsonValue> = {};
-  for (const namespace of namespaces) {
-    Object.assign(result, values[valueOwnerAddress({ kind: "node", id: nodeId }, namespace)]);
-  }
-  return result;
-}
-
 function sourcesFromDetachments(facts: readonly ContributionFact[]): TemplateNodeSource[] {
   const sources = new Map<string, TemplateNodeSource>();
   for (const fact of facts) {
@@ -160,21 +181,21 @@ function sourcesFromDetachments(facts: readonly ContributionFact[]): TemplateNod
     }
     const schemaIds = mutation.sourceSchemaIds ?? [];
     const applicationSchemaIds = mutation.sourceApplicationSchemaIds ?? [];
-    const itemIds = mutation.sourceTemplateItemIds ?? [];
-    itemIds.forEach((templateItemId, index) => {
+    const itemIds = mutation.sourceTemplateOccurrenceIds ?? [];
+    itemIds.forEach((templateOccurrenceId, index) => {
       const schemaId = schemaIds[index];
       const appliedSchemaId = applicationSchemaIds[index];
       if (schemaId && appliedSchemaId) {
-        sources.set(`${appliedSchemaId}/${templateItemId}`, {
+        sources.set(`${appliedSchemaId}/${templateOccurrenceId}`, {
           schemaId,
           appliedSchemaId,
-          templateItemId,
+          templateOccurrenceId,
         });
       }
     });
   }
   return [...sources.values()].sort((left, right) =>
-    stableStringCompare(left.templateItemId, right.templateItemId),
+    stableStringCompare(left.templateOccurrenceId, right.templateOccurrenceId),
   );
 }
 
@@ -190,7 +211,7 @@ function appendSource(
     !values.some(
       (candidate) =>
         candidate.appliedSchemaId === source.appliedSchemaId &&
-        candidate.templateItemId === source.templateItemId,
+        candidate.templateOccurrenceId === source.templateOccurrenceId,
     )
   ) {
     values.push(source);
@@ -213,4 +234,10 @@ function parseIdentity(value: string): readonly [string, string] {
 function observes(observer: ContributionFact, observed: ContributionFact): boolean {
   const { replicaId, sequence } = observed.coordinate.dot;
   return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
+}
+
+function appendUnique(values: string[], value: string): void {
+  if (!values.includes(value)) {
+    values.push(value);
+  }
 }

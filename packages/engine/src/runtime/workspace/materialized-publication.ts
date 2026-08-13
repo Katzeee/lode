@@ -8,7 +8,7 @@ import {
   MANIFEST_FORMAT,
   encodeMaterialized,
   headerDocumentId,
-  ownerCacheDocumentId,
+  planCacheDocumentId,
   type GenerationManifest,
 } from "./materialized-generation-format.js";
 import { writeDirectoryNodes, writeMaterializedEntry } from "./materialized-directory.js";
@@ -33,8 +33,8 @@ export async function commitMaterializedPublication(
   }
   await writeDirectoryNodes(documents, materialized.directoryNodes);
   await documents.writeSnapshot(
-    ownerCacheDocumentId(generation.identity.generationId),
-    encodeMaterialized(materialized.ownerCaches),
+    planCacheDocumentId(generation.identity.generationId),
+    encodeMaterialized(materialized.planCaches),
   );
   await documents.writeSnapshot(
     headerDocumentId(generation.identity.generationId),

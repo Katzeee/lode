@@ -1,8 +1,11 @@
 import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-types.js";
 import type { FieldContentDeletionMutation } from "./field-content-types.js";
+import type { FieldTemplateConfig, InitializedFieldValue } from "./field-template-types.js";
+import type { NodeSeed } from "./node-create-types.js";
+import type { FactTransactionId, FactTransactionPosition } from "./transaction-types.js";
 
 export const FORMAT_GENERATION = 1 as const;
-export const FACT_SCHEMA_VERSION = 4 as const;
+export const FACT_SCHEMA_VERSION = 6 as const;
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
@@ -42,74 +45,51 @@ export type SequenceAnchor = Readonly<{
   fallback: "start" | "end";
 }>;
 
-export type ValueOwner = Readonly<{
-  kind: "node" | "occurrence" | "schema" | "field";
+export type ValueTarget = Readonly<{
+  kind: "node" | "occurrence";
   id: string;
 }>;
 
 export type PreviousValue =
   Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
 
-export type FieldVisibility = "pinned" | "normal" | "optional";
-
-export type FieldValueSeed =
-  Readonly<{ kind: "text"; value: string }> | Readonly<{ kind: "reference"; nodeId: string }>;
-
-export type FieldInitializer =
-  | Readonly<{ kind: "literal"; values: readonly FieldValueSeed[] }>
-  | Readonly<{ kind: "application-node-text" }>;
-
-export type FieldTemplateConfig = Readonly<{
-  visibility: FieldVisibility;
-  staticDefault: readonly FieldValueSeed[] | null;
-  initializer: FieldInitializer | null;
-}>;
-
-export const DEFAULT_FIELD_TEMPLATE_CONFIG: FieldTemplateConfig = {
-  visibility: "normal",
-  staticDefault: null,
-  initializer: null,
-};
-
 export type Mutation =
-  | Readonly<{ kind: "node-create"; nodeId: string }>
+  | Readonly<{ kind: "node-create"; nodeId: string; seed?: NodeSeed }>
   | Readonly<{ kind: "node-delete"; nodeId: string }>
   | Readonly<{ kind: "node-restore"; nodeId: string; deletionFactId: FactId }>
   | Readonly<{
       kind: "occurrence-create";
       occurrenceId: string;
       nodeId: string;
-      parentOccurrenceId: string | null;
-      parentPolicy: "cascade" | "rehome";
+      parentNodeId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
       kind: "occurrence-delete";
       occurrenceId: string;
-      childPolicy: "cascade" | "rehome";
-      previousParentOccurrenceId?: string | null;
+      previousParentNodeId?: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
       kind: "occurrence-restore";
       occurrenceId: string;
       deletionFactId: FactId;
-      parentOccurrenceId: string | null;
+      parentNodeId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
       kind: "occurrence-move";
       occurrenceId: string;
-      parentOccurrenceId: string | null;
+      parentNodeId: string;
       anchor: SequenceAnchor;
-      previousParentOccurrenceId?: string | null;
+      previousParentNodeId?: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "canonical-occurrence-set";
+      kind: "node-owner-set";
       nodeId: string;
-      occurrenceId: string;
-      previousOccurrenceId?: string | null;
+      ownerNodeId: string;
+      previousOwnerNodeId?: string;
     }>
   | Readonly<{
       kind: "schema-apply";
@@ -127,18 +107,23 @@ export type Mutation =
       kind: "schema-field-add";
       schemaId: string;
       fieldDefinitionId: string;
+      fieldNodeId: string;
+      fieldOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
       kind: "schema-field-remove";
       schemaId: string;
       fieldDefinitionId: string;
+      fieldNodeId: string;
+      fieldOccurrenceId: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
       kind: "schema-field-configure";
       schemaId: string;
       fieldDefinitionId: string;
+      fieldNodeId: string;
       config: FieldTemplateConfig;
       previousConfig?: FieldTemplateConfig | null;
       observedConfigFactIds?: readonly FactId[];
@@ -159,21 +144,26 @@ export type Mutation =
       kind: "schema-template-node-add";
       schemaId: string;
       templateNodeId: string;
+      templateOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
       kind: "schema-template-node-remove";
       schemaId: string;
       templateNodeId: string;
+      templateOccurrenceId: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
       kind: "template-node-detach";
       ownerNodeId: string;
       templateNodeId: string;
+      instanceNodeId: string;
+      instanceOccurrenceId: string;
+      anchor: SequenceAnchor;
       sourceSchemaIds?: readonly string[];
       sourceApplicationSchemaIds?: readonly string[];
-      sourceTemplateItemIds?: readonly string[];
+      sourceTemplateOccurrenceIds?: readonly string[];
     }>
   | Readonly<{
       kind: "field-materialize";
@@ -188,8 +178,10 @@ export type Mutation =
       ownerNodeId: string;
       schemaId: string;
       fieldDefinitionId: string;
+      fieldNodeId: string;
+      fieldOccurrenceId: string;
       source: "static-default" | "auto-initialize";
-      values: readonly FieldValueSeed[];
+      values: readonly InitializedFieldValue[];
       observedInitializationFactIds?: readonly FactId[];
     }>
   | Readonly<{
@@ -215,7 +207,7 @@ export type Mutation =
     }>
   | Readonly<{
       kind: "value-set";
-      owner: ValueOwner;
+      target: ValueTarget;
       namespace: "property" | "metadata" | "schema";
       key: string;
       value: JsonValue;
@@ -223,7 +215,7 @@ export type Mutation =
     }>
   | Readonly<{
       kind: "value-unset";
-      owner: ValueOwner;
+      target: ValueTarget;
       namespace: "property" | "metadata" | "schema";
       key: string;
       previous?: PreviousValue;
@@ -272,6 +264,7 @@ export type Fact = Readonly<{
   schemaVersion: typeof FACT_SCHEMA_VERSION;
   workspaceId: WorkspaceId;
   id: FactId;
+  transaction: FactTransactionPosition;
   coordinate: CausalCoordinate;
   body: FactBody;
   contentDigest: string;
@@ -289,12 +282,19 @@ export type FactSnapshot = Readonly<{
 export type Admission = Readonly<{
   kind: "ready" | "pending" | "fault";
   snapshot: FactSnapshot;
-  pendingFactIds: readonly FactId[];
+  pendingTransactionIds: readonly FactTransactionId[];
   fault: string | null;
 }>;
 
 export type { AuthorityReceipt, HistoryOperation, ReceiptLineage } from "./authority-types.js";
 export type { FieldContentDeletionMutation } from "./field-content-types.js";
+export type {
+  FactTransaction,
+  FactTransactionId,
+  FactTransactionPlan,
+  FactTransactionPosition,
+  FactWrite,
+} from "./transaction-types.js";
 
 export type AuthorityRecord =
   | Readonly<{ recordKind: "fact"; fact: Fact }>
@@ -311,6 +311,7 @@ export type SchemaVersion = string;
 export type ProjectionGenerationId = string;
 
 export type ProjectionIdentity = Readonly<{
+  workspaceNodeId: WorkspaceId;
   generationId: ProjectionGenerationId;
   frontier: FactFrontier;
   rulesVersion: RulesVersion;

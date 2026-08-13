@@ -12,17 +12,17 @@ export function projectionPageMaps(
   | "nodes"
   | "occurrences"
   | "children"
-  | "canonicalOccurrences"
+  | "nodeOwners"
   | "addressedValues"
   | "schemaApplications"
   | "schemaFields"
-  | "schemaFieldItems"
+  | "templateFields"
   | "schemaTemplateNodes"
   | "templateNodeInstances"
   | "schemaExtensions"
   | "schemaSearchMembers"
   | "schemaExtensionConflicts"
-  | "definitionStatuses"
+  | "nodeStatuses"
   | "conflictIssues"
   | "effectiveFields"
   | "materializedFields"
@@ -32,15 +32,14 @@ export function projectionPageMaps(
     nodes: section === "nodes" ? (indexed as ProjectionPage["nodes"]) : {},
     occurrences: section === "occurrences" ? (indexed as ProjectionPage["occurrences"]) : {},
     children: section === "children" ? (indexed as ProjectionPage["children"]) : {},
-    canonicalOccurrences:
-      section === "canonicalOccurrences" ? (indexed as ProjectionPage["canonicalOccurrences"]) : {},
+    nodeOwners: section === "nodeOwners" ? (indexed as ProjectionPage["nodeOwners"]) : {},
     addressedValues:
       section === "addressedValues" ? (indexed as ProjectionPage["addressedValues"]) : {},
     schemaApplications:
       section === "schemaApplications" ? (indexed as ProjectionPage["schemaApplications"]) : {},
     schemaFields: section === "schemaFields" ? (indexed as ProjectionPage["schemaFields"]) : {},
-    schemaFieldItems:
-      section === "schemaFieldItems" ? (indexed as ProjectionPage["schemaFieldItems"]) : {},
+    templateFields:
+      section === "templateFields" ? (indexed as ProjectionPage["templateFields"]) : {},
     schemaTemplateNodes:
       section === "schemaTemplateNodes" ? (indexed as ProjectionPage["schemaTemplateNodes"]) : {},
     templateNodeInstances:
@@ -55,8 +54,7 @@ export function projectionPageMaps(
       section === "schemaExtensionConflicts"
         ? (indexed as ProjectionPage["schemaExtensionConflicts"])
         : {},
-    definitionStatuses:
-      section === "definitionStatuses" ? (indexed as ProjectionPage["definitionStatuses"]) : {},
+    nodeStatuses: section === "nodeStatuses" ? (indexed as ProjectionPage["nodeStatuses"]) : {},
     conflictIssues:
       section === "conflictIssues" ? (indexed as ProjectionPage["conflictIssues"]) : {},
     effectiveFields:

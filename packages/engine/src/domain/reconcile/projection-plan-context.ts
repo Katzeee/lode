@@ -5,25 +5,25 @@ import type {
   ProjectionIdentity,
   ViewMode,
 } from "../fact/index.js";
-import type { OwnerKey } from "./owner-dag.js";
+import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type {
   EffectiveField,
   MaterializedField,
-  DefinitionStatus,
+  NodeStatus,
   Projection,
-  ProjectionOwnerCache,
+  ProjectionPlanCache,
   ProjectionVersions,
-  SchemaFieldItem,
+  TemplateField,
   TemplateNodeInstance,
 } from "./projection-types.js";
 import type { ConflictIssue } from "../conflict/types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { stripProjectedValues } from "./projection-value-assembly.js";
 
-export type ProjectionOwnerObserver = (owner: OwnerKey, view: ViewMode) => void;
+export type ProjectionStageObserver = (stage: ProjectionStageKey, view: ViewMode) => void;
 
-export type ProjectionOwnerContext = {
+export type ProjectionPlanContext = {
   readonly snapshot: FactSnapshot;
   readonly view: ViewMode;
   active: readonly ContributionFact[];
@@ -31,23 +31,24 @@ export type ProjectionOwnerContext = {
   readonly incremental: boolean;
   readonly requiresAllActive: boolean;
   readonly replayAllActive: boolean;
-  readonly previousOwnerCache: ProjectionOwnerCache;
-  readonly observer?: ProjectionOwnerObserver;
+  readonly previousPlanCache: ProjectionPlanCache;
+  readonly observer?: ProjectionStageObserver;
   identity: ProjectionIdentity;
+  workspaceNodeId: string;
   nodes: Map<string, MutableNode>;
   occurrences: Map<string, MutableOccurrence>;
   children: Map<string, string[]>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  canonicalOccurrences: Readonly<Record<string, string>>;
+  nodeOwners: Readonly<Record<string, string | null>>;
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
   schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   templateNodeInstances: readonly TemplateNodeInstance[];
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
+  nodeStatuses: Readonly<Record<string, NodeStatus>>;
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
@@ -55,16 +56,16 @@ export type ProjectionOwnerContext = {
   supportByContribution: Readonly<Record<string, readonly string[]>>;
   managedTextReplayNodeIds: ReadonlySet<string>;
   projection: Projection | null;
-  ownerCache: ProjectionOwnerCache;
+  planCache: ProjectionPlanCache;
 };
 
-export function emptyOwnerContext(
+export function emptyProjectionPlanContext(
   workspaceId: string,
   snapshot: FactSnapshot,
   view: ViewMode,
   versions: ProjectionVersions,
-  observer?: ProjectionOwnerObserver,
-): ProjectionOwnerContext {
+  observer?: ProjectionStageObserver,
+): ProjectionPlanContext {
   return {
     snapshot,
     view,
@@ -75,20 +76,21 @@ export function emptyOwnerContext(
     replayAllActive: false,
     ...(observer ? { observer } : {}),
     identity: projectionIdentity(workspaceId, snapshot, versions),
+    workspaceNodeId: workspaceId,
     nodes: new Map(),
     occurrences: new Map(),
     children: new Map(),
     addressedValues: {},
-    canonicalOccurrences: {},
+    nodeOwners: {},
     schemaApplications: {},
     schemaFields: {},
-    schemaFieldItems: {},
+    templateFields: {},
     schemaTemplateNodes: {},
     templateNodeInstances: [],
     schemaExtensions: {},
     schemaSearchMembers: {},
     schemaExtensionConflicts: {},
-    definitionStatuses: {},
+    nodeStatuses: {},
     conflictIssues: {},
     effectiveFields: {},
     materializedFields: {},
@@ -96,21 +98,21 @@ export function emptyOwnerContext(
     supportByContribution: {},
     managedTextReplayNodeIds: new Set(),
     projection: null,
-    ownerCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
-    previousOwnerCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+    planCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+    previousPlanCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
   };
 }
 
-export function incrementalOwnerContext(
+export function incrementalProjectionPlanContext(
   workspaceId: string,
   previous: Projection,
-  previousCache: ProjectionOwnerCache,
+  previousCache: ProjectionPlanCache,
   snapshot: FactSnapshot,
   active: readonly ContributionFact[],
   versions: ProjectionVersions,
-  selected: ReadonlySet<OwnerKey>,
-  observer?: ProjectionOwnerObserver,
-): ProjectionOwnerContext {
+  selected: ReadonlySet<ProjectionStageKey>,
+  observer?: ProjectionStageObserver,
+): ProjectionPlanContext {
   const stripped = stripProjectedValues(
     previous.nodes,
     previous.occurrences,
@@ -127,6 +129,7 @@ export function incrementalOwnerContext(
     replayAllActive,
     ...(observer ? { observer } : {}),
     identity: projectionIdentity(workspaceId, snapshot, versions),
+    workspaceNodeId: workspaceId,
     nodes: stripped.nodes,
     occurrences: stripped.occurrences,
     children: new Map(
@@ -135,16 +138,16 @@ export function incrementalOwnerContext(
     addressedValues: Object.fromEntries(
       Object.entries(previous.addressedValues).map(([address, values]) => [address, { ...values }]),
     ),
-    canonicalOccurrences: { ...previous.canonicalOccurrences },
+    nodeOwners: { ...previous.nodeOwners },
     schemaApplications: previous.schemaApplications,
     schemaFields: previous.schemaFields,
-    schemaFieldItems: previous.schemaFieldItems,
+    templateFields: previous.templateFields,
     schemaTemplateNodes: previous.schemaTemplateNodes,
     templateNodeInstances: [...previous.templateNodeInstances],
     schemaExtensions: previous.schemaExtensions,
     schemaSearchMembers: previous.schemaSearchMembers,
     schemaExtensionConflicts: previous.schemaExtensionConflicts,
-    definitionStatuses: previous.definitionStatuses,
+    nodeStatuses: previous.nodeStatuses,
     conflictIssues: previous.conflictIssues,
     effectiveFields: previous.effectiveFields,
     materializedFields: previous.materializedFields,
@@ -152,7 +155,7 @@ export function incrementalOwnerContext(
     supportByContribution: previous.supportByContribution,
     managedTextReplayNodeIds: new Set(),
     projection: null,
-    ownerCache: previousCache,
-    previousOwnerCache: previousCache,
+    planCache: previousCache,
+    previousPlanCache: previousCache,
   };
 }

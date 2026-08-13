@@ -6,8 +6,7 @@ import type {
   InvocationId,
   ReplicaId,
 } from "../../domain/fact/index.js";
-import type { AuthorityAdmissionPolicy } from "./fact-store.js";
-import type { LoroFactStoreOptions } from "./loro-fact-store-options.js";
+import type { AuthorityAdmissionPolicy, AuthorityIndexObserver } from "./fact-authority.js";
 import { AuthorityQueryIndex } from "./authority-query-index.js";
 import { sortedReceipts } from "./authority-store-queries.js";
 import { deriveAuthorityCaches } from "./authority-store-state.js";
@@ -22,7 +21,7 @@ export class AuthorityStoreCache {
     private readonly workspaceId: string,
     private readonly replicaId: ReplicaId,
     private readonly admitRecords: AuthorityAdmissionPolicy,
-    private readonly onIndexedWork: LoroFactStoreOptions["onIndexedWork"],
+    private readonly onIndexedWork: AuthorityIndexObserver | undefined,
   ) {}
 
   refresh(records: readonly unknown[], admitted?: Admission): void {

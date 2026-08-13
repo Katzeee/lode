@@ -1,8 +1,8 @@
 import type { Mutation } from "../fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-test-helpers.js";
 import { base, end } from "./reconcile-test-helpers.js";
+import { addPlacedNode } from "./placed-node-test-helpers.js";
 import type { Facts } from "./reconcile-test-helpers.js";
-import { templateNodeItemId } from "./template-node-identity.js";
 
 export const schemaProposalLifecycleCases = {
   "schema-apply": schemaApplyCase,
@@ -19,7 +19,7 @@ export const schemaProposalLifecycleCases = {
 
 function schemaApplyCase(): ProposalLifecycleCase {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
+  addPlacedNode(facts, "schema");
   return lifecycle(facts, {
     kind: "schema-apply",
     nodeId: "node",
@@ -30,7 +30,7 @@ function schemaApplyCase(): ProposalLifecycleCase {
 
 function schemaRemoveCase(): ProposalLifecycleCase {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
+  addPlacedNode(facts, "schema");
   facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
   return lifecycle(facts, {
     kind: "schema-remove",
@@ -46,6 +46,8 @@ function schemaFieldAddCase(): ProposalLifecycleCase {
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
 }
@@ -56,12 +58,16 @@ function schemaFieldRemoveCase(): ProposalLifecycleCase {
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
   return lifecycle(facts, {
     kind: "schema-field-remove",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     previousAnchor: end,
   });
 }
@@ -72,12 +78,16 @@ function schemaFieldConfigureCase(): ProposalLifecycleCase {
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
   return lifecycle(facts, {
     kind: "schema-field-configure",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+
     config: { visibility: "pinned", staticDefault: null, initializer: null },
     previousConfig: { visibility: "normal", staticDefault: null, initializer: null },
     observedConfigFactIds: [],
@@ -116,6 +126,7 @@ function schemaTemplateNodeAddCase(): ProposalLifecycleCase {
     kind: "schema-template-node-add",
     schemaId: "schema",
     templateNodeId: "template",
+    templateOccurrenceId: "schema-template-template-occurrence",
     anchor: end,
   });
 }
@@ -126,12 +137,14 @@ function schemaTemplateNodeRemoveCase(): ProposalLifecycleCase {
     kind: "schema-template-node-add",
     schemaId: "schema",
     templateNodeId: "template",
+    templateOccurrenceId: "schema-template-template-occurrence",
     anchor: end,
   });
   return lifecycle(facts, {
     kind: "schema-template-node-remove",
     schemaId: "schema",
     templateNodeId: "template",
+    templateOccurrenceId: "schema-template-template-occurrence",
     previousAnchor: end,
   });
 }
@@ -142,6 +155,7 @@ function templateNodeDetachCase(): ProposalLifecycleCase {
     kind: "schema-template-node-add",
     schemaId: "schema",
     templateNodeId: "template",
+    templateOccurrenceId: "schema-template-template-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
@@ -149,30 +163,33 @@ function templateNodeDetachCase(): ProposalLifecycleCase {
     kind: "template-node-detach",
     ownerNodeId: "node",
     templateNodeId: "template",
+    instanceNodeId: "template-instance:v1:node:template",
+    instanceOccurrenceId: "template-instance-occ:v1:node:template",
+    anchor: end,
     sourceSchemaIds: ["schema"],
     sourceApplicationSchemaIds: ["schema"],
-    sourceTemplateItemIds: [templateNodeItemId("schema", "template")],
+    sourceTemplateOccurrenceIds: ["schema-template-template-occurrence"],
   });
 }
 
 function schemaAndFieldFacts(): Facts {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
-  facts.add({ kind: "node-create", nodeId: "field" });
+  addPlacedNode(facts, "schema");
+  addPlacedNode(facts, "field");
   return facts;
 }
 
 function schemaPairFacts(): Facts {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
-  facts.add({ kind: "node-create", nodeId: "base-schema" });
+  addPlacedNode(facts, "schema");
+  addPlacedNode(facts, "base-schema");
   return facts;
 }
 
 function schemaAndTemplateFacts(): Facts {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
-  facts.add({ kind: "node-create", nodeId: "template" });
+  addPlacedNode(facts, "schema");
+  addPlacedNode(facts, "template");
   return facts;
 }
 

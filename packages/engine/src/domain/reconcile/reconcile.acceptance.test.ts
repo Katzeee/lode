@@ -86,7 +86,7 @@ describe("production Reconcile", () => {
     );
     expect(checkpointTail).toEqual(incremental);
     expect(incremental.stats).toEqual({
-      evaluatedOwners: ["activation", "text", "assembly"],
+      evaluatedStages: ["activation", "text", "assembly"],
       supportPasses: 0,
     });
   });
@@ -201,8 +201,7 @@ describe("production Reconcile", () => {
                 kind: "occurrence-create",
                 occurrenceId: "second",
                 nodeId: "node",
-                parentOccurrenceId: null,
-                parentPolicy: "cascade",
+                parentNodeId: "workspace",
                 anchor: end,
               });
             },
@@ -219,8 +218,7 @@ describe("production Reconcile", () => {
               facts.add({
                 kind: "occurrence-delete",
                 occurrenceId: "occurrence",
-                childPolicy: "cascade",
-                previousParentOccurrenceId: null,
+                previousParentNodeId: "workspace",
                 previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
               });
             },
@@ -234,8 +232,7 @@ describe("production Reconcile", () => {
           const deletion = facts.add({
             kind: "occurrence-delete",
             occurrenceId: "occurrence",
-            childPolicy: "cascade",
-            previousParentOccurrenceId: null,
+            previousParentNodeId: "workspace",
             previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
           });
           return {
@@ -245,7 +242,7 @@ describe("production Reconcile", () => {
                 kind: "occurrence-restore",
                 occurrenceId: "occurrence",
                 deletionFactId: deletion.id,
-                parentOccurrenceId: null,
+                parentNodeId: "workspace",
                 anchor: end,
               });
             },
@@ -256,23 +253,16 @@ describe("production Reconcile", () => {
         name: "occurrence-move",
         prepare: () => {
           const facts = base();
-          facts.add({
-            kind: "occurrence-create",
-            occurrenceId: "parent",
-            nodeId: "node",
-            parentOccurrenceId: null,
-            parentPolicy: "cascade",
-            anchor: end,
-          });
+          facts.add({ kind: "node-create", nodeId: "parent" });
           return {
             facts,
             tail: () => {
               facts.add({
                 kind: "occurrence-move",
                 occurrenceId: "occurrence",
-                parentOccurrenceId: "parent",
+                parentNodeId: "parent",
                 anchor: end,
-                previousParentOccurrenceId: null,
+                previousParentNodeId: "workspace",
                 previousAnchor: {
                   after: null,
                   before: "parent",
@@ -295,20 +285,21 @@ describe("production Reconcile", () => {
       expect(incremental.generation, testCase.name).toEqual(
         rebuildGeneration("workspace", after, versions).generation,
       );
-      expect(incremental.stats.evaluatedOwners, testCase.name).not.toContain("value");
-      expect(incremental.stats.evaluatedOwners, testCase.name).not.toHaveLength(8);
+      expect(incremental.stats.evaluatedStages, testCase.name).not.toContain("value");
+      expect(incremental.stats.evaluatedStages, testCase.name).not.toHaveLength(8);
     }
   });
 
-  it("incremental schema and field tails retain previously materialized addressed values", () => {
+  it("incremental Schema Node values remain on the Node", () => {
     const facts = base();
+    facts.add({ kind: "node-create", nodeId: "schema" });
     for (const [key, value] of [
       ["a", 1],
       ["b", 2],
     ] as const) {
       facts.add({
         kind: "value-set",
-        owner: { kind: "schema", id: "schema" },
+        target: { kind: "node", id: "schema" },
         namespace: "schema",
         key,
         value,
@@ -318,7 +309,7 @@ describe("production Reconcile", () => {
     const generation = rebuildGeneration("workspace", before, versions).generation;
     facts.add({
       kind: "value-set",
-      owner: { kind: "schema", id: "schema" },
+      target: { kind: "node", id: "schema" },
       namespace: "schema",
       key: "c",
       value: 3,
@@ -329,7 +320,7 @@ describe("production Reconcile", () => {
     const full = rebuildGeneration("workspace", after, versions);
 
     expect(incremental.generation).toEqual(full.generation);
-    expect(incremental.generation.origin.addressedValues["schema/schema/schema"]).toEqual({
+    expect(incremental.generation.origin.nodes.schema?.properties).toEqual({
       a: 1,
       b: 2,
       c: 3,
@@ -349,11 +340,12 @@ describe("production Reconcile", () => {
 
     expect(proposalProjection.nodes).toEqual(directProjection.nodes);
     expect(proposalProjection.occurrences).toEqual(directProjection.occurrences);
-    expect(proposalProjection.canonicalOccurrences).toEqual(directProjection.canonicalOccurrences);
+    expect(proposalProjection.nodeOwners).toEqual(directProjection.nodeOwners);
   });
 
   it("MODEL-2 node and occurrence ownership preserves transclusion", () => {
     const facts = base();
+    facts.add({ kind: "node-create", nodeId: "reference-parent" });
     facts.add({
       kind: "text-splice",
       nodeId: "node",
@@ -365,8 +357,7 @@ describe("production Reconcile", () => {
       kind: "occurrence-create",
       occurrenceId: "reference",
       nodeId: "node",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "reference-parent",
       anchor: end,
     });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
@@ -375,8 +366,8 @@ describe("production Reconcile", () => {
     expect(
       Object.values(projection.occurrences).filter((value) => value.nodeId === "node"),
     ).toHaveLength(2);
-    expect(projection.occurrences.occurrence?.parentOccurrenceId).toBeNull();
-    expect(projection.occurrences.reference?.parentOccurrenceId).toBeNull();
+    expect(projection.occurrences.occurrence?.parentNodeId).toBe("workspace");
+    expect(projection.occurrences.reference?.parentNodeId).toBe("reference-parent");
   });
 
   it("MODEL-3 stored structure stays valid across projection cycles", () => {
@@ -385,20 +376,19 @@ describe("production Reconcile", () => {
       kind: "occurrence-create",
       occurrenceId: "self-reference",
       nodeId: "node",
-      parentOccurrenceId: "occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "node",
       anchor: end,
     });
     facts.add({
       kind: "occurrence-move",
       occurrenceId: "occurrence",
-      parentOccurrenceId: "self-reference",
+      parentNodeId: "node",
       anchor: end,
     });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
 
-    expect(projection.occurrences.occurrence?.parentOccurrenceId).toBeNull();
-    expect(projection.occurrences["self-reference"]?.parentOccurrenceId).toBe("occurrence");
+    expect(projection.occurrences.occurrence?.parentNodeId).toBe("workspace");
+    expect(projection.occurrences["self-reference"]?.parentNodeId).toBe("node");
   });
 
   it("MODEL-4 lifecycle restore is explicit and deletion-aware", () => {
@@ -421,26 +411,23 @@ describe("production Reconcile", () => {
     const firstDelete = occurrenceFacts.add({
       kind: "occurrence-delete",
       occurrenceId: "occurrence",
-      childPolicy: "rehome",
     });
     occurrenceFacts.add({
       kind: "occurrence-delete",
       occurrenceId: "occurrence",
-      childPolicy: "rehome",
     });
     occurrenceFacts.add({
       kind: "occurrence-restore",
       occurrenceId: "occurrence",
       deletionFactId: firstDelete.id,
-      parentOccurrenceId: null,
+      parentNodeId: "workspace",
       anchor: end,
     });
     occurrenceFacts.add({
       kind: "occurrence-create",
       occurrenceId: "occurrence",
       nodeId: "node",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     expect(

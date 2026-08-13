@@ -1,14 +1,125 @@
 import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
-import { frontierOf, makeFact, type FactFrontier, type Mutation } from "../fact/index.js";
+import {
+  factTransactionId,
+  frontierOf,
+  makeFact,
+  type FactFrontier,
+  type Mutation,
+} from "../fact/index.js";
 import { projectSnapshot, projectionText } from "./projection.js";
 import type { Projection } from "./projection-types.js";
 import { end, Facts, versions } from "./reconcile-test-helpers.js";
+import { addPlacedNode } from "./placed-node-test-helpers.js";
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
+function initializedStatusValue(value: string) {
+  return {
+    kind: "text" as const,
+    nodeId: "initialized-field:v1:task:status-field:value:0",
+    occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
+    value,
+  };
+}
+
 describe("Schema applications and effective Fields", () => {
+  it("materializes initialized Fields on the Workspace Node", () => {
+    const facts = schemaFixture();
+    facts.add({
+      kind: "schema-apply",
+      nodeId: "workspace",
+      schemaId: "project-schema",
+      anchor: end,
+    });
+    facts.add({
+      kind: "field-initialize",
+      ownerNodeId: "workspace",
+      schemaId: "project-schema",
+      fieldDefinitionId: "status-field",
+      fieldNodeId: "initialized-field:v1:workspace:status-field",
+      fieldOccurrenceId: "initialized-field-occ:v1:workspace:status-field",
+      source: "auto-initialize",
+      values: [
+        {
+          kind: "text",
+          nodeId: "initialized-field:v1:workspace:status-field:value:0",
+          occurrenceId: "initialized-field-occ:v1:workspace:status-field:value:0",
+          value: "Ready",
+        },
+      ],
+      observedInitializationFactIds: [],
+    });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+
+    expect(projection.nodeOwners.workspace).toBeNull();
+    expect(projection.materializedFields.workspace?.[0]).toMatchObject({
+      ownerNodeId: "workspace",
+      fieldDefinitionId: "status-field",
+      fieldNodeId: "initialized-field:v1:workspace:status-field",
+    });
+  });
+
+  it("keeps initialized Field Nodes and Value Occurrences on the common lifecycle", () => {
+    const facts = schemaFixture();
+    facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });
+    facts.add({
+      kind: "field-initialize",
+      ownerNodeId: "task",
+      schemaId: "project-schema",
+      fieldDefinitionId: "status-field",
+      fieldNodeId: "initialized-field:v1:task:status-field",
+      fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
+      source: "auto-initialize",
+      values: [initializedStatusValue("Ready")],
+      observedInitializationFactIds: [],
+    });
+
+    const valueNodeId = "initialized-field:v1:task:status-field:value:0";
+    const valueOccurrenceId = "initialized-field-occ:v1:task:status-field:value:0";
+    let projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([
+      valueOccurrenceId,
+    ]);
+    expect(projection.nodeStatuses[valueNodeId]).toMatchObject({
+      nodeId: valueNodeId,
+      roles: [],
+      state: "active",
+    });
+
+    const occurrenceDeletion = facts.add({
+      kind: "occurrence-delete",
+      occurrenceId: valueOccurrenceId,
+    });
+    projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([]);
+    facts.add({
+      kind: "occurrence-restore",
+      occurrenceId: valueOccurrenceId,
+      deletionFactId: occurrenceDeletion.id,
+      parentNodeId: "initialized-field:v1:task:status-field",
+      anchor: end,
+    });
+
+    const nodeDeletion = facts.add({ kind: "node-delete", nodeId: valueNodeId });
+    projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.nodes[valueNodeId]).toBeUndefined();
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([]);
+    expect(projection.nodeStatuses[valueNodeId]).toMatchObject({
+      state: "deleted",
+      deletionFactIds: [nodeDeletion.id],
+    });
+
+    facts.add({ kind: "node-restore", nodeId: valueNodeId, deletionFactId: nodeDeletion.id });
+    projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projectionText(projection, valueNodeId)).toBe("Ready");
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([
+      valueOccurrenceId,
+    ]);
+  });
+
   it("keeps multiple Schema applications and deduplicates a shared Field Definition by source", () => {
     const facts = schemaFixture();
     facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });
@@ -31,6 +142,51 @@ describe("Schema applications and effective Fields", () => {
     ]);
   });
 
+  it("projects each Template Field as a Node owned through its Occurrence under the Schema", () => {
+    const projection = projectSnapshot("workspace", schemaFixture().snapshot(), "origin", versions);
+    const fieldNodeId = "project-schema-status-field-template-field";
+    const fieldOccurrenceId = "project-schema-status-field-template-field-occurrence";
+
+    expect(projection.nodes[fieldNodeId]).toBeDefined();
+    expect(projection.occurrences[fieldOccurrenceId]).toMatchObject({
+      occurrenceId: fieldOccurrenceId,
+      nodeId: fieldNodeId,
+      parentNodeId: "project-schema",
+      derived: false,
+    });
+    expect(projection.children["project-schema"]).toContain(fieldOccurrenceId);
+    expect(projection.nodeOwners[fieldNodeId]).toBe("project-schema");
+  });
+
+  it("orders Template Fields and ordinary Template Nodes in one Occurrence sequence", () => {
+    const facts = schemaFixture();
+    const fieldOccurrenceId = "project-schema-status-field-template-field-occurrence";
+    facts.add({ kind: "node-create", nodeId: "project-guidance" });
+    facts.add({
+      kind: "schema-template-node-add",
+      schemaId: "project-schema",
+      templateNodeId: "project-guidance",
+      templateOccurrenceId: "project-guidance-template-occurrence",
+      anchor: {
+        after: fieldOccurrenceId,
+        before: null,
+        affinity: "after",
+        fallback: "end",
+      },
+    });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.children["project-schema"]).toEqual([
+      fieldOccurrenceId,
+      "project-guidance-template-occurrence",
+    ]);
+    expect(projection.occurrences["project-guidance-template-occurrence"]).toMatchObject({
+      nodeId: "project-guidance",
+      parentNodeId: "project-schema",
+      derived: false,
+    });
+  });
+
   it("keeps deleted Definition identity and restores its existing relationships and configuration", () => {
     const facts = schemaFixture();
     facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });
@@ -39,9 +195,9 @@ describe("Schema applications and effective Fields", () => {
     let projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projection.schemaApplications.task).toEqual(["project-schema"]);
     expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
-    expect(projection.definitionStatuses["project-schema"]).toEqual({
-      definitionId: "project-schema",
-      kinds: ["schema"],
+    expect(projection.nodeStatuses["project-schema"]).toEqual({
+      nodeId: "project-schema",
+      roles: ["schema"],
       state: "deleted",
       deletionFactIds: [schemaDeletion.id],
     });
@@ -56,8 +212,8 @@ describe("Schema applications and effective Fields", () => {
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projection.schemaApplications.task).toEqual(["project-schema"]);
     expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
-    expect(projection.definitionStatuses["status-field"]).toMatchObject({
-      kinds: ["field"],
+    expect(projection.nodeStatuses["status-field"]).toMatchObject({
+      roles: ["field"],
       state: "deleted",
       deletionFactIds: [fieldDeletion.id],
     });
@@ -69,8 +225,8 @@ describe("Schema applications and effective Fields", () => {
       deletionFactId: fieldDeletion.id,
     });
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.definitionStatuses["project-schema"]?.state).toBe("active");
-    expect(projection.definitionStatuses["status-field"]?.state).toBe("active");
+    expect(projection.nodeStatuses["project-schema"]?.state).toBe("active");
+    expect(projection.nodeStatuses["status-field"]?.state).toBe("active");
     expect(fieldSummaries(projection.effectiveFields.task)).toEqual([
       {
         fieldDefinitionId: "status-field",
@@ -89,6 +245,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-configure",
         schemaId: "project-schema",
         fieldDefinitionId: "status-field",
+        fieldNodeId: "project-schema-status-field-template-field",
+
         config: {
           visibility: "pinned",
           staticDefault: [{ kind: "text", value: "Planned" }],
@@ -108,6 +266,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-configure",
         schemaId: "project-schema",
         fieldDefinitionId: "status-field",
+        fieldNodeId: "project-schema-status-field-template-field",
+
         config: {
           visibility: "normal",
           staticDefault: [{ kind: "text", value: "Started" }],
@@ -126,10 +286,10 @@ describe("Schema applications and effective Fields", () => {
       throw new Error("Expected concurrent Field config Facts");
     }
     let projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.schemaFieldItems["project-schema"]?.[0]).toMatchObject({
+    expect(projection.templateFields["project-schema"]?.[0]).toMatchObject({
       effectiveConfig: null,
     });
-    expect(projection.schemaFieldItems["project-schema"]?.[0]?.configCandidates).toHaveLength(2);
+    expect(projection.templateFields["project-schema"]?.[0]?.configCandidates).toHaveLength(2);
     expect(
       Object.values(projection.conflictIssues).filter(
         (issue) => issue.kind === "field-config-conflict",
@@ -141,6 +301,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-configure",
         schemaId: "project-schema",
         fieldDefinitionId: "status-field",
+        fieldNodeId: "project-schema-status-field-template-field",
+
         config: {
           visibility: "pinned",
           staticDefault: [{ kind: "text", value: "Planned" }],
@@ -159,7 +321,7 @@ describe("Schema applications and effective Fields", () => {
     }
     expect(admission.kind).toBe("ready");
     projection = projectSnapshot("workspace", admission.snapshot, "origin", versions);
-    expect(projection.schemaFieldItems["project-schema"]?.[0]?.effectiveConfig).toMatchObject({
+    expect(projection.templateFields["project-schema"]?.[0]?.effectiveConfig).toMatchObject({
       staticDefault: [{ kind: "text", value: "Planned" }],
     });
     expect(
@@ -171,39 +333,45 @@ describe("Schema applications and effective Fields", () => {
 
   it("preserves divergent concurrent initializers as candidates until an observing choice", () => {
     const facts = schemaFixture();
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "task-occurrence",
-      nodeId: "task",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
-      anchor: end,
-    });
     facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end });
     const baseFrontier = frontierOf(facts.values);
-    appendRemote(facts, "bbbbbbbbbbbbbbbbbbbbbbbbbb", baseFrontier, [
-      {
-        kind: "field-initialize",
-        ownerNodeId: "task",
-        schemaId: "project-schema",
-        fieldDefinitionId: "status-field",
-        source: "auto-initialize",
-        values: [{ kind: "text", value: "Device B" }],
-        observedInitializationFactIds: [],
-      },
-    ]);
+    appendRemote(
+      facts,
+      "bbbbbbbbbbbbbbbbbbbbbbbbbb",
+      baseFrontier,
+      initializationBundle("Device B", [
+        {
+          kind: "field-initialize",
+          ownerNodeId: "task",
+          schemaId: "project-schema",
+          fieldDefinitionId: "status-field",
+          fieldNodeId: "initialized-field:v1:task:status-field",
+          fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
+          source: "auto-initialize",
+          values: [initializedStatusValue("Device B")],
+          observedInitializationFactIds: [],
+        },
+      ]),
+    );
     const deviceB = facts.values.at(-1);
-    appendRemote(facts, "cccccccccccccccccccccccccc", baseFrontier, [
-      {
-        kind: "field-initialize",
-        ownerNodeId: "task",
-        schemaId: "project-schema",
-        fieldDefinitionId: "status-field",
-        source: "auto-initialize",
-        values: [{ kind: "text", value: "Device C" }],
-        observedInitializationFactIds: [],
-      },
-    ]);
+    appendRemote(
+      facts,
+      "cccccccccccccccccccccccccc",
+      baseFrontier,
+      initializationBundle("Device C", [
+        {
+          kind: "field-initialize",
+          ownerNodeId: "task",
+          schemaId: "project-schema",
+          fieldDefinitionId: "status-field",
+          fieldNodeId: "initialized-field:v1:task:status-field",
+          fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
+          source: "auto-initialize",
+          values: [initializedStatusValue("Device C")],
+          observedInitializationFactIds: [],
+        },
+      ]),
+    );
     const deviceC = facts.values.at(-1);
     if (!deviceB || !deviceC) {
       throw new Error("Expected concurrent initialization Facts");
@@ -223,8 +391,10 @@ describe("Schema applications and effective Fields", () => {
         ownerNodeId: "task",
         schemaId: "project-schema",
         fieldDefinitionId: "status-field",
+        fieldNodeId: "initialized-field:v1:task:status-field",
+        fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
         source: "auto-initialize",
-        values: [{ kind: "text", value: "Device B" }],
+        values: [initializedStatusValue("Device B")],
         observedInitializationFactIds: [deviceB.id, deviceC.id],
       },
     ]);
@@ -295,6 +465,8 @@ describe("Schema applications and effective Fields", () => {
       kind: "schema-field-add",
       schemaId: "project-schema",
       fieldDefinitionId: "owner-field",
+      fieldNodeId: "project-schema-owner-field-template-field",
+      fieldOccurrenceId: "project-schema-owner-field-template-field-occurrence",
       anchor: end,
     });
     const afterField = frontierOf(facts.values);
@@ -303,6 +475,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-remove",
         schemaId: "project-schema",
         fieldDefinitionId: "owner-field",
+        fieldNodeId: "project-schema-owner-field-template-field",
+        fieldOccurrenceId: "project-schema-owner-field-template-field-occurrence",
       },
     ]);
     appendRemote(facts, "eeeeeeeeeeeeeeeeeeeeeeeeee", beforeField, [
@@ -310,6 +484,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-add",
         schemaId: "project-schema",
         fieldDefinitionId: "owner-field",
+        fieldNodeId: "project-schema-owner-field-template-field",
+        fieldOccurrenceId: "project-schema-owner-field-template-field-occurrence",
         anchor: end,
       },
     ]);
@@ -327,6 +503,8 @@ describe("Schema applications and effective Fields", () => {
         kind: "schema-field-remove",
         schemaId: "project-schema",
         fieldDefinitionId: "owner-field",
+        fieldNodeId: "project-schema-owner-field-template-field",
+        fieldOccurrenceId: "project-schema-owner-field-template-field-occurrence",
       },
     ]);
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
@@ -343,12 +521,16 @@ describe("Schema applications and effective Fields", () => {
       kind: "schema-field-add",
       schemaId: "base",
       fieldDefinitionId: "base-field",
+      fieldNodeId: "base-base-field-template-field",
+      fieldOccurrenceId: "base-base-field-template-field-occurrence",
       anchor: end,
     });
     facts.add({
       kind: "schema-field-add",
       schemaId: "child",
       fieldDefinitionId: "child-field",
+      fieldNodeId: "child-child-field-template-field",
+      fieldOccurrenceId: "child-child-field-template-field-occurrence",
       anchor: end,
     });
     facts.add({
@@ -406,12 +588,16 @@ describe("Schema applications and effective Fields", () => {
       kind: "schema-field-add",
       schemaId: "schema-a",
       fieldDefinitionId: "field-a",
+      fieldNodeId: "schema-a-field-a-template-field",
+      fieldOccurrenceId: "schema-a-field-a-template-field-occurrence",
       anchor: end,
     });
     facts.add({
       kind: "schema-field-add",
       schemaId: "schema-b",
       fieldDefinitionId: "field-b",
+      fieldNodeId: "schema-b-field-b-template-field",
+      fieldOccurrenceId: "schema-b-field-b-template-field-occurrence",
       anchor: end,
     });
     const branch = frontierOf(facts.values);
@@ -472,8 +658,7 @@ describe("Schema applications and effective Fields", () => {
       kind: "occurrence-create",
       occurrenceId: "task-occurrence",
       nodeId: "task",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     for (const nodeId of ["status-on-task", "todo-value", "project-reference"]) {
@@ -483,8 +668,7 @@ describe("Schema applications and effective Fields", () => {
       kind: "occurrence-create",
       occurrenceId: "status-on-task-occurrence",
       nodeId: "status-on-task",
-      parentOccurrenceId: "task-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "task",
       anchor: end,
     });
     facts.add({
@@ -498,16 +682,14 @@ describe("Schema applications and effective Fields", () => {
       kind: "occurrence-create",
       occurrenceId: "todo-value-occurrence",
       nodeId: "todo-value",
-      parentOccurrenceId: "status-on-task-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "status-on-task",
       anchor: end,
     });
     facts.add({
       kind: "occurrence-create",
       occurrenceId: "project-reference-occurrence",
       nodeId: "project-reference",
-      parentOccurrenceId: "status-on-task-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "status-on-task",
       anchor: end,
     });
 
@@ -571,8 +753,7 @@ describe("Schema applications and effective Fields", () => {
       kind: "occurrence-create",
       occurrenceId: "task-occurrence",
       nodeId: "task",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     const branchFrontier = frontierOf(facts.values);
@@ -622,8 +803,7 @@ function appendMaterializationBranch(
       kind: "occurrence-create",
       occurrenceId: `${prefix}-field-occurrence`,
       nodeId: `${prefix}-field`,
-      parentOccurrenceId: "task-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "task",
       anchor: end,
     },
     {
@@ -638,8 +818,7 @@ function appendMaterializationBranch(
       kind: "occurrence-create",
       occurrenceId: `${prefix}-value-occurrence`,
       nodeId: `${prefix}-value`,
-      parentOccurrenceId: `${prefix}-field-occurrence`,
-      parentPolicy: "cascade",
+      parentNodeId: `${prefix}-field`,
       anchor: end,
     },
     {
@@ -652,12 +831,51 @@ function appendMaterializationBranch(
   ]);
 }
 
+function initializationBundle(value: string, semantic: readonly Mutation[]): readonly Mutation[] {
+  return [
+    {
+      kind: "node-create",
+      nodeId: "initialized-field:v1:task:status-field",
+      seed: {
+        text: [],
+        properties: { fieldDefinitionId: "status-field" },
+        metadata: { initializedBy: "auto-initialize" },
+      },
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "initialized-field-occ:v1:task:status-field",
+      nodeId: "initialized-field:v1:task:status-field",
+      parentNodeId: "task",
+      anchor: end,
+    },
+    {
+      kind: "node-create",
+      nodeId: "initialized-field:v1:task:status-field:value:0",
+      seed: {
+        text: [...value].map((character) => ({ value: character, attributes: {} })),
+        properties: {},
+        metadata: { initializedBy: "auto-initialize" },
+      },
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
+      nodeId: "initialized-field:v1:task:status-field:value:0",
+      parentNodeId: "initialized-field:v1:task:status-field",
+      anchor: end,
+    },
+    ...semantic,
+  ];
+}
+
 function appendRemote(
   facts: Facts,
   replicaId: string,
   baseFrontier: FactFrontier,
   mutations: readonly Mutation[],
 ): void {
+  const transactionId = factTransactionId("workspace", replicaId, 1);
   for (const [index, mutation] of mutations.entries()) {
     const observed = { ...baseFrontier, ...(index > 0 ? { [replicaId]: index } : {}) };
     const maxObservedLamport = facts.values.reduce(
@@ -674,6 +892,7 @@ function appendRemote(
         sequence: index + 1,
         observed,
         lamport: maxObservedLamport + 1,
+        transaction: { transactionId, index, size: mutations.length },
         body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
       }),
     );
@@ -691,24 +910,30 @@ function fieldSummaries(fields: Projection["effectiveFields"][string] | undefine
 function schemaFixture(): Facts {
   const facts = new Facts();
   for (const nodeId of ["task", "project-schema", "work-schema", "status-field", "owner-field"]) {
-    facts.add({ kind: "node-create", nodeId });
+    addPlacedNode(facts, nodeId);
   }
   facts.add({
     kind: "schema-field-add",
     schemaId: "project-schema",
     fieldDefinitionId: "status-field",
+    fieldNodeId: "project-schema-status-field-template-field",
+    fieldOccurrenceId: "project-schema-status-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({
     kind: "schema-field-add",
     schemaId: "work-schema",
     fieldDefinitionId: "status-field",
+    fieldNodeId: "work-schema-status-field-template-field",
+    fieldOccurrenceId: "work-schema-status-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({
     kind: "schema-field-add",
     schemaId: "work-schema",
     fieldDefinitionId: "owner-field",
+    fieldNodeId: "work-schema-owner-field-template-field",
+    fieldOccurrenceId: "work-schema-owner-field-template-field-occurrence",
     anchor: end,
   });
   return facts;

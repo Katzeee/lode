@@ -7,20 +7,18 @@ import {
   type WorkspaceId,
 } from "../../domain/fact/index.js";
 import type { SyncBytes, SyncableDoc } from "../../sync/syncable.js";
-import { readAuthorityRecords, validRecordPrefix } from "./loro-authority-records.js";
-import type { AuthorityAdmissionPolicy } from "./fact-store.js";
+import { validRecordPrefix } from "./authority-records.js";
+import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 
 export function buildFactSyncProjection(
   workspaceId: WorkspaceId,
   peerId: `${number}`,
-  authority: LoroDoc,
+  authorityRecords: readonly unknown[],
   admit: AuthorityAdmissionPolicy,
 ): LoroDoc {
   const projection = new LoroDoc();
   projection.setPeerId(peerId);
-  const records = parseAuthorityRecords(
-    validRecordPrefix(workspaceId, readAuthorityRecords(authority), admit),
-  );
+  const records = parseAuthorityRecords(validRecordPrefix(workspaceId, authorityRecords, admit));
   const map = projection.getMap<string>("facts");
   for (const record of records) {
     if (record.recordKind === "fact") {

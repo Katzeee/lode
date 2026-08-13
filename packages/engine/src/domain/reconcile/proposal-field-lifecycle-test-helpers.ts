@@ -1,6 +1,7 @@
 import type { Mutation } from "../fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-test-helpers.js";
 import { base, end } from "./reconcile-test-helpers.js";
+import { addPlacedNode } from "./placed-node-test-helpers.js";
 import type { Facts } from "./reconcile-test-helpers.js";
 
 export const fieldProposalLifecycleCases = {
@@ -28,7 +29,7 @@ function fieldValueDeleteCase(): ProposalLifecycleCase {
     ownerNodeId: "node",
     fieldDefinitionId: "field",
     valueOccurrenceId: "value-occurrence",
-    previousParentOccurrenceId: "field-occurrence",
+    previousParentNodeId: "field-node",
     previousAnchor: end,
   });
 }
@@ -41,7 +42,7 @@ function materializedFieldDeleteCase(): ProposalLifecycleCase {
     fieldDefinitionId: "field",
     fieldNodeId: "field-node",
     fieldOccurrenceId: "field-occurrence",
-    previousParentOccurrenceId: "occurrence",
+    previousParentNodeId: "node",
     previousAnchor: end,
   });
 }
@@ -52,6 +53,8 @@ function fieldInitializeCase(): ProposalLifecycleCase {
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
@@ -59,6 +62,8 @@ function fieldInitializeCase(): ProposalLifecycleCase {
     kind: "schema-field-configure",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+
     config: {
       visibility: "normal",
       staticDefault: [{ kind: "text", value: "default" }],
@@ -72,8 +77,17 @@ function fieldInitializeCase(): ProposalLifecycleCase {
     ownerNodeId: "node",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "initialized-field:v1:node:field",
+    fieldOccurrenceId: "initialized-field-occ:v1:node:field",
     source: "static-default",
-    values: [{ kind: "text", value: "default" }],
+    values: [
+      {
+        kind: "text",
+        nodeId: "initialized-field:v1:node:field:value:0",
+        occurrenceId: "initialized-field-occ:v1:node:field:value:0",
+        value: "default",
+      },
+    ],
     observedInitializationFactIds: [],
   });
 }
@@ -85,14 +99,15 @@ function materializedFieldFacts(withValue: boolean, withMaterialization = true):
     kind: "occurrence-create",
     occurrenceId: "field-occurrence",
     nodeId: "field-node",
-    parentOccurrenceId: "occurrence",
-    parentPolicy: "cascade",
+    parentNodeId: "node",
     anchor: end,
   });
   facts.add({
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
@@ -111,8 +126,7 @@ function materializedFieldFacts(withValue: boolean, withMaterialization = true):
       kind: "occurrence-create",
       occurrenceId: "value-occurrence",
       nodeId: "value-node",
-      parentOccurrenceId: "field-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "field-node",
       anchor: end,
     });
   }
@@ -121,8 +135,8 @@ function materializedFieldFacts(withValue: boolean, withMaterialization = true):
 
 function schemaAndFieldFacts(): Facts {
   const facts = base();
-  facts.add({ kind: "node-create", nodeId: "schema" });
-  facts.add({ kind: "node-create", nodeId: "field" });
+  addPlacedNode(facts, "schema");
+  addPlacedNode(facts, "field");
   return facts;
 }
 

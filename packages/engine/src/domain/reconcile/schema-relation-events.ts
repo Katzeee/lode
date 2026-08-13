@@ -13,22 +13,10 @@ export const schemaApplicationEvent = relationEvent("schema-apply", "schema-remo
   mutation.schemaId,
 ]);
 
-export const schemaFieldEvent = relationEvent(
-  "schema-field-add",
-  "schema-field-remove",
-  (mutation) => [mutation.schemaId, mutation.fieldDefinitionId],
-);
-
 export const schemaExtensionEvent = relationEvent(
   "schema-extension-add",
   "schema-extension-remove",
   (mutation) => [mutation.schemaId, mutation.baseSchemaId],
-);
-
-export const schemaTemplateNodeEvent = relationEvent(
-  "schema-template-node-add",
-  "schema-template-node-remove",
-  (mutation) => [mutation.schemaId, mutation.templateNodeId],
 );
 
 export function observedRelations(
@@ -61,13 +49,8 @@ export function observedRelations(
 }
 
 function relationEvent<
-  AddKind extends
-    "schema-apply" | "schema-field-add" | "schema-extension-add" | "schema-template-node-add",
-  RemoveKind extends
-    | "schema-remove"
-    | "schema-field-remove"
-    | "schema-extension-remove"
-    | "schema-template-node-remove",
+  AddKind extends "schema-apply" | "schema-extension-add" | "schema-template-node-add",
+  RemoveKind extends "schema-remove" | "schema-extension-remove" | "schema-template-node-remove",
 >(
   addKind: AddKind,
   removeKind: RemoveKind,

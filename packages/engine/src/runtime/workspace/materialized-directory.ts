@@ -5,7 +5,7 @@ import {
   directoryPrefix,
   encodeMaterialized,
   headerDocumentId,
-  ownerCacheDocumentId,
+  planCacheDocumentId,
   shardPrefix,
   type DirectoryNodeReference,
   type DirectoryRoot,
@@ -217,7 +217,7 @@ export async function deleteGenerationDocuments(
     }
   }
   await documents.delete(headerDocumentId(generationId));
-  await documents.delete(ownerCacheDocumentId(generationId));
+  await documents.delete(planCacheDocumentId(generationId));
 }
 
 export async function deleteOrphanMaterializedDocuments(
@@ -227,7 +227,7 @@ export async function deleteOrphanMaterializedDocuments(
   for (const root of [
     "materialized-generation/shard/",
     "materialized-generation/directory/",
-    "materialized-generation/owner-cache/",
+    "materialized-generation/plan-cache/",
   ]) {
     for (const id of await documents.listIds({ prefix: root })) {
       const generationId = id.slice(root.length).split("/")[0];

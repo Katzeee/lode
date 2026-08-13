@@ -14,19 +14,27 @@ import {
   CURRENT_PROJECTION_VERSIONS,
   rebuildGeneration,
   assertMaterializedField,
-  valueOwnerAddress,
   type Projection,
 } from "../reconcile/index.js";
 import { validateSchemaEvidence } from "./schema-evidence.js";
 import { validateTemplateDetachmentEvidence } from "./template-node-evidence.js";
 import { validateFieldContentDeletionEvidence } from "./field-content-evidence.js";
 import { assertDeletion } from "./deletion-evidence.js";
+import {
+  assertOccurrenceParent,
+  validateOccurrenceCreate,
+  validateOccurrenceEvidence,
+} from "./occurrence-evidence.js";
+import { validateDomainTransaction } from "./transaction-validation.js";
 
 export function admitAuthorityRecords(
   workspaceId: WorkspaceId,
   records: readonly unknown[],
 ): Admission {
-  return admitAuthorityRecordShapes(workspaceId, records, validateSemanticEvidence);
+  return admitAuthorityRecordShapes(workspaceId, records, {
+    validateFact: validateSemanticEvidence,
+    validateTransaction: validateDomainTransaction,
+  });
 }
 
 function validateSemanticEvidence(fact: Fact, observed: FactSnapshot): void {
@@ -70,7 +78,7 @@ function validateMutationEvidence(
       return;
     case "value-set":
     case "value-unset":
-      assertValueOwnerAvailable(mutation, available);
+      assertValueTargetAvailable(mutation, available);
       assertSame(
         previousValue(readValue(previous, mutation)),
         mutation.previous,
@@ -81,14 +89,22 @@ function validateMutationEvidence(
     case "occurrence-delete":
       validateOccurrenceEvidence(mutation, previous, available);
       return;
-    case "canonical-occurrence-set":
-      if (available.occurrences[mutation.occurrenceId]?.nodeId !== mutation.nodeId) {
-        throw new Error("Canonical target is absent from the observed projection");
+    case "node-owner-set":
+      if (
+        !available.nodes[mutation.ownerNodeId] ||
+        !Object.values(available.occurrences).some(
+          (occurrence) =>
+            occurrence.nodeId === mutation.nodeId &&
+            occurrence.parentNodeId === mutation.ownerNodeId,
+        )
+      ) {
+        throw new Error("Owner target is absent from the observed projection");
       }
+      assertOwnerAcyclic(mutation.nodeId, mutation.ownerNodeId, previous);
       assertSame(
-        previous.canonicalOccurrences[mutation.nodeId] ?? null,
-        mutation.previousOccurrenceId,
-        "Canonical previous evidence",
+        previous.nodeOwners[mutation.nodeId],
+        mutation.previousOwnerNodeId ?? null,
+        "Owner previous evidence",
       );
       return;
     case "schema-apply":
@@ -121,14 +137,11 @@ function validateMutationEvidence(
       }
       return;
     case "occurrence-create":
-      if (!available.nodes[mutation.nodeId]) {
-        throw new Error("Occurrence Node is absent from the observed projection");
-      }
-      assertParent(available, mutation.parentOccurrenceId);
+      validateOccurrenceCreate(mutation, available);
       return;
     case "occurrence-restore":
       assertDeletion(observed, mutation.deletionFactId, "occurrence-delete", mutation.occurrenceId);
-      assertParent(available, mutation.parentOccurrenceId);
+      assertOccurrenceParent(available, mutation.parentNodeId);
       break;
     case "node-create":
     case "node-restore":
@@ -205,67 +218,43 @@ function validateTextMarkEvidence(
   assertSame(states[0], mutation.previous, "Text mark previous evidence");
 }
 
-function validateOccurrenceEvidence(
-  mutation: Extract<Mutation, { kind: "occurrence-move" | "occurrence-delete" }>,
-  previous: Projection,
-  available: Projection,
-): void {
-  const occurrence = available.occurrences[mutation.occurrenceId];
-  if (!occurrence) {
-    throw new Error("Occurrence target is absent from the observed projection");
-  }
-  const prior = previous.occurrences[mutation.occurrenceId] ?? occurrence;
-  assertSame(
-    prior.parentOccurrenceId,
-    mutation.previousParentOccurrenceId,
-    "Occurrence previous parent evidence",
-  );
-  assertSame(
-    anchorFor(
-      previous.occurrences[mutation.occurrenceId] ? previous : available,
-      mutation.occurrenceId,
-    ),
-    mutation.previousAnchor,
-    "Occurrence previous anchor evidence",
-  );
-}
-
 function readValue(
   projection: Projection,
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
 ) {
-  if (mutation.owner.kind === "node") {
-    const owner = projection.nodes[mutation.owner.id];
+  if (mutation.target.kind === "node") {
+    const target = projection.nodes[mutation.target.id];
     return mutation.namespace === "metadata"
-      ? owner?.metadata[mutation.key]
-      : owner?.properties[mutation.key];
+      ? target?.metadata[mutation.key]
+      : target?.properties[mutation.key];
   }
-  if (mutation.owner.kind === "occurrence") {
-    const owner = projection.occurrences[mutation.owner.id];
-    return mutation.namespace === "metadata"
-      ? owner?.metadata[mutation.key]
-      : owner?.properties[mutation.key];
-  }
-  return projection.addressedValues[valueOwnerAddress(mutation.owner, mutation.namespace)]?.[
-    mutation.key
-  ];
+  const target = projection.occurrences[mutation.target.id];
+  return mutation.namespace === "metadata"
+    ? target?.metadata[mutation.key]
+    : target?.properties[mutation.key];
 }
 
-function assertValueOwnerAvailable(
+function assertValueTargetAvailable(
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
   projection: Projection,
 ): void {
-  if (mutation.owner.kind === "node" && !projection.nodes[mutation.owner.id]) {
-    throw new Error("Value Node owner is absent from the observed projection");
+  if (mutation.target.kind === "node" && !projection.nodes[mutation.target.id]) {
+    throw new Error("Value target Node is absent from the observed projection");
   }
-  if (mutation.owner.kind === "occurrence" && !projection.occurrences[mutation.owner.id]) {
-    throw new Error("Value Occurrence owner is absent from the observed projection");
+  if (mutation.target.kind === "occurrence" && !projection.occurrences[mutation.target.id]) {
+    throw new Error("Value target Occurrence is absent from the observed projection");
   }
 }
 
-function assertParent(projection: Projection, parentId: string | null): void {
-  if (parentId !== null && !projection.occurrences[parentId]) {
-    throw new Error("Parent Occurrence is absent from the observed projection");
+function assertOwnerAcyclic(nodeId: string, ownerNodeId: string, projection: Projection): void {
+  let cursor: string | null | undefined = ownerNodeId;
+  const seen = new Set<string>();
+  while (cursor !== null && cursor !== undefined) {
+    if (cursor === nodeId || seen.has(cursor)) {
+      throw new Error("Node ownership would form a cycle");
+    }
+    seen.add(cursor);
+    cursor = projection.nodeOwners[cursor];
   }
 }
 
@@ -275,18 +264,6 @@ function assertTextAnchor(anchor: SequenceAnchor, atomIds: readonly string[]): v
       throw new Error("Text anchor endpoint is absent from the observed projection");
     }
   }
-}
-
-function anchorFor(projection: Projection, occurrenceId: string): SequenceAnchor {
-  const occurrence = projection.occurrences[occurrenceId];
-  const siblings = projection.children[occurrence?.parentOccurrenceId ?? "$root"] ?? [];
-  const index = siblings.indexOf(occurrenceId);
-  return {
-    after: index > 0 ? (siblings[index - 1] ?? null) : null,
-    before: index >= 0 ? (siblings[index + 1] ?? null) : null,
-    affinity: "after",
-    fallback: index <= 0 ? "start" : "end",
-  };
 }
 
 function previousValue(value: JsonValue | undefined): PreviousValue {

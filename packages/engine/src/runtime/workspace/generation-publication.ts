@@ -28,14 +28,12 @@ export function emitWorkspaceEvent(
   kind: EngineEvent["kind"],
   frontier: EngineEvent["frontier"],
   generationId: string | null,
-  affectedOwnerIds: readonly string[],
 ): void {
   const event = freezePublishedGeneration({
     kind,
     workspaceId,
     frontier: { ...frontier },
     generationId,
-    affectedOwnerIds: [...affectedOwnerIds],
   });
   deliverListeners(listeners, event);
 }

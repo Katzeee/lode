@@ -18,13 +18,17 @@ export const end = {
   fallback: "end",
 } as const;
 export const versions = {
-  rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-12",
+  rulesVersion: "proposal-rules-3",
+  schemaVersion: "lode-schema-16",
 } as const;
 
 export class HistoryFixture {
   readonly facts: Fact[] = [];
   readonly receipts: AuthorityReceipt[] = [];
+
+  constructor() {
+    this.fact({ kind: "node-create", nodeId: "workspace" });
+  }
 
   fact(mutation: Mutation, intent: EditIntent = "direct"): Fact {
     const sequence = this.facts.length + 1;
@@ -105,8 +109,7 @@ export function baseFixture(): HistoryFixture {
     kind: "occurrence-create",
     occurrenceId: "occurrence",
     nodeId: "node",
-    parentOccurrenceId: null,
-    parentPolicy: "cascade",
+    parentNodeId: "workspace",
     anchor: end,
   });
   return fixture;

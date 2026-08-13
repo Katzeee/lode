@@ -15,7 +15,7 @@ import type {
   Unsubscribe,
   WriteResult,
 } from "../../application/contract.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import { AuthorityFaultError } from "../authority/errors.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
 import { buildAndPublishGeneration, freezePublishedGeneration } from "./generation-publication.js";
@@ -35,6 +35,7 @@ import { planWorkspaceCommand } from "./workspace-command-planner.js";
 import { readCommandGeneration } from "./command-generation-reader.js";
 import { openWorkspaceGeneration } from "./workspace-opening.js";
 import { WorkspaceSignals } from "./workspace-signals.js";
+import { ensureWorkspaceNode } from "./workspace-genesis.js";
 
 export class ProposalWorkspace {
   private generationIdentity: ProjectionGeneration["identity"];
@@ -55,6 +56,7 @@ export class ProposalWorkspace {
     this.signals = new WorkspaceSignals(options.workspaceId, authorityFault);
   }
   static async open(options: ProposalWorkspaceOptions): Promise<ProposalWorkspace> {
+    await ensureWorkspaceNode(options.workspaceId, options.facts);
     const opened = await openWorkspaceGeneration(options);
     return new ProposalWorkspace(
       options,
@@ -103,7 +105,7 @@ export class ProposalWorkspace {
       }
       const commandFactIds =
         command.kind === "resolve-review"
-          ? command.selection.evidence.proposalTargets
+          ? command.selection.evidence.supportClosure
           : command.kind === "adjudicate-resolution"
             ? [...command.proposalContributionIds, ...command.resolutionIds]
             : command.kind === "undo" || command.kind === "redo"
@@ -141,12 +143,12 @@ export class ProposalWorkspace {
       const committed = await this.options.facts.commit({
         invocationId: command.invocationId,
         request: command,
-        bodies: planned.bodies,
+        writes: planned.writes,
         lineage: planned.lineage,
         publishedFrontier: this.generationIdentity.frontier,
       });
       if (committed.created) {
-        this.signals.emit("authority-advanced", committed.receipt.committedFrontier, null, []);
+        this.signals.emit("authority-advanced", committed.receipt.committedFrontier, null);
       }
       return await this.publishToReceipt(committed.receipt);
     } catch (error) {
@@ -191,7 +193,7 @@ export class ProposalWorkspace {
     if (frontierCovers(this.generationIdentity.frontier, snapshot.frontier)) {
       return;
     }
-    this.signals.emit("authority-advanced", snapshot.frontier, null, []);
+    this.signals.emit("authority-advanced", snapshot.frontier, null);
     await this.publish(snapshot);
   }
 
@@ -212,7 +214,6 @@ export class ProposalWorkspace {
         "projection-recovered",
         snapshot.frontier,
         this.generationIdentity.generationId,
-        [],
       );
     });
   }
@@ -248,12 +249,12 @@ export class ProposalWorkspace {
     } catch (error) {
       const failure = error instanceof Error ? error.message : String(error);
       this.projectionFailure = failure;
-      this.signals.emit("projection-failed", receipt.committedFrontier, null, []);
+      this.signals.emit("projection-failed", receipt.committedFrontier, null);
       return pendingResult(receipt, this.generationIdentity.generationId, failure);
     }
   }
 
-  private async publish(snapshot: ReturnType<FactStore["snapshot"]>): Promise<void> {
+  private async publish(snapshot: ReturnType<FactAuthority["snapshot"]>): Promise<void> {
     const acknowledgedGenerationId = this.generationIdentity.generationId;
     await this.generations.withReadLease(acknowledgedGenerationId, async () => {
       const previous = await this.currentGeneration();
@@ -272,7 +273,6 @@ export class ProposalWorkspace {
         recovered ? "projection-recovered" : "projection-published",
         snapshot.frontier,
         next.generation.identity.generationId,
-        next.stats.evaluatedOwners,
       );
     });
   }

@@ -1,9 +1,9 @@
 import { canonicalDigest, canonicalJson } from "./canonical.js";
-import { factId, isReplicaId, unsignedFact } from "./fact.js";
-import { isReservedNodeIdentity, isReservedOccurrenceIdentity } from "./identity.js";
+import { factId, factTransactionId, isReplicaId, unsignedFact } from "./fact.js";
 import { validateFieldInitialization, validateSchemaMutation } from "./schema-static-validation.js";
 import { isWellFormedUnicode } from "./text-validation.js";
 import { validateTemplateDetachment } from "./template-node-validation.js";
+import { validateWorkspaceRootPolicy } from "./workspace-root-policy.js";
 import {
   validateStaticFieldContentDeletion,
   validateStaticFieldMaterialization,
@@ -32,6 +32,23 @@ export function validateStaticFact(workspaceId: WorkspaceId, fact: Fact): void {
   if (fact.id !== factId(workspaceId, replicaId, sequence)) {
     throw new Error(`FactId/dot mismatch: ${fact.id}`);
   }
+  const transaction = fact.transaction;
+  if (
+    !Number.isSafeInteger(transaction.index) ||
+    transaction.index < 0 ||
+    !Number.isSafeInteger(transaction.size) ||
+    transaction.size < 1 ||
+    transaction.index >= transaction.size
+  ) {
+    throw new Error(`Invalid Fact transaction position: ${fact.id}`);
+  }
+  const firstSequence = sequence - transaction.index;
+  if (
+    firstSequence < 1 ||
+    transaction.transactionId !== factTransactionId(workspaceId, replicaId, firstSequence)
+  ) {
+    throw new Error(`Fact transaction identity does not match its position: ${fact.id}`);
+  }
   if (!Number.isSafeInteger(fact.coordinate.lamport) || fact.coordinate.lamport < 1) {
     throw new Error(`Invalid Fact Lamport rank: ${fact.id}`);
   }
@@ -54,6 +71,7 @@ export function validateStaticFact(workspaceId: WorkspaceId, fact: Fact): void {
     throw new Error(`Fact digest mismatch: ${fact.id}`);
   }
   validateBody(fact.body, fact.id);
+  validateWorkspaceRootPolicy(workspaceId, fact);
 }
 
 function validateBody(body: FactBody, id: string): void {
@@ -112,7 +130,7 @@ function validateMaintenanceAction(
 function validateMutation(mutation: Mutation, factIdentity: string): void {
   switch (mutation.kind) {
     case "node-create":
-      validateNodeCreation(mutation.nodeId, factIdentity);
+      validateNodeCreation(mutation, factIdentity);
       return;
     case "node-delete":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
@@ -127,17 +145,13 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
     case "occurrence-move":
       validateOccurrenceMutation(mutation, factIdentity);
       return;
-    case "canonical-occurrence-set":
+    case "node-owner-set":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
-      requireOccurrenceIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
-      if (mutation.previousOccurrenceId === undefined) {
-        throw new Error(`Canonical mutation lacks semantic evidence: ${factIdentity}`);
+      requireIdentity(mutation.ownerNodeId, mutation.kind, factIdentity);
+      if (mutation.previousOwnerNodeId === undefined) {
+        throw new Error(`Node owner mutation lacks semantic evidence: ${factIdentity}`);
       }
-      requireNullableOccurrenceIdentity(
-        mutation.previousOccurrenceId,
-        "previous canonical",
-        factIdentity,
-      );
+      requireIdentity(mutation.previousOwnerNodeId, "previous owner Node", factIdentity);
       return;
     case "schema-apply":
     case "schema-remove":
@@ -197,7 +211,7 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       return;
     case "value-set":
     case "value-unset":
-      requireIdentity(mutation.owner.id, `${mutation.owner.kind} owner`, factIdentity);
+      requireIdentity(mutation.target.id, `${mutation.target.kind} owner`, factIdentity);
       requireIdentity(mutation.key, "value key", factIdentity);
       if (mutation.previous === undefined) {
         throw new Error(`Value mutation lacks semantic evidence: ${factIdentity}`);
@@ -205,10 +219,13 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
   }
 }
 
-function validateNodeCreation(nodeId: string, factIdentity: string): void {
-  requireIdentity(nodeId, "node-create", factIdentity);
-  if (isReservedNodeIdentity(nodeId)) {
-    throw new Error(`Node uses a reserved managed identity: ${factIdentity}`);
+function validateNodeCreation(
+  mutation: Extract<Mutation, { kind: "node-create" }>,
+  factIdentity: string,
+): void {
+  requireIdentity(mutation.nodeId, "node-create", factIdentity);
+  if (mutation.seed?.text.some((atom) => !isWellFormedUnicode(atom.value))) {
+    throw new Error(`Node seed contains an unpaired surrogate: ${factIdentity}`);
   }
 }
 
@@ -219,42 +236,31 @@ function validateOccurrenceMutation(
   if (mutation.kind === "occurrence-restore") {
     requireIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
     requireIdentity(mutation.deletionFactId, "deletion Fact", factIdentity);
-    requireNullableIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
+    requireIdentity(mutation.parentNodeId, "parent Node", factIdentity);
     validateRestorationAnchor(mutation.anchor, factIdentity);
     return;
   }
-  requireOccurrenceIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
+  requireIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
   if (mutation.kind === "occurrence-create") {
     requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
-    requireNullableOccurrenceIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
+    requireIdentity(mutation.parentNodeId, "parent Node", factIdentity);
     validateAnchor(mutation.anchor, factIdentity);
     return;
   }
   if (mutation.kind === "occurrence-delete") {
-    if (
-      mutation.previousParentOccurrenceId === undefined ||
-      mutation.previousAnchor === undefined
-    ) {
+    if (mutation.previousParentNodeId === undefined || mutation.previousAnchor === undefined) {
       throw new Error(`Occurrence deletion lacks semantic evidence: ${factIdentity}`);
     }
-    requireNullableOccurrenceIdentity(
-      mutation.previousParentOccurrenceId,
-      "previous parent",
-      factIdentity,
-    );
+    requireIdentity(mutation.previousParentNodeId, "previous parent Node", factIdentity);
     validateAnchor(mutation.previousAnchor, factIdentity);
     return;
   }
-  requireNullableOccurrenceIdentity(mutation.parentOccurrenceId, "parent", factIdentity);
+  requireIdentity(mutation.parentNodeId, "parent Node", factIdentity);
   validateAnchor(mutation.anchor, factIdentity);
-  if (mutation.previousParentOccurrenceId === undefined || mutation.previousAnchor === undefined) {
+  if (mutation.previousParentNodeId === undefined || mutation.previousAnchor === undefined) {
     throw new Error(`Occurrence move lacks semantic evidence: ${factIdentity}`);
   }
-  requireNullableOccurrenceIdentity(
-    mutation.previousParentOccurrenceId,
-    "previous parent",
-    factIdentity,
-  );
+  requireIdentity(mutation.previousParentNodeId, "previous parent Node", factIdentity);
   validateAnchor(mutation.previousAnchor, factIdentity);
 }
 
@@ -270,8 +276,8 @@ function validateAnchor(anchor: SequenceAnchor, factIdentity: string): void {
   if (anchor.after !== null && anchor.before !== null && anchor.after === anchor.before) {
     throw new Error(`Sequence anchor repeats one identity: ${factIdentity}`);
   }
-  requireNullableOccurrenceIdentity(anchor.after, "anchor endpoint", factIdentity);
-  requireNullableOccurrenceIdentity(anchor.before, "anchor endpoint", factIdentity);
+  requireNullableIdentity(anchor.after, "anchor endpoint", factIdentity);
+  requireNullableIdentity(anchor.before, "anchor endpoint", factIdentity);
 }
 
 function requireIdentity(value: string, label: string, factIdentity: string): void {
@@ -283,22 +289,5 @@ function requireIdentity(value: string, label: string, factIdentity: string): vo
 function requireNullableIdentity(value: string | null, label: string, factIdentity: string): void {
   if (value !== null) {
     requireIdentity(value, label, factIdentity);
-  }
-}
-
-function requireOccurrenceIdentity(value: string, label: string, factIdentity: string): void {
-  requireIdentity(value, label, factIdentity);
-  if (isReservedOccurrenceIdentity(value)) {
-    throw new Error(`${label} uses a reserved Occurrence identity: ${factIdentity}`);
-  }
-}
-
-function requireNullableOccurrenceIdentity(
-  value: string | null,
-  label: string,
-  factIdentity: string,
-): void {
-  if (value !== null) {
-    requireOccurrenceIdentity(value, label, factIdentity);
   }
 }

@@ -6,31 +6,25 @@ import {
   type ProjectedNode,
   type TextAtom,
 } from "../../domain/reconcile/index.js";
-import {
-  detachChild,
-  insertChild,
-  insertionIndex,
-  removeOccurrence,
-} from "./planning-projection-sequence.js";
-import { applySchemaPlanningMutation } from "./planning-schema-relations.js";
-import { applyPlanningValueMutation, withoutValue } from "./planning-projection-values.js";
+import { detachChild, insertChild, removeOccurrence } from "./planning-projection-sequence.js";
+import { applyPlanningContentMutation } from "./planning-projection-content.js";
 
 export type MutableProjection = Omit<
   Projection,
   | "nodes"
   | "occurrences"
   | "children"
-  | "canonicalOccurrences"
+  | "nodeOwners"
   | "addressedValues"
   | "schemaApplications"
   | "schemaFields"
-  | "schemaFieldItems"
+  | "templateFields"
   | "schemaTemplateNodes"
   | "templateNodeInstances"
   | "schemaExtensions"
   | "schemaSearchMembers"
   | "schemaExtensionConflicts"
-  | "definitionStatuses"
+  | "nodeStatuses"
   | "conflictIssues"
   | "effectiveFields"
   | "materializedFields"
@@ -38,17 +32,17 @@ export type MutableProjection = Omit<
   nodes: Record<string, MutableNode>;
   occurrences: Record<string, Projection["occurrences"][string]>;
   children: Record<string, readonly string[]>;
-  canonicalOccurrences: Record<string, string>;
+  nodeOwners: Record<string, string | null>;
   addressedValues: Record<string, Readonly<Record<string, JsonValue>>>;
   schemaApplications: Record<string, string[]>;
   schemaFields: Record<string, string[]>;
-  schemaFieldItems: Record<string, Projection["schemaFieldItems"][string][number][]>;
+  templateFields: Record<string, Projection["templateFields"][string][number][]>;
   schemaTemplateNodes: Record<string, string[]>;
   templateNodeInstances: Projection["templateNodeInstances"][number][];
   schemaExtensions: Record<string, string[]>;
   schemaSearchMembers: Record<string, string[]>;
   schemaExtensionConflicts: Record<string, string[]>;
-  definitionStatuses: Record<string, Projection["definitionStatuses"][string]>;
+  nodeStatuses: Record<string, Projection["nodeStatuses"][string]>;
   conflictIssues: Projection["conflictIssues"];
   effectiveFields: Projection["effectiveFields"];
   materializedFields: Record<string, Projection["materializedFields"][string][number][]>;
@@ -72,7 +66,7 @@ export function applyMutationToPlanningProjection(
   if (applyOccurrenceMutation(projection, mutation, snapshot, view)) {
     return;
   }
-  applyContentMutation(projection, mutation, factId);
+  applyPlanningContentMutation(projection, mutation, factId);
 }
 
 function applyNodeLifecycle(
@@ -85,9 +79,14 @@ function applyNodeLifecycle(
   if (mutation.kind === "node-create") {
     projection.nodes[mutation.nodeId] ??= {
       nodeId: mutation.nodeId,
-      text: [],
-      properties: {},
-      metadata: {},
+      text: (mutation.seed?.text ?? []).map((atom, index) => ({
+        id: `${factId}#${index}`,
+        value: atom.value,
+        attributes: { ...atom.attributes },
+        contributionId: factId,
+      })),
+      properties: { ...(mutation.seed?.properties ?? {}) },
+      metadata: { ...(mutation.seed?.metadata ?? {}) },
     };
     return true;
   }
@@ -101,16 +100,26 @@ function applyNodeLifecycle(
         metadata: { ...restored.metadata },
       };
     }
-    const status = projection.definitionStatuses[mutation.nodeId];
+    const status = projection.nodeStatuses[mutation.nodeId];
     if (status) {
       const deletionFactIds = status.deletionFactIds.filter(
         (deletionFactId) => deletionFactId !== mutation.deletionFactId,
       );
-      projection.definitionStatuses[mutation.nodeId] = {
-        ...status,
-        state: deletionFactIds.length === 0 ? "active" : "deleted",
-        deletionFactIds,
-      };
+      if (deletionFactIds.length > 0) {
+        projection.nodeStatuses[mutation.nodeId] = {
+          ...status,
+          state: "deleted",
+          deletionFactIds,
+        };
+      } else if (mutation.nodeId in projection.nodeOwners) {
+        projection.nodeStatuses[mutation.nodeId] = {
+          ...status,
+          state: "active",
+          deletionFactIds,
+        };
+      } else {
+        delete projection.nodeStatuses[mutation.nodeId];
+      }
     }
     return true;
   }
@@ -118,9 +127,10 @@ function applyNodeLifecycle(
     return false;
   }
   delete projection.nodes[mutation.nodeId];
-  const status = projection.definitionStatuses[mutation.nodeId];
+  delete projection.nodeOwners[mutation.nodeId];
+  const status = projection.nodeStatuses[mutation.nodeId];
   if (status) {
-    projection.definitionStatuses[mutation.nodeId] = {
+    projection.nodeStatuses[mutation.nodeId] = {
       ...status,
       state: "deleted",
       deletionFactIds: [...status.deletionFactIds, factId],
@@ -128,7 +138,7 @@ function applyNodeLifecycle(
   }
   for (const occurrence of Object.values(projection.occurrences)) {
     if (occurrence.nodeId === mutation.nodeId) {
-      removeOccurrence(projection, occurrence.occurrenceId, "cascade");
+      removeOccurrence(projection, occurrence.occurrenceId);
     }
   }
   return true;
@@ -142,75 +152,67 @@ function applyOccurrenceMutation(
 ): boolean {
   switch (mutation.kind) {
     case "occurrence-create":
+      if (!(mutation.nodeId in projection.nodeOwners)) {
+        projection.nodeOwners[mutation.nodeId] = mutation.parentNodeId;
+      }
       projection.occurrences[mutation.occurrenceId] = {
         occurrenceId: mutation.occurrenceId,
         nodeId: mutation.nodeId,
-        parentOccurrenceId: mutation.parentOccurrenceId,
+        parentNodeId: mutation.parentNodeId,
         properties: {},
         metadata: {},
-        managed: false,
+        derived: false,
       };
-      insertChild(projection, mutation.occurrenceId, mutation.parentOccurrenceId, mutation.anchor);
+      insertChild(projection, mutation.occurrenceId, mutation.parentNodeId, mutation.anchor);
+      setNodePlacementState(projection, mutation.nodeId);
       return true;
     case "occurrence-restore": {
       const restored = replayOccurrenceIdentity(snapshot, view, mutation.occurrenceId);
       if (restored) {
+        projection.nodeOwners[restored.nodeId] ??= mutation.parentNodeId;
         projection.occurrences[mutation.occurrenceId] = {
           ...restored,
-          parentOccurrenceId: mutation.parentOccurrenceId,
+          parentNodeId: mutation.parentNodeId,
         };
-        insertChild(
-          projection,
-          mutation.occurrenceId,
-          mutation.parentOccurrenceId,
-          mutation.anchor,
-        );
+        insertChild(projection, mutation.occurrenceId, mutation.parentNodeId, mutation.anchor);
+        setNodePlacementState(projection, restored.nodeId);
       }
       return true;
     }
-    case "occurrence-delete":
-      removeOccurrence(projection, mutation.occurrenceId, mutation.childPolicy);
+    case "occurrence-delete": {
+      const occurrence = projection.occurrences[mutation.occurrenceId];
+      removeOccurrence(projection, mutation.occurrenceId);
+      removeOccurrenceFromFields(projection, mutation.occurrenceId);
+      if (occurrence) {
+        if (projection.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId) {
+          delete projection.nodeOwners[occurrence.nodeId];
+        }
+        setNodePlacementState(projection, occurrence.nodeId);
+      }
       return true;
+    }
     case "field-value-delete":
-      removeOccurrence(projection, mutation.valueOccurrenceId, "cascade");
-      projection.materializedFields[mutation.ownerNodeId] = (
-        projection.materializedFields[mutation.ownerNodeId] ?? []
-      ).map((field) =>
-        field.fieldDefinitionId === mutation.fieldDefinitionId
-          ? {
-              ...field,
-              valueOccurrenceIds: field.valueOccurrenceIds.filter(
-                (occurrenceId) => occurrenceId !== mutation.valueOccurrenceId,
-              ),
-            }
-          : field,
-      );
       return true;
     case "materialized-field-delete":
-      removeOccurrence(projection, mutation.fieldOccurrenceId, "cascade");
-      projection.materializedFields[mutation.ownerNodeId] = (
-        projection.materializedFields[mutation.ownerNodeId] ?? []
-      ).filter((field) => field.fieldDefinitionId !== mutation.fieldDefinitionId);
       return true;
     case "occurrence-move": {
       const occurrence = projection.occurrences[mutation.occurrenceId];
       if (occurrence) {
+        const movesOriginal = projection.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId;
         detachChild(projection, mutation.occurrenceId);
         projection.occurrences[mutation.occurrenceId] = {
           ...occurrence,
-          parentOccurrenceId: mutation.parentOccurrenceId,
+          parentNodeId: mutation.parentNodeId,
         };
-        insertChild(
-          projection,
-          mutation.occurrenceId,
-          mutation.parentOccurrenceId,
-          mutation.anchor,
-        );
+        insertChild(projection, mutation.occurrenceId, mutation.parentNodeId, mutation.anchor);
+        if (movesOriginal) {
+          projection.nodeOwners[occurrence.nodeId] = mutation.parentNodeId;
+        }
       }
       return true;
     }
-    case "canonical-occurrence-set":
-      projection.canonicalOccurrences[mutation.nodeId] = mutation.occurrenceId;
+    case "node-owner-set":
+      applyNodeOwnerMutation(projection, mutation);
       return true;
     case "node-create":
     case "node-delete":
@@ -235,49 +237,37 @@ function applyOccurrenceMutation(
   }
 }
 
-function applyContentMutation(
+function setNodePlacementState(projection: MutableProjection, nodeId: string): void {
+  const status = projection.nodeStatuses[nodeId];
+  if (status?.state === "deleted") {
+    return;
+  }
+  if (nodeId in projection.nodeOwners) {
+    projection.nodeStatuses[nodeId] = {
+      nodeId,
+      roles: status?.roles ?? [],
+      state: "active",
+      deletionFactIds: status?.deletionFactIds ?? [],
+    };
+  } else {
+    delete projection.nodeStatuses[nodeId];
+  }
+}
+
+function removeOccurrenceFromFields(projection: MutableProjection, occurrenceId: string): void {
+  for (const [ownerNodeId, fields] of Object.entries(projection.materializedFields)) {
+    projection.materializedFields[ownerNodeId] = fields
+      .filter((field) => field.fieldOccurrenceId !== occurrenceId)
+      .map((field) => ({
+        ...field,
+        valueOccurrenceIds: field.valueOccurrenceIds.filter((id) => id !== occurrenceId),
+      }));
+  }
+}
+
+function applyNodeOwnerMutation(
   projection: MutableProjection,
-  mutation: Mutation,
-  factId: string,
+  mutation: Extract<Mutation, Readonly<{ kind: "node-owner-set" }>>,
 ): void {
-  if (applySchemaPlanningMutation(projection, mutation, factId)) {
-    return;
-  }
-  if (mutation.kind === "text-splice") {
-    const node = projection.nodes[mutation.nodeId];
-    if (!node) {
-      return;
-    }
-    const remaining = node.text.filter((atom) => !mutation.deleteAtomIds.includes(atom.id));
-    const index = insertionIndex(remaining, mutation.anchor);
-    const inserted = [...mutation.insert].map((value, offset): TextAtom => ({
-      id: `${factId}#${offset}`,
-      value,
-      attributes: mutation.attributes ?? {},
-      contributionId: factId,
-    }));
-    node.text = [...remaining.slice(0, index), ...inserted, ...remaining.slice(index)];
-    return;
-  }
-  if (mutation.kind === "text-mark") {
-    const node = projection.nodes[mutation.nodeId];
-    if (!node) {
-      return;
-    }
-    node.text = node.text.map((atom) =>
-      mutation.atomIds.includes(atom.id)
-        ? {
-            ...atom,
-            attributes:
-              mutation.value.kind === "unset"
-                ? withoutValue(atom.attributes, mutation.key)
-                : { ...atom.attributes, [mutation.key]: mutation.value.value },
-          }
-        : atom,
-    );
-    return;
-  }
-  if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    applyPlanningValueMutation(projection, mutation);
-  }
+  projection.nodeOwners[mutation.nodeId] = mutation.ownerNodeId;
 }

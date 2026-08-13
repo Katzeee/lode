@@ -1,12 +1,12 @@
 import type { ContributionFact, Fact, Mutation, TextAtomId } from "../fact/index.js";
-import { valueOwnerAddress, type Projection } from "../reconcile/index.js";
+import { valueTargetAddress, type Projection } from "../reconcile/index.js";
 
 type HistoryScope = {
   nodes: Set<string>;
   occurrences: Set<string>;
   schemas: Set<string>;
   fields: Set<string>;
-  valueOwners: Set<string>;
+  valueTargets: Set<string>;
   factIds: Set<string>;
 };
 
@@ -53,7 +53,7 @@ function emptyScope(): HistoryScope {
     occurrences: new Set(),
     schemas: new Set(),
     fields: new Set(),
-    valueOwners: new Set(),
+    valueTargets: new Set(),
     factIds: new Set(),
   };
 }
@@ -85,15 +85,11 @@ function addMutation(scope: HistoryScope, mutation: Mutation): void {
   if ("occurrenceId" in mutation) {
     scope.occurrences.add(mutation.occurrenceId);
   }
-  if ("parentOccurrenceId" in mutation && mutation.parentOccurrenceId !== null) {
-    scope.occurrences.add(mutation.parentOccurrenceId);
+  if ("parentNodeId" in mutation) {
+    scope.nodes.add(mutation.parentNodeId);
   }
-  if (
-    "previousParentOccurrenceId" in mutation &&
-    mutation.previousParentOccurrenceId !== undefined &&
-    mutation.previousParentOccurrenceId !== null
-  ) {
-    scope.occurrences.add(mutation.previousParentOccurrenceId);
+  if ("previousParentNodeId" in mutation && mutation.previousParentNodeId !== undefined) {
+    scope.nodes.add(mutation.previousParentNodeId);
   }
   if ("anchor" in mutation) {
     addAnchor(scope, mutation.anchor);
@@ -154,15 +150,11 @@ function addMutation(scope: HistoryScope, mutation: Mutation): void {
     mutation.atomIds.forEach((id) => scope.factIds.add(atomContributionId(id)));
   }
   if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    scope.valueOwners.add(valueOwnerAddress(mutation.owner, mutation.namespace));
-    if (mutation.owner.kind === "node") {
-      scope.nodes.add(mutation.owner.id);
-    } else if (mutation.owner.kind === "occurrence") {
-      scope.occurrences.add(mutation.owner.id);
-    } else if (mutation.owner.kind === "schema") {
-      scope.schemas.add(mutation.owner.id);
+    scope.valueTargets.add(valueTargetAddress(mutation.target, mutation.namespace));
+    if (mutation.target.kind === "node") {
+      scope.nodes.add(mutation.target.id);
     } else {
-      scope.fields.add(mutation.owner.id);
+      scope.occurrences.add(mutation.target.id);
     }
   }
 }
@@ -213,27 +205,17 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
       (mutation.kind === "field-value-delete" && scope.occurrences.has(mutation.valueOccurrenceId))
     );
   }
-  if (
-    "parentOccurrenceId" in mutation &&
-    mutation.parentOccurrenceId !== null &&
-    scope.occurrences.has(mutation.parentOccurrenceId)
-  ) {
+  if ("parentNodeId" in mutation && scope.nodes.has(mutation.parentNodeId)) {
     return true;
   }
   if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    if (scope.valueOwners.has(valueOwnerAddress(mutation.owner, mutation.namespace))) {
+    if (scope.valueTargets.has(valueTargetAddress(mutation.target, mutation.namespace))) {
       return true;
     }
-    if (mutation.owner.kind === "node") {
-      return scope.nodes.has(mutation.owner.id);
+    if (mutation.target.kind === "node") {
+      return scope.nodes.has(mutation.target.id);
     }
-    if (mutation.owner.kind === "occurrence") {
-      return scope.occurrences.has(mutation.owner.id);
-    }
-    if (mutation.owner.kind === "schema") {
-      return scope.schemas.has(mutation.owner.id);
-    }
-    return scope.fields.has(mutation.owner.id);
+    return scope.occurrences.has(mutation.target.id);
   }
   return false;
 }

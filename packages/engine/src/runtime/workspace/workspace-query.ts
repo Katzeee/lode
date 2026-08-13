@@ -14,7 +14,7 @@ import type { ReviewGenerationPage } from "./proposal-workspace-types.js";
 import { readFactGeneration, readReviewGeneration } from "./mutation-generation-reader.js";
 import { historyTargetFactIds } from "../../domain/history/index.js";
 import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import { receiptsCoveredBySnapshot } from "./published-receipts.js";
 import { pendingResult, publishedResult } from "./workspace-results.js";
 import { hardDeletePreview } from "./hard-delete.js";
@@ -23,7 +23,7 @@ import { readView } from "./view-reader.js";
 export async function queryWorkspace(
   workspaceId: string,
   query: EngineQuery,
-  facts: FactStore,
+  facts: FactAuthority,
   snapshot: FactSnapshot,
   generations: ProjectionGenerationStore,
   generationId: string,
@@ -118,7 +118,7 @@ export async function queryWorkspace(
 function queryPublishedWorkspace(
   workspaceId: string,
   query: EngineQuery,
-  facts: FactStore,
+  facts: FactAuthority,
   snapshot: FactSnapshot,
   generation: ProjectionGeneration,
   projectionFailure: string | null,
@@ -170,7 +170,7 @@ function queryPublishedWorkspace(
 
 function invocationOutcome(
   invocationId: string,
-  facts: FactStore,
+  facts: FactAuthority,
   generation: ProjectionGeneration,
   projectionFailure: string | null,
 ): InvocationOutcome {

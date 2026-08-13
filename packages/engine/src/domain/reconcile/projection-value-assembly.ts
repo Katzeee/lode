@@ -7,15 +7,15 @@ import {
 import type {
   EffectiveField,
   MaterializedField,
-  DefinitionStatus,
+  NodeStatus,
   Projection,
   ProjectedNode,
   ProjectedOccurrence,
-  SchemaFieldItem,
+  TemplateField,
   TemplateNodeInstance,
 } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
-import { valueOwnerAddress } from "./value-address.js";
+import { valueTargetAddress } from "./value-address.js";
 import { sortedRecord } from "./sorted-record.js";
 import type { ConflictIssue } from "../conflict/types.js";
 
@@ -27,16 +27,16 @@ export function assembleProjection(
     occurrences: ReadonlyMap<string, MutableOccurrence>;
     children: ReadonlyMap<string, readonly string[]>;
     addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-    canonicalOccurrences: Readonly<Record<string, string>>;
+    nodeOwners: Readonly<Record<string, string | null>>;
     schemaApplications: Readonly<Record<string, readonly string[]>>;
     schemaFields: Readonly<Record<string, readonly string[]>>;
-    schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+    templateFields: Readonly<Record<string, readonly TemplateField[]>>;
     schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
     templateNodeInstances: readonly TemplateNodeInstance[];
     schemaExtensions: Readonly<Record<string, readonly string[]>>;
     schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
     schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-    definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
+    nodeStatuses: Readonly<Record<string, NodeStatus>>;
     conflictIssues: Readonly<Record<string, ConflictIssue>>;
     effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
     materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
@@ -55,17 +55,17 @@ export function assembleProjection(
         .filter(([, ids]) => ids.length > 0)
         .sort(([left], [right]) => stableStringCompare(left, right)),
     ),
-    canonicalOccurrences: input.canonicalOccurrences,
+    nodeOwners: input.nodeOwners,
     addressedValues: input.addressedValues,
     schemaApplications: input.schemaApplications,
     schemaFields: input.schemaFields,
-    schemaFieldItems: input.schemaFieldItems,
+    templateFields: input.templateFields,
     schemaTemplateNodes: input.schemaTemplateNodes,
     templateNodeInstances: input.templateNodeInstances,
     schemaExtensions: input.schemaExtensions,
     schemaSearchMembers: input.schemaSearchMembers,
     schemaExtensionConflicts: input.schemaExtensionConflicts,
-    definitionStatuses: input.definitionStatuses,
+    nodeStatuses: input.nodeStatuses,
     conflictIssues: input.conflictIssues,
     effectiveFields: input.effectiveFields,
     materializedFields: input.materializedFields,
@@ -86,12 +86,12 @@ export function applyProjectedValues(
     [...nodes].map(([id, node]) => {
       const properties = Object.assign(
         { ...node.properties },
-        addressed[valueOwnerAddress({ kind: "node", id: node.nodeId }, "property")],
-        addressed[valueOwnerAddress({ kind: "node", id: node.nodeId }, "schema")],
+        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "property")],
+        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "schema")],
       );
       const metadata = Object.assign(
         { ...node.metadata },
-        addressed[valueOwnerAddress({ kind: "node", id: node.nodeId }, "metadata")],
+        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "metadata")],
       );
       return [id, { ...node, properties, metadata }] as const;
     }),
@@ -101,12 +101,12 @@ export function applyProjectedValues(
       const owner = { kind: "occurrence" as const, id: occurrence.occurrenceId };
       const properties = Object.assign(
         { ...occurrence.properties },
-        addressed[valueOwnerAddress(owner, "property")],
-        addressed[valueOwnerAddress(owner, "schema")],
+        addressed[valueTargetAddress(owner, "property")],
+        addressed[valueTargetAddress(owner, "schema")],
       );
       const metadata = Object.assign(
         { ...occurrence.metadata },
-        addressed[valueOwnerAddress(owner, "metadata")],
+        addressed[valueTargetAddress(owner, "metadata")],
       );
       return [id, { ...occurrence, properties, metadata }] as const;
     }),
@@ -151,7 +151,7 @@ function deleteAddressedKeys(
   owner: Readonly<{ kind: "node" | "occurrence"; id: string }>,
   namespace: "property" | "metadata" | "schema",
 ): void {
-  for (const key of Object.keys(addressed[valueOwnerAddress(owner, namespace)] ?? {})) {
+  for (const key of Object.keys(addressed[valueTargetAddress(owner, namespace)] ?? {})) {
     delete target[key];
   }
 }

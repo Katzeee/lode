@@ -40,6 +40,8 @@ describe("Schema domain convergence matrix", () => {
       kind: "schema-field-add",
       schemaId: "schema",
       fieldDefinitionId: "field",
+      fieldNodeId: "schema-field-template-field",
+      fieldOccurrenceId: "schema-field-template-field-occurrence",
       anchor: end,
     });
     base.add({ kind: "schema-apply", nodeId: "task", schemaId: "schema", anchor: end });
@@ -50,11 +52,20 @@ describe("Schema domain convergence matrix", () => {
           kind: "schema-field-remove",
           schemaId: "schema",
           fieldDefinitionId: "field",
+          fieldNodeId: "schema-field-template-field",
+          fieldOccurrenceId: "schema-field-template-field-occurrence",
           previousAnchor: start,
         },
       ]),
       ...remoteBranch(C, frontier, base.values.length + 1, [
-        { kind: "schema-field-add", schemaId: "schema", fieldDefinitionId: "field", anchor: end },
+        {
+          kind: "schema-field-add",
+          schemaId: "schema",
+          fieldDefinitionId: "field",
+          fieldNodeId: "schema-field-template-field",
+          fieldOccurrenceId: "schema-field-template-field-occurrence",
+          anchor: end,
+        },
       ]),
       ...unrelated(D, frontier, base.values.length + 1),
     ];
@@ -72,6 +83,8 @@ describe("Schema domain convergence matrix", () => {
       kind: "schema-field-add",
       schemaId: "base",
       fieldDefinitionId: "field",
+      fieldNodeId: "base-field-template-field",
+      fieldOccurrenceId: "base-field-template-field-occurrence",
       anchor: end,
     });
     base.add({
@@ -136,6 +149,8 @@ describe("Schema domain convergence matrix", () => {
       kind: "schema-field-add",
       schemaId: "schema",
       fieldDefinitionId: "field",
+      fieldNodeId: "schema-field-template-field",
+      fieldOccurrenceId: "schema-field-template-field-occurrence",
       anchor: end,
     });
     base.add({ kind: "schema-apply", nodeId: "task", schemaId: "schema", anchor: end });
@@ -146,7 +161,7 @@ describe("Schema domain convergence matrix", () => {
       ...unrelated(D, frontier, base.values.length + 1),
     ];
     assertSchemaConvergence(base.values.length, [...base.values, ...events], (generation) => {
-      const item = generation.origin.schemaFieldItems.schema?.[0];
+      const item = generation.origin.templateFields.schema?.[0];
       expect(item?.effectiveConfig).toBeNull();
       expect(item?.configCandidates).toHaveLength(2);
       expect(
@@ -162,7 +177,7 @@ describe("Schema domain convergence matrix", () => {
 function relationBase(nodeIds: readonly string[]): Facts {
   const facts = new Facts();
   for (const nodeId of nodeIds) {
-    facts.add({ kind: "node-create", nodeId });
+    facts.addPlaced(nodeId);
   }
   return facts;
 }
@@ -183,17 +198,11 @@ function unrelated(replicaId: string, observed: FactFrontier, lamport: number): 
 function materializationBase(): Facts {
   const facts = relationBase(["schema", "field", "owner", "unrelated"]);
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "owner-occurrence",
-    nodeId: "owner",
-    parentOccurrenceId: null,
-    parentPolicy: "cascade",
-    anchor: end,
-  });
-  facts.add({
     kind: "schema-field-add",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+    fieldOccurrenceId: "schema-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end });
@@ -213,8 +222,7 @@ function materializationBranch(
       kind: "occurrence-create",
       occurrenceId: `${prefix}-field-occurrence`,
       nodeId: `${prefix}-field`,
-      parentOccurrenceId: "owner-occurrence",
-      parentPolicy: "cascade",
+      parentNodeId: "owner",
       anchor: end,
     },
     {
@@ -229,8 +237,7 @@ function materializationBranch(
       kind: "occurrence-create",
       occurrenceId: `${prefix}-value-occurrence`,
       nodeId: `${prefix}-value`,
-      parentOccurrenceId: `${prefix}-field-occurrence`,
-      parentPolicy: "cascade",
+      parentNodeId: `${prefix}-field`,
       anchor: end,
     },
     {
@@ -252,6 +259,8 @@ function fieldConfig(
     kind: "schema-field-configure",
     schemaId: "schema",
     fieldDefinitionId: "field",
+    fieldNodeId: "schema-field-template-field",
+
     config: {
       visibility,
       staticDefault: [{ kind: "text", value }],

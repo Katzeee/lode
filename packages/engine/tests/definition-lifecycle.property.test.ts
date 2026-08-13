@@ -29,6 +29,8 @@ describe("Definition lifecycle convergence", () => {
       kind: "schema-field-configure",
       schemaId: "task-schema",
       fieldDefinitionId: "status-field",
+      fieldNodeId: "task-schema-status-field-template-field",
+
       config: {
         visibility: "pinned",
         staticDefault: [{ kind: "text", value: "Planned" }],
@@ -48,19 +50,19 @@ describe("Definition lifecycle convergence", () => {
     for (let seed = 1; seed <= 32; seed += 1) {
       const deleted = admitted(shuffle([...merged, configure], seed));
       const deletedProjection = projectSnapshot("workspace", deleted, "origin", versions);
-      expect(deletedProjection.definitionStatuses["status-field"]).toMatchObject({
+      expect(deletedProjection.nodeStatuses["status-field"]).toMatchObject({
         state: "deleted",
         deletionFactIds: [tombstone.id],
       });
       expect(deletedProjection.schemaFields["task-schema"]).toEqual(["status-field"]);
-      expect(deletedProjection.schemaFieldItems["task-schema"]?.[0]?.effectiveConfig).toMatchObject(
-        { staticDefault: [{ kind: "text", value: "Planned" }] },
-      );
+      expect(deletedProjection.templateFields["task-schema"]?.[0]?.effectiveConfig).toMatchObject({
+        staticDefault: [{ kind: "text", value: "Planned" }],
+      });
       expect(deletedProjection.effectiveFields.task).toEqual([]);
 
       const restored = admitted(shuffle([...merged, restore, tombstone], seed * 17));
       const restoredProjection = projectSnapshot("workspace", restored, "origin", versions);
-      expect(restoredProjection.definitionStatuses["status-field"]).toMatchObject({
+      expect(restoredProjection.nodeStatuses["status-field"]).toMatchObject({
         state: "active",
         deletionFactIds: [],
       });
@@ -75,12 +77,14 @@ describe("Definition lifecycle convergence", () => {
 function definitionFixture(): Facts {
   const facts = new Facts();
   for (const nodeId of ["task", "task-schema", "status-field"]) {
-    facts.add({ kind: "node-create", nodeId });
+    facts.addPlaced(nodeId);
   }
   facts.add({
     kind: "schema-field-add",
     schemaId: "task-schema",
     fieldDefinitionId: "status-field",
+    fieldNodeId: "task-schema-status-field-template-field",
+    fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
     anchor: end,
   });
   facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end });

@@ -1,8 +1,8 @@
 import type { ProjectionSection } from "./materialized-generation-format.js";
 
 export function isSchemaSectionValue(section: ProjectionSection, value: unknown): boolean | null {
-  if (section === "schemaFieldItems") {
-    return Array.isArray(value) && value.every(isSchemaFieldItem);
+  if (section === "templateFields") {
+    return Array.isArray(value) && value.every(isTemplateField);
   }
   if (section === "effectiveFields") {
     return Array.isArray(value) && value.every(isEffectiveField);
@@ -10,16 +10,18 @@ export function isSchemaSectionValue(section: ProjectionSection, value: unknown)
   return null;
 }
 
-function isSchemaFieldItem(item: unknown): boolean {
+function isTemplateField(item: unknown): boolean {
   return (
     hasExactKeys(item, [
-      "templateItemId",
+      "fieldNodeId",
+      "fieldOccurrenceId",
       "schemaId",
       "fieldDefinitionId",
       "configCandidates",
       "effectiveConfig",
     ]) &&
-    typeof item.templateItemId === "string" &&
+    typeof item.fieldNodeId === "string" &&
+    typeof item.fieldOccurrenceId === "string" &&
     typeof item.schemaId === "string" &&
     typeof item.fieldDefinitionId === "string" &&
     Array.isArray(item.configCandidates) &&
@@ -33,7 +35,7 @@ function isEffectiveField(field: unknown): boolean {
     hasExactKeys(field, [
       "fieldDefinitionId",
       "sourceSchemaIds",
-      "sourceTemplateItemIds",
+      "sourceFieldNodeIds",
       "visibility",
       "configCandidates",
       "effectiveConfig",
@@ -43,7 +45,7 @@ function isEffectiveField(field: unknown): boolean {
     ]) &&
     typeof field.fieldDefinitionId === "string" &&
     strings(field.sourceSchemaIds) &&
-    strings(field.sourceTemplateItemIds) &&
+    strings(field.sourceFieldNodeIds) &&
     ["pinned", "normal", "optional"].includes(field.visibility as string) &&
     Array.isArray(field.configCandidates) &&
     field.configCandidates.every(isFieldConfigCandidate) &&
@@ -67,15 +69,10 @@ function isInitializationCandidate(candidate: unknown): boolean {
 
 function isFieldConfigCandidate(value: unknown): boolean {
   return (
-    hasExactKeys(value, [
-      "config",
-      "sourceSchemaIds",
-      "sourceTemplateItemIds",
-      "contributionIds",
-    ]) &&
+    hasExactKeys(value, ["config", "sourceSchemaIds", "sourceFieldNodeIds", "contributionIds"]) &&
     isFieldTemplateConfig(value.config) &&
     strings(value.sourceSchemaIds) &&
-    strings(value.sourceTemplateItemIds) &&
+    strings(value.sourceFieldNodeIds) &&
     strings(value.contributionIds)
   );
 }

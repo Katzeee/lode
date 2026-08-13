@@ -14,13 +14,13 @@ import {
 import {
   hasExactKeys,
   isNullableString,
-  isOwnerCacheDescriptor,
+  isPlanCacheDescriptor,
   isProjectionHeader,
   isProjectionIdentity,
   isRecord,
   isShardDescriptor,
 } from "./materialized-value-validation.js";
-export { isStoredOwnerCaches, isStoredShard } from "./materialized-value-validation.js";
+export { isStoredPlanCaches, isStoredShard } from "./materialized-value-validation.js";
 
 export function isManifest(value: unknown): value is GenerationManifest {
   return (
@@ -41,7 +41,7 @@ export function isGenerationHeader(
       "format",
       "contentDigest",
       "identity",
-      "ownerCache",
+      "planCache",
       "directory",
       "origin",
       "review",
@@ -49,7 +49,7 @@ export function isGenerationHeader(
     value.format !== HEADER_FORMAT ||
     !isProjectionIdentity(value.identity, generationId) ||
     typeof value.contentDigest !== "string" ||
-    !isOwnerCacheDescriptor(value.ownerCache, generationId) ||
+    !isPlanCacheDescriptor(value.planCache, generationId) ||
     !isDirectoryRoots(value.directory, generationId) ||
     !isProjectionHeader(value.origin, "origin", generationId) ||
     !isProjectionHeader(value.review, "review", generationId)

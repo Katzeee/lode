@@ -84,7 +84,7 @@ function candidateForGroup(
 
 function fieldConfiguration(projection: Projection, schemaId: string, fieldDefinitionId: string) {
   return (
-    projection.schemaFieldItems[schemaId]?.find(
+    projection.templateFields[schemaId]?.find(
       (item) => item.fieldDefinitionId === fieldDefinitionId,
     )?.effectiveConfig ?? null
   );

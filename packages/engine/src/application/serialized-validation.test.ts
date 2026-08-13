@@ -20,8 +20,8 @@ const selection = {
       },
     ],
     associatedImpactIds: [],
-    rulesVersion: "proposal-rules-1",
-    schemaVersion: "lode-schema-12",
+    rulesVersion: "proposal-rules-3",
+    schemaVersion: "lode-schema-16",
   },
 } as const;
 
@@ -73,8 +73,8 @@ describe("serialized contract deep validation", () => {
           effects: [
             {
               kind: "value",
-              ownerKind: "future-owner",
-              ownerId: "node",
+              targetKind: "future-target",
+              targetId: "node",
               namespace: "property",
               key: "color",
               origin: { kind: "unset" },
@@ -87,7 +87,7 @@ describe("serialized contract deep validation", () => {
         ...selection,
         evidence: {
           ...selection.evidence,
-          effects: [{ kind: "canonical", identity: "node", origin: [], review: null }],
+          effects: [{ kind: "owner", identity: "node", origin: [], review: null }],
         },
       },
     ];
@@ -166,8 +166,8 @@ describe("serialized contract deep validation", () => {
             identity: {
               generationId: "generation",
               frontier: {},
-              rulesVersion: "proposal-rules-1",
-              schemaVersion: "lode-schema-12",
+              rulesVersion: "proposal-rules-3",
+              schemaVersion: "lode-schema-16",
             },
             view: "origin",
             section: "nodes",
@@ -176,7 +176,7 @@ describe("serialized contract deep validation", () => {
             nodes: { node },
             occurrences: {},
             children: {},
-            canonicalOccurrences: {},
+            nodeOwners: {},
             addressedValues: {},
           },
         },
@@ -246,11 +246,11 @@ describe("serialized contract deep validation", () => {
       kind: "placement-conflict",
       identity: "placement-conflict",
       occurrenceId: "value-occurrence",
-      canonicalParentOccurrenceId: "parent-a",
+      canonicalParentNodeId: "parent-a",
       candidates: [
         {
           contributionId: "move-a",
-          parentOccurrenceId: "parent-a",
+          parentNodeId: "parent-a",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
           actorId: "mover",
           replicaId,

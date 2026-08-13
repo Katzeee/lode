@@ -43,9 +43,11 @@ export function compensateSchemaMutation(
           kind: "schema-field-remove",
           schemaId: mutation.schemaId,
           fieldDefinitionId: mutation.fieldDefinitionId,
+          fieldNodeId: mutation.fieldNodeId,
+          fieldOccurrenceId: mutation.fieldOccurrenceId,
           previousAnchor: currentAnchor(
-            projection.schemaFields[mutation.schemaId] ?? [],
-            mutation.fieldDefinitionId,
+            projection.children[mutation.schemaId] ?? [],
+            mutation.fieldOccurrenceId,
           ),
         })
       : noCompensation();
@@ -56,6 +58,8 @@ export function compensateSchemaMutation(
           kind: "schema-field-add",
           schemaId: mutation.schemaId,
           fieldDefinitionId: mutation.fieldDefinitionId,
+          fieldNodeId: mutation.fieldNodeId,
+          fieldOccurrenceId: mutation.fieldOccurrenceId,
           anchor: mutation.previousAnchor,
         })
       : noCompensation();
@@ -67,6 +71,7 @@ export function compensateSchemaMutation(
           kind: "schema-field-configure",
           schemaId: mutation.schemaId,
           fieldDefinitionId: mutation.fieldDefinitionId,
+          fieldNodeId: mutation.fieldNodeId,
           config: mutation.previousConfig,
           previousConfig: mutation.config,
           observedConfigFactIds: [target.id],
@@ -108,9 +113,10 @@ function compensateTemplateNodeRelation(
           kind: "schema-template-node-remove",
           schemaId: mutation.schemaId,
           templateNodeId: mutation.templateNodeId,
+          templateOccurrenceId: mutation.templateOccurrenceId,
           previousAnchor: currentAnchor(
-            projection.schemaTemplateNodes[mutation.schemaId] ?? [],
-            mutation.templateNodeId,
+            projection.children[mutation.schemaId] ?? [],
+            mutation.templateOccurrenceId,
           ),
         })
       : noCompensation();
@@ -120,6 +126,7 @@ function compensateTemplateNodeRelation(
         kind: "schema-template-node-add",
         schemaId: mutation.schemaId,
         templateNodeId: mutation.templateNodeId,
+        templateOccurrenceId: mutation.templateOccurrenceId,
         anchor: mutation.previousAnchor,
       })
     : noCompensation();
@@ -141,13 +148,16 @@ function contains(
     mutation.kind === "schema-field-remove" ||
     mutation.kind === "schema-field-configure"
   ) {
-    return (projection.schemaFields[mutation.schemaId] ?? []).includes(mutation.fieldDefinitionId);
+    return (projection.templateFields[mutation.schemaId] ?? []).some(
+      (field) => field.fieldNodeId === mutation.fieldNodeId,
+    );
   }
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
     return (projection.schemaExtensions[mutation.schemaId] ?? []).includes(mutation.baseSchemaId);
   }
-  return (projection.schemaTemplateNodes[mutation.schemaId] ?? []).includes(
-    mutation.templateNodeId,
+  const occurrence = projection.occurrences[mutation.templateOccurrenceId];
+  return (
+    occurrence?.nodeId === mutation.templateNodeId && occurrence.parentNodeId === mutation.schemaId
   );
 }
 
@@ -192,7 +202,7 @@ function relationOwner(mutation: Extract<Mutation, { kind: `schema-${string}` }>
     mutation.kind === "schema-field-remove" ||
     mutation.kind === "schema-field-configure"
   ) {
-    return JSON.stringify(["field", mutation.schemaId, mutation.fieldDefinitionId]);
+    return JSON.stringify(["field", mutation.fieldNodeId]);
   }
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
     return JSON.stringify(["extension", mutation.schemaId, mutation.baseSchemaId]);

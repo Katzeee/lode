@@ -9,7 +9,7 @@ import {
 } from "./materialized-generation-format.js";
 import {
   isGenerationHeader,
-  isStoredOwnerCaches,
+  isStoredPlanCaches,
   isStoredShard,
 } from "./materialized-format-validation.js";
 import type { ProjectionGenerationStore } from "./proposal-workspace-types.js";
@@ -77,7 +77,7 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     return this.withReadLease(generationId, async () => {
       const header = await this.loadHeader(generationId);
       const descriptors = await loadAllDescriptors(this.documents, generationId, header.directory);
-      const ownerCaches = await this.loadOwnerCaches(generationId, header);
+      const planCaches = await this.loadPlanCaches(generationId, header);
       const origin = await loadMaterializedProjection(
         header.origin,
         descriptors.filter((descriptor) => descriptor.view === "origin"),
@@ -92,15 +92,15 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
         identity: header.identity,
         origin,
         review,
-        ownerCaches,
+        planCaches,
       };
     });
   }
 
-  async ownerCaches(generationId: string): Promise<ProjectionGeneration["ownerCaches"]> {
+  async planCaches(generationId: string): Promise<ProjectionGeneration["planCaches"]> {
     return this.withReadLease(generationId, async () => {
       const header = await this.loadHeader(generationId);
-      return this.loadOwnerCaches(generationId, header);
+      return this.loadPlanCaches(generationId, header);
     });
   }
 
@@ -294,14 +294,14 @@ export class BoundedProjectionMaterializer implements ProjectionGenerationStore 
     return parsed;
   }
 
-  private async loadOwnerCaches(
+  private async loadPlanCaches(
     generationId: string,
     header: GenerationHeader,
-  ): Promise<ProjectionGeneration["ownerCaches"]> {
-    const stored = await loadMaterializedSnapshot(this.documents, header.ownerCache.documentId);
+  ): Promise<ProjectionGeneration["planCaches"]> {
+    const stored = await loadMaterializedSnapshot(this.documents, header.planCache.documentId);
     const parsed: unknown = JSON.parse(new TextDecoder().decode(stored));
-    if (!isStoredOwnerCaches(parsed, generationId, header.ownerCache.contentDigest)) {
-      throw new Error("Published Projection owner cache is corrupt");
+    if (!isStoredPlanCaches(parsed, generationId, header.planCache.contentDigest)) {
+      throw new Error("Published Projection plan cache is corrupt");
     }
     return parsed.value;
   }

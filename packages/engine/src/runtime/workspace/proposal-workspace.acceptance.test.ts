@@ -1,12 +1,21 @@
-import { LoroDoc } from "loro-crdt";
 import { describe, expect, it } from "vitest";
 
 import type { EngineEvent, MutationCommand } from "../../application/contract.js";
-import { canonicalJson, requestDigest } from "../../domain/fact/index.js";
+import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import {
+  admitAuthorityRecordShapes,
+  canonicalJson,
+  requestDigest,
+  type SequenceAnchor,
+} from "../../domain/fact/index.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import {
+  createReplicaId,
+  FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
+  FactAuthorityStore,
+} from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../sync/sync-exchange.js";
 import { ProjectionCheckpointRepository } from "./projection-checkpoints.js";
@@ -14,19 +23,35 @@ import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import type { ProjectionPublisher } from "./proposal-workspace-types.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+
+function nodeAtWorkspace(nodeId: string) {
+  return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
+}
+
+function nodeAt(
+  nodeId: string,
+  parentNodeId: string,
+  occurrenceId: string,
+  anchor: SequenceAnchor = end,
+) {
+  return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor };
+}
 
 async function setup(
   publisher?: ProjectionPublisher,
   documents: DocumentStore = new InMemoryDocumentStore(),
   publicationTimeoutMs?: number,
   historyPlanningObserver?: HistoryPlanningObserver,
+  admitRecords: typeof admitAuthorityRecords = admitAuthorityRecords,
 ) {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId: "101",
     documents,
+    admitRecords,
   });
   return {
     facts,
@@ -42,11 +67,12 @@ async function setup(
 }
 
 async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`) {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId,
     documents,
+    admitRecords: admitAuthorityRecords,
   });
   return {
     facts,
@@ -69,7 +95,15 @@ function createNode(
     actorId: "actor",
     intent,
     historyChannelId: "desktop",
-    mutations: [{ kind: "node-create", nodeId: "node" }],
+    mutations: [
+      {
+        kind: "node-create",
+        occurrenceId: "node-original",
+        nodeId: "node",
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    ],
   };
 }
 
@@ -169,12 +203,18 @@ describe("Proposal Workspace coordinator", () => {
           actorId: "author",
           intent: "proposal",
           historyChannelId: "desktop",
-          mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+          mutations: nodeAtWorkspace("proposal-node"),
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactSyncComposite(a.facts), new FactSyncComposite(b.facts));
-    await syncPair(new FactSyncComposite(a.facts), new FactSyncComposite(c.facts));
+    await syncPair(
+      new FactSyncComposite(a.facts.replication),
+      new FactSyncComposite(b.facts.replication),
+    );
+    await syncPair(
+      new FactSyncComposite(a.facts.replication),
+      new FactSyncComposite(c.facts.replication),
+    );
     await b.workspace.reconcileAuthorityAdvance();
     await c.workspace.reconcileAuthorityAdvance();
 
@@ -207,8 +247,14 @@ describe("Proposal Workspace coordinator", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactSyncComposite(b.facts), new FactSyncComposite(a.facts));
-    await syncPair(new FactSyncComposite(c.facts), new FactSyncComposite(a.facts));
+    await syncPair(
+      new FactSyncComposite(b.facts.replication),
+      new FactSyncComposite(a.facts.replication),
+    );
+    await syncPair(
+      new FactSyncComposite(c.facts.replication),
+      new FactSyncComposite(a.facts.replication),
+    );
     await a.workspace.reconcileAuthorityAdvance();
 
     const conflicts = await a.workspace.query({
@@ -283,42 +329,15 @@ describe("Proposal Workspace coordinator", () => {
           intent: "direct",
           historyChannelId: "setup",
           mutations: [
-            { kind: "node-create", nodeId: "workspace-root-node" },
-            { kind: "node-create", nodeId: "p1-node" },
-            { kind: "node-create", nodeId: "p2-node" },
-            { kind: "node-create", nodeId: "shared" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "workspace-root",
-              nodeId: "workspace-root-node",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "p1",
-              nodeId: "p1-node",
-              parentOccurrenceId: "workspace-root",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "p2",
-              nodeId: "p2-node",
-              parentOccurrenceId: "workspace-root",
-              parentPolicy: "cascade",
-              anchor: { after: "p1", before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "shared-occ",
-              nodeId: "shared",
-              parentOccurrenceId: "p1",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
+            nodeAt("outline-root-node", "workspace", "outline-root-occurrence"),
+            nodeAt("p1-node", "outline-root-node", "p1"),
+            nodeAt("p2-node", "outline-root-node", "p2", {
+              after: "p1",
+              before: null,
+              affinity: "after",
+              fallback: "end",
+            }),
+            nodeAt("shared", "p1-node", "shared-occ"),
           ],
         })
       ).status,
@@ -343,7 +362,7 @@ describe("Proposal Workspace coordinator", () => {
             {
               kind: "occurrence-move",
               occurrenceId: "shared-occ",
-              parentOccurrenceId: "p2",
+              parentNodeId: "p2-node",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
           ],
@@ -390,21 +409,15 @@ describe("Proposal Workspace coordinator", () => {
           intent: "direct",
           historyChannelId: "setup",
           mutations: [
-            { kind: "node-create", nodeId: "parent" },
-            { kind: "node-create", nodeId: "schema" },
-            { kind: "node-create", nodeId: "field" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "parent-occ",
-              nodeId: "parent",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
+            nodeAt("parent", "workspace", "parent-occ"),
+            ...nodeAtWorkspace("schema"),
+            ...nodeAtWorkspace("field"),
             {
               kind: "schema-field-add",
               schemaId: "schema",
               fieldDefinitionId: "field",
+              fieldNodeId: "schema-field-template-field",
+              fieldOccurrenceId: "schema-field-template-field-occurrence",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
             {
@@ -431,6 +444,8 @@ describe("Proposal Workspace coordinator", () => {
               kind: "schema-field-configure",
               schemaId: "schema",
               fieldDefinitionId: "field",
+              fieldNodeId: "schema-field-template-field",
+
               config: {
                 visibility: "normal",
                 staticDefault: null,
@@ -453,7 +468,7 @@ describe("Proposal Workspace coordinator", () => {
           mutations: [
             {
               kind: "value-set",
-              owner: { kind: "field", id: "field" },
+              target: { kind: "node", id: "field" },
               namespace: "property",
               key: "label",
               value: "X",
@@ -489,7 +504,7 @@ describe("Proposal Workspace coordinator", () => {
     expect(paged).toEqual(complete.hunks);
     expect(complete.hunks).toHaveLength(1);
     expect(complete.hunks[0]).toMatchObject({
-      diffSpace: { kind: "value", identity: "field/field/property/label" },
+      diffSpace: { kind: "value", identity: "node/field/property/label" },
     });
   });
 
@@ -618,16 +633,23 @@ describe("Proposal Workspace coordinator", () => {
       const { workspace } = await setup();
       if (owner === "occurrence") {
         expect((await workspace.execute(createNode("occurrence-node"))).status).toBe("published");
+        expect(
+          (
+            await workspace.execute({
+              ...createNode("occurrence-parent"),
+              mutations: nodeAtWorkspace("repeat-parent"),
+            })
+          ).status,
+        ).toBe("published");
       }
       const mutation =
         owner === "node"
-          ? { kind: "node-create" as const, nodeId: "repeated" }
+          ? nodeAt("repeated", "workspace", "repeated-original")
           : {
               kind: "occurrence-create" as const,
               occurrenceId: "repeated",
               nodeId: "node",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade" as const,
+              parentNodeId: "repeat-parent",
               anchor: {
                 after: null,
                 before: null,
@@ -644,7 +666,7 @@ describe("Proposal Workspace coordinator", () => {
             actorId: "actor",
             intent: "direct",
             historyChannelId: `repeated-${owner}`,
-            mutations: [mutation, mutation],
+            mutations: owner === "node" ? [mutation, mutation] : [mutation, mutation],
           })
         ).status,
       ).toBe("published");
@@ -701,144 +723,96 @@ describe("Proposal Workspace coordinator", () => {
     }
   });
 
-  it("delete followed by duplicate create retains explicit lifecycle Undo and Redo", async () => {
-    for (const owner of ["node", "occurrence"] as const) {
-      const { workspace } = await setup();
-      const nodeId = owner === "node" ? "mixed" : "node";
-      expect(
-        (
-          await workspace.execute({
-            ...createNode(`setup-${owner}`),
-            historyChannelId: "setup",
-            mutations: [{ kind: "node-create", nodeId }],
-          })
-        ).status,
-      ).toBe("published");
-      const createOccurrence = {
-        kind: "occurrence-create" as const,
-        occurrenceId: "mixed",
-        nodeId,
-        parentOccurrenceId: null,
-        parentPolicy: "cascade" as const,
-        anchor: { after: null, before: null, affinity: "after" as const, fallback: "end" as const },
-      };
-      if (owner === "occurrence") {
-        expect(
-          (
-            await workspace.execute({
-              kind: "mutate",
-              workspaceId: "workspace",
-              invocationId: "setup-appearance",
-              actorId: "actor",
-              intent: "direct",
-              historyChannelId: "setup",
-              mutations: [createOccurrence],
-            })
-          ).status,
-        ).toBe("published");
-      }
-      const deletion =
-        owner === "node"
-          ? { kind: "node-delete" as const, nodeId }
-          : {
-              kind: "occurrence-delete" as const,
-              occurrenceId: "mixed",
-              childPolicy: "rehome" as const,
-            };
-      const mutations =
-        owner === "node"
-          ? [deletion, { kind: "node-create" as const, nodeId }, deletion]
-          : [deletion, createOccurrence, deletion];
-      expect(
-        (
-          await workspace.execute({
-            kind: "mutate",
-            workspaceId: "workspace",
-            invocationId: `mixed-${owner}`,
-            actorId: "actor",
-            intent: "direct",
-            historyChannelId: `mixed-${owner}`,
-            mutations,
-          })
-        ).status,
-      ).toBe("published");
-      expect(await lifecycleExists(workspace, owner, "mixed")).toBe(false);
-      const history = await workspace.query({
-        kind: "history",
-        workspaceId: "workspace",
-        channelId: `mixed-${owner}`,
-      });
-      if (!("undo" in history) || !history.undo) {
-        throw new Error("Expected mixed lifecycle Undo");
-      }
-      expect(history.undo.evidence.compensations).toHaveLength(2);
-      expect(
-        (
-          await workspace.execute({
-            kind: "undo",
-            workspaceId: "workspace",
-            invocationId: `undo-mixed-${owner}`,
-            actorId: "actor",
-            selection: history.undo,
-          })
-        ).status,
-      ).toBe("published");
-      expect(await lifecycleExists(workspace, owner, "mixed")).toBe(true);
-      const redo = await workspace.query({
-        kind: "history",
-        workspaceId: "workspace",
-        channelId: `mixed-${owner}`,
-      });
-      if (!("redo" in redo) || !redo.redo) {
-        throw new Error("Expected mixed lifecycle Redo");
-      }
-      expect(
-        (
-          await workspace.execute({
-            kind: "redo",
-            workspaceId: "workspace",
-            invocationId: `redo-mixed-${owner}`,
-            actorId: "actor",
-            selection: redo.redo,
-          })
-        ).status,
-      ).toBe("published");
-      expect(await lifecycleExists(workspace, owner, "mixed")).toBe(false);
+  it("deletes a Reference placement alone and moves an Original-owned subtree to Trash atomically", async () => {
+    const { facts, workspace } = await setup();
+    expect(
+      (
+        await workspace.execute({
+          ...createNode("deletion-setup"),
+          mutations: [
+            nodeAt("node", "workspace", "node-original"),
+            nodeAt("child", "node", "child-original"),
+            nodeAt("context", "workspace", "context-original"),
+            {
+              kind: "occurrence-create",
+              occurrenceId: "node-reference",
+              nodeId: "node",
+              parentNodeId: "context",
+              anchor: end,
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+
+    const referenceDeletion = await workspace.execute({
+      ...createNode("delete-reference"),
+      mutations: [{ kind: "occurrence-delete", occurrenceId: "node-reference" }],
+    });
+    if (referenceDeletion.status !== "published") {
+      throw new Error("Expected Reference deletion");
     }
+    expect(facts.facts(referenceDeletion.receipt.factIds)[0]?.body).toMatchObject({
+      mutation: { kind: "occurrence-delete", occurrenceId: "node-reference" },
+    });
+    expect(await lifecycleExists(workspace, "node", "node")).toBe(true);
+    expect(
+      await workspace.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        view: "origin",
+        section: "nodeOwners",
+      }),
+    ).toMatchObject({ nodeOwners: { child: "node", node: "workspace" } });
+
+    const originalDeletionCommand = {
+      ...createNode("delete-original"),
+      mutations: [{ kind: "occurrence-delete", occurrenceId: "node-original" }],
+    } as const;
+    const originalDeletion = await workspace.execute(originalDeletionCommand);
+    if (originalDeletion.status !== "published") {
+      throw new Error("Expected Original deletion");
+    }
+    const deletedNodeIds = facts
+      .facts(originalDeletion.receipt.factIds)
+      .flatMap((fact) =>
+        fact.body.kind === "contribution" && fact.body.mutation.kind === "node-delete"
+          ? [fact.body.mutation.nodeId]
+          : [],
+      );
+    expect(deletedNodeIds).toEqual(["child", "node"]);
+    expect(
+      new Set(
+        facts.facts(originalDeletion.receipt.factIds).map((fact) => fact.transaction.transactionId),
+      ).size,
+    ).toBe(1);
+    expect(await lifecycleExists(workspace, "node", "node")).toBe(false);
+    expect(await lifecycleExists(workspace, "node", "child")).toBe(false);
   });
 
   it("keeps public History query and Undo counterfactual work independent of unrelated entities", async () => {
     const maximumScopes = [];
     for (const count of [250, 1_000]) {
       const scopes: number[] = [];
-      const { workspace } = await setup(
+      const { facts, workspace } = await setup(
         undefined,
         new InMemoryDocumentStore(),
         undefined,
         ({ factCount }) => scopes.push(factCount),
+        admitAuthorityRecordShapes,
       );
-      expect(
-        (
-          await workspace.execute({
-            kind: "mutate",
-            workspaceId: "workspace",
-            invocationId: `unrelated-${count}`,
-            actorId: "actor",
-            intent: "direct",
-            historyChannelId: "unrelated",
-            mutations: Array.from({ length: count }, (_, index) => ({
-              kind: "node-create" as const,
-              nodeId: `unrelated-${String(index).padStart(4, "0")}`,
-            })),
-          })
-        ).status,
-      ).toBe("published");
+      await commitFactOnlyNodes(
+        facts,
+        `unrelated-${count}`,
+        Array.from({ length: count }, (_, index) => `unrelated-${String(index).padStart(4, "0")}`),
+      );
+      await workspace.reconcileAuthorityAdvance();
       expect(
         (
           await workspace.execute({
             ...createNode(`target-${count}`),
             historyChannelId: "target",
-            mutations: [{ kind: "node-create", nodeId: "target" }],
+            mutations: nodeAtWorkspace("target"),
           })
         ).status,
       ).toBe("published");
@@ -861,7 +835,7 @@ describe("Proposal Workspace coordinator", () => {
       expect(undone.status).toBe("published");
       maximumScopes.push(Math.max(...scopes));
     }
-    expect(maximumScopes).toEqual([1, 1]);
+    expect(maximumScopes).toEqual([3, 3]);
   });
 
   it("CMD-3 retry returns one receipt and published success is read-your-write", async () => {
@@ -872,7 +846,7 @@ describe("Proposal Workspace coordinator", () => {
 
     expect(first.status).toBe("published");
     expect(retry).toEqual(first);
-    expect(facts.snapshot().facts).toHaveLength(1);
+    expect(facts.snapshot().facts).toHaveLength(3);
     const projection = await workspace.query({
       kind: "projection",
       workspaceId: "workspace",
@@ -885,19 +859,19 @@ describe("Proposal Workspace coordinator", () => {
     const { facts, workspace } = await setup();
     const second = {
       ...createNode("second"),
-      mutations: [{ kind: "node-create" as const, nodeId: "second" }],
+      mutations: nodeAtWorkspace("second"),
     };
 
     const results = await Promise.all([workspace.execute(createNode()), workspace.execute(second)]);
 
     expect(results.map((result) => result.status)).toEqual(["published", "published"]);
-    expect(facts.snapshot().facts).toHaveLength(2);
+    expect(facts.snapshot().facts).toHaveLength(5);
     expect(
       await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
     ).toMatchObject({ nodes: { node: { nodeId: "node" }, second: { nodeId: "second" } } });
   });
 
-  it("one atomic command plans later mutations against earlier mutations in its batch", async () => {
+  it("one ordered command plans later Edits against earlier Edits without merging their transactions", async () => {
     const { facts, workspace } = await setup();
     await workspace.execute(createNode());
     const result = await workspace.execute({
@@ -910,14 +884,14 @@ describe("Proposal Workspace coordinator", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "x",
           value: 1,
         },
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "x",
           value: 2,
@@ -925,16 +899,19 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(result.status).toBe("published");
-    const values = facts
+    const valueFacts = facts
       .snapshot()
       .facts.filter(
         (fact) => result.status === "published" && result.receipt.factIds.includes(fact.id),
-      )
-      .map((fact) => (fact.body.kind === "contribution" ? fact.body.mutation : null));
+      );
+    const values = valueFacts.map((fact) =>
+      fact.body.kind === "contribution" ? fact.body.mutation : null,
+    );
     expect(values).toEqual([
       expect.objectContaining({ kind: "value-set", value: 1, previous: { kind: "unset" } }),
       expect.objectContaining({ kind: "value-set", value: 2, previous: { kind: "set", value: 1 } }),
     ]);
+    expect(new Set(valueFacts.map((fact) => fact.transaction.transactionId)).size).toBe(2);
     expect(
       await workspace.query({
         kind: "projection",
@@ -946,36 +923,19 @@ describe("Proposal Workspace coordinator", () => {
     const structure = await workspace.execute({
       ...createNode("sequential-structure"),
       mutations: [
-        { kind: "node-create", nodeId: "structure-root-node" },
-        { kind: "node-create", nodeId: "parent-node" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "structure-root",
-          nodeId: "structure-root-node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "parent",
-          nodeId: "parent-node",
-          parentOccurrenceId: "structure-root",
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
+        nodeAt("structure-root-node", "workspace", "structure-root"),
+        nodeAt("parent-node", "structure-root-node", "parent"),
         {
           kind: "occurrence-create",
           occurrenceId: "child",
           nodeId: "node",
-          parentOccurrenceId: "structure-root",
-          parentPolicy: "cascade",
+          parentNodeId: "structure-root-node",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
           kind: "occurrence-move",
           occurrenceId: "child",
-          parentOccurrenceId: "parent",
+          parentNodeId: "parent-node",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
       ],
@@ -988,10 +948,10 @@ describe("Proposal Workspace coordinator", () => {
         view: "origin",
         section: "occurrences",
       }),
-    ).toMatchObject({ occurrences: { child: { parentOccurrenceId: "parent" } } });
+    ).toMatchObject({ occurrences: { child: { parentNodeId: "parent-node" } } });
   });
 
-  it("rejects atomic text references to Atoms created earlier in the same batch", async () => {
+  it("rejects text references to Atoms created earlier in the same ordered command", async () => {
     const { facts, workspace } = await setup();
     await workspace.execute(createNode());
     const syntheticAtomId = "g1/workspace/77777777777777777777777777/1#0";
@@ -1020,7 +980,7 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(splice).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(facts.snapshot().facts).toHaveLength(1);
+    expect(facts.snapshot().facts).toHaveLength(3);
 
     const mark = await workspace.execute({
       kind: "mutate",
@@ -1047,7 +1007,7 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(mark).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(facts.snapshot().facts).toHaveLength(1);
+    expect(facts.snapshot().facts).toHaveLength(3);
     const projection = await workspace.query({
       kind: "projection",
       workspaceId: "workspace",
@@ -1060,40 +1020,31 @@ describe("Proposal Workspace coordinator", () => {
     expect(projection.nodes.node?.text).toEqual([]);
   });
 
-  it("an atomic batch plans from restored Node and Occurrence state", async () => {
-    const { workspace } = await setup();
+  it("an ordered command plans from restored Node and Occurrence state", async () => {
+    const { facts, workspace } = await setup();
     const created = await workspace.execute({
       ...createNode("restore-base"),
       mutations: [
-        { kind: "node-create", nodeId: "restored-node" },
+        nodeAt("parent-node", "workspace", "parent-occurrence"),
+        nodeAt("restored-node", "parent-node", "restored-occurrence"),
+        nodeAt("reference-parent", "workspace", "reference-parent-occurrence"),
+        {
+          kind: "occurrence-create",
+          occurrenceId: "restored-reference",
+          nodeId: "restored-node",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
         {
           kind: "text-splice",
           nodeId: "restored-node",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
           deleteAtomIds: [],
-          deletedAtoms: [],
           insert: "A",
-        },
-        { kind: "node-create", nodeId: "parent-node" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "parent-occurrence",
-          nodeId: "parent-node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "restored-occurrence",
-          nodeId: "restored-node",
-          parentOccurrenceId: "parent-occurrence",
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
           kind: "value-set",
-          owner: { kind: "occurrence", id: "restored-occurrence" },
+          target: { kind: "occurrence", id: "restored-occurrence" },
           namespace: "property",
           key: "before",
           value: true,
@@ -1103,16 +1054,18 @@ describe("Proposal Workspace coordinator", () => {
     if (created.status !== "published") {
       throw new Error(`Expected restore fixture: ${canonicalJson(created)}`);
     }
-    const insertedAtomId = `${created.receipt.factIds[1]}#0` as const;
+    const textFact = facts
+      .facts(created.receipt.factIds)
+      .find(
+        (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "text-splice",
+      );
+    const insertedAtomId = `${required(textFact, "Text Fact").id}#0` as const;
     const occurrenceDeleted = await workspace.execute({
       ...createNode("delete-occurrence"),
       mutations: [
         {
           kind: "occurrence-delete",
-          occurrenceId: "restored-occurrence",
-          childPolicy: "cascade",
-          previousParentOccurrenceId: null,
-          previousAnchor: { after: null, before: null, affinity: "after", fallback: "end" },
+          occurrenceId: "restored-reference",
         },
       ],
     });
@@ -1136,30 +1089,29 @@ describe("Proposal Workspace coordinator", () => {
           nodeId: "restored-node",
           anchor: { after: insertedAtomId, before: null, affinity: "after", fallback: "end" },
           deleteAtomIds: [],
-          deletedAtoms: [],
           insert: "B",
         },
         {
           kind: "occurrence-restore",
-          occurrenceId: "restored-occurrence",
+          occurrenceId: "restored-reference",
           deletionFactId: required(
             occurrenceDeleted.receipt.factIds[0],
             "Occurrence deletion Fact",
           ),
-          parentOccurrenceId: null,
+          parentNodeId: "workspace",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
           kind: "value-set",
-          owner: { kind: "occurrence", id: "restored-occurrence" },
+          target: { kind: "occurrence", id: "restored-reference" },
           namespace: "property",
           key: "after",
           value: true,
         },
         {
           kind: "occurrence-move",
-          occurrenceId: "restored-occurrence",
-          parentOccurrenceId: "parent-occurrence",
+          occurrenceId: "restored-reference",
+          parentNodeId: "reference-parent",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
       ],
@@ -1188,47 +1140,30 @@ describe("Proposal Workspace coordinator", () => {
       }),
     ).toMatchObject({
       occurrences: {
-        "restored-occurrence": {
+        "restored-reference": {
           nodeId: "restored-node",
-          parentOccurrenceId: "parent-occurrence",
-          properties: { before: true, after: true },
+          parentNodeId: "reference-parent",
+          properties: { after: true },
         },
       },
     });
   });
 
-  it("rejects an App move cycle before authority commit", async () => {
+  it("rejects an owner cycle before authority commit", async () => {
     const { facts, workspace } = await setup();
     expect(
       (
         await workspace.execute({
           ...createNode("cycle-setup"),
           mutations: [
-            { kind: "node-create", nodeId: "na" },
-            { kind: "node-create", nodeId: "nb" },
-            { kind: "node-create", nodeId: "nc" },
+            nodeAt("na", "workspace", "a"),
+            nodeAt("nb", "na", "b"),
+            nodeAt("nc", "nb", "c"),
             {
               kind: "occurrence-create",
-              occurrenceId: "a",
+              occurrenceId: "a-reference",
               nodeId: "na",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "b",
-              nodeId: "nb",
-              parentOccurrenceId: "a",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "c",
-              nodeId: "nc",
-              parentOccurrenceId: "b",
-              parentPolicy: "cascade",
+              parentNodeId: "nc",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
           ],
@@ -1241,10 +1176,8 @@ describe("Proposal Workspace coordinator", () => {
         ...createNode("cycle"),
         mutations: [
           {
-            kind: "occurrence-move",
-            occurrenceId: "a",
-            parentOccurrenceId: "c",
-            anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            kind: "reference-promote",
+            occurrenceId: "a-reference",
           },
         ],
       }),
@@ -1252,13 +1185,98 @@ describe("Proposal Workspace coordinator", () => {
     expect(facts.snapshot().facts).toHaveLength(before);
   });
 
+  it("promotes a Reference Occurrence through the public domain operation", async () => {
+    const { workspace } = await setup();
+    expect(
+      (
+        await workspace.execute({
+          ...createNode("reference-setup"),
+          mutations: [
+            nodeAt("context", "workspace", "context-original"),
+            nodeAt("shared", "workspace", "shared-original"),
+            {
+              kind: "occurrence-create",
+              occurrenceId: "shared-reference",
+              nodeId: "shared",
+              parentNodeId: "context",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+
+    const promotion = await workspace.execute({
+      ...createNode("promote-reference"),
+      mutations: [{ kind: "reference-promote", occurrenceId: "shared-reference" }],
+    });
+    expect(promotion).toMatchObject({ status: "published" });
+    expect(
+      await workspace.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        view: "origin",
+        section: "nodeOwners",
+      }),
+    ).toMatchObject({ nodeOwners: { shared: "context" } });
+  });
+
+  it("creates the Workspace through the common Node lifecycle and uses it as the ownership root", async () => {
+    const { facts, workspace } = await setup();
+    expect(facts.snapshot().facts[0]?.body).toMatchObject({
+      kind: "contribution",
+      mutation: { kind: "node-create", nodeId: "workspace" },
+    });
+    expect(
+      (
+        await workspace.execute({
+          ...createNode("name-workspace"),
+          mutations: [
+            {
+              kind: "value-set",
+              target: { kind: "node", id: "workspace" },
+              namespace: "property",
+              key: "name",
+              value: "Workspace",
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    expect(
+      await workspace.execute({
+        ...createNode("workspace-lifecycle"),
+        mutations: [{ kind: "node-delete", nodeId: "workspace" }],
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+    expect(facts.snapshot().facts).toHaveLength(2);
+
+    expect(
+      (
+        await workspace.execute({
+          ...createNode("top-level"),
+          mutations: [
+            nodeAt("first-root", "workspace", "first-root-occurrence"),
+            nodeAt("second-root", "workspace", "second-root-occurrence", {
+              after: "first-root-occurrence",
+              before: null,
+              affinity: "after",
+              fallback: "end",
+            }),
+          ],
+        })
+      ).status,
+    ).toBe("published");
+  });
+
   it("public workspace queries load projection shards through the bounded materializer", async () => {
     const documents = new RecordingLoadDocumentStore();
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: createReplicaId(),
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const materializer = new BoundedProjectionMaterializer(documents, { capacity: 1 });
     const workspace = await ProposalWorkspace.open({
@@ -1269,10 +1287,7 @@ describe("Proposal Workspace coordinator", () => {
     });
     await workspace.execute({
       ...createNode("materialized"),
-      mutations: [
-        { kind: "node-create", nodeId: "first" },
-        { kind: "node-create", nodeId: "second" },
-      ],
+      mutations: [...nodeAtWorkspace("first"), ...nodeAtWorkspace("second")],
     });
     documents.materializedShardLoads = 0;
     expect(
@@ -1284,18 +1299,19 @@ describe("Proposal Workspace coordinator", () => {
         after: "first",
         limit: 1,
       }),
-    ).toMatchObject({ entries: [{ identity: "second" }], next: null });
+    ).toMatchObject({ entries: [{ identity: "second" }], next: "second" });
     expect(documents.materializedShardLoads).toBe(1);
     expect(materializer.retainedUnits()).toBe(1);
   });
 
   it("Review queries page stable owner scopes through the bounded materializer", async () => {
     const documents = new RecordingLoadDocumentStore();
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: createReplicaId(),
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const materializer = new BoundedProjectionMaterializer(documents, { capacity: 2 });
     const workspace = await ProposalWorkspace.open({
@@ -1306,10 +1322,7 @@ describe("Proposal Workspace coordinator", () => {
     });
     await workspace.execute({
       ...createNode("review-page-base"),
-      mutations: ["a", "b", "c"].map((nodeId) => ({
-        kind: "node-create" as const,
-        nodeId,
-      })),
+      mutations: ["a", "b", "c"].flatMap(nodeAtWorkspace),
     });
     for (const nodeId of ["a", "b", "c"]) {
       await workspace.execute({
@@ -1317,7 +1330,7 @@ describe("Proposal Workspace coordinator", () => {
         mutations: [
           {
             kind: "value-set",
-            owner: { kind: "node", id: nodeId },
+            target: { kind: "node", id: nodeId },
             namespace: "property",
             key: "reviewed",
             value: nodeId,
@@ -1357,24 +1370,20 @@ describe("Proposal Workspace coordinator", () => {
         await workspace.execute({
           ...createNode("replacement-base"),
           mutations: [
-            { kind: "node-create", nodeId: "parent-node" },
-            { kind: "node-create", nodeId: "old-node" },
-            { kind: "node-create", nodeId: "new-node" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "parent",
-              nodeId: "parent-node",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
+            nodeAt("parent-node", "workspace", "parent"),
+            nodeAt("old-node", "workspace", "old-original"),
+            nodeAt("new-node", "workspace", "new-original", {
+              after: "parent",
+              before: null,
+              affinity: "after",
+              fallback: "end",
+            }),
             {
               kind: "occurrence-create",
               occurrenceId: "old",
               nodeId: "old-node",
-              parentOccurrenceId: "parent",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+              parentNodeId: "parent-node",
+              anchor: end,
             },
           ],
         })
@@ -1388,7 +1397,6 @@ describe("Proposal Workspace coordinator", () => {
             {
               kind: "occurrence-delete",
               occurrenceId: "old",
-              childPolicy: "cascade",
             },
           ],
         })
@@ -1403,8 +1411,7 @@ describe("Proposal Workspace coordinator", () => {
               kind: "occurrence-create",
               occurrenceId: "new",
               nodeId: "new-node",
-              parentOccurrenceId: "parent",
-              parentPolicy: "cascade",
+              parentNodeId: "parent-node",
               anchor: { after: "old", before: null, affinity: "after", fallback: "end" },
             },
           ],
@@ -1418,7 +1425,7 @@ describe("Proposal Workspace coordinator", () => {
           mutations: [
             {
               kind: "value-set",
-              owner: { kind: "node", id: "parent-node" },
+              target: { kind: "node", id: "parent-node" },
               namespace: "property",
               key: "label",
               value: "Parent",
@@ -1476,7 +1483,7 @@ describe("Proposal Workspace coordinator", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "color",
           value: "blue",
@@ -1493,7 +1500,7 @@ describe("Proposal Workspace coordinator", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "color",
           value: "red",
@@ -1539,7 +1546,7 @@ describe("Proposal Workspace coordinator", () => {
       const { facts, workspace } = await setup();
       await workspace.execute({
         ...createNode("proposal-create", "proposal"),
-        mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+        mutations: nodeAtWorkspace("proposal-node"),
       });
       expect(
         (
@@ -1601,7 +1608,7 @@ describe("Proposal Workspace coordinator", () => {
     const first = await setupReplica(documents, "301");
     const proposal = await first.workspace.execute({
       ...createNode("proposal-create", "proposal"),
-      mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+      mutations: nodeAtWorkspace("proposal-node"),
     });
     const direct = await first.workspace.execute({
       ...createNode("direct-text"),
@@ -1646,7 +1653,10 @@ describe("Proposal Workspace coordinator", () => {
     await expectUnsupportedDirect(restarted.workspace, directFactId, "direct-author");
 
     const remote = await setupReplica(new InMemoryDocumentStore(), "303");
-    await syncPair(new FactSyncComposite(restarted.facts), new FactSyncComposite(remote.facts));
+    await syncPair(
+      new FactSyncComposite(restarted.facts.replication),
+      new FactSyncComposite(remote.facts.replication),
+    );
     await remote.workspace.reconcileAuthorityAdvance();
     await expectUnsupportedDirect(remote.workspace, directFactId, "direct-author");
 
@@ -1654,14 +1664,17 @@ describe("Proposal Workspace coordinator", () => {
       (
         await remote.workspace.execute({
           ...createNode("restore-independent-support"),
-          mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+          mutations: nodeAtWorkspace("proposal-node"),
         })
       ).status,
     ).toBe("published");
     await expectNoUnsupportedDirect(remote.workspace);
     expect(await projectedText(remote.workspace, "proposal-node")).toBe("preserved intent");
 
-    await syncPair(new FactSyncComposite(remote.facts), new FactSyncComposite(restarted.facts));
+    await syncPair(
+      new FactSyncComposite(remote.facts.replication),
+      new FactSyncComposite(restarted.facts.replication),
+    );
     await restarted.workspace.reconcileAuthorityAdvance();
     await expectNoUnsupportedDirect(restarted.workspace);
     expect(await projectedText(restarted.workspace, "proposal-node")).toBe("preserved intent");
@@ -1670,6 +1683,10 @@ describe("Proposal Workspace coordinator", () => {
   it("History executes occurrence and current-anchor text compensations through admission", async () => {
     const { workspace } = await setup();
     await workspace.execute(createNode("history-base"));
+    await workspace.execute({
+      ...createNode("history-parent"),
+      mutations: nodeAtWorkspace("history-parent"),
+    });
     expect(
       (
         await workspace.execute({
@@ -1680,8 +1697,7 @@ describe("Proposal Workspace coordinator", () => {
               kind: "occurrence-create",
               occurrenceId: "occurrence",
               nodeId: "node",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
+              parentNodeId: "history-parent",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
           ],
@@ -1803,47 +1819,15 @@ describe("Proposal Workspace coordinator", () => {
           ...createNode("placement-base"),
           historyChannelId: "setup-placement",
           mutations: [
-            { kind: "node-create", nodeId: "node-a" },
-            { kind: "node-create", nodeId: "node-b" },
-            { kind: "node-create", nodeId: "node-child" },
-            { kind: "node-create", nodeId: "placement-root-node" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "placement-root",
-              nodeId: "placement-root-node",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "parent-a",
-              nodeId: "node-a",
-              parentOccurrenceId: "placement-root",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "parent-b",
-              nodeId: "node-b",
-              parentOccurrenceId: "placement-root",
-              parentPolicy: "cascade",
-              anchor: {
-                after: "parent-a",
-                before: null,
-                affinity: "after",
-                fallback: "end",
-              },
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "child",
-              nodeId: "node-child",
-              parentOccurrenceId: "parent-a",
-              parentPolicy: "cascade",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
+            nodeAt("placement-root-node", "workspace", "placement-root"),
+            nodeAt("node-a", "placement-root-node", "parent-a"),
+            nodeAt("node-b", "placement-root-node", "parent-b", {
+              after: "parent-a",
+              before: null,
+              affinity: "after",
+              fallback: "end",
+            }),
+            nodeAt("node-child", "node-a", "child"),
           ],
         })
       ).status,
@@ -1858,7 +1842,7 @@ describe("Proposal Workspace coordinator", () => {
             {
               kind: "occurrence-move",
               occurrenceId: "child",
-              parentOccurrenceId: "parent-b",
+              parentNodeId: "node-b",
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
             },
           ],
@@ -1891,8 +1875,8 @@ describe("Proposal Workspace coordinator", () => {
       section: "occurrences",
     });
     expect(
-      "occurrences" in afterMoveUndo ? afterMoveUndo.occurrences.child?.parentOccurrenceId : null,
-    ).toBe("parent-a");
+      "occurrences" in afterMoveUndo ? afterMoveUndo.occurrences.child?.parentNodeId : null,
+    ).toBe("node-a");
 
     expect(
       (
@@ -1903,7 +1887,6 @@ describe("Proposal Workspace coordinator", () => {
             {
               kind: "occurrence-delete",
               occurrenceId: "child",
-              childPolicy: "rehome",
             },
           ],
         })
@@ -1935,10 +1918,8 @@ describe("Proposal Workspace coordinator", () => {
       section: "occurrences",
     });
     expect(
-      "occurrences" in afterDeleteUndo
-        ? afterDeleteUndo.occurrences.child?.parentOccurrenceId
-        : null,
-    ).toBe("parent-a");
+      "occurrences" in afterDeleteUndo ? afterDeleteUndo.occurrences.child?.parentNodeId : null,
+    ).toBe("node-a");
   });
 
   it("History exposes Review-visible Direct work on a pending Proposal identity", async () => {
@@ -1946,7 +1927,7 @@ describe("Proposal Workspace coordinator", () => {
     await workspace.execute({
       ...createNode("proposal-only", "proposal"),
       historyChannelId: "proposal-channel",
-      mutations: [{ kind: "node-create", nodeId: "proposal-only" }],
+      mutations: nodeAtWorkspace("proposal-only"),
     });
     await workspace.execute({
       ...createNode("direct-contingent"),
@@ -2007,17 +1988,6 @@ describe("Proposal Workspace coordinator", () => {
           value: { kind: "set", value: true },
         },
       ],
-      [{ kind: "node-create", nodeId: "initialized-field:v1:node:field" }],
-      [
-        {
-          kind: "occurrence-create",
-          occurrenceId: "$root",
-          nodeId: "node",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-      ],
     ] as const) {
       expect(
         await workspace.execute({ ...createNode(`invalid-${mutations[0].kind}`), mutations }),
@@ -2028,7 +1998,7 @@ describe("Proposal Workspace coordinator", () => {
       (
         await workspace.execute({
           ...createNode("healthy-after-invalid"),
-          mutations: [{ kind: "node-create", nodeId: "healthy" }],
+          mutations: nodeAtWorkspace("healthy"),
         })
       ).status,
     ).toBe("published");
@@ -2043,7 +2013,7 @@ describe("Proposal Workspace coordinator", () => {
 
     const lagged = await workspace.execute({
       ...createNode("second"),
-      mutations: [{ kind: "node-create", nodeId: "second" }],
+      mutations: nodeAtWorkspace("second"),
     });
     expect(lagged).toMatchObject({
       status: "rejected",
@@ -2056,7 +2026,7 @@ describe("Proposal Workspace coordinator", () => {
         mutations: [
           {
             kind: "value-set",
-            owner: { kind: "node", id: "node" },
+            target: { kind: "node", id: "node" },
             namespace: "property",
             key: "color",
             value: "red",
@@ -2068,7 +2038,7 @@ describe("Proposal Workspace coordinator", () => {
 
     const conflict = await workspace.execute({
       ...createNode(),
-      mutations: [{ kind: "node-create", nodeId: "other" }],
+      mutations: nodeAtWorkspace("other"),
     });
     expect(conflict).toMatchObject({
       status: "rejected",
@@ -2091,7 +2061,9 @@ describe("Proposal Workspace coordinator", () => {
 
   it("CMD-5 returns outcome-unknown when durable append acknowledgement is lost", async () => {
     const documents = new PersistThenFailDocumentStore();
+    documents.fail = false;
     const { facts, workspace } = await setup(undefined, documents);
+    documents.fail = true;
     expect(await workspace.execute(createNode("uncertain"))).toEqual({
       status: "outcome-unknown",
       invocationId: "uncertain",
@@ -2108,11 +2080,12 @@ describe("Proposal Workspace coordinator", () => {
     });
 
     documents.fail = false;
-    const restartedFacts = await LoroFactStore.open({
+    const restartedFacts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: facts.replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const restarted = await ProposalWorkspace.open({
       workspaceId: "workspace",
@@ -2157,7 +2130,7 @@ describe("Proposal Workspace coordinator", () => {
     expect(
       await workspace.execute({
         ...createNode("uncertain-before-purge"),
-        mutations: [{ kind: "node-create", nodeId: "uncertain-node" }],
+        mutations: nodeAtWorkspace("uncertain-node"),
       }),
     ).toEqual({
       status: "outcome-unknown",
@@ -2190,29 +2163,31 @@ describe("Proposal Workspace coordinator", () => {
     const documents = new InMemoryDocumentStore();
     const replicaId = createReplicaId();
     const command = createNode("receipt-gap");
-    const seed = new LoroDoc();
-    seed.setPeerId("303");
-    seed.getList<string>("authority-records").push(
-      canonicalJson({
-        recordKind: "receipt",
-        receipt: {
-          workspaceId: "workspace",
-          replicaId,
-          invocationId: command.invocationId,
-          requestDigest: requestDigest(command),
-          factIds: [`g1/workspace/${replicaId}/1`],
-          committedFrontier: { [replicaId]: 1 },
-          lineage: null,
-        },
-      }),
+    await documents.appendUpdate(
+      FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
+      new TextEncoder().encode(
+        canonicalJson([
+          {
+            recordKind: "receipt",
+            receipt: {
+              workspaceId: "workspace",
+              replicaId,
+              invocationId: command.invocationId,
+              requestDigest: requestDigest(command),
+              factIds: [`g1/workspace/${replicaId}/1`],
+              committedFrontier: { [replicaId]: 1 },
+              lineage: null,
+            },
+          },
+        ]),
+      ),
     );
-    seed.commit({ message: "receipt-only-gap" });
-    await documents.appendUpdate("facts", seed.export({ mode: "update" }));
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const workspace = await ProposalWorkspace.open({ workspaceId: "workspace", facts, versions });
 
@@ -2229,11 +2204,12 @@ describe("Proposal Workspace coordinator", () => {
     expect(originallyPublished.status).toBe("published");
     await appendMalformedAuthorityRecord(documents);
 
-    const restartedFacts = await LoroFactStore.open({
+    const restartedFacts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: facts.replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const restarted = await ProposalWorkspace.open({
       workspaceId: "workspace",
@@ -2259,7 +2235,7 @@ describe("Proposal Workspace coordinator", () => {
       (
         await restarted.execute({
           ...createNode("after-recovery"),
-          mutations: [{ kind: "node-create", nodeId: "after-recovery" }],
+          mutations: nodeAtWorkspace("after-recovery"),
         })
       ).status,
     ).toBe("published");
@@ -2283,7 +2259,7 @@ describe("Proposal Workspace coordinator", () => {
     publisher.fail = true;
     const result = await workspace.execute(createNode());
     expect(result.status).toBe("committed-projection-pending");
-    expect(facts.snapshot().facts).toHaveLength(1);
+    expect(facts.snapshot().facts).toHaveLength(3);
     expect(
       await workspace.query({
         kind: "invocation",
@@ -2298,11 +2274,12 @@ describe("Proposal Workspace coordinator", () => {
 
   it("restart rebuilds the required materializer without promoting a failed publication checkpoint", async () => {
     const documents = new InMemoryDocumentStore();
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: createReplicaId(),
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const failedPublisher = new ControlledPublisher();
     const first = await ProposalWorkspace.open({
@@ -2315,11 +2292,12 @@ describe("Proposal Workspace coordinator", () => {
     failedPublisher.fail = true;
     expect((await first.execute(createNode())).status).toBe("committed-projection-pending");
 
-    const restartedFacts = await LoroFactStore.open({
+    const restartedFacts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: facts.replicaId,
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const materializer = new BoundedProjectionMaterializer(documents);
     const restarted = await ProposalWorkspace.open({
@@ -2342,11 +2320,12 @@ describe("Proposal Workspace coordinator", () => {
 
   it("acknowledged generation stays readable across lost manifest ack and the next publication", async () => {
     const documents = new ManifestAckLossDocumentStore();
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: createReplicaId(),
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     const materializer = new BoundedProjectionMaterializer(documents);
     const checkpoints = new GateCheckpointRepository(documents);
@@ -2362,7 +2341,7 @@ describe("Proposal Workspace coordinator", () => {
     expect(
       await workspace.execute({
         ...createNode("hidden-generation"),
-        mutations: [{ kind: "node-create", nodeId: "hidden" }],
+        mutations: nodeAtWorkspace("hidden"),
       }),
     ).toMatchObject({ status: "committed-projection-pending" });
 
@@ -2440,7 +2419,7 @@ describe("Proposal Workspace coordinator", () => {
     expect(
       await workspace.execute({
         ...createNode("lagged"),
-        mutations: [{ kind: "node-create", nodeId: "lagged" }],
+        mutations: nodeAtWorkspace("lagged"),
       }),
     ).toMatchObject({ status: "committed-projection-pending" });
     expect(events.slice(-2).map((event) => event.kind)).toEqual([
@@ -2455,7 +2434,7 @@ describe("Proposal Workspace coordinator", () => {
       (
         await workspace.execute({
           ...createNode("lagged"),
-          mutations: [{ kind: "node-create", nodeId: "lagged" }],
+          mutations: nodeAtWorkspace("lagged"),
         })
       ).status,
     ).toBe("published");
@@ -2528,11 +2507,12 @@ describe("Proposal Workspace coordinator", () => {
 
   it("a late timed-out generation cannot displace later authority publications", async () => {
     const documents = new InMemoryDocumentStore();
-    const facts = await LoroFactStore.open({
+    const facts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: createReplicaId(),
       loroPeerId: "101",
       documents,
+      admitRecords: admitAuthorityRecords,
     });
     let blockNext = false;
     let release!: () => void;
@@ -2563,7 +2543,7 @@ describe("Proposal Workspace coordinator", () => {
     blockNext = true;
     const lateCommand = workspace.execute({
       ...createNode("late-generation"),
-      mutations: [{ kind: "node-create", nodeId: "late-generation" }],
+      mutations: nodeAtWorkspace("late-generation"),
     });
     await waiting;
     expect(await lateCommand).toMatchObject({ status: "committed-projection-pending" });
@@ -2605,11 +2585,12 @@ describe("Proposal Workspace coordinator", () => {
     const documents = new InMemoryDocumentStore();
     const replicaId = createReplicaId();
     const openFacts = () =>
-      LoroFactStore.open({
+      FactAuthorityStore.open({
         workspaceId: "workspace",
         replicaId,
         loroPeerId: "808",
         documents,
+        admitRecords: admitAuthorityRecords,
       });
     const firstFacts = await openFacts();
     const checkpoints = new ProjectionCheckpointRepository(documents, "checkpoint-test-key");
@@ -2623,12 +2604,29 @@ describe("Proposal Workspace coordinator", () => {
     await firstFacts.commit({
       invocationId: "tail",
       request: { kind: "tail" },
-      bodies: [
+      writes: [
         {
-          kind: "contribution",
-          actorId: "actor",
-          intent: "direct",
-          mutation: { kind: "node-create", nodeId: "tail-node" },
+          kind: "transaction",
+          bodies: [
+            {
+              kind: "contribution",
+              actorId: "actor",
+              intent: "direct",
+              mutation: { kind: "node-create", nodeId: "tail-node" },
+            },
+            {
+              kind: "contribution",
+              actorId: "actor",
+              intent: "direct",
+              mutation: {
+                kind: "occurrence-create",
+                occurrenceId: "tail-node-original",
+                nodeId: "tail-node",
+                parentNodeId: "workspace",
+                anchor: end,
+              },
+            },
+          ],
         },
       ],
       lineage: null,
@@ -2694,40 +2692,71 @@ class GatePublisher implements ProjectionPublisher {
 }
 
 async function appendMalformedAuthorityRecord(documents: DocumentStore): Promise<void> {
-  const loaded = await documents.load("facts");
-  const persisted = new LoroDoc();
-  if (loaded?.snapshot) {
-    persisted.import(loaded.snapshot);
-  }
-  for (const update of loaded?.updates ?? []) {
-    persisted.import(update);
-  }
-  persisted.setPeerId("999");
-  const before = persisted.version();
-  persisted.getList<string>("authority-records").push(JSON.stringify({ recordKind: "future" }));
-  persisted.commit({ message: "inject-malformed-record" });
-  await documents.appendUpdate("facts", persisted.export({ mode: "update", from: before }));
+  await documents.appendUpdate(
+    FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
+    new TextEncoder().encode(JSON.stringify([{ recordKind: "future" }])),
+  );
 }
 
 async function commitAuthorityNode(
-  facts: LoroFactStore,
+  facts: FactAuthorityStore,
   invocationId: string,
   nodeId: string,
 ): Promise<void> {
   await facts.commit({
     invocationId,
     request: { kind: "remote-authority-node", nodeId },
-    bodies: [
+    writes: [
       {
-        kind: "contribution",
-        actorId: "remote",
-        intent: "direct",
-        mutation: { kind: "node-create", nodeId },
+        kind: "transaction",
+        bodies: authorityNodeBodies(nodeId),
       },
     ],
     lineage: null,
     publishedFrontier: facts.snapshot().frontier,
   });
+}
+
+async function commitFactOnlyNodes(
+  facts: FactAuthorityStore,
+  invocationId: string,
+  nodeIds: readonly string[],
+): Promise<void> {
+  await facts.commit({
+    invocationId,
+    request: { kind: "fact-only-nodes", nodeIds },
+    writes: nodeIds.map((nodeId) => ({
+      kind: "contribution" as const,
+      actorId: "fact-only",
+      intent: "direct" as const,
+      mutation: { kind: "node-create" as const, nodeId },
+    })),
+    lineage: null,
+    publishedFrontier: facts.snapshot().frontier,
+  });
+}
+
+function authorityNodeBodies(nodeId: string) {
+  return [
+    {
+      kind: "contribution" as const,
+      actorId: "remote",
+      intent: "direct" as const,
+      mutation: { kind: "node-create" as const, nodeId },
+    },
+    {
+      kind: "contribution" as const,
+      actorId: "remote",
+      intent: "direct" as const,
+      mutation: {
+        kind: "occurrence-create" as const,
+        occurrenceId: `${nodeId}-original`,
+        nodeId,
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    },
+  ] as const;
 }
 
 class PersistThenFailDocumentStore extends InMemoryDocumentStore {

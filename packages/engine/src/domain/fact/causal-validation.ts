@@ -1,12 +1,7 @@
 import { canonicalJson } from "./canonical.js";
 import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
-import {
-  DEFAULT_FIELD_TEMPLATE_CONFIG,
-  type Fact,
-  type FieldTemplateConfig,
-  type Mutation,
-  type ResolutionFact,
-} from "./types.js";
+import { type Fact, type Mutation, type ResolutionFact } from "./types.js";
+import { DEFAULT_FIELD_TEMPLATE_CONFIG, type FieldTemplateConfig } from "./field-template-types.js";
 
 export function validateAdmissibleFact(
   fact: Fact,

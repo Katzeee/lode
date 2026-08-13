@@ -51,10 +51,9 @@ export function hasIndependentOccurrenceWork(
     return (
       ("occurrenceId" in candidate && candidate.occurrenceId === mutation.occurrenceId) ||
       ((candidate.kind === "value-set" || candidate.kind === "value-unset") &&
-        candidate.owner.kind === "occurrence" &&
-        candidate.owner.id === mutation.occurrenceId) ||
-      (candidate.kind === "canonical-occurrence-set" &&
-        candidate.occurrenceId === mutation.occurrenceId)
+        candidate.target.kind === "occurrence" &&
+        candidate.target.id === mutation.occurrenceId) ||
+      candidate.kind === "node-owner-set"
     );
   });
 }

@@ -86,15 +86,20 @@ export function validateHistorySelection(
   if (!intent) {
     return { kind: "unavailable", reason: "History target has no Contributions" };
   }
+  const bodies = selection.evidence.compensations.map((mutation) => ({
+    kind: "contribution" as const,
+    actorId,
+    intent,
+    mutation,
+  }));
+  const [first, ...rest] = bodies;
+  if (!first) {
+    return { kind: "unavailable", reason: "History Step has no compensations" };
+  }
   return {
     kind: "ready",
     targetInvocationId: selection.targetInvocationId,
-    bodies: selection.evidence.compensations.map((mutation) => ({
-      kind: "contribution",
-      actorId,
-      intent,
-      mutation,
-    })),
+    write: { kind: "transaction", bodies: [first, ...rest] },
   };
 }
 

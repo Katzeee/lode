@@ -50,7 +50,7 @@ describe("local IPC typed EngineContract adapter", () => {
         actorId: "actor",
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [{ kind: "node-create", nodeId: "node" }],
+        mutations: [nodeAt("node", "workspace", "node-original")],
       } as const;
       const first = await client.engine.execute(command);
       expect(first.status).toBe("published");
@@ -111,7 +111,7 @@ describe("local IPC typed EngineContract adapter", () => {
             actorId: "left",
             intent: "direct",
             historyChannelId: "desktop",
-            mutations: [{ kind: "node-create", nodeId: "from-left" }],
+            mutations: [nodeAt("from-left", "workspace", "from-left-original")],
           })
         ).status,
       ).toBe("published");
@@ -135,3 +135,13 @@ describe("local IPC typed EngineContract adapter", () => {
     }
   });
 });
+
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
+  return {
+    kind: "node-create" as const,
+    nodeId,
+    occurrenceId,
+    parentNodeId,
+    anchor: { after: null, before: null, affinity: "after", fallback: "end" } as const,
+  };
+}

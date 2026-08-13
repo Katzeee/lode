@@ -18,7 +18,7 @@ import {
 } from "../../domain/reconcile/index.js";
 
 export type GenerationCheckpoint = Readonly<{
-  format: "lode-generation-checkpoint-v2";
+  format: "lode-generation-checkpoint-v3";
   workspaceId: string;
   factsDigest: string;
   projectionDigest: string;
@@ -36,7 +36,7 @@ export function createGenerationCheckpoint(
     throw new Error("Checkpoint generation frontier does not match its Facts");
   }
   const unsigned = {
-    format: "lode-generation-checkpoint-v2" as const,
+    format: "lode-generation-checkpoint-v3" as const,
     workspaceId,
     factsDigest: canonicalDigest([...snapshot.facts].sort(compareFacts)),
     projectionDigest: canonicalDigest(generation),
@@ -108,7 +108,7 @@ export function reconcileFromCheckpoint(
     return null;
   }
   if (frontierEquals(generation.identity.frontier, snapshot.frontier)) {
-    return { generation, stats: { evaluatedOwners: [], supportPasses: 0 } };
+    return { generation, stats: { evaluatedStages: [], supportPasses: 0 } };
   }
   return advanceGeneration(
     workspaceId,
@@ -144,14 +144,14 @@ function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCh
     "integrity",
     "generation",
   ]);
-  if (checkpoint.format !== "lode-generation-checkpoint-v2") {
+  if (checkpoint.format !== "lode-generation-checkpoint-v3") {
     throw new Error("Checkpoint format is unsupported");
   }
   const generation = record(checkpoint.generation);
-  assertExactKeys(generation, ["identity", "origin", "review", "ownerCaches"]);
-  const ownerCaches = record(generation.ownerCaches);
-  assertExactKeys(ownerCaches, ["origin", "review"]);
-  for (const cache of [ownerCaches.origin, ownerCaches.review]) {
+  assertExactKeys(generation, ["identity", "origin", "review", "planCaches"]);
+  const planCaches = record(generation.planCaches);
+  assertExactKeys(planCaches, ["origin", "review"]);
+  for (const cache of [planCaches.origin, planCaches.review]) {
     assertExactKeys(record(cache), [
       "activeContributionIds",
       "supportByContribution",
@@ -164,6 +164,7 @@ function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCh
     record(generation.review).identity,
   ]) {
     assertExactKeys(record(identity), [
+      "workspaceNodeId",
       "generationId",
       "frontier",
       "rulesVersion",

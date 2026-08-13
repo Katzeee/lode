@@ -7,15 +7,20 @@ import {
   type ViewMode,
 } from "../fact/index.js";
 import { eligibleForView, resolutionsByContribution } from "./activation-view.js";
+import { addSchemaMutationSupport, type SchemaSupportContext } from "./schema-support.js";
 import {
-  addFieldInitializationSupport,
-  addSchemaMutationSupport,
-  addTemplateDetachmentSupport,
-  registerFieldInitializationExistence,
-  registerTemplateDetachmentExistence,
-} from "./schema-support.js";
+  addGeneratedOccurrenceSupport,
+  addInitializationSupport,
+  addTemplateNodeSupport,
+} from "./generated-relation-support.js";
+import { addCandidate, addIfPresent, effectiveCandidate } from "./support-candidate.js";
 import { addFieldContentDeletionSupport, isFieldContentDeletion } from "./field-content-support.js";
 import { registerNodeExistence } from "./support-node-existence.js";
+import {
+  addMaterializedFieldSupport,
+  addOccurrenceChangeSupport,
+  addValueTargetSupport,
+} from "./existence-mutation-support.js";
 
 export type Activation = Readonly<{
   activeContributionIds: ReadonlySet<string>;
@@ -26,7 +31,9 @@ export type Activation = Readonly<{
 
 export function deriveActivation(facts: readonly Fact[], mode: ViewMode): Activation {
   const ordered = [...facts].sort(compareFacts);
-  const contributions = ordered.filter(isContribution);
+  const contributions = ordered.filter(
+    (fact): fact is ContributionFact => fact.body.kind === "contribution",
+  );
   const resolutions = resolutionsByContribution(ordered);
   const initiallyEligible = new Set(
     contributions
@@ -69,229 +76,216 @@ export function deriveSupport(
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
   const schemaApplicationSupport = new Map<string, ContributionFact[]>();
-  const schemaTemplateItemSupport = new Map<string, ContributionFact[]>();
+  const schemaTemplateOccurrenceSupport = new Map<string, ContributionFact[]>();
+  const occurrenceLifecycleFacts = indexOccurrenceLifecycleFacts(ordered);
   const viable = new Set<string>();
-  const existence = {
-    nodes: nodeExistenceSupport,
-    occurrences: occurrenceExistenceSupport,
+  const existence = existenceSupport(nodeExistenceSupport, occurrenceExistenceSupport, viable);
+  const schemaSupport = createSchemaSupport(
+    nodeExistenceSupport,
     viable,
-  };
-  const schemaSupport = {
-    nodes: nodeExistenceSupport,
-    viable,
-    applications: schemaApplicationSupport,
-    templateItems: schemaTemplateItemSupport,
-  };
+    schemaApplicationSupport,
+    schemaTemplateOccurrenceSupport,
+  );
   const result = new Map<string, readonly string[]>();
+  const context = {
+    nodeExistenceSupport,
+    occurrenceExistenceSupport,
+    viable,
+    existence,
+    schemaSupport,
+    occurrenceLifecycleFacts,
+  };
 
   registerNodeExistence(ordered, nodeExistenceSupport, eligibleContributionIds, viable);
 
   for (const fact of ordered) {
-    const mutation = fact.body.mutation;
-    const support = new Set<string>();
-    if (isSchemaMutation(mutation)) {
-      addSchemaMutationSupport(support, mutation, fact, schemaSupport);
-    } else if (mutation.kind === "template-node-detach") {
-      addTemplateNodeSupport(support, mutation, fact, schemaSupport, existence);
-    } else if (isFieldContentDeletion(mutation)) {
-      addFieldContentDeletionSupport(support, mutation, existence);
-    } else {
-      switch (mutation.kind) {
-        case "node-create":
-          break;
-        case "node-delete":
-        case "text-splice":
-        case "text-mark": {
-          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-          break;
-        }
-        case "node-restore": {
-          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-          support.add(mutation.deletionFactId);
-          nodeExistenceSupport.set(mutation.nodeId, [fact.id]);
-          break;
-        }
-        case "occurrence-create":
-          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-          if (mutation.parentOccurrenceId !== null && mutation.parentPolicy === "cascade") {
-            addIfPresent(
-              support,
-              effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
-            );
-          }
-          addCandidate(occurrenceExistenceSupport, mutation.occurrenceId, fact.id);
-          break;
-        case "occurrence-delete":
-        case "occurrence-move":
-          addOccurrenceChangeSupport(support, occurrenceExistenceSupport, viable, mutation);
-          break;
-        case "occurrence-restore":
-          addIfPresent(
-            support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-          );
-          support.add(mutation.deletionFactId);
-          if (mutation.parentOccurrenceId !== null) {
-            addIfPresent(
-              support,
-              effectiveCandidate(occurrenceExistenceSupport, mutation.parentOccurrenceId, viable),
-            );
-          }
-          occurrenceExistenceSupport.set(mutation.occurrenceId, [fact.id]);
-          break;
-        case "canonical-occurrence-set":
-          addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-          addIfPresent(
-            support,
-            effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-          );
-          break;
-        case "field-materialize":
-          addMaterializedFieldSupport(support, mutation, existence);
-          break;
-        case "field-initialize":
-          addInitializationSupport(support, mutation, fact, schemaSupport, existence);
-          break;
-        case "value-set":
-        case "value-unset":
-          addValueOwnerSupport(support, mutation, existence);
-          break;
-      }
-    }
+    const support = contributionSupport(fact, context);
     result.set(fact.id, [...support]);
     markViable(fact.id, support, eligibleContributionIds, viable);
   }
   return result;
 }
 
-function addInitializationSupport(
-  support: Set<string>,
-  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+function contributionSupport(
   fact: ContributionFact,
-  schemaSupport: Parameters<typeof addFieldInitializationSupport>[3],
-  existence: Readonly<{
-    nodes: Map<string, string[]>;
-    occurrences: Map<string, string[]>;
+  context: Readonly<{
+    nodeExistenceSupport: Map<string, string[]>;
+    occurrenceExistenceSupport: Map<string, string[]>;
+    viable: Set<string>;
+    existence: ReturnType<typeof existenceSupport>;
+    schemaSupport: SchemaSupportContext;
+    occurrenceLifecycleFacts: ReadonlyMap<string, readonly ContributionFact[]>;
   }>,
-): void {
-  addFieldInitializationSupport(support, mutation, fact, schemaSupport);
-  registerFieldInitializationExistence(existence.nodes, existence.occurrences, mutation, fact.id);
-}
-
-function addTemplateNodeSupport(
-  support: Set<string>,
-  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
-  fact: ContributionFact,
-  schemaSupport: Parameters<typeof addTemplateDetachmentSupport>[3],
-  existence: Readonly<{
-    nodes: Map<string, string[]>;
-    occurrences: Map<string, string[]>;
-  }>,
-): void {
-  addTemplateDetachmentSupport(support, mutation, fact, schemaSupport);
-  registerTemplateDetachmentExistence(existence.nodes, existence.occurrences, mutation, fact.id);
-}
-
-function addValueOwnerSupport(
-  support: Set<string>,
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-  existence: Readonly<{
-    nodes: ReadonlyMap<string, readonly string[]>;
-    occurrences: ReadonlyMap<string, readonly string[]>;
-    viable: ReadonlySet<string>;
-  }>,
-): void {
-  if (mutation.owner.kind === "node") {
-    addIfPresent(support, effectiveCandidate(existence.nodes, mutation.owner.id, existence.viable));
-  } else if (mutation.owner.kind === "occurrence") {
-    addIfPresent(
+): Set<string> {
+  const { nodeExistenceSupport, occurrenceExistenceSupport, existence, schemaSupport } = context;
+  const mutation = fact.body.mutation;
+  const support = new Set<string>();
+  if (isSchemaMutation(mutation)) {
+    addSchemaContributionSupport(
       support,
-      effectiveCandidate(existence.occurrences, mutation.owner.id, existence.viable),
+      mutation,
+      fact,
+      schemaSupport,
+      nodeExistenceSupport,
+      occurrenceExistenceSupport,
     );
+  } else if (mutation.kind === "template-node-detach") {
+    addTemplateNodeSupport(support, mutation, fact, schemaSupport, existence);
+  } else if (isFieldContentDeletion(mutation)) {
+    addFieldContentDeletionSupport(support, mutation, existence);
+  } else {
+    addCoreMutationSupport(support, mutation, fact, context);
   }
+  addGeneratedOccurrenceSupport(support, mutation, fact, context.occurrenceLifecycleFacts);
+  return support;
 }
 
-function addOccurrenceChangeSupport(
-  support: Set<string>,
-  occurrenceSupport: ReadonlyMap<string, readonly string[]>,
-  viable: ReadonlySet<string>,
-  mutation: Extract<Mutation, { kind: "occurrence-delete" | "occurrence-move" }>,
-): void {
-  addIfPresent(support, effectiveCandidate(occurrenceSupport, mutation.occurrenceId, viable));
-  if (mutation.kind === "occurrence-move" && mutation.parentOccurrenceId !== null) {
-    addIfPresent(
-      support,
-      effectiveCandidate(occurrenceSupport, mutation.parentOccurrenceId, viable),
-    );
-  }
-}
-
-function addMaterializedFieldSupport(
-  support: Set<string>,
-  mutation: Extract<Mutation, { kind: "field-materialize" }>,
-  existence: Readonly<{
-    nodes: ReadonlyMap<string, readonly string[]>;
-    occurrences: ReadonlyMap<string, readonly string[]>;
-    viable: ReadonlySet<string>;
-  }>,
-): void {
-  for (const nodeId of [mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId]) {
-    addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
-  }
-  addIfPresent(
-    support,
-    effectiveCandidate(existence.occurrences, mutation.fieldOccurrenceId, existence.viable),
-  );
-}
-
-export function supportClosure(
-  targets: readonly string[],
-  supportByContribution: ReadonlyMap<string, readonly string[]>,
-): readonly string[] {
-  const closure = new Set(targets);
-  const queue = [...targets];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    for (const support of supportByContribution.get(current) ?? []) {
-      if (closure.has(support)) {
-        continue;
-      }
-      closure.add(support);
-      queue.push(support);
+function indexOccurrenceLifecycleFacts(
+  facts: readonly ContributionFact[],
+): ReadonlyMap<string, readonly ContributionFact[]> {
+  const result = new Map<string, ContributionFact[]>();
+  for (const fact of facts) {
+    const mutation = fact.body.mutation;
+    if (mutation.kind !== "occurrence-create" && mutation.kind !== "occurrence-delete") {
+      continue;
     }
+    const key = `${mutation.kind}/${mutation.occurrenceId}`;
+    const candidates = result.get(key) ?? [];
+    candidates.push(fact);
+    result.set(key, candidates);
   }
-  return [...closure].sort();
+  return result;
 }
 
-function isContribution(fact: Fact): fact is ContributionFact {
-  return fact.body.kind === "contribution";
+function addCoreMutationSupport(
+  support: Set<string>,
+  mutation: CoreSupportMutation,
+  fact: ContributionFact,
+  context: Parameters<typeof contributionSupport>[1],
+): void {
+  const { nodeExistenceSupport, occurrenceExistenceSupport, viable, existence, schemaSupport } =
+    context;
+  switch (mutation.kind) {
+    case "node-create":
+      break;
+    case "node-delete":
+    case "text-splice":
+    case "text-mark":
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+      break;
+    case "node-restore":
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+      support.add(mutation.deletionFactId);
+      nodeExistenceSupport.set(mutation.nodeId, [fact.id]);
+      break;
+    case "occurrence-create":
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+      addIfPresent(
+        support,
+        effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable),
+      );
+      addCandidate(occurrenceExistenceSupport, mutation.occurrenceId, fact.id);
+      break;
+    case "occurrence-delete":
+    case "occurrence-move":
+      addOccurrenceChangeSupport(
+        support,
+        occurrenceExistenceSupport,
+        nodeExistenceSupport,
+        viable,
+        mutation,
+      );
+      break;
+    case "occurrence-restore":
+      addIfPresent(
+        support,
+        effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
+      );
+      support.add(mutation.deletionFactId);
+      addIfPresent(
+        support,
+        effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable),
+      );
+      occurrenceExistenceSupport.set(mutation.occurrenceId, [fact.id]);
+      break;
+    case "node-owner-set":
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.ownerNodeId, viable));
+      break;
+    case "field-materialize":
+      addMaterializedFieldSupport(support, mutation, existence);
+      break;
+    case "field-initialize":
+      addInitializationSupport(support, mutation, fact, schemaSupport, existence);
+      break;
+    case "value-set":
+    case "value-unset":
+      addValueTargetSupport(support, mutation, existence);
+      break;
+  }
+}
+
+type CoreSupportMutation = Exclude<
+  Mutation,
+  Extract<
+    Mutation,
+    {
+      kind:
+        | `schema-${string}`
+        | "template-node-detach"
+        | "field-value-delete"
+        | "materialized-field-delete";
+    }
+  >
+>;
+
+function addSchemaContributionSupport(
+  support: Set<string>,
+  mutation: Extract<Mutation, { kind: `schema-${string}` }>,
+  fact: ContributionFact,
+  schemaSupport: SchemaSupportContext,
+  nodeExistence: Map<string, string[]>,
+  occurrenceExistence: Map<string, string[]>,
+): void {
+  addSchemaMutationSupport(support, mutation, fact, schemaSupport);
+  if (mutation.kind === "schema-field-add") {
+    addIfPresent(
+      support,
+      effectiveCandidate(nodeExistence, mutation.fieldNodeId, schemaSupport.viable),
+    );
+    addIfPresent(
+      support,
+      effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, schemaSupport.viable),
+    );
+  } else if (mutation.kind === "schema-template-node-add") {
+    addIfPresent(
+      support,
+      effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, schemaSupport.viable),
+    );
+  }
+}
+
+function existenceSupport(
+  nodes: Map<string, string[]>,
+  occurrences: Map<string, string[]>,
+  viable: Set<string>,
+) {
+  return { nodes, occurrences, viable };
+}
+
+function createSchemaSupport(
+  nodes: Map<string, string[]>,
+  viable: Set<string>,
+  applications: Map<string, ContributionFact[]>,
+  templateOccurrences: Map<string, ContributionFact[]>,
+): SchemaSupportContext {
+  return { nodes, viable, applications, templateOccurrences };
 }
 
 function isSchemaMutation(
   mutation: Mutation,
 ): mutation is Extract<Mutation, { kind: `schema-${string}` }> {
   return mutation.kind.startsWith("schema-");
-}
-
-function addIfPresent(target: Set<string>, value: string | undefined): void {
-  if (value !== undefined) {
-    target.add(value);
-  }
-}
-
-function addCandidate(target: Map<string, string[]>, identity: string, factId: string): void {
-  const candidates = target.get(identity) ?? [];
-  candidates.push(factId);
-  target.set(identity, candidates);
-}
-
-function effectiveCandidate(
-  candidatesByIdentity: ReadonlyMap<string, readonly string[]>,
-  identity: string,
-  viable: ReadonlySet<string>,
-): string | undefined {
-  const candidates = candidatesByIdentity.get(identity);
-  return candidates?.find((candidate) => viable.has(candidate)) ?? candidates?.[0];
 }
 
 function markViable(

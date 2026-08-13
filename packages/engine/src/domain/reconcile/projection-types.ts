@@ -26,16 +26,16 @@ export type ProjectedNode = Readonly<{
 export type ProjectedOccurrence = Readonly<{
   occurrenceId: string;
   nodeId: string;
-  parentOccurrenceId: string | null;
+  parentNodeId: string;
   properties: Readonly<Record<string, JsonValue>>;
   metadata: Readonly<Record<string, JsonValue>>;
-  managed: boolean;
+  derived: boolean;
 }>;
 
 export type FieldConfigCandidate = Readonly<{
   config: FieldTemplateConfig;
   sourceSchemaIds: readonly string[];
-  sourceTemplateItemIds: readonly string[];
+  sourceFieldNodeIds: readonly string[];
   contributionIds: readonly string[];
 }>;
 
@@ -46,8 +46,9 @@ export type FieldInitializationCandidate = Readonly<{
   values: readonly FieldValueSeed[];
 }>;
 
-export type SchemaFieldItem = Readonly<{
-  templateItemId: string;
+export type TemplateField = Readonly<{
+  fieldNodeId: string;
+  fieldOccurrenceId: string;
   schemaId: string;
   fieldDefinitionId: string;
   configCandidates: readonly FieldConfigCandidate[];
@@ -57,7 +58,7 @@ export type SchemaFieldItem = Readonly<{
 export type EffectiveField = Readonly<{
   fieldDefinitionId: string;
   sourceSchemaIds: readonly string[];
-  sourceTemplateItemIds: readonly string[];
+  sourceFieldNodeIds: readonly string[];
   visibility: FieldVisibility;
   configCandidates: readonly FieldConfigCandidate[];
   effectiveConfig: FieldTemplateConfig | null;
@@ -74,9 +75,9 @@ export type MaterializedField = Readonly<{
   valueOccurrenceIds: readonly string[];
 }>;
 
-export type DefinitionStatus = Readonly<{
-  definitionId: string;
-  kinds: readonly ("schema" | "field")[];
+export type NodeStatus = Readonly<{
+  nodeId: string;
+  roles: readonly ("schema" | "field")[];
   state: "active" | "deleted";
   deletionFactIds: readonly string[];
 }>;
@@ -84,7 +85,7 @@ export type DefinitionStatus = Readonly<{
 export type TemplateNodeSource = Readonly<{
   schemaId: string;
   appliedSchemaId: string;
-  templateItemId: string;
+  templateOccurrenceId: string;
 }>;
 
 export type TemplateNodeInstance = Readonly<{
@@ -103,17 +104,17 @@ export type Projection = Readonly<{
   nodes: Readonly<Record<string, ProjectedNode>>;
   occurrences: Readonly<Record<string, ProjectedOccurrence>>;
   children: Readonly<Record<string, readonly string[]>>;
-  canonicalOccurrences: Readonly<Record<string, string>>;
+  nodeOwners: Readonly<Record<string, string | null>>;
   addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
   schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   templateNodeInstances: readonly TemplateNodeInstance[];
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
+  nodeStatuses: Readonly<Record<string, NodeStatus>>;
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
@@ -125,13 +126,13 @@ export type ProjectionGeneration = Readonly<{
   identity: ProjectionIdentity;
   origin: Projection;
   review: Projection;
-  ownerCaches: Readonly<{
-    origin: ProjectionOwnerCache;
-    review: ProjectionOwnerCache;
+  planCaches: Readonly<{
+    origin: ProjectionPlanCache;
+    review: ProjectionPlanCache;
   }>;
 }>;
 
-export type ProjectionOwnerCache = Readonly<{
+export type ProjectionPlanCache = Readonly<{
   activeContributionIds: readonly string[];
   supportByContribution: Readonly<Record<string, readonly string[]>>;
   supportPasses: number;
@@ -143,8 +144,8 @@ export type ProjectionVersions = Readonly<{
 }>;
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
-  rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-12",
+  rulesVersion: "proposal-rules-3",
+  schemaVersion: "lode-schema-16",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

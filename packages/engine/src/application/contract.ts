@@ -5,26 +5,23 @@ import type {
   FactFrontier,
   HistoryChannelId,
   InvocationId,
-  Mutation,
   ResolutionDecision,
   ViewMode,
   WorkspaceId,
 } from "../domain/fact/index.js";
+import type { EditMutation } from "../domain/edit/index.js";
 import type { HistoryQuery, HistorySelection } from "../domain/history/index.js";
-import type { JsonValue, ProjectionIdentity } from "../domain/fact/index.js";
-import type {
-  EffectiveField,
-  MaterializedField,
-  DefinitionStatus,
-  ProjectedNode,
-  ProjectedOccurrence,
-  SchemaFieldItem,
-  TemplateNodeInstance,
-} from "../domain/reconcile/index.js";
 import type { ReviewQuery, ReviewSelection } from "../domain/review/index.js";
-import type { ConflictIssue, ConflictQuery } from "../domain/conflict/index.js";
+import type { ConflictQuery } from "../domain/conflict/index.js";
 import type { ViewResult } from "../domain/view/index.js";
+import type { ProjectionPage, ProjectionPageSection } from "./projection-contract.js";
 import type { ViewQueryRequest } from "./view-contract.js";
+
+export type {
+  ProjectionPage,
+  ProjectionPageSection,
+  ProjectionPageValue,
+} from "./projection-contract.js";
 
 export type MutationCommand = Readonly<{
   kind: "mutate";
@@ -33,7 +30,7 @@ export type MutationCommand = Readonly<{
   actorId: ActorId;
   intent: EditIntent;
   historyChannelId: HistoryChannelId;
-  mutations: readonly Mutation[];
+  mutations: readonly EditMutation[];
 }>;
 
 export type ReviewCommand = Readonly<{
@@ -156,63 +153,6 @@ export type ProjectionQuery = Readonly<{
   limit?: number;
 }>;
 
-export type ProjectionPageSection =
-  | "nodes"
-  | "occurrences"
-  | "children"
-  | "canonicalOccurrences"
-  | "addressedValues"
-  | "schemaApplications"
-  | "schemaFields"
-  | "schemaFieldItems"
-  | "schemaTemplateNodes"
-  | "templateNodeInstances"
-  | "schemaExtensions"
-  | "schemaSearchMembers"
-  | "schemaExtensionConflicts"
-  | "definitionStatuses"
-  | "conflictIssues"
-  | "effectiveFields"
-  | "materializedFields";
-
-export type ProjectionPageValue =
-  | ProjectedNode
-  | ProjectedOccurrence
-  | readonly string[]
-  | string
-  | Readonly<Record<string, JsonValue>>
-  | readonly EffectiveField[]
-  | readonly MaterializedField[]
-  | readonly SchemaFieldItem[]
-  | TemplateNodeInstance
-  | DefinitionStatus
-  | ConflictIssue;
-
-export type ProjectionPage = Readonly<{
-  identity: ProjectionIdentity;
-  view: ViewMode;
-  section: ProjectionPageSection;
-  entries: readonly Readonly<{ identity: string; value: ProjectionPageValue }>[];
-  next: string | null;
-  nodes: Readonly<Record<string, ProjectedNode>>;
-  occurrences: Readonly<Record<string, ProjectedOccurrence>>;
-  children: Readonly<Record<string, readonly string[]>>;
-  canonicalOccurrences: Readonly<Record<string, string>>;
-  addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  schemaApplications: Readonly<Record<string, readonly string[]>>;
-  schemaFields: Readonly<Record<string, readonly string[]>>;
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
-  templateNodeInstances: readonly TemplateNodeInstance[];
-  schemaExtensions: Readonly<Record<string, readonly string[]>>;
-  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
-  conflictIssues: Readonly<Record<string, ConflictIssue>>;
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
-  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
-}>;
-
 export type ReviewQueryRequest = Readonly<{
   kind: "review";
   workspaceId: WorkspaceId;
@@ -323,7 +263,6 @@ export type EngineEvent = Readonly<{
   workspaceId: WorkspaceId;
   frontier: FactFrontier;
   generationId: string | null;
-  affectedOwnerIds: readonly string[];
 }>;
 
 export type Unsubscribe = () => void;

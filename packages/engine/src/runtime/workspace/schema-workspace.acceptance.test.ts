@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { Mutation } from "../../domain/fact/index.js";
+import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import type { EditMutation } from "../../domain/edit/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Schema product model", () => {
@@ -54,7 +55,7 @@ describe("Schema product model", () => {
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [...schemaProgram(), { kind: "node-create", nodeId: "other" }],
+      mutations: [...schemaProgram(), ...nodeAtWorkspace("other")],
     });
     expect(setup.status).toBe("published");
 
@@ -70,12 +71,19 @@ describe("Schema product model", () => {
     if (deletion.status !== "published") {
       throw new Error("Expected Definition tombstone to publish");
     }
-    const deletionFactId = deletion.receipt.factIds[0];
+    const deletionFactId = opened.facts
+      .facts(deletion.receipt.factIds)
+      .find(
+        (fact) =>
+          fact.body.kind === "contribution" &&
+          fact.body.mutation.kind === "node-delete" &&
+          fact.body.mutation.nodeId === "project-schema",
+      )?.id;
     if (!deletionFactId) {
       throw new Error("Expected Definition deletion Fact identity");
     }
-    expect(await readDefinitionStatus(opened.workspace, "project-schema")).toMatchObject({
-      definitionId: "project-schema",
+    expect(await readNodeStatus(opened.workspace, "project-schema")).toMatchObject({
+      nodeId: "project-schema",
       state: "deleted",
       deletionFactIds: [deletionFactId],
     });
@@ -130,7 +138,7 @@ describe("Schema product model", () => {
         })
       ).status,
     ).toBe("published");
-    expect(await readDefinitionStatus(opened.workspace, "project-schema")).toMatchObject({
+    expect(await readNodeStatus(opened.workspace, "project-schema")).toMatchObject({
       state: "active",
       deletionFactIds: [],
     });
@@ -169,10 +177,10 @@ describe("Schema product model", () => {
       ).status,
     ).toBe("published");
 
-    expect(await readDefinitionStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
+    expect(await readNodeStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
       state: "active",
     });
-    expect(await readDefinitionStatus(opened.workspace, "project-schema", "review")).toMatchObject({
+    expect(await readNodeStatus(opened.workspace, "project-schema", "review")).toMatchObject({
       state: "deleted",
     });
     expect(await readSchemaApplications(opened.workspace, "origin")).toMatchObject({
@@ -198,7 +206,7 @@ describe("Schema product model", () => {
         })
       ).status,
     ).toBe("published");
-    expect(await readDefinitionStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
+    expect(await readNodeStatus(opened.workspace, "project-schema", "origin")).toMatchObject({
       state: "deleted",
     });
   });
@@ -214,7 +222,7 @@ describe("Schema product model", () => {
           actorId: "actor",
           intent: "direct",
           historyChannelId: "desktop",
-          mutations: [...schemaProgram(), { kind: "node-create", nodeId: "task-2" }],
+          mutations: [...schemaProgram(), ...nodeAtWorkspace("task-2")],
         })
       ).status,
     ).toBe("published");
@@ -291,23 +299,7 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             ...schemaProgram(),
-            { kind: "node-create", nodeId: "late-field-node" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "task-root",
-              nodeId: "task",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "late-field-occurrence",
-              nodeId: "late-field-node",
-              parentOccurrenceId: "task-root",
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("late-field-node", "task", "late-field-occurrence"),
           ],
         })
       ).status,
@@ -391,31 +383,17 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "note" },
-            { kind: "node-create", nodeId: "base-schema" },
-            { kind: "node-create", nodeId: "child-schema" },
-            { kind: "node-create", nodeId: "base-field" },
-            { kind: "node-create", nodeId: "extension-field-node" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "note-root",
-              nodeId: "note",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "extension-field-occurrence",
-              nodeId: "extension-field-node",
-              parentOccurrenceId: "note-root",
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("note", "workspace", "note-root"),
+            ...nodeAtWorkspace("base-schema"),
+            ...nodeAtWorkspace("child-schema"),
+            ...nodeAtWorkspace("base-field"),
+            nodeAt("extension-field-node", "note", "extension-field-occurrence"),
             {
               kind: "schema-field-add",
               schemaId: "base-schema",
               fieldDefinitionId: "base-field",
+              fieldNodeId: "base-schema-base-field-template-field",
+              fieldOccurrenceId: "base-schema-base-field-template-field-occurrence",
               anchor: end,
             },
             { kind: "schema-apply", nodeId: "note", schemaId: "child-schema", anchor: end },
@@ -504,7 +482,7 @@ describe("Schema product model", () => {
     );
   });
 
-  it("projects stable Field Template Items and keeps independent defaults as a conflict", async () => {
+  it("projects stable Template Fields and keeps independent defaults as a conflict", async () => {
     const documents = new InMemoryDocumentStore();
     const first = await open(documents, "212");
     const configured = await first.workspace.execute({
@@ -520,6 +498,8 @@ describe("Schema product model", () => {
           kind: "schema-field-configure",
           schemaId: "project-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "project-schema-status-field-template-field",
+
           config: {
             visibility: "pinned",
             staticDefault: [{ kind: "text", value: "Planned" }],
@@ -530,6 +510,8 @@ describe("Schema product model", () => {
           kind: "schema-field-configure",
           schemaId: "work-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "work-schema-status-field-template-field",
+
           config: {
             visibility: "optional",
             staticDefault: [{ kind: "text", value: "Started" }],
@@ -547,13 +529,13 @@ describe("Schema product model", () => {
       kind: "projection",
       workspaceId: "workspace",
       view: "origin",
-      section: "schemaFieldItems",
+      section: "templateFields",
     });
-    if (!("schemaFieldItems" in fieldItems)) {
-      throw new Error("Expected Schema Field Template Items");
+    if (!("templateFields" in fieldItems)) {
+      throw new Error("Expected Template Fields");
     }
-    expect(fieldItems.schemaFieldItems["project-schema"]?.[0]).toMatchObject({
-      templateItemId: "field-template:v1:project-schema:status-field",
+    expect(fieldItems.templateFields["project-schema"]?.[0]).toMatchObject({
+      fieldNodeId: "project-schema-status-field-template-field",
       fieldDefinitionId: "status-field",
       effectiveConfig: {
         visibility: "pinned",
@@ -626,28 +608,23 @@ describe("Schema product model", () => {
       intent: "direct",
       historyChannelId: "desktop",
       mutations: [
-        { kind: "node-create", nodeId: "task" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "task-occurrence",
-          nodeId: "task",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        { kind: "canonical-occurrence-set", nodeId: "task", occurrenceId: "task-occurrence" },
-        { kind: "node-create", nodeId: "task-schema" },
-        { kind: "node-create", nodeId: "status-field" },
+        nodeAt("task", "workspace", "task-occurrence"),
+        ...nodeAtWorkspace("task-schema"),
+        ...nodeAtWorkspace("status-field"),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+          fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
           anchor: end,
         },
         {
           kind: "schema-field-configure",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+
           config: {
             visibility: "pinned",
             staticDefault: [
@@ -745,16 +722,7 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "note" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "note-occurrence",
-              nodeId: "note",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
-            { kind: "canonical-occurrence-set", nodeId: "note", occurrenceId: "note-occurrence" },
+            nodeAt("note", "workspace", "note-occurrence"),
             {
               kind: "text-splice",
               nodeId: "note",
@@ -762,18 +730,22 @@ describe("Schema product model", () => {
               anchor: end,
               insert: "Before",
             },
-            { kind: "node-create", nodeId: "note-schema" },
-            { kind: "node-create", nodeId: "snapshot-field" },
+            ...nodeAtWorkspace("note-schema"),
+            ...nodeAtWorkspace("snapshot-field"),
             {
               kind: "schema-field-add",
               schemaId: "note-schema",
               fieldDefinitionId: "snapshot-field",
+              fieldNodeId: "note-schema-snapshot-field-template-field",
+              fieldOccurrenceId: "note-schema-snapshot-field-template-field-occurrence",
               anchor: end,
             },
             {
               kind: "schema-field-configure",
               schemaId: "note-schema",
               fieldDefinitionId: "snapshot-field",
+              fieldNodeId: "note-schema-snapshot-field-template-field",
+
               config: {
                 visibility: "normal",
                 staticDefault: null,
@@ -829,27 +801,23 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "task" },
-            { kind: "node-create", nodeId: "task-schema" },
-            { kind: "node-create", nodeId: "status-field" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "task-occurrence",
-              nodeId: "task",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("task", "workspace", "task-occurrence"),
+            ...nodeAtWorkspace("task-schema"),
+            ...nodeAtWorkspace("status-field"),
             {
               kind: "schema-field-add",
               schemaId: "task-schema",
               fieldDefinitionId: "status-field",
+              fieldNodeId: "task-schema-status-field-template-field",
+              fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
               anchor: end,
             },
             {
               kind: "schema-field-configure",
               schemaId: "task-schema",
               fieldDefinitionId: "status-field",
+              fieldNodeId: "task-schema-status-field-template-field",
+
               config: {
                 visibility: "normal",
                 staticDefault: [{ kind: "text", value: "Todo" }],
@@ -894,17 +862,19 @@ describe("Schema product model", () => {
     if (!fieldHunk) {
       throw new Error("Expected initialized Field Review Hunk");
     }
-    expect(fieldHunk.selection.evidence.proposalTargets).toHaveLength(1);
-    expect(fieldHunk.selection.evidence.supportClosure).toHaveLength(2);
-    expect(fieldHunk.selection.evidence.effects).toMatchObject([
-      {
-        kind: "field-materialization",
-        ownerNodeId: "task",
-        fieldDefinitionId: "status-field",
-        originFieldNodeId: null,
-        reviewFieldNodeId: "initialized-field:v1:task:status-field",
-      },
-    ]);
+    expect(fieldHunk.selection.evidence.proposalTargets).toHaveLength(6);
+    expect(fieldHunk.selection.evidence.supportClosure).toHaveLength(6);
+    expect(fieldHunk.selection.evidence.effects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "field-materialization",
+          ownerNodeId: "task",
+          fieldDefinitionId: "status-field",
+          originFieldNodeId: null,
+          reviewFieldNodeId: "initialized-field:v1:task:status-field",
+        }),
+      ]),
+    );
     expect(
       (
         await workspace.execute({
@@ -932,13 +902,15 @@ describe("Schema product model", () => {
       intent: "direct",
       historyChannelId: "desktop",
       mutations: [
-        { kind: "node-create", nodeId: "task" },
-        { kind: "node-create", nodeId: "task-schema" },
-        { kind: "node-create", nodeId: "status-field" },
+        ...nodeAtWorkspace("task"),
+        ...nodeAtWorkspace("task-schema"),
+        ...nodeAtWorkspace("status-field"),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+          fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
           anchor: end,
         },
       ],
@@ -997,7 +969,7 @@ describe("Schema product model", () => {
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [{ kind: "node-create", nodeId: "unrelated" }],
+      mutations: nodeAtWorkspace("unrelated"),
     });
     expect(redone, JSON.stringify(redone)).toMatchObject({ status: "published" });
 
@@ -1011,7 +983,7 @@ describe("Schema product model", () => {
     });
     expect(accepted.status).toBe("published");
     await expectSchemaProjection(workspace, ["task-schema"], "task", "status-field");
-    expect(facts.snapshot().facts).toHaveLength(7);
+    expect(facts.snapshot().facts).toHaveLength(14);
   });
 
   it("stales a Schema Application selection when its Effective Field consequences change", async () => {
@@ -1027,9 +999,9 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "task" },
-            { kind: "node-create", nodeId: "task-schema" },
-            { kind: "node-create", nodeId: "status-field" },
+            ...nodeAtWorkspace("task"),
+            ...nodeAtWorkspace("task-schema"),
+            ...nodeAtWorkspace("status-field"),
           ],
         })
       ).status,
@@ -1069,6 +1041,8 @@ describe("Schema product model", () => {
               kind: "schema-field-add",
               schemaId: "task-schema",
               fieldDefinitionId: "status-field",
+              fieldNodeId: "task-schema-status-field-template-field",
+              fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
               anchor: end,
             },
           ],
@@ -1101,9 +1075,9 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "task" },
-            { kind: "node-create", nodeId: "task-schema" },
-            { kind: "node-create", nodeId: "status-field" },
+            ...nodeAtWorkspace("task"),
+            ...nodeAtWorkspace("task-schema"),
+            ...nodeAtWorkspace("status-field"),
             { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
           ],
         })
@@ -1123,6 +1097,8 @@ describe("Schema product model", () => {
               kind: "schema-field-add",
               schemaId: "task-schema",
               fieldDefinitionId: "status-field",
+              fieldNodeId: "task-schema-status-field-template-field",
+              fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
               anchor: end,
             },
           ],
@@ -1130,17 +1106,21 @@ describe("Schema product model", () => {
       ).status,
     ).toBe("published");
     const query = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    if (!("hunks" in query) || !query.hunks[0]) {
+    const schemaFieldHunk =
+      "hunks" in query
+        ? query.hunks.find((hunk) => hunk.diffSpace.kind === "schema-template")
+        : undefined;
+    if (!schemaFieldHunk) {
       throw new Error("Expected Schema Field Review Hunk");
     }
-    expect(query.hunks[0].diffSpace.kind).toBe("schema-template");
+    expect(schemaFieldHunk.diffSpace.kind).toBe("schema-template");
     const rejected = await workspace.execute({
       kind: "resolve-review",
       workspaceId: "workspace",
       invocationId: "reject-schema-field",
       actorId: "reviewer",
       decision: "reject",
-      selection: query.hunks[0].selection,
+      selection: schemaFieldHunk.selection,
     });
     expect(rejected.status).toBe("published");
     const origin = await readSchemaFields(workspace, "origin");
@@ -1160,14 +1140,16 @@ describe("Schema product model", () => {
       intent: "direct",
       historyChannelId: "desktop",
       mutations: [
-        { kind: "node-create", nodeId: "note" },
-        { kind: "node-create", nodeId: "base-schema" },
-        { kind: "node-create", nodeId: "child-schema" },
-        { kind: "node-create", nodeId: "base-field" },
+        ...nodeAtWorkspace("note"),
+        ...nodeAtWorkspace("base-schema"),
+        ...nodeAtWorkspace("child-schema"),
+        ...nodeAtWorkspace("base-field"),
         {
           kind: "schema-field-add",
           schemaId: "base-schema",
           fieldDefinitionId: "base-field",
+          fieldNodeId: "base-schema-base-field-template-field",
+          fieldOccurrenceId: "base-schema-base-field-template-field-occurrence",
           anchor: end,
         },
         { kind: "schema-apply", nodeId: "note", schemaId: "child-schema", anchor: end },
@@ -1252,35 +1234,26 @@ describe("Schema product model", () => {
       intent: "direct",
       historyChannelId: "desktop",
       mutations: [
-        ...["task", "task-schema", "status-field", "status-on-task", "todo", "project"].map(
-          (nodeId): Mutation => ({ kind: "node-create", nodeId }),
-        ),
-        {
-          kind: "occurrence-create",
-          occurrenceId: "task-occurrence",
-          nodeId: "task",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "status-on-task-occurrence",
-          nodeId: "status-on-task",
-          parentOccurrenceId: "task-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
+        nodeAt("task", "workspace", "task-occurrence"),
+        nodeAt("status-on-task", "task", "status-on-task-occurrence"),
+        nodeAt("todo", "status-on-task", "todo-value"),
+        nodeAt("project", "status-on-task", "project-reference"),
+        ...nodeAtWorkspace("task-schema"),
+        ...nodeAtWorkspace("status-field"),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+          fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
           anchor: end,
         },
         {
           kind: "schema-field-configure",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+
           config: { visibility: "optional", staticDefault: null, initializer: null },
         },
         { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
@@ -1290,22 +1263,6 @@ describe("Schema product model", () => {
           fieldDefinitionId: "status-field",
           fieldNodeId: "status-on-task",
           fieldOccurrenceId: "status-on-task-occurrence",
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "todo-value",
-          nodeId: "todo",
-          parentOccurrenceId: "status-on-task-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "project-reference",
-          nodeId: "project",
-          parentOccurrenceId: "status-on-task-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
         },
       ],
     });
@@ -1345,28 +1302,23 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            ...["task", "task-schema", "notes-field"].map((nodeId): Mutation => ({
-              kind: "node-create",
-              nodeId,
-            })),
-            {
-              kind: "occurrence-create",
-              occurrenceId: "task-occurrence",
-              nodeId: "task",
-              parentOccurrenceId: null,
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("task", "workspace", "task-occurrence"),
+            ...nodeAtWorkspace("task-schema"),
+            ...nodeAtWorkspace("notes-field"),
             {
               kind: "schema-field-add",
               schemaId: "task-schema",
               fieldDefinitionId: "notes-field",
+              fieldNodeId: "task-schema-notes-field-template-field",
+              fieldOccurrenceId: "task-schema-notes-field-template-field-occurrence",
               anchor: end,
             },
             {
               kind: "schema-field-configure",
               schemaId: "task-schema",
               fieldDefinitionId: "notes-field",
+              fieldNodeId: "task-schema-notes-field-template-field",
+
               config: { visibility: "optional", staticDefault: null, initializer: null },
             },
             { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
@@ -1382,11 +1334,9 @@ describe("Schema product model", () => {
       kind: "projection",
       workspaceId: "workspace",
       view: "origin",
-      section: "schemaFieldItems",
+      section: "templateFields",
     });
-    expect(
-      "schemaFieldItems" in items ? items.schemaFieldItems["task-schema"] : null,
-    ).toMatchObject([
+    expect("templateFields" in items ? items.templateFields["task-schema"] : null).toMatchObject([
       { fieldDefinitionId: "notes-field", effectiveConfig: { visibility: "optional" } },
     ]);
 
@@ -1400,15 +1350,7 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "notes-on-task" },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "notes-on-task-occurrence",
-              nodeId: "notes-on-task",
-              parentOccurrenceId: "task-occurrence",
-              parentPolicy: "cascade",
-              anchor: end,
-            },
+            nodeAt("notes-on-task", "task", "notes-on-task-occurrence"),
             {
               kind: "field-materialize",
               ownerNodeId: "task",
@@ -1434,8 +1376,8 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [
-            { kind: "node-create", nodeId: "value" },
-            { kind: "node-create", nodeId: "nested" },
+            nodeAt("value", "notes-on-task", "value-occurrence"),
+            nodeAt("nested", "value", "nested-occurrence"),
             {
               kind: "text-splice",
               nodeId: "value",
@@ -1450,27 +1392,11 @@ describe("Schema product model", () => {
               anchor: end,
               insert: "nested content",
             },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "value-occurrence",
-              nodeId: "value",
-              parentOccurrenceId: "notes-on-task-occurrence",
-              parentPolicy: "cascade",
-              anchor: end,
-            },
-            {
-              kind: "occurrence-create",
-              occurrenceId: "nested-occurrence",
-              nodeId: "nested",
-              parentOccurrenceId: "value-occurrence",
-              parentPolicy: "cascade",
-              anchor: end,
-            },
           ],
         })
       ).status,
     ).toBe("published");
-    expect((await projectionEntries(first.workspace, "children"))["value-occurrence"]).toEqual([
+    expect((await projectionEntries(first.workspace, "children")).value).toEqual([
       "nested-occurrence",
     ]);
 
@@ -1499,7 +1425,7 @@ describe("Schema product model", () => {
         },
       ],
     );
-    expect((await projectionEntries(restarted.workspace, "children"))["value-occurrence"]).toEqual([
+    expect((await projectionEntries(restarted.workspace, "children")).value).toEqual([
       "nested-occurrence",
     ]);
     await expectNodeText(restarted.workspace, "value", "value content");
@@ -1519,9 +1445,9 @@ describe("Schema product model", () => {
           intent: "direct",
           historyChannelId: "setup",
           mutations: [
-            { kind: "node-create", nodeId: "task" },
-            { kind: "node-create", nodeId: "task-schema" },
-            { kind: "node-create", nodeId: "status-field" },
+            ...nodeAtWorkspace("task"),
+            ...nodeAtWorkspace("task-schema"),
+            ...nodeAtWorkspace("status-field"),
           ],
         })
       ).status,
@@ -1539,6 +1465,8 @@ describe("Schema product model", () => {
           kind: "schema-field-add",
           schemaId: "task-schema",
           fieldDefinitionId: "status-field",
+          fieldNodeId: "task-schema-status-field-template-field",
+          fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
           anchor: end,
         },
       ],
@@ -1597,25 +1525,9 @@ describe("Schema product model", () => {
       intent: "direct",
       historyChannelId: "desktop",
       mutations: [
-        { kind: "node-create", nodeId: "task" },
-        { kind: "node-create", nodeId: "status-field" },
-        { kind: "node-create", nodeId: "status-on-task" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "task-occurrence",
-          nodeId: "task",
-          parentOccurrenceId: null,
-          parentPolicy: "cascade",
-          anchor: end,
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "status-on-task-occurrence",
-          nodeId: "status-on-task",
-          parentOccurrenceId: "task-occurrence",
-          parentPolicy: "cascade",
-          anchor: end,
-        },
+        nodeAt("task", "workspace", "task-occurrence"),
+        ...nodeAtWorkspace("status-field"),
+        nodeAt("status-on-task", "task", "status-on-task-occurrence"),
       ],
     });
     expect(setup.status).toBe("published");
@@ -1680,11 +1592,12 @@ describe("Schema product model", () => {
 });
 
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId,
     documents,
+    admitRecords: admitAuthorityRecords,
   });
   return {
     facts,
@@ -1769,7 +1682,7 @@ async function readSchemaFields(
   return result.schemaFields;
 }
 
-async function readDefinitionStatus(
+async function readNodeStatus(
   workspace: ProposalWorkspace,
   definitionId: string,
   view: "origin" | "review" = "origin",
@@ -1778,12 +1691,12 @@ async function readDefinitionStatus(
     kind: "projection",
     workspaceId: "workspace",
     view,
-    section: "definitionStatuses",
+    section: "nodeStatuses",
   });
-  if (!("definitionStatuses" in result)) {
-    throw new Error("Expected Definition Status Projection");
+  if (!("nodeStatuses" in result)) {
+    throw new Error("Expected Node Status Projection");
   }
-  return result.definitionStatuses[definitionId];
+  return result.nodeStatuses[definitionId];
 }
 
 async function readProjectionMap(
@@ -1866,25 +1779,34 @@ async function expectMaterializedField(
   ]);
 }
 
-function schemaProgram(): readonly Mutation[] {
+function schemaProgram(): readonly EditMutation[] {
   return [
-    ...["task", "project-schema", "work-schema", "status-field"].map((nodeId): Mutation => ({
-      kind: "node-create",
-      nodeId,
-    })),
+    ...["task", "project-schema", "work-schema", "status-field"].flatMap(nodeAtWorkspace),
     {
       kind: "schema-field-add",
       schemaId: "project-schema",
       fieldDefinitionId: "status-field",
+      fieldNodeId: "project-schema-status-field-template-field",
+      fieldOccurrenceId: "project-schema-status-field-template-field-occurrence",
       anchor: end,
     },
     {
       kind: "schema-field-add",
       schemaId: "work-schema",
       fieldDefinitionId: "status-field",
+      fieldNodeId: "work-schema-status-field-template-field",
+      fieldOccurrenceId: "work-schema-status-field-template-field-occurrence",
       anchor: end,
     },
     { kind: "schema-apply", nodeId: "task", schemaId: "project-schema", anchor: end },
     { kind: "schema-apply", nodeId: "task", schemaId: "work-schema", anchor: end },
   ];
+}
+
+function nodeAtWorkspace(nodeId: string): readonly EditMutation[] {
+  return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
+}
+
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditMutation {
+  return { kind: "node-create", nodeId, occurrenceId, parentNodeId, anchor: end };
 }

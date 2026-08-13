@@ -1,5 +1,6 @@
 import {
   makeFact,
+  factTransactionId,
   normalizeFrontier,
   type AuthorityReceipt,
   type AuthorityRecord,
@@ -8,7 +9,7 @@ import {
   type FactSnapshot,
   type WorkspaceId,
 } from "../../domain/fact/index.js";
-import type { AuthorityCommit } from "./fact-store.js";
+import type { AuthorityCommit } from "./fact-authority.js";
 export function createAuthorityCommitBatch(
   workspaceId: WorkspaceId,
   replicaId: ReplicaId,
@@ -25,20 +26,25 @@ export function createAuthorityCommitBatch(
   let observed = before.frontier;
   let lamport = maximumLamport + 1;
   const facts: Fact[] = [];
-  for (const body of input.bodies) {
-    facts.push(
-      makeFact({
-        workspaceId,
-        replicaId,
-        sequence,
-        observed,
-        lamport,
-        body,
-      }),
-    );
-    observed = normalizeFrontier({ ...observed, [replicaId]: sequence });
-    sequence += 1;
-    lamport += 1;
+  for (const write of input.writes) {
+    const bodies = write.kind === "transaction" ? write.bodies : [write];
+    const transactionId = factTransactionId(workspaceId, replicaId, sequence);
+    for (const [index, body] of bodies.entries()) {
+      facts.push(
+        makeFact({
+          workspaceId,
+          replicaId,
+          sequence,
+          observed,
+          lamport,
+          transaction: { transactionId, index, size: bodies.length },
+          body,
+        }),
+      );
+      observed = normalizeFrontier({ ...observed, [replicaId]: sequence });
+      sequence += 1;
+      lamport += 1;
+    }
   }
   const receipt: AuthorityReceipt = {
     workspaceId,

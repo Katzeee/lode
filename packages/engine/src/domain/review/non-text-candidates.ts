@@ -25,6 +25,7 @@ function structureCandidates(
   pending: ReadonlyMap<string, ContributionFact>,
 ): readonly HunkCandidate[] {
   const grouped = new Map<string, ContributionFact[]>();
+  const creationPlacementIds = new Set(creationPlacements(pending).values());
   for (const fact of pending.values()) {
     if (
       ![
@@ -35,6 +36,9 @@ function structureCandidates(
         "field-value-delete",
       ].includes(fact.body.mutation.kind)
     ) {
+      continue;
+    }
+    if (creationPlacementIds.has(fact.id)) {
       continue;
     }
     const mutation = fact.body.mutation;
@@ -59,13 +63,23 @@ function structureCandidates(
         effect.reviewPresent &&
         effect.originParentId !== effect.reviewParentId
       ) {
-        return [...new Set([effect.originParentId, effect.reviewParentId])].map((parentId) => ({
-          diffSpace: { kind: "child-sequence" as const, identity: childSequenceIdentity(parentId) },
-          targets: ordered.map((fact) => fact.id),
-          bridges: [],
-        }));
+        return [...new Set([effect.originParentId, effect.reviewParentId])].flatMap((parentId) =>
+          parentId === null
+            ? []
+            : {
+                diffSpace: {
+                  kind: "child-sequence" as const,
+                  identity: childSequenceIdentity(parentId),
+                },
+                targets: ordered.map((fact) => fact.id),
+                bridges: [],
+              },
+        );
       }
       const parentId = !effect.originPresent ? effect.reviewParentId : effect.originParentId;
+      if (parentId === null) {
+        return [];
+      }
       return [
         {
           diffSpace: { kind: "child-sequence" as const, identity: childSequenceIdentity(parentId) },
@@ -110,7 +124,7 @@ function lifecycleCandidates(
         "node-create",
         "node-delete",
         "node-restore",
-        "canonical-occurrence-set",
+        "node-owner-set",
         "template-node-detach",
       ].includes(fact.body.mutation.kind)
     ) {
@@ -118,12 +132,23 @@ function lifecycleCandidates(
     }
     const mutation = fact.body.mutation;
     const key =
-      mutation.kind === "canonical-occurrence-set"
-        ? `canonical/${mutation.nodeId}`
+      mutation.kind === "node-owner-set"
+        ? `owner/${mutation.nodeId}`
         : `lifecycle/${"nodeId" in mutation ? mutation.nodeId : fact.id}`;
     const group = groups.get(key) ?? [];
     group.push(fact);
     groups.set(key, group);
+  }
+  for (const facts of groups.values()) {
+    const creation = facts.find((fact) => fact.body.mutation.kind === "node-create");
+    if (creation?.body.mutation.kind !== "node-create") {
+      continue;
+    }
+    const placement = creationPlacements(pending).get(creation.body.mutation.nodeId);
+    const placementFact = placement ? pending.get(placement) : undefined;
+    if (placementFact) {
+      facts.push(placementFact);
+    }
   }
   return [...groups.values()]
     .filter((facts) => normalizedEffects(facts, generation).length > 0)
@@ -149,14 +174,35 @@ function lifecycleCandidates(
       const identities = nodeImpacts.length > 0 ? nodeImpacts : [mutationIdentity(fact)];
       return identities.map((identity) => ({
         diffSpace: {
-          kind:
-            mutation.kind === "canonical-occurrence-set"
-              ? ("canonical" as const)
-              : ("lifecycle" as const),
+          kind: mutation.kind === "node-owner-set" ? ("owner" as const) : ("lifecycle" as const),
           identity,
         },
         targets: ordered.map((target) => target.id),
         bridges: [],
       }));
     });
+}
+
+function creationPlacements(
+  pending: ReadonlyMap<string, ContributionFact>,
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (const creation of pending.values()) {
+    if (creation.body.mutation.kind !== "node-create") {
+      continue;
+    }
+    const nodeId = creation.body.mutation.nodeId;
+    const placement = [...pending.values()]
+      .filter(
+        (fact) =>
+          fact.transaction.transactionId === creation.transaction.transactionId &&
+          fact.body.mutation.kind === "occurrence-create" &&
+          fact.body.mutation.nodeId === nodeId,
+      )
+      .sort(compareFacts)[0];
+    if (placement) {
+      result.set(nodeId, placement.id);
+    }
+  }
+  return result;
 }

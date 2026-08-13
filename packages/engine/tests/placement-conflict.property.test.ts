@@ -15,7 +15,7 @@ import {
   reconcileFromCheckpoint,
 } from "../src/runtime/workspace/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const moveReplicaB = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const moveReplicaC = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";
@@ -32,8 +32,8 @@ describe("Placement Conflict convergence", () => {
     const base = fixture();
     const baseSnapshot = admitted(base.values);
     const frontier = baseSnapshot.frontier;
-    const moveB = remoteMove(moveReplicaB, frontier, "parent-b-occurrence");
-    const moveC = remoteMove(moveReplicaC, frontier, "parent-c-occurrence");
+    const moveB = remoteMove(moveReplicaB, frontier, "parent-b");
+    const moveC = remoteMove(moveReplicaC, frontier, "parent-c");
     const unrelated = remoteFact(unrelatedReplica, frontier, {
       kind: "text-splice",
       nodeId: "unrelated",
@@ -55,13 +55,13 @@ describe("Placement Conflict convergence", () => {
         kind: "placement-conflict",
         occurrenceId: "value-occurrence",
         candidates: [
-          { contributionId: moveB.id, parentOccurrenceId: "parent-b-occurrence" },
-          { contributionId: moveC.id, parentOccurrenceId: "parent-c-occurrence" },
+          { contributionId: moveB.id, parentNodeId: "parent-b" },
+          { contributionId: moveC.id, parentNodeId: "parent-c" },
         ],
       });
       expect(full.generation.review.conflictIssues).toEqual(full.generation.origin.conflictIssues);
-      expect(full.generation.review.occurrences["value-occurrence"]?.parentOccurrenceId).toBe(
-        full.generation.origin.occurrences["value-occurrence"]?.parentOccurrenceId,
+      expect(full.generation.review.occurrences["value-occurrence"]?.parentNodeId).toBe(
+        full.generation.origin.occurrences["value-occurrence"]?.parentNodeId,
       );
     }
 
@@ -88,37 +88,21 @@ describe("Placement Conflict convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  for (const nodeId of ["parent-b", "parent-c", "value", "unrelated"]) {
-    facts.add({ kind: "node-create", nodeId });
-  }
   for (const suffix of ["b", "c"]) {
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: `parent-${suffix}-occurrence`,
-      nodeId: `parent-${suffix}`,
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
-      anchor: end,
-    });
+    facts.addPlaced(`parent-${suffix}`, "workspace", `parent-${suffix}-occurrence`);
   }
-  facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "value-occurrence",
-    nodeId: "value",
-    parentOccurrenceId: null,
-    parentPolicy: "cascade",
-    anchor: end,
-  });
+  facts.addPlaced("value", "workspace", "value-occurrence");
+  facts.addPlaced("unrelated", "value");
   return facts;
 }
 
-function remoteMove(replicaId: string, observed: FactFrontier, parentOccurrenceId: string): Fact {
+function remoteMove(replicaId: string, observed: FactFrontier, parentNodeId: string): Fact {
   return remoteFact(replicaId, observed, {
     kind: "occurrence-move",
     occurrenceId: "value-occurrence",
-    parentOccurrenceId,
+    parentNodeId,
     anchor: end,
-    previousParentOccurrenceId: null,
+    previousParentNodeId: "workspace",
     previousAnchor,
   });
 }

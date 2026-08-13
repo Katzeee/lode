@@ -1,5 +1,5 @@
 import { compareFacts, stableStringCompare, type ContributionFact } from "../fact/index.js";
-import type { EffectiveField, MaterializedField, SchemaFieldItem } from "./projection-types.js";
+import type { EffectiveField, MaterializedField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { schemaExtensionGraph } from "./schema-extension-graph.js";
 import {
@@ -11,14 +11,13 @@ import {
   observedRelations,
   schemaApplicationEvent,
   schemaExtensionEvent,
-  schemaFieldEvent,
-  schemaTemplateNodeEvent,
 } from "./schema-relation-events.js";
+import { boundSchemaFields, boundSchemaTemplateNodes } from "./schema-template-bindings.js";
 
 export type SchemaRelations = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
   schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
@@ -41,17 +40,17 @@ export function deriveSchemaRelations(
     existingNodeIds,
     knownNodeIds,
   );
-  const fields = observedRelations(active, schemaFieldEvent, knownNodeIds, knownNodeIds);
   const extensions = observedRelations(active, schemaExtensionEvent, knownNodeIds, knownNodeIds);
-  const templateNodes = observedRelations(
-    active,
-    schemaTemplateNodeEvent,
-    knownNodeIds,
-    knownNodeIds,
-  );
   const schemaApplications = record(applications);
-  const schemaFields = record(fields);
-  const schemaFieldItems = configuredFieldItems(active, schemaFields);
+  const boundFields = boundSchemaFields(active, knownNodeIds, occurrences, children);
+  const schemaTemplateNodes = boundSchemaTemplateNodes(active, knownNodeIds, occurrences, children);
+  const templateFields = configuredFieldItems(active, boundFields);
+  const schemaFields = Object.fromEntries(
+    Object.entries(templateFields).map(([schemaId, fields]) => [
+      schemaId,
+      fields.map((field) => field.fieldDefinitionId),
+    ]),
+  );
   const schemaExtensions = record(extensions);
   const extensionGraph = schemaExtensionGraph(schemaExtensions);
   const materializedFields = mergeMaterializedFields(
@@ -61,7 +60,7 @@ export function deriveSchemaRelations(
   const initializations = fieldInitializations(active);
   const activeApplications = filterRelationTargets(schemaApplications, existingNodeIds);
   const activeFieldItems = Object.fromEntries(
-    Object.entries(schemaFieldItems)
+    Object.entries(templateFields)
       .filter(([schemaId]) => existingNodeIds.has(schemaId))
       .map(([schemaId, items]) => [
         schemaId,
@@ -79,8 +78,8 @@ export function deriveSchemaRelations(
   return {
     schemaApplications,
     schemaFields,
-    schemaFieldItems,
-    schemaTemplateNodes: record(templateNodes),
+    templateFields,
+    schemaTemplateNodes,
     schemaExtensions,
     schemaSearchMembers: extensionGraph.searchMembers,
     schemaExtensionConflicts: extensionGraph.conflicts,
@@ -129,15 +128,11 @@ function materialized(
     }
     const ownerKey = `${encodeURIComponent(mutation.ownerNodeId)}/${encodeURIComponent(mutation.fieldDefinitionId)}`;
     const occurrence = occurrences.get(mutation.fieldOccurrenceId);
-    const parentNodeId =
-      occurrence?.parentOccurrenceId === null
-        ? null
-        : occurrences.get(occurrence?.parentOccurrenceId ?? "")?.nodeId;
     if (
       !existingNodeIds.has(mutation.ownerNodeId) ||
       !existingNodeIds.has(mutation.fieldNodeId) ||
       occurrence?.nodeId !== mutation.fieldNodeId ||
-      parentNodeId !== mutation.ownerNodeId
+      occurrence.parentNodeId !== mutation.ownerNodeId
     ) {
       continue;
     }
@@ -164,7 +159,7 @@ function materialized(
     for (const candidate of available) {
       claimedNodes.add(candidate.fieldNodeId);
       claimedOccurrences.add(candidate.fieldOccurrenceId);
-      for (const occurrenceId of children.get(candidate.fieldOccurrenceId) ?? []) {
+      for (const occurrenceId of children.get(candidate.fieldNodeId) ?? []) {
         appendUnique(valueOccurrenceIds, occurrenceId);
       }
     }
@@ -202,8 +197,8 @@ function compareCandidateGroups(
   }
   const leftOccurrence = occurrences.get(leftCandidate.fieldOccurrenceId);
   const rightOccurrence = occurrences.get(rightCandidate.fieldOccurrenceId);
-  const leftParent = leftOccurrence?.parentOccurrenceId ?? null;
-  const rightParent = rightOccurrence?.parentOccurrenceId ?? null;
+  const leftParent = leftOccurrence?.parentNodeId ?? null;
+  const rightParent = rightOccurrence?.parentNodeId ?? null;
   const sharedParent = leftParent === rightParent ? leftParent : null;
   const placementOrder =
     sharedParent !== null
@@ -219,12 +214,12 @@ function compareCandidateGroups(
 
 function filterRelationTargets(
   relations: Readonly<Record<string, readonly string[]>>,
-  targetNodeIds: ReadonlySet<string>,
+  ownerNodeIds: ReadonlySet<string>,
 ): Readonly<Record<string, readonly string[]>> {
   return Object.fromEntries(
     Object.entries(relations).map(([ownerId, targetIds]) => [
       ownerId,
-      targetIds.filter((targetId) => targetNodeIds.has(targetId)),
+      targetIds.filter((targetId) => ownerNodeIds.has(targetId)),
     ]),
   );
 }

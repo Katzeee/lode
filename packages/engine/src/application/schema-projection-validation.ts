@@ -1,22 +1,22 @@
 import type { FieldTemplateConfig, FieldValueSeed } from "../domain/fact/index.js";
 import type {
   EffectiveField,
-  DefinitionStatus,
+  NodeStatus,
   FieldConfigCandidate,
   MaterializedField,
-  SchemaFieldItem,
+  TemplateField,
 } from "../domain/reconcile/index.js";
 import type { ProjectionPageSection, ProjectionPageValue } from "./contract.js";
 
 export type SchemaProjectionMaps = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
   schemaFields: Readonly<Record<string, readonly string[]>>;
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
   schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
   schemaExtensions: Readonly<Record<string, readonly string[]>>;
   schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
   schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  definitionStatuses: Readonly<Record<string, DefinitionStatus>>;
+  nodeStatuses: Readonly<Record<string, NodeStatus>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
 }>;
@@ -28,8 +28,8 @@ export function parseSchemaProjectionMaps(
   return {
     schemaApplications: mapOrEmpty(section, "schemaApplications", value.schemaApplications, ids),
     schemaFields: mapOrEmpty(section, "schemaFields", value.schemaFields, ids),
-    schemaFieldItems: mapOrEmpty(section, "schemaFieldItems", value.schemaFieldItems, (item) =>
-      array(item, schemaFieldItem),
+    templateFields: mapOrEmpty(section, "templateFields", value.templateFields, (item) =>
+      array(item, templateField),
     ),
     schemaTemplateNodes: mapOrEmpty(section, "schemaTemplateNodes", value.schemaTemplateNodes, ids),
     schemaExtensions: mapOrEmpty(section, "schemaExtensions", value.schemaExtensions, ids),
@@ -40,12 +40,7 @@ export function parseSchemaProjectionMaps(
       value.schemaExtensionConflicts,
       ids,
     ),
-    definitionStatuses: mapOrEmpty(
-      section,
-      "definitionStatuses",
-      value.definitionStatuses,
-      definitionStatus,
-    ),
+    nodeStatuses: mapOrEmpty(section, "nodeStatuses", value.nodeStatuses, nodeStatus),
     effectiveFields: mapOrEmpty(section, "effectiveFields", value.effectiveFields, (item) =>
       array(item, effectiveField),
     ),
@@ -62,42 +57,42 @@ export function parseSchemaProjectionValue(
   section:
     | "schemaApplications"
     | "schemaFields"
-    | "schemaFieldItems"
+    | "templateFields"
     | "schemaTemplateNodes"
     | "schemaExtensions"
     | "schemaSearchMembers"
     | "schemaExtensionConflicts"
-    | "definitionStatuses"
+    | "nodeStatuses"
     | "effectiveFields"
     | "materializedFields",
   value: unknown,
 ): ProjectionPageValue {
-  return section === "definitionStatuses"
-    ? definitionStatus(value)
+  return section === "nodeStatuses"
+    ? nodeStatus(value)
     : section === "effectiveFields"
       ? array(value, effectiveField)
-      : section === "schemaFieldItems"
-        ? array(value, schemaFieldItem)
+      : section === "templateFields"
+        ? array(value, templateField)
         : section === "materializedFields"
           ? array(value, materializedField)
           : ids(value);
 }
 
-function definitionStatus(value: unknown): DefinitionStatus {
-  const item = record(value, "Definition status");
-  exact(item, ["definitionId", "kinds", "state", "deletionFactIds"]);
-  const kinds = array(item.kinds, (kind) => {
-    if (kind !== "schema" && kind !== "field") {
-      throw new Error("Definition kind is invalid");
+function nodeStatus(value: unknown): NodeStatus {
+  const item = record(value, "Node status");
+  exact(item, ["nodeId", "roles", "state", "deletionFactIds"]);
+  const roles = array(item.roles, (role) => {
+    if (role !== "schema" && role !== "field") {
+      throw new Error("Node role is invalid");
     }
-    return kind;
+    return role;
   });
   if (item.state !== "active" && item.state !== "deleted") {
-    throw new Error("Definition state is invalid");
+    throw new Error("Node state is invalid");
   }
   return {
-    definitionId: identity(item.definitionId),
-    kinds,
+    nodeId: identity(item.nodeId),
+    roles,
     state: item.state,
     deletionFactIds: ids(item.deletionFactIds),
   };
@@ -126,7 +121,7 @@ function effectiveField(value: unknown): EffectiveField {
   exact(item, [
     "fieldDefinitionId",
     "sourceSchemaIds",
-    "sourceTemplateItemIds",
+    "sourceFieldNodeIds",
     "visibility",
     "configCandidates",
     "effectiveConfig",
@@ -137,7 +132,7 @@ function effectiveField(value: unknown): EffectiveField {
   return {
     fieldDefinitionId: identity(item.fieldDefinitionId),
     sourceSchemaIds: ids(item.sourceSchemaIds),
-    sourceTemplateItemIds: ids(item.sourceTemplateItemIds),
+    sourceFieldNodeIds: ids(item.sourceFieldNodeIds),
     visibility: visibility(item.visibility),
     configCandidates: array(item.configCandidates, fieldConfigCandidate),
     effectiveConfig:
@@ -166,17 +161,19 @@ function fieldInitializationCandidate(
   };
 }
 
-function schemaFieldItem(value: unknown): SchemaFieldItem {
-  const item = record(value, "Schema Field Item");
+function templateField(value: unknown): TemplateField {
+  const item = record(value, "Template Field");
   exact(item, [
-    "templateItemId",
+    "fieldNodeId",
+    "fieldOccurrenceId",
     "schemaId",
     "fieldDefinitionId",
     "configCandidates",
     "effectiveConfig",
   ]);
   return {
-    templateItemId: identity(item.templateItemId),
+    fieldNodeId: identity(item.fieldNodeId),
+    fieldOccurrenceId: identity(item.fieldOccurrenceId),
     schemaId: identity(item.schemaId),
     fieldDefinitionId: identity(item.fieldDefinitionId),
     configCandidates: array(item.configCandidates, fieldConfigCandidate),
@@ -187,11 +184,11 @@ function schemaFieldItem(value: unknown): SchemaFieldItem {
 
 function fieldConfigCandidate(value: unknown): FieldConfigCandidate {
   const candidate = record(value, "Field config candidate");
-  exact(candidate, ["config", "sourceSchemaIds", "sourceTemplateItemIds", "contributionIds"]);
+  exact(candidate, ["config", "sourceSchemaIds", "sourceFieldNodeIds", "contributionIds"]);
   return {
     config: parseFieldTemplateConfig(candidate.config),
     sourceSchemaIds: ids(candidate.sourceSchemaIds),
-    sourceTemplateItemIds: ids(candidate.sourceTemplateItemIds),
+    sourceFieldNodeIds: ids(candidate.sourceFieldNodeIds),
     contributionIds: ids(candidate.contributionIds),
   };
 }

@@ -70,11 +70,7 @@ export function parseEngineQueryResult(value: unknown): EngineQueryResult {
 
 export function parseEngineEvent(value: unknown): EngineEvent {
   const event = object(value, "Engine event");
-  exact(
-    event,
-    ["kind", "workspaceId", "frontier", "generationId", "affectedOwnerIds"],
-    "Engine event",
-  );
+  exact(event, ["kind", "workspaceId", "frontier", "generationId"], "Engine event");
   const kind = oneOf(
     event.kind,
     [
@@ -90,7 +86,6 @@ export function parseEngineEvent(value: unknown): EngineEvent {
     workspaceId: string(event.workspaceId, "Workspace identity"),
     frontier: frontier(event.frontier),
     generationId: nullableString(event.generationId, "generation identity"),
-    affectedOwnerIds: strings(event.affectedOwnerIds, "affected owners"),
   };
 }
 
@@ -191,7 +186,7 @@ function reviewQuery(value: Record<string, unknown>): ReviewQuery {
               "child-sequence",
               "value",
               "lifecycle",
-              "canonical",
+              "owner",
               "schema-application",
               "schema-template",
               "field-configuration",

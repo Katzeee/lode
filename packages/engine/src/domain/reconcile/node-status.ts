@@ -1,16 +1,51 @@
 import { stableStringCompare, type ContributionFact } from "../fact/index.js";
-import type { DefinitionStatus } from "./projection-types.js";
+import type { NodeStatus } from "./projection-types.js";
 
-export function projectDefinitionStatuses(
+export function projectNodeStatuses(
   active: readonly ContributionFact[],
+  knownNodeIds: ReadonlySet<string>,
   activeNodeIds: ReadonlySet<string>,
   deletionFactIds: ReadonlyMap<string, readonly string[]>,
-): Readonly<Record<string, DefinitionStatus>> {
-  const kinds = new Map<string, Set<"schema" | "field">>();
-  const add = (definitionId: string, kind: "schema" | "field") => {
-    const definitions = kinds.get(definitionId) ?? new Set();
-    definitions.add(kind);
-    kinds.set(definitionId, definitions);
+): Readonly<Record<string, NodeStatus>> {
+  const roles = definitionRoles(active);
+  const nodeIds = new Set([
+    ...knownNodeIds,
+    ...activeNodeIds,
+    ...deletionFactIds.keys(),
+    ...roles.keys(),
+  ]);
+  return Object.fromEntries(
+    [...nodeIds].sort(stableStringCompare).flatMap((nodeId) => {
+      const state = activeNodeIds.has(nodeId)
+        ? "active"
+        : (deletionFactIds.get(nodeId)?.length ?? 0) > 0
+          ? "deleted"
+          : null;
+      return state === null
+        ? []
+        : [
+            [
+              nodeId,
+              {
+                nodeId,
+                roles: [...(roles.get(nodeId) ?? [])].sort(stableStringCompare),
+                state,
+                deletionFactIds: [...(deletionFactIds.get(nodeId) ?? [])].sort(stableStringCompare),
+              },
+            ] as const,
+          ];
+    }),
+  );
+}
+
+function definitionRoles(
+  active: readonly ContributionFact[],
+): ReadonlyMap<string, ReadonlySet<"schema" | "field">> {
+  const roles = new Map<string, Set<"schema" | "field">>();
+  const add = (nodeId: string, role: "schema" | "field") => {
+    const nodeRoles = roles.get(nodeId) ?? new Set();
+    nodeRoles.add(role);
+    roles.set(nodeId, nodeRoles);
   };
   for (const fact of active) {
     const mutation = fact.body.mutation;
@@ -50,7 +85,7 @@ export function projectDefinitionStatuses(
       case "occurrence-delete":
       case "occurrence-restore":
       case "occurrence-move":
-      case "canonical-occurrence-set":
+      case "node-owner-set":
       case "text-splice":
       case "text-mark":
       case "value-set":
@@ -59,20 +94,5 @@ export function projectDefinitionStatuses(
         break;
     }
   }
-  return Object.fromEntries(
-    [...kinds]
-      .sort(([left], [right]) => stableStringCompare(left, right))
-      .map(([definitionId, definitionKinds]) => {
-        const deleted = deletionFactIds.get(definitionId) ?? [];
-        return [
-          definitionId,
-          {
-            definitionId,
-            kinds: [...definitionKinds].sort(stableStringCompare),
-            state: activeNodeIds.has(definitionId) ? "active" : "deleted",
-            deletionFactIds: [...deleted].sort(stableStringCompare),
-          },
-        ];
-      }),
-  );
+  return roles;
 }

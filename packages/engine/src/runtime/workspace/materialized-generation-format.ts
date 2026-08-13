@@ -3,37 +3,38 @@ import {
   type ProjectionIdentity,
   type ViewMode,
 } from "../../domain/fact/index.js";
-import type { ProjectionOwnerCache } from "../../domain/reconcile/index.js";
+import type { ProjectionPlanCache } from "../../domain/reconcile/index.js";
 
 export const MANIFEST_DOCUMENT_ID = "materialized-generation/manifest";
 export const MANIFEST_FORMAT = "lode-materialized-generation-manifest-v1";
-export const HEADER_FORMAT = "lode-materialized-generation-header-v13";
+export const HEADER_FORMAT = "lode-materialized-generation-header-v14";
 export const DIRECTORY_FORMAT = "lode-materialized-generation-directory-v2";
 export const SHARD_FORMAT = "lode-materialized-generation-shard-v2";
-export const OWNER_CACHE_FORMAT = "lode-materialized-generation-owner-cache-v2";
+export const PLAN_CACHE_FORMAT = "lode-materialized-generation-plan-cache-v1";
 export const DIRECTORY_FANOUT = 16;
 
 export const PROJECTION_SECTIONS = [
   "nodes",
   "occurrences",
   "children",
-  "canonicalOccurrences",
+  "nodeOwners",
   "addressedValues",
   "schemaApplications",
   "schemaFields",
-  "schemaFieldItems",
+  "templateFields",
   "schemaTemplateNodes",
   "templateNodeInstances",
   "schemaExtensions",
   "schemaSearchMembers",
   "schemaExtensionConflicts",
-  "definitionStatuses",
+  "nodeStatuses",
   "conflictIssues",
   "effectiveFields",
   "materializedFields",
   "reviewScopes",
   "supportByContribution",
   "occurrenceIdsByNode",
+  "nodeIdsByOwner",
   "nodeIdsBySchema",
   "nodeIdsByFieldDefinition",
   "schemaInstanceMemberships",
@@ -93,17 +94,17 @@ export type GenerationHeader = Readonly<{
   format: typeof HEADER_FORMAT;
   contentDigest: string;
   identity: ProjectionIdentity;
-  ownerCache: Readonly<{ documentId: string; contentDigest: string }>;
+  planCache: Readonly<{ documentId: string; contentDigest: string }>;
   directory: readonly DirectoryRoot[];
   origin: ProjectionHeader;
   review: ProjectionHeader;
 }>;
 
-export type StoredOwnerCaches = Readonly<{
-  format: typeof OWNER_CACHE_FORMAT;
+export type StoredPlanCaches = Readonly<{
+  format: typeof PLAN_CACHE_FORMAT;
   generationId: string;
   contentDigest: string;
-  value: Readonly<{ origin: ProjectionOwnerCache; review: ProjectionOwnerCache }>;
+  value: Readonly<{ origin: ProjectionPlanCache; review: ProjectionPlanCache }>;
 }>;
 
 export type StoredShard = Readonly<{
@@ -121,7 +122,7 @@ export type GenerationManifest = Readonly<{
 
 export type MaterializedGeneration = Readonly<{
   header: GenerationHeader;
-  ownerCaches: StoredOwnerCaches;
+  planCaches: StoredPlanCaches;
   shards: readonly Readonly<{ descriptor: ShardDescriptor; value: unknown }>[];
   directoryNodes: readonly StoredDirectoryNode[];
 }>;
@@ -146,8 +147,8 @@ export function shardPrefix(generationId: string): string {
   return `materialized-generation/shard/${generationId}/`;
 }
 
-export function ownerCacheDocumentId(generationId: string): string {
-  return `materialized-generation/owner-cache/${generationId}`;
+export function planCacheDocumentId(generationId: string): string {
+  return `materialized-generation/plan-cache/${generationId}`;
 }
 
 export function directoryNodeDocumentId(

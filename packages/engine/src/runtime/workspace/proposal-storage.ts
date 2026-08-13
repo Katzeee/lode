@@ -7,8 +7,9 @@ import type { DocumentStore } from "../../persistence/document-store.js";
 import { ensureDir } from "../../persistence/atomic-file.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { WorkspaceStore } from "../../persistence/workspace-store.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
-import type { FactStore } from "../authority/fact-store.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
+import type { SyncableDoc } from "../../sync/syncable.js";
 import { WorkspaceDocStore } from "./doc-store.js";
 import { ProjectionCheckpointRepository } from "./projection-checkpoints.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
@@ -25,7 +26,8 @@ type LocalReplica = Readonly<{
 
 export type OpenedProposalWorkspace = Readonly<{
   workspace: ProposalWorkspace;
-  facts: FactStore;
+  facts: FactAuthority;
+  factReplica: SyncableDoc;
   recoverAuthority(): Promise<void>;
   close(): Promise<void>;
 }>;
@@ -36,7 +38,7 @@ export async function openProposalWorkspace(
 ): Promise<OpenedProposalWorkspace> {
   const storage = await openDocuments(workspaceId, dataRoot);
   const local = await loadOrCreateLocalReplica(storage.documents);
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId,
     replicaId: local.replicaId,
     loroPeerId: local.loroPeerId,
@@ -55,6 +57,7 @@ export async function openProposalWorkspace(
   return {
     workspace,
     facts,
+    factReplica: facts.replication,
     recoverAuthority: () => workspace.recoverAuthority(),
     close: async () => {
       await workspace.close();

@@ -1,5 +1,3 @@
-import type { LoroDoc } from "loro-crdt";
-
 import {
   canonicalJson,
   frontierEquals,
@@ -12,11 +10,7 @@ import {
   type Admission,
 } from "../../domain/fact/index.js";
 import { AuthorityFaultError } from "./errors.js";
-import type { AuthorityAdmissionPolicy } from "./fact-store.js";
-
-export function readAuthorityRecords(doc: LoroDoc): unknown[] {
-  return doc.getList("authority-records").toArray().map(parseStoredRecord);
-}
+import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 
 export function notifyAdmissionAdvance(
   before: Admission,
@@ -82,16 +76,4 @@ export function localReceiptsByInvocation(
     result.set(record.receipt.invocationId, record.receipt);
   }
   return result;
-}
-
-function parseStoredRecord(raw: unknown): unknown {
-  if (typeof raw !== "string") {
-    return raw;
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed;
-  } catch {
-    return { recordKind: "invalid-json" };
-  }
 }

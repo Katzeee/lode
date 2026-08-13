@@ -10,6 +10,18 @@ export function insertManyAtAnchor<T>(
   anchor: SequenceAnchor,
   identityOf: (value: T) => string,
 ): void {
+  const identities = new Set(list.map(identityOf));
+  const unique = inserted.filter((value) => {
+    const identity = identityOf(value);
+    if (identities.has(identity)) {
+      return false;
+    }
+    identities.add(identity);
+    return true;
+  });
+  if (unique.length === 0) {
+    return;
+  }
   const afterIndex =
     anchor.after === null ? -1 : list.findIndex((value) => identityOf(value) === anchor.after);
   const beforeIndex =
@@ -24,20 +36,16 @@ export function insertManyAtAnchor<T>(
   } else {
     index = anchor.fallback === "start" ? 0 : list.length;
   }
-  list.splice(index, 0, ...inserted);
+  list.splice(index, 0, ...unique);
 }
 
-export function listFor(
-  children: Map<string, string[]>,
-  parentOccurrenceId: string | null,
-): string[] {
-  const key = parentOccurrenceId ?? "$root";
-  const existing = children.get(key);
+export function listFor(children: Map<string, string[]>, parentNodeId: string): string[] {
+  const existing = children.get(parentNodeId);
   if (existing) {
     return existing;
   }
   const created: string[] = [];
-  children.set(key, created);
+  children.set(parentNodeId, created);
   return created;
 }
 

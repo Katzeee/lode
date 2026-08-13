@@ -7,6 +7,7 @@ export function projectionIdentity(
   versions: ProjectionVersions,
 ): ProjectionIdentity {
   return {
+    workspaceNodeId: workspaceId,
     generationId: canonicalDigest({
       workspaceId,
       frontier: snapshot.frontier,

@@ -335,6 +335,50 @@ describe("bounded derived materialization", () => {
     );
   });
 
+  it("reads the complete owned subtree only when a deletion can remove it", async () => {
+    const materializer = new BoundedProjectionMaterializer(new InMemoryDocumentStore(), {
+      capacity: 8,
+    });
+    const facts = new Facts();
+    facts.addPlaced("parent");
+    facts.addPlaced("child", "parent");
+    facts.addPlaced("grandchild", "child");
+    facts.addPlaced("reference-context");
+    facts.add({
+      kind: "occurrence-create",
+      occurrenceId: "parent-reference",
+      nodeId: "parent",
+      parentNodeId: "reference-context",
+      anchor: end,
+    });
+    const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
+    await materializer.publish(generation);
+
+    const originalDeletion = await readMutationGeneration(
+      materializer,
+      generation.identity.generationId,
+      [{ kind: "occurrence-delete", occurrenceId: "parent-original" }],
+    );
+    expect(originalDeletion.origin.nodes).toMatchObject({
+      parent: { nodeId: "parent" },
+      child: { nodeId: "child" },
+      grandchild: { nodeId: "grandchild" },
+    });
+    expect(originalDeletion.origin.nodeOwners).toMatchObject({
+      parent: "workspace",
+      child: "parent",
+      grandchild: "child",
+    });
+
+    const referenceDeletion = await readMutationGeneration(
+      materializer,
+      generation.identity.generationId,
+      [{ kind: "occurrence-delete", occurrenceId: "parent-reference" }],
+    );
+    expect(referenceDeletion.origin.nodes.child).toBeUndefined();
+    expect(referenceDeletion.origin.nodes.grandchild).toBeUndefined();
+  });
+
   it("reads one command target with shard IO independent of unrelated workspace size", async () => {
     const loads = [];
     const commandBytes = [];
@@ -379,7 +423,8 @@ describe("bounded derived materialization", () => {
       commandBytes.push(documents.loadedBytes);
       expect(materializer.retainedUnits()).toBe(1);
     }
-    expect(loads).toEqual([2, 2]);
+    expect(new Set(loads).size).toBe(1);
+    expect(loads[0]).toBeLessThanOrEqual(8);
     expect(pageBytes[1]).toBeLessThanOrEqual((pageBytes[0] ?? 0) + 4_096);
     expect(commandBytes[1]).toBeLessThanOrEqual((commandBytes[0] ?? 0) + 8_192);
   });

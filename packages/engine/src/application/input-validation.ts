@@ -1,5 +1,5 @@
-import { parseMutation } from "../domain/fact/index.js";
 import type { EngineCommand, EngineQuery } from "./contract.js";
+import { parseEditMutation } from "./edit-input-validation.js";
 import {
   parseHistorySelectionContract,
   parseReviewSelectionContract,
@@ -23,16 +23,25 @@ export function parseEngineCommand(value: unknown): EngineCommand {
       throw new Error("Invalid edit intent");
     }
     if (!Array.isArray(command.mutations) || command.mutations.length === 0) {
-      throw new Error("Mutation command requires a non-empty mutation batch");
+      throw new Error("Edit command requires a non-empty operation batch");
+    }
+    const workspaceId = nonempty(command.workspaceId, "Workspace identity");
+    const mutations = command.mutations.map(parseEditMutation);
+    if (
+      mutations.some(
+        (mutation) => mutation.kind === "node-create" && mutation.nodeId === workspaceId,
+      )
+    ) {
+      throw new Error("Workspace identity is created only by Workspace genesis");
     }
     return {
       kind,
-      workspaceId: nonempty(command.workspaceId, "Workspace identity"),
+      workspaceId,
       invocationId: nonempty(command.invocationId, "Invocation identity"),
       actorId: nonempty(command.actorId, "Actor identity"),
       intent: command.intent,
       historyChannelId: nonempty(command.historyChannelId, "History channel"),
-      mutations: command.mutations.map(parseMutation),
+      mutations,
     };
   }
   if (kind === "resolve-review") {
@@ -187,17 +196,17 @@ function parseProjectionQuery(query: Record<string, unknown>): EngineQuery {
     "nodes",
     "occurrences",
     "children",
-    "canonicalOccurrences",
+    "nodeOwners",
     "addressedValues",
     "schemaApplications",
     "schemaFields",
-    "schemaFieldItems",
+    "templateFields",
     "schemaTemplateNodes",
     "templateNodeInstances",
     "schemaExtensions",
     "schemaSearchMembers",
     "schemaExtensionConflicts",
-    "definitionStatuses",
+    "nodeStatuses",
     "conflictIssues",
     "effectiveFields",
     "materializedFields",

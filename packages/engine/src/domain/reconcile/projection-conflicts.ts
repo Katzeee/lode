@@ -6,14 +6,14 @@ import {
   type ResolutionFact,
 } from "../fact/index.js";
 import type { ConflictIssue } from "../conflict/types.js";
-import type { EffectiveField, SchemaFieldItem } from "./projection-types.js";
+import type { EffectiveField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { deriveActivation } from "./support.js";
 
 export function projectConflictIssues(
   snapshot: FactSnapshot,
   extensionConflicts: Readonly<Record<string, readonly string[]>>,
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>,
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
   active: readonly ContributionFact[],
   occurrences: ReadonlyMap<string, MutableOccurrence>,
@@ -22,7 +22,7 @@ export function projectConflictIssues(
     ...unsupportedDirectIntents(snapshot),
     ...resolutionConflicts(snapshot),
     ...schemaExtensionConflicts(extensionConflicts),
-    ...fieldConfigConflicts(schemaFieldItems, effectiveFields),
+    ...fieldConfigConflicts(templateFields, effectiveFields),
     ...placementConflicts(active, occurrences),
   ];
   return Object.fromEntries(
@@ -111,7 +111,7 @@ function placementConflicts(
       (candidate) =>
         !candidates.some((other) => other.id !== candidate.id && observes(other, candidate)),
     );
-    if (new Set(maximal.map((fact) => moveOf(fact).parentOccurrenceId)).size < 2) {
+    if (new Set(maximal.map((fact) => moveOf(fact).parentNodeId)).size < 2) {
       continue;
     }
     const ordered = maximal.sort((left, right) => stableStringCompare(left.id, right.id));
@@ -119,10 +119,10 @@ function placementConflicts(
       kind: "placement-conflict",
       identity: canonicalJson(["placement-conflict", occurrenceId, ordered.map((fact) => fact.id)]),
       occurrenceId,
-      canonicalParentOccurrenceId: occurrences.get(occurrenceId)?.parentOccurrenceId ?? null,
+      canonicalParentNodeId: occurrences.get(occurrenceId)!.parentNodeId,
       candidates: ordered.map((fact) => ({
         contributionId: fact.id,
-        parentOccurrenceId: moveOf(fact).parentOccurrenceId,
+        parentNodeId: moveOf(fact).parentNodeId,
         anchor: moveOf(fact).anchor,
         actorId: fact.body.actorId,
         replicaId: fact.coordinate.dot.replicaId,
@@ -147,11 +147,11 @@ function observes(observer: ContributionFact, observed: ContributionFact): boole
 }
 
 function fieldConfigConflicts(
-  schemaFieldItems: Readonly<Record<string, readonly SchemaFieldItem[]>>,
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>,
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
 ): readonly ConflictIssue[] {
   const issues: ConflictIssue[] = [];
-  for (const items of Object.values(schemaFieldItems)) {
+  for (const items of Object.values(templateFields)) {
     for (const item of items) {
       if (item.configCandidates.length > 1) {
         issues.push(
@@ -159,7 +159,7 @@ function fieldConfigConflicts(
             null,
             item.fieldDefinitionId,
             [item.schemaId],
-            [item.templateItemId],
+            [item.fieldNodeId],
             item.configCandidates,
           ),
         );
@@ -174,7 +174,7 @@ function fieldConfigConflicts(
             ownerNodeId,
             field.fieldDefinitionId,
             field.sourceSchemaIds,
-            field.sourceTemplateItemIds,
+            field.sourceFieldNodeIds,
             field.configCandidates,
           ),
         );
@@ -204,14 +204,14 @@ function fieldConfigConflict(
   ownerNodeId: string | null,
   fieldDefinitionId: string,
   schemaIds: readonly string[],
-  templateItemIds: readonly string[],
+  templateOccurrenceIds: readonly string[],
   candidates: readonly EffectiveField["configCandidates"][number][],
 ): ConflictIssue {
   const identity = canonicalJson([
     "field-config-conflict",
     ownerNodeId,
     fieldDefinitionId,
-    [...templateItemIds].sort(stableStringCompare),
+    [...templateOccurrenceIds].sort(stableStringCompare),
   ]);
   return {
     kind: "field-config-conflict",
@@ -219,7 +219,7 @@ function fieldConfigConflict(
     ownerNodeId,
     fieldDefinitionId,
     schemaIds: [...schemaIds].sort(stableStringCompare),
-    templateItemIds: [...templateItemIds].sort(stableStringCompare),
+    templateOccurrenceIds: [...templateOccurrenceIds].sort(stableStringCompare),
     candidates: candidates.map((candidate) => ({
       config: candidate.config,
       contributionIds: candidate.contributionIds,

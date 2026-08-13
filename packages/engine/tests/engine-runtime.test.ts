@@ -63,7 +63,15 @@ describe("fact-first EngineRuntime composition", () => {
       ...createNodeCommand(),
       invocationId: "mobile-node",
       historyChannelId: "mobile",
-      mutations: [{ kind: "node-create", nodeId: "mobile-node" }],
+      mutations: [
+        {
+          kind: "node-create",
+          occurrenceId: "mobile-node-original",
+          nodeId: "mobile-node",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
+      ],
     });
     await first.app.stop();
 
@@ -178,7 +186,15 @@ describe("fact-first EngineRuntime composition", () => {
           ...createNodeCommand(),
           invocationId: "proposal-create",
           intent: "proposal",
-          mutations: [{ kind: "node-create", nodeId: "proposal-node" }],
+          mutations: [
+            {
+              kind: "node-create",
+              occurrenceId: "proposal-node-original",
+              nodeId: "proposal-node",
+              parentNodeId: "workspace",
+              anchor: end,
+            },
+          ],
         })
       ).status,
     ).toBe("published");
@@ -318,6 +334,16 @@ function createNodeCommand() {
     actorId: "actor",
     intent: "direct",
     historyChannelId: "desktop",
-    mutations: [{ kind: "node-create", nodeId: "node" }],
+    mutations: [
+      {
+        kind: "node-create",
+        occurrenceId: "node-original",
+        nodeId: "node",
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    ],
   } as const;
 }
+
+const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;

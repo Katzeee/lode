@@ -1,6 +1,6 @@
 import type { FactSnapshot, ViewMode } from "../fact/index.js";
-import { projectWithOwnerPlan } from "./projection-owner-api.js";
-import type { ProjectionOwnerObserver } from "./projection-owner-context.js";
+import { projectWithPlan } from "./projection-plan-api.js";
+import type { ProjectionStageObserver } from "./projection-plan-context.js";
 import type { Projection, ProjectionVersions } from "./projection-types.js";
 
 export function projectSnapshot(
@@ -8,9 +8,9 @@ export function projectSnapshot(
   snapshot: FactSnapshot,
   view: ViewMode,
   versions: ProjectionVersions,
-  observer?: ProjectionOwnerObserver,
+  observer?: ProjectionStageObserver,
 ): Projection {
-  return projectWithOwnerPlan(workspaceId, snapshot, view, versions, observer).projection;
+  return projectWithPlan(workspaceId, snapshot, view, versions, observer).projection;
 }
 
 export function projectionText(projection: Projection, nodeId: string): string {

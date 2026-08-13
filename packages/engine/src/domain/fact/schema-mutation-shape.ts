@@ -6,7 +6,11 @@ import {
   assertStringArray,
   requireString,
 } from "./shape-validation-primitives.js";
-import type { FieldTemplateConfig, FieldValueSeed } from "./types.js";
+import type {
+  FieldTemplateConfig,
+  FieldValueSeed,
+  InitializedFieldValue,
+} from "./field-template-types.js";
 
 export function assertSchemaMutationShape(value: Record<string, unknown>): void {
   if (value.kind === "field-materialize") {
@@ -20,8 +24,10 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
     requireString(value.ownerNodeId, "Field owner Node");
     requireString(value.schemaId, "Schema identity");
     requireString(value.fieldDefinitionId, "Field Definition identity");
+    requireString(value.fieldNodeId, "Initialized Field Node");
+    requireString(value.fieldOccurrenceId, "Initialized Field Occurrence");
     assertOneOf(value.source, ["static-default", "auto-initialize"], "Field initialization source");
-    assertFieldValueSeeds(value.values, "Field initialization values");
+    assertInitializedFieldValues(value.values, "Field initialization values");
     if (value.observedInitializationFactIds !== undefined) {
       assertStringArray(value.observedInitializationFactIds, "observed Field initialization Facts");
     }
@@ -30,6 +36,7 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
   requireString(value.schemaId, "Schema identity");
   if (value.kind === "schema-template-node-add" || value.kind === "schema-template-node-remove") {
     requireString(value.templateNodeId, "Template Node identity");
+    requireString(value.templateOccurrenceId, "Template Node Occurrence identity");
     if (value.kind === "schema-template-node-add") {
       assertSequenceAnchor(value.anchor, "Template Node anchor");
     } else if (value.previousAnchor !== undefined) {
@@ -39,6 +46,7 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
   }
   if (value.kind === "schema-field-configure") {
     requireString(value.fieldDefinitionId, "Field Definition identity");
+    requireString(value.fieldNodeId, "Template Field Node identity");
     assertFieldTemplateConfig(value.config, "Field Template config");
     if (value.previousConfig !== undefined && value.previousConfig !== null) {
       assertFieldTemplateConfig(value.previousConfig, "previous Field Template config");
@@ -67,10 +75,40 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
     return;
   }
   requireString(value.fieldDefinitionId, "Field Definition identity");
+  requireString(value.fieldNodeId, "Template Field Node identity");
+  requireString(value.fieldOccurrenceId, "Template Field Occurrence identity");
   if (value.kind === "schema-field-add") {
-    assertSequenceAnchor(value.anchor, "Schema Field anchor");
+    assertSequenceAnchor(value.anchor, "Template Field Occurrence anchor");
   } else if (value.previousAnchor !== undefined) {
-    assertSequenceAnchor(value.previousAnchor, "Schema Field previous anchor");
+    assertSequenceAnchor(value.previousAnchor, "Template Field Occurrence previous anchor");
+  }
+}
+
+function assertInitializedFieldValues(
+  value: unknown,
+  label: string,
+): asserts value is readonly InitializedFieldValue[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${label} must be an array`);
+  }
+  for (const item of value) {
+    assertObject(item, label);
+    assertKeys(
+      item,
+      item.kind === "text"
+        ? ["kind", "nodeId", "occurrenceId", "value"]
+        : ["kind", "nodeId", "occurrenceId"],
+      label,
+    );
+    requireString(item.nodeId, `${label} Node`);
+    requireString(item.occurrenceId, `${label} Occurrence`);
+    if (item.kind === "text") {
+      if (typeof item.value !== "string") {
+        throw new Error(`${label} text value is invalid`);
+      }
+    } else if (item.kind !== "reference") {
+      throw new Error(`${label} kind is invalid`);
+    }
   }
 }
 

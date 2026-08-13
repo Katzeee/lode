@@ -2,24 +2,20 @@ import {
   canonicalJson,
   compareFacts,
   stableStringCompare,
+  templateInstanceNodeId,
   type ContributionFact,
   type FactSnapshot,
-  type JsonValue,
-  type PreviousValue,
 } from "../fact/index.js";
-import {
-  valueKeyAddress,
-  valueOwnerAddress,
-  templateInstanceNodeId,
-  type Projection,
-  type ProjectionGeneration,
-} from "../reconcile/index.js";
-import { deriveActivation, supportClosure } from "../reconcile/support.js";
+import { type Projection, type ProjectionGeneration } from "../reconcile/index.js";
+import { deriveActivation } from "../reconcile/support.js";
 import { associatedImpacts, mutationAnchor, structureEffect } from "./impacts.js";
 import type { DecisionEffect, DecisionEvidence, TextDecisionEffect } from "./types.js";
 import { fieldMaterializationEffect, schemaRelationEffect } from "./schema-review.js";
 import { fieldConfigurationEffect } from "./schema-candidates.js";
+import { generatedOperationTargets } from "./generated-operation-targets.js";
+import { valueAddress, valueEffect, valueState } from "./value-effect.js";
 
+export { valueAddress } from "./value-effect.js";
 export function evidenceForTargets(
   snapshot: FactSnapshot,
   generation: ProjectionGeneration,
@@ -27,17 +23,22 @@ export function evidenceForTargets(
   context = createReviewEvidenceContext(snapshot),
 ): DecisionEvidence | null {
   const pending = context.pending;
-  const targets = targetIds
+  const expandedTargetIds = proposalClosure(
+    generatedOperationTargets(targetIds, pending, context.supportByContribution),
+    pending,
+  );
+  const targets = expandedTargetIds
     .map((id) => pending.get(id))
     .filter((fact): fact is ContributionFact => fact !== undefined)
     .sort(compareFacts);
-  if (targets.length !== targetIds.length) {
+  if (targets.length !== expandedTargetIds.length) {
     return null;
   }
-  const closure = supportClosure(
+  const closure = proposalClosure(
     targets.map((fact) => fact.id),
+    pending,
     context.supportByContribution,
-  ).filter((id) => pending.has(id));
+  );
   const effects = normalizedEffects(targets, generation);
   if (effects.length === 0) {
     return null;
@@ -52,11 +53,35 @@ export function evidenceForTargets(
   };
 }
 
+function proposalClosure(
+  targetIds: readonly string[],
+  pending: ReadonlyMap<string, ContributionFact>,
+  supportByContribution?: ReadonlyMap<string, readonly string[]>,
+): readonly string[] {
+  const transactionMembers = new Map<string, string[]>();
+  for (const fact of pending.values()) {
+    const members = transactionMembers.get(fact.transaction.transactionId) ?? [];
+    members.push(fact.id);
+    transactionMembers.set(fact.transaction.transactionId, members);
+  }
+  const closure = new Set<string>();
+  const queue = [...targetIds];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    const fact = pending.get(id);
+    if (!fact || closure.has(id)) {
+      continue;
+    }
+    closure.add(id);
+    queue.push(...(transactionMembers.get(fact.transaction.transactionId) ?? []));
+    queue.push(...(supportByContribution?.get(id) ?? []));
+  }
+  return [...closure].sort(stableStringCompare);
+}
 export type ReviewEvidenceContext = Readonly<{
   pending: ReadonlyMap<string, ContributionFact>;
   supportByContribution: ReadonlyMap<string, readonly string[]>;
 }>;
-
 export function createReviewEvidenceContext(snapshot: FactSnapshot): ReviewEvidenceContext {
   const origin = deriveActivation(snapshot.facts, "origin");
   const review = deriveActivation(snapshot.facts, "review");
@@ -150,12 +175,12 @@ export function normalizedEffects(
           effect,
         );
       }
-    } else if (mutation.kind === "canonical-occurrence-set") {
-      const origin = generation.origin.canonicalOccurrences[mutation.nodeId] ?? null;
-      const review = generation.review.canonicalOccurrences[mutation.nodeId] ?? null;
+    } else if (mutation.kind === "node-owner-set") {
+      const origin = generation.origin.nodeOwners[mutation.nodeId] ?? null;
+      const review = generation.review.nodeOwners[mutation.nodeId] ?? null;
       if (origin !== review) {
-        effects.set(`canonical/${mutation.nodeId}`, {
-          kind: "canonical",
+        effects.set(`owner/${mutation.nodeId}`, {
+          kind: "owner",
           identity: mutation.nodeId,
           origin,
           review,
@@ -173,12 +198,6 @@ export function normalizedEffects(
   return [...effects.values()].sort((left, right) =>
     stableStringCompare(canonicalJson(left), canonicalJson(right)),
   );
-}
-
-export function valueAddress(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "value-set" | "value-unset" }>,
-): string {
-  return valueKeyAddress(mutation.owner, mutation.namespace, mutation.key);
 }
 
 export function mutationIdentity(fact: ContributionFact): string {
@@ -253,52 +272,6 @@ function textEffect(
         }));
     });
   return { kind: "text", nodeId, addedAtomIds, deletedAtomIds, markChanges };
-}
-
-function valueEffect(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "value-set" | "value-unset" }>,
-  generation: ProjectionGeneration,
-) {
-  return {
-    kind: "value" as const,
-    ownerKind: mutation.owner.kind,
-    ownerId: mutation.owner.id,
-    namespace: mutation.namespace,
-    key: mutation.key,
-    origin: projectedValue(generation.origin, mutation),
-    review: projectedValue(generation.review, mutation),
-  };
-}
-
-function projectedValue(
-  projection: Projection,
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "value-set" | "value-unset" }>,
-): PreviousValue {
-  if (mutation.owner.kind === "node") {
-    const owner = projection.nodes[mutation.owner.id];
-    return valueState(
-      mutation.namespace === "metadata" ? owner?.metadata : owner?.properties,
-      mutation.key,
-    );
-  }
-  if (mutation.owner.kind === "occurrence") {
-    const owner = projection.occurrences[mutation.owner.id];
-    return valueState(
-      mutation.namespace === "metadata" ? owner?.metadata : owner?.properties,
-      mutation.key,
-    );
-  }
-  const address = valueOwnerAddress(mutation.owner, mutation.namespace);
-  return valueState(projection.addressedValues[address], mutation.key);
-}
-
-function valueState(
-  values: Readonly<Record<string, JsonValue>> | undefined,
-  key: string,
-): PreviousValue {
-  return values && Object.hasOwn(values, key)
-    ? { kind: "set", value: values[key] ?? null }
-    : { kind: "unset" };
 }
 
 function lifecycleVisible(identity: string, mutationKind: string, projection: Projection): boolean {

@@ -13,16 +13,13 @@ export function removeOccurrencesWithMissingNodes(
   }
 }
 
-export function validateStoredTree(occurrences: ReadonlyMap<string, MutableOccurrence>): void {
+export function validateStoredTree(
+  nodes: ReadonlyMap<string, MutableNode>,
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
+): void {
   for (const occurrence of occurrences.values()) {
-    const seen = new Set<string>();
-    let cursor: MutableOccurrence | undefined = occurrence;
-    while (cursor) {
-      if (seen.has(cursor.occurrenceId)) {
-        throw new Error(`Occurrence tree cycle: ${occurrence.occurrenceId}`);
-      }
-      seen.add(cursor.occurrenceId);
-      cursor = cursor.parentOccurrenceId ? occurrences.get(cursor.parentOccurrenceId) : undefined;
+    if (!nodes.has(occurrence.parentNodeId)) {
+      throw new Error(`Placement parent Node is absent: ${occurrence.occurrenceId}`);
     }
   }
 }
@@ -32,10 +29,6 @@ function deleteOccurrence(
   occurrences: Map<string, MutableOccurrence>,
   children: Map<string, string[]>,
 ): void {
-  for (const childId of [...(children.get(occurrenceId) ?? [])]) {
-    deleteOccurrence(childId, occurrences, children);
-  }
-  children.delete(occurrenceId);
   removePlacement(children, occurrenceId);
   occurrences.delete(occurrenceId);
 }

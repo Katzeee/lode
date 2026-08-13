@@ -1,14 +1,9 @@
-export function childSequenceIdentity(parentOccurrenceId: string | null): string {
-  return parentOccurrenceId === null
-    ? "parent:root"
-    : `parent:occurrence:${encodeURIComponent(parentOccurrenceId)}`;
+export function childSequenceIdentity(parentNodeId: string): string {
+  return `parent:node:${encodeURIComponent(parentNodeId)}`;
 }
 
-export function childSequenceParent(identity: string): string | null {
-  if (identity === "parent:root") {
-    return null;
-  }
-  const prefix = "parent:occurrence:";
+export function childSequenceParent(identity: string): string {
+  const prefix = "parent:node:";
   if (!identity.startsWith(prefix)) {
     throw new Error(`Invalid ChildSequence Diff Space identity: ${identity}`);
   }

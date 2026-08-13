@@ -56,8 +56,8 @@ function scopeKeys(
   if (isLifecycleMutation(mutation)) {
     return [canonicalJson(["lifecycle", mutation.nodeId]), associatedNode(mutation.nodeId)];
   }
-  if (mutation.kind === "canonical-occurrence-set") {
-    return [canonicalJson(["canonical", mutation.nodeId]), associatedNode(mutation.nodeId)];
+  if (mutation.kind === "node-owner-set") {
+    return [canonicalJson(["owner", mutation.nodeId]), associatedNode(mutation.nodeId)];
   }
   if (isOccurrenceMutation(mutation)) {
     return occurrenceScopes(mutation, occurrenceNodeId);
@@ -71,8 +71,8 @@ function scopeKeys(
       return [
         canonicalJson([
           "value",
-          mutation.owner.kind,
-          mutation.owner.id,
+          mutation.target.kind,
+          mutation.target.id,
           mutation.namespace,
           mutation.key,
         ]),
@@ -124,7 +124,7 @@ function occurrenceScopes(
 ): readonly string[] {
   if (mutation.kind === "occurrence-create") {
     return [
-      structureParent(mutation.parentOccurrenceId),
+      structureParent(mutation.parentNodeId),
       ...occurrenceAssociation(mutation.occurrenceId, mutation.nodeId),
     ];
   }
@@ -133,22 +133,22 @@ function occurrenceScopes(
     occurrenceNodeId(mutation.occurrenceId) ?? undefined,
   );
   if (mutation.kind === "occurrence-restore") {
-    return [structureParent(mutation.parentOccurrenceId), ...association];
+    return [structureParent(mutation.parentNodeId), ...association];
   }
   if (mutation.kind === "occurrence-delete") {
     return [
-      ...(mutation.previousParentOccurrenceId === undefined
+      ...(mutation.previousParentNodeId === undefined
         ? [canonicalJson(["structure-occurrence", mutation.occurrenceId])]
-        : [structureParent(mutation.previousParentOccurrenceId)]),
+        : [structureParent(mutation.previousParentNodeId)]),
       ...association,
     ];
   }
   return [
     ...new Set([
-      structureParent(mutation.parentOccurrenceId),
-      ...(mutation.previousParentOccurrenceId === undefined
+      structureParent(mutation.parentNodeId),
+      ...(mutation.previousParentNodeId === undefined
         ? []
-        : [structureParent(mutation.previousParentOccurrenceId)]),
+        : [structureParent(mutation.previousParentNodeId)]),
       ...association,
     ]),
   ];
@@ -189,31 +189,19 @@ function valueAssociation(
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
   occurrenceNodeId: (occurrenceId: string) => string | null,
 ): readonly string[] {
-  if (mutation.owner.kind === "node") {
-    return [associatedNode(mutation.owner.id)];
+  if (mutation.target.kind === "node") {
+    return [associatedNode(mutation.target.id)];
   }
-  if (mutation.owner.kind === "occurrence") {
-    return occurrenceAssociation(
-      mutation.owner.id,
-      occurrenceNodeId(mutation.owner.id) ?? undefined,
-    );
-  }
-  if (mutation.owner.kind === "schema") {
-    return [
-      canonicalJson(["associated-value-owner", "schema", mutation.owner.id]),
-      associatedNode(mutation.owner.id),
-    ];
-  }
-  return [
-    canonicalJson(["associated-value-owner", "field", mutation.owner.id]),
-    associatedNode(mutation.owner.id),
-  ];
+  return occurrenceAssociation(
+    mutation.target.id,
+    occurrenceNodeId(mutation.target.id) ?? undefined,
+  );
 }
 
 function associatedNode(nodeId: string): string {
   return canonicalJson(["associated-node", nodeId]);
 }
 
-function structureParent(parentOccurrenceId: string | null): string {
-  return canonicalJson(["structure-parent", parentOccurrenceId]);
+function structureParent(parentNodeId: string): string {
+  return canonicalJson(["structure-parent", parentNodeId]);
 }

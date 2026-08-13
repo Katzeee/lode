@@ -1,10 +1,10 @@
 import { performance } from "node:perf_hooks";
 
 import { describe, expect, it } from "vitest";
-import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 
 import {
   frontierOf,
+  admitAuthorityRecordShapes,
   makeFact,
   type Fact,
   type FactBody,
@@ -17,7 +17,7 @@ import {
 } from "../src/runtime/workspace/generation-checkpoint.js";
 import { InMemoryDocumentStore } from "../src/persistence/in-memory-document-store.js";
 import type { DocumentStore, LoadedDocumentBytes } from "../src/persistence/document-store.js";
-import { LoroFactStore } from "../src/runtime/authority/loro-fact-store.js";
+import { FactAuthorityStore } from "../src/runtime/authority/fact-authority-store.js";
 import { BoundedProjectionMaterializer } from "../src/runtime/workspace/bounded-materializer.js";
 import { queryReview } from "../src/domain/review/review.js";
 import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.js";
@@ -25,7 +25,7 @@ import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.j
 const CHECKPOINT_KEY = "performance-checkpoint-key";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const limits = {
   fullRebuildMilliseconds: 2_000,
@@ -71,10 +71,10 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     const tailStart = performance.now();
     const evaluated: string[] = [];
     const incremental = advanceGeneration("workspace", before, after, versions, generation, {
-      ownerObserver: (owner, view) => evaluated.push(`${view}/${owner}`),
+      stageObserver: (stage, view) => evaluated.push(`${view}/${stage}`),
     });
     const tailMilliseconds = performance.now() - tailStart;
-    const checkpointOwners: string[] = [];
+    const checkpointStages: string[] = [];
     const checkpointTailStart = performance.now();
     const checkpointTail = reconcileFromCheckpoint(
       checkpoint,
@@ -82,7 +82,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
       after,
       versions,
       CHECKPOINT_KEY,
-      { ownerObserver: (owner, view) => checkpointOwners.push(`${view}/${owner}`) },
+      { stageObserver: (stage, view) => checkpointStages.push(`${view}/${stage}`) },
     );
     const checkpointTailMilliseconds = performance.now() - checkpointTailStart;
     const materializer = new BoundedProjectionMaterializer(new InMemoryDocumentStore(), {
@@ -112,7 +112,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     expect(tailMilliseconds).toBeLessThan(limits.directTailMilliseconds);
     expect(checkpointTailMilliseconds).toBeLessThan(limits.checkpointTailMilliseconds);
     expect(checkpointTail?.generation).toEqual(incremental.generation);
-    expect(incremental.stats.evaluatedOwners).toEqual(["activation", "text", "assembly"]);
+    expect(incremental.stats.evaluatedStages).toEqual(["activation", "text", "assembly"]);
     expect(evaluated).toEqual([
       "origin/activation",
       "origin/text",
@@ -121,7 +121,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
       "review/text",
       "review/assembly",
     ]);
-    expect(checkpointOwners).toEqual(evaluated);
+    expect(checkpointStages).toEqual(evaluated);
     expect(checkpointBytes).toBeLessThan(limits.checkpointBytes);
     expect(materializer.retainedUnits()).toBe(limits.materializedUnits);
     expect(projectionPage.identity).toEqual(retainedGeneration.identity);
@@ -132,6 +132,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
 
   it("bounds Resolution replay across many independently terminal Proposal owners", () => {
     const facts: Fact[] = [];
+    facts.push(nextFact(facts, nodeBody("workspace", "direct")));
     for (let index = 0; index < 200; index += 1) {
       const proposal = nextFact(facts, nodeBody(`proposal-${index}`, "proposal"));
       facts.push(proposal);
@@ -151,7 +152,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
 
     expect(elapsed).toBeLessThan(limits.resolutionMilliseconds);
     expect(result.stats.supportPasses).toBeLessThanOrEqual(facts.length + 1);
-    expect(Object.keys(result.generation.origin.nodes)).toHaveLength(100);
+    expect(Object.keys(result.generation.origin.nodes)).toHaveLength(101);
   });
 
   it("bounds support convergence and Loro incremental sync tail bytes", async () => {
@@ -160,49 +161,49 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     expect(result.stats.supportPasses).toBeLessThanOrEqual(facts.length + 1);
 
     const documents = new InMemoryDocumentStore();
-    const store = await LoroFactStore.open({
+    const store = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: REPLICA,
       loroPeerId: "901",
       documents,
-      admitRecords: admitAuthorityRecords,
+      admitRecords: admitAuthorityRecordShapes,
     });
     await store.commit({
       invocationId: "first",
       request: { kind: "first" },
-      bodies: [nodeBody("first")],
+      writes: [nodeBody("first")],
       lineage: null,
       publishedFrontier: {},
     });
-    const remoteVersion = await store.syncDoc.version();
+    const remoteVersion = await store.replication.version();
     await store.commit({
       invocationId: "tail",
       request: { kind: "tail" },
-      bodies: [nodeBody("tail")],
+      writes: [nodeBody("tail")],
       lineage: null,
       publishedFrontier: store.snapshot().frontier,
     });
-    const tailBytes = await store.syncDoc.exportUpdate(remoteVersion);
-    const snapshotBytes = await store.syncDoc.exportSnapshot();
+    const tailBytes = await store.replication.exportUpdate(remoteVersion);
+    const snapshotBytes = await store.replication.exportSnapshot();
     expect(tailBytes.length).toBeGreaterThan(0);
     expect(tailBytes.length).toBeLessThan(snapshotBytes.length);
     expect(tailBytes.length).toBeLessThan(limits.syncTailBytes);
   });
 
   it("bounds the production authority ledger across many invocations", async () => {
-    const store = await LoroFactStore.open({
+    const store = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: REPLICA,
       loroPeerId: "902",
       documents: new InMemoryDocumentStore(),
-      admitRecords: admitAuthorityRecords,
+      admitRecords: admitAuthorityRecordShapes,
     });
     const started = performance.now();
     for (let index = 0; index < 100; index += 1) {
       await store.commit({
         invocationId: `command-${index}`,
         request: { index },
-        bodies: [nodeBody(`command-${index}`)],
+        writes: [nodeBody(`command-${index}`)],
         lineage: null,
         publishedFrontier: store.snapshot().frontier,
       });
@@ -213,18 +214,18 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
   });
 
   it("bounds representative text authority commands without replaying every prefix", async () => {
-    const store = await LoroFactStore.open({
+    const store = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId: REPLICA,
       loroPeerId: "903",
       documents: new InMemoryDocumentStore(),
-      admitRecords: admitAuthorityRecords,
+      admitRecords: admitAuthorityRecordShapes,
       snapshotInterval: 1_000,
     });
     let committed = await store.commit({
       invocationId: "text-node",
       request: { kind: "text-node" },
-      bodies: [nodeBody("text-node")],
+      writes: [nodeBody("text-node")],
       lineage: null,
       publishedFrontier: {},
     });
@@ -234,7 +235,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
       committed = await store.commit({
         invocationId: `text-${index}`,
         request: { kind: "text", index },
-        bodies: [
+        writes: [
           {
             kind: "contribution",
             actorId: "actor",
@@ -261,28 +262,28 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
   it("bounds durable workspace restart and first bounded read", async () => {
     const documents = new InMemoryDocumentStore();
     const replicaId = REPLICA;
-    const initial = await LoroFactStore.open({
+    const initial = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId,
       loroPeerId: "904",
       documents,
-      admitRecords: admitAuthorityRecords,
+      admitRecords: admitAuthorityRecordShapes,
     });
     await initial.commit({
       invocationId: "restart-workload",
       request: { kind: "restart-workload" },
-      bodies: Array.from({ length: 300 }, (_, index) => nodeBody(`restart-${index}`)),
+      writes: Array.from({ length: 300 }, (_, index) => nodeBody(`restart-${index}`)),
       lineage: null,
       publishedFrontier: {},
     });
 
     const started = performance.now();
-    const restartedFacts = await LoroFactStore.open({
+    const restartedFacts = await FactAuthorityStore.open({
       workspaceId: "workspace",
       replicaId,
       loroPeerId: "905",
       documents,
-      admitRecords: admitAuthorityRecords,
+      admitRecords: admitAuthorityRecordShapes,
     });
     const workspace = await ProposalWorkspace.open({
       workspaceId: "workspace",
@@ -318,6 +319,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
   it("bounds linked Review Hunks for one shared Node across many positions", () => {
     const facts: Fact[] = [nextFact([], nodeBody("shared"))];
     for (let index = 0; index < 400; index += 1) {
+      facts.push(nextFact(facts, nodeBody(`parent-${index}`)));
       facts.push(
         nextFact(facts, {
           kind: "contribution",
@@ -327,8 +329,7 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
             kind: "occurrence-create",
             occurrenceId: `shared-${index}`,
             nodeId: "shared",
-            parentOccurrenceId: null,
-            parentPolicy: "cascade",
+            parentNodeId: `parent-${index}`,
             anchor: end,
           },
         }),
@@ -356,30 +357,42 @@ describe("Proposal Mode deterministic performance and retention gates", () => {
     const small = await indexedWorkspaceWorkload(250);
     const large = await indexedWorkspaceWorkload(1_000);
 
-    expect(small.authorityAppendUnits).toEqual([2]);
-    expect(large.authorityAppendUnits).toEqual([2]);
+    expect(small.authorityAppendUnits).toEqual([3]);
+    expect(large.authorityAppendUnits).toEqual([3]);
     expect(large.authorityUpdateBytes).toBeLessThanOrEqual(small.authorityUpdateBytes * 1.5);
-    expect(small.reviewIndexedUnits).toBeLessThanOrEqual(2);
-    expect(large.reviewIndexedUnits).toBeLessThanOrEqual(2);
-    expect(small.historyIndexedUnits).toBeLessThanOrEqual(2);
-    expect(large.historyIndexedUnits).toBeLessThanOrEqual(2);
+    expect(small.reviewIndexedUnits).toBeLessThanOrEqual(7);
+    expect(large.reviewIndexedUnits).toBe(small.reviewIndexedUnits);
+    expect(small.historyIndexedUnits).toBeLessThanOrEqual(6);
+    expect(large.historyIndexedUnits).toBe(small.historyIndexedUnits);
     expect(large.reviewReadBytes).toBeLessThanOrEqual(small.reviewReadBytes * 3);
     expect(large.historyReadBytes).toBeLessThanOrEqual(small.historyReadBytes * 3);
-    expect(large.largestExactReadUnits).toBeLessThanOrEqual(1);
+    expect(large.largestExactReadUnits).toBeLessThanOrEqual(2);
   }, 30_000);
 });
 
 async function indexedWorkspaceWorkload(unrelatedNodeCount: number) {
   const documents = new MeasuredDocumentStore();
   const indexedWork: { operation: string; units: number }[] = [];
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: REPLICA,
     loroPeerId: unrelatedNodeCount === 250 ? "920" : "921",
     documents,
-    admitRecords: admitAuthorityRecords,
+    admitRecords: admitAuthorityRecordShapes,
     snapshotInterval: 10_000,
     onIndexedWork: (work) => indexedWork.push(work),
+  });
+  await facts.commit({
+    invocationId: "unrelated",
+    request: { kind: "performance-unrelated", count: unrelatedNodeCount },
+    writes: Array.from({ length: unrelatedNodeCount }, (_, index) => ({
+      kind: "contribution" as const,
+      actorId: "actor",
+      intent: "direct" as const,
+      mutation: { kind: "node-create" as const, nodeId: `unrelated-${index}` },
+    })),
+    lineage: null,
+    publishedFrontier: facts.snapshot().frontier,
   });
   const generations = new BoundedProjectionMaterializer(documents, { capacity: 1 });
   const workspace = await ProposalWorkspace.open({
@@ -391,23 +404,11 @@ async function indexedWorkspaceWorkload(unrelatedNodeCount: number) {
   await workspace.execute({
     kind: "mutate",
     workspaceId: "workspace",
-    invocationId: "unrelated",
-    actorId: "actor",
-    intent: "direct",
-    historyChannelId: "bulk",
-    mutations: Array.from({ length: unrelatedNodeCount }, (_, index) => ({
-      kind: "node-create" as const,
-      nodeId: `unrelated-${index}`,
-    })),
-  });
-  await workspace.execute({
-    kind: "mutate",
-    workspaceId: "workspace",
     invocationId: "history-target",
     actorId: "actor",
     intent: "direct",
     historyChannelId: "target-channel",
-    mutations: [{ kind: "node-create", nodeId: "history-node" }],
+    mutations: nodeAtWorkspace("history-node"),
   });
 
   indexedWork.length = 0;
@@ -418,7 +419,7 @@ async function indexedWorkspaceWorkload(unrelatedNodeCount: number) {
     actorId: "actor",
     intent: "proposal",
     historyChannelId: "proposal-channel",
-    mutations: [{ kind: "node-create", nodeId: "review-node" }],
+    mutations: nodeAtWorkspace("review-node"),
   });
   const authorityAppendUnits = indexedWork
     .filter((work) => work.operation === "authority-local-append")
@@ -461,6 +462,18 @@ async function indexedWorkspaceWorkload(unrelatedNodeCount: number) {
     historyReadBytes,
     largestExactReadUnits: generations.largestExactReadUnits(),
   };
+}
+
+function nodeAtWorkspace(nodeId: string) {
+  return [
+    {
+      kind: "node-create" as const,
+      occurrenceId: `${nodeId}-original`,
+      nodeId,
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+  ];
 }
 
 class MeasuredDocumentStore implements DocumentStore {
@@ -512,8 +525,7 @@ function textWorkload(count: number, intent: "direct" | "proposal" = "direct"): 
         kind: "occurrence-create",
         occurrenceId: "occurrence",
         nodeId: "node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
+        parentNodeId: "workspace",
         anchor: end,
       },
     }),

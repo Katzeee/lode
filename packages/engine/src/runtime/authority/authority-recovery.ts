@@ -1,7 +1,4 @@
-import { LoroDoc } from "loro-crdt";
-
 import {
-  canonicalJson,
   parseAuthorityRecords,
   type FactFrontier,
   type FactSnapshot,
@@ -9,61 +6,35 @@ import {
 } from "../../domain/fact/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import { AuthorityFaultError } from "./errors.js";
-import type { AuthorityAdmissionPolicy } from "./fact-store.js";
-import { buildFactSyncProjection } from "./fact-sync-projection.js";
+import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
+import { writeAuthoritySnapshot } from "./authority-journal.js";
 import {
   admitStoredRecords,
   notifyAdmissionAdvance,
-  readAuthorityRecords,
   validRecordPrefix,
-} from "./loro-authority-records.js";
+} from "./authority-records.js";
 
-export async function recoverAuthorityDocument(
+export async function recoverAuthorityJournal(
   input: Readonly<{
     workspaceId: WorkspaceId;
-    loroPeerId: `${number}`;
     documents: DocumentStore;
     documentId: string;
-    doc: LoroDoc;
+    records: readonly unknown[];
     admitRecords: AuthorityAdmissionPolicy;
     onAuthorityAdvanced?: (frontier: FactFrontier) => void;
   }>,
-): Promise<Readonly<{ doc: LoroDoc; syncProjection: LoroDoc; snapshot: FactSnapshot }>> {
-  const before = admitStoredRecords(
-    input.workspaceId,
-    readAuthorityRecords(input.doc),
-    input.admitRecords,
+): Promise<Readonly<{ records: readonly unknown[]; snapshot: FactSnapshot }>> {
+  const before = admitStoredRecords(input.workspaceId, input.records, input.admitRecords);
+  const records = parseAuthorityRecords(
+    validRecordPrefix(input.workspaceId, input.records, input.admitRecords),
   );
-  const prefix = parseAuthorityRecords(
-    validRecordPrefix(input.workspaceId, readAuthorityRecords(input.doc), input.admitRecords),
-  );
-  const recovered = new LoroDoc();
-  recovered.setPeerId(input.loroPeerId);
-  const list = recovered.getList<string>("authority-records");
-  for (const record of prefix) {
-    list.push(canonicalJson(record));
-  }
-  recovered.commit({ message: "authority-explicit-recovery" });
-  await input.documents.writeSnapshot(input.documentId, recovered.export({ mode: "snapshot" }));
-  const after = admitStoredRecords(
-    input.workspaceId,
-    readAuthorityRecords(recovered),
-    input.admitRecords,
-  );
+  await writeAuthoritySnapshot(input.documents, input.documentId, records);
+  const after = admitStoredRecords(input.workspaceId, records, input.admitRecords);
   if (after.kind === "fault") {
     throw new AuthorityFaultError(
       after.fault ?? "Authority recovery did not produce a valid prefix",
     );
   }
   notifyAdmissionAdvance(before, after, input.onAuthorityAdvanced);
-  return {
-    doc: recovered,
-    syncProjection: buildFactSyncProjection(
-      input.workspaceId,
-      input.loroPeerId,
-      recovered,
-      input.admitRecords,
-    ),
-    snapshot: after.snapshot,
-  };
+  return { records, snapshot: after.snapshot };
 }

@@ -7,19 +7,43 @@ The formal app transport authenticates every command, query, event stream, maint
 ## Language
 
 **Node**:
-A persistent knowledge object with stable identity and one owning location. The same Node can appear elsewhere through References.
+A persistent knowledge object with stable identity. Anything users can name, reference, nest, reuse, query, or authorize independently is a Node, including Workspaces, Schemas, Field Definitions, Fields, Views, and ordinary outline content. These concepts can carry different behavior without becoming parallel identity types. Every non-Workspace Node has exactly one Owner Node; the Workspace Node is the ownership root and has no Owner.
 
 **Occurrence**:
-A Node's ordered appearance under a parent. One occurrence owns the Node; other occurrences can present the same Node as References.
+A Node's ordered placement in a parent Node's children list. An Occurrence has its own stable identity because order, local presentation metadata, deletion, movement, and review target the placement rather than the shared Node. A parent is always a Node, never another Occurrence or a synthetic root. The same Node can occur under several parent Nodes but cannot occur twice in one parent Node's children list.
 _Avoid_: Copy, block instance
 
-**Workspace Root**:
-The single root Occurrence that owns a Workspace outline. An atomic public edit can temporarily rearrange root placement, but its final Review or Origin structure cannot contain a second root.
-_Avoid_: Top-level collection, multiple root blocks
+**Workspace**:
+The ordinary Node that forms one ownership, authorization, and replication boundary. Workspace genesis creates it through the same `node-create` Fact as every other Node; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
+_Avoid_: Workspace Root, synthetic root Occurrence, graph-external Workspace identity
 
 **Reference**:
-A non-owning Occurrence of an existing Node that preserves the target Node's identity and live content.
+A placement whose parent Node is not the placed Node's Owner. It preserves the target Node's identity and live content while contributing an independent contextual appearance. Reference edges may form cycles; traversal terminates by Node identity rather than forbidding graph-shaped knowledge.
 _Avoid_: Link value, copied node
+
+**Owner**:
+The single parent Node of another Node's Original Occurrence, supplying its lifecycle and access parent. Every non-Workspace Node in active knowledge has one rooted Owner chain that reaches the Workspace; no Owner is inferred without a real Occurrence. Owner edges remain acyclic even though Reference edges may cycle.
+_Avoid_: Canonical occurrence, owner type union, owning Occurrence
+
+**Original**:
+The unique Occurrence of a Node whose parent is that Node's Owner. Moving the Original moves ownership, while promoting an existing Reference makes that Occurrence the new Original without changing Node identity.
+_Avoid_: Canonical Occurrence, main copy, source Node
+
+**Fact**:
+An immutable domain assertion whose identity, transaction position, observed Fact frontier, semantic evidence, and canonical content are independent of storage and replication technology. Admission decides whether a Fact belongs to authority; Projection derives current knowledge state from admitted Facts.
+_Avoid_: Loro operation, mutable event row, projected Node
+
+**Fact Transaction**:
+The smallest authority unit that must become visible as a whole. An ordinary one-Fact write is an implicit singleton transaction; only a domain operation that expands into several inseparable Facts requests an explicit multi-Fact transaction. Every member carries the same transaction identity plus its index and total size, so Admission can withhold an incomplete replicated group without storing `begin` or `end` marker Facts. Review and authority indexes preserve the same boundary.
+_Avoid_: Transaction marker Fact, one transaction per command, Loro transaction semantics
+
+**Value Target**:
+The Node or Occurrence whose properties or presentation metadata a Value Fact changes. It identifies the subject of a value assertion and never establishes Node ownership.
+_Avoid_: Value Owner, property owner
+
+**Fact Replication**:
+The delivery of immutable Fact envelopes between Replicas. Loro owns replicated container versions, deltas, snapshots, duplicate delivery, and arrival order; it may deliver the members of one Fact Transaction separately, while Admission alone decides when the complete transaction becomes authoritative. Loro does not decide Node, Owner, Schema, Field, Proposal, Review, transaction, or deletion semantics.
+_Avoid_: Domain authority, Loro-backed domain model
 
 **Schema**:
 A Node-defined “is a” type whose template contributes Fields and content to Nodes that apply it. This is Lode's product term for the concept Tana calls a Supertag.
@@ -37,9 +61,9 @@ _Avoid_: Copied schema, implicit multi-schema
 A stable Node that names and configures a “has a” attribute. Multiple Schemas and Nodes can reuse the same Field Definition.
 _Avoid_: Field key, property name
 
-**Definition Tombstone**:
-The deleted state of a Schema or Field Definition. It preserves the Definition identity, relationships, configuration, References, and instance-owned content while preventing new uses until the same identity is restored.
-_Avoid_: Cascading schema delete, missing definition
+**Node Tombstone**:
+The deleted state of any Node. It preserves the Node identity and surviving References while preventing active use until the same identity is restored; Schema and Field relationships remain role projections over that common lifecycle.
+_Avoid_: Definition Tombstone, cascading schema delete, missing definition
 
 **Hard Delete**:
 An independently gated maintenance operation that permanently prevents a tombstoned Node identity from re-entering Projection. Its preview includes bounded Reference, Schema, Field, Proposal, and History impacts. Every known Replica must causally acknowledge the deletion or be explicitly retired, and pending Proposals or unknown Invocation outcomes block execution.
@@ -69,20 +93,16 @@ _Avoid_: Table row authority, duplicated database, saved result set
 The ordered Fields, Nodes, References, and searches that a Schema contributes to its instances.
 _Avoid_: Field list, copied children
 
-**Schema Field Contribution**:
-An ordered Schema Template relationship that contributes one stable Field Definition to every applicable Node. Multiple Schemas can contribute the same Field Definition without creating duplicate Fields.
-_Avoid_: Field key, managed slot, copied field
-
-**Field Template Item**:
-The stable identity of one Schema Field Contribution. It owns that contribution's order, visibility, static default or initializer configuration, and provenance independently of the reused Field Definition.
-_Avoid_: Field configuration on the shared definition, anonymous field entry
+**Template Field**:
+A Field Node whose Owner is a Schema Node and whose Field Occurrence occupies an ordered place in that Schema's template. It points to a reusable Field Definition while owning its own visibility, default, initializer, and provenance.
+_Avoid_: Schema Field Contribution, Field Template Item, anonymous field entry
 
 **Static Default**:
-Field Template Item configuration whose values are captured into a Materialized Field when a new Schema Application first makes the Field effective. Conflicting incomparable defaults pause materialization and remain visible with provenance.
+Template Field configuration whose values are captured into a Materialized Field when a new Schema Application first makes the Field effective. Conflicting incomparable defaults pause materialization and remain visible with provenance.
 _Avoid_: Live default, fallback scalar
 
 **Field Initializer**:
-Field Template Item configuration evaluated once when a Schema Application is established. Its resulting Node and Reference values become ordinary instance-owned Field data and do not recompute when context changes.
+Template Field configuration evaluated once when a Schema Application is established. Its resulting Node and Reference values become ordinary instance-owned Field data and do not recompute when context changes.
 _Avoid_: Formula, computed field
 
 **Optional Field Contribution**:
@@ -90,11 +110,11 @@ A Schema Template relationship that offers a Field Definition as an instance sug
 _Avoid_: Hidden field, optional placeholder
 
 **Detached Template Content**:
-An instance-owned snapshot of an ordinary Template Node. Detachment preserves the Template instance occurrence and its source provenance, while later definition changes no longer rewrite the snapshot.
+An instance-owned Node snapshot of ordinary Template content. Detachment gives the snapshot and its placement explicit identities under the common Node and Occurrence lifecycle, while later definition changes no longer rewrite it.
 _Avoid_: Stale managed child
 
 **Placement Conflict**:
-Concurrent moves that give one Occurrence different owning parents. Projection keeps one deterministic temporary placement while exposing every candidate parent, sequence anchor, author, Replica, and observed frontier until a later move observes the candidates and chooses the owner.
+Concurrent moves that give one Occurrence different parent Nodes. Projection keeps one deterministic temporary placement while exposing every candidate parent Node, sequence anchor, author, Replica, and observed frontier until a later move observes the candidates and chooses the placement.
 _Avoid_: Duplicate owner, winning move
 
 **Proposal**:

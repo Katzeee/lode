@@ -31,6 +31,12 @@ An accepted write becomes durable before success is reported, and subsequent rea
 same Engine observe it. Imported and locally produced facts pass the same domain-validity boundary;
 transport delivery alone does not make a fact valid.
 
+The authority boundary admits complete Fact transactions. A normal one-Fact write uses an implicit
+singleton transaction, while a domain edit that expands into inseparable assertions persists their
+shared transaction identity, order, and size. Replication may deliver those Facts independently,
+but no partial transaction enters an authoritative snapshot, Review decision, or related-Fact
+query.
+
 ## Runtime ownership
 
 Lifecycle ownership and capability dependencies are different relationships. Every mutable runtime

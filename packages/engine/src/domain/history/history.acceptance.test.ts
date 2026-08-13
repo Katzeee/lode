@@ -14,7 +14,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "a",
           value: 1,
@@ -28,7 +28,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "b",
           value: 1,
@@ -57,7 +57,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "color",
           value: "blue",
@@ -77,7 +77,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "metadata",
           key: "other",
           value: 0,
@@ -100,7 +100,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "metadata",
           key: "new",
           value: true,
@@ -126,8 +126,7 @@ describe("production History contracts", () => {
       kind: "occurrence-create",
       occurrenceId: "target-parent-occurrence",
       nodeId: "target-parent",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
       anchor: end,
     });
     const step = fixture.step({
@@ -143,7 +142,7 @@ describe("production History contracts", () => {
         },
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "color",
           value: "blue",
@@ -152,9 +151,9 @@ describe("production History contracts", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "occurrence",
-          parentOccurrenceId: "target-parent-occurrence",
+          parentNodeId: "target-parent",
           anchor: end,
-          previousParentOccurrenceId: null,
+          previousParentNodeId: "workspace",
           previousAnchor: end,
         },
       ],
@@ -162,7 +161,7 @@ describe("production History contracts", () => {
     });
     fixture.fact({
       kind: "value-set",
-      owner: { kind: "node", id: "node" },
+      target: { kind: "node", id: "node" },
       namespace: "property",
       key: "color",
       value: "red",
@@ -187,8 +186,9 @@ describe("production History contracts", () => {
     if (plan.kind !== "ready") {
       return;
     }
-    expect(plan.bodies.every((body) => body.intent === "proposal")).toBe(true);
-    expect(plan.bodies.map((body) => body.mutation.kind)).toEqual([
+    expect(plan.write.kind).toBe("transaction");
+    expect(plan.write.bodies.every((body) => body.intent === "proposal")).toBe(true);
+    expect(plan.write.bodies.map((body) => body.mutation.kind)).toEqual([
       "occurrence-move",
       "text-splice",
     ]);
@@ -196,12 +196,14 @@ describe("production History contracts", () => {
 
   it("HIST-4 every owner compensates semantically without snapshots", () => {
     const fixture = baseFixture();
+    fixture.fact({ kind: "node-create", nodeId: "schema" });
+    fixture.fact({ kind: "node-create", nodeId: "field" });
     fixture.step({
       invocationId: "schema-field",
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "schema", id: "schema" },
+          target: { kind: "node", id: "schema" },
           namespace: "schema",
           key: "field",
           value: 0,
@@ -209,7 +211,7 @@ describe("production History contracts", () => {
         },
         {
           kind: "value-set",
-          owner: { kind: "field", id: "field" },
+          target: { kind: "node", id: "field" },
           namespace: "metadata",
           key: "label",
           value: "Field",
@@ -234,17 +236,17 @@ describe("production History contracts", () => {
     if (plan.kind !== "ready") {
       return;
     }
-    expect(plan.bodies.map((body) => body.mutation)).toEqual([
+    expect(plan.write.bodies.map((body) => body.mutation)).toEqual([
       {
         kind: "value-unset",
-        owner: { kind: "field", id: "field" },
+        target: { kind: "node", id: "field" },
         namespace: "metadata",
         key: "label",
         previous: { kind: "set", value: "Field" },
       },
       {
         kind: "value-unset",
-        owner: { kind: "schema", id: "schema" },
+        target: { kind: "node", id: "schema" },
         namespace: "schema",
         key: "field",
         previous: { kind: "set", value: 0 },
@@ -257,7 +259,7 @@ describe("production History contracts", () => {
       mutations: [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "nullable",
           value: null,
@@ -313,7 +315,7 @@ describe("production History contracts", () => {
       intent: "proposal",
       operation: "undo",
       targetStepId: "proposal",
-      mutations: plan.bodies.map((body) => body.mutation),
+      mutations: plan.write.bodies.map((body) => body.mutation),
     });
     expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks).toHaveLength(
       0,
@@ -329,7 +331,7 @@ describe("production History contracts", () => {
         mutations: [
           {
             kind: "value-set",
-            owner: { kind: "node", id: "node" },
+            target: { kind: "node", id: "node" },
             namespace: "property",
             key: decision,
             value: true,

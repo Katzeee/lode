@@ -15,6 +15,8 @@ export type {
 } from "./application/contract.js";
 export { createTransportEngineContract } from "./application/transport.js";
 export type { EngineTransport } from "./application/transport.js";
+export type { EditMutation } from "./domain/edit/index.js";
+export { createNodeAt } from "./domain/edit/index.js";
 export {
   VIEW_FIELDS_PROPERTY,
   VIEW_LAYOUT_PROPERTY,

@@ -10,7 +10,7 @@ import {
   type ResolutionDecision,
 } from "../fact/index.js";
 import type { ProjectionGeneration } from "../reconcile/index.js";
-import { candidateImpacts, collectReviewCandidates, type HunkCandidate } from "./candidates.js";
+import { collectReviewCandidates, type HunkCandidate } from "./candidates.js";
 import {
   createReviewEvidenceContext,
   evidenceForTargets,
@@ -120,10 +120,7 @@ function candidateToHunk(
   if (!evidence) {
     throw new Error("Review candidate has no decision evidence");
   }
-  const completeEvidence = cache.get(cacheKey) ?? {
-    ...evidence,
-    associatedImpactIds: candidateImpacts(candidate, generation, context.pending),
-  };
+  const completeEvidence = cache.get(cacheKey) ?? evidence;
   cache.set(cacheKey, completeEvidence);
   const selection = makeSelection(workspaceId, generation, completeEvidence, capabilityKey);
   return {

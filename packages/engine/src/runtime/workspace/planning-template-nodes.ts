@@ -1,14 +1,11 @@
-import type { Mutation, SequenceAnchor } from "../../domain/fact/index.js";
+import { templateInstanceOccurrenceId, type Mutation } from "../../domain/fact/index.js";
 import {
   schemaExtensionGraph,
-  templateInstanceNodeId,
-  templateInstanceOccurrenceId,
-  templateNodeItemId,
   type TemplateNodeSource,
   type Projection,
 } from "../../domain/reconcile/index.js";
 import type { MutableProjection } from "./planning-projection-mutation.js";
-import { insertionIndex } from "./planning-projection-sequence.js";
+import { anchorAt, assertRelationAnchor } from "./planning-projection-sequence.js";
 
 export function applyTemplatePlanningMutation(
   projection: MutableProjection,
@@ -18,14 +15,8 @@ export function applyTemplatePlanningMutation(
   if (mutation.kind === "schema-template-node-add") {
     const nodeIds = (projection.schemaTemplateNodes[mutation.schemaId] ??= []);
     remove(nodeIds, mutation.templateNodeId);
-    nodeIds.splice(
-      insertionIndex(
-        nodeIds.map((id) => ({ id })),
-        mutation.anchor,
-      ),
-      0,
-      mutation.templateNodeId,
-    );
+    nodeIds.push(mutation.templateNodeId);
+    sortTemplateNodes(projection, mutation.schemaId);
     refreshPlanningTemplateNodeInstances(projection);
     return true;
   }
@@ -43,27 +34,12 @@ export function applyTemplatePlanningMutation(
       candidate.templateNodeId === mutation.templateNodeId,
   );
   const instance = projection.templateNodeInstances[index];
-  const source = projection.nodes[mutation.templateNodeId];
-  if (!instance || instance.state !== "linked" || !source) {
+  if (!instance || instance.state !== "linked") {
     return true;
   }
-  const nodeId = templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId);
-  projection.nodes[nodeId] = {
-    nodeId,
-    text: source.text.map((atom) => ({ ...atom, attributes: { ...atom.attributes } })),
-    properties: { ...source.properties },
-    metadata: { ...source.metadata },
-  };
-  const occurrence = projection.occurrences[instance.instanceOccurrenceId];
-  if (occurrence) {
-    projection.occurrences[instance.instanceOccurrenceId] = {
-      ...occurrence,
-      nodeId,
-      managed: false,
-      metadata: { ...occurrence.metadata, templateState: "detached" },
-    };
-  }
-  projection.canonicalOccurrences[nodeId] = instance.instanceOccurrenceId;
+  const nodeId = mutation.instanceNodeId;
+  delete projection.occurrences[instance.instanceOccurrenceId];
+  removeFromChildren(projection, instance.instanceOccurrenceId);
   projection.templateNodeInstances[index] = {
     ...instance,
     instanceNodeId: nodeId,
@@ -95,21 +71,20 @@ export function refreshPlanningTemplateNodeInstances(projection: MutableProjecti
       detached.delete(identity);
       continue;
     }
-    const parentOccurrenceId = projection.canonicalOccurrences[ownerNodeId];
-    if (!parentOccurrenceId || !projection.nodes[templateNodeId]) {
+    if (!(ownerNodeId in projection.nodeOwners) || !projection.nodes[templateNodeId]) {
       continue;
     }
     const instanceOccurrenceId = templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
     projection.occurrences[instanceOccurrenceId] = {
       occurrenceId: instanceOccurrenceId,
       nodeId: templateNodeId,
-      parentOccurrenceId,
+      parentNodeId: ownerNodeId,
       properties: {},
       metadata: { templateState: "linked" },
-      managed: true,
+      derived: true,
     };
-    const children = (projection.children[parentOccurrenceId] ??= []);
-    projection.children[parentOccurrenceId] = [...children, instanceOccurrenceId];
+    const children = (projection.children[ownerNodeId] ??= []);
+    projection.children[ownerNodeId] = [...children, instanceOccurrenceId];
     next.push({
       ownerNodeId,
       templateNodeId,
@@ -137,23 +112,48 @@ export function prepareTemplateNodeRelation(
   const removing = mutation.kind === "schema-template-node-remove";
   if (
     !available.nodes[mutation.schemaId] &&
-    !(removing && available.definitionStatuses[mutation.schemaId]?.state === "deleted")
+    !(removing && available.nodeStatuses[mutation.schemaId]?.state === "deleted")
   ) {
     throw new Error(`Schema Definition is deleted or does not exist: ${mutation.schemaId}`);
   }
   if (!removing && !available.nodes[mutation.templateNodeId]) {
     throw new Error(`Template Node does not exist: ${mutation.templateNodeId}`);
   }
-  const nodeIds = available.schemaTemplateNodes[mutation.schemaId] ?? [];
   if (mutation.kind === "schema-template-node-add") {
-    assertRelationAnchor(nodeIds, mutation.anchor);
+    if (
+      available.occurrences[mutation.templateOccurrenceId] &&
+      (available.occurrences[mutation.templateOccurrenceId]?.nodeId !== mutation.templateNodeId ||
+        available.occurrences[mutation.templateOccurrenceId]?.parentNodeId !== mutation.schemaId)
+    ) {
+      throw new Error("Template Node Occurrence identity already exists");
+    }
+    const existingOccurrence = templateOccurrenceFor(
+      available,
+      mutation.schemaId,
+      mutation.templateNodeId,
+    );
+    if (existingOccurrence && existingOccurrence !== mutation.templateOccurrenceId) {
+      throw new Error("Schema already contains the Template Node");
+    }
+    assertRelationAnchor(
+      available.children[mutation.schemaId] ?? [],
+      mutation.anchor,
+      "Schema Template Node",
+    );
     return mutation;
   }
-  const index = nodeIds.indexOf(mutation.templateNodeId);
-  if (index < 0) {
+  const occurrence = available.occurrences[mutation.templateOccurrenceId];
+  if (
+    occurrence?.nodeId !== mutation.templateNodeId ||
+    occurrence.parentNodeId !== mutation.schemaId
+  ) {
     throw new Error("Schema Template Node does not exist");
   }
-  return { ...mutation, previousAnchor: anchorAt(nodeIds, index) };
+  const children = available.children[mutation.schemaId] ?? [];
+  return {
+    ...mutation,
+    previousAnchor: anchorAt(children, children.indexOf(mutation.templateOccurrenceId)),
+  };
 }
 
 function effectiveSources(
@@ -165,18 +165,22 @@ function effectiveSources(
     for (const appliedSchemaId of appliedSchemaIds) {
       for (const schemaId of graph.lineage(appliedSchemaId)) {
         for (const templateNodeId of projection.schemaTemplateNodes[schemaId] ?? []) {
+          const templateOccurrenceId = templateOccurrenceFor(projection, schemaId, templateNodeId);
+          if (templateOccurrenceId === null) {
+            continue;
+          }
           const identity = key(ownerNodeId, templateNodeId);
           const sources = result.get(identity) ?? [];
           const source = {
             schemaId,
             appliedSchemaId,
-            templateItemId: templateNodeItemId(schemaId, templateNodeId),
+            templateOccurrenceId,
           };
           if (
             !sources.some(
               (candidate) =>
                 candidate.appliedSchemaId === source.appliedSchemaId &&
-                candidate.templateItemId === source.templateItemId,
+                candidate.templateOccurrenceId === source.templateOccurrenceId,
             )
           ) {
             sources.push(source);
@@ -187,6 +191,31 @@ function effectiveSources(
     }
   }
   return result;
+}
+
+function templateOccurrenceFor(
+  projection: Pick<Projection, "occurrences">,
+  schemaId: string,
+  templateNodeId: string,
+): string | null {
+  return (
+    Object.values(projection.occurrences)
+      .filter(
+        (occurrence) =>
+          occurrence.parentNodeId === schemaId && occurrence.nodeId === templateNodeId,
+      )
+      .map((occurrence) => occurrence.occurrenceId)
+      .sort()[0] ?? null
+  );
+}
+
+function sortTemplateNodes(projection: MutableProjection, schemaId: string): void {
+  const children = projection.children[schemaId] ?? [];
+  projection.schemaTemplateNodes[schemaId]?.sort((left, right) => {
+    const leftOccurrence = templateOccurrenceFor(projection, schemaId, left);
+    const rightOccurrence = templateOccurrenceFor(projection, schemaId, right);
+    return children.indexOf(leftOccurrence ?? "") - children.indexOf(rightOccurrence ?? "");
+  });
 }
 
 function removeFromChildren(projection: MutableProjection, occurrenceId: string): void {
@@ -212,19 +241,4 @@ function remove(values: string[], value: string): void {
   if (index >= 0) {
     values.splice(index, 1);
   }
-}
-
-function assertRelationAnchor(identities: readonly string[], anchor: SequenceAnchor): void {
-  if ([anchor.after, anchor.before].some((id) => id !== null && !identities.includes(id))) {
-    throw new Error("Schema Template Node anchor does not exist");
-  }
-}
-
-function anchorAt(identities: readonly string[], index: number): SequenceAnchor {
-  return {
-    after: identities[index - 1] ?? null,
-    before: identities[index + 1] ?? null,
-    affinity: index === 0 ? "before" : "after",
-    fallback: index === 0 ? "start" : "end",
-  };
 }

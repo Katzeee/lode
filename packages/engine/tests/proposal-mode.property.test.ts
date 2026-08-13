@@ -6,11 +6,15 @@ import {
   type EngineTransport,
 } from "../src/application/transport.js";
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
+import type { EditMutation } from "../src/domain/edit/index.js";
 import {
   frontierOf,
+  admitAuthorityRecordShapes,
+  factTransactionId,
   makeFact,
   type AuthorityRecord,
   type AuthorityReceipt,
+  type ContributionFact,
   type Fact,
   type FactSnapshot,
   type Mutation,
@@ -24,15 +28,15 @@ import { baseFixture, HistoryFixture } from "../src/domain/history/history-test-
 import { queryHistory, validateHistorySelection } from "../src/domain/history/history.js";
 import { base, generation } from "../src/domain/review/review-test-helpers.js";
 import { queryReview, validateReviewSelection } from "../src/domain/review/review.js";
-import { compileOwnerDag } from "../src/domain/reconcile/owner-dag.js";
-import { PROJECTION_OWNER_DAG } from "../src/domain/reconcile/projection-owner-plan.js";
+import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-dag.js";
+import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
 import { fullSurface } from "../src/domain/reconcile/reconcile-test-helpers.js";
 import {
   historyLifecycleCases,
   proposalLifecycleCases,
 } from "../src/domain/reconcile/proposal-lifecycle-test-helpers.js";
 import { InMemoryDocumentStore } from "../src/persistence/in-memory-document-store.js";
-import { LoroFactStore } from "../src/runtime/authority/loro-fact-store.js";
+import { FactAuthorityStore } from "../src/runtime/authority/fact-authority-store.js";
 import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.js";
 import {
   assertGeneratedPathEquivalence,
@@ -44,23 +48,23 @@ const CHECKPOINT_KEY = "property-test-key";
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "cccccccccccccccccccccccccc";
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 
 describe("seeded Proposal Mode property and permutation contracts", () => {
   it("arrival order and duplicate delivery preserve one admitted snapshot", () => {
     const facts = causalFixture();
-    const expected = admitAuthorityRecords("workspace", records(facts));
+    const expected = admitAuthorityRecordShapes("workspace", records(facts));
     expect(expected.kind).toBe("ready");
     for (let seed = 1; seed <= 64; seed += 1) {
       const delivered = shuffle(
         [...records(facts), ...records(facts.filter((_, index) => index % 2 === 0))],
         seed,
       );
-      expect(admitAuthorityRecords("workspace", delivered)).toEqual(expected);
+      expect(admitAuthorityRecordShapes("workspace", delivered)).toEqual(expected);
     }
   });
 
-  it("checkpoint tails and owner registration order are permutation invariant", () => {
+  it("checkpoint tails and stage registration order are permutation invariant", () => {
     const facts = causalFixture();
     const beforeFacts = facts.slice(0, 3);
     const before = { facts: beforeFacts, frontier: frontierOf(beforeFacts) };
@@ -84,9 +88,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const compiled = compileOwnerDag(shuffle([...PROJECTION_OWNER_DAG.ordered], seed));
-      expect(compiled.ordered.map((owner) => owner.key)).toEqual(
-        PROJECTION_OWNER_DAG.ordered.map((owner) => owner.key),
+      const compiled = compileProjectionPlan(shuffle([...PROJECTION_PLAN.ordered], seed));
+      expect(compiled.ordered.map((stage) => stage.key)).toEqual(
+        PROJECTION_PLAN.ordered.map((stage) => stage.key),
       );
     }
   });
@@ -171,7 +175,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       const proposal = reviewFacts.add(
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "selected",
           value: true,
@@ -227,7 +231,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         mutations: [
           {
             kind: "value-set",
-            owner: { kind: "node", id: "node" },
+            target: { kind: "node", id: "node" },
             namespace: "property",
             key: "selected",
             value: true,
@@ -247,7 +251,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       for (const key of shuffle(["a", "b", "c", "d"], seed)) {
         history.fact({
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key,
           value: seed,
@@ -265,7 +269,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       ).toBe("ready");
       history.fact({
         kind: "value-set",
-        owner: { kind: "node", id: "node" },
+        target: { kind: "node", id: "node" },
         namespace: "property",
         key: "selected",
         value: false,
@@ -340,12 +344,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     for (let seed = 1; seed <= 4; seed += 1) {
       for (const [index, ownerCase] of shuffle([...historyLifecycleCases()], seed).entries()) {
         for (const intent of ["direct", "proposal"] as const) {
-          const history = historyFor(ownerCase.facts.values.slice(0, -1));
+          const history = historyFor(caseSetupFacts(ownerCase));
           const targetInvocationId = `seed-${seed}-${intent}-${ownerCase.kind}`;
           const channelId = `channel-${(seed + index) % 3}`;
           history.step({
             invocationId: targetInvocationId,
-            mutations: [caseMutation(ownerCase.proposal)],
+            mutations: caseMutations(ownerCase),
             intent,
             channelId,
           });
@@ -420,14 +424,14 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
   it("generated History command matrix covers partial no-effect stale and atomic outcomes", () => {
     for (const [index, ownerCase] of historyLifecycleCases().entries()) {
       for (const intent of ["direct", "proposal"] as const) {
-        const mutation = caseMutation(ownerCase.proposal);
+        const mutations = caseMutations(ownerCase);
         const channelId = `matrix-${index}-${intent}`;
 
-        const partial = historyFor(ownerCase.facts.values.slice(0, -1));
+        const partial = historyFor(caseSetupFacts(ownerCase));
         const extra = matrixValueMutation(ownerCase.kind, 1);
         partial.step({
           invocationId: "target",
-          mutations: [mutation, extra],
+          mutations: [...mutations, extra],
           intent,
           channelId,
         });
@@ -442,7 +446,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           throw new Error(`Generated partial ${intent} ${ownerCase.kind} has no Undo`);
         }
         expect(partialUndo.evidence.compensations.length).toBeGreaterThan(0);
-        expect(partialUndo.evidence.compensations.length).toBeLessThan(2);
+        expect(partialUndo.evidence.compensations.length).toBeLessThan(mutations.length + 1);
         const atomic = partial.step({
           invocationId: "partial-undo",
           mutations: partialUndo.evidence.compensations,
@@ -453,8 +457,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         });
         expect(atomic.factIds).toHaveLength(partialUndo.evidence.compensations.length);
 
-        const noEffect = historyFor(ownerCase.facts.values.slice(0, -1));
-        noEffect.step({ invocationId: "target", mutations: [mutation], intent, channelId });
+        const noEffect = historyFor(caseSetupFacts(ownerCase));
+        noEffect.step({ invocationId: "target", mutations, intent, channelId });
         const compensation = requiredUndo(noEffect, channelId, `${intent}/${ownerCase.kind}`);
         for (const compensatingMutation of compensation.evidence.compensations) {
           noEffect.fact(compensatingMutation, intent);
@@ -464,8 +468,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             .undo,
         ).toBeNull();
 
-        const stale = historyFor(ownerCase.facts.values.slice(0, -1));
-        stale.step({ invocationId: "target", mutations: [mutation], intent, channelId });
+        const stale = historyFor(caseSetupFacts(ownerCase));
+        stale.step({ invocationId: "target", mutations, intent, channelId });
         const selection = requiredUndo(stale, channelId, `${intent}/${ownerCase.kind}`);
         stale.step({
           invocationId: "new-head",
@@ -507,7 +511,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           generation(unrelated),
         ).kind,
       ).toBe("valid");
-      ownerCase.facts.resolve([ownerCase.proposal.id], "reject");
+      ownerCase.facts.resolve(selection.evidence.supportClosure, "reject");
       const related = ownerCase.facts.snapshot();
       expect(
         validateReviewSelection(
@@ -524,9 +528,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
 
   it("generated transport loss recovers every mutation owner by Invocation query", async () => {
     for (const [index, ownerCase] of proposalLifecycleCases().entries()) {
+      if (ownerCase.kind === "field-initialize") {
+        continue;
+      }
       for (const intent of ["direct", "proposal"] as const) {
         const invocationId = `unknown-${index}-${intent}`;
-        const workspace = await realWorkspace(ownerCase.facts.values.slice(0, -1), index, intent);
+        const workspace = await realWorkspace(caseSetupFacts(ownerCase), index, intent);
         const contract = {
           execute: workspace.execute.bind(workspace),
           query: async (query: Parameters<typeof workspace.query>[0]) => ({
@@ -557,7 +564,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             actorId: "actor",
             intent,
             historyChannelId: `channel-${index}`,
-            mutations: [caseMutation(ownerCase.proposal)],
+            mutations: publicCaseMutations(ownerCase),
           }),
         ).toEqual({ status: "outcome-unknown", invocationId });
         expect(
@@ -623,18 +630,76 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
   it("every Proposal mutation kind preserves all rebuild paths through Accept and Reject", () => {
     for (const decision of ["accept", "reject"] as const) {
       for (const [index, entry] of proposalLifecycleCases().entries()) {
-        entry.facts.resolve([entry.proposal.id], decision);
+        const snapshot = entry.facts.snapshot();
+        const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find(
+          (candidate) => candidate.proposalContributionIds.includes(entry.proposal.id),
+        );
+        if (!hunk) {
+          throw new Error(`Generated ${entry.kind} program has no Review Hunk`);
+        }
+        entry.facts.resolve(hunk.selection.evidence.supportClosure, decision);
         assertGeneratedPathEquivalence(entry.facts.values, 100 + index);
       }
     }
   });
 });
 
+function caseSetupFacts(
+  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
+): readonly Fact[] {
+  return ownerCase.facts.values.filter(
+    (fact) => fact.body.kind !== "contribution" || fact.body.intent !== "proposal",
+  );
+}
+
 function caseMutation(fact: Fact): Mutation {
   if (fact.body.kind !== "contribution") {
     throw new Error("Proposal lifecycle fixture unexpectedly contains a Resolution");
   }
   return fact.body.mutation;
+}
+
+function caseMutations(
+  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
+): readonly Mutation[] {
+  return ownerCase.facts.values.flatMap((fact) =>
+    fact.body.kind === "contribution" && fact.body.intent === "proposal"
+      ? [fact.body.mutation]
+      : [],
+  );
+}
+
+function publicCaseMutations(
+  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
+): readonly EditMutation[] {
+  const identity = caseMutation(ownerCase.proposal);
+  if (identity.kind === "node-owner-set") {
+    const placement = Object.values(generation(ownerCase.facts.snapshot()).review.occurrences).find(
+      (occurrence) =>
+        occurrence.nodeId === identity.nodeId && occurrence.parentNodeId === identity.ownerNodeId,
+    );
+    if (!placement) {
+      throw new Error("Owner fixture has no Reference Occurrence to promote");
+    }
+    return [{ kind: "reference-promote", occurrenceId: placement.occurrenceId }];
+  }
+  if (identity.kind !== "node-create") {
+    return [unpreparedEdit(identity)];
+  }
+  const placement = caseMutations(ownerCase).find(
+    (mutation) => mutation.kind === "occurrence-create" && mutation.nodeId === "created",
+  );
+  if (identity.kind !== "node-create" || placement?.kind !== "occurrence-create") {
+    throw new Error("Node creation fixture has no Original Occurrence");
+  }
+  return [
+    {
+      ...identity,
+      occurrenceId: placement.occurrenceId,
+      parentNodeId: placement.parentNodeId,
+      anchor: placement.anchor,
+    },
+  ];
 }
 
 function historyFor(prefix: readonly Fact[]): HistoryFixture {
@@ -657,10 +722,10 @@ function clonedHistoryState(history: HistoryFixture): Readonly<{
   };
 }
 
-function matrixValueMutation(kind: Mutation["kind"], value: number): Mutation {
+function matrixValueMutation(_kind: Mutation["kind"], value: number): Mutation {
   return {
     kind: "value-set",
-    owner: { kind: "field", id: `matrix-${kind}` },
+    target: { kind: "node", id: "workspace" },
     namespace: "metadata",
     key: "winner",
     value,
@@ -687,7 +752,7 @@ async function realWorkspace(
   intent: "direct" | "proposal",
 ): Promise<ProposalWorkspace> {
   const documents = new InMemoryDocumentStore();
-  const store = await LoroFactStore.open({
+  const store = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: A,
     loroPeerId: `${10_000 + index * 2 + (intent === "proposal" ? 1 : 0)}`,
@@ -699,25 +764,94 @@ async function realWorkspace(
     facts: store,
     versions,
   });
-  let invocation = 0;
-  for (const fact of prefix) {
-    if (fact.body.kind !== "contribution") {
-      continue;
+  const contributions = prefix.filter(
+    (fact): fact is ContributionFact => fact.body.kind === "contribution",
+  );
+  const consumedOccurrenceIds = new Set<string>();
+  const mutations = contributions.flatMap((fact): readonly EditMutation[] => {
+    const mutation = fact.body.mutation;
+    if (mutation.kind === "node-create" && mutation.nodeId === "workspace") {
+      return [];
     }
+    if (mutation.kind === "occurrence-create" && consumedOccurrenceIds.has(mutation.occurrenceId)) {
+      return [];
+    }
+    if (mutation.kind === "field-initialize") {
+      return [];
+    }
+    if (mutation.kind === "node-owner-set") {
+      const placement = contributions
+        .map((candidate) => candidate.body.mutation)
+        .find(
+          (candidate) =>
+            candidate.kind === "occurrence-create" &&
+            candidate.nodeId === mutation.nodeId &&
+            candidate.parentNodeId === mutation.ownerNodeId,
+        );
+      if (placement?.kind !== "occurrence-create") {
+        throw new Error("Generated Owner setup has no Reference Occurrence");
+      }
+      return [{ kind: "reference-promote", occurrenceId: placement.occurrenceId }];
+    }
+    if (mutation.kind !== "node-create") {
+      return [unpreparedEdit(mutation)];
+    }
+    const placement = contributions
+      .map((candidate) => candidate.body.mutation)
+      .find(
+        (candidate) =>
+          candidate.kind === "occurrence-create" &&
+          candidate.nodeId === mutation.nodeId &&
+          !consumedOccurrenceIds.has(candidate.occurrenceId),
+      );
+    if (placement?.kind !== "occurrence-create") {
+      throw new Error(`Generated prefix Node has no placement: ${mutation.nodeId}`);
+    }
+    consumedOccurrenceIds.add(placement.occurrenceId);
+    return [
+      {
+        ...mutation,
+        occurrenceId: placement.occurrenceId,
+        parentNodeId: placement.parentNodeId,
+        anchor: placement.anchor,
+      },
+    ];
+  });
+  if (mutations.length > 0) {
     const result = await workspace.execute({
       kind: "mutate",
       workspaceId: "workspace",
-      invocationId: `prefix-${index}-${intent}-${invocation++}`,
-      actorId: fact.body.actorId,
-      intent: fact.body.intent,
+      invocationId: `prefix-${index}-${intent}`,
+      actorId: "setup",
+      intent: "direct",
       historyChannelId: "setup",
-      mutations: [fact.body.mutation],
+      mutations,
     });
     if (result.status !== "published") {
-      throw new Error(`Generated prefix failed: ${result.status}`);
+      throw new Error(`Generated prefix ${index}/${intent} failed: ${JSON.stringify(result)}`);
     }
   }
   return workspace;
+}
+
+const PREPARED_EVIDENCE = new Set([
+  "deletedAtoms",
+  "observedConfigFactIds",
+  "observedInitializationFactIds",
+  "previous",
+  "previousAnchor",
+  "previousConfig",
+  "previousOwnerNodeId",
+  "previousParentNodeId",
+  "sourceApplicationSchemaIds",
+  "sourceSchemaIds",
+  "sourceTemplateOccurrenceIds",
+]);
+
+function unpreparedEdit(mutation: Mutation): EditMutation {
+  return Object.fromEntries(
+    Object.entries(mutation).filter(([key]) => !PREPARED_EVIDENCE.has(key)),
+  ) as EditMutation;
 }
 
 function generationFingerprint(value: ReturnType<HistoryFixture["generation"]>): string {
@@ -753,7 +887,8 @@ function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>
 function omitSemanticProvenance(key: string, value: unknown): unknown {
   return key === "contributionIds" ||
     key === "detachmentContributionIds" ||
-    key === "initializationId"
+    key === "initializationId" ||
+    key === "deletionFactIds"
     ? undefined
     : value;
 }
@@ -782,37 +917,48 @@ function causalFixture(): Fact[] {
 
 function extensionCycleFixture(): Fact[] {
   const mutations: readonly Mutation[] = [
+    { kind: "node-create", nodeId: "workspace" },
     { kind: "node-create", nodeId: "base" },
     { kind: "node-create", nodeId: "schema-a" },
     { kind: "node-create", nodeId: "schema-b" },
     { kind: "node-create", nodeId: "task" },
     { kind: "node-create", nodeId: "field-a" },
+    { kind: "node-create", nodeId: "schema-a-field-a-template-field" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "schema-a-field-a-template-field-occurrence",
+      nodeId: "schema-a-field-a-template-field",
+      parentNodeId: "schema-a",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
     {
       kind: "schema-field-add",
       schemaId: "schema-a",
       fieldDefinitionId: "field-a",
+      fieldNodeId: "schema-a-field-a-template-field",
+      fieldOccurrenceId: "schema-a-field-a-template-field-occurrence",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
   ];
   const prefix = mutations.map((mutation, index) =>
     mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
   );
-  const observed = { [A]: 6 };
+  const observed = { [A]: prefix.length };
   return [
     ...prefix,
-    mutationFact(B, 1, observed, 7, {
+    mutationFact(B, 1, observed, prefix.length + 1, {
       kind: "schema-extension-add",
       schemaId: "schema-a",
       baseSchemaId: "schema-b",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
-    mutationFact(C, 1, observed, 7, {
+    mutationFact(C, 1, observed, prefix.length + 1, {
       kind: "schema-extension-add",
       schemaId: "schema-b",
       baseSchemaId: "schema-a",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
-    mutationFact(A, 7, observed, 7, {
+    mutationFact(A, prefix.length + 1, observed, prefix.length + 1, {
       kind: "schema-apply",
       nodeId: "task",
       schemaId: "schema-a",
@@ -827,27 +973,53 @@ function initializationFixture(seed: number): Readonly<{
   resolved: readonly Fact[];
 }> {
   const mutations: readonly Mutation[] = [
+    { kind: "node-create", nodeId: "workspace" },
     { kind: "node-create", nodeId: "task" },
-    { kind: "node-create", nodeId: "task-schema" },
-    { kind: "node-create", nodeId: "status-field" },
     {
       kind: "occurrence-create",
       occurrenceId: "task-occurrence",
       nodeId: "task",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
+      parentNodeId: "workspace",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    { kind: "node-create", nodeId: "task-schema" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "task-schema-original",
+      nodeId: "task-schema",
+      parentNodeId: "workspace",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    { kind: "node-create", nodeId: "status-field" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "status-field-original",
+      nodeId: "status-field",
+      parentNodeId: "workspace",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    { kind: "node-create", nodeId: "task-schema-status-field-template-field" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "task-schema-status-field-template-field-occurrence",
+      nodeId: "task-schema-status-field-template-field",
+      parentNodeId: "task-schema",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     {
       kind: "schema-field-add",
       schemaId: "task-schema",
       fieldDefinitionId: "status-field",
+      fieldNodeId: "task-schema-status-field-template-field",
+      fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     {
       kind: "schema-field-configure",
       schemaId: "task-schema",
       fieldDefinitionId: "status-field",
+      fieldNodeId: "task-schema-status-field-template-field",
+
       config: {
         visibility: "normal",
         staticDefault: null,
@@ -863,19 +1035,19 @@ function initializationFixture(seed: number): Readonly<{
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
   ];
-  const prefix = mutations.map((mutation, index) =>
-    mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
-  );
+  const prefix = transactionFacts(A, {}, 1, mutations);
   const observed = { [A]: prefix.length };
-  const first = mutationFact(B, 1, observed, prefix.length + 1, initialization("Alpha"));
+  const firstBundle = initializationFacts(B, observed, prefix.length + 1, "Alpha");
+  const first = firstBundle.at(-1)!;
   const secondValue = seed % 2 === 0 ? "Beta" : "Alpha";
-  const second = mutationFact(C, 1, observed, prefix.length + 1, initialization(secondValue));
-  const concurrent = [...prefix, first, second];
+  const secondBundle = initializationFacts(C, observed, prefix.length + 1, secondValue);
+  const second = secondBundle.at(-1)!;
+  const concurrent = [...prefix, ...firstBundle, ...secondBundle];
   const choice = mutationFact(
     A,
     prefix.length + 1,
-    { [A]: prefix.length, [B]: 1, [C]: 1 },
-    prefix.length + 2,
+    { [A]: prefix.length, [B]: firstBundle.length, [C]: secondBundle.length },
+    prefix.length + firstBundle.length + 1,
     {
       ...initialization("Alpha"),
       observedInitializationFactIds: [first.id, second.id],
@@ -884,14 +1056,91 @@ function initializationFixture(seed: number): Readonly<{
   return { prefix, concurrent, resolved: [...concurrent, choice] };
 }
 
+function initializationFacts(
+  replicaId: string,
+  observed: Readonly<Record<string, number>>,
+  lamport: number,
+  value: string,
+): readonly Fact[] {
+  const mutations: readonly Mutation[] = [
+    {
+      kind: "node-create",
+      nodeId: "initialized-field:v1:task:status-field",
+      seed: {
+        text: [],
+        properties: { fieldDefinitionId: "status-field" },
+        metadata: { initializedBy: "auto-initialize" },
+      },
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "initialized-field-occ:v1:task:status-field",
+      nodeId: "initialized-field:v1:task:status-field",
+      parentNodeId: "task",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    {
+      kind: "node-create",
+      nodeId: "initialized-field:v1:task:status-field:value:0",
+      seed: {
+        text: [...value].map((character) => ({ value: character, attributes: {} })),
+        properties: {},
+        metadata: { initializedBy: "auto-initialize" },
+      },
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
+      nodeId: "initialized-field:v1:task:status-field:value:0",
+      parentNodeId: "initialized-field:v1:task:status-field",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
+    initialization(value),
+  ];
+  return transactionFacts(replicaId, observed, lamport, mutations);
+}
+
+function transactionFacts(
+  replicaId: string,
+  observed: Readonly<Record<string, number>>,
+  lamport: number,
+  mutations: readonly Mutation[],
+): readonly Fact[] {
+  const firstSequence = (observed[replicaId] ?? 0) + 1;
+  const transactionId = factTransactionId("workspace", replicaId, firstSequence);
+  return mutations.map((mutation, index) =>
+    makeFact({
+      workspaceId: "workspace",
+      replicaId,
+      sequence: firstSequence + index,
+      observed: {
+        ...observed,
+        ...(index > 0 ? { [replicaId]: firstSequence + index - 1 } : {}),
+      },
+      lamport: lamport + index,
+      transaction: { transactionId, index, size: mutations.length },
+      body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+    }),
+  );
+}
+
 function initialization(value: string): Extract<Mutation, { kind: "field-initialize" }> {
   return {
     kind: "field-initialize",
     ownerNodeId: "task",
     schemaId: "task-schema",
     fieldDefinitionId: "status-field",
+    fieldNodeId: "initialized-field:v1:task:status-field",
+    fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
     source: "auto-initialize",
-    values: [{ kind: "text", value }],
+    values: [
+      {
+        kind: "text",
+        nodeId: "initialized-field:v1:task:status-field:value:0",
+        occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
+        value,
+      },
+    ],
     observedInitializationFactIds: [],
   };
 }

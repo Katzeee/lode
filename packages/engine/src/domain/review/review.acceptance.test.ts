@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
-import { canonicalDigest } from "../fact/index.js";
+import { canonicalDigest, type ContributionFact } from "../fact/index.js";
 import { impactAddress, projectionText } from "../reconcile/index.js";
 import { queryReview, validateReviewSelection } from "./review.js";
-import { valueAddress } from "./evidence.js";
+import { evidenceForTargets, valueAddress } from "./evidence.js";
 import type { ReviewSelection } from "./types.js";
 import {
   REPLICA_A,
@@ -20,7 +20,7 @@ describe("production Review contracts", () => {
   it("composite value addresses cannot collide through user identities or keys", () => {
     const left = {
       kind: "value-set" as const,
-      owner: { kind: "node" as const, id: "a" },
+      target: { kind: "node" as const, id: "a" },
       namespace: "property" as const,
       key: "x/metadata/y",
       value: 1,
@@ -28,7 +28,7 @@ describe("production Review contracts", () => {
     };
     const right = {
       kind: "value-set" as const,
-      owner: { kind: "node" as const, id: "a/property/x" },
+      target: { kind: "node" as const, id: "a/property/x" },
       namespace: "metadata" as const,
       key: "y",
       value: 2,
@@ -49,7 +49,7 @@ describe("production Review contracts", () => {
       if (operation === "unset-null") {
         facts.add({
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key: "nullable",
           value: null,
@@ -60,7 +60,7 @@ describe("production Review contracts", () => {
         operation === "set-null"
           ? {
               kind: "value-set",
-              owner: { kind: "node", id: "node" },
+              target: { kind: "node", id: "node" },
               namespace: "property",
               key: "nullable",
               value: null,
@@ -68,7 +68,7 @@ describe("production Review contracts", () => {
             }
           : {
               kind: "value-unset",
-              owner: { kind: "node", id: "node" },
+              target: { kind: "node", id: "node" },
               namespace: "property",
               key: "nullable",
               previous: { kind: "set", value: null },
@@ -108,7 +108,7 @@ describe("production Review contracts", () => {
     const proposal = facts.add(
       {
         kind: "value-set",
-        owner: { kind: "node", id: "node" },
+        target: { kind: "node", id: "node" },
         namespace: "property",
         key: "color",
         value: "blue",
@@ -128,18 +128,16 @@ describe("production Review contracts", () => {
 
   it("REVIEW-2 scope is visible targets plus minimal support closure", () => {
     const facts = base();
-    const node = facts.add({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
-    const occurrence = facts.add(
-      {
-        kind: "occurrence-create",
-        occurrenceId: "proposal-occurrence",
-        nodeId: "proposal-node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      },
+    const created = facts.addPlaced(
+      "proposal-node",
+      "workspace",
+      "proposal-occurrence",
       "proposal",
     );
+    const [node, occurrence] = created;
+    if (!node || !occurrence) {
+      throw new Error("Expected a Node creation transaction");
+    }
     const snapshot = facts.snapshot();
     const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find((candidate) =>
       candidate.proposalContributionIds.includes(occurrence.id),
@@ -149,18 +147,16 @@ describe("production Review contracts", () => {
 
   it("AUTH-4 resolutions capture exact support-closed targets", () => {
     const facts = base();
-    const node = facts.add({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
-    const occurrence = facts.add(
-      {
-        kind: "occurrence-create",
-        occurrenceId: "proposal-occurrence",
-        nodeId: "proposal-node",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      },
+    const created = facts.addPlaced(
+      "proposal-node",
+      "workspace",
+      "proposal-occurrence",
       "proposal",
     );
+    const [node, occurrence] = created;
+    if (!node || !occurrence) {
+      throw new Error("Expected a Node creation transaction");
+    }
     const snapshot = facts.snapshot();
     const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find((candidate) =>
       candidate.proposalContributionIds.includes(occurrence.id),
@@ -180,6 +176,105 @@ describe("production Review contracts", () => {
       kind: "valid",
       resolution: { proposalContributionIds: [node.id, occurrence.id] },
     });
+  });
+
+  it("keeps every proposal Fact in one transaction inside the same decision boundary", () => {
+    const facts = base();
+    const transaction = facts.addTransaction(
+      [
+        {
+          kind: "value-set",
+          target: { kind: "node", id: "node" },
+          namespace: "property",
+          key: "color",
+          value: "blue",
+          previous: { kind: "unset" },
+        },
+        {
+          kind: "value-set",
+          target: { kind: "node", id: "node" },
+          namespace: "property",
+          key: "shape",
+          value: "round",
+          previous: { kind: "unset" },
+        },
+      ],
+      "proposal",
+    );
+    const snapshot = facts.snapshot();
+    const color = queryReview("workspace", snapshot, generation(snapshot)).hunks.find(
+      (hunk) => hunk.diffSpace.kind === "value" && hunk.diffSpace.identity.endsWith("/color"),
+    );
+
+    expect(color?.selection.evidence.supportClosure).toEqual(transaction.map((fact) => fact.id));
+  });
+
+  it("closes Review support and transaction membership to a fixed point", () => {
+    const facts = base();
+    const target = facts.add(
+      {
+        kind: "value-set",
+        target: { kind: "node", id: "node" },
+        namespace: "property",
+        key: "target",
+        value: true,
+        previous: { kind: "unset" },
+      },
+      "proposal",
+    );
+    const transaction = facts.addTransaction(
+      [
+        {
+          kind: "value-set",
+          target: { kind: "node", id: "node" },
+          namespace: "property",
+          key: "support-a",
+          value: true,
+          previous: { kind: "unset" },
+        },
+        {
+          kind: "value-set",
+          target: { kind: "node", id: "node" },
+          namespace: "property",
+          key: "support-b",
+          value: true,
+          previous: { kind: "unset" },
+        },
+      ],
+      "proposal",
+    );
+    const terminalSupport = facts.add(
+      {
+        kind: "value-set",
+        target: { kind: "node", id: "node" },
+        namespace: "property",
+        key: "support-c",
+        value: true,
+        previous: { kind: "unset" },
+      },
+      "proposal",
+    );
+    const [firstSupport, secondSupport] = transaction;
+    if (!firstSupport || !secondSupport) {
+      throw new Error("Expected support transaction");
+    }
+    const snapshot = facts.snapshot();
+    const pending = new Map(
+      [target, firstSupport, secondSupport, terminalSupport]
+        .filter((fact): fact is ContributionFact => fact.body.kind === "contribution")
+        .map((fact) => [fact.id, fact]),
+    );
+    const evidence = evidenceForTargets(snapshot, generation(snapshot), [target.id], {
+      pending,
+      supportByContribution: new Map([
+        [target.id, [firstSupport.id]],
+        [secondSupport.id, [terminalSupport.id]],
+      ]),
+    });
+
+    expect(evidence?.supportClosure).toEqual(
+      [target.id, firstSupport.id, secondSupport.id, terminalSupport.id].sort(),
+    );
   });
 
   it("REVIEW-3 terminal resolutions converge neutrally per contribution", () => {
@@ -263,7 +358,7 @@ describe("production Review contracts", () => {
     facts.add(
       {
         kind: "value-set",
-        owner: { kind: "node", id: "node" },
+        target: { kind: "node", id: "node" },
         namespace: "property",
         key: "color",
         value: "blue",
@@ -278,7 +373,7 @@ describe("production Review contracts", () => {
     }
     const selection = selectedHunk.selection;
 
-    facts.add({ kind: "node-create", nodeId: "unrelated" });
+    facts.addPlaced("unrelated");
     const current = facts.snapshot();
     expect(
       validateReviewSelection(
@@ -293,27 +388,27 @@ describe("production Review contracts", () => {
 
     const newVersions = {
       rulesVersion: "unknown-rules",
-      schemaVersion: "lode-schema-12",
+      schemaVersion: "lode-schema-16",
     } as const;
     expect(() => generation(current, newVersions)).toThrow("Unsupported projection versions");
   });
 
   it("已观察后的重复决议", () => {
     const facts = base();
-    const proposal = facts.add({ kind: "node-create", nodeId: "proposal" }, "proposal");
+    const proposal = facts.addPlaced("proposal", "workspace", "proposal-original", "proposal");
     const first = facts.addBody({
       kind: "resolution",
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "accept",
-      proposalContributionIds: [proposal.id],
+      proposalContributionIds: proposal.map((fact) => fact.id),
     });
     const repeated = facts.addBody({
       kind: "resolution",
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "reject",
-      proposalContributionIds: [proposal.id],
+      proposalContributionIds: proposal.map((fact) => fact.id),
     });
     const admission = admitAuthorityRecords(
       "workspace",
@@ -330,7 +425,7 @@ describe("production Review contracts", () => {
       facts.add(
         {
           kind: "value-set",
-          owner: { kind: "node", id: "node" },
+          target: { kind: "node", id: "node" },
           namespace: "property",
           key,
           value: true,

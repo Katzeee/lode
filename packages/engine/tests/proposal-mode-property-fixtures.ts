@@ -18,7 +18,7 @@ import {
 } from "../src/runtime/workspace/generation-checkpoint.js";
 import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
@@ -47,36 +47,37 @@ export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: num
 
 export function generatedDomainGraph(seed: number): readonly Fact[] {
   const facts = new Facts();
-  for (const nodeId of ["root", "shared", "container", "child"]) {
-    facts.add({ kind: "node-create", nodeId });
-  }
-  occurrence(facts, "root-occurrence", "root", null, "cascade");
-  occurrence(facts, "shared-a", "shared", "root-occurrence", "cascade");
-  occurrence(facts, "shared-b", "shared", "root-occurrence", "rehome");
-  occurrence(facts, "self-reference", "shared", "shared-a", "cascade");
-  occurrence(facts, "cascade-parent", "container", "root-occurrence", "cascade");
-  occurrence(facts, "rehome-parent", "container", "root-occurrence", "rehome");
-  occurrence(facts, "cascade-child", "child", "cascade-parent", "cascade");
-  occurrence(facts, "rehome-child", "child", "rehome-parent", "rehome");
+  facts.addPlaced("root", "workspace", "root-occurrence");
+  facts.addPlaced("shared", "root", "shared-a");
+  facts.addPlaced("container-a", "root", "cascade-parent");
+  facts.addPlaced("container-b", "root", "rehome-parent");
+  facts.addPlaced("child-a", "container-a", "cascade-child");
+  facts.addPlaced("child-b", "container-b", "rehome-child");
+  occurrence(facts, "shared-b", "shared", "container-a");
+  occurrence(facts, "self-reference", "shared", "shared");
   facts.add({
-    kind: "canonical-occurrence-set",
+    kind: "node-owner-set",
     nodeId: "shared",
-    occurrenceId: "shared-b",
-    previousOccurrenceId: "shared-a",
+    ownerNodeId: "container-a",
+    previousOwnerNodeId: "root",
   });
   for (const nodeId of ["generated-schema", "first", "second"]) {
-    facts.add({ kind: "node-create", nodeId });
+    facts.addPlaced(nodeId);
   }
   facts.add({
     kind: "schema-field-add",
     schemaId: "generated-schema",
     fieldDefinitionId: "first",
+    fieldNodeId: "generated-schema-first-template-field",
+    fieldOccurrenceId: "generated-schema-first-template-field-occurrence",
     anchor: end,
   });
   facts.add({
     kind: "schema-field-add",
     schemaId: "generated-schema",
     fieldDefinitionId: "second",
+    fieldNodeId: "generated-schema-second-template-field",
+    fieldOccurrenceId: "generated-schema-second-template-field-occurrence",
     anchor: { ...end, after: "first" },
   });
   facts.add({ kind: "schema-apply", nodeId: "shared", schemaId: "generated-schema", anchor: end });
@@ -104,7 +105,7 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   const propertyProposal = facts.add(
     {
       kind: "value-set",
-      owner: { kind: "node", id: "shared" },
+      target: { kind: "node", id: "shared" },
       namespace: "metadata",
       key: "proposal-seed",
       value: seed,
@@ -112,7 +113,7 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     },
     "proposal",
   );
-  const createProposal = facts.add({ kind: "node-create", nodeId: `proposal-${seed}` }, "proposal");
+  const createProposal = facts.addPlaced(`proposal-${seed}`, "workspace", undefined, "proposal");
   facts.add({
     kind: "text-splice",
     nodeId: `proposal-${seed}`,
@@ -125,17 +126,17 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     {
       kind: "occurrence-move",
       occurrenceId: "shared-b",
-      parentOccurrenceId: "rehome-parent",
+      parentNodeId: "container-b",
       anchor: end,
-      previousParentOccurrenceId: "root-occurrence",
+      previousParentNodeId: "container-a",
       previousAnchor: end,
     },
     "proposal",
   );
   facts.resolve(
     seed % 2 === 0
-      ? [propertyProposal.id, createProposal.id]
-      : [createProposal.id, propertyProposal.id],
+      ? [propertyProposal.id, ...createProposal.map((fact) => fact.id)]
+      : [...createProposal.map((fact) => fact.id), propertyProposal.id],
     seed % 3 === 0 ? "reject" : "accept",
   );
   return facts.values;
@@ -145,15 +146,13 @@ function occurrence(
   facts: Facts,
   occurrenceId: string,
   nodeId: string,
-  parentOccurrenceId: string | null,
-  parentPolicy: "cascade" | "rehome",
+  parentNodeId: string,
 ): void {
   facts.add({
     kind: "occurrence-create",
     occurrenceId,
     nodeId,
-    parentOccurrenceId,
-    parentPolicy,
+    parentNodeId,
     anchor: end,
   });
 }

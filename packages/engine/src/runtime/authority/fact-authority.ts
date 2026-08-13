@@ -1,21 +1,20 @@
 import type {
   Admission,
   AuthorityReceipt,
-  FactBody,
   Fact,
   FactFrontier,
   FactSnapshot,
+  FactWrite,
   HistoryChannelId,
   InvocationId,
   ReplicaId,
   WorkspaceId,
 } from "../../domain/fact/index.js";
-import type { SyncableDoc } from "../../sync/syncable.js";
 
 export type AuthorityCommit = Readonly<{
   invocationId: InvocationId;
   request: unknown;
-  bodies: readonly FactBody[];
+  writes: readonly FactWrite[];
   lineage: AuthorityReceipt["lineage"];
   publishedFrontier: FactFrontier;
 }>;
@@ -30,9 +29,10 @@ export type AuthorityAdmissionPolicy = (
   records: readonly unknown[],
 ) => Admission;
 
-export type FactStore = {
+export type AuthorityIndexObserver = (work: Readonly<{ operation: string; units: number }>) => void;
+
+export type FactAuthority = {
   readonly replicaId: ReplicaId;
-  readonly syncDoc: SyncableDoc;
   admission(): Admission;
   snapshot(): FactSnapshot;
   receipt(invocationId: InvocationId): AuthorityReceipt | null;

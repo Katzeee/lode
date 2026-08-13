@@ -1,10 +1,8 @@
 import type { Mutation } from "./types.js";
 import { requireString } from "./shape-validation-primitives.js";
-import { isReservedOccurrenceIdentity } from "./identity.js";
 
 export function assertFieldContentDeletionShape(
   value: Record<string, unknown>,
-  optionalParent: (value: unknown, label: string) => void,
   optionalAnchor: (value: unknown) => void,
 ): asserts value is Extract<
   Mutation,
@@ -18,7 +16,9 @@ export function assertFieldContentDeletionShape(
     requireString(value.fieldNodeId, "Materialized Field Node");
     requireString(value.fieldOccurrenceId, "Materialized Field Occurrence");
   }
-  optionalParent(value.previousParentOccurrenceId, "previous parent");
+  if (value.previousParentNodeId !== undefined) {
+    requireString(value.previousParentNodeId, "previous parent Node");
+  }
   optionalAnchor(value.previousAnchor);
 }
 
@@ -38,7 +38,7 @@ export function validateStaticFieldContentDeletion(
     throw new Error(`Field content deletion identity is empty: ${factIdentity}`);
   }
   const anchor = mutation.previousAnchor;
-  if (mutation.previousParentOccurrenceId === undefined || !anchor) {
+  if (mutation.previousParentNodeId === undefined || !anchor) {
     throw new Error(`Field content deletion lacks semantic evidence: ${factIdentity}`);
   }
   if (anchor.after !== null && anchor.after === anchor.before) {
@@ -59,8 +59,5 @@ export function validateStaticFieldMaterialization(
     ].some((identity) => identity.length === 0)
   ) {
     throw new Error(`Materialized Field identity is empty: ${factIdentity}`);
-  }
-  if (isReservedOccurrenceIdentity(mutation.fieldOccurrenceId)) {
-    throw new Error(`Materialized Field uses a reserved Occurrence identity: ${factIdentity}`);
   }
 }

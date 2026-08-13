@@ -19,21 +19,13 @@ export class WorkspaceSignals {
     kind: EngineEvent["kind"],
     frontier: EngineEvent["frontier"],
     generationId: string | null,
-    affectedOwnerIds: readonly string[],
   ): void {
-    emitWorkspaceEvent(
-      this.listeners,
-      this.workspaceId,
-      kind,
-      frontier,
-      generationId,
-      affectedOwnerIds,
-    );
+    emitWorkspaceEvent(this.listeners, this.workspaceId, kind, frontier, generationId);
   }
 
   recordAuthorityFault(message: string, identity: ProjectionIdentity): void {
     if (this.authorityFault === null) {
-      this.emit("projection-failed", identity.frontier, identity.generationId, []);
+      this.emit("projection-failed", identity.frontier, identity.generationId);
     }
     this.authorityFault = message;
   }

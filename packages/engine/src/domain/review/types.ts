@@ -43,8 +43,8 @@ export type PlacementRelation = Readonly<{
 
 export type ValueDecisionEffect = Readonly<{
   kind: "value";
-  ownerKind: "node" | "occurrence" | "schema" | "field";
-  ownerId: string;
+  targetKind: "node" | "occurrence";
+  targetId: string;
   namespace: "property" | "metadata" | "schema";
   key: string;
   origin: PreviousValue;
@@ -52,7 +52,7 @@ export type ValueDecisionEffect = Readonly<{
 }>;
 
 export type LifecycleDecisionEffect = Readonly<{
-  kind: "lifecycle" | "canonical";
+  kind: "lifecycle" | "owner";
   identity: string;
   origin: string | boolean | null;
   review: string | boolean | null;
@@ -120,7 +120,7 @@ export type ReviewHunk = Readonly<{
       | "child-sequence"
       | "value"
       | "lifecycle"
-      | "canonical"
+      | "owner"
       | "schema-application"
       | "schema-template"
       | "field-configuration"

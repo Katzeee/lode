@@ -22,7 +22,7 @@ export function readCommandGeneration(
   }
   const factIds =
     command.kind === "resolve-review"
-      ? command.selection.evidence.proposalTargets
+      ? command.selection.evidence.supportClosure
       : command.kind === "adjudicate-resolution"
         ? [...command.proposalContributionIds, ...command.resolutionIds]
         : command.selection.evidence.targetFactIds;

@@ -77,9 +77,7 @@ export function compensateOccurrenceCreate(
       {
         kind: "occurrence-delete",
         occurrenceId: mutation.occurrenceId,
-        childPolicy: "rehome",
-        previousParentOccurrenceId:
-          projection.occurrences[mutation.occurrenceId]?.parentOccurrenceId ?? null,
+        previousParentNodeId: projection.occurrences[mutation.occurrenceId]?.parentNodeId,
         previousAnchor: occurrenceAnchor(projection, mutation.occurrenceId),
       },
     ],
@@ -109,8 +107,8 @@ export function compensateOccurrenceDelete(
   if (independentDelete || mutation.previousAnchor === undefined) {
     return { kind: "stale", reason: "Occurrence deletion cannot be safely restored" };
   }
-  const previousParent = mutation.previousParentOccurrenceId ?? null;
-  if (previousParent !== null && !projection.occurrences[previousParent]) {
+  const previousParent = mutation.previousParentNodeId;
+  if (!previousParent || !projection.nodes[previousParent]) {
     return { kind: "stale", reason: "Occurrence deletion previous parent no longer exists" };
   }
   return {
@@ -120,7 +118,7 @@ export function compensateOccurrenceDelete(
         kind: "occurrence-restore",
         occurrenceId: mutation.occurrenceId,
         deletionFactId: target.id,
-        parentOccurrenceId: previousParent,
+        parentNodeId: previousParent,
         anchor: mutation.previousAnchor,
       },
     ],
@@ -129,7 +127,7 @@ export function compensateOccurrenceDelete(
 
 function occurrenceDeletion(fact: ContributionFact): Readonly<{
   occurrenceId: string;
-  previousParentOccurrenceId?: string | null;
+  previousParentNodeId?: string | null;
   previousAnchor?: SequenceAnchor;
 }> | null {
   const mutation = fact.body.mutation;
@@ -168,24 +166,21 @@ export function compensateMove(
       (fact) =>
         fact.body.mutation.kind === "occurrence-move" &&
         fact.body.mutation.occurrenceId === mutation.occurrenceId &&
-        fact.body.mutation.parentOccurrenceId === occurrence?.parentOccurrenceId,
+        fact.body.mutation.parentNodeId === occurrence?.parentNodeId,
     )
     .sort(compareFacts)
     .at(-1);
   if (
     winner?.id !== target.id ||
     !occurrence ||
-    occurrence.parentOccurrenceId !== mutation.parentOccurrenceId
+    occurrence.parentNodeId !== mutation.parentNodeId
   ) {
     return noCompensation();
   }
-  if (mutation.previousAnchor === undefined || mutation.previousParentOccurrenceId === undefined) {
+  if (mutation.previousAnchor === undefined || mutation.previousParentNodeId === undefined) {
     return { kind: "stale", reason: "Move lacks its stable previous placement" };
   }
-  if (
-    mutation.previousParentOccurrenceId !== null &&
-    !projection.occurrences[mutation.previousParentOccurrenceId]
-  ) {
+  if (!projection.nodes[mutation.previousParentNodeId]) {
     return { kind: "stale", reason: "Move previous parent no longer exists" };
   }
   return {
@@ -194,52 +189,54 @@ export function compensateMove(
       {
         kind: "occurrence-move",
         occurrenceId: mutation.occurrenceId,
-        parentOccurrenceId: mutation.previousParentOccurrenceId,
+        parentNodeId: mutation.previousParentNodeId,
         anchor: mutation.previousAnchor,
-        previousParentOccurrenceId: mutation.parentOccurrenceId,
+        previousParentNodeId: mutation.parentNodeId,
         previousAnchor: occurrenceAnchor(projection, mutation.occurrenceId),
       },
     ],
   };
 }
 
-export function compensateCanonical(
+export function compensateNodeOwner(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
   projection: Projection,
 ): CompensationStep {
   const mutation = target.body.mutation;
-  if (mutation.kind !== "canonical-occurrence-set") {
+  if (mutation.kind !== "node-owner-set") {
     return noCompensation();
   }
   const winner = activeFacts
     .filter(
       (fact) =>
-        fact.body.mutation.kind === "canonical-occurrence-set" &&
+        fact.body.mutation.kind === "node-owner-set" &&
         fact.body.mutation.nodeId === mutation.nodeId,
     )
     .sort(compareFacts)
     .at(-1);
-  if (
-    winner?.id !== target.id ||
-    projection.canonicalOccurrences[mutation.nodeId] !== mutation.occurrenceId
-  ) {
+  if (winner?.id !== target.id || projection.nodeOwners[mutation.nodeId] !== mutation.ownerNodeId) {
     return noCompensation();
   }
   if (
-    !mutation.previousOccurrenceId ||
-    projection.occurrences[mutation.previousOccurrenceId]?.nodeId !== mutation.nodeId
+    !mutation.previousOwnerNodeId ||
+    !projection.nodes[mutation.previousOwnerNodeId] ||
+    !Object.values(projection.occurrences).some(
+      (occurrence) =>
+        occurrence.nodeId === mutation.nodeId &&
+        occurrence.parentNodeId === mutation.previousOwnerNodeId,
+    )
   ) {
-    return { kind: "stale", reason: "Previous canonical Occurrence is no longer valid" };
+    return { kind: "stale", reason: "Previous owner Node placement is no longer valid" };
   }
   return {
     kind: "ready",
     mutations: [
       {
-        kind: "canonical-occurrence-set",
+        kind: "node-owner-set",
         nodeId: mutation.nodeId,
-        occurrenceId: mutation.previousOccurrenceId,
-        previousOccurrenceId: mutation.occurrenceId,
+        ownerNodeId: mutation.previousOwnerNodeId,
+        previousOwnerNodeId: mutation.ownerNodeId,
       },
     ],
   };
@@ -247,7 +244,7 @@ export function compensateCanonical(
 
 export function occurrenceAnchor(projection: Projection, occurrenceId: string) {
   const occurrence = projection.occurrences[occurrenceId];
-  const siblings = projection.children[occurrence?.parentOccurrenceId ?? "$root"] ?? [];
+  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
   const index = siblings.indexOf(occurrenceId);
   return {
     after: index > 0 ? (siblings[index - 1] ?? null) : null,

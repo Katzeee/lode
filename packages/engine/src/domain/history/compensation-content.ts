@@ -31,7 +31,7 @@ export function compensateContentMutation(
     case "occurrence-delete":
     case "occurrence-restore":
     case "occurrence-move":
-    case "canonical-occurrence-set":
+    case "node-owner-set":
     case "schema-apply":
     case "schema-remove":
     case "schema-field-add":

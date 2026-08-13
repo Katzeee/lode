@@ -11,7 +11,7 @@ export type FieldContentDeletionMutation =
       ownerNodeId: string;
       fieldDefinitionId: string;
       valueOccurrenceId: string;
-      previousParentOccurrenceId?: string | null;
+      previousParentNodeId?: string;
       previousAnchor?: FieldContentAnchor;
     }>
   | Readonly<{
@@ -20,6 +20,6 @@ export type FieldContentDeletionMutation =
       fieldDefinitionId: string;
       fieldNodeId: string;
       fieldOccurrenceId: string;
-      previousParentOccurrenceId?: string | null;
+      previousParentNodeId?: string;
       previousAnchor?: FieldContentAnchor;
     }>;

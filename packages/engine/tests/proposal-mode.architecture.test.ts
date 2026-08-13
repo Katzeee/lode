@@ -11,8 +11,8 @@ describe("Proposal Mode architecture boundaries", () => {
     const runtime = await source("packages/engine/src/engine-runtime.ts");
     const entry = await source("packages/engine/src/index.ts");
     expect(runtime).toContain("engine: EngineContract");
-    expect(runtime).not.toContain("FactStore");
-    expect(entry).not.toMatch(/FactStore|ProposalWorkspace|LoroFactStore|Materializer/);
+    expect(runtime).not.toContain("FactAuthority");
+    expect(entry).not.toMatch(/FactAuthority|ProposalWorkspace|FactAuthorityStore|Materializer/);
     expect(entry).not.toMatch(/createEngineRuntime|EngineRuntime|SyncTransport|AppRuntime/);
     const serverEntry = await source("packages/engine/src/server.ts");
     expect(serverEntry).toContain("createEngineRuntime");
@@ -34,7 +34,7 @@ describe("Proposal Mode architecture boundaries", () => {
     expect(await exists("packages/engine/src/core/store/sharded-store.ts")).toBe(false);
   });
 
-  it("Loro authority is confined to FactStore and protobuf is confined to adapters", async () => {
+  it("Loro is confined to the Fact replication adapter and protobuf to transport adapters", async () => {
     const files = (await typeScriptFiles(engineSource)).filter(
       (file) => !file.endsWith(".test.ts"),
     );
@@ -49,14 +49,18 @@ describe("Proposal Mode architecture boundaries", () => {
         protobufImports.push(relativeEngine(file));
       }
     }
-    expect(loroImports).toContain("runtime/authority/loro-fact-store.ts");
-    expect(loroImports.every((file) => file.startsWith("runtime/authority/"))).toBe(true);
+    expect(loroImports.sort()).toEqual([
+      "runtime/authority/fact-sync-projection.ts",
+      "runtime/authority/loro-fact-replica-state.ts",
+      "runtime/authority/loro-fact-replica.ts",
+      "runtime/authority/sync-import-validation.ts",
+    ]);
     expect(protobufImports).toEqual([]);
   });
 
   it("SYNC-1 the only domain sync document is the Fact authority document", async () => {
     const composite = await source("packages/engine/src/runtime/sync/fact-sync.ts");
-    expect(composite).toContain("return [this.facts.syncDoc]");
+    expect(composite).toContain("return [this.facts]");
     expect(composite).not.toMatch(/projection|checkpoint|material/i);
   });
 

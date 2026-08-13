@@ -33,17 +33,17 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
       "nodes",
       "occurrences",
       "children",
-      "canonicalOccurrences",
+      "nodeOwners",
       "addressedValues",
       "schemaApplications",
       "schemaFields",
-      "schemaFieldItems",
+      "templateFields",
       "schemaTemplateNodes",
       "templateNodeInstances",
       "schemaExtensions",
       "schemaSearchMembers",
       "schemaExtensionConflicts",
-      "definitionStatuses",
+      "nodeStatuses",
       "conflictIssues",
       "effectiveFields",
       "materializedFields",
@@ -63,12 +63,10 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     section === "children"
       ? parseIndexed(value.children, "children", stringArray)
       : empty(value.children, "children");
-  const canonicalOccurrences =
-    section === "canonicalOccurrences"
-      ? parseIndexed(value.canonicalOccurrences, "canonicals", (item) =>
-          nonempty(item, "canonical Occurrence"),
-        )
-      : empty(value.canonicalOccurrences, "canonicals");
+  const nodeOwners =
+    section === "nodeOwners"
+      ? parseIndexed(value.nodeOwners, "Node owners", nodeOwner)
+      : empty(value.nodeOwners, "Node owners");
   const addressedValues =
     section === "addressedValues"
       ? parseIndexed(value.addressedValues, "values", jsonRecord)
@@ -87,7 +85,7 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
       nodes,
       occurrences,
       children,
-      canonicalOccurrences,
+      nodeOwners,
       addressedValues,
       templateNodeInstances,
       ...schema,
@@ -105,7 +103,7 @@ export function parseProjectionPage(value: Record<string, unknown>): ProjectionP
     nodes,
     occurrences,
     children,
-    canonicalOccurrences,
+    nodeOwners,
     addressedValues,
     templateNodeInstances,
     ...schema,
@@ -129,17 +127,17 @@ const PROJECTION_PAGE_SECTIONS = [
   "nodes",
   "occurrences",
   "children",
-  "canonicalOccurrences",
+  "nodeOwners",
   "addressedValues",
   "schemaApplications",
   "schemaFields",
-  "schemaFieldItems",
+  "templateFields",
   "schemaTemplateNodes",
   "templateNodeInstances",
   "schemaExtensions",
   "schemaSearchMembers",
   "schemaExtensionConflicts",
-  "definitionStatuses",
+  "nodeStatuses",
   "conflictIssues",
   "effectiveFields",
   "materializedFields",
@@ -159,8 +157,8 @@ function parseEntry(
         ? occurrence(entry.value)
         : section === "children"
           ? stringArray(entry.value)
-          : section === "canonicalOccurrences"
-            ? nonempty(entry.value, "canonical Occurrence")
+          : section === "nodeOwners"
+            ? nodeOwner(entry.value)
             : section === "addressedValues"
               ? jsonRecord(entry.value)
               : section === "templateNodeInstances"
@@ -169,6 +167,10 @@ function parseEntry(
                   ? parseConflictIssue(entry.value)
                   : parseSchemaProjectionValue(section, entry.value);
   return { identity, value: parsed };
+}
+
+function nodeOwner(value: unknown): ProjectionPage["nodeOwners"][string] {
+  return value === null ? null : nonempty(value, "Owner Node identity");
 }
 
 function node(value: unknown) {
@@ -195,19 +197,19 @@ function occurrence(value: unknown) {
   const item = object(value, "Projected Occurrence");
   exact(
     item,
-    ["occurrenceId", "nodeId", "parentOccurrenceId", "properties", "metadata", "managed"],
+    ["occurrenceId", "nodeId", "parentNodeId", "properties", "metadata", "derived"],
     "Projected Occurrence",
   );
-  if (typeof item.managed !== "boolean") {
-    throw new Error("Occurrence managed flag is invalid");
+  if (typeof item.derived !== "boolean") {
+    throw new Error("Occurrence derived flag is invalid");
   }
   return {
     occurrenceId: nonempty(item.occurrenceId, "Occurrence identity"),
     nodeId: nonempty(item.nodeId, "Node identity"),
-    parentOccurrenceId: nullableString(item.parentOccurrenceId, "Occurrence parent"),
+    parentNodeId: nonempty(item.parentNodeId, "Parent Node identity"),
     properties: jsonRecord(item.properties),
     metadata: jsonRecord(item.metadata),
-    managed: item.managed,
+    derived: item.derived,
   };
 }
 
@@ -236,11 +238,15 @@ function templateNodeInstance(value: unknown) {
     state,
     sources: array(item.sources, "Template Node sources", (sourceValue) => {
       const source = object(sourceValue, "Template Node source");
-      exact(source, ["schemaId", "appliedSchemaId", "templateItemId"], "Template Node source");
+      exact(
+        source,
+        ["schemaId", "appliedSchemaId", "templateOccurrenceId"],
+        "Template Node source",
+      );
       return {
         schemaId: nonempty(source.schemaId, "source Schema"),
         appliedSchemaId: nonempty(source.appliedSchemaId, "applied Schema"),
-        templateItemId: nonempty(source.templateItemId, "Template Item"),
+        templateOccurrenceId: nonempty(source.templateOccurrenceId, "Template Occurrence"),
       };
     }),
     detachmentContributionIds: stringArray(item.detachmentContributionIds),
@@ -249,7 +255,11 @@ function templateNodeInstance(value: unknown) {
 
 function projectionIdentity(value: unknown) {
   const item = object(value, "Projection identity");
-  exact(item, ["generationId", "frontier", "rulesVersion", "schemaVersion"], "Projection identity");
+  exact(
+    item,
+    ["workspaceNodeId", "generationId", "frontier", "rulesVersion", "schemaVersion"],
+    "Projection identity",
+  );
   const frontierValue = object(item.frontier, "Fact frontier");
   for (const [replicaId, sequence] of Object.entries(frontierValue)) {
     if (
@@ -261,6 +271,7 @@ function projectionIdentity(value: unknown) {
     }
   }
   return {
+    workspaceNodeId: nonempty(item.workspaceNodeId, "Workspace Node identity"),
     generationId: nonempty(item.generationId, "generation identity"),
     frontier: frontierValue as FactFrontier,
     rulesVersion: nonempty(item.rulesVersion, "rules version"),

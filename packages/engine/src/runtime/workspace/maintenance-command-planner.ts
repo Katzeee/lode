@@ -1,12 +1,16 @@
 import type { EngineCommand, RejectedResult } from "../../application/contract.js";
-import type { AuthorityReceipt, FactBody, FactSnapshot } from "../../domain/fact/index.js";
+import type { AuthorityReceipt, FactSnapshot, FactWrite } from "../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import { hardDeletePreview, sameHardDeleteSelection } from "./hard-delete.js";
 import { rejectedResult } from "./workspace-results.js";
 
 type MaintenancePlan =
-  Readonly<{ bodies: readonly FactBody[]; lineage: AuthorityReceipt["lineage"] }> | RejectedResult;
+  | Readonly<{
+      writes: readonly FactWrite[];
+      lineage: AuthorityReceipt["lineage"];
+    }>
+  | RejectedResult;
 type MaintenanceCommand = Extract<
   EngineCommand,
   { kind: "acknowledge-deletion" | "retire-replica" | "hard-delete" }
@@ -21,7 +25,7 @@ export function planMaintenanceCommand(
   command: MaintenanceCommand,
   snapshot: FactSnapshot,
   generation: ProjectionGeneration,
-  facts: FactStore,
+  facts: FactAuthority,
 ): MaintenancePlan {
   if (command.kind === "acknowledge-deletion") {
     const preview = hardDeletePreview(
@@ -38,7 +42,7 @@ export function planMaintenanceCommand(
       return blocked("Deletion acknowledgement does not match the current tombstone", generation);
     }
     return {
-      bodies: [
+      writes: [
         {
           kind: "maintenance",
           actorId: command.actorId,
@@ -57,7 +61,7 @@ export function planMaintenanceCommand(
       !Object.hasOwn(snapshot.frontier, command.replicaId)
       ? blocked("Only another known Replica can be retired", generation)
       : {
-          bodies: [
+          writes: [
             {
               kind: "maintenance",
               actorId: command.actorId,
@@ -84,7 +88,7 @@ export function planMaintenanceCommand(
     );
   }
   return {
-    bodies: [
+    writes: [
       {
         kind: "maintenance",
         actorId: command.actorId,

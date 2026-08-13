@@ -13,7 +13,7 @@ import {
 import { deriveActivation } from "../reconcile/support.js";
 import { compensateContentMutation } from "./compensation-content.js";
 import {
-  compensateCanonical,
+  compensateNodeOwner,
   compensateMove,
   compensateNodeCreate,
   compensateNodeDelete,
@@ -163,14 +163,11 @@ function normalizeRepeatedOwners(
     ) {
       mutation = {
         ...lastMutation,
-        previousParentOccurrenceId: firstMutation.previousParentOccurrenceId,
+        previousParentNodeId: firstMutation.previousParentNodeId,
         previousAnchor: firstMutation.previousAnchor,
       };
-    } else if (
-      firstMutation.kind === "canonical-occurrence-set" &&
-      lastMutation.kind === "canonical-occurrence-set"
-    ) {
-      mutation = { ...lastMutation, previousOccurrenceId: firstMutation.previousOccurrenceId };
+    } else if (firstMutation.kind === "node-owner-set" && lastMutation.kind === "node-owner-set") {
+      mutation = { ...lastMutation, previousOwnerNodeId: firstMutation.previousOwnerNodeId };
     }
     result.push({ ...last, body: { ...last.body, mutation } });
   }
@@ -226,7 +223,7 @@ function mutationOwnerKey(mutation: Mutation): string | null {
     return `occurrence-lifecycle/${mutation.occurrenceId}`;
   }
   if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    return `value/${mutation.owner.kind}/${mutation.owner.id}/${mutation.namespace}/${mutation.key}`;
+    return `value/${mutation.target.kind}/${mutation.target.id}/${mutation.namespace}/${mutation.key}`;
   }
   if (mutation.kind === "text-mark") {
     return `mark/${mutation.nodeId}/${mutation.key}/${[...mutation.atomIds].sort().join("|")}`;
@@ -234,8 +231,8 @@ function mutationOwnerKey(mutation: Mutation): string | null {
   if (mutation.kind === "occurrence-move") {
     return `move/${mutation.occurrenceId}`;
   }
-  if (mutation.kind === "canonical-occurrence-set") {
-    return `canonical/${mutation.nodeId}`;
+  if (mutation.kind === "node-owner-set") {
+    return `owner/${mutation.nodeId}`;
   }
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return `schema-application/${mutation.nodeId}/${mutation.schemaId}`;
@@ -278,8 +275,8 @@ function compensateMutation(
       return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
     case "occurrence-move":
       return compensateMove(target, activeFacts, projection);
-    case "canonical-occurrence-set":
-      return compensateCanonical(target, activeFacts, projection);
+    case "node-owner-set":
+      return compensateNodeOwner(target, activeFacts, projection);
     case "schema-apply":
     case "schema-remove":
     case "schema-field-add":

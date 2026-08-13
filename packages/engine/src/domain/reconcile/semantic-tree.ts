@@ -31,7 +31,7 @@ function renderOccurrence(
   next.add(node.nodeId);
   const children = reference
     ? []
-    : (projection.children[occurrenceId] ?? [])
+    : (projection.children[node.nodeId] ?? [])
         .map((childId) => renderOccurrence(projection, childId, next))
         .filter((child): child is SemanticTreeNode => child !== null);
   return {

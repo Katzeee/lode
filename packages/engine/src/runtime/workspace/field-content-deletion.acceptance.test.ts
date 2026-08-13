@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "../../application/contract.js";
-import type { Mutation, ViewMode } from "../../domain/fact/index.js";
+import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import type { EditMutation } from "../../domain/edit/index.js";
+import type { ViewMode } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("instance Field content deletion", () => {
@@ -66,7 +68,7 @@ describe("instance Field content deletion", () => {
       (await mutate(opened, "delete-value-direct", [valueDeletion("value-a-occurrence")])).status,
     ).toBe("published");
     expect(await fieldValues(opened, "origin")).toEqual(["value-b-occurrence"]);
-    expect((await section(opened, "origin", "nodes")).nodes["value-a"]).toBeDefined();
+    expect((await section(opened, "origin", "nodes")).nodes["value-a"]).toBeUndefined();
 
     const history = await opened.workspace.query({
       kind: "history",
@@ -120,7 +122,7 @@ describe("instance Field content deletion", () => {
     ]);
   });
 
-  it("accepts Materialized Field deletion while retaining Nodes and the Effective placeholder", async () => {
+  it("accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder", async () => {
     const documents = new InMemoryDocumentStore();
     const opened = await open(documents, "701");
     expect((await mutate(opened, "setup-field", explicitFieldProgram())).status).toBe("published");
@@ -141,15 +143,17 @@ describe("instance Field content deletion", () => {
     if (!hunk) {
       throw new Error("Expected typed Materialized Field Hunk");
     }
-    expect(hunk.selection.evidence.effects).toMatchObject([
-      {
-        kind: "field-materialization",
-        ownerNodeId: "owner",
-        fieldDefinitionId: "field-definition",
-        originFieldNodeId: "field-node",
-        reviewFieldNodeId: null,
-      },
-    ]);
+    expect(hunk.selection.evidence.effects).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "field-materialization",
+          ownerNodeId: "owner",
+          fieldDefinitionId: "field-definition",
+          originFieldNodeId: "field-node",
+          reviewFieldNodeId: null,
+        }),
+      ]),
+    );
     expect(
       (
         await opened.workspace.execute({
@@ -177,7 +181,7 @@ describe("instance Field content deletion", () => {
     expect(
       (await section(restarted, "origin", "effectiveFields")).effectiveFields.owner,
     ).toBeUndefined();
-    expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeDefined();
+    expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeUndefined();
   });
 
   it("does not regenerate deleted initialized values or initialized Fields", async () => {
@@ -219,7 +223,7 @@ describe("instance Field content deletion", () => {
     ).toBe("published");
     expect(await materializedField(opened, "origin")).toBeUndefined();
     const nodes = (await section(opened, "origin", "nodes")).nodes;
-    expect(nodes[field.fieldNodeId]).toBeDefined();
+    expect(nodes[field.fieldNodeId]).toBeUndefined();
 
     const history = await opened.workspace.query({
       kind: "history",
@@ -247,23 +251,28 @@ describe("instance Field content deletion", () => {
   });
 });
 
-function explicitFieldProgram(): readonly Mutation[] {
+function explicitFieldProgram(): readonly EditMutation[] {
   return [
-    ...["schema", "field-definition", "owner", "field-node", "value-a", "value-b"].map(
-      (nodeId): Mutation => ({ kind: "node-create", nodeId }),
-    ),
-    occurrence("owner-occurrence", "owner", null),
-    occurrence("field-occurrence", "field-node", "owner-occurrence"),
+    nodeAt("owner", "workspace", "owner-occurrence"),
+    nodeAt("schema", "workspace", "schema-original"),
+    nodeAt("field-definition", "workspace", "field-definition-original"),
+    nodeAt("field-node", "owner", "field-occurrence"),
+    nodeAt("value-a", "field-node", "value-a-occurrence"),
+    nodeAt("value-b", "field-node", "value-b-occurrence"),
     {
       kind: "schema-field-add",
       schemaId: "schema",
       fieldDefinitionId: "field-definition",
+      fieldNodeId: "schema-field-definition-template-field",
+      fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
       anchor: end,
     },
     {
       kind: "schema-field-configure",
       schemaId: "schema",
       fieldDefinitionId: "field-definition",
+      fieldNodeId: "schema-field-definition-template-field",
+
       config: { visibility: "normal", staticDefault: null, initializer: null },
     },
     { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
@@ -274,28 +283,28 @@ function explicitFieldProgram(): readonly Mutation[] {
       fieldNodeId: "field-node",
       fieldOccurrenceId: "field-occurrence",
     },
-    occurrence("value-a-occurrence", "value-a", "field-occurrence"),
-    occurrence("value-b-occurrence", "value-b", "field-occurrence"),
   ];
 }
 
-function initializedFieldProgram(): readonly Mutation[] {
+function initializedFieldProgram(): readonly EditMutation[] {
   return [
-    ...["schema", "field-definition", "owner"].map((nodeId): Mutation => ({
-      kind: "node-create",
-      nodeId,
-    })),
-    occurrence("owner-occurrence", "owner", null),
+    nodeAt("owner", "workspace", "owner-occurrence"),
+    nodeAt("schema", "workspace", "schema-original"),
+    nodeAt("field-definition", "workspace", "field-definition-original"),
     {
       kind: "schema-field-add",
       schemaId: "schema",
       fieldDefinitionId: "field-definition",
+      fieldNodeId: "schema-field-definition-template-field",
+      fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
       anchor: end,
     },
     {
       kind: "schema-field-configure",
       schemaId: "schema",
       fieldDefinitionId: "field-definition",
+      fieldNodeId: "schema-field-definition-template-field",
+
       config: {
         visibility: "normal",
         staticDefault: [{ kind: "text", value: "Default" }],
@@ -306,22 +315,17 @@ function initializedFieldProgram(): readonly Mutation[] {
   ];
 }
 
-function occurrence(
-  occurrenceId: string,
-  nodeId: string,
-  parentOccurrenceId: string | null,
-): Mutation {
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditMutation {
   return {
-    kind: "occurrence-create",
+    kind: "node-create",
     occurrenceId,
     nodeId,
-    parentOccurrenceId,
-    parentPolicy: "cascade",
+    parentNodeId,
     anchor: end,
   };
 }
 
-function valueDeletion(valueOccurrenceId: string): Mutation {
+function valueDeletion(valueOccurrenceId: string): EditMutation {
   return {
     kind: "field-value-delete",
     ownerNodeId: "owner",
@@ -330,7 +334,7 @@ function valueDeletion(valueOccurrenceId: string): Mutation {
   };
 }
 
-function materializedFieldDeletion(): Mutation {
+function materializedFieldDeletion(): EditMutation {
   return {
     kind: "materialized-field-delete",
     ownerNodeId: "owner",
@@ -349,9 +353,9 @@ async function expectDeletedFieldState(opened: Opened): Promise<void> {
     materializedFieldNodeId: null,
   });
   const nodes = (await section(opened, "origin", "nodes")).nodes;
-  expect(nodes["field-node"]).toBeDefined();
-  expect(nodes["value-a"]).toBeDefined();
-  expect(nodes["value-b"]).toBeDefined();
+  expect(nodes["field-node"]).toBeUndefined();
+  expect(nodes["value-a"]).toBeUndefined();
+  expect(nodes["value-b"]).toBeUndefined();
 }
 
 async function fieldValues(opened: Opened, view: ViewMode): Promise<readonly string[]> {
@@ -365,7 +369,7 @@ async function materializedField(opened: Opened, view: ViewMode) {
 async function mutate(
   opened: Opened,
   invocationId: string,
-  mutations: readonly Mutation[],
+  mutations: readonly EditMutation[],
   intent: "direct" | "proposal" = "direct",
 ) {
   return opened.workspace.execute({
@@ -382,11 +386,12 @@ async function mutate(
 type Opened = Awaited<ReturnType<typeof open>>;
 
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId: createReplicaId(),
     loroPeerId,
     documents,
+    admitRecords: admitAuthorityRecords,
   });
   return {
     facts,

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../admission/index.js";
 import {
   canonicalDigest,
   canonicalJson,
+  admitAuthorityRecordShapes,
   factId,
   makeFact,
   requestDigest,
@@ -44,7 +44,7 @@ describe("production Fact contracts", () => {
       committedFrontier: { [REPLICA_A]: 1 },
       lineage: null,
     } as const;
-    const admission = admitAuthorityRecords("workspace", [
+    const admission = admitAuthorityRecordShapes("workspace", [
       { recordKind: "fact", fact },
       { recordKind: "receipt", receipt },
     ]);
@@ -73,7 +73,7 @@ describe("production Fact contracts", () => {
         proposalContributionIds: [proposal.id],
       },
     });
-    const admission = admitAuthorityRecords("workspace", [
+    const admission = admitAuthorityRecordShapes("workspace", [
       { recordKind: "fact", fact: proposal },
       { recordKind: "fact", fact: resolution },
     ]);
@@ -88,8 +88,8 @@ describe("production Fact contracts", () => {
 
   it("VER-1 unsupported format schema rules and checkpoints fail closed", () => {
     const supported = contribution(1);
-    const unsupported = { ...supported, schemaVersion: 5 } as unknown as Fact;
-    const admission = admitAuthorityRecords("workspace", [
+    const unsupported = { ...supported, schemaVersion: 7 } as unknown as Fact;
+    const admission = admitAuthorityRecordShapes("workspace", [
       { recordKind: "fact", fact: unsupported },
     ]);
 
@@ -112,10 +112,23 @@ describe("production Fact contracts", () => {
         intent: "direct",
         mutation: {
           kind: "value-set",
-          owner: { kind: "bogus", id: "owner" },
-          namespace: "bogus",
+          target: { kind: "schema", id: "schema" },
+          namespace: "property",
           key: "key",
           value: true,
+          previous: { kind: "unset" },
+        },
+      },
+      {
+        kind: "contribution",
+        actorId: "actor",
+        intent: "direct",
+        mutation: {
+          kind: "value-set",
+          target: { kind: "field", id: "field" },
+          namespace: "schema",
+          key: "visibility",
+          value: "normal",
           previous: { kind: "unset" },
         },
       },
@@ -136,11 +149,13 @@ describe("production Fact contracts", () => {
     for (const body of bodies) {
       const unsigned = { ...unsignedFact(base), body };
       const fact = { ...unsigned, contentDigest: canonicalDigest(unsigned) };
-      expect(admitAuthorityRecords("workspace", [{ recordKind: "fact", fact }]).kind).toBe("fault");
+      expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact }]).kind).toBe(
+        "fault",
+      );
     }
 
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         {
           recordKind: "receipt",
           receipt: {
@@ -170,9 +185,9 @@ describe("production Fact contracts", () => {
       ...forwardUnsigned,
       contentDigest: canonicalDigest(forwardUnsigned),
     };
-    expect(admitAuthorityRecords("workspace", [{ recordKind: "fact", fact: forward }]).kind).toBe(
-      "fault",
-    );
+    expect(
+      admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forward }]).kind,
+    ).toBe("fault");
 
     const forgedUnsigned = {
       ...unsignedFact(base),
@@ -196,12 +211,12 @@ describe("production Fact contracts", () => {
       },
     };
     const forged = { ...forgedUnsigned, contentDigest: canonicalDigest(forgedUnsigned) };
-    expect(admitAuthorityRecords("workspace", [{ recordKind: "fact", fact: forged }]).kind).toBe(
-      "fault",
-    );
+    expect(
+      admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forged }]).kind,
+    ).toBe("fault");
 
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         {
           recordKind: "receipt",
           receipt: {
@@ -214,54 +229,6 @@ describe("production Fact contracts", () => {
             lineage: null,
           },
         },
-      ]).kind,
-    ).toBe("fault");
-  });
-
-  it("Admission validates semantic evidence against the observed projection", () => {
-    const node = contribution(1, {
-      body: {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: { kind: "node-create", nodeId: "node" },
-      },
-    });
-    const inserted = contribution(2, {
-      body: {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "text-splice",
-          nodeId: "node",
-          deleteAtomIds: [],
-          deletedAtoms: [],
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-          insert: "A",
-        },
-      },
-    });
-    const invalidMark = contribution(3, {
-      body: {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "text-mark",
-          nodeId: "node",
-          atomIds: [`${inserted.id}#999`],
-          key: "bold",
-          value: { kind: "set", value: true },
-          previous: { kind: "unset" },
-        },
-      },
-    });
-    expect(
-      admitAuthorityRecords("workspace", [
-        { recordKind: "fact", fact: node },
-        { recordKind: "fact", fact: inserted },
-        { recordKind: "fact", fact: invalidMark },
       ]).kind,
     ).toBe("fault");
   });
@@ -279,7 +246,7 @@ describe("production Fact contracts", () => {
     } as const;
     const factRecord = { recordKind: "fact", fact: first } as const;
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         factRecord,
         {
           recordKind: "receipt",
@@ -291,7 +258,7 @@ describe("production Fact contracts", () => {
       ]).kind,
     ).toBe("fault");
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         {
           recordKind: "receipt",
           receipt: { ...baseReceipt, factIds: [], committedFrontier: {} },
@@ -299,7 +266,7 @@ describe("production Fact contracts", () => {
       ]).kind,
     ).toBe("fault");
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         {
           recordKind: "receipt",
           receipt: {
@@ -311,7 +278,7 @@ describe("production Fact contracts", () => {
       ]).kind,
     ).toBe("fault");
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         factRecord,
         {
           recordKind: "receipt",
@@ -329,7 +296,7 @@ describe("production Fact contracts", () => {
       ]).kind,
     ).toBe("fault");
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         factRecord,
         { recordKind: "receipt", receipt: baseReceipt },
         {
@@ -355,7 +322,7 @@ describe("production Fact contracts", () => {
   it("duplicate records are idempotent and conflicting content faults", () => {
     const original = contribution(1);
     const duplicate: AuthorityRecord = { recordKind: "fact", fact: original };
-    expect(admitAuthorityRecords("workspace", [duplicate, duplicate]).snapshot.facts).toEqual([
+    expect(admitAuthorityRecordShapes("workspace", [duplicate, duplicate]).snapshot.facts).toEqual([
       original,
     ]);
 
@@ -369,7 +336,7 @@ describe("production Fact contracts", () => {
       },
     };
     const altered = { ...alteredUnsigned, contentDigest: canonicalDigest(alteredUnsigned) };
-    const conflicted = admitAuthorityRecords("workspace", [
+    const conflicted = admitAuthorityRecordShapes("workspace", [
       duplicate,
       { recordKind: "fact", fact: altered },
     ]);
@@ -394,7 +361,7 @@ describe("production Fact contracts", () => {
       },
     });
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         { recordKind: "fact", fact: proposal },
         { recordKind: "fact", fact: unseenResolution },
       ]).kind,
@@ -402,7 +369,7 @@ describe("production Fact contracts", () => {
 
     const invalidSecond = contribution(2, { observed: {}, lamport: 1 });
     expect(
-      admitAuthorityRecords("workspace", [
+      admitAuthorityRecordShapes("workspace", [
         { recordKind: "fact", fact: proposal },
         { recordKind: "fact", fact: invalidSecond },
       ]).kind,

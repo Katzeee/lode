@@ -18,13 +18,13 @@ import {
   purgedNodeIds,
 } from "../../domain/reconcile/maintenance-projection.js";
 import { nodeDeletionFactIds } from "../../domain/reconcile/node-lifecycle.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 
 export function hardDeletePreview(
   workspaceId: string,
   nodeId: string,
   snapshot: FactSnapshot,
-  facts: FactStore,
+  facts: FactAuthority,
   generationId: string,
 ): HardDeletePreview {
   const active = activeContributions(snapshot, "origin").facts;

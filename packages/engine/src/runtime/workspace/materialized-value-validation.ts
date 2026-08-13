@@ -1,30 +1,30 @@
 import { canonicalDigest, type ViewMode } from "../../domain/fact/index.js";
 import {
-  OWNER_CACHE_FORMAT,
+  PLAN_CACHE_FORMAT,
   PROJECTION_SECTIONS,
   SHARD_FORMAT,
-  ownerCacheDocumentId,
+  planCacheDocumentId,
   projectionShardKey,
   shardDocumentId,
   type ProjectionSection,
   type ShardDescriptor,
-  type StoredOwnerCaches,
+  type StoredPlanCaches,
   type StoredShard,
 } from "./materialized-generation-format.js";
 import { isSchemaSectionValue } from "./materialized-schema-value-validation.js";
 
-export function isStoredOwnerCaches(
+export function isStoredPlanCaches(
   value: unknown,
   generationId: string,
   contentDigest: string,
-): value is StoredOwnerCaches {
+): value is StoredPlanCaches {
   return (
     hasExactKeys(value, ["format", "generationId", "contentDigest", "value"]) &&
-    value.format === OWNER_CACHE_FORMAT &&
+    value.format === PLAN_CACHE_FORMAT &&
     value.generationId === generationId &&
     value.contentDigest === contentDigest &&
     canonicalDigest(value.value) === contentDigest &&
-    isOwnerCaches(value.value)
+    isPlanCaches(value.value)
   );
 }
 
@@ -77,7 +77,14 @@ export function isShardDescriptor(
 
 export function isProjectionIdentity(value: unknown, generationId: string): boolean {
   if (
-    !hasExactKeys(value, ["generationId", "frontier", "rulesVersion", "schemaVersion"]) ||
+    !hasExactKeys(value, [
+      "workspaceNodeId",
+      "generationId",
+      "frontier",
+      "rulesVersion",
+      "schemaVersion",
+    ]) ||
+    typeof value.workspaceNodeId !== "string" ||
     value.generationId !== generationId ||
     typeof value.rulesVersion !== "string" ||
     typeof value.schemaVersion !== "string" ||
@@ -93,10 +100,10 @@ export function isProjectionIdentity(value: unknown, generationId: string): bool
   );
 }
 
-export function isOwnerCacheDescriptor(value: unknown, generationId: string): boolean {
+export function isPlanCacheDescriptor(value: unknown, generationId: string): boolean {
   return (
     hasExactKeys(value, ["documentId", "contentDigest"]) &&
-    value.documentId === ownerCacheDocumentId(generationId) &&
+    value.documentId === planCacheDocumentId(generationId) &&
     typeof value.contentDigest === "string"
   );
 }
@@ -120,7 +127,7 @@ export function hasExactKeys(
   );
 }
 
-function isOwnerCaches(value: unknown): boolean {
+function isPlanCaches(value: unknown): boolean {
   if (!hasExactKeys(value, ["origin", "review"])) {
     return false;
   }
@@ -163,17 +170,17 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
       hasExactKeys(value, [
         "occurrenceId",
         "nodeId",
-        "parentOccurrenceId",
+        "parentNodeId",
         "properties",
         "metadata",
-        "managed",
+        "derived",
       ]) &&
       value.occurrenceId === identity &&
       typeof value.nodeId === "string" &&
-      (value.parentOccurrenceId === null || typeof value.parentOccurrenceId === "string") &&
+      typeof value.parentNodeId === "string" &&
       isRecord(value.properties) &&
       isRecord(value.metadata) &&
-      typeof value.managed === "boolean"
+      typeof value.derived === "boolean"
     );
   }
   if (
@@ -186,6 +193,7 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
     section === "schemaExtensionConflicts" ||
     section.startsWith("templateNodeInstancesBy") ||
     section === "occurrenceIdsByNode" ||
+    section === "nodeIdsByOwner" ||
     section === "nodeIdsBySchema" ||
     section === "nodeIdsByFieldDefinition" ||
     section === "reviewScopes" ||
@@ -193,8 +201,8 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
   ) {
     return Array.isArray(value) && value.every((item) => typeof item === "string");
   }
-  if (section === "canonicalOccurrences") {
-    return typeof value === "string";
+  if (section === "nodeOwners") {
+    return isNodeOwner(value);
   }
   if (section === "schemaInstanceMemberships") {
     return typeof value === "string";
@@ -202,12 +210,12 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
   if (section === "conflictIssues") {
     return isRecord(value) && value.identity === identity && typeof value.kind === "string";
   }
-  if (section === "definitionStatuses") {
+  if (section === "nodeStatuses") {
     return (
-      hasExactKeys(value, ["definitionId", "kinds", "state", "deletionFactIds"]) &&
-      value.definitionId === identity &&
-      Array.isArray(value.kinds) &&
-      value.kinds.every((kind) => kind === "schema" || kind === "field") &&
+      hasExactKeys(value, ["nodeId", "roles", "state", "deletionFactIds"]) &&
+      value.nodeId === identity &&
+      Array.isArray(value.roles) &&
+      value.roles.every((role) => role === "schema" || role === "field") &&
       (value.state === "active" || value.state === "deleted") &&
       Array.isArray(value.deletionFactIds) &&
       value.deletionFactIds.every((factId) => typeof factId === "string")
@@ -243,6 +251,10 @@ function isSectionValue(section: ProjectionSection, identity: string, value: unk
   return false;
 }
 
+function isNodeOwner(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
 function isTemplateNodeInstance(value: unknown): boolean {
   return (
     hasExactKeys(value, [
@@ -262,7 +274,7 @@ function isTemplateNodeInstance(value: unknown): boolean {
     Array.isArray(value.sources) &&
     value.sources.every(
       (source) =>
-        hasExactKeys(source, ["schemaId", "appliedSchemaId", "templateItemId"]) &&
+        hasExactKeys(source, ["schemaId", "appliedSchemaId", "templateOccurrenceId"]) &&
         Object.values(source).every((item) => typeof item === "string"),
     ) &&
     Array.isArray(value.detachmentContributionIds) &&

@@ -116,15 +116,7 @@ describe("Conflict lifecycle", () => {
   it("surfaces concurrent cross-parent moves and clears them through an observed move", () => {
     const facts = base();
     for (const suffix of ["b", "c"]) {
-      facts.add({ kind: "node-create", nodeId: `parent-${suffix}` });
-      facts.add({
-        kind: "occurrence-create",
-        occurrenceId: `parent-${suffix}-occurrence`,
-        nodeId: `parent-${suffix}`,
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
-        anchor: end,
-      });
+      facts.addPlaced(`parent-${suffix}`, "workspace", `parent-${suffix}-occurrence`);
     }
     const observed = { [REPLICA_A]: facts.values.length };
     const previousAnchor = {
@@ -144,9 +136,9 @@ describe("Conflict lifecycle", () => {
         mutation: {
           kind: "occurrence-move",
           occurrenceId: "occurrence",
-          parentOccurrenceId: "parent-b-occurrence",
+          parentNodeId: "parent-b",
           anchor: end,
-          previousParentOccurrenceId: null,
+          previousParentNodeId: "workspace",
           previousAnchor,
         },
       },
@@ -162,9 +154,9 @@ describe("Conflict lifecycle", () => {
         mutation: {
           kind: "occurrence-move",
           occurrenceId: "occurrence",
-          parentOccurrenceId: "parent-c-occurrence",
+          parentNodeId: "parent-c",
           anchor: end,
-          previousParentOccurrenceId: null,
+          previousParentNodeId: "workspace",
           previousAnchor,
         },
       },
@@ -176,19 +168,20 @@ describe("Conflict lifecycle", () => {
       kind: "placement-conflict",
       occurrenceId: "occurrence",
       candidates: [
-        { contributionId: moveB.id, parentOccurrenceId: "parent-b-occurrence", actorId: "mover-b" },
-        { contributionId: moveC.id, parentOccurrenceId: "parent-c-occurrence", actorId: "mover-c" },
+        { contributionId: moveB.id, parentNodeId: "parent-b", actorId: "mover-b" },
+        { contributionId: moveC.id, parentNodeId: "parent-c", actorId: "mover-c" },
       ],
     });
     if (!issue || issue.kind !== "placement-conflict") {
       throw new Error("Expected Placement Conflict");
     }
-    expect(["parent-b-occurrence", "parent-c-occurrence"]).toContain(
-      issue.canonicalParentOccurrenceId,
-    );
+    expect(["parent-b", "parent-c"]).toContain(issue.canonicalParentNodeId);
 
-    const currentParent = generation.origin.occurrences.occurrence?.parentOccurrenceId ?? null;
-    const siblings = generation.origin.children[currentParent ?? "$root"] ?? [];
+    const currentParent = generation.origin.occurrences.occurrence?.parentNodeId;
+    if (!currentParent) {
+      throw new Error("Expected occurrence to have a parent Node");
+    }
+    const siblings = generation.origin.children[currentParent] ?? [];
     const index = siblings.indexOf("occurrence");
     const resolution = remoteFact({
       replicaId: REPLICA_D,
@@ -201,9 +194,9 @@ describe("Conflict lifecycle", () => {
         mutation: {
           kind: "occurrence-move",
           occurrenceId: "occurrence",
-          parentOccurrenceId: "parent-b-occurrence",
+          parentNodeId: "parent-b",
           anchor: end,
-          previousParentOccurrenceId: currentParent,
+          previousParentNodeId: currentParent,
           previousAnchor: {
             after: siblings[index - 1] ?? null,
             before: siblings[index + 1] ?? null,
@@ -218,31 +211,15 @@ describe("Conflict lifecycle", () => {
       frontier: frontierOf([...conflicted.facts, resolution]),
     });
     const terminal = rebuildGeneration("workspace", resolved, versions).generation;
-    expect(terminal.origin.occurrences.occurrence?.parentOccurrenceId).toBe("parent-b-occurrence");
+    expect(terminal.origin.occurrences.occurrence?.parentNodeId).toBe("parent-b");
     expect(queryConflicts(resolved, terminal).issues).toEqual([]);
   });
 
   it("keeps concurrent same-parent reorders as a convergent sequence choice", () => {
     const facts = base();
-    facts.add({ kind: "node-create", nodeId: "parent" });
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "parent-occurrence",
-      nodeId: "parent",
-      parentOccurrenceId: null,
-      parentPolicy: "cascade",
-      anchor: end,
-    });
+    facts.addPlaced("parent", "workspace", "parent-occurrence");
     for (const identity of ["left", "right"]) {
-      facts.add({ kind: "node-create", nodeId: identity });
-      facts.add({
-        kind: "occurrence-create",
-        occurrenceId: identity,
-        nodeId: identity,
-        parentOccurrenceId: "parent-occurrence",
-        parentPolicy: "cascade",
-        anchor: end,
-      });
+      facts.addPlaced(identity, "parent", identity);
     }
     const observed = { [REPLICA_A]: facts.values.length };
     const move = (replicaId: string, anchor: SequenceAnchor) =>
@@ -257,9 +234,9 @@ describe("Conflict lifecycle", () => {
           mutation: {
             kind: "occurrence-move",
             occurrenceId: "occurrence",
-            parentOccurrenceId: "parent-occurrence",
+            parentNodeId: "parent",
             anchor,
-            previousParentOccurrenceId: null,
+            previousParentNodeId: "workspace",
             previousAnchor: {
               after: null,
               before: "parent-occurrence",
@@ -276,8 +253,8 @@ describe("Conflict lifecycle", () => {
       ]),
     );
     const generation = rebuildGeneration("workspace", snapshot, versions).generation;
-    expect(generation.origin.occurrences.occurrence?.parentOccurrenceId).toBe("parent-occurrence");
-    expect(generation.origin.children["parent-occurrence"]).toContain("occurrence");
+    expect(generation.origin.occurrences.occurrence?.parentNodeId).toBe("parent");
+    expect(generation.origin.children.parent).toContain("occurrence");
     expect(queryConflicts(snapshot, generation).issues).toEqual([]);
   });
 });

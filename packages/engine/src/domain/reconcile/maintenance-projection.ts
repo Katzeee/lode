@@ -57,6 +57,6 @@ export function mutationReferencesNode(mutation: Mutation, nodeId: string): bool
   }
   return (
     (mutation.kind === "value-set" || mutation.kind === "value-unset") &&
-    mutation.owner.id === nodeId
+    mutation.target.id === nodeId
   );
 }

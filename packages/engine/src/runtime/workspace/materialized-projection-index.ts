@@ -4,6 +4,7 @@ import type { Projection } from "../../domain/reconcile/index.js";
 export type ProjectionIndexEntry = Readonly<{
   section:
     | "occurrenceIdsByNode"
+    | "nodeIdsByOwner"
     | "nodeIdsBySchema"
     | "nodeIdsByFieldDefinition"
     | "schemaInstanceMemberships"
@@ -15,6 +16,19 @@ export type ProjectionIndexEntry = Readonly<{
   identity: string;
   value: readonly string[] | string;
 }>;
+
+export function isProjectionIndexSection(
+  section: string,
+): section is ProjectionIndexEntry["section"] {
+  return (
+    section === "occurrenceIdsByNode" ||
+    section === "nodeIdsByOwner" ||
+    section === "nodeIdsBySchema" ||
+    section === "nodeIdsByFieldDefinition" ||
+    section === "schemaInstanceMemberships" ||
+    section.startsWith("templateNodeInstancesBy")
+  );
+}
 
 export function projectionIndexEntries(projection: Projection): readonly ProjectionIndexEntry[] {
   const indexes = new Map<
@@ -33,6 +47,11 @@ export function projectionIndexEntries(projection: Projection): readonly Project
   };
   for (const occurrence of Object.values(projection.occurrences)) {
     add("occurrenceIdsByNode", occurrence.nodeId, occurrence.occurrenceId);
+  }
+  for (const [nodeId, ownerNodeId] of Object.entries(projection.nodeOwners)) {
+    if (ownerNodeId !== null) {
+      add("nodeIdsByOwner", ownerNodeId, nodeId);
+    }
   }
   for (const [nodeId, schemaIds] of Object.entries(projection.schemaApplications)) {
     for (const [searchSchemaId, memberSchemaIds] of Object.entries(

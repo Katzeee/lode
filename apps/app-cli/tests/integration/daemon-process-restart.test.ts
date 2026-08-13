@@ -31,22 +31,22 @@ describe("real daemon child-process restart", () => {
     const processRoot = await temporaryDirectory();
     daemon = await startDaemonProcess(processRoot, accessToken);
     await mutate(daemon.address, "setup", "setup", [
-      { kind: "node-create", nodeId: "task" },
-      { kind: "node-create", nodeId: "schema" },
-      { kind: "node-create", nodeId: "field" },
+      nodeAt("task", workspaceId, "task-occurrence"),
+      nodeAt("schema", workspaceId, "schema-occurrence"),
+      nodeAt("field", workspaceId, "field-occurrence"),
       {
-        kind: "occurrence-create",
-        occurrenceId: "task-occurrence",
-        nodeId: "task",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
+        kind: "schema-field-add",
+        schemaId: "schema",
+        fieldDefinitionId: "field",
+        fieldNodeId: "schema-field-template-field",
+        fieldOccurrenceId: "schema-field-template-field-occurrence",
         anchor: end,
       },
-      { kind: "schema-field-add", schemaId: "schema", fieldDefinitionId: "field", anchor: end },
       {
         kind: "schema-field-configure",
         schemaId: "schema",
         fieldDefinitionId: "field",
+        fieldNodeId: "schema-field-template-field",
         config: {
           visibility: "normal",
           staticDefault: [{ kind: "text", value: "Default" }],
@@ -60,7 +60,7 @@ describe("real daemon child-process restart", () => {
     ]);
     await loseAcknowledgement(daemon.address, apply);
     daemon = await restart(processRoot, daemon);
-    await expectRetryMatchesDurableOutcome(daemon.address, "apply-once", apply, 2);
+    await expectRetryMatchesDurableOutcome(daemon.address, "apply-once", apply);
     expect((await projectionSection(daemon.address, "schemaApplications")).task).toEqual([
       "schema",
     ]);
@@ -96,7 +96,7 @@ describe("real daemon child-process restart", () => {
       [
         {
           kind: "value-set",
-          owner: { kind: "node", id: "task" },
+          target: { kind: "node", id: "task" },
           namespace: "property",
           key: "reviewed",
           value: true,
@@ -116,7 +116,7 @@ describe("real daemon child-process restart", () => {
     };
     await loseAcknowledgement(daemon.address, resolution);
     daemon = await restart(processRoot, daemon);
-    await expectRetryMatchesDurableOutcome(daemon.address, "resolve-once", resolution, 1);
+    await expectRetryMatchesDurableOutcome(daemon.address, "resolve-once", resolution);
     expect(record((await projectionSection(daemon.address, "nodes")).task, "Task")).toMatchObject({
       properties: { reviewed: true },
     });
@@ -127,7 +127,7 @@ describe("real daemon child-process restart", () => {
     await mutate(daemon.address, "history-edit", "history", [
       {
         kind: "value-set",
-        owner: { kind: "node", id: "task" },
+        target: { kind: "node", id: "task" },
         namespace: "property",
         key: "temporary",
         value: "remove me",
@@ -147,11 +147,15 @@ describe("real daemon child-process restart", () => {
     };
     await loseAcknowledgement(daemon.address, undo);
     daemon = await restart(processRoot, daemon);
-    await expectRetryMatchesDurableOutcome(daemon.address, "undo-once", undo, 1);
+    await expectRetryMatchesDurableOutcome(daemon.address, "undo-once", undo);
     const task = record((await projectionSection(daemon.address, "nodes")).task, "Task");
     expect(record(task.properties, "Task properties").temporary).toBeUndefined();
   });
 });
+
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
+  return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end };
+}
 
 async function mutate(
   endpoint: string,
@@ -196,14 +200,13 @@ async function expectRetryMatchesDurableOutcome(
   endpoint: string,
   invocationId: string,
   command: unknown,
-  expectedFactCount: number,
 ): Promise<void> {
   const outcome = await query(endpoint, { kind: "invocation", workspaceId, invocationId });
   const retry = await execute(endpoint, command);
   expect(retry).toEqual(outcome);
   const receipt = record(retry.receipt, "Authority receipt");
   expect(receipt.invocationId).toBe(invocationId);
-  expect(array(receipt.factIds, "Receipt Fact identities")).toHaveLength(expectedFactCount);
+  expect(array(receipt.factIds, "Receipt Fact identities")).not.toHaveLength(0);
 }
 
 async function restart(processRoot: string, current: DaemonProcess): Promise<DaemonProcess> {

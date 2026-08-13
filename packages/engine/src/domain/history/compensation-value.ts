@@ -5,7 +5,7 @@ import {
   type JsonValue,
   type Mutation,
 } from "../fact/index.js";
-import { valueOwnerAddress, type Projection } from "../reconcile/index.js";
+import { valueTargetAddress, type Projection } from "../reconcile/index.js";
 import { noCompensation, valueState, type CompensationStep } from "./compensation-types.js";
 
 export function compensateValueMutation(
@@ -28,7 +28,7 @@ export function compensateValueMutation(
   const targetStillVisible =
     mutation.kind === "value-set"
       ? current.present && canonicalJson(current.value) === canonicalJson(mutation.value)
-      : !current.present && valueOwnerExists(projection, mutation);
+      : !current.present && valueTargetExists(projection, mutation);
   if (!targetStillVisible) {
     return noCompensation();
   }
@@ -38,7 +38,7 @@ export function compensateValueMutation(
       mutation.previous.kind === "unset"
         ? {
             kind: "value-unset",
-            owner: mutation.owner,
+            target: mutation.target,
             namespace: mutation.namespace,
             key: mutation.key,
             previous:
@@ -65,8 +65,8 @@ function hasLaterWinner(target: ContributionFact, activeFacts: readonly Contribu
     return (
       compareFacts(target, fact) < 0 &&
       (candidate.kind === "value-set" || candidate.kind === "value-unset") &&
-      candidate.owner.kind === mutation.owner.kind &&
-      candidate.owner.id === mutation.owner.id &&
+      candidate.target.kind === mutation.target.kind &&
+      candidate.target.id === mutation.target.id &&
       candidate.namespace === mutation.namespace &&
       candidate.key === mutation.key
     );
@@ -77,35 +77,35 @@ function readValue(
   projection: Projection,
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
 ): Readonly<{ present: boolean; value?: JsonValue }> {
-  if (mutation.owner.kind === "node") {
-    const node = projection.nodes[mutation.owner.id];
+  if (mutation.target.kind === "node") {
+    const node = projection.nodes[mutation.target.id];
     return valueState(
       mutation.namespace === "metadata" ? node?.metadata : node?.properties,
       mutation.key,
     );
   }
-  if (mutation.owner.kind === "occurrence") {
-    const occurrence = projection.occurrences[mutation.owner.id];
+  if (mutation.target.kind === "occurrence") {
+    const occurrence = projection.occurrences[mutation.target.id];
     return valueState(
       mutation.namespace === "metadata" ? occurrence?.metadata : occurrence?.properties,
       mutation.key,
     );
   }
   return valueState(
-    projection.addressedValues[valueOwnerAddress(mutation.owner, mutation.namespace)],
+    projection.addressedValues[valueTargetAddress(mutation.target, mutation.namespace)],
     mutation.key,
   );
 }
 
-function valueOwnerExists(
+function valueTargetExists(
   projection: Projection,
   mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
 ): boolean {
-  if (mutation.owner.kind === "node") {
-    return projection.nodes[mutation.owner.id] !== undefined;
+  if (mutation.target.kind === "node") {
+    return projection.nodes[mutation.target.id] !== undefined;
   }
-  if (mutation.owner.kind === "occurrence") {
-    return projection.occurrences[mutation.owner.id] !== undefined;
+  if (mutation.target.kind === "occurrence") {
+    return projection.occurrences[mutation.target.id] !== undefined;
   }
   return true;
 }

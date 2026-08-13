@@ -52,17 +52,13 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   if (kind === "value") {
     exact(
       effect,
-      ["kind", "ownerKind", "ownerId", "namespace", "key", "origin", "review"],
+      ["kind", "targetKind", "targetId", "namespace", "key", "origin", "review"],
       "value Decision effect",
     );
     return {
       kind,
-      ownerKind: oneOf(
-        effect.ownerKind,
-        ["node", "occurrence", "schema", "field"] as const,
-        "value owner kind",
-      ),
-      ownerId: nonempty(effect.ownerId, "value owner identity"),
+      targetKind: oneOf(effect.targetKind, ["node", "occurrence"] as const, "value target kind"),
+      targetId: nonempty(effect.targetId, "value target identity"),
       namespace: oneOf(
         effect.namespace,
         ["property", "metadata", "schema"] as const,
@@ -82,7 +78,7 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   if (kind === "field-configuration") {
     return fieldConfigurationEffect(effect);
   }
-  if (kind === "lifecycle" || kind === "canonical") {
+  if (kind === "lifecycle" || kind === "owner") {
     exact(effect, ["kind", "identity", "origin", "review"], `${kind} Decision effect`);
     return {
       kind,

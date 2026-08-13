@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { HardDeletePreview, MutationCommand } from "../../application/contract.js";
+import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { createReplicaId, LoroFactStore } from "../authority/loro-fact-store.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../sync/sync-exchange.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-1", schemaVersion: "lode-schema-12" } as const;
+const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Hard Delete maintenance", () => {
@@ -54,7 +55,7 @@ describe("Hard Delete maintenance", () => {
       (
         await opened.workspace.execute({
           ...command("advance-unrelated"),
-          mutations: [{ kind: "node-create", nodeId: "unrelated" }],
+          mutations: nodeAtWorkspace("unrelated"),
         })
       ).status,
     ).toBe("published");
@@ -86,14 +87,12 @@ describe("Hard Delete maintenance", () => {
         selection: preview.selection,
       }),
     ).toEqual(purged);
-    expect(await projectionMap(opened.workspace, "definitionStatuses")).not.toHaveProperty(
-      "task-schema",
-    );
+    expect(await projectionMap(opened.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
     expect(await projectionMap(opened.workspace, "schemaApplications")).not.toHaveProperty("task");
 
     await opened.workspace.close();
     const restarted = await open(documents, "202", opened.facts.replicaId);
-    expect(await projectionMap(restarted.workspace, "definitionStatuses")).not.toHaveProperty(
+    expect(await projectionMap(restarted.workspace, "nodeStatuses")).not.toHaveProperty(
       "task-schema",
     );
     const restartedPreview = await previewHardDelete(restarted.workspace);
@@ -114,7 +113,7 @@ describe("Hard Delete maintenance", () => {
           mutations: [
             {
               kind: "value-set",
-              owner: { kind: "node", id: "task-schema" },
+              target: { kind: "node", id: "task-schema" },
               namespace: "metadata",
               key: "color",
               value: "red",
@@ -142,17 +141,23 @@ describe("Hard Delete maintenance", () => {
       throw new Error("Expected multi-Replica tombstone");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
-    await syncPair(new FactSyncComposite(left.facts), new FactSyncComposite(right.facts));
+    await syncPair(
+      new FactSyncComposite(left.facts.replication),
+      new FactSyncComposite(right.facts.replication),
+    );
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
         await right.workspace.execute({
           ...command("right-presence"),
-          mutations: [{ kind: "node-create", nodeId: "right-node" }],
+          mutations: nodeAtWorkspace("right-node"),
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactSyncComposite(right.facts), new FactSyncComposite(left.facts));
+    await syncPair(
+      new FactSyncComposite(right.facts.replication),
+      new FactSyncComposite(left.facts.replication),
+    );
     await left.workspace.reconcileAuthorityAdvance();
 
     await acknowledge(left.workspace, "left-ack", deletionFactIds);
@@ -163,7 +168,10 @@ describe("Hard Delete maintenance", () => {
     expect(preview.blockers).toContain("replica-unconfirmed");
 
     await acknowledge(right.workspace, "right-ack", deletionFactIds);
-    await syncPair(new FactSyncComposite(right.facts), new FactSyncComposite(left.facts));
+    await syncPair(
+      new FactSyncComposite(right.facts.replication),
+      new FactSyncComposite(left.facts.replication),
+    );
     await left.workspace.reconcileAuthorityAdvance();
     preview = await previewHardDelete(left.workspace);
     expect(preview.acknowledgedReplicaIds).toEqual(
@@ -181,11 +189,12 @@ describe("Hard Delete maintenance", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactSyncComposite(left.facts), new FactSyncComposite(right.facts));
-    await right.workspace.reconcileAuthorityAdvance();
-    expect(await projectionMap(right.workspace, "definitionStatuses")).not.toHaveProperty(
-      "task-schema",
+    await syncPair(
+      new FactSyncComposite(left.facts.replication),
+      new FactSyncComposite(right.facts.replication),
     );
+    await right.workspace.reconcileAuthorityAdvance();
+    expect(await projectionMap(right.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
   });
 
   it("requires explicit retirement before an unavailable known Replica stops blocking purge", async () => {
@@ -197,17 +206,23 @@ describe("Hard Delete maintenance", () => {
       throw new Error("Expected retirement fixture tombstone");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
-    await syncPair(new FactSyncComposite(left.facts), new FactSyncComposite(right.facts));
+    await syncPair(
+      new FactSyncComposite(left.facts.replication),
+      new FactSyncComposite(right.facts.replication),
+    );
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
         await right.workspace.execute({
           ...command("retiring-replica-presence"),
-          mutations: [{ kind: "node-create", nodeId: "retiring-replica-node" }],
+          mutations: nodeAtWorkspace("retiring-replica-node"),
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactSyncComposite(right.facts), new FactSyncComposite(left.facts));
+    await syncPair(
+      new FactSyncComposite(right.facts.replication),
+      new FactSyncComposite(left.facts.replication),
+    );
     await left.workspace.reconcileAuthorityAdvance();
     await acknowledge(left.workspace, "retirement-left-ack", deletionFactIds);
     expect((await previewHardDelete(left.workspace)).blockers).toContain("replica-unconfirmed");
@@ -235,11 +250,12 @@ async function open(
   peer: `${number}`,
   replicaId = createReplicaId(),
 ) {
-  const facts = await LoroFactStore.open({
+  const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId,
     loroPeerId: peer,
     documents,
+    admitRecords: admitAuthorityRecords,
   });
   return {
     facts,
@@ -255,7 +271,7 @@ function command(invocationId: string, intent: "direct" | "proposal" = "direct")
     actorId: "actor",
     intent,
     historyChannelId: "maintenance-test",
-    mutations: [{ kind: "node-create", nodeId: invocationId }],
+    mutations: nodeAtWorkspace(invocationId),
   };
 }
 
@@ -263,19 +279,35 @@ function setupCommand(): MutationCommand {
   return {
     ...command("hard-delete-setup"),
     mutations: [
-      { kind: "node-create", nodeId: "task-schema" },
-      { kind: "node-create", nodeId: "task" },
       {
-        kind: "occurrence-create",
+        kind: "node-create",
         occurrenceId: "schema-reference",
         nodeId: "task-schema",
-        parentOccurrenceId: null,
-        parentPolicy: "cascade",
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+      {
+        kind: "node-create",
+        occurrenceId: "task-original",
+        nodeId: "task",
+        parentNodeId: "workspace",
         anchor: end,
       },
       { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
     ],
   };
+}
+
+function nodeAtWorkspace(nodeId: string) {
+  return [
+    {
+      kind: "node-create" as const,
+      occurrenceId: `${nodeId}-original`,
+      nodeId,
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+  ];
 }
 
 function deleteSchemaCommand(invocationId: string): MutationCommand {
@@ -315,7 +347,7 @@ async function acknowledge(
 
 async function projectionMap(
   workspace: ProposalWorkspace,
-  section: "definitionStatuses" | "schemaApplications",
+  section: "nodeStatuses" | "schemaApplications",
 ) {
   const result = await workspace.query({
     kind: "projection",

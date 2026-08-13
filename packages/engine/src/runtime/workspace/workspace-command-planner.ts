@@ -1,17 +1,28 @@
 import type { EngineCommand, RejectedResult } from "../../application/contract.js";
-import type { AuthorityReceipt, FactBody, FactSnapshot } from "../../domain/fact/index.js";
+import type {
+  ActorId,
+  AuthorityReceipt,
+  EditIntent,
+  FactSnapshot,
+  FactWrite,
+} from "../../domain/fact/index.js";
+import type { MutationWrite } from "../../domain/edit/index.js";
 import { nextHistoryLineage, validateHistorySelection } from "../../domain/history/index.js";
 import type { HistoryPlanningObserver } from "../../domain/history/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import { validateReviewSelection } from "../../domain/review/index.js";
 import { resolutionAdjudicationProblem } from "../../domain/conflict/index.js";
-import { prepareMutations } from "./mutation-planner.js";
+import { prepareEdits } from "./mutation-planner.js";
 import { rejectedResult } from "./workspace-results.js";
-import type { FactStore } from "../authority/fact-store.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import { isMaintenanceCommand, planMaintenanceCommand } from "./maintenance-command-planner.js";
 
 export type WorkspaceCommandPlan =
-  Readonly<{ bodies: readonly FactBody[]; lineage: AuthorityReceipt["lineage"] }> | RejectedResult;
+  | Readonly<{
+      writes: readonly FactWrite[];
+      lineage: AuthorityReceipt["lineage"];
+    }>
+  | RejectedResult;
 
 export function planWorkspaceCommand(
   workspaceId: string,
@@ -19,7 +30,7 @@ export function planWorkspaceCommand(
   snapshot: FactSnapshot,
   generation: ProjectionGeneration,
   receipts: readonly AuthorityReceipt[],
-  facts: FactStore,
+  facts: FactAuthority,
   reviewCapabilityKey?: string,
   historyPlanningObserver?: HistoryPlanningObserver,
 ): WorkspaceCommandPlan {
@@ -27,7 +38,7 @@ export function planWorkspaceCommand(
     return planMaintenanceCommand(workspaceId, command, snapshot, generation, facts);
   }
   if (command.kind === "mutate") {
-    const mutations = prepareMutations(
+    const writes = prepareEdits(
       workspaceId,
       command.mutations,
       generation,
@@ -35,12 +46,7 @@ export function planWorkspaceCommand(
       snapshot,
     );
     return {
-      bodies: mutations.map((mutation) => ({
-        kind: "contribution",
-        actorId: command.actorId,
-        intent: command.intent,
-        mutation,
-      })),
+      writes: writes.map((write) => contributionWrite(write, command.actorId, command.intent)),
       lineage: nextHistoryLineage(receipts, command.historyChannelId, "normal", null),
     };
   }
@@ -55,7 +61,7 @@ export function planWorkspaceCommand(
       reviewCapabilityKey,
     );
     return validation.kind === "valid"
-      ? { bodies: [validation.resolution], lineage: null }
+      ? { writes: [validation.resolution], lineage: null }
       : rejectedResult("stale-selection", validation.reason, generation.identity.generationId);
   }
   if (command.kind === "adjudicate-resolution") {
@@ -67,7 +73,7 @@ export function planWorkspaceCommand(
     return problem
       ? rejectedResult("stale-selection", problem, generation.identity.generationId)
       : {
-          bodies: [
+          writes: [
             {
               kind: "resolution",
               actorId: command.actorId,
@@ -95,7 +101,7 @@ export function planWorkspaceCommand(
     );
   }
   return {
-    bodies: validation.bodies,
+    writes: [validation.write],
     lineage: nextHistoryLineage(
       receipts,
       command.selection.channelId,
@@ -103,4 +109,14 @@ export function planWorkspaceCommand(
       validation.targetInvocationId,
     ),
   };
+}
+
+function contributionWrite(write: MutationWrite, actorId: ActorId, intent: EditIntent): FactWrite {
+  if (write.kind === "single") {
+    return { kind: "contribution", actorId, intent, mutation: write.mutation };
+  }
+  const [first, ...rest] = write.mutations;
+  const body = (mutation: typeof first) =>
+    ({ kind: "contribution", actorId, intent, mutation }) as const;
+  return { kind: "transaction", bodies: [body(first), ...rest.map(body)] };
 }

@@ -5,10 +5,10 @@ import {
   type Fact,
   type FactSnapshot,
 } from "../fact/index.js";
-import type { OwnerKey } from "./owner-dag.js";
+import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { advanceDirectProjection } from "./incremental-projection.js";
-import { PROJECTION_OWNER_DAG, type ProjectionOwnerObserver } from "./projection-owner-plan.js";
-import { projectWithOwnerPlan } from "./projection-owner-api.js";
+import { PROJECTION_PLAN, type ProjectionStageObserver } from "./projection-plan.js";
+import { projectWithPlan } from "./projection-plan-api.js";
 import {
   assertSupportedProjectionVersions,
   type ProjectionGeneration,
@@ -16,7 +16,7 @@ import {
 } from "./projection-types.js";
 
 export type ReconcileStats = Readonly<{
-  evaluatedOwners: readonly OwnerKey[];
+  evaluatedStages: readonly ProjectionStageKey[];
   supportPasses: number;
 }>;
 
@@ -25,7 +25,7 @@ export type ReconcileResult = Readonly<{
   stats: ReconcileStats;
 }>;
 
-export type ReconcileOptions = Readonly<{ ownerObserver?: ProjectionOwnerObserver }>;
+export type ReconcileOptions = Readonly<{ stageObserver?: ProjectionStageObserver }>;
 
 export function rebuildGeneration(
   workspaceId: string,
@@ -34,20 +34,8 @@ export function rebuildGeneration(
   options: ReconcileOptions = {},
 ): ReconcileResult {
   assertSupportedProjectionVersions(versions);
-  const origin = projectWithOwnerPlan(
-    workspaceId,
-    snapshot,
-    "origin",
-    versions,
-    options.ownerObserver,
-  );
-  const review = projectWithOwnerPlan(
-    workspaceId,
-    snapshot,
-    "review",
-    versions,
-    options.ownerObserver,
-  );
+  const origin = projectWithPlan(workspaceId, snapshot, "origin", versions, options.stageObserver);
+  const review = projectWithPlan(workspaceId, snapshot, "review", versions, options.stageObserver);
   if (
     origin.projection.identity.generationId !== review.projection.identity.generationId ||
     !frontierEquals(origin.projection.identity.frontier, review.projection.identity.frontier)
@@ -59,11 +47,11 @@ export function rebuildGeneration(
       identity: origin.projection.identity,
       origin: origin.projection,
       review: review.projection,
-      ownerCaches: { origin: origin.ownerCache, review: review.ownerCache },
+      planCaches: { origin: origin.planCache, review: review.planCache },
     },
     stats: {
-      evaluatedOwners: PROJECTION_OWNER_DAG.ordered.map((owner) => owner.key),
-      supportPasses: Math.max(origin.ownerCache.supportPasses, review.ownerCache.supportPasses),
+      evaluatedStages: PROJECTION_PLAN.ordered.map((stage) => stage.key),
+      supportPasses: Math.max(origin.planCache.supportPasses, review.planCache.supportPasses),
     },
   };
 }
@@ -82,10 +70,10 @@ export function advanceGeneration(
   }
   const previousIds = new Set(previousSnapshot.facts.map((fact) => fact.id));
   const changed = nextSnapshot.facts.filter((fact) => !previousIds.has(fact.id));
-  const invalidated = invalidatedOwners(changed);
-  const selectedOwners = new Set(PROJECTION_OWNER_DAG.downstream(invalidated));
+  const invalidated = invalidatedStages(changed);
+  const selectedStages = new Set(PROJECTION_PLAN.downstream(invalidated));
   if (changed.some((fact) => fact.body.kind === "contribution")) {
-    selectedOwners.add("activation");
+    selectedStages.add("activation");
   }
   if (
     previousGeneration &&
@@ -96,22 +84,22 @@ export function advanceGeneration(
     const origin = advanceDirectProjection(
       workspaceId,
       previousGeneration.origin,
-      previousGeneration.ownerCaches.origin,
+      previousGeneration.planCaches.origin,
       nextSnapshot,
       changed,
       versions,
-      selectedOwners,
-      options.ownerObserver,
+      selectedStages,
+      options.stageObserver,
     );
     const review = advanceDirectProjection(
       workspaceId,
       previousGeneration.review,
-      previousGeneration.ownerCaches.review,
+      previousGeneration.planCaches.review,
       nextSnapshot,
       changed,
       versions,
-      selectedOwners,
-      options.ownerObserver,
+      selectedStages,
+      options.stageObserver,
     );
     if (origin && review) {
       return {
@@ -119,9 +107,9 @@ export function advanceGeneration(
           identity: origin.projection.identity,
           origin: origin.projection,
           review: review.projection,
-          ownerCaches: { origin: origin.ownerCache, review: review.ownerCache },
+          planCaches: { origin: origin.planCache, review: review.planCache },
         },
-        stats: { evaluatedOwners: origin.evaluatedOwners, supportPasses: 0 },
+        stats: { evaluatedStages: origin.evaluatedStages, supportPasses: 0 },
       };
     }
   }
@@ -149,18 +137,18 @@ export function snapshotAtFrontier(
   };
 }
 
-function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
-  const owners = new Set<OwnerKey>();
+function invalidatedStages(facts: readonly Fact[]): ReadonlySet<ProjectionStageKey> {
+  const stages = new Set<ProjectionStageKey>();
   for (const fact of facts) {
     if (fact.body.kind === "maintenance" || fact.body.kind === "resolution") {
-      for (const owner of PROJECTION_OWNER_DAG.ordered) {
-        owners.add(owner.key);
+      for (const stage of PROJECTION_PLAN.ordered) {
+        stages.add(stage.key);
       }
       continue;
     }
     if (fact.body.intent === "proposal") {
-      for (const owner of PROJECTION_OWNER_DAG.ordered) {
-        owners.add(owner.key);
+      for (const stage of PROJECTION_PLAN.ordered) {
+        stages.add(stage.key);
       }
       continue;
     }
@@ -168,7 +156,10 @@ function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
       case "node-create":
       case "node-delete":
       case "node-restore":
-        owners.add("node");
+      case "schema-field-add":
+      case "template-node-detach":
+      case "field-initialize":
+        stages.add("node");
         break;
       case "occurrence-create":
       case "occurrence-delete":
@@ -176,34 +167,31 @@ function invalidatedOwners(facts: readonly Fact[]): ReadonlySet<OwnerKey> {
       case "occurrence-move":
       case "field-value-delete":
       case "materialized-field-delete":
-        owners.add("occurrence");
+      case "schema-field-remove":
+      case "schema-template-node-add":
+      case "schema-template-node-remove":
+        stages.add("occurrence");
         break;
       case "text-splice":
       case "text-mark":
-        owners.add("text");
+        stages.add("text");
         break;
       case "value-set":
       case "value-unset":
-        owners.add("value");
+        stages.add("value");
         break;
       case "schema-apply":
       case "schema-remove":
-      case "schema-field-add":
-      case "schema-field-remove":
       case "schema-field-configure":
       case "schema-extension-add":
       case "schema-extension-remove":
-      case "schema-template-node-add":
-      case "schema-template-node-remove":
-      case "template-node-detach":
       case "field-materialize":
-      case "field-initialize":
-        owners.add("schema");
+        stages.add("schema");
         break;
-      case "canonical-occurrence-set":
-        owners.add("canonical");
+      case "node-owner-set":
+        stages.add("owner");
         break;
     }
   }
-  return owners;
+  return stages;
 }

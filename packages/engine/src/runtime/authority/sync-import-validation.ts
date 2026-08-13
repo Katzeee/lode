@@ -5,7 +5,7 @@ import {
 } from "../../domain/fact/index.js";
 import type { LoroDoc } from "loro-crdt";
 import { syncProjectionFacts } from "./fact-sync-projection.js";
-import type { AuthorityAdmissionPolicy } from "./fact-store.js";
+import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 
 export type SyncImportValidation =
   | Readonly<{ kind: "ready"; records: readonly AuthorityRecord[] }>
