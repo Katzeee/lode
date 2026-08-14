@@ -1,30 +1,5 @@
-import { canonicalJson, stableStringCompare, type FactSnapshot } from "../fact/index.js";
-import type { ProjectionGeneration } from "../reconcile/index.js";
-import { deriveActivation } from "../reconcile/support.js";
-import type { ConflictQuery } from "./types.js";
-
-export function queryConflicts(
-  snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
-  after: string | null = null,
-  limit = 50,
-): ConflictQuery {
-  const issues = Object.values(generation.review.conflictIssues);
-  const boundedLimit = Math.min(Math.max(limit, 1), 100);
-  const page = issues
-    .filter((issue) => after === null || stableStringCompare(issue.identity, after) > 0)
-    .slice(0, boundedLimit);
-  const last = page.at(-1)?.identity ?? null;
-  return {
-    generationId: generation.identity.generationId,
-    frontier: snapshot.frontier,
-    issues: page,
-    next:
-      last !== null && issues.some((issue) => stableStringCompare(issue.identity, last) > 0)
-        ? last
-        : null,
-  };
-}
+import { canonicalJson, type FactSnapshot } from "../fact/index.js";
+import { deriveActivation } from "../activation/index.js";
 
 export function resolutionAdjudicationProblem(
   snapshot: FactSnapshot,

@@ -76,6 +76,16 @@ export default tseslint.config(
               group: ["@lode/protocol", "@lode/protocol/**", "@lode/client", "@bufbuild/**"],
               message: "Engine contracts and domain code are transport-neutral.",
             },
+            {
+              regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?mutation-evidence/(?!index\\.js$).+",
+              message:
+                "Mutation evidence is consumed through its public domain seam, never its family internals.",
+            },
+            {
+              regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?review/(?!index\\.js$).+",
+              message:
+                "Review is consumed through its public domain seam, never its family internals.",
+            },
           ],
         },
       ],
@@ -102,6 +112,82 @@ export default tseslint.config(
               ],
               message:
                 "Domain policy cannot depend on applications, runtime, storage, CRDTs, or wire types.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/domain/activation/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../{admission,conflict,history,reconcile,review}/**"],
+              message:
+                "Fact activation is a lower-level policy and depends only on Fact vocabulary.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/domain/reconcile/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../{history,review}/**"],
+              message:
+                "Projection reconciliation cannot depend on its Review or History consumers.",
+            },
+            {
+              regex: "^(?:\\./|(?:\\.\\./)+)direct-tail/(?!index\\.js$).+",
+              message:
+                "Incremental Projection eligibility is consumed through its family-rule funnel.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/domain/maintenance/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../{admission,conflict,history,reconcile,review}/**"],
+              message:
+                "Maintenance policy depends only on Fact vocabulary and lower-level Activation policy.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/domain/conflict/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../{history,reconcile,review}/**"],
+              message: "Conflict policy exposes issues to Projection and cannot depend back on it.",
             },
           ],
         },
@@ -182,6 +268,52 @@ export default tseslint.config(
               group: ["../sync/**"],
               message: "Workspace orchestration does not depend on sync composition.",
             },
+            {
+              regex: "^(?:\\.\\./){2,}domain/reconcile/(?!index\\.js$).+",
+              message:
+                "Workspace orchestration consumes the public Reconcile contract, never its internal projection algorithms.",
+            },
+            {
+              regex: "^(?:\\.\\./)+materialization/(?!index\\.js$).+",
+              message: "Workspace orchestration consumes Materialization through its public ports.",
+            },
+            {
+              regex:
+                "^(?:\\./|(?:\\.\\./)+)(?:authority-lifecycle|command|generation-reading|mutation-planning|projection-lifecycle|query)/(?!index\\.js$).+",
+              message:
+                "Workspace orchestration modules are consumed through their public funnels, never their internals.",
+            },
+            {
+              regex: "^(?:\\.\\./)+(?:authority-lifecycle|command|query)/index\\.js$",
+              message:
+                "Workspace command, query, and authority use cases remain independent sibling modules.",
+            },
+            {
+              group: [
+                "../proposal-registry.js",
+                "../proposal-storage.js",
+                "../proposal-workspace.js",
+              ],
+              message: "Workspace use cases cannot depend back on workspace composition.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/runtime/materialization/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../{authority,sync,workspace}/**"],
+              message:
+                "Projection materialization is a lower runtime module and cannot depend on workspace composition, authority, or sync.",
+            },
           ],
         },
       ],
@@ -221,6 +353,25 @@ export default tseslint.config(
               message: "App and client code can only import the typed @lode/engine App contract.",
             },
           ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: [
+      "**/*.test.ts",
+      "packages/engine/src/runtime/authority/fact-sync-projection.ts",
+      "packages/engine/src/runtime/authority/loro-fact-replica-state.ts",
+      "packages/engine/src/runtime/authority/loro-fact-replica.ts",
+      "packages/engine/src/runtime/authority/sync-import-validation.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ImportDeclaration[source.value='loro-crdt']",
+          message: "Loro belongs only in the Fact replication adapter.",
         },
       ],
     },

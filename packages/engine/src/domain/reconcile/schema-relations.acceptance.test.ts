@@ -2,16 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
 import {
+  COMMAND_NODE_TYPE,
+  FIELD_DEFINITION_NODE_TYPE,
+  FIELD_NODE_TYPE,
   factTransactionId,
   frontierOf,
   makeFact,
+  SEARCH_NODE_TYPE,
+  SCHEMA_NODE_TYPE,
   type FactFrontier,
   type Mutation,
 } from "../fact/index.js";
-import { projectSnapshot, projectionText } from "./projection.js";
+import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import type { Projection } from "./projection-types.js";
-import { end, Facts, versions } from "./reconcile-test-helpers.js";
-import { addPlacedNode } from "./placed-node-test-helpers.js";
+import { end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import {
+  addDefinitionNode,
+  addPlacedNode,
+} from "../../../tests/support/reconcile/placed-node-test-helpers.js";
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
@@ -25,6 +33,86 @@ function initializedStatusValue(value: string) {
 }
 
 describe("Schema applications and effective Fields", () => {
+  it("keeps zero-use Definition types as independent Node state", () => {
+    const facts = new Facts();
+    addDefinitionNode(facts, "empty-schema", SCHEMA_NODE_TYPE);
+    addDefinitionNode(facts, "empty-field", FIELD_DEFINITION_NODE_TYPE);
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+
+    expect(projection.nodeStatuses["empty-schema"]?.nodeType).toBe(SCHEMA_NODE_TYPE);
+    expect(projection.nodeStatuses["empty-field"]?.nodeType).toBe(FIELD_DEFINITION_NODE_TYPE);
+    expect(projection.schemaApplications).toEqual({});
+    expect(projection.schemaFields).toEqual({});
+  });
+
+  it("does not infer a Definition nodeType from an otherwise well-shaped relation", () => {
+    const facts = new Facts();
+    addPlacedNode(facts, "plain-node");
+    addPlacedNode(facts, "target");
+    facts.add({ kind: "schema-apply", nodeId: "target", schemaId: "plain-node", anchor: end });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+
+    expect(projection.nodeStatuses["plain-node"]?.nodeType).toBeNull();
+    expect(projection.schemaApplications.target).toBeUndefined();
+  });
+
+  it("suspends concurrent incompatible Node types and exposes the conflict", () => {
+    const facts = new Facts();
+    addPlacedNode(facts, "ambiguous-definition");
+    const branch = frontierOf(facts.values);
+    appendRemote(facts, "bbbbbbbbbbbbbbbbbbbbbbbbbb", branch, [
+      {
+        kind: "node-type-declare",
+        nodeId: "ambiguous-definition",
+        nodeType: "schema",
+      },
+    ]);
+    appendRemote(facts, "cccccccccccccccccccccccccc", branch, [
+      {
+        kind: "node-type-declare",
+        nodeId: "ambiguous-definition",
+        nodeType: "field-definition",
+      },
+    ]);
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+
+    expect(projection.nodeStatuses["ambiguous-definition"]?.nodeType).toBeNull();
+    expect(Object.values(projection.conflictIssues)).toContainEqual(
+      expect.objectContaining({
+        kind: "node-type-conflict",
+        nodeId: "ambiguous-definition",
+      }),
+    );
+  });
+
+  it("persists empty Search Nodes and applies the same type conflict policy", () => {
+    const facts = new Facts();
+    addPlacedNode(facts, "empty-search");
+    facts.add({ kind: "node-type-declare", nodeId: "empty-search", nodeType: SEARCH_NODE_TYPE });
+    addPlacedNode(facts, "ambiguous-function");
+    const branch = frontierOf(facts.values);
+    appendRemote(facts, "bbbbbbbbbbbbbbbbbbbbbbbbbb", branch, [
+      { kind: "node-type-declare", nodeId: "ambiguous-function", nodeType: SEARCH_NODE_TYPE },
+    ]);
+    appendRemote(facts, "cccccccccccccccccccccccccc", branch, [
+      { kind: "node-type-declare", nodeId: "ambiguous-function", nodeType: COMMAND_NODE_TYPE },
+    ]);
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+
+    expect(projection.nodeStatuses["empty-search"]?.nodeType).toBe(SEARCH_NODE_TYPE);
+    expect(projection.nodeStatuses["ambiguous-function"]?.nodeType).toBeNull();
+    expect(Object.values(projection.conflictIssues)).toContainEqual(
+      expect.objectContaining({
+        kind: "node-type-conflict",
+        nodeId: "ambiguous-function",
+      }),
+    );
+  });
+
   it("materializes initialized Fields on the Workspace Node", () => {
     const facts = schemaFixture();
     facts.add({
@@ -85,7 +173,7 @@ describe("Schema applications and effective Fields", () => {
     ]);
     expect(projection.nodeStatuses[valueNodeId]).toMatchObject({
       nodeId: valueNodeId,
-      roles: [],
+      nodeType: null,
       state: "active",
     });
 
@@ -156,6 +244,7 @@ describe("Schema applications and effective Fields", () => {
     });
     expect(projection.children["project-schema"]).toContain(fieldOccurrenceId);
     expect(projection.nodeOwners[fieldNodeId]).toBe("project-schema");
+    expect(projection.nodeStatuses[fieldNodeId]?.nodeType).toBe(FIELD_NODE_TYPE);
   });
 
   it("orders Template Fields and ordinary Template Nodes in one Occurrence sequence", () => {
@@ -197,7 +286,7 @@ describe("Schema applications and effective Fields", () => {
     expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
     expect(projection.nodeStatuses["project-schema"]).toEqual({
       nodeId: "project-schema",
-      roles: ["schema"],
+      nodeType: SCHEMA_NODE_TYPE,
       state: "deleted",
       deletionFactIds: [schemaDeletion.id],
     });
@@ -213,7 +302,7 @@ describe("Schema applications and effective Fields", () => {
     expect(projection.schemaApplications.task).toEqual(["project-schema"]);
     expect(projection.schemaFields["project-schema"]).toEqual(["status-field"]);
     expect(projection.nodeStatuses["status-field"]).toMatchObject({
-      roles: ["field"],
+      nodeType: FIELD_DEFINITION_NODE_TYPE,
       state: "deleted",
       deletionFactIds: [fieldDeletion.id],
     });
@@ -517,6 +606,12 @@ describe("Schema applications and effective Fields", () => {
     for (const nodeId of ["base", "left", "right", "child", "base-field", "child-field"]) {
       facts.add({ kind: "node-create", nodeId });
     }
+    for (const nodeId of ["base", "left", "right", "child"]) {
+      facts.add({ kind: "node-type-declare", nodeId, nodeType: "schema" });
+    }
+    for (const nodeId of ["base-field", "child-field"]) {
+      facts.add({ kind: "node-type-declare", nodeId, nodeType: "field-definition" });
+    }
     facts.add({
       kind: "schema-field-add",
       schemaId: "base",
@@ -583,6 +678,12 @@ describe("Schema applications and effective Fields", () => {
     const facts = schemaFixture();
     for (const nodeId of ["schema-a", "schema-b", "field-a", "field-b"]) {
       facts.add({ kind: "node-create", nodeId });
+    }
+    for (const nodeId of ["schema-a", "schema-b"]) {
+      facts.add({ kind: "node-type-declare", nodeId, nodeType: "schema" });
+    }
+    for (const nodeId of ["field-a", "field-b"]) {
+      facts.add({ kind: "node-type-declare", nodeId, nodeType: "field-definition" });
     }
     facts.add({
       kind: "schema-field-add",
@@ -909,9 +1010,11 @@ function fieldSummaries(fields: Projection["effectiveFields"][string] | undefine
 
 function schemaFixture(): Facts {
   const facts = new Facts();
-  for (const nodeId of ["task", "project-schema", "work-schema", "status-field", "owner-field"]) {
-    addPlacedNode(facts, nodeId);
-  }
+  addPlacedNode(facts, "task");
+  addDefinitionNode(facts, "project-schema", SCHEMA_NODE_TYPE);
+  addDefinitionNode(facts, "work-schema", SCHEMA_NODE_TYPE);
+  addDefinitionNode(facts, "status-field", FIELD_DEFINITION_NODE_TYPE);
+  addDefinitionNode(facts, "owner-field", FIELD_DEFINITION_NODE_TYPE);
   facts.add({
     kind: "schema-field-add",
     schemaId: "project-schema",

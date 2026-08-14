@@ -87,24 +87,24 @@ function outline(workspaceNodeId: string): readonly Mutation[] {
     ["definition-library", "definition-library-occurrence", "root"],
     ["library", "library-occurrence", "root"],
     ["notes", "notes-occurrence", "root"],
-    ["anime-work", "anime-work-occurrence", "definition-library"],
-    ["character", "character-occurrence", "definition-library"],
-    ["anime-context", "anime-context-occurrence", "definition-library"],
-    ["quick-impression", "quick-impression-occurrence", "definition-library"],
-    ["review", "review-occurrence", "definition-library"],
-    ["title-field", "title-field-occurrence", "definition-library"],
-    ["work-field", "work-field-occurrence", "definition-library"],
-    ["context-field", "context-field-occurrence", "definition-library"],
-    ["impression-field", "impression-field-occurrence", "definition-library"],
-    ["rating-field", "rating-field-occurrence", "definition-library"],
-    ["review-view", "review-view-occurrence", "definition-library"],
+    ["anime-work", "anime-work-occurrence", "definition-library", "schema"],
+    ["character", "character-occurrence", "definition-library", "schema"],
+    ["anime-context", "anime-context-occurrence", "definition-library", "schema"],
+    ["quick-impression", "quick-impression-occurrence", "definition-library", "schema"],
+    ["review", "review-occurrence", "definition-library", "schema"],
+    ["title-field", "title-field-occurrence", "definition-library", "field-definition"],
+    ["work-field", "work-field-occurrence", "definition-library", "field-definition"],
+    ["context-field", "context-field-occurrence", "definition-library", "field-definition"],
+    ["impression-field", "impression-field-occurrence", "definition-library", "field-definition"],
+    ["rating-field", "rating-field-occurrence", "definition-library", "field-definition"],
+    ["review-view", "review-view-occurrence", "definition-library", "view"],
     ["frieren", "frieren-occurrence", "library"],
     ["fern", "fern-occurrence", "library"],
     ["quick-note", "quick-note-occurrence", "notes"],
     ["review-note", "review-note-occurrence", "notes"],
   ] as const;
-  return placements.map(([nodeId, occurrenceId, parentNodeId]) =>
-    nodeAt(nodeId, parentNodeId, occurrenceId),
+  return placements.map(([nodeId, occurrenceId, parentNodeId, nodeType]) =>
+    nodeAt(nodeId, parentNodeId, occurrenceId, undefined, nodeType),
   );
 }
 
@@ -120,7 +120,13 @@ function viewProperty(key: string, value: string | string[]): Mutation {
 
 export function moodProposal(): readonly Mutation[] {
   return [
-    nodeAt("mood-field", "definition-library", "mood-field-original"),
+    nodeAt(
+      "mood-field",
+      "definition-library",
+      "mood-field-original",
+      undefined,
+      "field-definition",
+    ),
     {
       kind: "schema-field-add",
       schemaId: "quick-impression",
@@ -201,6 +207,7 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   text?: string,
+  nodeType?: "schema" | "field-definition" | "view",
 ): Mutation {
   return {
     kind: "node-create",
@@ -208,6 +215,7 @@ function nodeAt(
     occurrenceId,
     parentNodeId,
     anchor: end,
+    ...(nodeType === undefined ? {} : { nodeType }),
     ...(text === undefined
       ? {}
       : {

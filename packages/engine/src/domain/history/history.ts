@@ -6,8 +6,8 @@ import {
   type FactSnapshot,
   type HistoryChannelId,
 } from "../fact/index.js";
-import type { ProjectionGeneration } from "../reconcile/index.js";
-import { planCompensation, type HistoryPlanningObserver } from "./compensation.js";
+import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import { planCompensation } from "./compensation.js";
 import { rebuildHistoryState } from "./state.js";
 import type { HistoryEvidence, HistoryPlan, HistoryQuery, HistorySelection } from "./types.js";
 
@@ -15,8 +15,7 @@ export function queryHistory(
   channelId: HistoryChannelId,
   receipts: readonly AuthorityReceipt[],
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
-  observer?: HistoryPlanningObserver,
+  generation: ScopedProjectionGeneration,
 ): HistoryQuery {
   const state = rebuildHistoryState(receipts, channelId);
   return {
@@ -28,7 +27,6 @@ export function queryHistory(
       receipts,
       snapshot,
       generation,
-      observer,
     ),
     redo: selectionFor(
       "redo",
@@ -37,7 +35,6 @@ export function queryHistory(
       receipts,
       snapshot,
       generation,
-      observer,
     ),
   };
 }
@@ -60,10 +57,9 @@ export function validateHistorySelection(
   actorId: string,
   receipts: readonly AuthorityReceipt[],
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
-  observer?: HistoryPlanningObserver,
+  generation: ScopedProjectionGeneration,
 ): HistoryPlan {
-  const current = queryHistory(selection.channelId, receipts, snapshot, generation, observer)[
+  const current = queryHistory(selection.channelId, receipts, snapshot, generation)[
     selection.operation
   ];
   if (!current) {
@@ -109,15 +105,14 @@ function selectionFor(
   state: ReturnType<typeof rebuildHistoryState>,
   receipts: readonly AuthorityReceipt[],
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
-  observer?: HistoryPlanningObserver,
+  generation: ScopedProjectionGeneration,
 ): HistorySelection | null {
   if (!targetInvocationId) {
     return null;
   }
   const receipt = receiptById(receipts, targetInvocationId);
   const targetFacts = contributionFactsForReceipt(receipt, snapshot);
-  const compensation = planCompensation(targetFacts, snapshot, generation, observer);
+  const compensation = planCompensation(targetFacts, snapshot, generation);
   if (compensation.kind !== "ready") {
     return null;
   }

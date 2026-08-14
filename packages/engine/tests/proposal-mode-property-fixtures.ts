@@ -15,10 +15,10 @@ import {
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-} from "../src/runtime/workspace/generation-checkpoint.js";
-import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
+} from "../src/runtime/materialization/generation-checkpoint.js";
+import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
@@ -64,6 +64,13 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   for (const nodeId of ["generated-schema", "first", "second"]) {
     facts.addPlaced(nodeId);
   }
+  facts.add({
+    kind: "node-type-declare",
+    nodeId: "generated-schema",
+    nodeType: "schema",
+  });
+  facts.add({ kind: "node-type-declare", nodeId: "first", nodeType: "field-definition" });
+  facts.add({ kind: "node-type-declare", nodeId: "second", nodeType: "field-definition" });
   facts.add({
     kind: "schema-field-add",
     schemaId: "generated-schema",

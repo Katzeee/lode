@@ -6,12 +6,10 @@ import {
   initializedValueOccurrenceId,
 } from "./identity.js";
 import type { Mutation, SequenceAnchor } from "./types.js";
+import type { SchemaMutation } from "./mutation-family.js";
 import type { FieldValueSeed } from "./field-template-types.js";
 
-export function validateSchemaMutation(
-  mutation: Extract<Mutation, { kind: `schema-${string}` }>,
-  factIdentity: string,
-): void {
+export function validateSchemaMutation(mutation: SchemaMutation, factIdentity: string): void {
   requireIdentity(mutation.schemaId, "Schema", factIdentity);
   if (
     mutation.kind === "schema-template-node-add" ||

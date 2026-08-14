@@ -3,6 +3,7 @@ import type {
   FieldValueSeed,
   FieldVisibility,
   JsonValue,
+  NodeType,
   ProjectionIdentity,
   TextAtomId,
   ViewMode,
@@ -77,7 +78,7 @@ export type MaterializedField = Readonly<{
 
 export type NodeStatus = Readonly<{
   nodeId: string;
-  roles: readonly ("schema" | "field")[];
+  nodeType: NodeType | null;
   state: "active" | "deleted";
   deletionFactIds: readonly string[];
 }>;
@@ -98,9 +99,7 @@ export type TemplateNodeInstance = Readonly<{
   detachmentContributionIds: readonly string[];
 }>;
 
-export type Projection = Readonly<{
-  view: ViewMode;
-  identity: ProjectionIdentity;
+export type ProjectionSections = Readonly<{
   nodes: Readonly<Record<string, ProjectedNode>>;
   occurrences: Readonly<Record<string, ProjectedOccurrence>>;
   children: Readonly<Record<string, readonly string[]>>;
@@ -118,9 +117,40 @@ export type Projection = Readonly<{
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
-  reviewScopes: Readonly<Record<string, readonly string[]>>;
-  supportByContribution: Readonly<Record<string, readonly string[]>>;
 }>;
+
+export const PROJECTION_SECTION_NAMES = [
+  "nodes",
+  "occurrences",
+  "children",
+  "nodeOwners",
+  "addressedValues",
+  "schemaApplications",
+  "schemaFields",
+  "templateFields",
+  "schemaTemplateNodes",
+  "templateNodeInstances",
+  "schemaExtensions",
+  "schemaSearchMembers",
+  "schemaExtensionConflicts",
+  "nodeStatuses",
+  "conflictIssues",
+  "effectiveFields",
+  "materializedFields",
+] as const satisfies readonly (keyof ProjectionSections)[];
+
+type AssertNever<Value extends never> = Value;
+export type ProjectionSectionNamesAreComplete = AssertNever<
+  Exclude<keyof ProjectionSections, (typeof PROJECTION_SECTION_NAMES)[number]>
+>;
+
+export type ProjectionSectionName = (typeof PROJECTION_SECTION_NAMES)[number];
+
+export type Projection = Readonly<{
+  view: ViewMode;
+  identity: ProjectionIdentity;
+}> &
+  ProjectionSections;
 
 export type ProjectionGeneration = Readonly<{
   identity: ProjectionIdentity;
@@ -130,6 +160,20 @@ export type ProjectionGeneration = Readonly<{
     origin: ProjectionPlanCache;
     review: ProjectionPlanCache;
   }>;
+}>;
+
+export type ScopedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
+
+export type ScopedProjection = Readonly<{
+  view: ViewMode;
+  identity: ProjectionIdentity;
+}> &
+  Pick<ProjectionSections, ScopedProjectionSectionName>;
+
+export type ScopedProjectionGeneration = Readonly<{
+  identity: ProjectionIdentity;
+  origin: ScopedProjection;
+  review: ScopedProjection;
 }>;
 
 export type ProjectionPlanCache = Readonly<{
@@ -144,8 +188,8 @@ export type ProjectionVersions = Readonly<{
 }>;
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
-  rulesVersion: "proposal-rules-3",
-  schemaVersion: "lode-schema-16",
+  rulesVersion: "proposal-rules-5",
+  schemaVersion: "lode-schema-19",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

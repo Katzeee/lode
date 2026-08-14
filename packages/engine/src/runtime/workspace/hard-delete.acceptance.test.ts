@@ -5,10 +5,10 @@ import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
-import { syncPair } from "../sync/sync-exchange.js";
+import { syncPair } from "../../../tests/support/sync.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Hard Delete maintenance", () => {
@@ -285,6 +285,7 @@ function setupCommand(): MutationCommand {
         nodeId: "task-schema",
         parentNodeId: "workspace",
         anchor: end,
+        nodeType: "schema",
       },
       {
         kind: "node-create",
@@ -355,8 +356,8 @@ async function projectionMap(
     view: "origin",
     section,
   });
-  if (!("entries" in result)) {
+  if (!("section" in result) || result.section !== section || !(section in result)) {
     throw new Error(`Expected ${section} Projection`);
   }
-  return Object.fromEntries(result.entries.map((entry) => [entry.identity, entry.value]));
+  return result.section === "nodeStatuses" ? result.nodeStatuses : result.schemaApplications;
 }

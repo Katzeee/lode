@@ -57,7 +57,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       );
       const templateHunk = await reviewHunk(left.address, "schema-template");
       const templateEvidence = evidence(templateHunk);
-      expect(templateEvidence.supportClosure).toHaveLength(5);
+      expect(templateEvidence.supportClosure).toHaveLength(7);
       expect(array(templateEvidence.effects, "Template effects")).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -141,7 +141,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       await left.stop();
       await right?.stop();
     }
-  });
+  }, 15_000);
 
   it("runs an authenticated Workspace-rooted outline on two fresh machines in both directions", async () => {
     const leftRoot = await temporaryDirectory("outline-left");

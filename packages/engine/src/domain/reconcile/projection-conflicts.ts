@@ -8,7 +8,8 @@ import {
 import type { ConflictIssue } from "../conflict/types.js";
 import type { EffectiveField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
-import { deriveActivation } from "./support.js";
+import { deriveActivation } from "../activation/index.js";
+import { nodeTypeConflicts } from "./node-type-conflicts.js";
 
 export function projectConflictIssues(
   snapshot: FactSnapshot,
@@ -22,6 +23,7 @@ export function projectConflictIssues(
     ...unsupportedDirectIntents(snapshot),
     ...resolutionConflicts(snapshot),
     ...schemaExtensionConflicts(extensionConflicts),
+    ...nodeTypeConflicts(active),
     ...fieldConfigConflicts(templateFields, effectiveFields),
     ...placementConflicts(active, occurrences),
   ];

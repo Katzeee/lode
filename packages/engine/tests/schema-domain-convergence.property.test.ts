@@ -6,7 +6,7 @@ import {
   type FactFrontier,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
+import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { assertSchemaConvergence, remoteBranch } from "./schema-convergence-property-helpers.js";
 
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -34,7 +34,7 @@ describe("Schema domain convergence matrix", () => {
     });
   });
 
-  it("preserves concurrent Field Contribution observed-remove intent and effective identity", () => {
+  it("keeps Field removal complete across a concurrent duplicate Contribution", () => {
     const base = relationBase(["schema", "field", "task", "unrelated"]);
     base.add({
       kind: "schema-field-add",
@@ -56,6 +56,13 @@ describe("Schema domain convergence matrix", () => {
           fieldOccurrenceId: "schema-field-template-field-occurrence",
           previousAnchor: start,
         },
+        {
+          kind: "occurrence-delete",
+          occurrenceId: "schema-field-template-field-occurrence",
+          previousParentNodeId: "schema",
+          previousAnchor: { ...start, affinity: "after" },
+        },
+        { kind: "node-delete", nodeId: "schema-field-template-field" },
       ]),
       ...remoteBranch(C, frontier, base.values.length + 1, [
         {
@@ -70,10 +77,8 @@ describe("Schema domain convergence matrix", () => {
       ...unrelated(D, frontier, base.values.length + 1),
     ];
     assertSchemaConvergence(base.values.length, [...base.values, ...events], (generation) => {
-      expect(generation.origin.schemaFields.schema).toEqual(["field"]);
-      expect(
-        generation.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId),
-      ).toEqual(["field"]);
+      expect(generation.origin.schemaFields.schema).toBeUndefined();
+      expect(generation.origin.effectiveFields.task).toEqual([]);
     });
   });
 
@@ -178,6 +183,14 @@ function relationBase(nodeIds: readonly string[]): Facts {
   const facts = new Facts();
   for (const nodeId of nodeIds) {
     facts.addPlaced(nodeId);
+  }
+  for (const nodeId of nodeIds.filter(
+    (nodeId) => nodeId.includes("schema") || nodeId === "derived" || nodeId === "base",
+  )) {
+    facts.add({ kind: "node-type-declare", nodeId, nodeType: "schema" });
+  }
+  for (const nodeId of nodeIds.filter((nodeId) => nodeId === "field")) {
+    facts.add({ kind: "node-type-declare", nodeId, nodeType: "field-definition" });
   }
   return facts;
 }

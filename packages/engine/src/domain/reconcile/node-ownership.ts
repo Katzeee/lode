@@ -1,4 +1,4 @@
-import { stableStringCompare, type ContributionFact } from "../fact/index.js";
+import { isOccurrenceMutation, stableStringCompare, type ContributionFact } from "../fact/index.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 
 type PlacementState = Readonly<{
@@ -8,7 +8,6 @@ type PlacementState = Readonly<{
 
 export function projectNodeOwners(
   workspaceNodeId: string,
-  _current: Readonly<Record<string, string | null>>,
   active: readonly ContributionFact[],
   nodes: ReadonlyMap<string, MutableNode>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
@@ -104,6 +103,16 @@ function replayOwnerPlacements(active: readonly ContributionFact[]): ReadonlyMap
 
   for (const fact of active) {
     const mutation = fact.body.mutation;
+    if (mutation.kind === "node-owner-set") {
+      const ownerPlacement = findOwnerPlacement(replayed, mutation.nodeId, mutation.ownerNodeId);
+      if (ownerPlacement) {
+        ownerPlacements.set(mutation.nodeId, ownerPlacement);
+      }
+      continue;
+    }
+    if (!isOccurrenceMutation(mutation)) {
+      continue;
+    }
     switch (mutation.kind) {
       case "occurrence-create":
         createdNodesByOccurrence.set(mutation.occurrenceId, mutation.nodeId);
@@ -135,35 +144,6 @@ function replayOwnerPlacements(active: readonly ContributionFact[]): ReadonlyMap
         }
         break;
       }
-      case "node-owner-set": {
-        const ownerPlacement = findOwnerPlacement(replayed, mutation.nodeId, mutation.ownerNodeId);
-        if (ownerPlacement) {
-          ownerPlacements.set(mutation.nodeId, ownerPlacement);
-        }
-        break;
-      }
-      case "node-create":
-      case "node-delete":
-      case "node-restore":
-      case "schema-apply":
-      case "schema-remove":
-      case "schema-field-add":
-      case "schema-field-remove":
-      case "schema-field-configure":
-      case "schema-extension-add":
-      case "schema-extension-remove":
-      case "schema-template-node-add":
-      case "schema-template-node-remove":
-      case "template-node-detach":
-      case "field-materialize":
-      case "field-initialize":
-      case "field-value-delete":
-      case "materialized-field-delete":
-      case "text-splice":
-      case "text-mark":
-      case "value-set":
-      case "value-unset":
-        break;
     }
   }
   return ownerPlacements;

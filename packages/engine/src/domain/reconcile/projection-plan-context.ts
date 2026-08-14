@@ -1,62 +1,53 @@
 import type {
   ContributionFact,
   FactSnapshot,
-  JsonValue,
   ProjectionIdentity,
   ViewMode,
 } from "../fact/index.js";
-import type { ProjectionStageKey } from "./projection-plan-dag.js";
+import type { ProjectionReplayPolicy } from "./projection-rule.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type {
-  EffectiveField,
-  MaterializedField,
-  NodeStatus,
   Projection,
   ProjectionPlanCache,
+  ProjectionSections,
   ProjectionVersions,
-  TemplateField,
-  TemplateNodeInstance,
 } from "./projection-types.js";
-import type { ConflictIssue } from "../conflict/types.js";
-import type { MutableNode, MutableOccurrence } from "./projection-state.js";
+import type { AuthoredStructure, MutableNode } from "./projection-state.js";
+import { cloneNodes } from "./node-state.js";
 import { stripProjectedValues } from "./projection-value-assembly.js";
+import {
+  authoredStructureWithoutProjectedTemplates,
+  type TemplateStructureProjection,
+} from "./template-node-projection.js";
+import type { SchemaRelations } from "./schema-relations.js";
 
-export type ProjectionStageObserver = (stage: ProjectionStageKey, view: ViewMode) => void;
+export type ProjectionActivation = Readonly<{
+  active: readonly ContributionFact[];
+  allActive: readonly ContributionFact[];
+  planCache: ProjectionPlanCache;
+}>;
 
 export type ProjectionPlanContext = {
   readonly snapshot: FactSnapshot;
   readonly view: ViewMode;
-  active: readonly ContributionFact[];
-  allActive: readonly ContributionFact[];
+  readonly activeTail: readonly ContributionFact[];
   readonly incremental: boolean;
   readonly requiresAllActive: boolean;
   readonly replayAllActive: boolean;
   readonly previousPlanCache: ProjectionPlanCache;
-  readonly observer?: ProjectionStageObserver;
-  identity: ProjectionIdentity;
-  workspaceNodeId: string;
-  nodes: Map<string, MutableNode>;
-  occurrences: Map<string, MutableOccurrence>;
-  children: Map<string, string[]>;
-  addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  nodeOwners: Readonly<Record<string, string | null>>;
-  schemaApplications: Readonly<Record<string, readonly string[]>>;
-  schemaFields: Readonly<Record<string, readonly string[]>>;
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
-  templateNodeInstances: readonly TemplateNodeInstance[];
-  schemaExtensions: Readonly<Record<string, readonly string[]>>;
-  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  nodeStatuses: Readonly<Record<string, NodeStatus>>;
-  conflictIssues: Readonly<Record<string, ConflictIssue>>;
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
-  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
-  reviewScopes: Readonly<Record<string, readonly string[]>>;
-  supportByContribution: Readonly<Record<string, readonly string[]>>;
-  managedTextReplayNodeIds: ReadonlySet<string>;
+  readonly identity: ProjectionIdentity;
+  readonly workspaceNodeId: string;
+  activation: ProjectionActivation;
+  storedNodes: Map<string, MutableNode>;
+  contentNodes: Map<string, MutableNode>;
+  authoredStructure: AuthoredStructure;
+  templateStructure: TemplateStructureProjection;
+  addressedValues: ProjectionSections["addressedValues"];
+  nodeOwners: ProjectionSections["nodeOwners"];
+  schemaRelations: SchemaRelations;
+  nodeStatuses: ProjectionSections["nodeStatuses"];
+  conflictIssues: ProjectionSections["conflictIssues"];
   projection: Projection | null;
-  planCache: ProjectionPlanCache;
 };
 
 export function emptyProjectionPlanContext(
@@ -64,41 +55,31 @@ export function emptyProjectionPlanContext(
   snapshot: FactSnapshot,
   view: ViewMode,
   versions: ProjectionVersions,
-  observer?: ProjectionStageObserver,
 ): ProjectionPlanContext {
   return {
     snapshot,
     view,
-    active: [],
-    allActive: [],
+    activeTail: [],
     incremental: false,
     requiresAllActive: true,
     replayAllActive: false,
-    ...(observer ? { observer } : {}),
     identity: projectionIdentity(workspaceId, snapshot, versions),
     workspaceNodeId: workspaceId,
-    nodes: new Map(),
-    occurrences: new Map(),
-    children: new Map(),
+    activation: {
+      active: [],
+      allActive: [],
+      planCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+    },
+    storedNodes: new Map(),
+    contentNodes: new Map(),
+    authoredStructure: { occurrences: new Map(), children: new Map() },
+    templateStructure: { occurrences: new Map(), children: new Map(), instances: [] },
     addressedValues: {},
     nodeOwners: {},
-    schemaApplications: {},
-    schemaFields: {},
-    templateFields: {},
-    schemaTemplateNodes: {},
-    templateNodeInstances: [],
-    schemaExtensions: {},
-    schemaSearchMembers: {},
-    schemaExtensionConflicts: {},
+    schemaRelations: emptySchemaRelations(),
     nodeStatuses: {},
     conflictIssues: {},
-    effectiveFields: {},
-    materializedFields: {},
-    reviewScopes: {},
-    supportByContribution: {},
-    managedTextReplayNodeIds: new Set(),
     projection: null,
-    planCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
     previousPlanCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
   };
 }
@@ -110,52 +91,72 @@ export function incrementalProjectionPlanContext(
   snapshot: FactSnapshot,
   active: readonly ContributionFact[],
   versions: ProjectionVersions,
-  selected: ReadonlySet<ProjectionStageKey>,
-  observer?: ProjectionStageObserver,
+  replayPolicy: ProjectionReplayPolicy,
 ): ProjectionPlanContext {
   const stripped = stripProjectedValues(
     previous.nodes,
     previous.occurrences,
     previous.addressedValues,
   );
-  const replayAllActive = selected.has("node") || selected.has("occurrence");
+  const effectiveChildren = new Map(
+    Object.entries(previous.children).map(([id, children]) => [id, [...children]]),
+  );
+  const authored = authoredStructureWithoutProjectedTemplates(
+    previous.templateNodeInstances,
+    stripped.occurrences,
+    effectiveChildren,
+  );
+  const { replayAllActive, requiresAllActive } = replayPolicy;
   return {
     snapshot,
     view: previous.view,
-    active,
-    allActive: [],
+    activeTail: active,
     incremental: true,
-    requiresAllActive: replayAllActive || selected.has("schema"),
+    requiresAllActive,
     replayAllActive,
-    ...(observer ? { observer } : {}),
     identity: projectionIdentity(workspaceId, snapshot, versions),
     workspaceNodeId: workspaceId,
-    nodes: stripped.nodes,
-    occurrences: stripped.occurrences,
-    children: new Map(
-      Object.entries(previous.children).map(([id, children]) => [id, [...children]]),
-    ),
+    activation: { active, allActive: [], planCache: previousCache },
+    storedNodes: cloneNodes(stripped.nodes),
+    contentNodes: stripped.nodes,
+    authoredStructure: authored,
+    templateStructure: {
+      occurrences: stripped.occurrences,
+      children: effectiveChildren,
+      instances: [...previous.templateNodeInstances],
+    },
     addressedValues: Object.fromEntries(
       Object.entries(previous.addressedValues).map(([address, values]) => [address, { ...values }]),
     ),
     nodeOwners: { ...previous.nodeOwners },
-    schemaApplications: previous.schemaApplications,
-    schemaFields: previous.schemaFields,
-    templateFields: previous.templateFields,
-    schemaTemplateNodes: previous.schemaTemplateNodes,
-    templateNodeInstances: [...previous.templateNodeInstances],
-    schemaExtensions: previous.schemaExtensions,
-    schemaSearchMembers: previous.schemaSearchMembers,
-    schemaExtensionConflicts: previous.schemaExtensionConflicts,
+    schemaRelations: {
+      schemaApplications: previous.schemaApplications,
+      schemaFields: previous.schemaFields,
+      templateFields: previous.templateFields,
+      schemaTemplateNodes: previous.schemaTemplateNodes,
+      schemaExtensions: previous.schemaExtensions,
+      schemaSearchMembers: previous.schemaSearchMembers,
+      schemaExtensionConflicts: previous.schemaExtensionConflicts,
+      effectiveFields: previous.effectiveFields,
+      materializedFields: previous.materializedFields,
+    },
     nodeStatuses: previous.nodeStatuses,
     conflictIssues: previous.conflictIssues,
-    effectiveFields: previous.effectiveFields,
-    materializedFields: previous.materializedFields,
-    reviewScopes: previous.reviewScopes,
-    supportByContribution: previous.supportByContribution,
-    managedTextReplayNodeIds: new Set(),
     projection: null,
-    planCache: previousCache,
     previousPlanCache: previousCache,
+  };
+}
+
+function emptySchemaRelations(): SchemaRelations {
+  return {
+    schemaApplications: {},
+    schemaFields: {},
+    templateFields: {},
+    schemaTemplateNodes: {},
+    schemaExtensions: {},
+    schemaSearchMembers: {},
+    schemaExtensionConflicts: {},
+    effectiveFields: {},
+    materializedFields: {},
   };
 }

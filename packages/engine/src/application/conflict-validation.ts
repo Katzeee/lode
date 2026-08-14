@@ -1,5 +1,5 @@
 import type { ConflictIssue } from "../domain/conflict/index.js";
-import type { FactFrontier, SequenceAnchor } from "../domain/fact/index.js";
+import { isNodeType, type FactFrontier, type SequenceAnchor } from "../domain/fact/index.js";
 import { parseFieldTemplateConfig, parseFieldValueSeeds } from "./schema-projection-validation.js";
 
 export function parseConflictIssue(value: unknown): ConflictIssue {
@@ -45,6 +45,9 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
   if (kind === "placement-conflict") {
     return parsePlacementConflict(issue);
   }
+  if (kind === "node-type-conflict") {
+    return parseNodeTypeConflict(issue);
+  }
   if (kind === "schema-extension-cycle") {
     exact(issue, ["kind", "identity", "schemaIds"], "Schema Extension conflict");
     return {
@@ -87,6 +90,38 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
       return {
         resolutionId: string(candidate.resolutionId, "Resolution identity"),
         decision: candidate.decision,
+        actorId: string(candidate.actorId, "Actor identity"),
+        replicaId: string(candidate.replicaId, "Replica identity"),
+        observedFrontier: frontier(candidate.observedFrontier),
+      };
+    }),
+  };
+}
+
+function parseNodeTypeConflict(
+  issue: Record<string, unknown>,
+): Extract<ConflictIssue, { kind: "node-type-conflict" }> {
+  exact(issue, ["kind", "identity", "nodeId", "candidates"], "Node type conflict");
+  if (!Array.isArray(issue.candidates)) {
+    throw new Error("Node type candidates must be an array");
+  }
+  return {
+    kind: "node-type-conflict",
+    identity: string(issue.identity, "Conflict identity"),
+    nodeId: string(issue.nodeId, "Node identity"),
+    candidates: issue.candidates.map((value) => {
+      const candidate = record(value, "Node type candidate");
+      exact(
+        candidate,
+        ["contributionId", "nodeType", "actorId", "replicaId", "observedFrontier"],
+        "Node type candidate",
+      );
+      if (!isNodeType(candidate.nodeType)) {
+        throw new Error("Node type candidate is invalid");
+      }
+      return {
+        contributionId: string(candidate.contributionId, "Contribution identity"),
+        nodeType: candidate.nodeType,
         actorId: string(candidate.actorId, "Actor identity"),
         replicaId: string(candidate.replicaId, "Replica identity"),
         observedFrontier: frontier(candidate.observedFrontier),

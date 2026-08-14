@@ -2,6 +2,9 @@ import type {
   EngineCommand,
   EngineContract,
   EngineQuery,
+  EngineQueryForKind,
+  EngineQueryInput,
+  EngineQueryKind,
   EngineQueryResult,
   Unsubscribe,
   WriteResult,
@@ -18,10 +21,6 @@ export type EngineTransport = Readonly<{
 type TransportRequest =
   | Readonly<{ kind: "command"; command: EngineCommand }>
   | Readonly<{ kind: "query"; query: EngineQuery }>;
-
-type TransportResponse =
-  | Readonly<{ kind: "write-result"; result: WriteResult }>
-  | Readonly<{ kind: "query-result"; result: EngineQueryResult }>;
 
 export function createEngineTransportServer(contract: EngineContract): EngineTransport {
   const eventListeners = new Set<(bytes: Uint8Array) => void>();
@@ -50,6 +49,31 @@ export function createEngineTransportServer(contract: EngineContract): EngineTra
 }
 
 export function createTransportEngineContract(transport: EngineTransport): EngineContract {
+  async function query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
+  async function query(query: EngineQuery): Promise<EngineQueryResult> {
+    let parsed: EngineQuery;
+    let bytes: Uint8Array;
+    try {
+      parsed = parseEngineQuery(query);
+      bytes = encode({ kind: "query", query: parsed });
+    } catch (error) {
+      return { status: "rejected", error: invalidError(error) };
+    }
+    try {
+      return parseTransportQueryResponse(decode(await transport.request(bytes)), parsed);
+    } catch (error) {
+      return {
+        status: "rejected",
+        error: {
+          code: "projection-unavailable",
+          message: error instanceof Error ? error.message : String(error),
+          currentGenerationId: null,
+        },
+      };
+    }
+  }
   return {
     async execute(command) {
       let bytes: Uint8Array;
@@ -59,39 +83,12 @@ export function createTransportEngineContract(transport: EngineTransport): Engin
         return invalidWrite(error);
       }
       try {
-        const response = parseTransportResponse(decode(await transport.request(bytes)));
-        if (response.kind !== "write-result") {
-          throw new Error("Transport returned a query result for a command");
-        }
-        return response.result;
+        return parseTransportWriteResponse(decode(await transport.request(bytes)));
       } catch {
         return { status: "outcome-unknown", invocationId: command.invocationId };
       }
     },
-    async query(query) {
-      let bytes: Uint8Array;
-      try {
-        bytes = encode({ kind: "query", query: parseEngineQuery(query) });
-      } catch (error) {
-        return { status: "rejected", error: invalidError(error) };
-      }
-      try {
-        const response = parseTransportResponse(decode(await transport.request(bytes)));
-        if (response.kind !== "query-result") {
-          throw new Error("Transport returned a write result for a query");
-        }
-        return response.result;
-      } catch (error) {
-        return {
-          status: "rejected",
-          error: {
-            code: "projection-unavailable",
-            message: error instanceof Error ? error.message : String(error),
-            currentGenerationId: null,
-          },
-        };
-      }
-    },
+    query,
     subscribe(listener) {
       return (
         transport.subscribe?.((bytes) => {
@@ -127,17 +124,25 @@ function parseTransportRequest(value: unknown): TransportRequest {
   throw new Error("Unknown transport request kind");
 }
 
-function parseTransportResponse(value: unknown): TransportResponse {
+function parseTransportWriteResponse(value: unknown): WriteResult {
   const envelope = object(value, "transport response");
-  if (envelope.kind === "write-result") {
-    exactKeys(envelope, ["kind", "result"]);
-    return { kind: "write-result", result: parseWriteResult(envelope.result) };
+  exactKeys(envelope, ["kind", "result"]);
+  if (envelope.kind !== "write-result") {
+    throw new Error("Transport returned a query result for a command");
   }
-  if (envelope.kind === "query-result") {
-    exactKeys(envelope, ["kind", "result"]);
-    return { kind: "query-result", result: parseEngineQueryResult(envelope.result) };
+  return parseWriteResult(envelope.result);
+}
+
+function parseTransportQueryResponse<Query extends EngineQuery>(
+  value: unknown,
+  query: Query,
+): EngineQueryResult<Query> {
+  const envelope = object(value, "transport response");
+  exactKeys(envelope, ["kind", "result"]);
+  if (envelope.kind !== "query-result") {
+    throw new Error("Transport returned a write result for a query");
   }
-  throw new Error("Unknown transport response kind");
+  return parseEngineQueryResult(envelope.result, query);
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {

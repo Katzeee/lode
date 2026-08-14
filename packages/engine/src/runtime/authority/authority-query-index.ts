@@ -4,9 +4,7 @@ import {
   type AuthorityReceipt,
   type AuthorityRecord,
   type Fact,
-  type Mutation,
-  TEMPLATE_INSTANCE_NODE_PREFIX,
-  type TextAtomId,
+  mutationRelations,
 } from "../../domain/fact/index.js";
 
 export class AuthorityQueryIndex {
@@ -170,102 +168,12 @@ function scopeKeys(fact: Fact): readonly string[] {
       fact.body.action.acknowledgementFactIds.forEach((id) => keys.add(factKey(id)));
     }
   } else {
-    mutationScopeKeys(fact.body.mutation).forEach((key) => keys.add(key));
+    const relations = mutationRelations(fact.body.mutation);
+    relations.nodeIds.forEach((id) => keys.add(nodeKey(id)));
+    relations.occurrenceIds.forEach((id) => keys.add(occurrenceKey(id)));
+    relations.factIds.forEach((id) => keys.add(factKey(id)));
   }
   return [...keys];
-}
-
-function mutationScopeKeys(mutation: Mutation): readonly string[] {
-  const keys = new Set<string>();
-  if ("nodeId" in mutation) {
-    keys.add(nodeKey(mutation.nodeId));
-  }
-  if ("schemaId" in mutation) {
-    keys.add(nodeKey(mutation.schemaId));
-  }
-  if ("baseSchemaId" in mutation) {
-    keys.add(nodeKey(mutation.baseSchemaId));
-  }
-  if ("fieldDefinitionId" in mutation) {
-    keys.add(nodeKey(mutation.fieldDefinitionId));
-  }
-  if ("templateNodeId" in mutation) {
-    keys.add(nodeKey(mutation.templateNodeId));
-  }
-  if ("ownerNodeId" in mutation) {
-    keys.add(nodeKey(mutation.ownerNodeId));
-  }
-  if ("fieldNodeId" in mutation) {
-    keys.add(nodeKey(mutation.fieldNodeId));
-  }
-  if (mutation.kind === "template-node-detach") {
-    keys.add(
-      nodeKey(
-        `${TEMPLATE_INSTANCE_NODE_PREFIX}${encodeURIComponent(mutation.ownerNodeId)}:${encodeURIComponent(mutation.templateNodeId)}`,
-      ),
-    );
-  }
-  if ("occurrenceId" in mutation) {
-    keys.add(occurrenceKey(mutation.occurrenceId));
-  }
-  if ("fieldOccurrenceId" in mutation) {
-    keys.add(occurrenceKey(mutation.fieldOccurrenceId));
-  }
-  if ("valueOccurrenceId" in mutation) {
-    keys.add(occurrenceKey(mutation.valueOccurrenceId));
-  }
-  if ("parentNodeId" in mutation) {
-    keys.add(nodeKey(mutation.parentNodeId));
-  }
-  if ("previousParentNodeId" in mutation && mutation.previousParentNodeId !== undefined) {
-    keys.add(nodeKey(mutation.previousParentNodeId));
-  }
-  if ("anchor" in mutation) {
-    addAnchorKeys(keys, mutation.anchor);
-  }
-  if ("previousAnchor" in mutation && mutation.previousAnchor) {
-    addAnchorKeys(keys, mutation.previousAnchor);
-  }
-  if (mutation.kind === "node-restore" || mutation.kind === "occurrence-restore") {
-    keys.add(factKey(mutation.deletionFactId));
-  }
-  if (mutation.kind === "text-splice") {
-    mutation.deleteAtomIds.forEach((id) => keys.add(factKey(atomContributionId(id))));
-  } else if (mutation.kind === "text-mark") {
-    mutation.atomIds.forEach((id) => keys.add(factKey(atomContributionId(id))));
-  } else if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    keys.add(
-      mutation.target.kind === "occurrence"
-        ? occurrenceKey(mutation.target.id)
-        : nodeKey(mutation.target.id),
-    );
-  } else if (mutation.kind === "field-initialize") {
-    mutation.values.forEach((value) => {
-      if (value.kind === "reference") {
-        keys.add(nodeKey(value.nodeId));
-      }
-    });
-    mutation.observedInitializationFactIds?.forEach((id) => keys.add(factKey(id)));
-  } else if (mutation.kind === "schema-field-configure") {
-    mutation.observedConfigFactIds?.forEach((id) => keys.add(factKey(id)));
-  }
-  return [...keys];
-}
-
-function addAnchorKeys(
-  keys: Set<string>,
-  anchor: Readonly<{ after: string | null; before: string | null }>,
-): void {
-  if (anchor.after) {
-    keys.add(occurrenceKey(anchor.after));
-  }
-  if (anchor.before) {
-    keys.add(occurrenceKey(anchor.before));
-  }
-}
-
-function atomContributionId(atomId: TextAtomId): string {
-  return atomId.slice(0, atomId.lastIndexOf("#"));
 }
 
 function factKey(id: string): string {

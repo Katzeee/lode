@@ -1,5 +1,9 @@
-import type { FactSnapshot, FactTransaction } from "../fact/index.js";
-import { CURRENT_PROJECTION_VERSIONS, rebuildGeneration } from "../reconcile/index.js";
+import { FIELD_NODE_TYPE, type FactSnapshot, type FactTransaction } from "../fact/index.js";
+import {
+  CURRENT_PROJECTION_VERSIONS,
+  rebuildGeneration,
+  type Projection,
+} from "../reconcile/index.js";
 
 export function validateDomainTransaction(
   transaction: FactTransaction,
@@ -8,7 +12,7 @@ export function validateDomainTransaction(
 ): void {
   validateTransactionIntent(transaction);
   validateNodeCreations(transaction);
-  validateOwnershipCompleteness(after);
+  validateCommittedDomainState(after);
 }
 
 function validateTransactionIntent(transaction: FactTransaction): void {
@@ -53,18 +57,41 @@ function validateNodeCreations(transaction: FactTransaction): void {
   }
 }
 
-function validateOwnershipCompleteness(snapshot: FactSnapshot): void {
+function validateCommittedDomainState(snapshot: FactSnapshot): void {
   const generation = rebuildGeneration(
     snapshot.facts[0]?.workspaceId ?? "",
     snapshot,
     CURRENT_PROJECTION_VERSIONS,
   ).generation;
   for (const projection of [generation.origin, generation.review]) {
-    const unownedNodeId = Object.keys(projection.nodes).find(
-      (nodeId) => !Object.hasOwn(projection.nodeOwners, nodeId),
-    );
-    if (unownedNodeId) {
-      throw new Error(`Active Node has no Original Occurrence: ${unownedNodeId}`);
-    }
+    validateOwnershipCompleteness(projection);
+    validateFieldBindings(projection);
+  }
+}
+
+function validateOwnershipCompleteness(projection: Projection): void {
+  const unownedNodeId = Object.keys(projection.nodes).find(
+    (nodeId) => !Object.hasOwn(projection.nodeOwners, nodeId),
+  );
+  if (unownedNodeId) {
+    throw new Error(`Active Node has no Original Occurrence: ${unownedNodeId}`);
+  }
+}
+
+function validateFieldBindings(projection: Projection): void {
+  const activeFieldNodeIds = Object.values(projection.nodeStatuses).flatMap((status) =>
+    status.state === "active" && status.nodeType === FIELD_NODE_TYPE ? [status.nodeId] : [],
+  );
+  const boundFieldNodeIds = new Set([
+    ...Object.values(projection.templateFields).flatMap((fields) =>
+      fields.map((field) => field.fieldNodeId),
+    ),
+    ...Object.values(projection.materializedFields).flatMap((fields) =>
+      fields.map((field) => field.fieldNodeId),
+    ),
+  ]);
+  const unboundFieldNodeId = activeFieldNodeIds.find((nodeId) => !boundFieldNodeIds.has(nodeId));
+  if (unboundFieldNodeId) {
+    throw new Error(`Field Node has no Field Definition binding: ${unboundFieldNodeId}`);
   }
 }

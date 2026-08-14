@@ -4,13 +4,25 @@ import type {
   EngineError,
   EngineEvent,
   EngineQuery,
+  EngineQueryForKind,
+  EngineQueryInput,
+  EngineQueryKind,
   EngineQueryResult,
+  EngineQueryValueForKind,
   Unsubscribe,
   WriteResult,
 } from "../../application/contract.js";
-import type { WorkspaceApplication } from "../../application/engine-contract.js";
 import { parseEngineCommand, parseEngineQuery } from "../../application/input-validation.js";
 import { deliverListeners } from "../../application/event-delivery.js";
+
+type WorkspaceApplication = Readonly<{
+  readonly workspaceId: string;
+  execute(command: EngineCommand): Promise<WriteResult>;
+  query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryValueForKind<Kind>>;
+  subscribe(listener: (event: EngineEvent) => void): Unsubscribe;
+}>;
 
 export class ProposalWorkspaceRegistry {
   private readonly workspaces = new Map<string, WorkspaceApplication>();
@@ -59,6 +71,9 @@ export class ProposalWorkspaceRegistry {
       : Promise.resolve({ status: "rejected", error: notLoaded(parsed.workspaceId) });
   }
 
+  private query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
   private async query(query: EngineQuery): Promise<EngineQueryResult> {
     let parsed: EngineQuery;
     try {

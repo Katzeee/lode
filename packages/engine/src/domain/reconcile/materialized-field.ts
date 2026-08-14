@@ -1,10 +1,22 @@
-import type { Mutation } from "../fact/index.js";
+import { FIELD_DEFINITION_NODE_TYPE, type Mutation } from "../fact/index.js";
+import { definitionNodeState } from "./definition-node.js";
 import type { Projection } from "./projection-types.js";
+
+type MaterializedFieldProjection = Pick<
+  Projection,
+  "materializedFields" | "nodes" | "nodeStatuses" | "occurrences"
+>;
 
 export function materializedFieldProblem(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
-  projection: Projection,
+  projection: MaterializedFieldProjection,
 ): string | null {
+  if (
+    definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) ===
+    "absent"
+  ) {
+    return `Field Definition type is absent: ${mutation.fieldDefinitionId}`;
+  }
   for (const [nodeId, label] of [
     [mutation.ownerNodeId, "Field owner"],
     [mutation.fieldDefinitionId, "Field Definition"],
@@ -33,7 +45,7 @@ export function materializedFieldProblem(
 
 export function assertMaterializedField(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
-  projection: Projection,
+  projection: MaterializedFieldProjection,
 ): void {
   const problem = materializedFieldProblem(mutation, projection);
   if (problem) {

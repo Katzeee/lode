@@ -1,4 +1,10 @@
-import { compareFacts, stableStringCompare, type ContributionFact } from "../fact/index.js";
+import {
+  compareFacts,
+  FIELD_DEFINITION_NODE_TYPE,
+  stableStringCompare,
+  SCHEMA_NODE_TYPE,
+  type ContributionFact,
+} from "../fact/index.js";
 import type { EffectiveField, MaterializedField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { schemaExtensionGraph } from "./schema-extension-graph.js";
@@ -13,6 +19,12 @@ import {
   schemaExtensionEvent,
 } from "./schema-relation-events.js";
 import { boundSchemaFields, boundSchemaTemplateNodes } from "./schema-template-bindings.js";
+import { activeNodeTypes } from "./node-status.js";
+import {
+  filterMaterializedFields,
+  filterRecordOwners,
+  filterTemplateFields,
+} from "./node-type-filters.js";
 
 export type SchemaRelations = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
@@ -34,16 +46,38 @@ export function deriveSchemaRelations(
   children: ReadonlyMap<string, readonly string[]>,
   initializedFields: Readonly<Record<string, readonly MaterializedField[]>> = {},
 ): SchemaRelations {
+  const nodeTypes = activeNodeTypes(active);
+  const schemaDefinitionIds = new Set(
+    [...nodeTypes].flatMap(([nodeId, nodeType]) => (nodeType === SCHEMA_NODE_TYPE ? [nodeId] : [])),
+  );
+  const fieldDefinitionIds = new Set(
+    [...nodeTypes].flatMap(([nodeId, nodeType]) =>
+      nodeType === FIELD_DEFINITION_NODE_TYPE ? [nodeId] : [],
+    ),
+  );
   const applications = observedRelations(
     active,
     schemaApplicationEvent,
     existingNodeIds,
-    knownNodeIds,
+    schemaDefinitionIds,
   );
-  const extensions = observedRelations(active, schemaExtensionEvent, knownNodeIds, knownNodeIds);
+  const extensions = observedRelations(
+    active,
+    schemaExtensionEvent,
+    schemaDefinitionIds,
+    schemaDefinitionIds,
+  );
   const schemaApplications = record(applications);
-  const boundFields = boundSchemaFields(active, knownNodeIds, occurrences, children);
-  const schemaTemplateNodes = boundSchemaTemplateNodes(active, knownNodeIds, occurrences, children);
+  const boundFields = filterTemplateFields(
+    boundSchemaFields(active, knownNodeIds, occurrences, children),
+    schemaDefinitionIds,
+    fieldDefinitionIds,
+    existingNodeIds,
+  );
+  const schemaTemplateNodes = filterRecordOwners(
+    boundSchemaTemplateNodes(active, knownNodeIds, occurrences, children),
+    schemaDefinitionIds,
+  );
   const templateFields = configuredFieldItems(active, boundFields);
   const schemaFields = Object.fromEntries(
     Object.entries(templateFields).map(([schemaId, fields]) => [
@@ -54,8 +88,8 @@ export function deriveSchemaRelations(
   const schemaExtensions = record(extensions);
   const extensionGraph = schemaExtensionGraph(schemaExtensions);
   const materializedFields = mergeMaterializedFields(
-    materialized(active, existingNodeIds, occurrences, children),
-    initializedFields,
+    materialized(active, existingNodeIds, fieldDefinitionIds, occurrences, children),
+    filterMaterializedFields(initializedFields, fieldDefinitionIds),
   );
   const initializations = fieldInitializations(active);
   const activeApplications = filterRelationTargets(schemaApplications, existingNodeIds);
@@ -115,6 +149,7 @@ function mergeMaterializedFields(
 function materialized(
   active: readonly ContributionFact[],
   existingNodeIds: ReadonlySet<string>,
+  fieldDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   children: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly MaterializedField[]>> {
@@ -131,6 +166,7 @@ function materialized(
     if (
       !existingNodeIds.has(mutation.ownerNodeId) ||
       !existingNodeIds.has(mutation.fieldNodeId) ||
+      !fieldDefinitionIds.has(mutation.fieldDefinitionId) ||
       occurrence?.nodeId !== mutation.fieldNodeId ||
       occurrence.parentNodeId !== mutation.ownerNodeId
     ) {

@@ -12,7 +12,7 @@ import { InMemoryDocumentStore } from "../../persistence/in-memory-document-stor
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("ordinary Schema Template Nodes", () => {
@@ -27,6 +27,7 @@ describe("ordinary Schema Template Nodes", () => {
             nodeId: "workspace-schema",
             parentNodeId: "workspace",
             anchor: end,
+            nodeType: "schema",
           },
           {
             kind: "node-create",
@@ -334,6 +335,7 @@ describe("ordinary Schema Template Nodes", () => {
             nodeId: "derived-schema",
             parentNodeId: "workspace",
             anchor: end,
+            nodeType: "schema",
           },
           {
             kind: "schema-extension-add",
@@ -377,6 +379,7 @@ function setupProgram(): readonly EditMutation[] {
       nodeId: "note-schema",
       parentNodeId: "workspace",
       anchor: end,
+      nodeType: "schema",
     },
     {
       kind: "node-create",

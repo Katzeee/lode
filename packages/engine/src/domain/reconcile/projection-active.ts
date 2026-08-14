@@ -4,20 +4,14 @@ import {
   type FactSnapshot,
   type ViewMode,
 } from "../fact/index.js";
-import { deriveActivation, deriveSupport } from "./support.js";
+import { deriveActiveContributions, deriveSupport } from "../activation/index.js";
 import type { ProjectionPlanCache } from "./projection-types.js";
 
 export function activeContributions(
   snapshot: FactSnapshot,
   view: ViewMode,
 ): Readonly<{ facts: readonly ContributionFact[]; cache: ProjectionPlanCache }> {
-  const activation = deriveActivation(snapshot.facts, view);
-  const facts = snapshot.facts
-    .filter(
-      (fact): fact is ContributionFact =>
-        fact.body.kind === "contribution" && activation.activeContributionIds.has(fact.id),
-    )
-    .sort(compareFacts);
+  const { facts, activation } = deriveActiveContributions(snapshot.facts, view);
   return {
     facts,
     cache: {

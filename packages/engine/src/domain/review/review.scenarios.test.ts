@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import { queryReview, validateReviewSelection } from "./review.js";
-import { base, end, generation, remoteFact } from "./review-test-helpers.js";
+import {
+  base,
+  end,
+  generation,
+  remoteFact,
+} from "../../../tests/support/review/review-test-helpers.js";
 
 describe("production Review scenarios", () => {
   it("Direct/Proposal 交错文本", () => {
@@ -633,28 +638,31 @@ describe("production Review scenarios", () => {
       anchor: end,
     });
     facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
-    facts.add({ kind: "node-create", nodeId: "schema-field-template-field" }, "proposal");
-    facts.add(
-      {
-        kind: "occurrence-create",
-        occurrenceId: "schema-field-template-field-occurrence",
-        nodeId: "schema-field-template-field",
-        parentNodeId: "schema",
-        anchor: end,
-      },
+    const fieldTransaction = facts.addTransaction(
+      [
+        { kind: "node-create", nodeId: "schema-field-template-field" },
+        {
+          kind: "occurrence-create",
+          occurrenceId: "schema-field-template-field-occurrence",
+          nodeId: "schema-field-template-field",
+          parentNodeId: "schema",
+          anchor: end,
+        },
+        {
+          kind: "schema-field-add",
+          schemaId: "schema",
+          fieldDefinitionId: "field",
+          fieldNodeId: "schema-field-template-field",
+          fieldOccurrenceId: "schema-field-template-field-occurrence",
+          anchor: end,
+        },
+      ],
       "proposal",
     );
-    const field = facts.add(
-      {
-        kind: "schema-field-add",
-        schemaId: "schema",
-        fieldDefinitionId: "field",
-        fieldNodeId: "schema-field-template-field",
-        fieldOccurrenceId: "schema-field-template-field-occurrence",
-        anchor: end,
-      },
-      "proposal",
-    );
+    const field = fieldTransaction[2];
+    if (!field) {
+      throw new Error("Expected Schema Field transaction");
+    }
     const before = facts.snapshot();
     const selected = queryReview("workspace", before, generation(before)).hunks.find((hunk) =>
       hunk.proposalContributionIds.includes(field.id),

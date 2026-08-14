@@ -1,12 +1,14 @@
 import {
   canonicalJson,
   compareFacts,
+  isTextMutation,
+  isValueMutation,
   type ContributionFact,
   type JsonValue,
   type Mutation,
   type TextAtomId,
 } from "../fact/index.js";
-import type { Projection } from "../reconcile/index.js";
+import type { ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 import { compensateValueMutation } from "./compensation-value.js";
 
@@ -14,46 +16,27 @@ export function compensateContentMutation(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep | null {
-  switch (target.body.mutation.kind) {
+  const mutation = target.body.mutation;
+  if (isValueMutation(mutation)) {
+    return compensateValueMutation(target, activeFacts, projection);
+  }
+  if (!isTextMutation(mutation)) {
+    return null;
+  }
+  switch (mutation.kind) {
     case "text-splice":
       return compensateTextSplice(target, activeFacts, projection);
     case "text-mark":
       return compensateTextMark(target, targetIds, activeFacts, projection);
-    case "value-set":
-    case "value-unset":
-      return compensateValueMutation(target, activeFacts, projection);
-    case "node-create":
-    case "node-delete":
-    case "node-restore":
-    case "occurrence-create":
-    case "occurrence-delete":
-    case "occurrence-restore":
-    case "occurrence-move":
-    case "node-owner-set":
-    case "schema-apply":
-    case "schema-remove":
-    case "schema-field-add":
-    case "schema-field-remove":
-    case "schema-field-configure":
-    case "schema-extension-add":
-    case "schema-extension-remove":
-    case "schema-template-node-add":
-    case "schema-template-node-remove":
-    case "template-node-detach":
-    case "field-materialize":
-    case "field-initialize":
-    case "field-value-delete":
-    case "materialized-field-delete":
-      return null;
   }
 }
 
 function compensateTextSplice(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "text-splice") {
@@ -199,7 +182,7 @@ function compensateTextMark(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "text-mark") {

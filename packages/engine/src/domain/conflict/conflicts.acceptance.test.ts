@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
 import { frontierOf, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
-import { projectionText, rebuildGeneration } from "../reconcile/index.js";
+import { rebuildGeneration } from "../reconcile/index.js";
+import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import {
   base,
   REPLICA_A,
@@ -11,8 +12,8 @@ import {
   remoteFact,
   versions,
   end,
-} from "../review/review-test-helpers.js";
-import { queryConflicts, resolutionAdjudicationProblem } from "./conflicts.js";
+} from "../../../tests/support/review/review-test-helpers.js";
+import { resolutionAdjudicationProblem } from "./conflicts.js";
 
 const REPLICA_D = "dddddddddddddddddddddddddd";
 
@@ -58,12 +59,12 @@ describe("Conflict lifecycle", () => {
     const conflicted = facts.snapshot([accept, reject]);
     const conflictedGeneration = rebuildGeneration("workspace", conflicted, versions).generation;
 
-    const query = queryConflicts(conflicted, conflictedGeneration);
-    expect(query.issues[0]?.identity).toMatch(/^\["resolution-conflict"/);
-    expect(query.issues).toEqual([
+    const issues = Object.values(conflictedGeneration.review.conflictIssues);
+    expect(issues[0]?.identity).toMatch(/^\["resolution-conflict"/);
+    expect(issues).toEqual([
       {
         kind: "resolution-conflict",
-        identity: query.issues[0]?.identity,
+        identity: issues[0]?.identity,
         proposalContributionIds: [proposal.id],
         candidates: [
           {
@@ -109,7 +110,7 @@ describe("Conflict lifecycle", () => {
     expect(admission.kind).toBe("ready");
     const terminal = rebuildGeneration("workspace", admission.snapshot, versions).generation;
     expect(projectionText(terminal.origin, "node")).toBe("P");
-    expect(queryConflicts(admission.snapshot, terminal).issues).toEqual([]);
+    expect(Object.values(terminal.review.conflictIssues)).toEqual([]);
     expect(frontierOf(admission.snapshot.facts)).toEqual(admission.snapshot.frontier);
   });
 
@@ -163,7 +164,7 @@ describe("Conflict lifecycle", () => {
     });
     const conflicted = admitted(facts.snapshot([moveB, moveC]));
     const generation = rebuildGeneration("workspace", conflicted, versions).generation;
-    const issue = queryConflicts(conflicted, generation).issues[0];
+    const issue = Object.values(generation.review.conflictIssues)[0];
     expect(issue).toMatchObject({
       kind: "placement-conflict",
       occurrenceId: "occurrence",
@@ -212,7 +213,7 @@ describe("Conflict lifecycle", () => {
     });
     const terminal = rebuildGeneration("workspace", resolved, versions).generation;
     expect(terminal.origin.occurrences.occurrence?.parentNodeId).toBe("parent-b");
-    expect(queryConflicts(resolved, terminal).issues).toEqual([]);
+    expect(Object.values(terminal.review.conflictIssues)).toEqual([]);
   });
 
   it("keeps concurrent same-parent reorders as a convergent sequence choice", () => {
@@ -255,7 +256,7 @@ describe("Conflict lifecycle", () => {
     const generation = rebuildGeneration("workspace", snapshot, versions).generation;
     expect(generation.origin.occurrences.occurrence?.parentNodeId).toBe("parent");
     expect(generation.origin.children.parent).toContain("occurrence");
-    expect(queryConflicts(snapshot, generation).issues).toEqual([]);
+    expect(Object.values(generation.review.conflictIssues)).toEqual([]);
   });
 });
 

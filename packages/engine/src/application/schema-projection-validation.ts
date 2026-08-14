@@ -1,4 +1,9 @@
-import type { FieldTemplateConfig, FieldValueSeed } from "../domain/fact/index.js";
+import {
+  isNodeType,
+  type FieldTemplateConfig,
+  type FieldValueSeed,
+  type NodeType,
+} from "../domain/fact/index.js";
 import type {
   EffectiveField,
   NodeStatus,
@@ -6,52 +11,7 @@ import type {
   MaterializedField,
   TemplateField,
 } from "../domain/reconcile/index.js";
-import type { ProjectionPageSection, ProjectionPageValue } from "./contract.js";
-
-export type SchemaProjectionMaps = Readonly<{
-  schemaApplications: Readonly<Record<string, readonly string[]>>;
-  schemaFields: Readonly<Record<string, readonly string[]>>;
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
-  schemaExtensions: Readonly<Record<string, readonly string[]>>;
-  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  nodeStatuses: Readonly<Record<string, NodeStatus>>;
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
-  materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
-}>;
-
-export function parseSchemaProjectionMaps(
-  section: ProjectionPageSection,
-  value: Record<string, unknown>,
-): SchemaProjectionMaps {
-  return {
-    schemaApplications: mapOrEmpty(section, "schemaApplications", value.schemaApplications, ids),
-    schemaFields: mapOrEmpty(section, "schemaFields", value.schemaFields, ids),
-    templateFields: mapOrEmpty(section, "templateFields", value.templateFields, (item) =>
-      array(item, templateField),
-    ),
-    schemaTemplateNodes: mapOrEmpty(section, "schemaTemplateNodes", value.schemaTemplateNodes, ids),
-    schemaExtensions: mapOrEmpty(section, "schemaExtensions", value.schemaExtensions, ids),
-    schemaSearchMembers: mapOrEmpty(section, "schemaSearchMembers", value.schemaSearchMembers, ids),
-    schemaExtensionConflicts: mapOrEmpty(
-      section,
-      "schemaExtensionConflicts",
-      value.schemaExtensionConflicts,
-      ids,
-    ),
-    nodeStatuses: mapOrEmpty(section, "nodeStatuses", value.nodeStatuses, nodeStatus),
-    effectiveFields: mapOrEmpty(section, "effectiveFields", value.effectiveFields, (item) =>
-      array(item, effectiveField),
-    ),
-    materializedFields: mapOrEmpty(
-      section,
-      "materializedFields",
-      value.materializedFields,
-      (item) => array(item, materializedField),
-    ),
-  };
-}
+import type { ProjectionPageValue } from "./contract.js";
 
 export function parseSchemaProjectionValue(
   section:
@@ -80,22 +40,24 @@ export function parseSchemaProjectionValue(
 
 function nodeStatus(value: unknown): NodeStatus {
   const item = record(value, "Node status");
-  exact(item, ["nodeId", "roles", "state", "deletionFactIds"]);
-  const roles = array(item.roles, (role) => {
-    if (role !== "schema" && role !== "field") {
-      throw new Error("Node role is invalid");
-    }
-    return role;
-  });
+  exact(item, ["nodeId", "nodeType", "state", "deletionFactIds"]);
+  const nodeType = parseNodeType(item.nodeType);
   if (item.state !== "active" && item.state !== "deleted") {
     throw new Error("Node state is invalid");
   }
   return {
     nodeId: identity(item.nodeId),
-    roles,
+    nodeType,
     state: item.state,
     deletionFactIds: ids(item.deletionFactIds),
   };
+}
+
+function parseNodeType(value: unknown): NodeType | null {
+  if (value === null || isNodeType(value)) {
+    return value;
+  }
+  throw new Error("Node types are invalid");
 }
 
 function materializedField(value: unknown): MaterializedField {
@@ -243,22 +205,6 @@ function visibility(value: unknown): "pinned" | "normal" | "optional" {
     throw new Error("Field visibility is invalid");
   }
   return value;
-}
-
-function mapOrEmpty<T>(
-  actual: ProjectionPageSection,
-  expected: ProjectionPageSection,
-  value: unknown,
-  parse: (item: unknown) => T,
-): Record<string, T> {
-  const source = record(value, expected);
-  if (actual !== expected) {
-    if (Object.keys(source).length > 0) {
-      throw new Error(`${expected} must be empty`);
-    }
-    return {};
-  }
-  return Object.fromEntries(Object.entries(source).map(([key, item]) => [key, parse(item)]));
 }
 
 function ids(value: unknown): string[] {

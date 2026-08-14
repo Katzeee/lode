@@ -25,7 +25,7 @@ import {
   createReplicaId,
 } from "./fact-authority-store.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
-import { syncPair } from "../sync/sync-exchange.js";
+import { syncPair } from "../../../tests/support/sync.js";
 
 const REPLICA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -537,7 +537,7 @@ describe("production Fact authority store", () => {
       lamport: 1,
       body,
     });
-    const unsigned = { ...unsignedFact(valid), schemaVersion: 7 };
+    const unsigned = { ...unsignedFact(valid), schemaVersion: 9 };
     const unsupported = {
       ...unsigned,
       contentDigest: canonicalDigest(unsigned),

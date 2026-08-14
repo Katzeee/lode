@@ -9,8 +9,9 @@ import {
   type FactSnapshot,
   type ResolutionDecision,
 } from "../fact/index.js";
-import type { ProjectionGeneration } from "../reconcile/index.js";
-import { collectReviewCandidates, type HunkCandidate } from "./candidates.js";
+import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { HunkCandidate } from "./review-family.js";
+import { collectReviewCandidates } from "./review-plan.js";
 import {
   createReviewEvidenceContext,
   evidenceForTargets,
@@ -29,7 +30,7 @@ const DEFAULT_REVIEW_CAPABILITY_KEY = randomBytes(32).toString("hex");
 export function queryReview(
   workspaceId: string,
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
   page?: Readonly<{
     pending: ReadonlyMap<string, ContributionFact>;
@@ -66,7 +67,7 @@ export function validateReviewSelection(
   decision: ResolutionDecision,
   actorId: string,
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
 ): SelectionValidation {
   if (selection.workspaceId !== workspaceId) {
@@ -108,7 +109,7 @@ export function validateReviewSelection(
 function candidateToHunk(
   workspaceId: string,
   snapshot: FactSnapshot,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   candidate: HunkCandidate,
   capabilityKey: string,
   context: ReviewEvidenceContext,
@@ -135,7 +136,7 @@ function candidateToHunk(
 
 function makeSelection(
   workspaceId: string,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   evidence: DecisionEvidence,
   capabilityKey: string,
 ): ReviewSelection {
@@ -205,12 +206,12 @@ function linkAssociatedHunks(hunks: readonly ReviewHunk[]): readonly ReviewHunk[
   }));
 }
 
-function assertGeneration(snapshot: FactSnapshot, generation: ProjectionGeneration): void {
+function assertGeneration(snapshot: FactSnapshot, generation: ScopedProjectionGeneration): void {
   if (!frontierEquals(generation.identity.frontier, snapshot.frontier)) {
     throw new Error("Review query requires the complete generation at the FactSnapshot frontier");
   }
 }
 
-function stale(generation: ProjectionGeneration, reason: string): SelectionValidation {
+function stale(generation: ScopedProjectionGeneration, reason: string): SelectionValidation {
   return { kind: "stale", currentGenerationId: generation.identity.generationId, reason };
 }

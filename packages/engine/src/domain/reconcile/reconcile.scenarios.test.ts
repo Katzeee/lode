@@ -2,10 +2,18 @@ import { describe, expect, it } from "vitest";
 
 import { compareFacts, frontierOf, makeFact, type Mutation } from "../fact/index.js";
 import { queryReview } from "../review/index.js";
-import { projectSnapshot, projectionText, rebuildGeneration, renderSemanticTree } from "./index.js";
-import { proposalLifecycleCases } from "./proposal-lifecycle-test-helpers.js";
-import { base, end, Facts, fullSurface, versions } from "./reconcile-test-helpers.js";
-import { addPlacedNode } from "./placed-node-test-helpers.js";
+import { rebuildGeneration } from "./index.js";
+import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
+import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
+import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";
+import {
+  base,
+  end,
+  Facts,
+  fullSurface,
+  versions,
+} from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { addPlacedNode } from "../../../tests/support/reconcile/placed-node-test-helpers.js";
 
 describe("production Reconcile scenarios", () => {
   it("projects the Workspace as the root Node and gives every other Node one explicit owner", () => {
@@ -173,6 +181,7 @@ describe("production Reconcile scenarios", () => {
       "node-delete",
       "node-owner-set",
       "node-restore",
+      "node-type-declare",
       "occurrence-create",
       "occurrence-delete",
       "occurrence-move",

@@ -20,12 +20,21 @@ const selection = {
       },
     ],
     associatedImpactIds: [],
-    rulesVersion: "proposal-rules-3",
-    schemaVersion: "lode-schema-16",
+    rulesVersion: "proposal-rules-5",
+    schemaVersion: "lode-schema-19",
   },
 } as const;
 
 describe("serialized contract deep validation", () => {
+  it("rejects a valid result that belongs to another query kind", async () => {
+    expect(
+      await queryResponse(
+        { status: "ok", value: { status: "absent" } },
+        { kind: "review", workspaceId: "workspace" },
+      ),
+    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
+  });
+
   it("rejects malformed nested Review selections and every Decision Effect family", async () => {
     const malformedSelections: readonly unknown[] = [
       {
@@ -164,20 +173,16 @@ describe("serialized contract deep validation", () => {
           status: "ok",
           value: {
             identity: {
+              workspaceNodeId: "workspace",
               generationId: "generation",
               frontier: {},
-              rulesVersion: "proposal-rules-3",
-              schemaVersion: "lode-schema-16",
+              rulesVersion: "proposal-rules-5",
+              schemaVersion: "lode-schema-19",
             },
             view: "origin",
             section: "nodes",
-            entries: [{ identity: "node", value: node }],
             next: null,
             nodes: { node },
-            occurrences: {},
-            children: {},
-            nodeOwners: {},
-            addressedValues: {},
           },
         },
         {
@@ -186,6 +191,32 @@ describe("serialized contract deep validation", () => {
           view: "origin",
         },
       ),
+    ).toMatchObject({
+      status: "rejected",
+      error: { code: "projection-unavailable" },
+    });
+  });
+
+  it("accepts one Projection section container and rejects duplicated page entries", async () => {
+    const query = { kind: "projection", workspaceId: "workspace", view: "origin" } as const;
+    const page = {
+      identity: {
+        workspaceNodeId: "workspace",
+        generationId: "generation",
+        frontier: {},
+        rulesVersion: "proposal-rules-5",
+        schemaVersion: "lode-schema-19",
+      },
+      view: "origin",
+      section: "nodes",
+      next: null,
+      nodes: {},
+    } as const;
+    const result = { status: "ok", value: page } as const;
+
+    expect(await queryResponse(result, query)).toEqual(result);
+    expect(
+      await queryResponse({ status: "ok", value: { ...page, entries: [] } }, query),
     ).toMatchObject({
       status: "rejected",
       error: { code: "projection-unavailable" },

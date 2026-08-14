@@ -29,8 +29,6 @@ export type AuthorityAdmissionPolicy = (
   records: readonly unknown[],
 ) => Admission;
 
-export type AuthorityIndexObserver = (work: Readonly<{ operation: string; units: number }>) => void;
-
 export type FactAuthority = {
   readonly replicaId: ReplicaId;
   admission(): Admission;

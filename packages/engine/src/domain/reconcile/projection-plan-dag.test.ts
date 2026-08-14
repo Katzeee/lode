@@ -1,28 +1,60 @@
 import { describe, expect, it } from "vitest";
 
 import { frontierOf, makeFact, type Fact, type Mutation } from "../fact/index.js";
-import {
-  advanceGeneration,
-  compileProjectionPlan,
-  deriveActivation,
-  rebuildGeneration,
-} from "./index.js";
+import { deriveActivation } from "../activation/index.js";
+import { advanceGeneration, compileProjectionPlan, rebuildGeneration } from "./index.js";
 import { PROJECTION_PLAN } from "./projection-plan.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 describe("Projection plan dataflow", () => {
   it("production stage outputs are statically single-writer partitions", () => {
     const outputs = PROJECTION_PLAN.ordered.flatMap((stage) => stage.writes);
     expect(new Set(outputs).size).toBe(outputs.length);
-    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "text")?.writes).toEqual(["text"]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "activation")?.writes).toEqual([
+      "activation",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "node")?.writes).toEqual([
+      "storedNodes",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "text")?.writes).toEqual([
+      "contentNodes",
+    ]);
     expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "value")?.writes).toEqual([
-      "values",
+      "addressedValues",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "occurrence")?.writes).toEqual([
+      "authoredStructure",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "owner")?.writes).toEqual([
+      "nodeOwners",
+    ]);
+    expect(
+      PROJECTION_PLAN.ordered.find((stage) => stage.key === "schema-relations")?.writes,
+    ).toEqual(["schemaRelations"]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "node-status")?.writes).toEqual([
+      "nodeStatuses",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "conflict")?.writes).toEqual([
+      "conflictIssues",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "template")?.writes).toEqual([
+      "templateStructure",
     ]);
     expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "assembly")?.writes).toEqual([
       "projection",
     ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "text")?.dependencies).toEqual([
+      "activation",
+      "node",
+    ]);
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "template")?.dependencies).toEqual(
+      ["activation", "node", "occurrence", "owner", "schema-relations"],
+    );
+    expect(PROJECTION_PLAN.ordered.find((stage) => stage.key === "assembly")?.dependencies).toEqual(
+      ["node", "text", "value", "owner", "schema-relations", "node-status", "conflict", "template"],
+    );
   });
 
   it("RULE-1 Projection plan rejects missing dependencies duplicate writers and cycles", () => {
@@ -88,31 +120,6 @@ describe("Projection plan dataflow", () => {
     expect(result.generation.planCaches.origin.activeContributionIds).toEqual(
       afterFacts.map((fact) => fact.id),
     );
-  });
-
-  it("production stage evaluators execute in compiled order and fail at an atomic boundary", () => {
-    const facts = [contribution(1, { kind: "node-create", nodeId: "node" })];
-    const observed: string[] = [];
-    expect(() =>
-      rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions, {
-        stageObserver(stage, view) {
-          observed.push(`${view}/${stage}`);
-          if (view === "review" && stage === "schema") {
-            throw new Error("injected stage failure");
-          }
-        },
-      }),
-    ).toThrow("injected stage failure");
-    expect(observed.slice(0, 8)).toEqual([
-      "origin/activation",
-      "origin/node",
-      "origin/value",
-      "origin/occurrence",
-      "origin/owner",
-      "origin/schema",
-      "origin/text",
-      "origin/assembly",
-    ]);
   });
 });
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { queryReview } from "../review/index.js";
 import { queryHistory, validateHistorySelection } from "./history.js";
 import { rebuildHistoryState } from "./state.js";
-import { baseFixture, end } from "./history-test-helpers.js";
+import { baseFixture, end } from "../../../tests/support/history/history-test-helpers.js";
 
 describe("production History contracts", () => {
   it("HIST-1 durable local channels exclude resolutions", () => {

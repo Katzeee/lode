@@ -1,4 +1,29 @@
 import type { SequenceAnchor } from "../fact/index.js";
+import type { Projection } from "./projection-types.js";
+
+export function sequenceAnchorAt(identities: readonly string[], index: number): SequenceAnchor {
+  return {
+    after: identities[index - 1] ?? null,
+    before: identities[index + 1] ?? null,
+    affinity: index === 0 ? "before" : "after",
+    fallback: index === 0 ? "start" : "end",
+  };
+}
+
+export function occurrenceAnchor(
+  projection: Pick<Projection, "occurrences" | "children">,
+  occurrenceId: string,
+): SequenceAnchor {
+  const occurrence = projection.occurrences[occurrenceId];
+  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
+  const index = siblings.indexOf(occurrenceId);
+  return {
+    after: index > 0 ? (siblings[index - 1] ?? null) : null,
+    before: index >= 0 ? (siblings[index + 1] ?? null) : null,
+    affinity: "after",
+    fallback: index <= 0 ? "start" : "end",
+  };
+}
 
 export function insertAtAnchor(list: string[], identity: string, anchor: SequenceAnchor): void {
   insertManyAtAnchor(list, [identity], anchor, (value) => value);

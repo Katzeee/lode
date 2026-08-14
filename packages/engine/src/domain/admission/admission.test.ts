@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { factTransactionId, makeFact } from "../fact/index.js";
-import { Facts, REPLICA, end } from "../reconcile/reconcile-test-helpers.js";
+import { Facts, REPLICA, end } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { admitAuthorityRecords } from "./index.js";
 
 describe("domain admission", () => {
@@ -52,6 +52,66 @@ describe("domain admission", () => {
     });
 
     expect(admit(facts.values).kind).toBe("fault");
+  });
+
+  it("rejects Definition relations whose target is only an ordinary Node", () => {
+    const facts = new Facts();
+    facts.addPlaced("ordinary");
+    facts.addPlaced("target");
+    facts.add({ kind: "schema-apply", nodeId: "target", schemaId: "ordinary", anchor: end });
+
+    expect(admit(facts.values)).toMatchObject({
+      kind: "fault",
+      fault: "Schema type is absent from the observed projection",
+    });
+  });
+
+  it("rejects a Field type declaration without a Field Definition binding", () => {
+    const facts = new Facts();
+    facts.addPlaced("unbound-field");
+    facts.add({ kind: "node-type-declare", nodeId: "unbound-field", nodeType: "field" });
+
+    expect(admit(facts.values)).toMatchObject({
+      kind: "fault",
+      fault: "Field Node has no Field Definition binding: unbound-field",
+    });
+  });
+
+  it("rejects a later edit that leaves an active Field Node without its binding", () => {
+    const facts = new Facts();
+    facts.addPlaced("schema");
+    facts.addPlaced("field-definition");
+    facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+    facts.add({
+      kind: "node-type-declare",
+      nodeId: "field-definition",
+      nodeType: "field-definition",
+    });
+    facts.add({
+      kind: "schema-field-add",
+      schemaId: "schema",
+      fieldDefinitionId: "field-definition",
+      fieldNodeId: "field-node",
+      fieldOccurrenceId: "field-occurrence",
+      anchor: end,
+    });
+    expect(admit(facts.values).kind).toBe("ready");
+
+    facts.addTransaction([
+      {
+        kind: "schema-field-remove",
+        schemaId: "schema",
+        fieldDefinitionId: "field-definition",
+        fieldNodeId: "field-node",
+        fieldOccurrenceId: "field-occurrence",
+        previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
+      },
+    ]);
+
+    expect(admit(facts.values)).toMatchObject({
+      kind: "fault",
+      fault: "Field Node has no Field Definition binding: field-node",
+    });
   });
 
   it("rejects a committed state where deleting an Original leaves its Node active", () => {

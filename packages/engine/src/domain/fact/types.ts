@@ -2,10 +2,11 @@ import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-type
 import type { FieldContentDeletionMutation } from "./field-content-types.js";
 import type { FieldTemplateConfig, InitializedFieldValue } from "./field-template-types.js";
 import type { NodeSeed } from "./node-create-types.js";
+import type { NodeType } from "./node-type-types.js";
 import type { FactTransactionId, FactTransactionPosition } from "./transaction-types.js";
 
 export const FORMAT_GENERATION = 1 as const;
-export const FACT_SCHEMA_VERSION = 6 as const;
+export const FACT_SCHEMA_VERSION = 8 as const;
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
@@ -91,6 +92,7 @@ export type Mutation =
       ownerNodeId: string;
       previousOwnerNodeId?: string;
     }>
+  | Readonly<{ kind: "node-type-declare"; nodeId: string; nodeType: NodeType }>
   | Readonly<{
       kind: "schema-apply";
       nodeId: string;

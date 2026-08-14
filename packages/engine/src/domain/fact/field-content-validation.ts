@@ -1,13 +1,10 @@
-import type { Mutation } from "./types.js";
+import type { FieldContentDeletionMutation, Mutation } from "./types.js";
 import { requireString } from "./shape-validation-primitives.js";
 
 export function assertFieldContentDeletionShape(
   value: Record<string, unknown>,
   optionalAnchor: (value: unknown) => void,
-): asserts value is Extract<
-  Mutation,
-  { kind: "field-value-delete" | "materialized-field-delete" }
-> {
+): asserts value is FieldContentDeletionMutation {
   requireString(value.ownerNodeId, "Field owner Node");
   requireString(value.fieldDefinitionId, "Field Definition");
   if (value.kind === "field-value-delete") {
@@ -23,7 +20,7 @@ export function assertFieldContentDeletionShape(
 }
 
 export function validateStaticFieldContentDeletion(
-  mutation: Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>,
+  mutation: FieldContentDeletionMutation,
   factIdentity: string,
 ): void {
   const identities = [

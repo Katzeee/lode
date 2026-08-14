@@ -1,4 +1,4 @@
-import type { JsonValue } from "../fact/index.js";
+import { VIEW_NODE_TYPE, type JsonValue, type NodeType } from "../fact/index.js";
 import {
   MAX_VIEW_FIELDS,
   VIEW_FIELDS_PROPERTY,
@@ -10,7 +10,11 @@ import {
 
 export function readViewDefinition(
   node: Readonly<{ properties: Readonly<Record<string, JsonValue>> }>,
+  nodeType: NodeType | null,
 ): ViewDefinition {
+  if (nodeType !== VIEW_NODE_TYPE) {
+    throw new Error("View type is absent");
+  }
   const schemaId = node.properties[VIEW_SCHEMA_PROPERTY];
   const layout = node.properties[VIEW_LAYOUT_PROPERTY];
   const fields = node.properties[VIEW_FIELDS_PROPERTY];

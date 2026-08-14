@@ -10,21 +10,6 @@ export function parseIndexed<T>(
   );
 }
 
-export function empty(value: unknown, label: string): Record<string, never> {
-  const result = object(value, label);
-  if (Object.keys(result).length > 0) {
-    throw new Error(`${label} must be empty outside its page section`);
-  }
-  return {};
-}
-
-export function emptyArray(value: unknown, label: string): readonly never[] {
-  if (!Array.isArray(value) || value.length > 0) {
-    throw new Error(`${label} must be empty outside its page section`);
-  }
-  return [];
-}
-
 export function jsonRecord(value: unknown): Record<string, JsonValue> {
   const result = object(value, "JSON object");
   for (const child of Object.values(result)) {

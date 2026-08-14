@@ -1,78 +1,20 @@
-import { canonicalJson, compareFacts, type ContributionFact } from "../fact/index.js";
-import { impactAddress, type Projection, type ProjectionGeneration } from "../reconcile/index.js";
-import type { HunkCandidate } from "./candidates.js";
-import type { FieldMaterializationDecisionEffect, SchemaRelationDecisionEffect } from "./types.js";
+import {
+  canonicalJson,
+  isSchemaMutation,
+  type ContributionFact,
+  type SchemaMutation,
+} from "../fact/index.js";
+import {
+  impactAddress,
+  type ScopedProjection,
+  type ScopedProjectionGeneration,
+} from "../reconcile/index.js";
+import type { SchemaRelationDecisionEffect } from "./types.js";
 import { addAffectedFieldImpacts } from "./field-impacts.js";
-
-export function materializedFieldCandidates(
-  generation: ProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
-): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
-  for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (
-      mutation.kind !== "field-materialize" &&
-      mutation.kind !== "field-initialize" &&
-      mutation.kind !== "materialized-field-delete"
-    ) {
-      continue;
-    }
-    const address = materializedFieldAddress(mutation.ownerNodeId, mutation.fieldDefinitionId);
-    const group = groups.get(address) ?? [];
-    group.push(fact);
-    groups.set(address, group);
-  }
-  return [...groups.entries()].flatMap(([address, facts]) => {
-    const effect = fieldMaterializationEffect(facts.at(-1)!, generation);
-    return canonicalJson(effect.originFieldNodeId) === canonicalJson(effect.reviewFieldNodeId)
-      ? []
-      : [
-          {
-            diffSpace: { kind: "materialized-field" as const, identity: address },
-            targets: [...facts].sort(compareFacts).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  });
-}
-
-export function fieldMaterializationEffect(
-  fact: ContributionFact,
-  generation: ProjectionGeneration,
-): FieldMaterializationDecisionEffect {
-  const mutation = fact.body.mutation;
-  if (
-    mutation.kind !== "field-materialize" &&
-    mutation.kind !== "field-initialize" &&
-    mutation.kind !== "materialized-field-delete"
-  ) {
-    throw new Error("Field materialization effect requires a Field materialization Mutation");
-  }
-  const origin = materializedField(
-    generation.origin,
-    mutation.ownerNodeId,
-    mutation.fieldDefinitionId,
-  );
-  const review = materializedField(
-    generation.review,
-    mutation.ownerNodeId,
-    mutation.fieldDefinitionId,
-  );
-  return {
-    kind: "field-materialization",
-    ownerNodeId: mutation.ownerNodeId,
-    fieldDefinitionId: mutation.fieldDefinitionId,
-    originFieldNodeId: origin?.fieldNodeId ?? null,
-    reviewFieldNodeId: review?.fieldNodeId ?? null,
-    originFieldOccurrenceId: origin?.fieldOccurrenceId ?? null,
-    reviewFieldOccurrenceId: review?.fieldOccurrenceId ?? null,
-  };
-}
 
 export function schemaRelationEffect(
   fact: ContributionFact,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
 ): SchemaRelationDecisionEffect {
   const mutation = fact.body.mutation;
   if (!isSchemaMutation(mutation)) {
@@ -93,17 +35,9 @@ export function schemaRelationEffect(
 export function addSchemaRelationImpacts(
   impacts: Set<string>,
   fact: ContributionFact,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
 ): void {
   const mutation = fact.body.mutation;
-  if (mutation.kind === "field-materialize" || mutation.kind === "field-initialize") {
-    impacts.add(materializedFieldAddress(mutation.ownerNodeId, mutation.fieldDefinitionId));
-    if (mutation.kind === "field-materialize") {
-      impacts.add(mutation.fieldNodeId);
-      impacts.add(mutation.fieldOccurrenceId);
-    }
-    return;
-  }
   if (!isSchemaMutation(mutation)) {
     return;
   }
@@ -151,19 +85,7 @@ export function addSchemaRelationImpacts(
   }
 }
 
-function materializedFieldAddress(ownerNodeId: string, fieldDefinitionId: string): string {
-  return impactAddress("materialized-field", ownerNodeId, fieldDefinitionId);
-}
-
-function materializedField(projection: Projection, ownerNodeId: string, fieldDefinitionId: string) {
-  return projection.materializedFields[ownerNodeId]?.find(
-    (field) => field.fieldDefinitionId === fieldDefinitionId,
-  );
-}
-
-export function schemaRelationAddress(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: `schema-${string}` }>,
-): string {
+export function schemaRelationAddress(mutation: SchemaMutation): string {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return impactAddress("schema-application", mutation.nodeId, mutation.schemaId);
   }
@@ -177,7 +99,7 @@ export function schemaRelationAddress(
 }
 
 function relationIndex(
-  projection: Projection,
+  projection: ScopedProjection,
   relation: SchemaRelationDecisionEffect["relation"],
   ownerId: string,
   targetId: string,
@@ -194,9 +116,7 @@ function relationIndex(
   return index === undefined || index < 0 ? null : index;
 }
 
-function schemaRelationKind(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: `schema-${string}` }>,
-): SchemaRelationDecisionEffect["relation"] {
+function schemaRelationKind(mutation: SchemaMutation): SchemaRelationDecisionEffect["relation"] {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return "application";
   }
@@ -209,7 +129,7 @@ function schemaRelationKind(
 }
 
 function schemaRelationIdentities(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: `schema-${string}` }>,
+  mutation: SchemaMutation,
 ): readonly [ownerId: string, targetId: string] {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return [mutation.nodeId, mutation.schemaId];
@@ -222,7 +142,10 @@ function schemaRelationIdentities(
       : [mutation.schemaId, mutation.fieldDefinitionId];
 }
 
-function fieldsOfSchema(generation: ProjectionGeneration, schemaId: string): readonly string[] {
+function fieldsOfSchema(
+  generation: ScopedProjectionGeneration,
+  schemaId: string,
+): readonly string[] {
   return [
     ...new Set([
       ...(generation.origin.schemaFields[schemaId] ?? []),
@@ -232,7 +155,7 @@ function fieldsOfSchema(generation: ProjectionGeneration, schemaId: string): rea
 }
 
 function nodesApplyingSchema(
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   schemaId: string,
 ): readonly string[] {
   return [
@@ -247,16 +170,10 @@ function nodesApplyingSchema(
   ];
 }
 
-function effectiveField(projection: Projection, nodeId: string, fieldDefinitionId: string) {
+function effectiveField(projection: ScopedProjection, nodeId: string, fieldDefinitionId: string) {
   return (
     projection.effectiveFields[nodeId]?.find(
       (field) => field.fieldDefinitionId === fieldDefinitionId,
     ) ?? null
   );
-}
-
-function isSchemaMutation(
-  mutation: ContributionFact["body"]["mutation"],
-): mutation is Extract<ContributionFact["body"]["mutation"], { kind: `schema-${string}` }> {
-  return mutation.kind.startsWith("schema-");
 }

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../admission/index.js";
 import { canonicalDigest, type ContributionFact } from "../fact/index.js";
-import { impactAddress, projectionText } from "../reconcile/index.js";
+import { impactAddress, valueKeyAddress } from "../reconcile/index.js";
+import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import { queryReview, validateReviewSelection } from "./review.js";
-import { evidenceForTargets, valueAddress } from "./evidence.js";
+import { evidenceForTargets } from "./evidence.js";
 import type { ReviewSelection } from "./types.js";
 import {
   REPLICA_A,
@@ -14,7 +15,7 @@ import {
   end,
   generation,
   remoteFact,
-} from "./review-test-helpers.js";
+} from "../../../tests/support/review/review-test-helpers.js";
 
 describe("production Review contracts", () => {
   it("composite value addresses cannot collide through user identities or keys", () => {
@@ -34,7 +35,9 @@ describe("production Review contracts", () => {
       value: 2,
       previous: { kind: "unset" as const },
     };
-    expect(valueAddress(left)).not.toBe(valueAddress(right));
+    expect(valueKeyAddress(left.target, left.namespace, left.key)).not.toBe(
+      valueKeyAddress(right.target, right.namespace, right.key),
+    );
   });
 
   it("nullable impact segments cannot collide with user occurrence identities", () => {
@@ -388,7 +391,7 @@ describe("production Review contracts", () => {
 
     const newVersions = {
       rulesVersion: "unknown-rules",
-      schemaVersion: "lode-schema-16",
+      schemaVersion: "lode-schema-19",
     } as const;
     expect(() => generation(current, newVersions)).toThrow("Unsupported projection versions");
   });

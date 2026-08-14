@@ -14,9 +14,10 @@ import { rebuildGeneration } from "../../domain/reconcile/index.js";
 import { queryReview } from "../../domain/review/index.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "./fact-sync.js";
-import { InMemorySyncTransport, SyncExchange, syncPair } from "./sync-exchange.js";
+import { SyncExchange } from "./sync-exchange.js";
+import { InMemorySyncTransport, syncPair } from "../../../tests/support/sync.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 async function replica(peerId: `${number}`, replicaId = createReplicaId()) {
   return FactAuthorityStore.open({

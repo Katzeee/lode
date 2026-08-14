@@ -1,23 +1,17 @@
 import { canonicalJson, type Mutation } from "../fact/index.js";
+import { completeTemplateDetachmentEvidence } from "../mutation-evidence/index.js";
 import type { Projection } from "../reconcile/index.js";
 
 export function validateTemplateDetachmentEvidence(
   mutation: Extract<Mutation, { kind: "template-node-detach" }>,
   available: Projection,
 ): void {
-  const instance = available.templateNodeInstances.find(
-    (candidate) =>
-      candidate.ownerNodeId === mutation.ownerNodeId &&
-      candidate.templateNodeId === mutation.templateNodeId &&
-      candidate.state === "linked",
-  );
+  const expected = completeTemplateDetachmentEvidence(mutation, available);
   if (
-    !instance ||
-    canonicalJson(instance.sources.map((source) => source.schemaId)) !==
-      canonicalJson(mutation.sourceSchemaIds) ||
-    canonicalJson(instance.sources.map((source) => source.appliedSchemaId)) !==
+    canonicalJson(expected.sourceSchemaIds) !== canonicalJson(mutation.sourceSchemaIds) ||
+    canonicalJson(expected.sourceApplicationSchemaIds) !==
       canonicalJson(mutation.sourceApplicationSchemaIds) ||
-    canonicalJson(instance.sources.map((source) => source.templateOccurrenceId)) !==
+    canonicalJson(expected.sourceTemplateOccurrenceIds) !==
       canonicalJson(mutation.sourceTemplateOccurrenceIds)
   ) {
     throw new Error("Template detachment source evidence does not match the observed Projection");

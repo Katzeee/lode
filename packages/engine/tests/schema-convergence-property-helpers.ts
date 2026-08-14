@@ -18,9 +18,9 @@ import {
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-} from "../src/runtime/workspace/generation-checkpoint.js";
+} from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const checkpointKey = "schema-convergence-property";
 
 export function remoteBranch(

@@ -9,8 +9,8 @@ import {
   type FactFrontier,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { projectSnapshot } from "../src/domain/reconcile/projection.js";
-import { end, Facts, versions } from "../src/domain/reconcile/reconcile-test-helpers.js";
+import { projectSnapshot } from "./support/reconcile/projection.js";
+import { end, Facts, versions } from "./support/reconcile/reconcile-test-helpers.js";
 
 const tombstoneReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const editReplica = "cccccccccccccccccccccccccc";
@@ -79,6 +79,16 @@ function definitionFixture(): Facts {
   for (const nodeId of ["task", "task-schema", "status-field"]) {
     facts.addPlaced(nodeId);
   }
+  facts.add({
+    kind: "node-type-declare",
+    nodeId: "task-schema",
+    nodeType: "schema",
+  });
+  facts.add({
+    kind: "node-type-declare",
+    nodeId: "status-field",
+    nodeType: "field-definition",
+  });
   facts.add({
     kind: "schema-field-add",
     schemaId: "task-schema",

@@ -64,12 +64,7 @@ export class FactAuthorityStore implements FactAuthority {
     this.admitRecords = options.admitRecords;
     this.replicaKernel = replicaKernel;
     this.updatesSinceSnapshot = updatesSinceSnapshot;
-    this.cache = new AuthorityStoreCache(
-      options.workspaceId,
-      replicaId,
-      this.admitRecords,
-      options.onIndexedWork,
-    );
+    this.cache = new AuthorityStoreCache(options.workspaceId, replicaId, this.admitRecords);
     this.cache.refresh(records);
     this.replication = replicaKernel.syncDoc;
   }

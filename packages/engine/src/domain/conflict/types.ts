@@ -4,6 +4,7 @@ import type {
   FieldValueSeed,
   ResolutionDecision,
   SequenceAnchor,
+  NodeType,
 } from "../fact/index.js";
 
 export type ResolutionConflictCandidate = Readonly<{
@@ -26,6 +27,18 @@ export type ConflictIssue =
       missingSupportContributionIds: readonly string[];
       requiredNodeIds: readonly string[];
       recoveryActions: readonly ["restore-support"];
+    }>
+  | Readonly<{
+      kind: "node-type-conflict";
+      identity: string;
+      nodeId: string;
+      candidates: readonly Readonly<{
+        contributionId: string;
+        nodeType: NodeType;
+        actorId: string;
+        replicaId: string;
+        observedFrontier: FactFrontier;
+      }>[];
     }>
   | Readonly<{
       kind: "resolution-conflict";

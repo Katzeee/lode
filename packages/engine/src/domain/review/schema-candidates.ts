@@ -1,20 +1,26 @@
-import { canonicalJson, compareFacts, type ContributionFact } from "../fact/index.js";
-import type { Projection, ProjectionGeneration } from "../reconcile/index.js";
-import type { HunkCandidate } from "./candidates.js";
+import {
+  canonicalJson,
+  compareFacts,
+  isSchemaMutation,
+  type ContributionFact,
+  type SchemaMutation,
+} from "../fact/index.js";
+import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { HunkCandidate } from "./review-family.js";
 import { schemaRelationAddress, schemaRelationEffect } from "./schema-review.js";
 import type { FieldConfigurationDecisionEffect } from "./types.js";
 
 export function schemaCandidates(
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   pending: ReadonlyMap<string, ContributionFact>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, ContributionFact[]>();
   for (const fact of pending.values()) {
     const mutation = fact.body.mutation;
-    if (!mutation.kind.startsWith("schema-")) {
+    if (!isSchemaMutation(mutation)) {
       continue;
     }
-    const address = schemaRelationAddress(schemaMutation(fact).body.mutation);
+    const address = schemaRelationAddress(mutation);
     const groupAddress =
       mutation.kind === "schema-field-configure"
         ? `${address}/configuration`
@@ -30,7 +36,7 @@ export function schemaCandidates(
 
 export function fieldConfigurationEffect(
   fact: ContributionFact,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
 ): FieldConfigurationDecisionEffect {
   const mutation = fact.body.mutation;
   if (mutation.kind !== "schema-field-configure") {
@@ -47,7 +53,7 @@ export function fieldConfigurationEffect(
 
 function candidateForGroup(
   facts: readonly ContributionFact[],
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
 ): readonly HunkCandidate[] {
   const last = facts.at(-1)!;
   const mutation = last.body.mutation;
@@ -66,7 +72,7 @@ function candidateForGroup(
           },
         ];
   }
-  const schemaFact = schemaMutation(last);
+  const schemaFact = schemaMutationFact(last);
   const effect = schemaRelationEffect(schemaFact, generation);
   return effect.originIndex === effect.reviewIndex
     ? []
@@ -82,7 +88,11 @@ function candidateForGroup(
       ];
 }
 
-function fieldConfiguration(projection: Projection, schemaId: string, fieldDefinitionId: string) {
+function fieldConfiguration(
+  projection: ScopedProjection,
+  schemaId: string,
+  fieldDefinitionId: string,
+) {
   return (
     projection.templateFields[schemaId]?.find(
       (item) => item.fieldDefinitionId === fieldDefinitionId,
@@ -91,14 +101,10 @@ function fieldConfiguration(projection: Projection, schemaId: string, fieldDefin
 }
 
 type SchemaMutationFact = ContributionFact &
-  Readonly<{
-    body: Readonly<{
-      mutation: Extract<ContributionFact["body"]["mutation"], { kind: `schema-${string}` }>;
-    }>;
-  }>;
+  Readonly<{ body: Readonly<{ mutation: SchemaMutation }> }>;
 
-function schemaMutation(fact: ContributionFact): SchemaMutationFact {
-  if (!fact.body.mutation.kind.startsWith("schema-")) {
+function schemaMutationFact(fact: ContributionFact): SchemaMutationFact {
+  if (!isSchemaMutation(fact.body.mutation)) {
     throw new Error("Schema Review group contains a non-Schema Mutation");
   }
   return fact as SchemaMutationFact;

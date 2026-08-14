@@ -1,4 +1,4 @@
-import { type ContributionFact, type JsonValue } from "../fact/index.js";
+import { isOccurrenceMutation, type ContributionFact, type JsonValue } from "../fact/index.js";
 import type { TextAtom } from "./projection-types.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
 import { hasUnrestoredDeletion, occurrenceDeletionIds } from "./field-content-deletion.js";
@@ -27,7 +27,7 @@ export type MutableNode = {
   metadata: Record<string, JsonValue>;
 };
 
-type OccurrenceState = Readonly<{
+export type AuthoredStructure = Readonly<{
   occurrences: Map<string, MutableOccurrence>;
   children: Map<string, string[]>;
 }>;
@@ -35,7 +35,7 @@ type OccurrenceState = Readonly<{
 export function createOccurrences(
   active: readonly ContributionFact[],
   nodes: ReadonlyMap<string, MutableNode>,
-): OccurrenceState {
+): AuthoredStructure {
   const occurrences = new Map<string, MutableOccurrence>();
   const children = new Map<string, string[]>();
   const createdIdentities = new Set<string>();
@@ -44,6 +44,9 @@ export function createOccurrences(
 
   for (const fact of active) {
     const mutation = fact.body.mutation;
+    if (!isOccurrenceMutation(mutation)) {
+      continue;
+    }
     switch (mutation.kind) {
       case "occurrence-create":
         placeCreatedOccurrence(mutation, occurrences, children, nodes, createdIdentities);
@@ -85,29 +88,6 @@ export function createOccurrences(
           children,
           nodes,
         );
-        break;
-      case "node-create":
-      case "node-delete":
-      case "node-restore":
-      case "node-owner-set":
-      case "schema-apply":
-      case "schema-remove":
-      case "schema-field-add":
-      case "schema-field-remove":
-      case "schema-field-configure":
-      case "schema-extension-add":
-      case "schema-extension-remove":
-      case "schema-template-node-add":
-      case "schema-template-node-remove":
-      case "template-node-detach":
-      case "field-materialize":
-      case "field-value-delete":
-      case "materialized-field-delete":
-      case "field-initialize":
-      case "text-splice":
-      case "text-mark":
-      case "value-set":
-      case "value-unset":
         break;
     }
   }

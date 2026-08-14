@@ -17,6 +17,8 @@
     }
   },
   "scripts": {
+    "clean": "node ../../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",

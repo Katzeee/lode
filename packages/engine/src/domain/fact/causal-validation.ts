@@ -1,6 +1,7 @@
 import { canonicalJson } from "./canonical.js";
 import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
-import { type Fact, type Mutation, type ResolutionFact } from "./types.js";
+import { occurrenceRestoreDeletionId } from "./mutation-family.js";
+import { type Fact, type ResolutionFact } from "./types.js";
 import { DEFAULT_FIELD_TEMPLATE_CONFIG, type FieldTemplateConfig } from "./field-template-types.js";
 
 export function validateAdmissibleFact(
@@ -200,20 +201,10 @@ function validateRestore(fact: Fact, admitted: readonly Fact[]): void {
       deleted.kind === "node-delete" &&
       deleted.nodeId === mutation.nodeId) ||
     (mutation.kind === "occurrence-restore" &&
-      occurrenceDeletionIdentity(deleted) === mutation.occurrenceId);
+      occurrenceRestoreDeletionId(deleted) === mutation.occurrenceId);
   if (!matches) {
     throw new Error(`Restore deletion target mismatch: ${fact.id}`);
   }
-}
-
-function occurrenceDeletionIdentity(mutation: Mutation): string | null {
-  if (mutation.kind === "occurrence-delete") {
-    return mutation.occurrenceId;
-  }
-  if (mutation.kind === "field-value-delete") {
-    return mutation.valueOccurrenceId;
-  }
-  return mutation.kind === "materialized-field-delete" ? mutation.fieldOccurrenceId : null;
 }
 
 function observesFact(observer: Fact, observed: Fact): boolean {

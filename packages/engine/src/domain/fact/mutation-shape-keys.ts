@@ -1,3 +1,12 @@
+import type { Mutation } from "./types.js";
+
+type MutationShapeKeys = {
+  readonly [Kind in Mutation["kind"]]: readonly Extract<
+    keyof Extract<Mutation, { kind: Kind }>,
+    string
+  >[];
+};
+
 export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = {
   "node-create": ["kind", "nodeId", "seed"],
   "node-delete": ["kind", "nodeId"],
@@ -14,6 +23,7 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
     "previousAnchor",
   ],
   "node-owner-set": ["kind", "nodeId", "ownerNodeId", "previousOwnerNodeId"],
+  "node-type-declare": ["kind", "nodeId", "nodeType"],
   "schema-apply": ["kind", "nodeId", "schemaId", "anchor"],
   "schema-remove": ["kind", "nodeId", "schemaId", "previousAnchor"],
   "schema-field-add": [
@@ -115,4 +125,4 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
   "text-mark": ["kind", "nodeId", "atomIds", "key", "value", "previous"],
   "value-set": ["kind", "target", "namespace", "key", "value", "previous"],
   "value-unset": ["kind", "target", "namespace", "key", "previous"],
-};
+} satisfies MutationShapeKeys;

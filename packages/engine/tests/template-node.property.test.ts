@@ -12,13 +12,13 @@ import {
   type Mutation,
 } from "../src/domain/fact/index.js";
 import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
-import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
+import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-} from "../src/runtime/workspace/generation-checkpoint.js";
+} from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const removeReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const addReplica = "cccccccccccccccccccccccccc";
 const detachReplica = "dddddddddddddddddddddddddd";
@@ -158,6 +158,7 @@ describe("Template Node convergence", () => {
 function fixture(): Facts {
   const facts = new Facts();
   facts.addPlaced("schema");
+  facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
   facts.addPlaced("guidance");
   facts.addPlaced("note", "workspace", "note-occurrence");
   facts.add({

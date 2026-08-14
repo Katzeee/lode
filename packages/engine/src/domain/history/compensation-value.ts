@@ -3,15 +3,15 @@ import {
   compareFacts,
   type ContributionFact,
   type JsonValue,
-  type Mutation,
+  type ValueMutation,
 } from "../fact/index.js";
-import { valueTargetAddress, type Projection } from "../reconcile/index.js";
+import { valueTargetAddress, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, valueState, type CompensationStep } from "./compensation-types.js";
 
 export function compensateValueMutation(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "value-set" && mutation.kind !== "value-unset") {
@@ -74,8 +74,8 @@ function hasLaterWinner(target: ContributionFact, activeFacts: readonly Contribu
 }
 
 function readValue(
-  projection: Projection,
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
+  projection: ScopedProjection,
+  mutation: ValueMutation,
 ): Readonly<{ present: boolean; value?: JsonValue }> {
   if (mutation.target.kind === "node") {
     const node = projection.nodes[mutation.target.id];
@@ -97,10 +97,7 @@ function readValue(
   );
 }
 
-function valueTargetExists(
-  projection: Projection,
-  mutation: Extract<Mutation, { kind: "value-set" | "value-unset" }>,
-): boolean {
+function valueTargetExists(projection: ScopedProjection, mutation: ValueMutation): boolean {
   if (mutation.target.kind === "node") {
     return projection.nodes[mutation.target.id] !== undefined;
   }

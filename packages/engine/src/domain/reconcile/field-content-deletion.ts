@@ -1,11 +1,4 @@
-import type { ContributionFact, Mutation } from "../fact/index.js";
-
-export function fieldContentDeletionOccurrenceId(mutation: Mutation): string | null {
-  if (mutation.kind === "field-value-delete") {
-    return mutation.valueOccurrenceId;
-  }
-  return mutation.kind === "materialized-field-delete" ? mutation.fieldOccurrenceId : null;
-}
+import type { ContributionFact } from "../fact/index.js";
 
 export function occurrenceDeletionIds(
   active: readonly ContributionFact[],

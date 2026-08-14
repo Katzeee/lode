@@ -1,11 +1,14 @@
-import type { ProjectionPage, ProjectionPageSection, ProjectionPageValue } from "./contract.js";
+import {
+  PROJECTION_PAGE_SECTIONS,
+  type ProjectionPage,
+  type ProjectionPageSection,
+} from "./contract.js";
 import type { FactFrontier } from "../domain/fact/index.js";
+import type { ProjectionSections } from "../domain/reconcile/index.js";
 import { parseTextAtomId } from "./decision-effect-validation.js";
 import { parseConflictIssue } from "./conflict-validation.js";
 import {
   array,
-  empty,
-  emptyArray,
   enumValue,
   exact,
   jsonRecord,
@@ -16,160 +19,54 @@ import {
   stringArray,
   stringValue,
 } from "./projection-page-validation-primitives.js";
-import {
-  parseSchemaProjectionMaps,
-  parseSchemaProjectionValue,
-} from "./schema-projection-validation.js";
+import { parseSchemaProjectionValue } from "./schema-projection-validation.js";
 
 export function parseProjectionPage(value: Record<string, unknown>): ProjectionPage {
-  exact(
-    value,
-    [
-      "identity",
-      "view",
-      "section",
-      "entries",
-      "next",
-      "nodes",
-      "occurrences",
-      "children",
-      "nodeOwners",
-      "addressedValues",
-      "schemaApplications",
-      "schemaFields",
-      "templateFields",
-      "schemaTemplateNodes",
-      "templateNodeInstances",
-      "schemaExtensions",
-      "schemaSearchMembers",
-      "schemaExtensionConflicts",
-      "nodeStatuses",
-      "conflictIssues",
-      "effectiveFields",
-      "materializedFields",
-    ],
-    "Projection page",
-  );
   const section = enumValue(value.section, PROJECTION_PAGE_SECTIONS, "Projection section");
-  const entries = array(value.entries, "Projection entries", (item) => parseEntry(section, item));
-  const expected = Object.fromEntries(entries.map((entry) => [entry.identity, entry.value]));
-  const nodes =
-    section === "nodes" ? parseIndexed(value.nodes, "nodes", node) : empty(value.nodes, "nodes");
-  const occurrences =
-    section === "occurrences"
-      ? parseIndexed(value.occurrences, "occurrences", occurrence)
-      : empty(value.occurrences, "occurrences");
-  const children =
-    section === "children"
-      ? parseIndexed(value.children, "children", stringArray)
-      : empty(value.children, "children");
-  const nodeOwners =
-    section === "nodeOwners"
-      ? parseIndexed(value.nodeOwners, "Node owners", nodeOwner)
-      : empty(value.nodeOwners, "Node owners");
-  const addressedValues =
-    section === "addressedValues"
-      ? parseIndexed(value.addressedValues, "values", jsonRecord)
-      : empty(value.addressedValues, "values");
-  const templateNodeInstances =
-    section === "templateNodeInstances"
-      ? array(value.templateNodeInstances, "Template Node instances", templateNodeInstance)
-      : emptyArray(value.templateNodeInstances, "Template Node instances");
-  const schema = parseSchemaProjectionMaps(section, value);
-  const conflictIssues =
-    section === "conflictIssues"
-      ? parseIndexed(value.conflictIssues, "conflict issues", parseConflictIssue)
-      : empty(value.conflictIssues, "conflict issues");
-  if (
-    !pageEntriesAgree(section, entries, expected, {
-      nodes,
-      occurrences,
-      children,
-      nodeOwners,
-      addressedValues,
-      templateNodeInstances,
-      ...schema,
-      conflictIssues,
-    })
-  ) {
-    throw new Error("Projection page entries and section map disagree");
-  }
-  return {
-    identity: projectionIdentity(value.identity),
-    view: enumValue(value.view, ["origin", "review"] as const, "Projection view"),
-    section,
-    entries,
-    next: nullableString(value.next, "Projection cursor"),
-    nodes,
-    occurrences,
-    children,
-    nodeOwners,
-    addressedValues,
-    templateNodeInstances,
-    ...schema,
-    conflictIssues,
-  };
+  exact(value, ["identity", "view", "section", "next", section], "Projection page");
+  const identity = projectionIdentity(value.identity);
+  const view = enumValue(value.view, ["origin", "review"] as const, "Projection view");
+  const next = nullableString(value.next, "Projection cursor");
+  const content = parseSection(section, value[section]);
+  return { identity, view, section, next, [section]: content } as ProjectionPage;
 }
 
-function pageEntriesAgree(
-  section: ProjectionPageSection,
-  entries: readonly Readonly<{ value: ProjectionPageValue }>[],
-  expected: Readonly<Record<string, ProjectionPageValue>>,
-  page: Readonly<Record<ProjectionPageSection, unknown>>,
-): boolean {
-  const actual = page[section];
-  const expectedValue =
-    section === "templateNodeInstances" ? entries.map((entry) => entry.value) : expected;
-  return JSON.stringify(actual) === JSON.stringify(expectedValue);
-}
-
-const PROJECTION_PAGE_SECTIONS = [
-  "nodes",
-  "occurrences",
-  "children",
-  "nodeOwners",
-  "addressedValues",
-  "schemaApplications",
-  "schemaFields",
-  "templateFields",
-  "schemaTemplateNodes",
-  "templateNodeInstances",
-  "schemaExtensions",
-  "schemaSearchMembers",
-  "schemaExtensionConflicts",
-  "nodeStatuses",
-  "conflictIssues",
-  "effectiveFields",
-  "materializedFields",
-] as const;
-
-function parseEntry(
+function parseSection(
   section: ProjectionPageSection,
   value: unknown,
-): { identity: string; value: ProjectionPageValue } {
-  const entry = object(value, "Projection entry");
-  exact(entry, ["identity", "value"], "Projection entry");
-  const identity = nonempty(entry.identity, "Projection entry identity");
-  const parsed =
-    section === "nodes"
-      ? node(entry.value)
-      : section === "occurrences"
-        ? occurrence(entry.value)
-        : section === "children"
-          ? stringArray(entry.value)
-          : section === "nodeOwners"
-            ? nodeOwner(entry.value)
-            : section === "addressedValues"
-              ? jsonRecord(entry.value)
-              : section === "templateNodeInstances"
-                ? templateNodeInstance(entry.value)
-                : section === "conflictIssues"
-                  ? parseConflictIssue(entry.value)
-                  : parseSchemaProjectionValue(section, entry.value);
-  return { identity, value: parsed };
+): ProjectionSections[ProjectionPageSection] {
+  switch (section) {
+    case "nodes":
+      return parseIndexed(value, "nodes", node);
+    case "occurrences":
+      return parseIndexed(value, "occurrences", occurrence);
+    case "children":
+      return parseIndexed(value, "children", stringArray);
+    case "nodeOwners":
+      return parseIndexed(value, "Node owners", nodeOwner);
+    case "addressedValues":
+      return parseIndexed(value, "values", jsonRecord);
+    case "templateNodeInstances":
+      return array(value, "Template Node instances", templateNodeInstance);
+    case "conflictIssues":
+      return parseIndexed(value, "conflict issues", parseConflictIssue);
+    case "schemaApplications":
+    case "schemaFields":
+    case "templateFields":
+    case "schemaTemplateNodes":
+    case "schemaExtensions":
+    case "schemaSearchMembers":
+    case "schemaExtensionConflicts":
+    case "nodeStatuses":
+    case "effectiveFields":
+    case "materializedFields":
+      return parseIndexed(value, section, (item) =>
+        parseSchemaProjectionValue(section, item),
+      ) as ProjectionSections[ProjectionPageSection];
+  }
 }
 
-function nodeOwner(value: unknown): ProjectionPage["nodeOwners"][string] {
+function nodeOwner(value: unknown): string | null {
   return value === null ? null : nonempty(value, "Owner Node identity");
 }
 

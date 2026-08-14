@@ -1,11 +1,15 @@
 import { canonicalJson } from "../fact/index.js";
-import { impactAddress, type Projection, type ProjectionGeneration } from "../reconcile/index.js";
+import {
+  impactAddress,
+  type ScopedProjection,
+  type ScopedProjectionGeneration,
+} from "../reconcile/index.js";
 
 export function addAffectedFieldImpacts(
   impacts: Set<string>,
   ownerNodeId: string,
   fieldDefinitionId: string,
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
 ): void {
   const origin = effectiveField(generation.origin, ownerNodeId, fieldDefinitionId);
   const review = effectiveField(generation.review, ownerNodeId, fieldDefinitionId);
@@ -31,7 +35,7 @@ export function addAffectedFieldImpacts(
   }
 }
 
-function effectiveField(projection: Projection, nodeId: string, fieldDefinitionId: string) {
+function effectiveField(projection: ScopedProjection, nodeId: string, fieldDefinitionId: string) {
   return (
     projection.effectiveFields[nodeId]?.find(
       (field) => field.fieldDefinitionId === fieldDefinitionId,

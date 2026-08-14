@@ -7,14 +7,18 @@ The formal app transport authenticates every command, query, event stream, maint
 ## Language
 
 **Node**:
-A persistent knowledge object with stable identity. Anything users can name, reference, nest, reuse, query, or authorize independently is a Node, including Workspaces, Schemas, Field Definitions, Fields, Views, and ordinary outline content. These concepts can carry different behavior without becoming parallel identity types. Every non-Workspace Node has exactly one Owner Node; the Workspace Node is the ownership root and has no Owner.
+A persistent knowledge object with stable identity. Anything users can name, reference, nest, reuse, query, or authorize independently is a Node, including Workspaces, Schemas, Field Definitions, Fields, Search Nodes, Command Nodes, Calendars, Views, and ordinary outline content. A Node Type selects specialized behavior without creating a parallel identity system. Every non-Workspace Node has exactly one Owner Node; the Workspace Node is the ownership root and has no Owner.
+
+**Node Type**:
+The optional, immutable specialization of a Node: Schema, Field Definition, Field, Search, Command, Workspace, Calendar, or View. An ordinary Node has no Node Type. Node Type drives domain capability and presentation, while Reference appearance, URL or Code content, Entity classification, and access state remain independent axes. Concurrent incompatible type declarations suspend the effective type and expose a conflict.
+_Avoid_: Facet, role, block kind, Reference type
 
 **Occurrence**:
 A Node's ordered placement in a parent Node's children list. An Occurrence has its own stable identity because order, local presentation metadata, deletion, movement, and review target the placement rather than the shared Node. A parent is always a Node, never another Occurrence or a synthetic root. The same Node can occur under several parent Nodes but cannot occur twice in one parent Node's children list.
 _Avoid_: Copy, block instance
 
 **Workspace**:
-The ordinary Node that forms one ownership, authorization, and replication boundary. Workspace genesis creates it through the same `node-create` Fact as every other Node; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
+The Node of type Workspace that forms one ownership, authorization, and replication boundary. Workspace genesis atomically creates the Node and declares its type through the common Fact transaction path; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
 _Avoid_: Workspace Root, synthetic root Occurrence, graph-external Workspace identity
 
 **Reference**:
@@ -46,7 +50,7 @@ The delivery of immutable Fact envelopes between Replicas. Loro owns replicated 
 _Avoid_: Domain authority, Loro-backed domain model
 
 **Schema**:
-A Node-defined “is a” type whose template contributes Fields and content to Nodes that apply it. This is Lode's product term for the concept Tana calls a Supertag.
+A Node of type Schema that defines an “is a” classification whose template contributes Fields and content to Nodes that apply it. Schema is Lode's product name for the concept Tana calls a Supertag.
 _Avoid_: Supertag, class, tag
 
 **Schema Application**:
@@ -58,11 +62,15 @@ A persistent subtype relation through which one Schema inherits another Schema's
 _Avoid_: Copied schema, implicit multi-schema
 
 **Field Definition**:
-A stable Node that names and configures a “has a” attribute. Multiple Schemas and Nodes can reuse the same Field Definition.
+A Node of type Field Definition that names and configures a “has a” attribute. It exists before any use, and multiple Schemas and Nodes can reuse the same identity.
 _Avoid_: Field key, property name
 
+**Field**:
+A Node of type Field that is placed beneath an owner and bound to one Field Definition. A Field owns ordered value Occurrences and may be a Template Field under a Schema or a Materialized Field under an instance. An unmaterialized placeholder is Projection state, not a Field Node.
+_Avoid_: Field occurrence, tuple object, scalar property, placeholder Node
+
 **Node Tombstone**:
-The deleted state of any Node. It preserves the Node identity and surviving References while preventing active use until the same identity is restored; Schema and Field relationships remain role projections over that common lifecycle.
+The deleted state of any Node. It preserves the Node identity and surviving References while preventing active use until the same identity is restored; Node Type and Schema and Field relationships remain projections over that common lifecycle.
 _Avoid_: Definition Tombstone, cascading schema delete, missing definition
 
 **Hard Delete**:
@@ -86,7 +94,7 @@ An instance action that either removes one selected Field Value occurrence or cl
 _Avoid_: Node deletion, scalar clear, cascading content loss
 
 **View Node**:
-A persistent Node whose ordinary properties select a Schema, presentation layout, and ordered Field Definition columns. A View query follows Schema Extension membership and presents the same Node, Field, Occurrence, and Reference identities; its rows and cells are bounded Projection data, never copied business records.
+A persistent Node of type View whose properties select a Schema, presentation layout, and ordered Field Definition columns. Properties alone never turn an ordinary Node into a View. A View query follows Schema Extension membership and presents the same Node, Field, Occurrence, and Reference identities; its rows and cells are bounded Projection data, never copied business records.
 _Avoid_: Table row authority, duplicated database, saved result set
 
 **Schema Template**:

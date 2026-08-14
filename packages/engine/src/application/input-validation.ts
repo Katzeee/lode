@@ -1,5 +1,6 @@
 import type { EngineCommand, EngineQuery } from "./contract.js";
-import { parseEditMutation } from "./edit-input-validation.js";
+import { PROJECTION_PAGE_SECTIONS } from "./projection-contract.js";
+import { parseEditMutation } from "../domain/edit/index.js";
 import {
   parseHistorySelectionContract,
   parseReviewSelectionContract,
@@ -192,27 +193,10 @@ function parseProjectionQuery(query: Record<string, unknown>): EngineQuery {
   if (query.view !== "origin" && query.view !== "review") {
     throw new Error("Invalid projection view");
   }
-  const sections = [
-    "nodes",
-    "occurrences",
-    "children",
-    "nodeOwners",
-    "addressedValues",
-    "schemaApplications",
-    "schemaFields",
-    "templateFields",
-    "schemaTemplateNodes",
-    "templateNodeInstances",
-    "schemaExtensions",
-    "schemaSearchMembers",
-    "schemaExtensionConflicts",
-    "nodeStatuses",
-    "conflictIssues",
-    "effectiveFields",
-    "materializedFields",
-  ] as const;
   const section =
-    query.section === undefined ? "nodes" : oneOf(query.section, sections, "Projection section");
+    query.section === undefined
+      ? "nodes"
+      : oneOf(query.section, PROJECTION_PAGE_SECTIONS, "Projection section");
   const limit = query.limit === undefined ? 100 : query.limit;
   if (!Number.isSafeInteger(limit) || (limit as number) < 1 || (limit as number) > 100) {
     throw new Error("Projection page limit must be between 1 and 100");

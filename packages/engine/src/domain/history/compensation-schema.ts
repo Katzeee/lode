@@ -1,15 +1,21 @@
-import { compareFacts, type ContributionFact, type Mutation } from "../fact/index.js";
-import type { Projection } from "../reconcile/index.js";
+import {
+  compareFacts,
+  isSchemaMutation,
+  type ContributionFact,
+  type Mutation,
+  type SchemaMutation,
+} from "../fact/index.js";
+import { sequenceAnchorAt, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateSchemaMutation(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
-): CompensationStep {
+  projection: ScopedProjection,
+): CompensationStep | null {
   const mutation = target.body.mutation;
-  if (!isSchemaRelation(mutation)) {
-    return noCompensation();
+  if (!isSchemaMutation(mutation)) {
+    return null;
   }
   if (hasLaterRelationEdit(target, activeFacts)) {
     return noCompensation();
@@ -105,7 +111,7 @@ export function compensateSchemaMutation(
 
 function compensateTemplateNodeRelation(
   mutation: Extract<Mutation, { kind: "schema-template-node-add" | "schema-template-node-remove" }>,
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   if (mutation.kind === "schema-template-node-add") {
     return contains(projection, mutation)
@@ -136,10 +142,7 @@ function ready(mutation: Mutation): CompensationStep {
   return { kind: "ready", mutations: [mutation] };
 }
 
-function contains(
-  projection: Projection,
-  mutation: Extract<Mutation, { kind: `schema-${string}` }>,
-): boolean {
+function contains(projection: ScopedProjection, mutation: SchemaMutation): boolean {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return (projection.schemaApplications[mutation.nodeId] ?? []).includes(mutation.schemaId);
   }
@@ -162,19 +165,7 @@ function contains(
 }
 
 function currentAnchor(identities: readonly string[], identity: string) {
-  const index = identities.indexOf(identity);
-  return {
-    after: identities[index - 1] ?? null,
-    before: identities[index + 1] ?? null,
-    affinity: index === 0 ? ("before" as const) : ("after" as const),
-    fallback: index === 0 ? ("start" as const) : ("end" as const),
-  };
-}
-
-function isSchemaRelation(
-  mutation: Mutation,
-): mutation is Extract<Mutation, { kind: `schema-${string}` }> {
-  return mutation.kind.startsWith("schema-");
+  return sequenceAnchorAt(identities, identities.indexOf(identity));
 }
 
 function hasLaterRelationEdit(
@@ -182,18 +173,18 @@ function hasLaterRelationEdit(
   activeFacts: readonly ContributionFact[],
 ): boolean {
   const mutation = target.body.mutation;
-  if (!isSchemaRelation(mutation)) {
+  if (!isSchemaMutation(mutation)) {
     return false;
   }
   return activeFacts.some(
     (fact) =>
       compareFacts(target, fact) < 0 &&
-      isSchemaRelation(fact.body.mutation) &&
+      isSchemaMutation(fact.body.mutation) &&
       relationOwner(fact.body.mutation) === relationOwner(mutation),
   );
 }
 
-function relationOwner(mutation: Extract<Mutation, { kind: `schema-${string}` }>): string {
+function relationOwner(mutation: SchemaMutation): string {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return JSON.stringify(["application", mutation.nodeId, mutation.schemaId]);
   }

@@ -5,45 +5,58 @@ import {
   type ViewMode,
 } from "../fact/index.js";
 import type {
-  EffectiveField,
-  MaterializedField,
-  NodeStatus,
   Projection,
+  ProjectionSections,
   ProjectedNode,
   ProjectedOccurrence,
-  TemplateField,
-  TemplateNodeInstance,
 } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
+import type { SchemaRelations } from "./schema-relations.js";
+import type { TemplateStructureProjection } from "./template-node-projection.js";
+import { validateStoredTree } from "./occurrence-tree.js";
 import { valueTargetAddress } from "./value-address.js";
 import { sortedRecord } from "./sorted-record.js";
-import type { ConflictIssue } from "../conflict/types.js";
 
-export function assembleProjection(
-  input: Readonly<{
-    view: ViewMode;
-    identity: ProjectionIdentity;
-    nodes: ReadonlyMap<string, MutableNode>;
-    occurrences: ReadonlyMap<string, MutableOccurrence>;
-    children: ReadonlyMap<string, readonly string[]>;
-    addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-    nodeOwners: Readonly<Record<string, string | null>>;
-    schemaApplications: Readonly<Record<string, readonly string[]>>;
-    schemaFields: Readonly<Record<string, readonly string[]>>;
-    templateFields: Readonly<Record<string, readonly TemplateField[]>>;
-    schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
-    templateNodeInstances: readonly TemplateNodeInstance[];
-    schemaExtensions: Readonly<Record<string, readonly string[]>>;
-    schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-    schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-    nodeStatuses: Readonly<Record<string, NodeStatus>>;
-    conflictIssues: Readonly<Record<string, ConflictIssue>>;
-    effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
-    materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
-    reviewScopes: Readonly<Record<string, readonly string[]>>;
-    supportByContribution: Readonly<Record<string, readonly string[]>>;
-  }>,
-): Projection {
+type ProjectionAssemblyInput = Readonly<{
+  view: ViewMode;
+  identity: ProjectionIdentity;
+  nodes: ReadonlyMap<string, MutableNode>;
+  occurrences: ReadonlyMap<string, MutableOccurrence>;
+  children: ReadonlyMap<string, readonly string[]>;
+}> &
+  Omit<ProjectionSections, "nodes" | "occurrences" | "children">;
+
+type ProjectionArtifactAssemblyInput = Readonly<{
+  view: ViewMode;
+  identity: ProjectionIdentity;
+  storedNodes: ReadonlyMap<string, MutableNode>;
+  contentNodes: ReadonlyMap<string, MutableNode>;
+  templateStructure: TemplateStructureProjection;
+  nodeOwners: ProjectionSections["nodeOwners"];
+  addressedValues: ProjectionSections["addressedValues"];
+  schemaRelations: SchemaRelations;
+  nodeStatuses: ProjectionSections["nodeStatuses"];
+  conflictIssues: ProjectionSections["conflictIssues"];
+}>;
+
+export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInput): Projection {
+  validateStoredTree(input.storedNodes, input.templateStructure.occurrences);
+  return assembleProjection({
+    view: input.view,
+    identity: input.identity,
+    nodes: input.contentNodes,
+    occurrences: input.templateStructure.occurrences,
+    children: input.templateStructure.children,
+    nodeOwners: input.nodeOwners,
+    addressedValues: input.addressedValues,
+    ...input.schemaRelations,
+    templateNodeInstances: input.templateStructure.instances,
+    nodeStatuses: input.nodeStatuses,
+    conflictIssues: input.conflictIssues,
+  });
+}
+
+export function assembleProjection(input: ProjectionAssemblyInput): Projection {
   const values = applyProjectedValues(input.nodes, input.occurrences, input.addressedValues);
   return {
     view: input.view,
@@ -69,8 +82,6 @@ export function assembleProjection(
     conflictIssues: input.conflictIssues,
     effectiveFields: input.effectiveFields,
     materializedFields: input.materializedFields,
-    reviewScopes: input.reviewScopes,
-    supportByContribution: input.supportByContribution,
   };
 }
 

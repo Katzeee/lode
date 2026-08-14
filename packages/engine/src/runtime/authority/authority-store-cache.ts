@@ -6,7 +6,7 @@ import type {
   InvocationId,
   ReplicaId,
 } from "../../domain/fact/index.js";
-import type { AuthorityAdmissionPolicy, AuthorityIndexObserver } from "./fact-authority.js";
+import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 import { AuthorityQueryIndex } from "./authority-query-index.js";
 import { sortedReceipts } from "./authority-store-queries.js";
 import { deriveAuthorityCaches } from "./authority-store-state.js";
@@ -21,7 +21,6 @@ export class AuthorityStoreCache {
     private readonly workspaceId: string,
     private readonly replicaId: ReplicaId,
     private readonly admitRecords: AuthorityAdmissionPolicy,
-    private readonly onIndexedWork: AuthorityIndexObserver | undefined,
   ) {}
 
   refresh(records: readonly unknown[], admitted?: Admission): void {
@@ -54,7 +53,6 @@ export class AuthorityStoreCache {
       }
     }
     this.index.append(records);
-    this.note("authority-local-append", records.length);
   }
 
   admission(): Admission {
@@ -74,32 +72,23 @@ export class AuthorityStoreCache {
   }
 
   receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
-    const receipts = this.index.receiptsForChannel(channelId);
-    this.note("history-receipts", receipts.length);
-    return receipts;
+    return this.index.receiptsForChannel(channelId);
   }
 
   facts(factIds: readonly string[]): readonly Fact[] {
-    const facts = this.index.facts(factIds);
-    this.note("fact-id-read", facts.length);
-    return facts;
+    return this.index.facts(factIds);
   }
 
   relatedFacts(factIds: readonly string[]): readonly Fact[] {
-    const facts = this.index.relatedFacts(factIds);
-    this.note("related-fact-read", facts.length);
-    return facts;
+    return this.index.relatedFacts(factIds);
   }
 
   occurrenceNodeId(occurrenceId: string): string | null {
-    this.note("occurrence-node-read", 1);
     return this.index.occurrenceNodeId(occurrenceId);
   }
 
   historyImpacts(nodeId: string) {
-    const impacts = this.index.historyImpacts(nodeId);
-    this.note("history-impact-read", impacts.length);
-    return impacts;
+    return this.index.historyImpacts(nodeId);
   }
 
   maximumLamport(): number {
@@ -108,9 +97,5 @@ export class AuthorityStoreCache {
 
   lastReceiptForChannel(channelId: string): AuthorityReceipt | null {
     return this.index.lastReceiptForChannel(channelId);
-  }
-
-  private note(operation: string, units: number): void {
-    this.onIndexedWork?.({ operation, units });
   }
 }

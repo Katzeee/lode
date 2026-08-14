@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { projectionText } from "../reconcile/index.js";
+import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import { queryReview } from "../review/index.js";
 import { queryHistory, validateHistorySelection } from "./history.js";
 import { rebuildHistoryState } from "./state.js";
-import { baseFixture, end, HistoryFixture } from "./history-test-helpers.js";
+import {
+  baseFixture,
+  end,
+  HistoryFixture,
+} from "../../../tests/support/history/history-test-helpers.js";
 
 describe("production History scenarios", () => {
   it("History state rebuild isolates multiple durable channels", () => {

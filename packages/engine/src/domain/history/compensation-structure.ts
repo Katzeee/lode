@@ -1,14 +1,58 @@
-import { compareFacts, type ContributionFact, type SequenceAnchor } from "../fact/index.js";
-import type { Projection } from "../reconcile/index.js";
-import { deriveSupport } from "../reconcile/support.js";
+import {
+  compareFacts,
+  isFieldContentDeletionMutation,
+  isNodeMutation,
+  isOccurrenceMutation,
+  type ContributionFact,
+  type SequenceAnchor,
+} from "../fact/index.js";
+import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
+import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
+
+export function compensateStructureMutation(
+  target: ContributionFact,
+  targetIds: ReadonlySet<string>,
+  activeFacts: readonly ContributionFact[],
+  projection: ScopedProjection,
+): CompensationStep | null {
+  const mutation = target.body.mutation;
+  if (isFieldContentDeletionMutation(mutation)) {
+    return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
+  }
+  if (isNodeMutation(mutation)) {
+    switch (mutation.kind) {
+      case "node-create":
+      case "node-restore":
+        return compensateNodeCreate(target, targetIds, activeFacts, projection);
+      case "node-delete":
+        return compensateNodeDelete(target, targetIds, activeFacts, projection);
+      case "node-owner-set":
+        return compensateNodeOwner(target, activeFacts, projection);
+      case "node-type-declare":
+        return noCompensation();
+    }
+  }
+  if (isOccurrenceMutation(mutation)) {
+    switch (mutation.kind) {
+      case "occurrence-create":
+      case "occurrence-restore":
+        return compensateOccurrenceCreate(target, targetIds, activeFacts, projection);
+      case "occurrence-delete":
+        return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
+      case "occurrence-move":
+        return compensateMove(target, activeFacts, projection);
+    }
+  }
+  return null;
+}
 
 export function compensateNodeCreate(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (
@@ -32,7 +76,7 @@ export function compensateNodeDelete(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "node-delete" || projection.nodes[mutation.nodeId]) {
@@ -61,7 +105,7 @@ export function compensateOccurrenceCreate(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (
@@ -88,7 +132,7 @@ export function compensateOccurrenceDelete(
   target: ContributionFact,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = occurrenceDeletion(target);
   if (!mutation || projection.occurrences[mutation.occurrenceId]) {
@@ -145,7 +189,7 @@ function occurrenceDeletion(fact: ContributionFact): Readonly<{
 export function compensateMove(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "occurrence-move") {
@@ -201,7 +245,7 @@ export function compensateMove(
 export function compensateNodeOwner(
   target: ContributionFact,
   activeFacts: readonly ContributionFact[],
-  projection: Projection,
+  projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
   if (mutation.kind !== "node-owner-set") {
@@ -239,17 +283,5 @@ export function compensateNodeOwner(
         previousOwnerNodeId: mutation.ownerNodeId,
       },
     ],
-  };
-}
-
-export function occurrenceAnchor(projection: Projection, occurrenceId: string) {
-  const occurrence = projection.occurrences[occurrenceId];
-  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
-  const index = siblings.indexOf(occurrenceId);
-  return {
-    after: index > 0 ? (siblings[index - 1] ?? null) : null,
-    before: index >= 0 && index + 1 < siblings.length ? (siblings[index + 1] ?? null) : null,
-    affinity: "after" as const,
-    fallback: index <= 0 ? ("start" as const) : ("end" as const),
   };
 }

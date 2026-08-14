@@ -8,16 +8,38 @@ import { schemaExtensionGraph } from "./schema-extension-graph.js";
 import type { TemplateNodeInstance, TemplateNodeSource } from "./projection-types.js";
 import { listFor } from "./sequence.js";
 
-export function projectTemplateNodeInstances(
+export type TemplateStructureProjection = Readonly<{
+  occurrences: Map<string, MutableOccurrence>;
+  children: Map<string, string[]>;
+  instances: readonly TemplateNodeInstance[];
+}>;
+
+export function projectTemplateStructure(
   active: readonly ContributionFact[],
   schemaApplications: Readonly<Record<string, readonly string[]>>,
   schemaTemplateNodes: Readonly<Record<string, readonly string[]>>,
   schemaExtensions: Readonly<Record<string, readonly string[]>>,
   nodes: Map<string, MutableNode>,
-  occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  authoredOccurrences: ReadonlyMap<string, MutableOccurrence>,
+  authoredChildren: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
-): readonly TemplateNodeInstance[] {
+): TemplateStructureProjection {
+  const occurrences = new Map(
+    [...authoredOccurrences].map(([id, occurrence]) => [
+      id,
+      {
+        ...occurrence,
+        properties: { ...occurrence.properties },
+        metadata: { ...occurrence.metadata },
+      },
+    ]),
+  );
+  const children = new Map(
+    [...authoredChildren].map(([parentNodeId, occurrenceIds]) => [
+      parentNodeId,
+      [...occurrenceIds],
+    ]),
+  );
   const extensionGraph = schemaExtensionGraph(schemaExtensions);
   const currentSources = new Map<string, TemplateNodeSource[]>();
   for (const [ownerNodeId, appliedSchemaIds] of Object.entries(schemaApplications)) {
@@ -80,7 +102,7 @@ export function projectTemplateNodeInstances(
       detachmentContributionIds: detachFacts.map((fact) => fact.id).sort(stableStringCompare),
     });
   }
-  return instances;
+  return { occurrences, children, instances };
 }
 
 function detachmentMutation(
@@ -129,13 +151,30 @@ function activeTemplateOccurrenceId(
   return result;
 }
 
-export function removeTemplateNodeOutputs(
+export function authoredStructureWithoutProjectedTemplates(
   instances: readonly TemplateNodeInstance[],
-  occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
-  nodeOwners: Readonly<Record<string, string | null>>,
-): Readonly<Record<string, string | null>> {
-  const result = { ...nodeOwners };
+  effectiveOccurrences: ReadonlyMap<string, MutableOccurrence>,
+  effectiveChildren: ReadonlyMap<string, readonly string[]>,
+): Readonly<{
+  occurrences: Map<string, MutableOccurrence>;
+  children: Map<string, string[]>;
+}> {
+  const occurrences = new Map(
+    [...effectiveOccurrences].map(([id, occurrence]) => [
+      id,
+      {
+        ...occurrence,
+        properties: { ...occurrence.properties },
+        metadata: { ...occurrence.metadata },
+      },
+    ]),
+  );
+  const children = new Map(
+    [...effectiveChildren].map(([parentNodeId, occurrenceIds]) => [
+      parentNodeId,
+      [...occurrenceIds],
+    ]),
+  );
   const occurrenceIds = new Set<string>();
   for (const instance of instances) {
     const occurrence = occurrences.get(instance.instanceOccurrenceId);
@@ -152,7 +191,7 @@ export function removeTemplateNodeOutputs(
       childIds.filter((occurrenceId) => !occurrenceIds.has(occurrenceId)),
     );
   }
-  return result;
+  return { occurrences, children };
 }
 
 function detachments(

@@ -10,13 +10,13 @@ import {
   type Mutation,
 } from "../src/domain/fact/index.js";
 import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
-import { end, Facts } from "../src/domain/reconcile/reconcile-test-helpers.js";
+import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-} from "../src/runtime/workspace/generation-checkpoint.js";
+} from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const deleteReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const insertReplica = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";
@@ -194,6 +194,12 @@ function fixture(): Facts {
   const facts = new Facts();
   facts.addPlaced("schema");
   facts.addPlaced("field-definition");
+  facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+  facts.add({
+    kind: "node-type-declare",
+    nodeId: "field-definition",
+    nodeType: "field-definition",
+  });
   facts.addPlaced("owner", "workspace", "owner-occurrence");
   facts.addPlaced("field-node", "owner", "field-occurrence");
   facts.addPlaced("value-a", "field-node", "value-a-occurrence");

@@ -1,7 +1,7 @@
-import type { ProjectionGeneration } from "../reconcile/index.js";
+import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 
 export function schemaInstanceNodeIds(
-  generation: ProjectionGeneration,
+  generation: ScopedProjectionGeneration,
   schemaId: string,
 ): ReadonlySet<string> {
   return new Set(

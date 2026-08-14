@@ -1,6 +1,10 @@
 export * from "./types.js";
+export * from "./mutation-family.js";
+export * from "./mutation-relations.js";
+export type { MutationRelations, MutationValueRelation } from "./mutation-relation-collection.js";
 export * from "./field-template-types.js";
 export * from "./node-create-types.js";
+export * from "./node-type-types.js";
 export * from "./canonical.js";
 export * from "./frontier.js";
 export * from "./fact.js";

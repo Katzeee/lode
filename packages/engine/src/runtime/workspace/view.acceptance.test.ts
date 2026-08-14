@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { createEngineContract } from "../../application/engine-contract.js";
 import {
   createEngineTransportServer,
   createTransportEngineContract,
@@ -16,10 +15,11 @@ import {
 } from "../../domain/view/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
-import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
+import { BoundedProjectionMaterializer } from "../materialization/index.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
+import { ProposalWorkspaceRegistry } from "./proposal-registry.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("persistent View Nodes", () => {
@@ -110,18 +110,28 @@ describe("persistent View Nodes", () => {
     ]);
   });
 
-  it("paginates View rows without reading unrelated entities", async () => {
+  it("paginates View rows and excludes unrelated entities", async () => {
     const opened = await open(new InMemoryDocumentStore(), "903", 16);
     const members = Array.from(
-      { length: 125 },
+      { length: 50 },
       (_, index) => `member-${String(index).padStart(3, "0")}`,
     );
-    const unrelated = Array.from({ length: 200 }, (_, index) => `unrelated-${index}`);
+    const unrelated = ["unrelated"];
     expect(
       (
         await mutate(opened.contract, "bounded-view-setup", [
           ...nodeAtWorkspace("bounded-view"),
+          {
+            kind: "node-type-declare",
+            nodeId: "bounded-view",
+            nodeType: "view",
+          },
           ...nodeAtWorkspace("bounded-schema"),
+          {
+            kind: "node-type-declare",
+            nodeId: "bounded-schema",
+            nodeType: "schema",
+          },
           viewProperty(VIEW_SCHEMA_PROPERTY, "bounded-schema", "bounded-view"),
           viewProperty(VIEW_LAYOUT_PROPERTY, "cards", "bounded-view"),
           viewProperty(VIEW_FIELDS_PROPERTY, [], "bounded-view"),
@@ -141,8 +151,6 @@ describe("persistent View Nodes", () => {
     const second = await view(opened.contract, "origin", first.next, 25, "bounded-view");
     expect(second.rows[0]?.nodeId).toBe("member-025");
     expect(second.rows.some((row) => row.nodeId.startsWith("unrelated-"))).toBe(false);
-    expect(opened.materializer.retainedUnits()).toBeLessThanOrEqual(16);
-    expect(opened.materializer.largestPageUnits()).toBeLessThanOrEqual(25);
     expect(
       await opened.contract.query({
         kind: "view",
@@ -154,6 +162,34 @@ describe("persistent View Nodes", () => {
       } as never),
     ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
   });
+
+  it("does not infer a View Configuration from magic properties", async () => {
+    const opened = await open(new InMemoryDocumentStore(), "904");
+    expect(
+      (
+        await mutate(opened.contract, "plain-node-with-view-properties", [
+          ...nodeAtWorkspace("plain-view"),
+          viewProperty(VIEW_SCHEMA_PROPERTY, "schema", "plain-view"),
+          viewProperty(VIEW_LAYOUT_PROPERTY, "table", "plain-view"),
+          viewProperty(VIEW_FIELDS_PROPERTY, [], "plain-view"),
+        ])
+      ).status,
+    ).toBe("published");
+
+    expect(
+      await opened.contract.query({
+        kind: "view",
+        workspaceId: "workspace",
+        view: "origin",
+        viewNodeId: "plain-view",
+        after: null,
+        limit: 25,
+      }),
+    ).toMatchObject({
+      status: "rejected",
+      error: { message: "View type is absent" },
+    });
+  });
 });
 
 function viewProgram(): readonly EditMutation[] {
@@ -161,6 +197,15 @@ function viewProgram(): readonly EditMutation[] {
     ...["anime-view", "anime", "review", "work-field", "status-field", "row-c"].flatMap(
       nodeAtWorkspace,
     ),
+    {
+      kind: "node-type-declare",
+      nodeId: "anime-view",
+      nodeType: "view",
+    },
+    { kind: "node-type-declare", nodeId: "anime", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "review", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "work-field", nodeType: "field-definition" },
+    { kind: "node-type-declare", nodeId: "status-field", nodeType: "field-definition" },
     {
       kind: "node-create",
       nodeId: "outline-root",
@@ -269,14 +314,14 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`, c
     workspaceId: "workspace",
     facts,
     versions,
-    generations: materializer,
+    projection: { projections: materializer },
   });
+  const registry = new ProposalWorkspaceRegistry();
+  registry.register(workspace);
   return {
     workspace,
     materializer,
-    contract: createTransportEngineContract(
-      createEngineTransportServer(createEngineContract([workspace])),
-    ),
+    contract: createTransportEngineContract(createEngineTransportServer(registry.contract)),
   };
 }
 

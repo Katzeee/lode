@@ -136,20 +136,3 @@ export function createAppServerClient(dial: SocketDial, accessToken: string): Ap
     close: () => transport.close(),
   };
 }
-
-export type InProcessEngineHost = Readonly<{
-  engine: EngineContract;
-  openWorkspace(workspaceId: string): Promise<void>;
-}>;
-
-export function createInProcessClient(runtime: InProcessEngineHost): Readonly<{
-  engine: EngineContract;
-  openWorkspace(workspaceId: string): Promise<void>;
-  close(): void;
-}> {
-  return {
-    engine: runtime.engine,
-    openWorkspace: (workspaceId) => runtime.openWorkspace(workspaceId),
-    close: () => {},
-  };
-}

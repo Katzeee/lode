@@ -17,6 +17,7 @@ import {
   type SequenceAnchor,
   type WorkspaceId,
 } from "./types.js";
+import type { OccurrenceMutation } from "./mutation-family.js";
 
 export function validateStaticFact(workspaceId: WorkspaceId, fact: Fact): void {
   if (fact.workspaceId !== workspaceId) {
@@ -153,6 +154,9 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       }
       requireIdentity(mutation.previousOwnerNodeId, "previous owner Node", factIdentity);
       return;
+    case "node-type-declare":
+      requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
+      return;
     case "schema-apply":
     case "schema-remove":
     case "schema-field-add":
@@ -229,10 +233,7 @@ function validateNodeCreation(
   }
 }
 
-function validateOccurrenceMutation(
-  mutation: Extract<Mutation, { kind: `occurrence-${string}` }>,
-  factIdentity: string,
-): void {
+function validateOccurrenceMutation(mutation: OccurrenceMutation, factIdentity: string): void {
   if (mutation.kind === "occurrence-restore") {
     requireIdentity(mutation.occurrenceId, mutation.kind, factIdentity);
     requireIdentity(mutation.deletionFactId, "deletion Fact", factIdentity);

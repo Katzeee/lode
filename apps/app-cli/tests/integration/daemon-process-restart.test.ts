@@ -32,8 +32,8 @@ describe("real daemon child-process restart", () => {
     daemon = await startDaemonProcess(processRoot, accessToken);
     await mutate(daemon.address, "setup", "setup", [
       nodeAt("task", workspaceId, "task-occurrence"),
-      nodeAt("schema", workspaceId, "schema-occurrence"),
-      nodeAt("field", workspaceId, "field-occurrence"),
+      nodeAt("schema", workspaceId, "schema-occurrence", "schema"),
+      nodeAt("field", workspaceId, "field-occurrence", "field-definition"),
       {
         kind: "schema-field-add",
         schemaId: "schema",
@@ -153,8 +153,13 @@ describe("real daemon child-process restart", () => {
   });
 });
 
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
-  return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end };
+function nodeAt(
+  nodeId: string,
+  parentNodeId: string,
+  occurrenceId: string,
+  nodeType?: "schema" | "field-definition",
+) {
+  return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end, nodeType };
 }
 
 async function mutate(

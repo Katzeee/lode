@@ -33,9 +33,7 @@ export type Logger = {
 
 const DEFAULT_LEVEL: Level = "warn";
 
-// Read once at module load — env is stable for the process lifetime. Call sites that need a
-// different level in tests vary `LODE_LOG` and re-import (the standard vitest pattern); the pure
-// `parseLevelSpec` / `resolveLevel` are unit-tested directly without env coupling.
+// Read once at module load because the environment is stable for the process lifetime.
 const levelRules: LevelRule[] = parseLevelSpec(process.env.LODE_LOG ?? "");
 
 /** The file-sink config set by `configureLogger` (undefined → stderr only). Read at the first-log

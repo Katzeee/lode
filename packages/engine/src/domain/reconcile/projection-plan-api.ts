@@ -1,10 +1,9 @@
 import type { ContributionFact, FactSnapshot, ViewMode } from "../fact/index.js";
 import type { ProjectionStageKey } from "./projection-plan-dag.js";
-import { PROJECTION_PLAN } from "./projection-plan.js";
+import { PROJECTION_PLAN, projectionReplayPolicy } from "./projection-plan.js";
 import {
   emptyProjectionPlanContext,
   incrementalProjectionPlanContext,
-  type ProjectionStageObserver,
 } from "./projection-plan-context.js";
 import type { Projection, ProjectionPlanCache, ProjectionVersions } from "./projection-types.js";
 
@@ -13,18 +12,21 @@ export function projectWithPlan(
   snapshot: FactSnapshot,
   view: ViewMode,
   versions: ProjectionVersions,
-  observer?: ProjectionStageObserver,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
   evaluatedStages: readonly ProjectionStageKey[];
 }> {
-  const context = emptyProjectionPlanContext(workspaceId, snapshot, view, versions, observer);
+  const context = emptyProjectionPlanContext(workspaceId, snapshot, view, versions);
   const evaluatedStages = PROJECTION_PLAN.run(context);
   if (!context.projection) {
     throw new Error("Projection owner plan did not assemble a Projection");
   }
-  return { projection: context.projection, planCache: context.planCache, evaluatedStages };
+  return {
+    projection: context.projection,
+    planCache: context.activation.planCache,
+    evaluatedStages,
+  };
 }
 
 export function advanceWithPlan(
@@ -35,7 +37,6 @@ export function advanceWithPlan(
   activeTail: readonly ContributionFact[],
   versions: ProjectionVersions,
   selected: ReadonlySet<ProjectionStageKey>,
-  observer?: ProjectionStageObserver,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
@@ -48,12 +49,15 @@ export function advanceWithPlan(
     snapshot,
     activeTail,
     versions,
-    selected,
-    observer,
+    projectionReplayPolicy(selected),
   );
   const evaluatedStages = PROJECTION_PLAN.run(context, selected);
   if (!context.projection) {
     throw new Error("Incremental owner plan did not assemble a Projection");
   }
-  return { projection: context.projection, planCache: context.planCache, evaluatedStages };
+  return {
+    projection: context.projection,
+    planCache: context.activation.planCache,
+    evaluatedStages,
+  };
 }

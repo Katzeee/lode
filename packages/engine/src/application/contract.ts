@@ -14,6 +14,7 @@ import type { HistoryQuery, HistorySelection } from "../domain/history/index.js"
 import type { ReviewQuery, ReviewSelection } from "../domain/review/index.js";
 import type { ConflictQuery } from "../domain/conflict/index.js";
 import type { ViewResult } from "../domain/view/index.js";
+import type { HardDeleteAssessment, HardDeleteSelection } from "../domain/maintenance/index.js";
 import type { ProjectionPage, ProjectionPageSection } from "./projection-contract.js";
 import type { ViewQueryRequest } from "./view-contract.js";
 
@@ -22,6 +23,8 @@ export type {
   ProjectionPageSection,
   ProjectionPageValue,
 } from "./projection-contract.js";
+export { PROJECTION_PAGE_SECTIONS } from "./projection-contract.js";
+export type { HardDeleteBlocker, HardDeleteSelection } from "../domain/maintenance/index.js";
 
 export type MutationCommand = Readonly<{
   kind: "mutate";
@@ -75,15 +78,6 @@ export type RetireReplicaCommand = Readonly<{
   invocationId: InvocationId;
   actorId: ActorId;
   replicaId: string;
-}>;
-
-export type HardDeleteSelection = Readonly<{
-  workspaceId: WorkspaceId;
-  frontier: FactFrontier;
-  nodeId: string;
-  deletionFactIds: readonly string[];
-  acknowledgementFactIds: readonly string[];
-  retiredReplicaIds: readonly string[];
 }>;
 
 export type HardDeleteCommand = Readonly<{
@@ -203,58 +197,49 @@ export type HardDeletePreviewQuery = Readonly<{
   nodeId: string;
 }>;
 
-export type HardDeleteBlocker =
-  | "already-purged"
-  | "not-tombstoned"
-  | "pending-proposal"
-  | "replica-unconfirmed"
-  | "outcome-unknown";
-
-export type HardDeletePreview = Readonly<{
-  generationId: string;
-  selection: HardDeleteSelection;
-  referenceOccurrenceIds: readonly string[];
-  schemaApplicationNodeIds: readonly string[];
-  materializedFieldNodeIds: readonly string[];
-  pendingProposalContributionIds: readonly string[];
-  knownReplicaIds: readonly string[];
-  acknowledgedReplicaIds: readonly string[];
-  outcomeUnknownInvocationIds: readonly string[];
-  historyImpact: Readonly<{
-    affectedInvocationIds: readonly string[];
-    affectedChannelIds: readonly string[];
-    totalAffectedInvocations: number;
-    truncated: boolean;
+export type HardDeletePreview = HardDeleteAssessment &
+  Readonly<{
+    generationId: string;
+    historyImpact: Readonly<{
+      affectedInvocationIds: readonly string[];
+      affectedChannelIds: readonly string[];
+      totalAffectedInvocations: number;
+      truncated: boolean;
+    }>;
   }>;
-  blockers: readonly HardDeleteBlocker[];
-  canExecute: boolean;
-}>;
-
-export type EngineQuery =
-  | ProjectionQuery
-  | ReviewQueryRequest
-  | HistoryQueryRequest
-  | InvocationQuery
-  | ConflictQueryRequest
-  | SchemaSearchQueryRequest
-  | ViewQueryRequest
-  | HardDeletePreviewQuery;
 
 export type InvocationOutcome =
   Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
-export type EngineQueryValue =
-  | ProjectionPage
-  | ReviewQuery
-  | HistoryQuery
-  | InvocationOutcome
-  | ConflictQuery
-  | SchemaSearchResult
-  | ViewResult
-  | HardDeletePreview;
+export type EngineQueryContract =
+  | Readonly<{ query: ProjectionQuery; value: ProjectionPage }>
+  | Readonly<{ query: ReviewQueryRequest; value: ReviewQuery }>
+  | Readonly<{ query: HistoryQueryRequest; value: HistoryQuery }>
+  | Readonly<{ query: InvocationQuery; value: InvocationOutcome }>
+  | Readonly<{ query: ConflictQueryRequest; value: ConflictQuery }>
+  | Readonly<{ query: SchemaSearchQueryRequest; value: SchemaSearchResult }>
+  | Readonly<{ query: ViewQueryRequest; value: ViewResult }>
+  | Readonly<{ query: HardDeletePreviewQuery; value: HardDeletePreview }>;
 
-export type EngineQueryResult =
-  | Readonly<{ status: "ok"; value: EngineQueryValue }>
+export type EngineQuery = EngineQueryContract["query"];
+export type EngineQueryKind = EngineQuery["kind"];
+export type EngineQueryForKind<Kind extends EngineQueryKind> = Extract<
+  EngineQuery,
+  Readonly<{ kind: Kind }>
+>;
+export type EngineQueryInput<Kind extends EngineQueryKind> = EngineQuery & Readonly<{ kind: Kind }>;
+
+export type EngineQueryValueForKind<Kind extends EngineQueryKind> = Extract<
+  EngineQueryContract,
+  Readonly<{ query: Readonly<{ kind: Kind }> }>
+>["value"];
+
+export type EngineQueryValue<Query extends EngineQuery = EngineQuery> = Query extends EngineQuery
+  ? EngineQueryValueForKind<Query["kind"]>
+  : never;
+
+export type EngineQueryResult<Query extends EngineQuery = EngineQuery> =
+  | Readonly<{ status: "ok"; value: EngineQueryValue<Query> }>
   | Readonly<{ status: "rejected"; error: EngineError }>;
 
 export type EngineEvent = Readonly<{
@@ -269,6 +254,8 @@ export type Unsubscribe = () => void;
 
 export type EngineContract = Readonly<{
   execute(command: EngineCommand): Promise<WriteResult>;
-  query(query: EngineQuery): Promise<EngineQueryResult>;
+  query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
   subscribe(listener: (event: EngineEvent) => void): Unsubscribe;
 }>;

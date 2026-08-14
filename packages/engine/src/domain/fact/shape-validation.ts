@@ -1,6 +1,7 @@
 import type { AuthorityReceipt, AuthorityRecord, Fact, Mutation, SequenceAnchor } from "./types.js";
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
 import { assertOptionalNodeSeed } from "./node-create-shape.js";
+import { isNodeType } from "./node-type-types.js";
 import { assertSchemaMutationShape } from "./schema-mutation-shape.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
 import { assertTemplateDetachmentShape } from "./template-node-validation.js";
@@ -151,6 +152,12 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       requireString(value.ownerNodeId, value.kind);
       if (value.previousOwnerNodeId !== undefined) {
         requireString(value.previousOwnerNodeId, "previous owner Node");
+      }
+      return;
+    case "node-type-declare":
+      requireString(value.nodeId, value.kind);
+      if (!isNodeType(value.nodeType)) {
+        throw new Error("Node type is invalid");
       }
       return;
     case "schema-apply":

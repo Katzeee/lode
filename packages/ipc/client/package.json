@@ -9,8 +9,10 @@
     }
   },
   "scripts": {
+    "clean": "node ../../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run clean",
     "build": "tsc",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",

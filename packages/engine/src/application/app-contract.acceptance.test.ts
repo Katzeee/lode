@@ -5,12 +5,12 @@ import { admitAuthorityRecords } from "../domain/admission/index.js";
 import { templateInstanceNodeId, templateInstanceOccurrenceId } from "../domain/fact/index.js";
 import { FactAuthorityStore, createReplicaId } from "../runtime/authority/fact-authority-store.js";
 import { ProposalWorkspace } from "../runtime/workspace/proposal-workspace.js";
-import { createEngineContract } from "./engine-contract.js";
 import {
   createEngineTransportServer,
   createTransportEngineContract,
   type EngineTransport,
 } from "./transport.js";
+import { ProposalWorkspaceRegistry } from "../runtime/workspace/proposal-registry.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
@@ -33,9 +33,11 @@ async function setup() {
   const workspace = await ProposalWorkspace.open({
     workspaceId: "workspace",
     facts,
-    versions: { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" },
+    versions: { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" },
   });
-  const direct = createEngineContract([workspace]);
+  const registry = new ProposalWorkspaceRegistry();
+  registry.register(workspace);
+  const direct = registry.contract;
   return {
     facts,
     direct,
@@ -91,7 +93,7 @@ describe("transport-neutral App contract", () => {
     const first = await serialized.execute(command);
     const retry = await serialized.execute(command);
     expect(retry).toEqual(first);
-    expect(facts.snapshot().facts).toHaveLength(3);
+    expect(facts.snapshot().facts).toHaveLength(4);
   });
 
   it("Schema Search is a bounded serialized query with stable cursors", async () => {
@@ -103,6 +105,11 @@ describe("transport-neutral App contract", () => {
           invocationId: "schema-search-setup",
           mutations: [
             ...nodeAtWorkspace("anime"),
+            {
+              kind: "node-type-declare",
+              nodeId: "anime",
+              nodeType: "schema",
+            },
             ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
               ...nodeAtWorkspace(nodeId),
               { kind: "schema-apply" as const, nodeId, schemaId: "anime", anchor: end },
@@ -158,7 +165,11 @@ describe("transport-neutral App contract", () => {
       status: "ok",
       value: {
         nodeStatuses: {
-          anime: { nodeId: "anime", roles: ["schema"], state: "deleted" },
+          anime: {
+            nodeId: "anime",
+            nodeType: "schema",
+            state: "deleted",
+          },
         },
       },
     });
@@ -174,6 +185,11 @@ describe("transport-neutral App contract", () => {
           invocationId: "serialized-template-setup",
           mutations: [
             nodeAt("note-schema", "workspace", "note-schema-original"),
+            {
+              kind: "node-type-declare",
+              nodeId: "note-schema",
+              nodeType: "schema",
+            },
             nodeAt("guidance", "note-schema", "note-schema-guidance-template-occurrence"),
             nodeAt("note", "workspace", "note-occurrence"),
             {
@@ -244,6 +260,12 @@ describe("transport-neutral App contract", () => {
             nodeAt("owner", "workspace", "owner-occurrence"),
             nodeAt("schema", "workspace", "schema-original"),
             nodeAt("field-definition", "workspace", "field-definition-original"),
+            { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+            {
+              kind: "node-type-declare",
+              nodeId: "field-definition",
+              nodeType: "field-definition",
+            },
             nodeAt("field-node", "owner", "field-occurrence"),
             nodeAt("value", "field-node", "value-occurrence"),
             {
@@ -413,7 +435,7 @@ describe("transport-neutral App contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    expect(facts.admission().snapshot.facts).toHaveLength(1);
+    expect(facts.admission().snapshot.facts).toHaveLength(2);
     expect(facts.receipts()).toHaveLength(1);
   });
 
@@ -452,7 +474,7 @@ describe("transport-neutral App contract", () => {
         result: { status: "rejected", error: { code: "invalid-input" } },
       });
     }
-    expect(facts.admission().snapshot.facts).toHaveLength(1);
+    expect(facts.admission().snapshot.facts).toHaveLength(2);
     expect(facts.receipts()).toHaveLength(1);
   });
 

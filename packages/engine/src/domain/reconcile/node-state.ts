@@ -32,6 +32,20 @@ export function createNodes(active: readonly ContributionFact[]): Map<string, Mu
   return created;
 }
 
+export function cloneNodes(nodes: ReadonlyMap<string, MutableNode>): Map<string, MutableNode> {
+  return new Map(
+    [...nodes].map(([nodeId, node]) => [
+      nodeId,
+      {
+        ...node,
+        text: [...node.text],
+        properties: { ...node.properties },
+        metadata: { ...node.metadata },
+      },
+    ]),
+  );
+}
+
 function addNode(
   created: Map<string, MutableNode>,
   nodeId: string,

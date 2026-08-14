@@ -1,6 +1,6 @@
 import type { EngineEvent, Unsubscribe } from "../../application/contract.js";
 import type { ProjectionIdentity } from "../../domain/fact/index.js";
-import { emitWorkspaceEvent } from "./generation-publication.js";
+import { deliverListeners } from "../../application/event-delivery.js";
 
 export class WorkspaceSignals {
   private readonly listeners = new Set<(event: EngineEvent) => void>();
@@ -20,7 +20,13 @@ export class WorkspaceSignals {
     frontier: EngineEvent["frontier"],
     generationId: string | null,
   ): void {
-    emitWorkspaceEvent(this.listeners, this.workspaceId, kind, frontier, generationId);
+    const event = freezeWorkspaceEvent({
+      kind,
+      workspaceId: this.workspaceId,
+      frontier: { ...frontier },
+      generationId,
+    });
+    deliverListeners(this.listeners, event);
   }
 
   recordAuthorityFault(message: string, identity: ProjectionIdentity): void {
@@ -37,4 +43,9 @@ export class WorkspaceSignals {
   clear(): void {
     this.listeners.clear();
   }
+}
+
+function freezeWorkspaceEvent(event: EngineEvent): EngineEvent {
+  Object.freeze(event.frontier);
+  return Object.freeze(event);
 }

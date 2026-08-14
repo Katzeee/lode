@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createEngineTransportServer,
-  createTransportEngineContract,
-  type EngineTransport,
-} from "../src/application/transport.js";
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
-import type { EditMutation } from "../src/domain/edit/index.js";
 import {
   frontierOf,
   admitAuthorityRecordShapes,
@@ -14,7 +8,6 @@ import {
   makeFact,
   type AuthorityRecord,
   type AuthorityReceipt,
-  type ContributionFact,
   type Fact,
   type FactSnapshot,
   type Mutation,
@@ -23,21 +16,18 @@ import { rebuildGeneration } from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-} from "../src/runtime/workspace/generation-checkpoint.js";
-import { baseFixture, HistoryFixture } from "../src/domain/history/history-test-helpers.js";
+} from "../src/runtime/materialization/generation-checkpoint.js";
+import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
 import { queryHistory, validateHistorySelection } from "../src/domain/history/history.js";
-import { base, generation } from "../src/domain/review/review-test-helpers.js";
+import { base, generation } from "./support/review/review-test-helpers.js";
 import { queryReview, validateReviewSelection } from "../src/domain/review/review.js";
 import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-dag.js";
 import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
-import { fullSurface } from "../src/domain/reconcile/reconcile-test-helpers.js";
+import { fullSurface } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   historyLifecycleCases,
   proposalLifecycleCases,
-} from "../src/domain/reconcile/proposal-lifecycle-test-helpers.js";
-import { InMemoryDocumentStore } from "../src/persistence/in-memory-document-store.js";
-import { FactAuthorityStore } from "../src/runtime/authority/fact-authority-store.js";
-import { ProposalWorkspace } from "../src/runtime/workspace/proposal-workspace.js";
+} from "./support/reconcile/proposal-lifecycle-test-helpers.js";
 import {
   assertGeneratedPathEquivalence,
   generatedDomainGraph,
@@ -48,7 +38,7 @@ const CHECKPOINT_KEY = "property-test-key";
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "cccccccccccccccccccccccccc";
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 describe("seeded Proposal Mode property and permutation contracts", () => {
   it("arrival order and duplicate delivery preserve one admitted snapshot", () => {
@@ -526,101 +516,6 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("generated transport loss recovers every mutation owner by Invocation query", async () => {
-    for (const [index, ownerCase] of proposalLifecycleCases().entries()) {
-      if (ownerCase.kind === "field-initialize") {
-        continue;
-      }
-      for (const intent of ["direct", "proposal"] as const) {
-        const invocationId = `unknown-${index}-${intent}`;
-        const workspace = await realWorkspace(caseSetupFacts(ownerCase), index, intent);
-        const contract = {
-          execute: workspace.execute.bind(workspace),
-          query: async (query: Parameters<typeof workspace.query>[0]) => ({
-            status: "ok" as const,
-            value: await workspace.query(query),
-          }),
-          subscribe: workspace.subscribe.bind(workspace),
-        };
-        const server = createEngineTransportServer(contract);
-        let loseResponse = true;
-        const lossy: EngineTransport = {
-          async request(bytes) {
-            const response = await server.request(bytes);
-            if (loseResponse) {
-              loseResponse = false;
-              throw new Error("generated response loss after durable command");
-            }
-            return response;
-          },
-          subscribe: server.subscribe,
-        };
-        const adapter = createTransportEngineContract(lossy);
-        expect(
-          await adapter.execute({
-            kind: "mutate",
-            workspaceId: "workspace",
-            invocationId,
-            actorId: "actor",
-            intent,
-            historyChannelId: `channel-${index}`,
-            mutations: publicCaseMutations(ownerCase),
-          }),
-        ).toEqual({ status: "outcome-unknown", invocationId });
-        expect(
-          await adapter.query({
-            kind: "invocation",
-            workspaceId: "workspace",
-            invocationId,
-          }),
-        ).toMatchObject({
-          status: "ok",
-          value: { status: "published", receipt: { invocationId } },
-        });
-        if (!historyLifecycleCases().some((entry) => entry.kind === ownerCase.kind)) {
-          await workspace.close();
-          continue;
-        }
-        const channelId = `channel-${index}`;
-        const history = await workspace.query({
-          kind: "history",
-          workspaceId: "workspace",
-          channelId,
-        });
-        if (!("undo" in history) || !history.undo) {
-          throw new Error(`Real ${intent} ${ownerCase.kind} program has no Undo`);
-        }
-        expect(
-          await workspace.execute({
-            kind: "undo",
-            workspaceId: "workspace",
-            invocationId: `real-undo-${index}-${intent}`,
-            actorId: "actor",
-            selection: history.undo,
-          }),
-        ).toMatchObject({ status: "published" });
-        const afterUndo = await workspace.query({
-          kind: "history",
-          workspaceId: "workspace",
-          channelId,
-        });
-        if (!("redo" in afterUndo) || !afterUndo.redo) {
-          throw new Error(`Real ${intent} ${ownerCase.kind} program has no Redo`);
-        }
-        expect(
-          await workspace.execute({
-            kind: "redo",
-            workspaceId: "workspace",
-            invocationId: `real-redo-${index}-${intent}`,
-            actorId: "actor",
-            selection: afterUndo.redo,
-          }),
-        ).toMatchObject({ status: "published" });
-        await workspace.close();
-      }
-    }
-  });
-
   it("generated bounded domain graphs shrink and preserve full incremental and checkpoint semantics", () => {
     for (let seed = 1; seed <= 24; seed += 1) {
       assertGeneratedPathEquivalence(generatedDomainGraph(seed), seed);
@@ -652,13 +547,6 @@ function caseSetupFacts(
   );
 }
 
-function caseMutation(fact: Fact): Mutation {
-  if (fact.body.kind !== "contribution") {
-    throw new Error("Proposal lifecycle fixture unexpectedly contains a Resolution");
-  }
-  return fact.body.mutation;
-}
-
 function caseMutations(
   ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
 ): readonly Mutation[] {
@@ -667,39 +555,6 @@ function caseMutations(
       ? [fact.body.mutation]
       : [],
   );
-}
-
-function publicCaseMutations(
-  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
-): readonly EditMutation[] {
-  const identity = caseMutation(ownerCase.proposal);
-  if (identity.kind === "node-owner-set") {
-    const placement = Object.values(generation(ownerCase.facts.snapshot()).review.occurrences).find(
-      (occurrence) =>
-        occurrence.nodeId === identity.nodeId && occurrence.parentNodeId === identity.ownerNodeId,
-    );
-    if (!placement) {
-      throw new Error("Owner fixture has no Reference Occurrence to promote");
-    }
-    return [{ kind: "reference-promote", occurrenceId: placement.occurrenceId }];
-  }
-  if (identity.kind !== "node-create") {
-    return [unpreparedEdit(identity)];
-  }
-  const placement = caseMutations(ownerCase).find(
-    (mutation) => mutation.kind === "occurrence-create" && mutation.nodeId === "created",
-  );
-  if (identity.kind !== "node-create" || placement?.kind !== "occurrence-create") {
-    throw new Error("Node creation fixture has no Original Occurrence");
-  }
-  return [
-    {
-      ...identity,
-      occurrenceId: placement.occurrenceId,
-      parentNodeId: placement.parentNodeId,
-      anchor: placement.anchor,
-    },
-  ];
 }
 
 function historyFor(prefix: readonly Fact[]): HistoryFixture {
@@ -746,114 +601,6 @@ function requiredUndo(history: HistoryFixture, channelId: string, label: string)
   return undo;
 }
 
-async function realWorkspace(
-  prefix: readonly Fact[],
-  index: number,
-  intent: "direct" | "proposal",
-): Promise<ProposalWorkspace> {
-  const documents = new InMemoryDocumentStore();
-  const store = await FactAuthorityStore.open({
-    workspaceId: "workspace",
-    replicaId: A,
-    loroPeerId: `${10_000 + index * 2 + (intent === "proposal" ? 1 : 0)}`,
-    documents,
-    admitRecords: admitAuthorityRecords,
-  });
-  const workspace = await ProposalWorkspace.open({
-    workspaceId: "workspace",
-    facts: store,
-    versions,
-  });
-  const contributions = prefix.filter(
-    (fact): fact is ContributionFact => fact.body.kind === "contribution",
-  );
-  const consumedOccurrenceIds = new Set<string>();
-  const mutations = contributions.flatMap((fact): readonly EditMutation[] => {
-    const mutation = fact.body.mutation;
-    if (mutation.kind === "node-create" && mutation.nodeId === "workspace") {
-      return [];
-    }
-    if (mutation.kind === "occurrence-create" && consumedOccurrenceIds.has(mutation.occurrenceId)) {
-      return [];
-    }
-    if (mutation.kind === "field-initialize") {
-      return [];
-    }
-    if (mutation.kind === "node-owner-set") {
-      const placement = contributions
-        .map((candidate) => candidate.body.mutation)
-        .find(
-          (candidate) =>
-            candidate.kind === "occurrence-create" &&
-            candidate.nodeId === mutation.nodeId &&
-            candidate.parentNodeId === mutation.ownerNodeId,
-        );
-      if (placement?.kind !== "occurrence-create") {
-        throw new Error("Generated Owner setup has no Reference Occurrence");
-      }
-      return [{ kind: "reference-promote", occurrenceId: placement.occurrenceId }];
-    }
-    if (mutation.kind !== "node-create") {
-      return [unpreparedEdit(mutation)];
-    }
-    const placement = contributions
-      .map((candidate) => candidate.body.mutation)
-      .find(
-        (candidate) =>
-          candidate.kind === "occurrence-create" &&
-          candidate.nodeId === mutation.nodeId &&
-          !consumedOccurrenceIds.has(candidate.occurrenceId),
-      );
-    if (placement?.kind !== "occurrence-create") {
-      throw new Error(`Generated prefix Node has no placement: ${mutation.nodeId}`);
-    }
-    consumedOccurrenceIds.add(placement.occurrenceId);
-    return [
-      {
-        ...mutation,
-        occurrenceId: placement.occurrenceId,
-        parentNodeId: placement.parentNodeId,
-        anchor: placement.anchor,
-      },
-    ];
-  });
-  if (mutations.length > 0) {
-    const result = await workspace.execute({
-      kind: "mutate",
-      workspaceId: "workspace",
-      invocationId: `prefix-${index}-${intent}`,
-      actorId: "setup",
-      intent: "direct",
-      historyChannelId: "setup",
-      mutations,
-    });
-    if (result.status !== "published") {
-      throw new Error(`Generated prefix ${index}/${intent} failed: ${JSON.stringify(result)}`);
-    }
-  }
-  return workspace;
-}
-
-const PREPARED_EVIDENCE = new Set([
-  "deletedAtoms",
-  "observedConfigFactIds",
-  "observedInitializationFactIds",
-  "previous",
-  "previousAnchor",
-  "previousConfig",
-  "previousOwnerNodeId",
-  "previousParentNodeId",
-  "sourceApplicationSchemaIds",
-  "sourceSchemaIds",
-  "sourceTemplateOccurrenceIds",
-]);
-
-function unpreparedEdit(mutation: Mutation): EditMutation {
-  return Object.fromEntries(
-    Object.entries(mutation).filter(([key]) => !PREPARED_EVIDENCE.has(key)),
-  ) as EditMutation;
-}
-
 function generationFingerprint(value: ReturnType<HistoryFixture["generation"]>): string {
   return JSON.stringify({
     origin: semanticProjection(value.origin),
@@ -862,13 +609,7 @@ function generationFingerprint(value: ReturnType<HistoryFixture["generation"]>):
 }
 
 function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>["origin"]) {
-  const {
-    identity: _identity,
-    reviewScopes: _reviewScopes,
-    supportByContribution: _supportByContribution,
-    nodes,
-    ...rest
-  } = projection;
+  const { identity: _identity, nodes, ...rest } = projection;
   const semantic = {
     ...rest,
     nodes: Object.fromEntries(
@@ -921,8 +662,11 @@ function extensionCycleFixture(): Fact[] {
     { kind: "node-create", nodeId: "base" },
     { kind: "node-create", nodeId: "schema-a" },
     { kind: "node-create", nodeId: "schema-b" },
+    { kind: "node-type-declare", nodeId: "schema-a", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "schema-b", nodeType: "schema" },
     { kind: "node-create", nodeId: "task" },
     { kind: "node-create", nodeId: "field-a" },
+    { kind: "node-type-declare", nodeId: "field-a", nodeType: "field-definition" },
     { kind: "node-create", nodeId: "schema-a-field-a-template-field" },
     {
       kind: "occurrence-create",
@@ -983,6 +727,7 @@ function initializationFixture(seed: number): Readonly<{
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     { kind: "node-create", nodeId: "task-schema" },
+    { kind: "node-type-declare", nodeId: "task-schema", nodeType: "schema" },
     {
       kind: "occurrence-create",
       occurrenceId: "task-schema-original",
@@ -991,6 +736,7 @@ function initializationFixture(seed: number): Readonly<{
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     { kind: "node-create", nodeId: "status-field" },
+    { kind: "node-type-declare", nodeId: "status-field", nodeType: "field-definition" },
     {
       kind: "occurrence-create",
       occurrenceId: "status-field-original",

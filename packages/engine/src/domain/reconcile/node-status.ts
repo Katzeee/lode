@@ -1,4 +1,5 @@
-import { stableStringCompare, type ContributionFact } from "../fact/index.js";
+import { stableStringCompare, type ContributionFact, type NodeType } from "../fact/index.js";
+import { nodeTypeDeclarationsByNode } from "./node-type-declarations.js";
 import type { NodeStatus } from "./projection-types.js";
 
 export function projectNodeStatuses(
@@ -7,12 +8,13 @@ export function projectNodeStatuses(
   activeNodeIds: ReadonlySet<string>,
   deletionFactIds: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, NodeStatus>> {
-  const roles = definitionRoles(active);
+  const nodeTypes = activeNodeTypes(active);
+  const declaredNodeIds = declaredNodeTypeIds(active);
   const nodeIds = new Set([
     ...knownNodeIds,
     ...activeNodeIds,
     ...deletionFactIds.keys(),
-    ...roles.keys(),
+    ...declaredNodeIds,
   ]);
   return Object.fromEntries(
     [...nodeIds].sort(stableStringCompare).flatMap((nodeId) => {
@@ -28,7 +30,7 @@ export function projectNodeStatuses(
               nodeId,
               {
                 nodeId,
-                roles: [...(roles.get(nodeId) ?? [])].sort(stableStringCompare),
+                nodeType: nodeTypes.get(nodeId) ?? null,
                 state,
                 deletionFactIds: [...(deletionFactIds.get(nodeId) ?? [])].sort(stableStringCompare),
               },
@@ -38,61 +40,29 @@ export function projectNodeStatuses(
   );
 }
 
-function definitionRoles(
+export function activeNodeTypes(
   active: readonly ContributionFact[],
-): ReadonlyMap<string, ReadonlySet<"schema" | "field">> {
-  const roles = new Map<string, Set<"schema" | "field">>();
-  const add = (nodeId: string, role: "schema" | "field") => {
-    const nodeRoles = roles.get(nodeId) ?? new Set();
-    nodeRoles.add(role);
-    roles.set(nodeId, nodeRoles);
-  };
-  for (const fact of active) {
-    const mutation = fact.body.mutation;
-    switch (mutation.kind) {
-      case "schema-apply":
-      case "schema-remove":
-        add(mutation.schemaId, "schema");
-        break;
-      case "schema-field-add":
-      case "schema-field-remove":
-      case "schema-field-configure":
-        add(mutation.schemaId, "schema");
-        add(mutation.fieldDefinitionId, "field");
-        break;
-      case "schema-extension-add":
-      case "schema-extension-remove":
-        add(mutation.schemaId, "schema");
-        add(mutation.baseSchemaId, "schema");
-        break;
-      case "schema-template-node-add":
-      case "schema-template-node-remove":
-        add(mutation.schemaId, "schema");
-        break;
-      case "field-materialize":
-      case "field-value-delete":
-      case "materialized-field-delete":
-        add(mutation.fieldDefinitionId, "field");
-        break;
-      case "field-initialize":
-        add(mutation.schemaId, "schema");
-        add(mutation.fieldDefinitionId, "field");
-        break;
-      case "node-create":
-      case "node-delete":
-      case "node-restore":
-      case "occurrence-create":
-      case "occurrence-delete":
-      case "occurrence-restore":
-      case "occurrence-move":
-      case "node-owner-set":
-      case "text-splice":
-      case "text-mark":
-      case "value-set":
-      case "value-unset":
-      case "template-node-detach":
-        break;
-    }
-  }
-  return roles;
+): ReadonlyMap<string, NodeType> {
+  const declarations = declaredNodeTypes(active);
+  return new Map(
+    [...declarations].flatMap(([nodeId, nodeTypes]) => {
+      const nodeType = [...nodeTypes][0];
+      return nodeTypes.size === 1 && nodeType !== undefined ? [[nodeId, nodeType] as const] : [];
+    }),
+  );
+}
+
+function declaredNodeTypeIds(active: readonly ContributionFact[]): ReadonlySet<string> {
+  return new Set(declaredNodeTypes(active).keys());
+}
+
+function declaredNodeTypes(
+  active: readonly ContributionFact[],
+): ReadonlyMap<string, Set<NodeType>> {
+  return new Map(
+    [...nodeTypeDeclarationsByNode(active)].map(([nodeId, facts]) => [
+      nodeId,
+      new Set(facts.map((fact) => fact.body.mutation.nodeType)),
+    ]),
+  );
 }

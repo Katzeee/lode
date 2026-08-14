@@ -11,10 +11,12 @@ import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority
 import type { FactAuthority } from "../authority/fact-authority.js";
 import type { SyncableDoc } from "../../sync/syncable.js";
 import { WorkspaceDocStore } from "./doc-store.js";
-import { ProjectionCheckpointRepository } from "./projection-checkpoints.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../domain/reconcile/index.js";
-import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
+import {
+  BoundedProjectionMaterializer,
+  ProjectionCheckpointRepository,
+} from "../materialization/index.js";
 
 const LOCAL_REPLICA_DOCUMENT_ID = "local-replica";
 
@@ -51,8 +53,14 @@ export async function openProposalWorkspace(
     facts,
     versions: CURRENT_PROJECTION_VERSIONS,
     reviewCapabilityKey: local.reviewCapabilityKey,
-    checkpoints: new ProjectionCheckpointRepository(storage.documents, local.reviewCapabilityKey),
-    generations: materializer,
+    projection: {
+      checkpoints: new ProjectionCheckpointRepository(
+        storage.documents,
+        workspaceId,
+        local.reviewCapabilityKey,
+      ),
+      projections: materializer,
+    },
   });
   return {
     workspace,

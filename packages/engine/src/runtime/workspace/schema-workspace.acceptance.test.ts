@@ -2,11 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
+import {
+  FIELD_DEFINITION_NODE_TYPE,
+  SCHEMA_NODE_TYPE,
+  type NodeType,
+} from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Schema product model", () => {
@@ -104,40 +109,34 @@ describe("Schema product model", () => {
     });
     expect(blocked).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
 
-    expect(
-      (
-        await opened.workspace.execute({
-          kind: "mutate",
-          workspaceId: "workspace",
-          invocationId: "remove-deleted-definition-application",
-          actorId: "actor",
-          intent: "direct",
-          historyChannelId: "desktop",
-          mutations: [{ kind: "schema-remove", nodeId: "task", schemaId: "project-schema" }],
-        })
-      ).status,
-    ).toBe("published");
+    const restoration = await opened.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "remove-deleted-definition-application",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      mutations: [{ kind: "schema-remove", nodeId: "task", schemaId: "project-schema" }],
+    });
+    expect(restoration, JSON.stringify(restoration)).toMatchObject({ status: "published" });
 
-    expect(
-      (
-        await opened.workspace.execute({
-          kind: "mutate",
-          workspaceId: "workspace",
-          invocationId: "restore-project-definition",
-          actorId: "actor",
-          intent: "direct",
-          historyChannelId: "desktop",
-          mutations: [
-            {
-              kind: "node-restore",
-              nodeId: "project-schema",
-              deletionFactId,
-            },
-            { kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end },
-          ],
-        })
-      ).status,
-    ).toBe("published");
+    const restored = await opened.workspace.execute({
+      kind: "mutate",
+      workspaceId: "workspace",
+      invocationId: "restore-project-definition",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      mutations: [
+        {
+          kind: "node-restore",
+          nodeId: "project-schema",
+          deletionFactId,
+        },
+        { kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end },
+      ],
+    });
+    expect(restored, JSON.stringify(restored)).toMatchObject({ status: "published" });
     expect(await readNodeStatus(opened.workspace, "project-schema")).toMatchObject({
       state: "active",
       deletionFactIds: [],
@@ -384,9 +383,9 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             nodeAt("note", "workspace", "note-root"),
-            ...nodeAtWorkspace("base-schema"),
-            ...nodeAtWorkspace("child-schema"),
-            ...nodeAtWorkspace("base-field"),
+            ...definitionAtWorkspace("base-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("child-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("base-field", FIELD_DEFINITION_NODE_TYPE),
             nodeAt("extension-field-node", "note", "extension-field-occurrence"),
             {
               kind: "schema-field-add",
@@ -609,8 +608,8 @@ describe("Schema product model", () => {
       historyChannelId: "desktop",
       mutations: [
         nodeAt("task", "workspace", "task-occurrence"),
-        ...nodeAtWorkspace("task-schema"),
-        ...nodeAtWorkspace("status-field"),
+        ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+        ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
@@ -730,8 +729,8 @@ describe("Schema product model", () => {
               anchor: end,
               insert: "Before",
             },
-            ...nodeAtWorkspace("note-schema"),
-            ...nodeAtWorkspace("snapshot-field"),
+            ...definitionAtWorkspace("note-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("snapshot-field", FIELD_DEFINITION_NODE_TYPE),
             {
               kind: "schema-field-add",
               schemaId: "note-schema",
@@ -802,8 +801,8 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             nodeAt("task", "workspace", "task-occurrence"),
-            ...nodeAtWorkspace("task-schema"),
-            ...nodeAtWorkspace("status-field"),
+            ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
             {
               kind: "schema-field-add",
               schemaId: "task-schema",
@@ -862,8 +861,8 @@ describe("Schema product model", () => {
     if (!fieldHunk) {
       throw new Error("Expected initialized Field Review Hunk");
     }
-    expect(fieldHunk.selection.evidence.proposalTargets).toHaveLength(6);
-    expect(fieldHunk.selection.evidence.supportClosure).toHaveLength(6);
+    expect(fieldHunk.selection.evidence.proposalTargets).toHaveLength(7);
+    expect(fieldHunk.selection.evidence.supportClosure).toHaveLength(7);
     expect(fieldHunk.selection.evidence.effects).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -903,8 +902,8 @@ describe("Schema product model", () => {
       historyChannelId: "desktop",
       mutations: [
         ...nodeAtWorkspace("task"),
-        ...nodeAtWorkspace("task-schema"),
-        ...nodeAtWorkspace("status-field"),
+        ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+        ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
@@ -983,7 +982,7 @@ describe("Schema product model", () => {
     });
     expect(accepted.status).toBe("published");
     await expectSchemaProjection(workspace, ["task-schema"], "task", "status-field");
-    expect(facts.snapshot().facts).toHaveLength(14);
+    expect(facts.snapshot().facts).toHaveLength(18);
   });
 
   it("stales a Schema Application selection when its Effective Field consequences change", async () => {
@@ -1000,8 +999,8 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             ...nodeAtWorkspace("task"),
-            ...nodeAtWorkspace("task-schema"),
-            ...nodeAtWorkspace("status-field"),
+            ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
           ],
         })
       ).status,
@@ -1076,8 +1075,8 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             ...nodeAtWorkspace("task"),
-            ...nodeAtWorkspace("task-schema"),
-            ...nodeAtWorkspace("status-field"),
+            ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
             { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
           ],
         })
@@ -1141,9 +1140,9 @@ describe("Schema product model", () => {
       historyChannelId: "desktop",
       mutations: [
         ...nodeAtWorkspace("note"),
-        ...nodeAtWorkspace("base-schema"),
-        ...nodeAtWorkspace("child-schema"),
-        ...nodeAtWorkspace("base-field"),
+        ...definitionAtWorkspace("base-schema", SCHEMA_NODE_TYPE),
+        ...definitionAtWorkspace("child-schema", SCHEMA_NODE_TYPE),
+        ...definitionAtWorkspace("base-field", FIELD_DEFINITION_NODE_TYPE),
         {
           kind: "schema-field-add",
           schemaId: "base-schema",
@@ -1238,8 +1237,8 @@ describe("Schema product model", () => {
         nodeAt("status-on-task", "task", "status-on-task-occurrence"),
         nodeAt("todo", "status-on-task", "todo-value"),
         nodeAt("project", "status-on-task", "project-reference"),
-        ...nodeAtWorkspace("task-schema"),
-        ...nodeAtWorkspace("status-field"),
+        ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+        ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
         {
           kind: "schema-field-add",
           schemaId: "task-schema",
@@ -1303,8 +1302,8 @@ describe("Schema product model", () => {
           historyChannelId: "desktop",
           mutations: [
             nodeAt("task", "workspace", "task-occurrence"),
-            ...nodeAtWorkspace("task-schema"),
-            ...nodeAtWorkspace("notes-field"),
+            ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("notes-field", FIELD_DEFINITION_NODE_TYPE),
             {
               kind: "schema-field-add",
               schemaId: "task-schema",
@@ -1446,8 +1445,8 @@ describe("Schema product model", () => {
           historyChannelId: "setup",
           mutations: [
             ...nodeAtWorkspace("task"),
-            ...nodeAtWorkspace("task-schema"),
-            ...nodeAtWorkspace("status-field"),
+            ...definitionAtWorkspace("task-schema", SCHEMA_NODE_TYPE),
+            ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
           ],
         })
       ).status,
@@ -1526,7 +1525,7 @@ describe("Schema product model", () => {
       historyChannelId: "desktop",
       mutations: [
         nodeAt("task", "workspace", "task-occurrence"),
-        ...nodeAtWorkspace("status-field"),
+        ...definitionAtWorkspace("status-field", FIELD_DEFINITION_NODE_TYPE),
         nodeAt("status-on-task", "task", "status-on-task-occurrence"),
       ],
     });
@@ -1564,6 +1563,12 @@ describe("Schema product model", () => {
               fieldDefinitionId: "status-field",
               originFieldNodeId: null,
               reviewFieldNodeId: "status-on-task",
+            },
+            {
+              kind: "lifecycle",
+              identity: "status-on-task",
+              origin: null,
+              review: "field",
             },
           ],
         },
@@ -1711,10 +1716,21 @@ async function readProjectionMap(
     view,
     section,
   });
-  if (!("entries" in result) || result.section !== section) {
+  if (!("section" in result) || result.section !== section || !(section in result)) {
     throw new Error(`Expected ${section} Projection`);
   }
-  return Object.fromEntries(result.entries.map((entry) => [entry.identity, entry.value]));
+  switch (result.section) {
+    case "schemaExtensions":
+      return result.schemaExtensions;
+    case "schemaSearchMembers":
+      return result.schemaSearchMembers;
+    case "schemaExtensionConflicts":
+      return result.schemaExtensionConflicts;
+    case "effectiveFields":
+      return result.effectiveFields;
+    default:
+      throw new Error(`Expected ${section} Projection`);
+  }
 }
 
 async function projectionEntries(
@@ -1728,10 +1744,10 @@ async function projectionEntries(
     section,
     limit: 100,
   });
-  if (!("entries" in result) || result.section !== section) {
+  if (!("section" in result) || result.section !== section || !(section in result)) {
     throw new Error(`Expected ${section} Projection`);
   }
-  return Object.fromEntries(result.entries.map((entry) => [entry.identity, entry.value]));
+  return result.section === "children" ? result.children : result.materializedFields;
 }
 
 async function expectMaterializedField(
@@ -1783,6 +1799,13 @@ function schemaProgram(): readonly EditMutation[] {
   return [
     ...["task", "project-schema", "work-schema", "status-field"].flatMap(nodeAtWorkspace),
     {
+      kind: "node-type-declare",
+      nodeId: "project-schema",
+      nodeType: "schema",
+    },
+    { kind: "node-type-declare", nodeId: "work-schema", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "status-field", nodeType: "field-definition" },
+    {
       kind: "schema-field-add",
       schemaId: "project-schema",
       fieldDefinitionId: "status-field",
@@ -1805,6 +1828,19 @@ function schemaProgram(): readonly EditMutation[] {
 
 function nodeAtWorkspace(nodeId: string): readonly EditMutation[] {
   return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
+}
+
+function definitionAtWorkspace(nodeId: string, nodeType: NodeType): readonly EditMutation[] {
+  return [
+    {
+      kind: "node-create",
+      nodeId,
+      occurrenceId: `${nodeId}-original`,
+      parentNodeId: "workspace",
+      anchor: end,
+      nodeType: nodeType,
+    },
+  ];
 }
 
 function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditMutation {

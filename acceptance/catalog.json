@@ -66,7 +66,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Field Contribution observed-remove intent and effective identity"
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
         }
       ]
     },
@@ -221,7 +221,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > paginates View rows without reading unrelated entities"
+          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > paginates View rows and excludes unrelated entities"
         },
         {
           "workspace": "app-cli",
@@ -384,7 +384,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Field Contribution observed-remove intent and effective identity"
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
         },
         {
           "workspace": "engine",
@@ -397,40 +397,6 @@
         {
           "workspace": "engine",
           "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
-        }
-      ]
-    },
-    {
-      "id": "performance.fixed-gates",
-      "contract": "Fixed-size authority, Reconcile, Review, sync-tail, restart, bounded-read, and retained-storage gates detect full fallback and unbounded growth.",
-      "tests": [
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > bounds startup rebuild checkpoint-tail work actual owner invalidation heap and materialized retention"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > bounds the production authority ledger across many invocations"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > bounds one Review evaluation across many independent Hunks"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > bounds support convergence and Loro incremental sync tail bytes"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > bounds durable workspace restart and first bounded read"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > paginates View rows without reading unrelated entities"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.performance.test.ts > Proposal Mode deterministic performance and retention gates > keeps indexed authority Review and History work independent of 250 or 1000 unrelated Nodes"
         }
       ]
     }

@@ -10,6 +10,7 @@ import { parseConflictIssue } from "./conflict-validation.js";
 import type {
   EngineError,
   EngineEvent,
+  EngineQuery,
   EngineQueryResult,
   EngineQueryValue,
   WriteResult,
@@ -54,7 +55,11 @@ export function parseWriteResult(value: unknown): WriteResult {
   throw new Error(`Unknown write result status: ${status}`);
 }
 
-export function parseEngineQueryResult(value: unknown): EngineQueryResult {
+export function parseEngineQueryResult<Query extends EngineQuery>(
+  value: unknown,
+  query: Query,
+): EngineQueryResult<Query>;
+export function parseEngineQueryResult(value: unknown, query: EngineQuery): EngineQueryResult {
   const result = object(value, "query result");
   const status = string(result.status, "query status");
   if (status === "rejected") {
@@ -65,7 +70,7 @@ export function parseEngineQueryResult(value: unknown): EngineQueryResult {
     throw new Error(`Unknown query result status: ${status}`);
   }
   exact(result, ["status", "value"], "successful query result");
-  return { status, value: queryValue(result.value) };
+  return { status, value: queryValue(result.value, query) };
 }
 
 export function parseEngineEvent(value: unknown): EngineEvent {
@@ -89,30 +94,26 @@ export function parseEngineEvent(value: unknown): EngineEvent {
   };
 }
 
-function queryValue(value: unknown): EngineQueryValue {
+function queryValue(value: unknown, query: EngineQuery): EngineQueryValue {
   const candidate = object(value, "query value");
-  if ((candidate.view === "origin" || candidate.view === "review") && "section" in candidate) {
-    return parseProjectionPage(candidate);
+  switch (query.kind) {
+    case "projection":
+      return parseProjectionPage(candidate);
+    case "review":
+      return reviewQuery(candidate);
+    case "history":
+      return historyQuery(candidate);
+    case "invocation":
+      return invocationOutcome(candidate);
+    case "conflicts":
+      return conflictQuery(candidate);
+    case "schema-search":
+      return schemaSearchResult(candidate);
+    case "view":
+      return parseViewResult(candidate, frontier);
+    case "hard-delete-preview":
+      return parseHardDeletePreview(candidate);
   }
-  if ("hunks" in candidate) {
-    return reviewQuery(candidate);
-  }
-  if ("channelId" in candidate) {
-    return historyQuery(candidate);
-  }
-  if ("issues" in candidate) {
-    return conflictQuery(candidate);
-  }
-  if ("schemaId" in candidate && "nodeIds" in candidate) {
-    return schemaSearchResult(candidate);
-  }
-  if ("viewNodeId" in candidate && "rows" in candidate) {
-    return parseViewResult(candidate, frontier);
-  }
-  if ("blockers" in candidate && "selection" in candidate) {
-    return parseHardDeletePreview(candidate);
-  }
-  return invocationOutcome(candidate);
 }
 
 function schemaSearchResult(value: Record<string, unknown>) {

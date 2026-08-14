@@ -8,7 +8,7 @@ import { InMemoryDocumentStore } from "../../persistence/in-memory-document-stor
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
-const versions = { rulesVersion: "proposal-rules-3", schemaVersion: "lode-schema-16" } as const;
+const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("instance Field content deletion", () => {
@@ -256,6 +256,8 @@ function explicitFieldProgram(): readonly EditMutation[] {
     nodeAt("owner", "workspace", "owner-occurrence"),
     nodeAt("schema", "workspace", "schema-original"),
     nodeAt("field-definition", "workspace", "field-definition-original"),
+    { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
     nodeAt("field-node", "owner", "field-occurrence"),
     nodeAt("value-a", "field-node", "value-a-occurrence"),
     nodeAt("value-b", "field-node", "value-b-occurrence"),
@@ -291,6 +293,8 @@ function initializedFieldProgram(): readonly EditMutation[] {
     nodeAt("owner", "workspace", "owner-occurrence"),
     nodeAt("schema", "workspace", "schema-original"),
     nodeAt("field-definition", "workspace", "field-definition-original"),
+    { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
     {
       kind: "schema-field-add",
       schemaId: "schema",

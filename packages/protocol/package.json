@@ -10,7 +10,8 @@
   },
   "scripts": {
     "generate": "buf generate",
-    "prebuild": "npm run generate",
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run generate && npm run clean",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",

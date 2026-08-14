@@ -5,9 +5,17 @@ import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
   validateGenerationCheckpoint,
-} from "../../runtime/workspace/generation-checkpoint.js";
-import { advanceGeneration, projectSnapshot, projectionText, rebuildGeneration } from "./index.js";
-import { base, end, Facts, fullSurface, versions } from "./reconcile-test-helpers.js";
+} from "../../runtime/materialization/generation-checkpoint.js";
+import { advanceGeneration, rebuildGeneration } from "./index.js";
+import { PROJECTION_PLAN } from "./projection-plan.js";
+import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
+import {
+  base,
+  end,
+  Facts,
+  fullSurface,
+  versions,
+} from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 
 const CHECKPOINT_KEY = "reconcile-acceptance-key";
 
@@ -286,7 +294,9 @@ describe("production Reconcile", () => {
         rebuildGeneration("workspace", after, versions).generation,
       );
       expect(incremental.stats.evaluatedStages, testCase.name).not.toContain("value");
-      expect(incremental.stats.evaluatedStages, testCase.name).not.toHaveLength(8);
+      expect(incremental.stats.evaluatedStages.length, testCase.name).toBeLessThan(
+        PROJECTION_PLAN.ordered.length,
+      );
     }
   });
 

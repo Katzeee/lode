@@ -1,24 +1,60 @@
 import { stableStringCompare } from "../fact/index.js";
 
-export type ProjectionStageKey = string;
+export type ProjectionStageKey =
+  | "activation"
+  | "node"
+  | "occurrence"
+  | "text"
+  | "value"
+  | "owner"
+  | "schema-relations"
+  | "node-status"
+  | "conflict"
+  | "template"
+  | "assembly";
 
-export type ProjectionStage<Context = unknown> = Readonly<{
-  key: ProjectionStageKey;
-  dependencies: readonly ProjectionStageKey[];
-  writes: readonly string[];
+export type ProjectionArtifactKey =
+  | "activation"
+  | "storedNodes"
+  | "contentNodes"
+  | "authoredStructure"
+  | "addressedValues"
+  | "nodeOwners"
+  | "schemaRelations"
+  | "nodeStatuses"
+  | "conflictIssues"
+  | "templateStructure"
+  | "projection";
+
+export type ProjectionStage<
+  Context = unknown,
+  StageKey extends string = string,
+  ArtifactKey extends string = string,
+> = Readonly<{
+  key: StageKey;
+  dependencies: readonly StageKey[];
+  writes: readonly ArtifactKey[];
   evaluate(context: Context): void;
 }>;
 
-export type CompiledProjectionPlan<Context = unknown> = Readonly<{
-  ordered: readonly ProjectionStage<Context>[];
-  downstream(stageKeys: ReadonlySet<ProjectionStageKey>): ReadonlySet<ProjectionStageKey>;
-  run(context: Context, selected?: ReadonlySet<ProjectionStageKey>): readonly ProjectionStageKey[];
+export type CompiledProjectionPlan<
+  Context = unknown,
+  StageKey extends string = string,
+  ArtifactKey extends string = string,
+> = Readonly<{
+  ordered: readonly ProjectionStage<Context, StageKey, ArtifactKey>[];
+  downstream(stageKeys: ReadonlySet<StageKey>): ReadonlySet<StageKey>;
+  run(context: Context, selected?: ReadonlySet<StageKey>): readonly StageKey[];
 }>;
 
-export function compileProjectionPlan<Context>(
-  stages: readonly ProjectionStage<Context>[],
-): CompiledProjectionPlan<Context> {
-  const byKey = new Map<string, ProjectionStage<Context>>();
+export function compileProjectionPlan<
+  Context,
+  StageKey extends string = string,
+  ArtifactKey extends string = string,
+>(
+  stages: readonly ProjectionStage<Context, StageKey, ArtifactKey>[],
+): CompiledProjectionPlan<Context, StageKey, ArtifactKey> {
+  const byKey = new Map<StageKey, ProjectionStage<Context, StageKey, ArtifactKey>>();
   const writerByOutput = new Map<string, string>();
   for (const rule of stages) {
     if (byKey.has(rule.key)) {
@@ -41,7 +77,7 @@ export function compileProjectionPlan<Context>(
     }
   }
 
-  const ordered: ProjectionStage<Context>[] = [];
+  const ordered: ProjectionStage<Context, StageKey, ArtifactKey>[] = [];
   const remaining = new Set(byKey.keys());
   while (remaining.size > 0) {
     const ready = [...remaining]
@@ -78,7 +114,7 @@ export function compileProjectionPlan<Context>(
       return selected;
     },
     run(context, selected) {
-      const evaluated: ProjectionStageKey[] = [];
+      const evaluated: StageKey[] = [];
       for (const rule of ordered) {
         if (!selected || selected.has(rule.key)) {
           rule.evaluate(context);

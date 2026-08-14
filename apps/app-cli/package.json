@@ -6,6 +6,8 @@
     "lode": "./dist/bin/lode.js"
   },
   "scripts": {
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run clean",
     "build": "tsc",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
