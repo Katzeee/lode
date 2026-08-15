@@ -1,10 +1,4 @@
-import type {
-  FactFrontier,
-  FactSnapshot,
-  InvocationId,
-  ReplicaId,
-  WorkspaceId,
-} from "../fact/index.js";
+import type { FactFrontier, FactSnapshot, InvocationId, ReplicaId, WorkspaceId } from "../fact/index.js";
 
 export type HardDeleteSelection = Readonly<{
   workspaceId: WorkspaceId;
@@ -16,11 +10,7 @@ export type HardDeleteSelection = Readonly<{
 }>;
 
 export type HardDeleteBlocker =
-  | "already-purged"
-  | "not-tombstoned"
-  | "pending-proposal"
-  | "replica-unconfirmed"
-  | "outcome-unknown";
+  "already-purged" | "not-tombstoned" | "pending-proposal" | "replica-unconfirmed" | "outcome-unknown";
 
 export type HardDeleteEvidence = Readonly<{
   workspaceId: WorkspaceId;

@@ -29,10 +29,7 @@ export class WorkTracker {
   }
 }
 
-export async function waitForWork(
-  promises: readonly Promise<void>[],
-  timeoutMs: number,
-): Promise<boolean> {
+export async function waitForWork(promises: readonly Promise<void>[], timeoutMs: number): Promise<boolean> {
   if (promises.length === 0) {
     return true;
   }

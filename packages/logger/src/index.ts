@@ -74,10 +74,7 @@ function buildPino(component: string, level: Level): PinoLogger {
   }
   // stderr + rotating file. multistream so the instance-level opts (formatters/serializers/base)
   // apply to both — a pino-roll *transport* would run in a worker thread and fight them.
-  return pino(
-    opts,
-    pino.multistream([{ stream: stderr }, { stream: rotatingFileDestination(fileSink) }]),
-  );
+  return pino(opts, pino.multistream([{ stream: stderr }, { stream: rotatingFileDestination(fileSink) }]));
 }
 
 /** Memoized by component name — mirrors any-sync's `NewNamed` registry (`log.go:84`): the name IS the
@@ -134,10 +131,7 @@ export function createLogger(component: string): Logger {
   if (existing) {
     return existing;
   }
-  const wrapped = new PinoLoggerWrapper(
-    component,
-    resolveLevel(component, levelRules, DEFAULT_LEVEL),
-  );
+  const wrapped = new PinoLoggerWrapper(component, resolveLevel(component, levelRules, DEFAULT_LEVEL));
   registry.set(component, wrapped);
   return wrapped;
 }

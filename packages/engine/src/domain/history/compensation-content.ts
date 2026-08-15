@@ -122,9 +122,7 @@ function currentTextAnchor(
   targetIds: readonly string[],
   atoms: readonly Readonly<{ id: string }>[],
 ) {
-  const indices = targetIds
-    .map((id) => atoms.findIndex((atom) => atom.id === id))
-    .filter((index) => index >= 0);
+  const indices = targetIds.map((id) => atoms.findIndex((atom) => atom.id === id)).filter((index) => index >= 0);
   if (indices.length > 0) {
     const first = Math.min(...indices);
     const last = Math.max(...indices);
@@ -135,14 +133,8 @@ function currentTextAnchor(
       fallback: first === 0 ? ("start" as const) : ("end" as const),
     };
   }
-  const after =
-    original.after !== null && atoms.some((atom) => atom.id === original.after)
-      ? original.after
-      : null;
-  const before =
-    original.before !== null && atoms.some((atom) => atom.id === original.before)
-      ? original.before
-      : null;
+  const after = original.after !== null && atoms.some((atom) => atom.id === original.after) ? original.after : null;
+  const before = original.before !== null && atoms.some((atom) => atom.id === original.before) ? original.before : null;
   return {
     after,
     before,
@@ -204,9 +196,7 @@ function compensateTextMark(
     return { kind: "stale", reason: "Text mark lacks its previous value" };
   }
   const liveIds = mutation.atomIds.filter(
-    (id) =>
-      !independentlyMarked.has(id) &&
-      projection.nodes[mutation.nodeId]?.text.some((atom) => atom.id === id),
+    (id) => !independentlyMarked.has(id) && projection.nodes[mutation.nodeId]?.text.some((atom) => atom.id === id),
   );
   return liveIds.length === 0
     ? noCompensation()

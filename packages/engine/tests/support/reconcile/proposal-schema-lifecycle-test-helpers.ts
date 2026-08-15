@@ -1,8 +1,4 @@
-import {
-  FIELD_DEFINITION_NODE_TYPE,
-  SCHEMA_NODE_TYPE,
-  type Mutation,
-} from "../../../src/domain/fact/index.js";
+import { FIELD_DEFINITION_NODE_TYPE, SCHEMA_NODE_TYPE, type Mutation } from "../../../src/domain/fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 import { base, end } from "./reconcile-test-helpers.js";
 import { addDefinitionNode, addPlacedNode } from "./placed-node-test-helpers.js";

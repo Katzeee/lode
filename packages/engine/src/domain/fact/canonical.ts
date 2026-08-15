@@ -17,9 +17,7 @@ export function canonicalJson(value: unknown): string {
     const entries = Object.entries(value as Readonly<Record<string, unknown>>)
       .filter(([, item]) => item !== undefined)
       .sort(([left], [right]) => stableStringCompare(left, right));
-    return `{${entries
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
-      .join(",")}}`;
+    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`;
   }
   throw new Error(`Unsupported canonical JSON value: ${typeof value}`);
 }

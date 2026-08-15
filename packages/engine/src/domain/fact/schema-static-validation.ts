@@ -11,14 +11,10 @@ import type { FieldValueSeed } from "./field-template-types.js";
 
 export function validateSchemaMutation(mutation: SchemaMutation, factIdentity: string): void {
   requireIdentity(mutation.schemaId, "Schema", factIdentity);
-  if (
-    mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
-  ) {
+  if (mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove") {
     requireIdentity(mutation.templateNodeId, "Template Node", factIdentity);
     requireIdentity(mutation.templateOccurrenceId, "Template Node Occurrence", factIdentity);
-    const anchor =
-      mutation.kind === "schema-template-node-add" ? mutation.anchor : mutation.previousAnchor;
+    const anchor = mutation.kind === "schema-template-node-add" ? mutation.anchor : mutation.previousAnchor;
     if (anchor === undefined) {
       throw new Error(`Template Node removal lacks semantic evidence: ${factIdentity}`);
     }
@@ -65,20 +61,15 @@ export function validateFieldInitialization(
   requireIdentity(mutation.fieldNodeId, "Initialized Field Node", factIdentity);
   requireIdentity(mutation.fieldOccurrenceId, "Initialized Field Occurrence", factIdentity);
   if (
-    mutation.fieldNodeId !==
-      initializedFieldNodeId(mutation.ownerNodeId, mutation.fieldDefinitionId) ||
-    mutation.fieldOccurrenceId !==
-      initializedFieldOccurrenceId(mutation.ownerNodeId, mutation.fieldDefinitionId)
+    mutation.fieldNodeId !== initializedFieldNodeId(mutation.ownerNodeId, mutation.fieldDefinitionId) ||
+    mutation.fieldOccurrenceId !== initializedFieldOccurrenceId(mutation.ownerNodeId, mutation.fieldDefinitionId)
   ) {
     throw new Error(`Field initialization identity is not canonical: ${factIdentity}`);
   }
   if (mutation.observedInitializationFactIds === undefined) {
     throw new Error(`Field initialization lacks semantic evidence: ${factIdentity}`);
   }
-  if (
-    new Set(mutation.observedInitializationFactIds).size !==
-    mutation.observedInitializationFactIds.length
-  ) {
+  if (new Set(mutation.observedInitializationFactIds).size !== mutation.observedInitializationFactIds.length) {
     throw new Error(`Field initialization evidence contains duplicate Facts: ${factIdentity}`);
   }
   validateInitializedFieldValues(mutation, factIdentity);
@@ -96,9 +87,7 @@ function validateInitializedFieldValues(
       throw new Error(`Field initialization repeats a Value Occurrence: ${factIdentity}`);
     }
     const expectedNodeId =
-      value.kind === "reference"
-        ? value.nodeId
-        : initializedValueNodeId(mutation.fieldNodeId, index);
+      value.kind === "reference" ? value.nodeId : initializedValueNodeId(mutation.fieldNodeId, index);
     if (
       value.nodeId !== expectedNodeId ||
       value.occurrenceId !== initializedValueOccurrenceId(mutation.fieldOccurrenceId, index)
@@ -141,8 +130,7 @@ function validateExtension(
   if (mutation.baseSchemaId === mutation.schemaId) {
     throw new Error(`Schema cannot extend itself: ${factIdentity}`);
   }
-  const anchor =
-    mutation.kind === "schema-extension-add" ? mutation.anchor : mutation.previousAnchor;
+  const anchor = mutation.kind === "schema-extension-add" ? mutation.anchor : mutation.previousAnchor;
   if (anchor === undefined) {
     throw new Error(`Schema Extension removal lacks semantic evidence: ${factIdentity}`);
   }
@@ -157,10 +145,7 @@ function validateFieldTemplateConfig(
     throw new Error(`Field config cannot combine a default and initializer: ${factIdentity}`);
   }
   validateFieldSeeds(
-    [
-      ...(config.staticDefault ?? []),
-      ...(config.initializer?.kind === "literal" ? config.initializer.values : []),
-    ],
+    [...(config.staticDefault ?? []), ...(config.initializer?.kind === "literal" ? config.initializer.values : [])],
     factIdentity,
   );
 }

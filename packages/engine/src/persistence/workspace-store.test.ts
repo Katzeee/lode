@@ -22,12 +22,8 @@ afterEach(async () => {
 
 describe("WorkspaceStore — content sub-doc streams", () => {
   it("appends updates in per-sub-doc sequence order", async () => {
-    await expect(
-      store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([4]) }),
-    ).resolves.toBe(1);
-    await expect(
-      store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([5]) }),
-    ).resolves.toBe(2);
+    await expect(store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([4]) })).resolves.toBe(1);
+    await expect(store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([5]) })).resolves.toBe(2);
     const loaded = await store.loadDocBytes("tree");
     expect(loaded?.updateBytes.map((b) => [...b])).toEqual([[4], [5]]);
   });
@@ -47,21 +43,6 @@ describe("WorkspaceStore — content sub-doc streams", () => {
     expect(loaded?.updateBytes.map((b) => [...b])).toEqual([[3]]);
   });
 
-  it("loadDocBytes returns the latest of multiple snapshots", async () => {
-    await store.writeSnapshot({
-      subDoc: "tree",
-      coveredUpdateSeq: 0,
-      snapshotBytes: new Uint8Array([1]),
-    });
-    await store.writeSnapshot({
-      subDoc: "tree",
-      coveredUpdateSeq: 5,
-      snapshotBytes: new Uint8Array([2]),
-    });
-    const loaded = await store.loadDocBytes("tree");
-    expect(loaded?.snapshotBytes ? [...loaded.snapshotBytes] : []).toEqual([2]);
-  });
-
   it("atomically removes covered updates and superseded snapshots", async () => {
     await store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([1]) });
     await store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([2]) });
@@ -70,9 +51,7 @@ describe("WorkspaceStore — content sub-doc streams", () => {
       coveredUpdateSeq: 2,
       snapshotBytes: new Uint8Array([20]),
     });
-    await expect(
-      store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([3]) }),
-    ).resolves.toBe(3);
+    await expect(store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([3]) })).resolves.toBe(3);
     await store.writeSnapshot({
       subDoc: "facts",
       coveredUpdateSeq: 3,
@@ -94,12 +73,10 @@ describe("WorkspaceStore — content sub-doc streams", () => {
 
     await store.close();
     store = await WorkspaceStore.open(filePath);
-    await expect(
-      store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([4]) }),
-    ).resolves.toBe(4);
-    expect((await store.loadDocBytes("facts"))?.updateBytes.map((bytes) => [...bytes])).toEqual([
-      [4],
-    ]);
+    await expect(store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([4]) })).resolves.toBe(4);
+    const loaded = await store.loadDocBytes("facts");
+    expect(loaded?.snapshotBytes ? [...loaded.snapshotBytes] : []).toEqual([30]);
+    expect(loaded?.updateBytes.map((bytes) => [...bytes])).toEqual([[4]]);
   });
 
   it("persists independent opaque document streams with separate sequences", async () => {

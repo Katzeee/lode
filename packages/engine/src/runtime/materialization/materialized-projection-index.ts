@@ -1,6 +1,6 @@
 import { stableStringCompare } from "../../domain/fact/index.js";
 import type { Projection } from "../../domain/reconcile/index.js";
-import { isStringArray } from "./materialized-validation-primitives.js";
+import { isStringArray } from "../../shape-validation/index.js";
 
 export type ProjectionIndexEntry = Readonly<{
   section:
@@ -18,9 +18,7 @@ export type ProjectionIndexEntry = Readonly<{
   value: readonly string[] | string;
 }>;
 
-export function isProjectionIndexSection(
-  section: string,
-): section is ProjectionIndexEntry["section"] {
+export function isProjectionIndexSection(section: string): section is ProjectionIndexEntry["section"] {
   return (
     section === "occurrenceIdsByNode" ||
     section === "nodeIdsByOwner" ||
@@ -31,10 +29,7 @@ export function isProjectionIndexSection(
   );
 }
 
-export function isProjectionIndexValue(
-  section: ProjectionIndexEntry["section"],
-  value: unknown,
-): boolean {
+export function isProjectionIndexValue(section: ProjectionIndexEntry["section"], value: unknown): boolean {
   return section === "schemaInstanceMemberships" ? typeof value === "string" : isStringArray(value);
 }
 
@@ -62,17 +57,13 @@ export function projectionIndexEntries(projection: Projection): readonly Project
     }
   }
   for (const [nodeId, schemaIds] of Object.entries(projection.schemaApplications)) {
-    for (const [searchSchemaId, memberSchemaIds] of Object.entries(
-      projection.schemaSearchMembers,
-    )) {
+    for (const [searchSchemaId, memberSchemaIds] of Object.entries(projection.schemaSearchMembers)) {
       if (schemaIds.some((schemaId) => memberSchemaIds.includes(schemaId))) {
         add("nodeIdsBySchema", searchSchemaId, nodeId);
         addMembership(indexes, searchSchemaId, nodeId);
       }
     }
-    for (const schemaId of schemaIds.filter(
-      (schemaId) => projection.schemaSearchMembers[schemaId] === undefined,
-    )) {
+    for (const schemaId of schemaIds.filter((schemaId) => projection.schemaSearchMembers[schemaId] === undefined)) {
       add("nodeIdsBySchema", schemaId, nodeId);
       addMembership(indexes, schemaId, nodeId);
     }
@@ -104,17 +95,12 @@ export function projectionIndexEntries(projection: Projection): readonly Project
     section: index.section,
     identity: index.identity,
     value:
-      index.section === "schemaInstanceMemberships"
-        ? (index.values[0] ?? "")
-        : index.values.sort(stableStringCompare),
+      index.section === "schemaInstanceMemberships" ? (index.values[0] ?? "") : index.values.sort(stableStringCompare),
   }));
 }
 
 function addMembership(
-  indexes: Map<
-    string,
-    { section: ProjectionIndexEntry["section"]; identity: string; values: string[] }
-  >,
+  indexes: Map<string, { section: ProjectionIndexEntry["section"]; identity: string; values: string[] }>,
   schemaId: string,
   nodeId: string,
 ): void {

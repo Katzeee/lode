@@ -1,0 +1,140 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+import "google/protobuf/empty.proto";
+
+enum AnchorAffinity {
+  ANCHOR_AFFINITY_UNSPECIFIED = 0;
+  ANCHOR_AFFINITY_AFTER = 1;
+  ANCHOR_AFFINITY_BEFORE = 2;
+}
+
+enum AnchorFallback {
+  ANCHOR_FALLBACK_UNSPECIFIED = 0;
+  ANCHOR_FALLBACK_START = 1;
+  ANCHOR_FALLBACK_END = 2;
+}
+
+enum NodeType {
+  NODE_TYPE_UNSPECIFIED = 0;
+  NODE_TYPE_SCHEMA = 1;
+  NODE_TYPE_FIELD_DEFINITION = 2;
+  NODE_TYPE_FIELD = 3;
+  NODE_TYPE_SEARCH = 4;
+  NODE_TYPE_COMMAND = 5;
+  NODE_TYPE_WORKSPACE = 6;
+  NODE_TYPE_CALENDAR = 7;
+  NODE_TYPE_VIEW = 8;
+}
+
+enum FieldVisibility {
+  FIELD_VISIBILITY_UNSPECIFIED = 0;
+  FIELD_VISIBILITY_PINNED = 1;
+  FIELD_VISIBILITY_NORMAL = 2;
+  FIELD_VISIBILITY_OPTIONAL = 3;
+}
+
+enum HistoryOperation {
+  HISTORY_OPERATION_UNSPECIFIED = 0;
+  HISTORY_OPERATION_NORMAL = 1;
+  HISTORY_OPERATION_UNDO = 2;
+  HISTORY_OPERATION_REDO = 3;
+}
+
+enum ValueNamespace {
+  VALUE_NAMESPACE_UNSPECIFIED = 0;
+  VALUE_NAMESPACE_PROPERTY = 1;
+  VALUE_NAMESPACE_METADATA = 2;
+  VALUE_NAMESPACE_SCHEMA = 3;
+}
+
+enum FieldInitializationSource {
+  FIELD_INITIALIZATION_SOURCE_UNSPECIFIED = 0;
+  FIELD_INITIALIZATION_SOURCE_STATIC_DEFAULT = 1;
+  FIELD_INITIALIZATION_SOURCE_AUTO_INITIALIZE = 2;
+}
+
+message SequenceAnchor {
+  google.protobuf.StringValue after = 1;
+  google.protobuf.StringValue before = 2;
+  AnchorAffinity affinity = 3;
+  AnchorFallback fallback = 4;
+}
+
+message PreviousValue {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    google.protobuf.Value set = 2;
+  }
+}
+
+message ValueTarget {
+  oneof target {
+    string node = 1;
+    string occurrence = 2;
+  }
+}
+
+message TextSegmentSeed {
+  string value = 1;
+  map<string, google.protobuf.Value> attributes = 2;
+}
+
+message NodeSeed {
+  repeated TextSegmentSeed text = 1;
+  map<string, google.protobuf.Value> properties = 2;
+  map<string, google.protobuf.Value> metadata = 3;
+}
+
+message FieldValueSeed {
+  oneof seed {
+    string text = 1;
+    string reference = 2;
+  }
+}
+
+message FieldInitializer {
+  oneof initializer {
+    FieldValueSeedList literal = 1;
+    google.protobuf.Empty application_node_text = 2;
+  }
+}
+
+message FieldTemplateConfig {
+  FieldVisibility visibility = 1;
+  FieldValueSeedList static_default = 2;
+  FieldInitializer initializer = 3;
+}
+
+message FieldValueSeedList {
+  repeated FieldValueSeed values = 1;
+}
+
+message ReceiptLineage {
+  string channel_id = 1;
+  uint32 ordinal = 2;
+  google.protobuf.StringValue parent_step_id = 3;
+  HistoryOperation operation = 4;
+  google.protobuf.StringValue target_step_id = 5;
+}
+
+message AuthorityReceipt {
+  string workspace_id = 1;
+  string replica_id = 2;
+  string invocation_id = 3;
+  string request_digest = 4;
+  repeated string fact_ids = 5;
+  map<string, uint64> committed_frontier = 6;
+  ReceiptLineage lineage = 7;
+}
+
+message ProjectionIdentity {
+  string workspace_node_id = 1;
+  string generation_id = 2;
+  map<string, uint64> frontier = 3;
+  string rules_version = 4;
+  string schema_version = 5;
+}

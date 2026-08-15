@@ -5,11 +5,7 @@ import type { DocumentStore } from "../../persistence/document-store.js";
 import type { SyncBytes, SyncableDoc } from "../../sync/syncable.js";
 import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 import { addFactsToSyncProjection, createFactSyncDoc } from "./fact-sync-projection.js";
-import {
-  healFactSyncProjection,
-  loadSyncProjection,
-  persistSyncProjection,
-} from "./loro-fact-replica-state.js";
+import { healFactSyncProjection, loadSyncProjection, persistSyncProjection } from "./loro-fact-replica-state.js";
 import { validateStagedSyncImport } from "./sync-import-validation.js";
 
 export const FACT_REPLICATION_DOCUMENT_ID = "facts";
@@ -23,8 +19,6 @@ export type PreparedFactImport =
     }>;
 
 export class LoroFactReplica {
-  readonly syncDoc: SyncableDoc;
-
   private constructor(
     private readonly options: Readonly<{
       workspaceId: string;
@@ -33,16 +27,7 @@ export class LoroFactReplica {
       admitRecords: AuthorityAdmissionPolicy;
     }>,
     private projection: LoroDoc,
-    importUpdate: (bytes: SyncBytes) => Promise<void>,
-    heal: () => Promise<void>,
-  ) {
-    this.syncDoc = createFactSyncDoc(
-      FACT_REPLICATION_DOCUMENT_ID,
-      () => this.projection,
-      importUpdate,
-      heal,
-    );
-  }
+  ) {}
 
   static async open(
     options: Readonly<{
@@ -52,11 +37,14 @@ export class LoroFactReplica {
       admitRecords: AuthorityAdmissionPolicy;
     }>,
     authorityRecords: readonly unknown[],
-    importUpdate: (bytes: SyncBytes) => Promise<void>,
-    heal: () => Promise<void>,
+    validAuthorityRecords: readonly AuthorityRecord[],
   ): Promise<LoroFactReplica> {
-    const projection = await loadSyncProjection(options, authorityRecords);
-    return new LoroFactReplica(options, projection, importUpdate, heal);
+    const projection = await loadSyncProjection(options, authorityRecords, validAuthorityRecords);
+    return new LoroFactReplica(options, projection);
+  }
+
+  connect(importUpdate: (bytes: SyncBytes) => Promise<void>, heal: () => Promise<void>): SyncableDoc {
+    return createFactSyncDoc(FACT_REPLICATION_DOCUMENT_ID, () => this.projection, importUpdate, heal);
   }
 
   prepareImport(bytes: SyncBytes, authorityRecords: readonly unknown[]): PreparedFactImport {
@@ -91,7 +79,10 @@ export class LoroFactReplica {
     return healFactSyncProjection(this.options.documents, this.projection, admission);
   }
 
-  async rebuild(authorityRecords: readonly unknown[]): Promise<void> {
-    this.projection = await loadSyncProjection(this.options, authorityRecords);
+  async rebuild(
+    authorityRecords: readonly unknown[],
+    validAuthorityRecords: readonly AuthorityRecord[],
+  ): Promise<void> {
+    this.projection = await loadSyncProjection(this.options, authorityRecords, validAuthorityRecords);
   }
 }

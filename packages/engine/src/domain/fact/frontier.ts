@@ -14,14 +14,16 @@ export function frontierEquals(left: FactFrontier, right: FactFrontier): boolean
 }
 
 export function frontierCovers(have: FactFrontier, required: FactFrontier): boolean {
-  return Object.entries(required).every(
-    ([replicaId, sequence]) => (have[replicaId] ?? 0) >= sequence,
-  );
+  return Object.entries(required).every(([replicaId, sequence]) => (have[replicaId] ?? 0) >= sequence);
 }
 
 export function frontierIncludesFact(frontier: FactFrontier, fact: Fact): boolean {
   const { replicaId, sequence } = fact.coordinate.dot;
   return (frontier[replicaId] ?? 0) >= sequence;
+}
+
+export function factObserves(observer: Fact, observed: Fact): boolean {
+  return frontierIncludesFact(observer.coordinate.observed, observed);
 }
 
 export function frontierOf(facts: readonly Fact[]): FactFrontier {

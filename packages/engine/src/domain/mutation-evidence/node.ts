@@ -1,5 +1,51 @@
-import type { Mutation } from "../fact/index.js";
+import { canonicalJson, type Mutation, type NodeMutation } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
+import { assertObservedDeletion } from "./lifecycle.js";
+import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
+
+const NODE_MUTATION_KINDS = [
+  "node-create",
+  "node-delete",
+  "node-restore",
+  "node-owner-set",
+  "node-type-declare",
+] as const satisfies readonly NodeMutation["kind"][];
+
+export const nodeMutationEvidence = {
+  key: "node",
+  mutationKinds: NODE_MUTATION_KINDS,
+  complete: completeNodeMutationEvidence,
+  validate(mutation, context) {
+    if (mutation.kind !== "node-owner-set") {
+      return;
+    }
+    const { previous, available } = context.projections();
+    const expected = completeNodeOwnerEvidence(mutation, previous, available);
+    if (canonicalJson(expected.previousOwnerNodeId) !== canonicalJson(mutation.previousOwnerNodeId)) {
+      throw new Error("Owner previous evidence does not match the observed projection");
+    }
+  },
+} satisfies MutationEvidenceFamily<(typeof NODE_MUTATION_KINDS)[number]>;
+
+function completeNodeMutationEvidence(mutation: NodeMutation, context: MutationEvidenceContext): NodeMutation {
+  switch (mutation.kind) {
+    case "node-create":
+      return mutation;
+    case "node-delete":
+      assertNodeDeletionTarget(mutation, context.projections().available);
+      return mutation;
+    case "node-restore":
+      assertObservedDeletion(context.snapshot, mutation.deletionFactId, "node-delete", mutation.nodeId);
+      return mutation;
+    case "node-owner-set": {
+      const { previous, available } = context.projections();
+      return completeNodeOwnerEvidence(mutation, previous, available);
+    }
+    case "node-type-declare":
+      assertNodeTypeCompatible(mutation, context.projections().available);
+      return mutation;
+  }
+}
 
 export function completeNodeOwnerEvidence(
   mutation: Extract<Mutation, { kind: "node-owner-set" }>,
@@ -9,8 +55,7 @@ export function completeNodeOwnerEvidence(
   if (
     !available.nodes[mutation.ownerNodeId] ||
     !Object.values(available.occurrences).some(
-      (occurrence) =>
-        occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
+      (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
     )
   ) {
     throw new Error("Owner target is absent from the observed projection");
@@ -45,11 +90,7 @@ export function assertNodeDeletionTarget(
   }
 }
 
-function assertOwnerAcyclic(
-  nodeId: string,
-  ownerNodeId: string,
-  projection: ScopedProjection,
-): void {
+function assertOwnerAcyclic(nodeId: string, ownerNodeId: string, projection: ScopedProjection): void {
   let cursor: string | null | undefined = ownerNodeId;
   const seen = new Set<string>();
   while (cursor !== null && cursor !== undefined) {

@@ -4,18 +4,11 @@ import { frontierOf, makeFact } from "../fact/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
-  validateGenerationCheckpoint,
 } from "../../runtime/materialization/generation-checkpoint.js";
 import { advanceGeneration, rebuildGeneration } from "./index.js";
 import { PROJECTION_PLAN } from "./projection-plan.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
-import {
-  base,
-  end,
-  Facts,
-  fullSurface,
-  versions,
-} from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { base, end, Facts, fullSurface, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 
 const CHECKPOINT_KEY = "reconcile-acceptance-key";
 
@@ -50,12 +43,8 @@ describe("production Reconcile", () => {
       "proposal",
     );
     let snapshot = facts.snapshot();
-    expect(projectionText(projectSnapshot("workspace", snapshot, "origin", versions), "node")).toBe(
-      "",
-    );
-    expect(projectionText(projectSnapshot("workspace", snapshot, "review", versions), "node")).toBe(
-      "proposal",
-    );
+    expect(projectionText(projectSnapshot("workspace", snapshot, "origin", versions), "node")).toBe("");
+    expect(projectionText(projectSnapshot("workspace", snapshot, "review", versions), "node")).toBe("proposal");
 
     facts.resolve([proposal.id], "accept");
     snapshot = facts.snapshot();
@@ -69,9 +58,9 @@ describe("production Reconcile", () => {
     const before = facts.snapshot();
     const generation = rebuildGeneration("workspace", before, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", before, generation, CHECKPOINT_KEY);
-    expect(
-      validateGenerationCheckpoint(checkpoint, "workspace", before, versions, CHECKPOINT_KEY),
-    ).toEqual(generation);
+    expect(reconcileFromCheckpoint(checkpoint, "workspace", before, versions, CHECKPOINT_KEY)?.generation).toEqual(
+      generation,
+    );
 
     facts.add({
       kind: "text-splice",
@@ -82,16 +71,8 @@ describe("production Reconcile", () => {
     });
     const after = facts.snapshot();
     const incremental = advanceGeneration("workspace", before, after, versions, generation);
-    const checkpointTail = reconcileFromCheckpoint(
-      checkpoint,
-      "workspace",
-      after,
-      versions,
-      CHECKPOINT_KEY,
-    );
-    expect(incremental.generation).toEqual(
-      rebuildGeneration("workspace", after, versions).generation,
-    );
+    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY);
+    expect(incremental.generation).toEqual(rebuildGeneration("workspace", after, versions).generation);
     expect(checkpointTail).toEqual(incremental);
     expect(incremental.stats).toEqual({
       evaluatedStages: ["activation", "text", "assembly"],
@@ -147,12 +128,10 @@ describe("production Reconcile", () => {
     };
     const full = rebuildGeneration("workspace", after, versions);
 
-    expect(advanceGeneration("workspace", before, after, versions, generation).generation).toEqual(
+    expect(advanceGeneration("workspace", before, after, versions, generation).generation).toEqual(full.generation);
+    expect(reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY)?.generation).toEqual(
       full.generation,
     );
-    expect(
-      reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY)?.generation,
-    ).toEqual(full.generation);
     expect(projectionText(full.generation.origin, "node")).toBe("BA");
   });
 
@@ -290,13 +269,9 @@ describe("production Reconcile", () => {
       tail();
       const after = facts.snapshot();
       const incremental = advanceGeneration("workspace", before, after, versions, generation);
-      expect(incremental.generation, testCase.name).toEqual(
-        rebuildGeneration("workspace", after, versions).generation,
-      );
+      expect(incremental.generation, testCase.name).toEqual(rebuildGeneration("workspace", after, versions).generation);
       expect(incremental.stats.evaluatedStages, testCase.name).not.toContain("value");
-      expect(incremental.stats.evaluatedStages.length, testCase.name).toBeLessThan(
-        PROJECTION_PLAN.ordered.length,
-      );
+      expect(incremental.stats.evaluatedStages.length, testCase.name).toBeLessThan(PROJECTION_PLAN.ordered.length);
     }
   });
 
@@ -341,12 +316,7 @@ describe("production Reconcile", () => {
     const direct = fullSurface("direct");
     const proposal = fullSurface("proposal");
     const directProjection = projectSnapshot("workspace", direct.snapshot(), "origin", versions);
-    const proposalProjection = projectSnapshot(
-      "workspace",
-      proposal.snapshot(),
-      "review",
-      versions,
-    );
+    const proposalProjection = projectSnapshot("workspace", proposal.snapshot(), "review", versions);
 
     expect(proposalProjection.nodes).toEqual(directProjection.nodes);
     expect(proposalProjection.occurrences).toEqual(directProjection.occurrences);
@@ -373,9 +343,7 @@ describe("production Reconcile", () => {
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
 
     expect(projectionText(projection, "node")).toBe("shared");
-    expect(
-      Object.values(projection.occurrences).filter((value) => value.nodeId === "node"),
-    ).toHaveLength(2);
+    expect(Object.values(projection.occurrences).filter((value) => value.nodeId === "node")).toHaveLength(2);
     expect(projection.occurrences.occurrence?.parentNodeId).toBe("workspace");
     expect(projection.occurrences.reference?.parentNodeId).toBe("reference-parent");
   });
@@ -404,18 +372,12 @@ describe("production Reconcile", () => {
   it("MODEL-4 lifecycle restore is explicit and deletion-aware", () => {
     const facts = base();
     const deletion = facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node,
-    ).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
 
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: deletion.id });
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node,
-    ).toBeDefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeDefined();
     facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node,
-    ).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
 
     const occurrenceFacts = base();
     const firstDelete = occurrenceFacts.add({
@@ -441,8 +403,7 @@ describe("production Reconcile", () => {
       anchor: end,
     });
     expect(
-      projectSnapshot("workspace", occurrenceFacts.snapshot(), "origin", versions).occurrences
-        .occurrence,
+      projectSnapshot("workspace", occurrenceFacts.snapshot(), "origin", versions).occurrences.occurrence,
     ).toBeUndefined();
   });
 });

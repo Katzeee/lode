@@ -1,9 +1,4 @@
-import {
-  mutationRelations,
-  type ContributionFact,
-  type Fact,
-  type Mutation,
-} from "../fact/index.js";
+import { mutationRelations, type ContributionFact, type Fact, type Mutation } from "../fact/index.js";
 import { valueTargetAddress, type ScopedProjection } from "../reconcile/index.js";
 
 type HistoryScope = {
@@ -103,8 +98,6 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
     relations.schemaIds.some((id) => scope.schemas.has(id)) ||
     relations.fieldDefinitionIds.some((id) => scope.fields.has(id)) ||
     relations.factIds.some((id) => scope.factIds.has(id)) ||
-    relations.values.some((value) =>
-      scope.valueTargets.has(valueTargetAddress(value.target, value.namespace)),
-    )
+    relations.values.some((value) => scope.valueTargets.has(valueTargetAddress(value.target, value.namespace)))
   );
 }

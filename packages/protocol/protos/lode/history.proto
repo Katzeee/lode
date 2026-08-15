@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/wrappers.proto";
+import "lode/fact.proto";
+import "lode/model.proto";
+
+message HistoryEvidence {
+  string target_invocation_id = 1;
+  repeated string target_fact_ids = 2;
+  repeated ContributionMutation compensations = 3;
+}
+
+message HistorySelection {
+  string token = 1;
+  string channel_id = 2;
+  HistoryOperation operation = 3;
+  string target_invocation_id = 4;
+  google.protobuf.StringValue head_invocation_id = 5;
+  uint32 head_ordinal = 6;
+  map<string, uint64> frontier = 7;
+  HistoryEvidence evidence = 8;
+}
+
+message HistoryQueryResult {
+  string channel_id = 1;
+  HistorySelection undo = 2;
+  HistorySelection redo = 3;
+}

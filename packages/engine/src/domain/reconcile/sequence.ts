@@ -47,10 +47,8 @@ export function insertManyAtAnchor<T>(
   if (unique.length === 0) {
     return;
   }
-  const afterIndex =
-    anchor.after === null ? -1 : list.findIndex((value) => identityOf(value) === anchor.after);
-  const beforeIndex =
-    anchor.before === null ? -1 : list.findIndex((value) => identityOf(value) === anchor.before);
+  const afterIndex = anchor.after === null ? -1 : list.findIndex((value) => identityOf(value) === anchor.after);
+  const beforeIndex = anchor.before === null ? -1 : list.findIndex((value) => identityOf(value) === anchor.before);
   let index: number;
   if (afterIndex >= 0 && beforeIndex >= 0 && afterIndex < beforeIndex) {
     index = anchor.affinity === "after" ? afterIndex + 1 : beforeIndex;
@@ -74,10 +72,7 @@ export function listFor(children: Map<string, string[]>, parentNodeId: string): 
   return created;
 }
 
-export function removePlacement(
-  children: ReadonlyMap<string, string[]>,
-  occurrenceId: string,
-): void {
+export function removePlacement(children: ReadonlyMap<string, string[]>, occurrenceId: string): void {
   for (const siblings of children.values()) {
     const index = siblings.indexOf(occurrenceId);
     if (index >= 0) {

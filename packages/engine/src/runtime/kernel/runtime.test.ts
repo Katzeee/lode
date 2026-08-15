@@ -106,10 +106,7 @@ describe("AppRuntime", () => {
     let release!: () => void;
     const runtime = new AppRuntime("test");
     await runtime.start();
-    const running = runtime.root.run(
-      "operation",
-      () => new Promise<void>((resolve) => (release = resolve)),
-    );
+    const running = runtime.root.run("operation", () => new Promise<void>((resolve) => (release = resolve)));
     await Promise.resolve();
     const stopping = runtime.stop();
     await Promise.resolve();

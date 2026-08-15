@@ -38,10 +38,7 @@ export class ReviewFacts {
     return this.addBody({ kind: "contribution", actorId: "actor", intent, mutation });
   }
 
-  addTransaction(
-    mutations: readonly Mutation[],
-    intent: "direct" | "proposal" = "direct",
-  ): readonly Fact[] {
+  addTransaction(mutations: readonly Mutation[], intent: "direct" | "proposal" = "direct"): readonly Fact[] {
     return this.addBodies(
       mutations.map((mutation) => ({
         kind: "contribution" as const,

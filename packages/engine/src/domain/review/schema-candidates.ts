@@ -22,16 +22,12 @@ export function schemaCandidates(
     }
     const address = schemaRelationAddress(mutation);
     const groupAddress =
-      mutation.kind === "schema-field-configure"
-        ? `${address}/configuration`
-        : `${address}/relation`;
+      mutation.kind === "schema-field-configure" ? `${address}/configuration` : `${address}/relation`;
     const group = groups.get(groupAddress) ?? [];
     group.push(fact);
     groups.set(groupAddress, group);
   }
-  return [...groups.values()].flatMap((facts): readonly HunkCandidate[] =>
-    candidateForGroup(facts, generation),
-  );
+  return [...groups.values()].flatMap((facts): readonly HunkCandidate[] => candidateForGroup(facts, generation));
 }
 
 export function fieldConfigurationEffect(
@@ -88,20 +84,14 @@ function candidateForGroup(
       ];
 }
 
-function fieldConfiguration(
-  projection: ScopedProjection,
-  schemaId: string,
-  fieldDefinitionId: string,
-) {
+function fieldConfiguration(projection: ScopedProjection, schemaId: string, fieldDefinitionId: string) {
   return (
-    projection.templateFields[schemaId]?.find(
-      (item) => item.fieldDefinitionId === fieldDefinitionId,
-    )?.effectiveConfig ?? null
+    projection.templateFields[schemaId]?.find((item) => item.fieldDefinitionId === fieldDefinitionId)
+      ?.effectiveConfig ?? null
   );
 }
 
-type SchemaMutationFact = ContributionFact &
-  Readonly<{ body: Readonly<{ mutation: SchemaMutation }> }>;
+type SchemaMutationFact = ContributionFact & Readonly<{ body: Readonly<{ mutation: SchemaMutation }> }>;
 
 function schemaMutationFact(fact: ContributionFact): SchemaMutationFact {
   if (!isSchemaMutation(fact.body.mutation)) {

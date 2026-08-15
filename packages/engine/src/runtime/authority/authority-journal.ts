@@ -1,6 +1,8 @@
 import { canonicalJson, type AuthorityRecord } from "../../domain/fact/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 
+export const FACT_AUTHORITY_JOURNAL_DOCUMENT_ID = "fact-authority-journal";
+
 export type LoadedAuthorityJournal = Readonly<{
   records: readonly unknown[];
   updateCount: number;

@@ -4,10 +4,7 @@ import type { MutableNode } from "./projection-state.js";
 import { insertManyAtAnchor } from "./sequence.js";
 import { valueTargetAddress } from "./value-address.js";
 
-export function applyText(
-  active: readonly ContributionFact[],
-  nodes: ReadonlyMap<string, MutableNode>,
-): void {
+export function applyText(active: readonly ContributionFact[], nodes: ReadonlyMap<string, MutableNode>): void {
   for (const fact of active) {
     const mutation = fact.body.mutation;
     if (mutation.kind === "text-splice") {
@@ -49,9 +46,7 @@ export function applyValues(
   active: readonly ContributionFact[],
   initial: Readonly<Record<string, Readonly<Record<string, JsonValue>>>> = {},
 ): Readonly<Record<string, Readonly<Record<string, JsonValue>>>> {
-  const standalone = new Map(
-    Object.entries(initial).map(([address, values]) => [address, { ...values }]),
-  );
+  const standalone = new Map(Object.entries(initial).map(([address, values]) => [address, { ...values }]));
   for (const fact of active) {
     const mutation = fact.body.mutation;
     if (mutation.kind !== "value-set" && mutation.kind !== "value-unset") {
@@ -66,7 +61,5 @@ export function applyValues(
       delete namespace[mutation.key];
     }
   }
-  return Object.fromEntries(
-    [...standalone].sort(([left], [right]) => stableStringCompare(left, right)),
-  );
+  return Object.fromEntries([...standalone].sort(([left], [right]) => stableStringCompare(left, right)));
 }

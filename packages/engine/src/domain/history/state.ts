@@ -1,9 +1,4 @@
-import type {
-  AuthorityReceipt,
-  HistoryChannelId,
-  InvocationId,
-  ReceiptLineage,
-} from "../fact/index.js";
+import type { AuthorityReceipt, HistoryChannelId, InvocationId, ReceiptLineage } from "../fact/index.js";
 
 export type HistoryState = Readonly<{
   channelId: HistoryChannelId;
@@ -13,14 +8,10 @@ export type HistoryState = Readonly<{
   redoStack: readonly InvocationId[];
 }>;
 
-export function rebuildHistoryState(
-  receipts: readonly AuthorityReceipt[],
-  channelId: HistoryChannelId,
-): HistoryState {
+export function rebuildHistoryState(receipts: readonly AuthorityReceipt[], channelId: HistoryChannelId): HistoryState {
   const channelReceipts = receipts
     .filter(
-      (receipt): receipt is AuthorityReceipt & { lineage: ReceiptLineage } =>
-        receipt.lineage?.channelId === channelId,
+      (receipt): receipt is AuthorityReceipt & { lineage: ReceiptLineage } => receipt.lineage?.channelId === channelId,
     )
     .sort((left, right) => left.lineage.ordinal - right.lineage.ordinal);
   const undoStack: InvocationId[] = [];

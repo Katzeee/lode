@@ -146,6 +146,15 @@ export type ProjectionSectionNamesAreComplete = AssertNever<
 
 export type ProjectionSectionName = (typeof PROJECTION_SECTION_NAMES)[number];
 
+export type ProjectionSectionValue<Section extends ProjectionSectionName = ProjectionSectionName> =
+  Section extends ProjectionSectionName
+    ? ProjectionSections[Section] extends readonly (infer Item)[]
+      ? Item
+      : ProjectionSections[Section] extends Readonly<Record<string, infer Item>>
+        ? Item
+        : never
+    : never;
+
 export type Projection = Readonly<{
   view: ViewMode;
   identity: ProjectionIdentity;
@@ -197,8 +206,6 @@ export function assertSupportedProjectionVersions(versions: ProjectionVersions):
     versions.rulesVersion !== CURRENT_PROJECTION_VERSIONS.rulesVersion ||
     versions.schemaVersion !== CURRENT_PROJECTION_VERSIONS.schemaVersion
   ) {
-    throw new Error(
-      `Unsupported projection versions: ${versions.rulesVersion}/${versions.schemaVersion}`,
-    );
+    throw new Error(`Unsupported projection versions: ${versions.rulesVersion}/${versions.schemaVersion}`);
   }
 }

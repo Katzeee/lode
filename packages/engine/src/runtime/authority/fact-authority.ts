@@ -24,10 +24,7 @@ export type AuthorityCommitResult = Readonly<{
   created: boolean;
 }>;
 
-export type AuthorityAdmissionPolicy = (
-  workspaceId: WorkspaceId,
-  records: readonly unknown[],
-) => Admission;
+export type AuthorityAdmissionPolicy = (workspaceId: WorkspaceId, records: readonly unknown[]) => Admission;
 
 export type FactAuthority = {
   readonly replicaId: ReplicaId;

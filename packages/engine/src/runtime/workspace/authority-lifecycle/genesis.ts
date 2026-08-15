@@ -1,15 +1,9 @@
 import { WORKSPACE_NODE_TYPE, type Fact } from "../../../domain/fact/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
 
-type WorkspaceGenesisAuthority = Pick<
-  FactAuthority,
-  "admission" | "commit" | "receipts" | "replicaId"
->;
+type WorkspaceGenesisAuthority = Pick<FactAuthority, "admission" | "commit" | "receipts" | "replicaId">;
 
-export async function ensureWorkspaceGenesis(
-  workspaceId: string,
-  facts: WorkspaceGenesisAuthority,
-): Promise<void> {
+export async function ensureWorkspaceGenesis(workspaceId: string, facts: WorkspaceGenesisAuthority): Promise<void> {
   const admission = facts.admission();
   if (
     admission.kind === "fault" ||

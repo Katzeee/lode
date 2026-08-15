@@ -24,14 +24,8 @@ import { queryReview, validateReviewSelection } from "../src/domain/review/revie
 import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-dag.js";
 import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
 import { fullSurface } from "./support/reconcile/reconcile-test-helpers.js";
-import {
-  historyLifecycleCases,
-  proposalLifecycleCases,
-} from "./support/reconcile/proposal-lifecycle-test-helpers.js";
-import {
-  assertGeneratedPathEquivalence,
-  generatedDomainGraph,
-} from "./proposal-mode-property-fixtures.js";
+import { historyLifecycleCases, proposalLifecycleCases } from "./support/reconcile/proposal-lifecycle-test-helpers.js";
+import { assertGeneratedPathEquivalence, generatedDomainGraph } from "./proposal-mode-property-fixtures.js";
 
 const CHECKPOINT_KEY = "property-test-key";
 
@@ -46,10 +40,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     const expected = admitAuthorityRecordShapes("workspace", records(facts));
     expect(expected.kind).toBe("ready");
     for (let seed = 1; seed <= 64; seed += 1) {
-      const delivered = shuffle(
-        [...records(facts), ...records(facts.filter((_, index) => index % 2 === 0))],
-        seed,
-      );
+      const delivered = shuffle([...records(facts), ...records(facts.filter((_, index) => index % 2 === 0))], seed);
       expect(admitAuthorityRecordShapes("workspace", delivered)).toEqual(expected);
     }
   });
@@ -64,24 +55,17 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       rebuildGeneration("workspace", before, versions).generation,
       CHECKPOINT_KEY,
     );
-    const expected = rebuildGeneration(
-      "workspace",
-      { facts, frontier: frontierOf(facts) },
-      versions,
-    ).generation;
+    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions).generation;
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(
-        reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)
-          ?.generation,
-      ).toEqual(expected);
+      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
+        expected,
+      );
     }
 
     for (let seed = 1; seed <= 32; seed += 1) {
       const compiled = compileProjectionPlan(shuffle([...PROJECTION_PLAN.ordered], seed));
-      expect(compiled.ordered.map((stage) => stage.key)).toEqual(
-        PROJECTION_PLAN.ordered.map((stage) => stage.key),
-      );
+      expect(compiled.ordered.map((stage) => stage.key)).toEqual(PROJECTION_PLAN.ordered.map((stage) => stage.key));
     }
   });
 
@@ -95,25 +79,18 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       rebuildGeneration("workspace", prefix, versions).generation,
       CHECKPOINT_KEY,
     );
-    const expected = rebuildGeneration(
-      "workspace",
-      { facts, frontier: frontierOf(facts) },
-      versions,
-    ).generation;
+    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions).generation;
     expect(expected.origin.schemaExtensionConflicts).toEqual({
       "schema-a": ["schema-a", "schema-b"],
       "schema-b": ["schema-a", "schema-b"],
     });
-    expect(expected.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual([
-      "field-a",
-    ]);
+    expect(expected.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual(["field-a"]);
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
       expect(rebuildGeneration("workspace", snapshot, versions).generation).toEqual(expected);
-      expect(
-        reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, CHECKPOINT_KEY)
-          ?.generation,
-      ).toEqual(expected);
+      expect(reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, CHECKPOINT_KEY)?.generation).toEqual(
+        expected,
+      );
     }
   });
 
@@ -121,20 +98,14 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     for (let seed = 1; seed <= 32; seed += 1) {
       const { prefix, concurrent, resolved } = initializationFixture(seed);
       const concurrentSnapshot = { facts: concurrent, frontier: frontierOf(concurrent) };
-      const concurrentGeneration = rebuildGeneration(
-        "workspace",
-        concurrentSnapshot,
-        versions,
-      ).generation;
+      const concurrentGeneration = rebuildGeneration("workspace", concurrentSnapshot, versions).generation;
       const divergent = seed % 2 === 0;
       expect(
         Object.values(concurrentGeneration.origin.conflictIssues).some(
           (issue) => issue.kind === "field-initialization-conflict",
         ),
       ).toBe(divergent);
-      expect(concurrentGeneration.origin.materializedFields.task ?? []).toHaveLength(
-        divergent ? 0 : 1,
-      );
+      expect(concurrentGeneration.origin.materializedFields.task ?? []).toHaveLength(divergent ? 0 : 1);
       expect(admitAuthorityRecords("workspace", records(concurrent)).kind).toBe("ready");
 
       const snapshot = { facts: resolved, frontier: frontierOf(resolved) };
@@ -152,8 +123,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         const delivered = { facts: shuffle(resolved, topology), frontier: snapshot.frontier };
         expect(rebuildGeneration("workspace", delivered, versions).generation).toEqual(expected);
         expect(
-          reconcileFromCheckpoint(checkpoint, "workspace", delivered, versions, CHECKPOINT_KEY)
-            ?.generation,
+          reconcileFromCheckpoint(checkpoint, "workspace", delivered, versions, CHECKPOINT_KEY)?.generation,
         ).toEqual(expected);
       }
     }
@@ -174,11 +144,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         "proposal",
       );
       const selectedSnapshot = reviewFacts.snapshot();
-      const reviewSelection = queryReview(
-        "workspace",
-        selectedSnapshot,
-        generation(selectedSnapshot),
-      ).hunks[0]?.selection;
+      const reviewSelection = queryReview("workspace", selectedSnapshot, generation(selectedSnapshot)).hunks[0]
+        ?.selection;
       if (!reviewSelection) {
         throw new Error("Expected a Review selection");
       }
@@ -187,14 +154,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       }
       let current = reviewFacts.snapshot();
       expect(
-        validateReviewSelection(
-          "workspace",
-          reviewSelection,
-          "accept",
-          "reviewer",
-          current,
-          generation(current),
-        ).kind,
+        validateReviewSelection("workspace", reviewSelection, "accept", "reviewer", current, generation(current)).kind,
       ).toBe("valid");
       reviewFacts.addBody({
         kind: "resolution",
@@ -205,14 +165,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       });
       current = reviewFacts.snapshot();
       expect(
-        validateReviewSelection(
-          "workspace",
-          reviewSelection,
-          "accept",
-          "reviewer",
-          current,
-          generation(current),
-        ).kind,
+        validateReviewSelection("workspace", reviewSelection, "accept", "reviewer", current, generation(current)).kind,
       ).toBe("stale");
 
       const history = baseFixture();
@@ -229,12 +182,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           },
         ],
       });
-      const historySelection = queryHistory(
-        "channel",
-        history.receipts,
-        history.snapshot(),
-        history.generation(),
-      ).undo;
+      const historySelection = queryHistory("channel", history.receipts, history.snapshot(), history.generation()).undo;
       if (!historySelection) {
         throw new Error("Expected a History selection");
       }
@@ -249,13 +197,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         });
       }
       expect(
-        validateHistorySelection(
-          historySelection,
-          "actor",
-          history.receipts,
-          history.snapshot(),
-          history.generation(),
-        ).kind,
+        validateHistorySelection(historySelection, "actor", history.receipts, history.snapshot(), history.generation())
+          .kind,
       ).toBe("ready");
       history.fact({
         kind: "value-set",
@@ -266,13 +209,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         previous: { kind: "set", value: true },
       });
       expect(
-        validateHistorySelection(
-          historySelection,
-          "actor",
-          history.receipts,
-          history.snapshot(),
-          history.generation(),
-        ).kind,
+        validateHistorySelection(historySelection, "actor", history.receipts, history.snapshot(), history.generation())
+          .kind,
       ).not.toBe("ready");
     }
   });
@@ -292,17 +230,10 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           frontier: frontierOf(fixture.values),
         };
         const expectedAdmission = admitAuthorityRecords("workspace", records(fixture.values));
-        const expectedGeneration = rebuildGeneration(
-          "workspace",
-          expectedSnapshot,
-          versions,
-        ).generation;
+        const expectedGeneration = rebuildGeneration("workspace", expectedSnapshot, versions).generation;
         for (let seed = 1; seed <= 16; seed += 1) {
           const delivered = shuffle(
-            [
-              ...records(fixture.values),
-              ...records(fixture.values.filter((_, index) => (index + seed) % 3 === 0)),
-            ],
+            [...records(fixture.values), ...records(fixture.values.filter((_, index) => (index + seed) % 3 === 0))],
             seed,
           );
           expect(admitAuthorityRecords("workspace", delivered)).toEqual(expectedAdmission);
@@ -348,27 +279,14 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           // A restart cut and an outcome-unknown transport both recover from the
           // durable Fact/receipt program rather than replaying the command.
           const restarted = clonedHistoryState(history);
-          const undo = queryHistory(
-            channelId,
-            restarted.receipts,
-            restarted.snapshot,
-            restarted.generation,
-          ).undo;
+          const undo = queryHistory(channelId, restarted.receipts, restarted.snapshot, restarted.generation).undo;
           if (!undo) {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Undo`);
           }
           expect(
-            validateHistorySelection(
-              undo,
-              "actor",
-              restarted.receipts,
-              restarted.snapshot,
-              restarted.generation,
-            ).kind,
+            validateHistorySelection(undo, "actor", restarted.receipts, restarted.snapshot, restarted.generation).kind,
           ).toBe("ready");
-          expect(
-            restarted.receipts.some((receipt) => receipt.invocationId === targetInvocationId),
-          ).toBe(true);
+          expect(restarted.receipts.some((receipt) => receipt.invocationId === targetInvocationId)).toBe(true);
 
           const undoReceipt = history.step({
             invocationId: `undo-${targetInvocationId}`,
@@ -389,13 +307,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Redo`);
           }
           expect(
-            validateHistorySelection(
-              redo,
-              "actor",
-              history.receipts,
-              history.snapshot(),
-              history.generation(),
-            ).kind,
+            validateHistorySelection(redo, "actor", history.receipts, history.snapshot(), history.generation()).kind,
           ).toBe("ready");
           history.step({
             invocationId: `redo-${targetInvocationId}`,
@@ -426,12 +338,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           channelId,
         });
         partial.fact(matrixValueMutation(ownerCase.kind, 2), intent);
-        const partialUndo = queryHistory(
-          channelId,
-          partial.receipts,
-          partial.snapshot(),
-          partial.generation(),
-        ).undo;
+        const partialUndo = queryHistory(channelId, partial.receipts, partial.snapshot(), partial.generation()).undo;
         if (!partialUndo) {
           throw new Error(`Generated partial ${intent} ${ownerCase.kind} has no Undo`);
         }
@@ -453,10 +360,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         for (const compensatingMutation of compensation.evidence.compensations) {
           noEffect.fact(compensatingMutation, intent);
         }
-        expect(
-          queryHistory(channelId, noEffect.receipts, noEffect.snapshot(), noEffect.generation())
-            .undo,
-        ).toBeNull();
+        expect(queryHistory(channelId, noEffect.receipts, noEffect.snapshot(), noEffect.generation()).undo).toBeNull();
 
         const stale = historyFor(caseSetupFacts(ownerCase));
         stale.step({ invocationId: "target", mutations, intent, channelId });
@@ -468,13 +372,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           channelId,
         });
         expect(
-          validateHistorySelection(
-            selection,
-            "actor",
-            stale.receipts,
-            stale.snapshot(),
-            stale.generation(),
-          ).kind,
+          validateHistorySelection(selection, "actor", stale.receipts, stale.snapshot(), stale.generation()).kind,
         ).toBe("stale");
       }
     }
@@ -492,26 +390,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       ownerCase.facts.add({ kind: "node-create", nodeId: `unrelated-${index}` });
       const unrelated = ownerCase.facts.snapshot();
       expect(
-        validateReviewSelection(
-          "workspace",
-          selection,
-          "accept",
-          "reviewer",
-          unrelated,
-          generation(unrelated),
-        ).kind,
+        validateReviewSelection("workspace", selection, "accept", "reviewer", unrelated, generation(unrelated)).kind,
       ).toBe("valid");
       ownerCase.facts.resolve(selection.evidence.supportClosure, "reject");
       const related = ownerCase.facts.snapshot();
       expect(
-        validateReviewSelection(
-          "workspace",
-          selection,
-          "accept",
-          "reviewer",
-          related,
-          generation(related),
-        ).kind,
+        validateReviewSelection("workspace", selection, "accept", "reviewer", related, generation(related)).kind,
       ).toBe("stale");
     }
   });
@@ -526,8 +410,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     for (const decision of ["accept", "reject"] as const) {
       for (const [index, entry] of proposalLifecycleCases().entries()) {
         const snapshot = entry.facts.snapshot();
-        const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find(
-          (candidate) => candidate.proposalContributionIds.includes(entry.proposal.id),
+        const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find((candidate) =>
+          candidate.proposalContributionIds.includes(entry.proposal.id),
         );
         if (!hunk) {
           throw new Error(`Generated ${entry.kind} program has no Review Hunk`);
@@ -539,21 +423,13 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
   });
 });
 
-function caseSetupFacts(
-  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
-): readonly Fact[] {
-  return ownerCase.facts.values.filter(
-    (fact) => fact.body.kind !== "contribution" || fact.body.intent !== "proposal",
-  );
+function caseSetupFacts(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly Fact[] {
+  return ownerCase.facts.values.filter((fact) => fact.body.kind !== "contribution" || fact.body.intent !== "proposal");
 }
 
-function caseMutations(
-  ownerCase: ReturnType<typeof proposalLifecycleCases>[number],
-): readonly Mutation[] {
+function caseMutations(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly Mutation[] {
   return ownerCase.facts.values.flatMap((fact) =>
-    fact.body.kind === "contribution" && fact.body.intent === "proposal"
-      ? [fact.body.mutation]
-      : [],
+    fact.body.kind === "contribution" && fact.body.intent === "proposal" ? [fact.body.mutation] : [],
   );
 }
 
@@ -589,12 +465,7 @@ function matrixValueMutation(_kind: Mutation["kind"], value: number): Mutation {
 }
 
 function requiredUndo(history: HistoryFixture, channelId: string, label: string) {
-  const undo = queryHistory(
-    channelId,
-    history.receipts,
-    history.snapshot(),
-    history.generation(),
-  ).undo;
+  const undo = queryHistory(channelId, history.receipts, history.snapshot(), history.generation()).undo;
   if (!undo) {
     throw new Error(`Generated ${label} program has no Undo`);
   }

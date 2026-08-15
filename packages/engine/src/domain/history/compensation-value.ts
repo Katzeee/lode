@@ -41,15 +41,13 @@ export function compensateValueMutation(
             target: mutation.target,
             namespace: mutation.namespace,
             key: mutation.key,
-            previous:
-              targetValue === undefined ? { kind: "unset" } : { kind: "set", value: targetValue },
+            previous: targetValue === undefined ? { kind: "unset" } : { kind: "set", value: targetValue },
           }
         : {
             ...mutation,
             kind: "value-set",
             value: mutation.previous.value,
-            previous:
-              targetValue === undefined ? { kind: "unset" } : { kind: "set", value: targetValue },
+            previous: targetValue === undefined ? { kind: "unset" } : { kind: "set", value: targetValue },
           },
     ],
   };
@@ -79,22 +77,13 @@ function readValue(
 ): Readonly<{ present: boolean; value?: JsonValue }> {
   if (mutation.target.kind === "node") {
     const node = projection.nodes[mutation.target.id];
-    return valueState(
-      mutation.namespace === "metadata" ? node?.metadata : node?.properties,
-      mutation.key,
-    );
+    return valueState(mutation.namespace === "metadata" ? node?.metadata : node?.properties, mutation.key);
   }
   if (mutation.target.kind === "occurrence") {
     const occurrence = projection.occurrences[mutation.target.id];
-    return valueState(
-      mutation.namespace === "metadata" ? occurrence?.metadata : occurrence?.properties,
-      mutation.key,
-    );
+    return valueState(mutation.namespace === "metadata" ? occurrence?.metadata : occurrence?.properties, mutation.key);
   }
-  return valueState(
-    projection.addressedValues[valueTargetAddress(mutation.target, mutation.namespace)],
-    mutation.key,
-  );
+  return valueState(projection.addressedValues[valueTargetAddress(mutation.target, mutation.namespace)], mutation.key);
 }
 
 function valueTargetExists(projection: ScopedProjection, mutation: ValueMutation): boolean {

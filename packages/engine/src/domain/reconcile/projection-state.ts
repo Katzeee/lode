@@ -56,20 +56,11 @@ export function createOccurrences(
         if (
           occurrence &&
           nodes.has(mutation.parentNodeId) &&
-          !hasPlacement(
-            occurrences,
-            occurrence.nodeId,
-            mutation.parentNodeId,
-            mutation.occurrenceId,
-          )
+          !hasPlacement(occurrences, occurrence.nodeId, mutation.parentNodeId, mutation.occurrenceId)
         ) {
           removePlacement(children, mutation.occurrenceId);
           occurrence.parentNodeId = mutation.parentNodeId;
-          insertAtAnchor(
-            listFor(children, mutation.parentNodeId),
-            mutation.occurrenceId,
-            mutation.anchor,
-          );
+          insertAtAnchor(listFor(children, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
         }
         break;
       }
@@ -79,15 +70,7 @@ export function createOccurrences(
         }
         break;
       case "occurrence-restore":
-        applyOccurrenceRestore(
-          active,
-          mutation,
-          deletionIds,
-          restoredDeletionIds,
-          occurrences,
-          children,
-          nodes,
-        );
+        applyOccurrenceRestore(active, mutation, deletionIds, restoredDeletionIds, occurrences, children, nodes);
         break;
     }
   }
@@ -134,11 +117,7 @@ function restoreOccurrence(
   if (existing) {
     removePlacement(children, mutation.occurrenceId);
     existing.parentNodeId = mutation.parentNodeId;
-    insertAtAnchor(
-      listFor(children, mutation.parentNodeId),
-      mutation.occurrenceId,
-      mutation.anchor,
-    );
+    insertAtAnchor(listFor(children, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
     return;
   }
   placeOccurrence(

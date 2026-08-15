@@ -4,9 +4,7 @@ export function validateWorkspaceRootPolicy(workspaceId: WorkspaceId, fact: Fact
   if (fact.body.kind === "contribution") {
     const mutation = fact.body.mutation;
     if (
-      (mutation.kind === "node-delete" ||
-        mutation.kind === "node-restore" ||
-        mutation.kind === "node-owner-set") &&
+      (mutation.kind === "node-delete" || mutation.kind === "node-restore" || mutation.kind === "node-owner-set") &&
       mutation.nodeId === workspaceId
     ) {
       throw new Error(`Workspace root Node cannot change ownership or deletion state: ${fact.id}`);

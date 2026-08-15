@@ -1,8 +1,4 @@
-import {
-  atomicMutationWrite,
-  singleMutationWrite,
-  type MutationWrite,
-} from "../../../domain/edit/index.js";
+import { atomicMutationWrite, singleMutationWrite, type MutationWrite } from "../../../domain/edit/index.js";
 import type { Mutation } from "../../../domain/fact/index.js";
 
 export type EditWriteAccumulator = {
@@ -17,10 +13,7 @@ export function editWriteAccumulators(count: number): EditWriteAccumulator[] {
   }));
 }
 
-export function editWriteAt(
-  accumulators: readonly EditWriteAccumulator[],
-  index: number,
-): EditWriteAccumulator {
+export function editWriteAt(accumulators: readonly EditWriteAccumulator[], index: number): EditWriteAccumulator {
   const accumulator = accumulators[index];
   if (!accumulator) {
     throw new Error("Prepared mutation lost its Edit group");
@@ -28,13 +21,18 @@ export function editWriteAt(
   return accumulator;
 }
 
-export function absorbWriteBoundary(
-  accumulator: EditWriteAccumulator,
-  expansion: MutationWrite,
-): void {
+export function absorbWriteBoundary(accumulator: EditWriteAccumulator, expansion: MutationWrite): void {
   if (expansion.kind === "atomic") {
     accumulator.atomic = true;
   }
+}
+
+export function appendEditMutation(
+  accumulator: EditWriteAccumulator,
+  mutation: Mutation,
+): readonly [Mutation, ...Mutation[]] {
+  accumulator.mutations.push(mutation);
+  return accumulator.mutations as [Mutation, ...Mutation[]];
 }
 
 export function finishEditWrite(accumulator: EditWriteAccumulator): MutationWrite {

@@ -12,18 +12,12 @@ import { atomicExpansion } from "./mutation-write.js";
 
 const END = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-export function expandFieldMutation(
-  mutation: FieldMutation,
-  available: ScopedProjection,
-): MutationWrite {
+export function expandFieldMutation(mutation: FieldMutation, available: ScopedProjection): MutationWrite {
   switch (mutation.kind) {
     case "field-initialize":
       return atomicExpansion(expandFieldInitialization(mutation, available));
     case "field-materialize":
-      return atomicExpansion([
-        ...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available),
-        mutation,
-      ]);
+      return atomicExpansion([...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available), mutation]);
     case "field-value-delete":
       return atomicExpansion([mutation, ...deletePlacement(mutation.valueOccurrenceId, available)]);
     case "materialized-field-delete":
@@ -39,11 +33,7 @@ function expandFieldInitialization(
     ...createNodeUnlessPresent(
       mutation.fieldNodeId,
       available,
-      nodeSeed(
-        {},
-        { initializedBy: mutation.source },
-        { fieldDefinitionId: mutation.fieldDefinitionId },
-      ),
+      nodeSeed({}, { initializedBy: mutation.source }, { fieldDefinitionId: mutation.fieldDefinitionId }),
     ),
     ...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available),
     ...createOccurrenceUnlessPresent(
@@ -70,13 +60,7 @@ function expandFieldInitialization(
       );
     }
     result.push(
-      ...createOccurrenceUnlessPresent(
-        value.occurrenceId,
-        value.nodeId,
-        mutation.fieldNodeId,
-        END,
-        available,
-      ),
+      ...createOccurrenceUnlessPresent(value.occurrenceId, value.nodeId, mutation.fieldNodeId, END, available),
     );
   }
   result.push(mutation);

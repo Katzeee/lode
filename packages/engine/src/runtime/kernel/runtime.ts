@@ -36,10 +36,8 @@ export class RuntimeInstance {
     readonly owner?: RuntimeInstance,
     options: RuntimeOptions = {},
   ) {
-    this.drainTimeoutMs =
-      options.drainTimeoutMs ?? owner?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
-    this.abortTimeoutMs =
-      options.abortTimeoutMs ?? owner?.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
+    this.drainTimeoutMs = options.drainTimeoutMs ?? owner?.drainTimeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS;
+    this.abortTimeoutMs = options.abortTimeoutMs ?? owner?.abortTimeoutMs ?? DEFAULT_ABORT_TIMEOUT_MS;
     this.deviceState = owner?.deviceState ?? "active";
     this.execution = new InstanceExecution(identity);
   }
@@ -60,11 +58,7 @@ export class RuntimeInstance {
     if (this.currentState !== "new") {
       throw new InstanceUnavailableError(this.identity, this.currentState);
     }
-    if (
-      this.members.some(
-        (member) => member.kind === "resource" && member.resource.id === resource.id,
-      )
-    ) {
+    if (this.members.some((member) => member.kind === "resource" && member.resource.id === resource.id)) {
       throw new Error(`resource '${resource.id}' already belongs to '${this.identity}'`);
     }
     this.members.push({ kind: "resource", resource, started: false });
@@ -82,8 +76,7 @@ export class RuntimeInstance {
     }
     if (
       this.members.some(
-        (member) =>
-          member.kind === "child" && member.child.identity === identity && !member.child.isStopped,
+        (member) => member.kind === "child" && member.child.identity === identity && !member.child.isStopped,
       )
     ) {
       throw new Error(`component '${identity}' already belongs to '${this.identity}'`);
@@ -201,11 +194,7 @@ export class RuntimeInstance {
   }
 
   private async quiesceOwned(reason: StopReason, errors: Error[]): Promise<void> {
-    if (
-      this.currentState !== "new" &&
-      this.currentState !== "starting" &&
-      this.currentState !== "active"
-    ) {
+    if (this.currentState !== "new" && this.currentState !== "starting" && this.currentState !== "active") {
       return;
     }
     this.currentState = "quiescing";
@@ -253,9 +242,7 @@ export class RuntimeInstance {
   }
 
   private detach(child: RuntimeInstance): void {
-    const index = this.members.findIndex(
-      (member) => member.kind === "child" && member.child === child,
-    );
+    const index = this.members.findIndex((member) => member.kind === "child" && member.child === child);
     if (index >= 0) {
       this.members.splice(index, 1);
     }
@@ -266,24 +253,15 @@ export class RuntimeInstance {
   }
 
   private ownedWorkPromises(): Promise<void>[] {
-    return [
-      ...this.execution.promises(),
-      ...this.childInstances().flatMap((child) => child.ownedWorkPromises()),
-    ];
+    return [...this.execution.promises(), ...this.childInstances().flatMap((child) => child.ownedWorkPromises())];
   }
 
   private ownedWorkNames(): string[] {
-    return [
-      ...this.execution.names(),
-      ...this.childInstances().flatMap((child) => child.ownedWorkNames()),
-    ];
+    return [...this.execution.names(), ...this.childInstances().flatMap((child) => child.ownedWorkNames())];
   }
 
   private ownedBackgroundErrors(): Error[] {
-    return [
-      ...this.execution.errors(),
-      ...this.childInstances().flatMap((child) => child.ownedBackgroundErrors()),
-    ];
+    return [...this.execution.errors(), ...this.childInstances().flatMap((child) => child.ownedBackgroundErrors())];
   }
 
   private abortOwnedWork(): void {
@@ -307,11 +285,7 @@ export class RuntimeInstance {
   }
 
   private acceptsChildren(): boolean {
-    return (
-      this.currentState === "new" ||
-      this.currentState === "starting" ||
-      this.currentState === "active"
-    );
+    return this.currentState === "new" || this.currentState === "starting" || this.currentState === "active";
   }
 
   private assertAcceptingWork(): void {

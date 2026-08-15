@@ -48,11 +48,7 @@ export function factId(workspaceId: WorkspaceId, replicaId: ReplicaId, sequence:
   return `g${FORMAT_GENERATION}/${workspaceId}/${replicaId}/${sequence}`;
 }
 
-export function factTransactionId(
-  workspaceId: WorkspaceId,
-  replicaId: ReplicaId,
-  firstSequence: number,
-): string {
+export function factTransactionId(workspaceId: WorkspaceId, replicaId: ReplicaId, firstSequence: number): string {
   return `t${FORMAT_GENERATION}/${workspaceId}/${replicaId}/${firstSequence}`;
 }
 

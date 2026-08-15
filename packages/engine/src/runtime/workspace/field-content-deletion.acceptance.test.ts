@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectionPage } from "../../application/contract.js";
+import type { ProjectionPage } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
 import type { ViewMode } from "../../domain/fact/index.js";
@@ -17,19 +17,9 @@ describe("instance Field content deletion", () => {
     expect((await mutate(opened, "setup-values", explicitFieldProgram())).status).toBe("published");
 
     expect(
-      (
-        await mutate(
-          opened,
-          "propose-value-delete",
-          [valueDeletion("value-a-occurrence")],
-          "proposal",
-        )
-      ).status,
+      (await mutate(opened, "propose-value-delete", [valueDeletion("value-a-occurrence")], "proposal")).status,
     ).toBe("published");
-    expect(await fieldValues(opened, "origin")).toEqual([
-      "value-a-occurrence",
-      "value-b-occurrence",
-    ]);
+    expect(await fieldValues(opened, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
     expect(await fieldValues(opened, "review")).toEqual(["value-b-occurrence"]);
 
     const review = await opened.workspace.query({ kind: "review", workspaceId: "workspace" });
@@ -59,14 +49,11 @@ describe("instance Field content deletion", () => {
         })
       ).status,
     ).toBe("published");
-    expect(await fieldValues(opened, "origin")).toEqual([
-      "value-a-occurrence",
-      "value-b-occurrence",
-    ]);
+    expect(await fieldValues(opened, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
 
-    expect(
-      (await mutate(opened, "delete-value-direct", [valueDeletion("value-a-occurrence")])).status,
-    ).toBe("published");
+    expect((await mutate(opened, "delete-value-direct", [valueDeletion("value-a-occurrence")])).status).toBe(
+      "published",
+    );
     expect(await fieldValues(opened, "origin")).toEqual(["value-b-occurrence"]);
     expect((await section(opened, "origin", "nodes")).nodes["value-a"]).toBeUndefined();
 
@@ -89,14 +76,9 @@ describe("instance Field content deletion", () => {
       throw new Error(JSON.stringify(undone));
     }
     expect(undone).toMatchObject({ status: "published" });
-    expect(await fieldValues(opened, "origin")).toEqual([
-      "value-a-occurrence",
-      "value-b-occurrence",
-    ]);
+    expect(await fieldValues(opened, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
 
-    expect(
-      (await mutate(opened, "delete-whole-field-direct", [materializedFieldDeletion()])).status,
-    ).toBe("published");
+    expect((await mutate(opened, "delete-whole-field-direct", [materializedFieldDeletion()])).status).toBe("published");
     const fieldHistory = await opened.workspace.query({
       kind: "history",
       workspaceId: "workspace",
@@ -116,20 +98,16 @@ describe("instance Field content deletion", () => {
         })
       ).status,
     ).toBe("published");
-    expect(await fieldValues(opened, "origin")).toEqual([
-      "value-a-occurrence",
-      "value-b-occurrence",
-    ]);
+    expect(await fieldValues(opened, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
   });
 
   it("accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder", async () => {
     const documents = new InMemoryDocumentStore();
     const opened = await open(documents, "701");
     expect((await mutate(opened, "setup-field", explicitFieldProgram())).status).toBe("published");
-    expect(
-      (await mutate(opened, "propose-field-delete", [materializedFieldDeletion()], "proposal"))
-        .status,
-    ).toBe("published");
+    expect((await mutate(opened, "propose-field-delete", [materializedFieldDeletion()], "proposal")).status).toBe(
+      "published",
+    );
     expect(await materializedField(opened, "origin")).toBeDefined();
     expect(await materializedField(opened, "review")).toBeUndefined();
 
@@ -137,9 +115,7 @@ describe("instance Field content deletion", () => {
     if (!("hunks" in review)) {
       throw new Error("Expected Materialized Field deletion Review Hunk");
     }
-    const hunk = review.hunks.find(
-      (candidate) => candidate.diffSpace.kind === "materialized-field",
-    );
+    const hunk = review.hunks.find((candidate) => candidate.diffSpace.kind === "materialized-field");
     if (!hunk) {
       throw new Error("Expected typed Materialized Field Hunk");
     }
@@ -172,23 +148,16 @@ describe("instance Field content deletion", () => {
     const restarted = await open(documents, "702");
     await expectDeletedFieldState(restarted);
     expect(
-      (
-        await mutate(restarted, "remove-field-source", [
-          { kind: "schema-remove", nodeId: "owner", schemaId: "schema" },
-        ])
-      ).status,
+      (await mutate(restarted, "remove-field-source", [{ kind: "schema-remove", nodeId: "owner", schemaId: "schema" }]))
+        .status,
     ).toBe("published");
-    expect(
-      (await section(restarted, "origin", "effectiveFields")).effectiveFields.owner,
-    ).toBeUndefined();
+    expect((await section(restarted, "origin", "effectiveFields")).effectiveFields.owner).toBeUndefined();
     expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeUndefined();
   });
 
   it("does not regenerate deleted initialized values or initialized Fields", async () => {
     const opened = await open(new InMemoryDocumentStore(), "801");
-    expect((await mutate(opened, "setup-default", initializedFieldProgram())).status).toBe(
-      "published",
-    );
+    expect((await mutate(opened, "setup-default", initializedFieldProgram())).status).toBe("published");
     const field = await materializedField(opened, "origin");
     const valueOccurrenceId = field?.valueOccurrenceIds[0];
     if (!field || !valueOccurrenceId) {
@@ -350,9 +319,7 @@ function materializedFieldDeletion(): EditMutation {
 
 async function expectDeletedFieldState(opened: Opened): Promise<void> {
   expect(await materializedField(opened, "origin")).toBeUndefined();
-  expect(
-    (await section(opened, "origin", "effectiveFields")).effectiveFields.owner?.[0],
-  ).toMatchObject({
+  expect((await section(opened, "origin", "effectiveFields")).effectiveFields.owner?.[0]).toMatchObject({
     fieldDefinitionId: "field-definition",
     materializedFieldNodeId: null,
   });

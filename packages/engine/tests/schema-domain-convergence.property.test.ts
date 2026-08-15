@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  frontierOf,
-  type Fact,
-  type FactFrontier,
-  type Mutation,
-} from "../src/domain/fact/index.js";
+import { frontierOf, type Fact, type FactFrontier, type Mutation } from "../src/domain/fact/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { assertSchemaConvergence, remoteBranch } from "./schema-convergence-property-helpers.js";
 
@@ -124,13 +119,7 @@ describe("Schema domain convergence matrix", () => {
   it("merges concurrent authored materializations without losing either value or identity", () => {
     const base = materializationBase();
     const frontier = frontierOf(base.values);
-    const branchB = materializationBranch(
-      B,
-      frontier,
-      base.values.length + 1,
-      "offline-a",
-      "Alpha",
-    );
+    const branchB = materializationBranch(B, frontier, base.values.length + 1, "offline-a", "Alpha");
     const branchC = materializationBranch(C, frontier, base.values.length + 1, "offline-b", "Beta");
     const events = [...branchB, ...branchC, ...unrelated(D, frontier, base.values.length + 1)];
     assertSchemaConvergence(base.values.length, [...base.values, ...events], (generation) => {
@@ -141,9 +130,9 @@ describe("Schema domain convergence matrix", () => {
       );
       for (const prefix of ["offline-a", "offline-b"]) {
         expect(generation.origin.nodes[`${prefix}-field`]).toBeDefined();
-        expect(
-          generation.origin.nodes[`${prefix}-value`]?.text.map((atom) => atom.value).join(""),
-        ).toBe(prefix === "offline-a" ? "Alpha" : "Beta");
+        expect(generation.origin.nodes[`${prefix}-value`]?.text.map((atom) => atom.value).join("")).toBe(
+          prefix === "offline-a" ? "Alpha" : "Beta",
+        );
       }
     });
   });
@@ -170,9 +159,7 @@ describe("Schema domain convergence matrix", () => {
       expect(item?.effectiveConfig).toBeNull();
       expect(item?.configCandidates).toHaveLength(2);
       expect(
-        Object.values(generation.origin.conflictIssues).filter(
-          (issue) => issue.kind === "field-config-conflict",
-        ),
+        Object.values(generation.origin.conflictIssues).filter((issue) => issue.kind === "field-config-conflict"),
       ).toHaveLength(2);
       expect(generation.origin.materializedFields.task).toBeUndefined();
     });

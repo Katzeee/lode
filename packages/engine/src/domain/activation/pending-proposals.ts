@@ -23,8 +23,6 @@ export function pendingProposalActivation(snapshot: FactSnapshot): PendingPropos
   return { pending, supportByContribution: review.supportByContribution };
 }
 
-export function pendingProposalFacts(
-  snapshot: FactSnapshot,
-): ReadonlyMap<string, ContributionFact> {
+export function pendingProposalFacts(snapshot: FactSnapshot): ReadonlyMap<string, ContributionFact> {
   return pendingProposalActivation(snapshot).pending;
 }

@@ -2,8 +2,7 @@ import type { ContributionFact, Mutation } from "../fact/index.js";
 
 export type NodeTypeDeclarationFact = ContributionFact &
   Readonly<{
-    body: ContributionFact["body"] &
-      Readonly<{ mutation: Extract<Mutation, { kind: "node-type-declare" }> }>;
+    body: ContributionFact["body"] & Readonly<{ mutation: Extract<Mutation, { kind: "node-type-declare" }> }>;
   }>;
 
 export function nodeTypeDeclarationsByNode(

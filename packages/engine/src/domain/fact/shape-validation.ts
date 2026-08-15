@@ -18,7 +18,7 @@ import {
   requireSafeInteger,
   requireString,
   requireStringAllowEmpty,
-} from "./shape-validation-primitives.js";
+} from "../../shape-validation/index.js";
 
 export function parseAuthorityRecords(records: readonly unknown[]): AuthorityRecord[] {
   return records.map((record, index) => {
@@ -51,15 +51,7 @@ function assertReceipt(value: unknown, index: number): asserts value is Authorit
   assertObject(value, `receipt ${index}`);
   assertKeys(
     value,
-    [
-      "workspaceId",
-      "replicaId",
-      "invocationId",
-      "requestDigest",
-      "factIds",
-      "committedFrontier",
-      "lineage",
-    ],
+    ["workspaceId", "replicaId", "invocationId", "requestDigest", "factIds", "committedFrontier", "lineage"],
     "receipt",
   );
   requireString(value.workspaceId, "receipt Workspace identity");
@@ -72,11 +64,7 @@ function assertReceipt(value: unknown, index: number): asserts value is Authorit
     return;
   }
   assertObject(value.lineage, "receipt lineage");
-  assertKeys(
-    value.lineage,
-    ["channelId", "ordinal", "parentStepId", "operation", "targetStepId"],
-    "receipt lineage",
-  );
+  assertKeys(value.lineage, ["channelId", "ordinal", "parentStepId", "operation", "targetStepId"], "receipt lineage");
   requireString(value.lineage.channelId, "History channel identity");
   requireSafeInteger(value.lineage.ordinal, 1, "History ordinal");
   assertNullableString(value.lineage.parentStepId, "History parent step");
@@ -88,16 +76,7 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
   assertObject(value, `Fact ${index}`);
   assertKeys(
     value,
-    [
-      "formatGeneration",
-      "schemaVersion",
-      "workspaceId",
-      "id",
-      "transaction",
-      "coordinate",
-      "body",
-      "contentDigest",
-    ],
+    ["formatGeneration", "schemaVersion", "workspaceId", "id", "transaction", "coordinate", "body", "contentDigest"],
     "Fact",
   );
   requireNumber(value.formatGeneration, "Fact format generation");
@@ -218,11 +197,7 @@ function assertOccurrenceMutationShape(value: Record<string, unknown>): void {
   if (value.kind === "occurrence-restore") {
     requireString(value.deletionFactId, "occurrence deletion Fact");
   }
-  if (
-    value.kind === "occurrence-create" ||
-    value.kind === "occurrence-restore" ||
-    value.kind === "occurrence-move"
-  ) {
+  if (value.kind === "occurrence-create" || value.kind === "occurrence-restore" || value.kind === "occurrence-move") {
     requireString(value.parentNodeId, "Parent Node");
     assertAnchor(value.anchor);
   }
@@ -237,9 +212,17 @@ function assertOccurrenceMutationShape(value: Record<string, unknown>): void {
   }
 }
 
+export function parseMutation<Kind extends Mutation["kind"]>(
+  value: Readonly<{ kind: Kind }> & Record<string, unknown>,
+): Extract<Mutation, { kind: Kind }>;
+export function parseMutation(value: unknown): Mutation;
 export function parseMutation(value: unknown): Mutation {
   assertMutationShape(value);
   return value;
+}
+
+export function isMutationKind(value: unknown): value is Mutation["kind"] {
+  return typeof value === "string" && value in MUTATION_SHAPE_KEYS;
 }
 
 function assertValueTarget(value: unknown): void {

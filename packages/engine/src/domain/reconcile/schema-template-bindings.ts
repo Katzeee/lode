@@ -1,4 +1,4 @@
-import { compareFacts, type ContributionFact } from "../fact/index.js";
+import { compareFacts, contributionFactsOfKind, factObserves, type ContributionFact } from "../fact/index.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import type { TemplateField } from "./projection-types.js";
 
@@ -8,26 +8,18 @@ export function boundSchemaTemplateNodes(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   children: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly string[]>> {
-  const removals = active.filter(
-    (fact) => fact.body.mutation.kind === "schema-template-node-remove",
-  );
+  const removals = contributionFactsOfKind(active, "schema-template-node-remove");
   type Binding = { occurrenceId: string; fact: ContributionFact };
   const bySchema = new Map<string, Map<string, Binding>>();
-  for (const fact of active
-    .filter((candidate) => candidate.body.mutation.kind === "schema-template-node-add")
-    .sort(compareFacts)) {
+  for (const fact of [...contributionFactsOfKind(active, "schema-template-node-add")].sort(compareFacts)) {
     const mutation = fact.body.mutation;
-    if (mutation.kind !== "schema-template-node-add") {
-      continue;
-    }
     const removed = removals.some((candidate) => {
       const removal = candidate.body.mutation;
       return (
-        removal.kind === "schema-template-node-remove" &&
         removal.schemaId === mutation.schemaId &&
         removal.templateNodeId === mutation.templateNodeId &&
         removal.templateOccurrenceId === mutation.templateOccurrenceId &&
-        observes(candidate, fact)
+        factObserves(candidate, fact)
       );
     });
     const occurrence = occurrences.get(mutation.templateOccurrenceId);
@@ -37,10 +29,9 @@ export function boundSchemaTemplateNodes(
       !knownNodeIds.has(mutation.schemaId) ||
       !knownNodeIds.has(mutation.templateNodeId) ||
       creation?.nodeId !== mutation.templateNodeId ||
-      creation.parentNodeId !== mutation.schemaId ||
+      creation?.parentNodeId !== mutation.schemaId ||
       (occurrence !== undefined &&
-        (occurrence.nodeId !== mutation.templateNodeId ||
-          occurrence.parentNodeId !== mutation.schemaId))
+        (occurrence.nodeId !== mutation.templateNodeId || occurrence.parentNodeId !== mutation.schemaId))
     ) {
       continue;
     }
@@ -70,22 +61,18 @@ export function boundSchemaFields(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   children: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly TemplateField[]>> {
-  const additions = active.filter((fact) => fact.body.mutation.kind === "schema-field-add");
-  const removals = active.filter((fact) => fact.body.mutation.kind === "schema-field-remove");
+  const additions = contributionFactsOfKind(active, "schema-field-add");
+  const removals = contributionFactsOfKind(active, "schema-field-remove");
   const bySchema = new Map<string, TemplateField[]>();
-  for (const fact of additions.sort(compareFacts)) {
+  for (const fact of [...additions].sort(compareFacts)) {
     const mutation = fact.body.mutation;
-    if (mutation.kind !== "schema-field-add") {
-      continue;
-    }
     const removed = removals.some((candidate) => {
       const removal = candidate.body.mutation;
       return (
-        removal.kind === "schema-field-remove" &&
         removal.schemaId === mutation.schemaId &&
         removal.fieldNodeId === mutation.fieldNodeId &&
         removal.fieldOccurrenceId === mutation.fieldOccurrenceId &&
-        observes(candidate, fact)
+        factObserves(candidate, fact)
       );
     });
     const occurrence = occurrences.get(mutation.fieldOccurrenceId);
@@ -96,10 +83,9 @@ export function boundSchemaFields(
       !knownNodeIds.has(mutation.fieldDefinitionId) ||
       !knownNodeIds.has(mutation.fieldNodeId) ||
       creation?.nodeId !== mutation.fieldNodeId ||
-      creation.parentNodeId !== mutation.schemaId ||
+      creation?.parentNodeId !== mutation.schemaId ||
       (occurrence !== undefined &&
-        (occurrence.nodeId !== mutation.fieldNodeId ||
-          occurrence.parentNodeId !== mutation.schemaId))
+        (occurrence.nodeId !== mutation.fieldNodeId || occurrence.parentNodeId !== mutation.schemaId))
     ) {
       continue;
     }
@@ -117,10 +103,7 @@ export function boundSchemaFields(
   const entries: (readonly [string, readonly TemplateField[]])[] = [...bySchema.entries()]
     .map(
       ([schemaId, candidates]) =>
-        [
-          schemaId,
-          uniqueFieldsInOccurrenceOrder(candidates, children.get(schemaId) ?? []),
-        ] as const,
+        [schemaId, uniqueFieldsInOccurrenceOrder(candidates, children.get(schemaId) ?? [])] as const,
     )
     .filter((entry) => entry[1].length > 0);
   return Object.fromEntries(entries);
@@ -161,19 +144,11 @@ function occurrenceIndex(occurrenceIds: readonly string[], occurrenceId: string)
   return index < 0 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
-}
-
 function occurrenceCreation(
   active: readonly ContributionFact[],
   occurrenceId: string,
 ): Readonly<{ nodeId: string; parentNodeId: string }> | undefined {
-  const fact = active.find((candidate) => {
-    const mutation = candidate.body.mutation;
-    return mutation.kind === "occurrence-create" && mutation.occurrenceId === occurrenceId;
-  });
-  const mutation = fact?.body.mutation;
-  return mutation?.kind === "occurrence-create" ? mutation : undefined;
+  return contributionFactsOfKind(active, "occurrence-create").find(
+    (candidate) => candidate.body.mutation.occurrenceId === occurrenceId,
+  )?.body.mutation;
 }

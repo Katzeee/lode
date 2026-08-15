@@ -1,25 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { createNodeAt, expandEditMutation } from "./types.js";
+import { expandEditMutation } from "./types.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Node creation edits", () => {
-  it("express one user operation and expand only at the Fact boundary", () => {
-    const edit = createNodeAt({
-      nodeId: "child",
-      occurrenceId: "child-original",
-      parentNodeId: "parent",
-      anchor: end,
-    });
-
-    expect(edit).toEqual({
+  it("expands one user operation only at the Fact boundary", () => {
+    const edit = {
       kind: "node-create",
       nodeId: "child",
       occurrenceId: "child-original",
       parentNodeId: "parent",
       anchor: end,
-    });
+    } as const;
+
     expect(expandEditMutation(edit)).toEqual({
       kind: "atomic",
       mutations: [

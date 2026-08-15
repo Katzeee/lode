@@ -1,4 +1,11 @@
-import { FIELD_DEFINITION_NODE_TYPE, type ContributionFact, type Mutation } from "../fact/index.js";
+import {
+  FIELD_DEFINITION_NODE_TYPE,
+  type ContributionFact,
+  type FieldContentDeletionMutation,
+  type Mutation,
+  type SchemaMutation,
+  type TemplateMutation,
+} from "../fact/index.js";
 import { addInitializationSupport } from "./generated-relation-support.js";
 import {
   addMaterializedFieldSupport,
@@ -8,19 +15,7 @@ import {
 import { nodeTypeSupportKey, type SchemaSupportContext } from "./schema-support.js";
 import { addCandidate, addIfPresent, effectiveCandidate } from "./support-candidate.js";
 
-type CoreSupportMutation = Exclude<
-  Mutation,
-  Extract<
-    Mutation,
-    {
-      kind:
-        | `schema-${string}`
-        | "template-node-detach"
-        | "field-value-delete"
-        | "materialized-field-delete";
-    }
-  >
->;
+type CoreSupportMutation = Exclude<Mutation, SchemaMutation | TemplateMutation | FieldContentDeletionMutation>;
 
 type CoreSupportContext = Readonly<{
   nodeExistenceSupport: Map<string, string[]>;
@@ -40,8 +35,7 @@ export function addCoreMutationSupport(
   fact: ContributionFact,
   context: CoreSupportContext,
 ): void {
-  const { nodeExistenceSupport, occurrenceExistenceSupport, viable, existence, schemaSupport } =
-    context;
+  const { nodeExistenceSupport, occurrenceExistenceSupport, viable, existence, schemaSupport } = context;
   switch (mutation.kind) {
     case "node-create":
       break;
@@ -52,11 +46,7 @@ export function addCoreMutationSupport(
       break;
     case "node-type-declare":
       addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-      addCandidate(
-        schemaSupport.nodeTypeDeclarations,
-        nodeTypeSupportKey(mutation.nodeId, mutation.nodeType),
-        fact.id,
-      );
+      addCandidate(schemaSupport.nodeTypeDeclarations, nodeTypeSupportKey(mutation.nodeId, mutation.nodeType), fact.id);
       break;
     case "node-restore":
       addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
@@ -65,32 +55,17 @@ export function addCoreMutationSupport(
       break;
     case "occurrence-create":
       addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.nodeId, viable));
-      addIfPresent(
-        support,
-        effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable),
-      );
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable));
       addCandidate(occurrenceExistenceSupport, mutation.occurrenceId, fact.id);
       break;
     case "occurrence-delete":
     case "occurrence-move":
-      addOccurrenceChangeSupport(
-        support,
-        occurrenceExistenceSupport,
-        nodeExistenceSupport,
-        viable,
-        mutation,
-      );
+      addOccurrenceChangeSupport(support, occurrenceExistenceSupport, nodeExistenceSupport, viable, mutation);
       break;
     case "occurrence-restore":
-      addIfPresent(
-        support,
-        effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable),
-      );
+      addIfPresent(support, effectiveCandidate(occurrenceExistenceSupport, mutation.occurrenceId, viable));
       support.add(mutation.deletionFactId);
-      addIfPresent(
-        support,
-        effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable),
-      );
+      addIfPresent(support, effectiveCandidate(nodeExistenceSupport, mutation.parentNodeId, viable));
       occurrenceExistenceSupport.set(mutation.occurrenceId, [fact.id]);
       break;
     case "node-owner-set":
@@ -115,5 +90,11 @@ export function addCoreMutationSupport(
     case "value-unset":
       addValueTargetSupport(support, mutation, existence);
       break;
+    default:
+      assertNever(mutation);
   }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled core Activation support: ${JSON.stringify(value)}`);
 }

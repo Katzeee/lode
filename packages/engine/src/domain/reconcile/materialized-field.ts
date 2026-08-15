@@ -2,19 +2,13 @@ import { FIELD_DEFINITION_NODE_TYPE, type Mutation } from "../fact/index.js";
 import { definitionNodeState } from "./definition-node.js";
 import type { Projection } from "./projection-types.js";
 
-type MaterializedFieldProjection = Pick<
-  Projection,
-  "materializedFields" | "nodes" | "nodeStatuses" | "occurrences"
->;
+type MaterializedFieldProjection = Pick<Projection, "materializedFields" | "nodes" | "nodeStatuses" | "occurrences">;
 
 export function materializedFieldProblem(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
   projection: MaterializedFieldProjection,
 ): string | null {
-  if (
-    definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) ===
-    "absent"
-  ) {
+  if (definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) === "absent") {
     return `Field Definition type is absent: ${mutation.fieldDefinitionId}`;
   }
   for (const [nodeId, label] of [
@@ -70,8 +64,7 @@ function identitiesOverlap(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
 ): boolean {
   return (
-    (field.ownerNodeId === mutation.ownerNodeId &&
-      field.fieldDefinitionId === mutation.fieldDefinitionId) ||
+    (field.ownerNodeId === mutation.ownerNodeId && field.fieldDefinitionId === mutation.fieldDefinitionId) ||
     field.fieldNodeId === mutation.fieldNodeId ||
     field.fieldOccurrenceId === mutation.fieldOccurrenceId
   );

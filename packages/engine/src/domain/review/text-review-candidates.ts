@@ -1,29 +1,32 @@
-import { compareFacts, type ContributionFact, type Fact, type TextAtomId } from "../fact/index.js";
+import {
+  compareFacts,
+  contributionFactsOfKind,
+  contributionFactsOfKinds,
+  factObserves,
+  type ContributionFact,
+  type Fact,
+  type TextAtomId,
+} from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
-import { hasTextEffect, isTextMutation, textEffect } from "./text-review-effect.js";
+import { hasTextEffect, textEffect } from "./text-review-effect.js";
 
 export function textCandidates(
   snapshot: Readonly<{ facts: readonly Fact[] }>,
   generation: ScopedProjectionGeneration,
   allPending: ReadonlyMap<string, ContributionFact>,
 ): readonly HunkCandidate[] {
-  const pending = [...allPending.values()].filter((fact) => isTextMutation(fact.body.mutation));
+  const pending = contributionFactsOfKinds([...allPending.values()], ["text-splice", "text-mark"]);
   const byNode = new Map<string, ContributionFact[]>();
   for (const fact of pending) {
     const mutation = fact.body.mutation;
-    if (!isTextMutation(mutation)) {
-      continue;
-    }
     const nodeFacts = byNode.get(mutation.nodeId) ?? [];
     nodeFacts.push(fact);
     byNode.set(mutation.nodeId, nodeFacts);
   }
   const result: HunkCandidate[] = [];
   for (const [nodeId, nodeFacts] of byNode) {
-    const visible = nodeFacts.filter((fact) =>
-      hasTextEffect(textEffect(nodeId, [fact], generation)),
-    );
+    const visible = nodeFacts.filter((fact) => hasTextEffect(textEffect(nodeId, [fact], generation)));
     const markGroups = overlappingMarkGroups(visible);
     const groupedMarkIds = new Set(markGroups.flatMap((group) => group.map((fact) => fact.id)));
     for (const group of markGroups) {
@@ -52,7 +55,7 @@ export function textCandidates(
 }
 
 function overlappingMarkGroups(facts: readonly ContributionFact[]): readonly ContributionFact[][] {
-  const marks = facts.filter((fact) => fact.body.mutation.kind === "text-mark");
+  const marks = contributionFactsOfKind(facts, "text-mark");
   const remaining = new Set(marks.map((fact) => fact.id));
   const groups: ContributionFact[][] = [];
   while (remaining.size > 0) {
@@ -67,11 +70,8 @@ function overlappingMarkGroups(facts: readonly ContributionFact[]): readonly Con
           continue;
         }
         const mutation = candidate.body.mutation;
-        if (mutation.kind !== "text-mark") {
-          continue;
-        }
         const overlaps = marks.some((member) => {
-          if (!groupIds.has(member.id) || member.body.mutation.kind !== "text-mark") {
+          if (!groupIds.has(member.id)) {
             return false;
           }
           return (
@@ -106,14 +106,9 @@ function textContinuityGroups(
         .map((atom, index) => (atom.contributionId === fact.id ? index : -1))
         .filter((index) => index >= 0),
     }))
-    .filter(
-      ({ positions, fact }) =>
-        positions.length > 0 || hasTextEffect(textEffect(nodeId, [fact], generation)),
-    )
+    .filter(({ positions, fact }) => positions.length > 0 || hasTextEffect(textEffect(nodeId, [fact], generation)))
     .sort(
-      (left, right) =>
-        (left.positions[0] ?? Number.MAX_SAFE_INTEGER) -
-        (right.positions[0] ?? Number.MAX_SAFE_INTEGER),
+      (left, right) => (left.positions[0] ?? Number.MAX_SAFE_INTEGER) - (right.positions[0] ?? Number.MAX_SAFE_INTEGER),
     );
   const first = indexed[0];
   if (!first) {
@@ -135,12 +130,10 @@ function textContinuityGroups(
     }
     const bridges = between.filter(
       (atom) =>
-        !pendingIds.has(atom.contributionId) &&
-        isNeutralBridge(atom.contributionId, left, entry.fact, factsById),
+        !pendingIds.has(atom.contributionId) && isNeutralBridge(atom.contributionId, left, entry.fact, factsById),
     );
     const canJoin = between.every(
-      (atom) =>
-        pendingIds.has(atom.contributionId) || bridges.some((bridge) => bridge.id === atom.id),
+      (atom) => pendingIds.has(atom.contributionId) || bridges.some((bridge) => bridge.id === atom.id),
     );
     if (canJoin) {
       current.targets.push(entry.fact);
@@ -173,8 +166,7 @@ function bridgesWithin(
     .slice(start + 1, end)
     .filter(
       (atom) =>
-        !pendingIds.has(atom.contributionId) &&
-        isNeutralBridge(atom.contributionId, entry.fact, entry.fact, factsById),
+        !pendingIds.has(atom.contributionId) && isNeutralBridge(atom.contributionId, entry.fact, entry.fact, factsById),
     )
     .map((atom) => atom.id);
 }
@@ -189,14 +181,7 @@ function isNeutralBridge(
   return (
     direct?.body.kind === "contribution" &&
     direct.body.intent === "direct" &&
-    !observes(left, direct) &&
-    !observes(right, direct)
-  );
-}
-
-function observes(observer: Fact, observed: Fact): boolean {
-  return (
-    (observer.coordinate.observed[observed.coordinate.dot.replicaId] ?? 0) >=
-    observed.coordinate.dot.sequence
+    !factObserves(left, direct) &&
+    !factObserves(right, direct)
   );
 }

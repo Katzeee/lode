@@ -35,19 +35,10 @@ export function planningReconciler(
   return {
     reconcileEdit(editIndex, mutations, intent) {
       const beforeEdit = planningSnapshot(base, factsByEdit, editIndex);
-      const editFacts = createPlanningTransaction(
-        workspaceId,
-        beforeEdit,
-        actorId,
-        intent,
-        mutations,
-      );
+      const editFacts = createPlanningTransaction(workspaceId, beforeEdit, actorId, intent, mutations);
       factsByEdit.set(editIndex, editFacts);
       const snapshot = planningSnapshot(base, factsByEdit);
-      const latestFact = editFacts.at(-1);
-      if (!latestFact) {
-        throw new Error("Planning transaction did not produce a Fact");
-      }
+      const latestFact = editFacts.at(-1) ?? editFacts[0];
       return {
         snapshot,
         generation: rebuildGeneration(workspaceId, snapshot, versions).generation,

@@ -21,7 +21,6 @@ export const FIELD_NODE_TYPE = "field" as const satisfies NodeType;
 export const SEARCH_NODE_TYPE = "search" as const satisfies NodeType;
 export const COMMAND_NODE_TYPE = "command" as const satisfies NodeType;
 export const WORKSPACE_NODE_TYPE = "workspace" as const satisfies NodeType;
-export const CALENDAR_NODE_TYPE = "calendar" as const satisfies NodeType;
 export const VIEW_NODE_TYPE = "view" as const satisfies NodeType;
 
 export function isNodeType(value: unknown): value is NodeType {

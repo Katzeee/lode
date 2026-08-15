@@ -36,10 +36,7 @@ export function addMaterializedFieldSupport(
   for (const nodeId of [mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId]) {
     addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
   }
-  addIfPresent(
-    support,
-    effectiveCandidate(existence.occurrences, mutation.fieldOccurrenceId, existence.viable),
-  );
+  addIfPresent(support, effectiveCandidate(existence.occurrences, mutation.fieldOccurrenceId, existence.viable));
 }
 
 function addIfPresent(target: Set<string>, value: string | undefined): void {

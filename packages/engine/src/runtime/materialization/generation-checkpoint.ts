@@ -46,7 +46,7 @@ export function createGenerationCheckpoint(
   return { ...unsigned, integrity: signCheckpoint(unsigned, integrityKey) };
 }
 
-export function validateGenerationCheckpoint(
+function validateGenerationCheckpoint(
   checkpoint: unknown,
   workspaceId: string,
   snapshot: FactSnapshot,
@@ -71,15 +71,11 @@ export function validateGenerationCheckpoint(
       checkpoint.generation.identity.generationId !== expectedGenerationId ||
       checkpoint.generation.origin.view !== "origin" ||
       checkpoint.generation.review.view !== "review" ||
-      canonicalDigest(checkpoint.generation.identity) !==
-        canonicalDigest(checkpoint.generation.origin.identity) ||
-      canonicalDigest(checkpoint.generation.identity) !==
-        canonicalDigest(checkpoint.generation.review.identity) ||
+      canonicalDigest(checkpoint.generation.identity) !== canonicalDigest(checkpoint.generation.origin.identity) ||
+      canonicalDigest(checkpoint.generation.identity) !== canonicalDigest(checkpoint.generation.review.identity) ||
       !frontierCovers(snapshot.frontier, checkpoint.generation.identity.frontier) ||
       checkpoint.factsDigest !==
-        canonicalDigest(
-          snapshotAtFrontier(snapshot, checkpoint.generation.identity.frontier).facts,
-        ) ||
+        canonicalDigest(snapshotAtFrontier(snapshot, checkpoint.generation.identity.frontier).facts) ||
       checkpoint.projectionDigest !== canonicalDigest(checkpoint.generation)
     ) {
       return null;
@@ -97,13 +93,7 @@ export function reconcileFromCheckpoint(
   versions: ProjectionVersions,
   integrityKey: string,
 ): ReconcileResult | null {
-  const generation = validateGenerationCheckpoint(
-    checkpoint,
-    workspaceId,
-    snapshot,
-    versions,
-    integrityKey,
-  );
+  const generation = validateGenerationCheckpoint(checkpoint, workspaceId, snapshot, versions, integrityKey);
   if (!generation) {
     return null;
   }
@@ -119,30 +109,18 @@ export function reconcileFromCheckpoint(
   );
 }
 
-function signCheckpoint(
-  checkpoint: Omit<GenerationCheckpoint, "integrity">,
-  integrityKey: string,
-): string {
+function signCheckpoint(checkpoint: Omit<GenerationCheckpoint, "integrity">, integrityKey: string): string {
   return createHmac("sha256", integrityKey).update(canonicalDigest(checkpoint)).digest("hex");
 }
 
-function unsignedCheckpoint(
-  checkpoint: GenerationCheckpoint,
-): Omit<GenerationCheckpoint, "integrity"> {
+function unsignedCheckpoint(checkpoint: GenerationCheckpoint): Omit<GenerationCheckpoint, "integrity"> {
   const { integrity: _integrity, ...unsigned } = checkpoint;
   return unsigned;
 }
 
 function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCheckpoint {
   const checkpoint = record(value);
-  assertExactKeys(checkpoint, [
-    "format",
-    "workspaceId",
-    "factsDigest",
-    "projectionDigest",
-    "integrity",
-    "generation",
-  ]);
+  assertExactKeys(checkpoint, ["format", "workspaceId", "factsDigest", "projectionDigest", "integrity", "generation"]);
   if (checkpoint.format !== GENERATION_CHECKPOINT_FORMAT) {
     throw new Error("Checkpoint format is unsupported");
   }
@@ -151,24 +129,14 @@ function assertCheckpointEnvelope(value: unknown): asserts value is GenerationCh
   const planCaches = record(generation.planCaches);
   assertExactKeys(planCaches, ["origin", "review"]);
   for (const cache of [planCaches.origin, planCaches.review]) {
-    assertExactKeys(record(cache), [
-      "activeContributionIds",
-      "supportByContribution",
-      "supportPasses",
-    ]);
+    assertExactKeys(record(cache), ["activeContributionIds", "supportByContribution", "supportPasses"]);
   }
   for (const identity of [
     generation.identity,
     record(generation.origin).identity,
     record(generation.review).identity,
   ]) {
-    assertExactKeys(record(identity), [
-      "workspaceNodeId",
-      "generationId",
-      "frontier",
-      "rulesVersion",
-      "schemaVersion",
-    ]);
+    assertExactKeys(record(identity), ["workspaceNodeId", "generationId", "frontier", "rulesVersion", "schemaVersion"]);
   }
 }
 
@@ -180,10 +148,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 function assertExactKeys(value: Record<string, unknown>, expected: readonly string[]): void {
-  if (
-    Object.keys(value).length !== expected.length ||
-    Object.keys(value).some((key) => !expected.includes(key))
-  ) {
+  if (Object.keys(value).length !== expected.length || Object.keys(value).some((key) => !expected.includes(key))) {
     throw new Error("Checkpoint contains an unknown or missing field");
   }
 }

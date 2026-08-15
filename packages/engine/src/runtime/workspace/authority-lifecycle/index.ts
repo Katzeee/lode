@@ -41,10 +41,6 @@ export class WorkspaceAuthorityLifecycle {
     if (!frontierCovers(this.options.projection.identity.frontier, snapshot.frontier)) {
       await this.options.projection.advance(snapshot);
     }
-    this.options.signals.emit(
-      "projection-recovered",
-      snapshot.frontier,
-      this.options.projection.identity.generationId,
-    );
+    this.options.signals.emit("projection-recovered", snapshot.frontier, this.options.projection.identity.generationId);
   }
 }

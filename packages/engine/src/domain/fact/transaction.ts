@@ -17,9 +17,7 @@ export function collectFactTransactions(facts: Iterable<Fact>): FactTransactionS
   const complete: FactTransaction[] = [];
   const pendingTransactionIds: string[] = [];
   for (const [transactionId, members] of grouped) {
-    const ordered = [...members].sort(
-      (left, right) => left.transaction.index - right.transaction.index,
-    );
+    const ordered = [...members].sort((left, right) => left.transaction.index - right.transaction.index);
     validateConsistentTransaction(transactionId, ordered);
     const size = ordered[0]?.transaction.size ?? 0;
     if (ordered.length !== size) {
@@ -52,10 +50,7 @@ function validateConsistentTransaction(transactionId: string, facts: readonly Fa
   }
   const indexes = new Set<number>();
   for (const fact of facts) {
-    if (
-      fact.transaction.transactionId !== transactionId ||
-      fact.transaction.size !== first.transaction.size
-    ) {
+    if (fact.transaction.transactionId !== transactionId || fact.transaction.size !== first.transaction.size) {
       throw new Error(`Fact transaction metadata conflicts: ${transactionId}`);
     }
     if (indexes.has(fact.transaction.index)) {
@@ -80,8 +75,7 @@ function validateCompleteTransaction(transactionId: string, facts: readonly Fact
     }
     if (
       index > 0 &&
-      (fact.coordinate.observed[first.coordinate.dot.replicaId] ?? 0) !==
-        fact.coordinate.dot.sequence - 1
+      (fact.coordinate.observed[first.coordinate.dot.replicaId] ?? 0) !== fact.coordinate.dot.sequence - 1
     ) {
       throw new Error(`Fact transaction member does not observe its predecessor: ${transactionId}`);
     }

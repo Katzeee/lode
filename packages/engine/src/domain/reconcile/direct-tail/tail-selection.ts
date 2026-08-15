@@ -1,9 +1,6 @@
 import { compareFacts, type Fact } from "../../fact/index.js";
 
-export function selectNeutralFactTail(
-  facts: readonly Fact[],
-  changed: readonly Fact[],
-): readonly Fact[] | null {
+export function selectNeutralFactTail(facts: readonly Fact[], changed: readonly Fact[]): readonly Fact[] | null {
   const changedIds = new Set(changed.map((fact) => fact.id));
   const ordered = [...facts].sort(compareFacts);
   const firstChanged = ordered.findIndex((fact) => changedIds.has(fact.id));

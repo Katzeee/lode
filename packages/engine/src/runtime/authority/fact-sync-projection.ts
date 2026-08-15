@@ -1,26 +1,13 @@
 import { LoroDoc, VersionVector } from "loro-crdt";
 
-import {
-  canonicalJson,
-  parseAuthorityRecords,
-  type Fact,
-  type WorkspaceId,
-} from "../../domain/fact/index.js";
+import { canonicalJson, parseAuthorityRecords, type AuthorityRecord, type Fact } from "../../domain/fact/index.js";
 import type { SyncBytes, SyncableDoc } from "../../sync/syncable.js";
-import { validRecordPrefix } from "./authority-records.js";
-import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
 
-export function buildFactSyncProjection(
-  workspaceId: WorkspaceId,
-  peerId: `${number}`,
-  authorityRecords: readonly unknown[],
-  admit: AuthorityAdmissionPolicy,
-): LoroDoc {
+export function buildFactSyncProjection(peerId: `${number}`, authorityRecords: readonly AuthorityRecord[]): LoroDoc {
   const projection = new LoroDoc();
   projection.setPeerId(peerId);
-  const records = parseAuthorityRecords(validRecordPrefix(workspaceId, authorityRecords, admit));
   const map = projection.getMap<string>("facts");
-  for (const record of records) {
+  for (const record of authorityRecords) {
     if (record.recordKind === "fact") {
       map.set(syncFactKey(record.fact), canonicalJson(record));
     }
@@ -74,9 +61,7 @@ export function createFactSyncDoc(
     },
     exportUpdate: async (from?: SyncBytes) => {
       await heal();
-      return current().export(
-        from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" },
-      );
+      return current().export(from ? { mode: "update", from: VersionVector.decode(from) } : { mode: "update" });
     },
     exportSnapshot: async () => {
       await heal();

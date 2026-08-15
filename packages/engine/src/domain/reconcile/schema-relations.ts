@@ -8,23 +8,11 @@ import {
 import type { EffectiveField, MaterializedField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { schemaExtensionGraph } from "./schema-extension-graph.js";
-import {
-  configuredFieldItems,
-  fieldInitializations,
-  projectEffectiveFields,
-} from "./schema-field-config.js";
-import {
-  observedRelations,
-  schemaApplicationEvent,
-  schemaExtensionEvent,
-} from "./schema-relation-events.js";
+import { configuredFieldItems, fieldInitializations, projectEffectiveFields } from "./schema-field-config.js";
+import { observedRelations, schemaApplicationEvent, schemaExtensionEvent } from "./schema-relation-events.js";
 import { boundSchemaFields, boundSchemaTemplateNodes } from "./schema-template-bindings.js";
 import { activeNodeTypes } from "./node-status.js";
-import {
-  filterMaterializedFields,
-  filterRecordOwners,
-  filterTemplateFields,
-} from "./node-type-filters.js";
+import { filterMaterializedFields, filterRecordOwners, filterTemplateFields } from "./node-type-filters.js";
 
 export type SchemaRelations = Readonly<{
   schemaApplications: Readonly<Record<string, readonly string[]>>;
@@ -51,22 +39,10 @@ export function deriveSchemaRelations(
     [...nodeTypes].flatMap(([nodeId, nodeType]) => (nodeType === SCHEMA_NODE_TYPE ? [nodeId] : [])),
   );
   const fieldDefinitionIds = new Set(
-    [...nodeTypes].flatMap(([nodeId, nodeType]) =>
-      nodeType === FIELD_DEFINITION_NODE_TYPE ? [nodeId] : [],
-    ),
+    [...nodeTypes].flatMap(([nodeId, nodeType]) => (nodeType === FIELD_DEFINITION_NODE_TYPE ? [nodeId] : [])),
   );
-  const applications = observedRelations(
-    active,
-    schemaApplicationEvent,
-    existingNodeIds,
-    schemaDefinitionIds,
-  );
-  const extensions = observedRelations(
-    active,
-    schemaExtensionEvent,
-    schemaDefinitionIds,
-    schemaDefinitionIds,
-  );
+  const applications = observedRelations(active, schemaApplicationEvent, existingNodeIds, schemaDefinitionIds);
+  const extensions = observedRelations(active, schemaExtensionEvent, schemaDefinitionIds, schemaDefinitionIds);
   const schemaApplications = record(applications);
   const boundFields = filterTemplateFields(
     boundSchemaFields(active, knownNodeIds, occurrences, children),
@@ -96,18 +72,12 @@ export function deriveSchemaRelations(
   const activeFieldItems = Object.fromEntries(
     Object.entries(templateFields)
       .filter(([schemaId]) => existingNodeIds.has(schemaId))
-      .map(([schemaId, items]) => [
-        schemaId,
-        items.filter((item) => existingNodeIds.has(item.fieldDefinitionId)),
-      ]),
+      .map(([schemaId, items]) => [schemaId, items.filter((item) => existingNodeIds.has(item.fieldDefinitionId))]),
   );
   const activeExtensions = Object.fromEntries(
     Object.entries(schemaExtensions)
       .filter(([schemaId]) => existingNodeIds.has(schemaId))
-      .map(([schemaId, baseIds]) => [
-        schemaId,
-        baseIds.filter((baseId) => existingNodeIds.has(baseId)),
-      ]),
+      .map(([schemaId, baseIds]) => [schemaId, baseIds.filter((baseId) => existingNodeIds.has(baseId))]),
   );
   return {
     schemaApplications,
@@ -138,9 +108,7 @@ function mergeMaterializedFields(
       ownerNodeId,
       [...(explicit[ownerNodeId] ?? []), ...(initialized[ownerNodeId] ?? [])].filter(
         (field, index, fields) =>
-          fields.findIndex(
-            (candidate) => candidate.fieldDefinitionId === field.fieldDefinitionId,
-          ) === index,
+          fields.findIndex((candidate) => candidate.fieldDefinitionId === field.fieldDefinitionId) === index,
       ),
     ]),
   );
@@ -183,9 +151,7 @@ function materialized(
     const available = ownerCandidates
       .sort((left, right) => compareFacts(left.fact, right.fact))
       .filter(
-        (candidate) =>
-          !claimedNodes.has(candidate.fieldNodeId) &&
-          !claimedOccurrences.has(candidate.fieldOccurrenceId),
+        (candidate) => !claimedNodes.has(candidate.fieldNodeId) && !claimedOccurrences.has(candidate.fieldOccurrenceId),
       );
     const canonical = available[0];
     if (!canonical) {
@@ -264,9 +230,7 @@ function recordFields(
   values: ReadonlyMap<string, readonly MaterializedField[]>,
 ): Readonly<Record<string, readonly MaterializedField[]>> {
   return Object.fromEntries(
-    [...values]
-      .filter(([, entries]) => entries.length > 0)
-      .sort(([left], [right]) => stableStringCompare(left, right)),
+    [...values].filter(([, entries]) => entries.length > 0).sort(([left], [right]) => stableStringCompare(left, right)),
   );
 }
 
@@ -276,12 +240,8 @@ function appendUnique(values: string[], value: string): void {
   }
 }
 
-function record(
-  values: ReadonlyMap<string, readonly string[]>,
-): Readonly<Record<string, readonly string[]>> {
+function record(values: ReadonlyMap<string, readonly string[]>): Readonly<Record<string, readonly string[]>> {
   return Object.fromEntries(
-    [...values]
-      .filter(([, entries]) => entries.length > 0)
-      .sort(([left], [right]) => stableStringCompare(left, right)),
+    [...values].filter(([, entries]) => entries.length > 0).sort(([left], [right]) => stableStringCompare(left, right)),
   );
 }

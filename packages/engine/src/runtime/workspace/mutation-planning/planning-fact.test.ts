@@ -5,22 +5,16 @@ import { createPlanningTransaction } from "./planning-fact.js";
 
 describe("planning Facts", () => {
   it("uses the final write boundary for valid planning transaction identities", () => {
-    const facts = createPlanningTransaction(
-      "workspace",
-      { facts: [], frontier: {} },
-      "actor",
-      "direct",
-      [
-        { kind: "node-create", nodeId: "workspace" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "node",
-          nodeId: "node",
-          parentNodeId: "workspace",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-      ],
-    );
+    const facts = createPlanningTransaction("workspace", { facts: [], frontier: {} }, "actor", "direct", [
+      { kind: "node-create", nodeId: "workspace" },
+      {
+        kind: "occurrence-create",
+        occurrenceId: "node",
+        nodeId: "node",
+        parentNodeId: "workspace",
+        anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      },
+    ]);
 
     expect(
       admitAuthorityRecordShapes(

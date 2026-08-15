@@ -1,8 +1,5 @@
 import type { DocumentStore } from "../../persistence/document-store.js";
-import {
-  deleteGenerationDocuments,
-  deleteOrphanMaterializedDocuments,
-} from "./materialized-directory.js";
+import { deleteGenerationDocuments, deleteOrphanMaterializedDocuments } from "./materialized-directory.js";
 
 export async function cleanupMaterializedGenerations(
   documents: DocumentStore,

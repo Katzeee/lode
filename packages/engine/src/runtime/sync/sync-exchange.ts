@@ -1,25 +1,18 @@
 import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../sync/syncable.js";
+import type { ReplicaPeer } from "@lode/sdk/host";
 
-export type SyncProfileEntry = Readonly<{ documentId: string; version: SyncBytes }>;
-
-export type SyncTransport = Readonly<{
-  profile(): Promise<readonly SyncProfileEntry[]>;
-  fetch(documentId: string, from: SyncBytes): Promise<SyncBytes>;
-  send(documentId: string, bytes: SyncBytes): Promise<void>;
-}>;
+export type { ReplicaPeer, SyncProfileEntry } from "@lode/sdk/host";
 
 export class SyncExchange {
   private readonly remoteVersions = new Map<string, SyncBytes>();
 
   constructor(
     private readonly composite: SyncableComposite,
-    private readonly transport: SyncTransport,
+    private readonly transport: ReplicaPeer,
   ) {}
 
   async sync(): Promise<Readonly<{ pulled: number; pushed: number }>> {
-    const remote = new Map(
-      (await this.transport.profile()).map((entry) => [entry.documentId, entry.version]),
-    );
+    const remote = new Map((await this.transport.profile()).map((entry) => [entry.documentId, entry.version]));
     this.remoteVersions.clear();
     for (const [id, version] of remote) {
       this.remoteVersions.set(id, version);
@@ -74,9 +67,7 @@ export class SyncExchange {
     if (remoteVersion && bytesEqual(localVersion, remoteVersion)) {
       return { pulled: false, pushed: false };
     }
-    const pull = remoteVersion
-      ? await this.transport.fetch(document.id, localVersion)
-      : new Uint8Array();
+    const pull = remoteVersion ? await this.transport.fetch(document.id, localVersion) : new Uint8Array();
     const push = await document.exportUpdate(remoteVersion);
     if (pull.length > 0) {
       await document.importUpdate(pull);

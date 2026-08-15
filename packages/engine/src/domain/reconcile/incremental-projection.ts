@@ -21,13 +21,5 @@ export function advanceDirectProjection(
   if (!contributions) {
     return null;
   }
-  return advanceWithPlan(
-    workspaceId,
-    previous,
-    previousCache,
-    snapshot,
-    contributions,
-    versions,
-    selectedStages,
-  );
+  return advanceWithPlan(workspaceId, previous, previousCache, snapshot, contributions, versions, selectedStages);
 }

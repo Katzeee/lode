@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonical.js";
+import { factObserves } from "./frontier.js";
 import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
 import { occurrenceRestoreDeletionId } from "./mutation-family.js";
 import { type Fact, type ResolutionFact } from "./types.js";
@@ -12,8 +13,7 @@ export function validateAdmissibleFact(
   let maxObservedLamport = indexedMaximumObservedLamport ?? 0;
   if (indexedMaximumObservedLamport === undefined) {
     for (const predecessor of admitted) {
-      const { replicaId, sequence } = predecessor.coordinate.dot;
-      if ((fact.coordinate.observed[replicaId] ?? 0) >= sequence) {
+      if (factObserves(fact, predecessor)) {
         maxObservedLamport = Math.max(maxObservedLamport, predecessor.coordinate.lamport);
       }
     }
@@ -39,7 +39,7 @@ function validateFieldInitialization(fact: Fact, admitted: readonly Fact[]): voi
       candidate.body.mutation.kind === "field-initialize" &&
       candidate.body.mutation.ownerNodeId === mutation.ownerNodeId &&
       candidate.body.mutation.fieldDefinitionId === mutation.fieldDefinitionId &&
-      observesFact(fact, candidate),
+      factObserves(fact, candidate),
   );
   const superseded = new Set(
     observed.flatMap((candidate) =>
@@ -71,12 +71,11 @@ function validateFieldConfiguration(fact: Fact, admitted: readonly Fact[]): void
       candidate.body.mutation.kind === "schema-field-configure" &&
       candidate.body.mutation.schemaId === mutation.schemaId &&
       candidate.body.mutation.fieldDefinitionId === mutation.fieldDefinitionId &&
-      observesFact(fact, candidate),
+      factObserves(fact, candidate),
   );
   const superseded = new Set(
     observed.flatMap((candidate) =>
-      candidate.body.kind === "contribution" &&
-      candidate.body.mutation.kind === "schema-field-configure"
+      candidate.body.kind === "contribution" && candidate.body.mutation.kind === "schema-field-configure"
         ? (candidate.body.mutation.observedConfigFactIds ?? [])
         : [],
     ),
@@ -118,14 +117,14 @@ function validateResolution(fact: Fact, admitted: readonly Fact[]): void {
     if (!target || target.body.kind !== "contribution" || target.body.intent !== "proposal") {
       throw new Error(`Resolution target is not an observed Proposal Contribution: ${targetId}`);
     }
-    if (!observesFact(fact, target)) {
+    if (!factObserves(fact, target)) {
       throw new Error(`Resolution does not causally observe Proposal Contribution: ${targetId}`);
     }
     const observedResolutions = admitted.filter(
       (candidate) =>
         candidate.body.kind === "resolution" &&
         candidate.body.proposalContributionIds.includes(targetId) &&
-        observesFact(fact, candidate),
+        factObserves(fact, candidate),
     );
     if (fact.body.adjudicatesResolutionIds.length === 0 && observedResolutions.length > 0) {
       throw new Error(`Proposal Contribution is already terminal: ${targetId}`);
@@ -140,7 +139,7 @@ function validateAdjudication(fact: Fact, admitted: readonly Fact[]): void {
   }
   const adjudicated = fact.body.adjudicatesResolutionIds.map((resolutionId): ResolutionFact => {
     const resolution = admitted.find((candidate) => candidate.id === resolutionId);
-    if (resolution?.body.kind !== "resolution" || !observesFact(fact, resolution)) {
+    if (resolution?.body.kind !== "resolution" || !factObserves(fact, resolution)) {
       throw new Error(`Adjudication target is not an observed Resolution: ${resolutionId}`);
     }
     return resolution as ResolutionFact;
@@ -148,9 +147,7 @@ function validateAdjudication(fact: Fact, admitted: readonly Fact[]): void {
   const targetIds = [...fact.body.proposalContributionIds].sort();
   if (
     adjudicated.some(
-      (resolution) =>
-        JSON.stringify([...resolution.body.proposalContributionIds].sort()) !==
-        JSON.stringify(targetIds),
+      (resolution) => JSON.stringify([...resolution.body.proposalContributionIds].sort()) !== JSON.stringify(targetIds),
     ) ||
     new Set(adjudicated.map((resolution) => resolution.body.decision)).size < 2
   ) {
@@ -166,8 +163,7 @@ function maximalResolutionIds(admitted: readonly Fact[], targetIds: readonly str
   const resolutions = admitted.filter(
     (candidate) =>
       candidate.body.kind === "resolution" &&
-      JSON.stringify([...candidate.body.proposalContributionIds].sort()) ===
-        JSON.stringify(targetIds),
+      JSON.stringify([...candidate.body.proposalContributionIds].sort()) === JSON.stringify(targetIds),
   );
   const superseded = new Set(
     resolutions.flatMap((resolution) =>
@@ -192,24 +188,14 @@ function validateRestore(fact: Fact, admitted: readonly Fact[]): void {
   if (!deletion || deletion.body.kind !== "contribution") {
     throw new Error(`Restore does not reference an observed deletion: ${fact.id}`);
   }
-  if (!observesFact(fact, deletion)) {
+  if (!factObserves(fact, deletion)) {
     throw new Error(`Restore does not causally observe its deletion: ${fact.id}`);
   }
   const deleted = deletion.body.mutation;
   const matches =
-    (mutation.kind === "node-restore" &&
-      deleted.kind === "node-delete" &&
-      deleted.nodeId === mutation.nodeId) ||
-    (mutation.kind === "occurrence-restore" &&
-      occurrenceRestoreDeletionId(deleted) === mutation.occurrenceId);
+    (mutation.kind === "node-restore" && deleted.kind === "node-delete" && deleted.nodeId === mutation.nodeId) ||
+    (mutation.kind === "occurrence-restore" && occurrenceRestoreDeletionId(deleted) === mutation.occurrenceId);
   if (!matches) {
     throw new Error(`Restore deletion target mismatch: ${fact.id}`);
   }
-}
-
-function observesFact(observer: Fact, observed: Fact): boolean {
-  return (
-    (observer.coordinate.observed[observed.coordinate.dot.replicaId] ?? 0) >=
-    observed.coordinate.dot.sequence
-  );
 }

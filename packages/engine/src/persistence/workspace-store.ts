@@ -47,11 +47,7 @@ export class WorkspaceStore {
   }
 
   /** Write (or overwrite) a snapshot for a content sub-doc covering up to `coveredUpdateSeq`. */
-  async writeSnapshot(input: {
-    subDoc: string;
-    coveredUpdateSeq: number;
-    snapshotBytes: Uint8Array;
-  }): Promise<void> {
+  async writeSnapshot(input: { subDoc: string; coveredUpdateSeq: number; snapshotBytes: Uint8Array }): Promise<void> {
     await this.db.transaction(async () => {
       await this.db.run(
         `INSERT INTO content_snapshots (sub_doc, covered_update_seq, snapshot_bytes, created_at)

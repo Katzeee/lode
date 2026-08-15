@@ -1,16 +1,16 @@
-import { stableStringCompare, type ViewMode } from "../../domain/fact/index.js";
+import { stableStringCompare } from "../../domain/fact/index.js";
 import type { DocumentStore, LoadedDocumentBytes } from "../../persistence/document-store.js";
+import type { MaterializedDatasetCatalog, MaterializedDatasetRoot } from "./materialized-dataset.js";
 import {
   SHARD_FORMAT,
+  directoryNodeDocumentId,
   directoryPrefix,
   encodeMaterialized,
   headerDocumentId,
-  planCacheDocumentId,
   shardPrefix,
   type DirectoryNodeReference,
   type DirectoryRoot,
   type MaterializedGeneration,
-  type MaterializedSection,
   type ShardDescriptor,
   type StoredDirectoryNode,
   type StoredShard,
@@ -40,92 +40,71 @@ export async function writeDirectoryNodes(
 ): Promise<void> {
   for (const node of nodes) {
     await documents.writeSnapshot(
-      `${directoryPrefix(node.generationId, node.view, node.section)}${node.contentDigest}`,
+      directoryNodeDocumentId(node.generationId, node, node.contentDigest),
       encodeMaterialized(node),
     );
   }
 }
 
-export async function loadAllDescriptors(
+export async function loadAllDescriptors<Identity>(
   documents: DocumentStore,
   generationId: string,
   roots: readonly DirectoryRoot[],
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<readonly ShardDescriptor[]> {
   const descriptors: ShardDescriptor[] = [];
   for (const root of roots) {
-    await collectDescriptors(
-      documents,
-      generationId,
-      root.view,
-      root.section,
-      root,
-      null,
-      Number.MAX_SAFE_INTEGER,
-      descriptors,
-    );
+    await collectDescriptors(documents, generationId, root, root, null, Number.MAX_SAFE_INTEGER, descriptors, catalog);
   }
   return descriptors;
 }
 
-export async function loadPageDescriptors(
+export async function loadPageDescriptors<Identity>(
   documents: DocumentStore,
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
-  root: DirectoryRoot,
+  root: MaterializedDatasetRoot,
+  directory: DirectoryRoot,
   after: string | null,
   limit: number,
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<Readonly<{ descriptors: readonly ShardDescriptor[]; hasMore: boolean }>> {
   const descriptors: ShardDescriptor[] = [];
-  await collectDescriptors(
-    documents,
-    generationId,
-    view,
-    section,
-    root,
-    after,
-    limit + 1,
-    descriptors,
-  );
+  await collectDescriptors(documents, generationId, root, directory, after, limit + 1, descriptors, catalog);
   return { descriptors: descriptors.slice(0, limit), hasMore: descriptors.length > limit };
 }
 
-export async function loadExactDescriptors(
+export async function loadExactDescriptors<Identity>(
   documents: DocumentStore,
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
+  root: MaterializedDatasetRoot,
+  directory: DirectoryRoot,
   identities: readonly string[],
-  root: DirectoryRoot,
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<readonly ShardDescriptor[]> {
   const descriptors = await Promise.all(
-    identities.map((identity) =>
-      findDescriptor(documents, generationId, view, section, root, identity),
-    ),
+    identities.map((identity) => findDescriptor(documents, generationId, root, directory, identity, catalog)),
   );
   return descriptors.filter((descriptor): descriptor is ShardDescriptor => descriptor !== null);
 }
 
-async function collectDescriptors(
+async function collectDescriptors<Identity>(
   documents: DocumentStore,
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
+  root: MaterializedDatasetRoot,
   reference: DirectoryNodeReference,
   after: string | null,
   limit: number,
   output: ShardDescriptor[],
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<void> {
   if (
     output.length >= limit ||
     reference.count === 0 ||
-    (after !== null &&
-      reference.maxIdentity !== null &&
-      stableStringCompare(reference.maxIdentity, after) <= 0)
+    (after !== null && reference.maxIdentity !== null && stableStringCompare(reference.maxIdentity, after) <= 0)
   ) {
     return;
   }
-  const node = await loadDirectoryNode(documents, generationId, view, section, reference);
+  const node = await loadDirectoryNode(documents, generationId, root, reference, catalog);
   if (node.level === 0) {
     for (const descriptor of node.entries ?? []) {
       if (after === null || stableStringCompare(descriptor.identity, after) > 0) {
@@ -138,20 +117,20 @@ async function collectDescriptors(
     return;
   }
   for (const child of node.children ?? []) {
-    await collectDescriptors(documents, generationId, view, section, child, after, limit, output);
+    await collectDescriptors(documents, generationId, root, child, after, limit, output, catalog);
     if (output.length >= limit) {
       return;
     }
   }
 }
 
-async function findDescriptor(
+async function findDescriptor<Identity>(
   documents: DocumentStore,
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
+  root: MaterializedDatasetRoot,
   reference: DirectoryNodeReference,
   identity: string,
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<ShardDescriptor | null> {
   if (
     reference.count === 0 ||
@@ -162,7 +141,7 @@ async function findDescriptor(
   ) {
     return null;
   }
-  const node = await loadDirectoryNode(documents, generationId, view, section, reference);
+  const node = await loadDirectoryNode(documents, generationId, root, reference, catalog);
   if (node.level === 0) {
     return node.entries?.find((descriptor) => descriptor.identity === identity) ?? null;
   }
@@ -173,62 +152,54 @@ async function findDescriptor(
       stableStringCompare(identity, candidate.minIdentity) >= 0 &&
       stableStringCompare(identity, candidate.maxIdentity) <= 0,
   );
-  return child ? findDescriptor(documents, generationId, view, section, child, identity) : null;
+  return child ? findDescriptor(documents, generationId, root, child, identity, catalog) : null;
 }
 
-async function loadDirectoryNode(
+async function loadDirectoryNode<Identity>(
   documents: DocumentStore,
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
+  root: MaterializedDatasetRoot,
   reference: DirectoryNodeReference,
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): Promise<StoredDirectoryNode> {
   const stored = await documents.load(reference.documentId);
   if (!stored) {
-    throw new Error("Published Projection directory is unavailable");
+    throw new Error("Published materialized dataset directory is unavailable");
   }
-  return parseDirectoryNode(generationId, view, section, reference, stored);
+  return parseDirectoryNode(generationId, root, reference, stored, catalog);
 }
 
-function parseDirectoryNode(
+function parseDirectoryNode<Identity>(
   generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
+  root: MaterializedDatasetRoot,
   reference: DirectoryNodeReference,
   stored: LoadedDocumentBytes,
+  catalog: MaterializedDatasetCatalog<Identity>,
 ): StoredDirectoryNode {
   if (!stored.snapshot || stored.updates.length > 0) {
-    throw new Error("Published Projection directory is corrupt");
+    throw new Error("Published materialized dataset directory is corrupt");
   }
   const parsed: unknown = JSON.parse(new TextDecoder().decode(stored.snapshot));
-  if (!isStoredDirectoryNode(parsed, generationId, reference, view, section)) {
-    throw new Error("Published Projection directory is corrupt");
+  if (!isStoredDirectoryNode(parsed, generationId, reference, root, catalog)) {
+    throw new Error("Published materialized dataset directory is corrupt");
   }
   return parsed;
 }
 
-export async function deleteGenerationDocuments(
-  documents: DocumentStore,
-  generationId: string,
-): Promise<void> {
+export async function deleteGenerationDocuments(documents: DocumentStore, generationId: string): Promise<void> {
   for (const prefix of [shardPrefix(generationId), directoryPrefix(generationId)]) {
     for (const id of await documents.listIds({ prefix })) {
       await documents.delete(id);
     }
   }
   await documents.delete(headerDocumentId(generationId));
-  await documents.delete(planCacheDocumentId(generationId));
 }
 
 export async function deleteOrphanMaterializedDocuments(
   documents: DocumentStore,
   retained: ReadonlySet<string>,
 ): Promise<void> {
-  for (const root of [
-    "materialized-generation/shard/",
-    "materialized-generation/directory/",
-    "materialized-generation/plan-cache/",
-  ]) {
+  for (const root of ["materialized-generation/shard/", "materialized-generation/directory/"]) {
     for (const id of await documents.listIds({ prefix: root })) {
       const generationId = id.slice(root.length).split("/")[0];
       if (generationId && !retained.has(generationId)) {

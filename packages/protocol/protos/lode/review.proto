@@ -1,0 +1,290 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/wrappers.proto";
+import "lode/fact.proto";
+import "lode/model.proto";
+
+enum ResolutionDecision {
+  RESOLUTION_DECISION_UNSPECIFIED = 0;
+  RESOLUTION_DECISION_ACCEPT = 1;
+  RESOLUTION_DECISION_REJECT = 2;
+}
+
+enum SchemaRelationKind {
+  SCHEMA_RELATION_KIND_UNSPECIFIED = 0;
+  SCHEMA_RELATION_KIND_APPLICATION = 1;
+  SCHEMA_RELATION_KIND_FIELD = 2;
+  SCHEMA_RELATION_KIND_EXTENSION = 3;
+  SCHEMA_RELATION_KIND_TEMPLATE_NODE = 4;
+}
+
+enum DiffSpaceKind {
+  DIFF_SPACE_KIND_UNSPECIFIED = 0;
+  DIFF_SPACE_KIND_NODE_CONTENT = 1;
+  DIFF_SPACE_KIND_CHILD_SEQUENCE = 2;
+  DIFF_SPACE_KIND_VALUE = 3;
+  DIFF_SPACE_KIND_LIFECYCLE = 4;
+  DIFF_SPACE_KIND_OWNER = 5;
+  DIFF_SPACE_KIND_SCHEMA_APPLICATION = 6;
+  DIFF_SPACE_KIND_SCHEMA_TEMPLATE = 7;
+  DIFF_SPACE_KIND_FIELD_CONFIGURATION = 8;
+  DIFF_SPACE_KIND_MATERIALIZED_FIELD = 9;
+}
+
+enum RecoveryAction {
+  RECOVERY_ACTION_UNSPECIFIED = 0;
+  RECOVERY_ACTION_RESTORE_SUPPORT = 1;
+}
+
+enum PlacementEndpoint {
+  PLACEMENT_ENDPOINT_UNSPECIFIED = 0;
+  PLACEMENT_ENDPOINT_BEFORE = 1;
+  PLACEMENT_ENDPOINT_AFTER = 2;
+  PLACEMENT_ENDPOINT_MISSING = 3;
+}
+
+message MarkChange {
+  string atom_id = 1;
+  string key = 2;
+  PreviousValue origin = 3;
+  PreviousValue review = 4;
+}
+
+message TextDecisionEffect {
+  string node_id = 2;
+  repeated string added_atom_ids = 3;
+  repeated string deleted_atom_ids = 4;
+  repeated MarkChange mark_changes = 5;
+}
+
+message PlacementRelation {
+  bool parent_matches = 1;
+  optional PlacementEndpoint after_endpoint = 2;
+  optional PlacementEndpoint before_endpoint = 3;
+}
+
+message StructureDecisionEffect {
+  string occurrence_id = 2;
+  bool origin_present = 3;
+  bool review_present = 4;
+  google.protobuf.StringValue origin_parent_id = 5;
+  google.protobuf.StringValue review_parent_id = 6;
+  SequenceAnchor anchor = 7;
+  PlacementRelation origin_relation = 8;
+  PlacementRelation review_relation = 9;
+}
+
+message ValueDecisionEffect {
+  oneof target {
+    string node = 2;
+    string occurrence = 3;
+  }
+  ValueNamespace namespace = 4;
+  string key = 5;
+  PreviousValue origin = 6;
+  PreviousValue review = 7;
+}
+
+message LifecycleDecisionEffect {
+  string identity = 2;
+  google.protobuf.BoolValue origin = 3;
+  google.protobuf.BoolValue review = 4;
+}
+
+message OwnerDecisionEffect {
+  string identity = 2;
+  google.protobuf.StringValue origin = 3;
+  google.protobuf.StringValue review = 4;
+}
+
+message NodeTypeDecisionEffect {
+  string identity = 1;
+  optional NodeType origin = 2;
+  optional NodeType review = 3;
+}
+
+message SchemaRelationDecisionEffect {
+  SchemaRelationKind relation = 2;
+  string owner_id = 3;
+  string target_id = 4;
+  google.protobuf.Int32Value origin_index = 5;
+  google.protobuf.Int32Value review_index = 6;
+}
+
+message FieldConfigurationDecisionEffect {
+  string schema_id = 2;
+  string field_definition_id = 3;
+  FieldTemplateConfig origin = 4;
+  FieldTemplateConfig review = 5;
+}
+
+message FieldMaterializationDecisionEffect {
+  string owner_node_id = 2;
+  string field_definition_id = 3;
+  google.protobuf.StringValue origin_field_node_id = 4;
+  google.protobuf.StringValue review_field_node_id = 5;
+  google.protobuf.StringValue origin_field_occurrence_id = 6;
+  google.protobuf.StringValue review_field_occurrence_id = 7;
+}
+
+message DecisionEffect {
+  oneof effect {
+    TextDecisionEffect text = 1;
+    StructureDecisionEffect structure = 2;
+    ValueDecisionEffect value = 3;
+    LifecycleDecisionEffect lifecycle = 4;
+    OwnerDecisionEffect owner = 8;
+    NodeTypeDecisionEffect node_type = 9;
+    SchemaRelationDecisionEffect schema_relation = 5;
+    FieldConfigurationDecisionEffect field_configuration = 6;
+    FieldMaterializationDecisionEffect field_materialization = 7;
+  }
+}
+
+message ReviewEvidence {
+  repeated string proposal_targets = 1;
+  repeated string support_closure = 2;
+  repeated DecisionEffect effects = 3;
+  repeated string associated_impact_ids = 4;
+  string rules_version = 5;
+  string schema_version = 6;
+}
+
+message ReviewSelection {
+  string token = 1;
+  string workspace_id = 2;
+  map<string, uint64> frontier = 3;
+  string generation_id = 4;
+  ReviewEvidence evidence = 5;
+}
+
+message DiffSpace {
+  DiffSpaceKind kind = 1;
+  string identity = 2;
+}
+
+message ReviewHunk {
+  string id = 1;
+  DiffSpace diff_space = 2;
+  repeated string proposal_contribution_ids = 3;
+  repeated string neutral_bridge_atom_ids = 4;
+  repeated string linked_hunk_ids = 5;
+  ReviewSelection selection = 6;
+}
+
+message ReviewQueryResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  repeated ReviewHunk hunks = 3;
+  google.protobuf.StringValue next = 4;
+}
+
+message ResolutionConflictCandidate {
+  string resolution_id = 1;
+  ResolutionDecision decision = 2;
+  string actor_id = 3;
+  string replica_id = 4;
+  map<string, uint64> observed_frontier = 5;
+}
+
+message UnsupportedDirectIntentConflict {
+  string identity = 2;
+  string contribution_id = 3;
+  ContributionMutationKind mutation_kind = 4;
+  string actor_id = 5;
+  string replica_id = 6;
+  map<string, uint64> observed_frontier = 7;
+  repeated string missing_support_contribution_ids = 8;
+  repeated string required_node_ids = 9;
+  repeated RecoveryAction recovery_actions = 10;
+}
+
+message NodeTypeConflictCandidate {
+  string contribution_id = 1;
+  NodeType node_type = 2;
+  string actor_id = 3;
+  string replica_id = 4;
+  map<string, uint64> observed_frontier = 5;
+}
+
+message NodeTypeConflict {
+  string identity = 2;
+  string node_id = 3;
+  repeated NodeTypeConflictCandidate candidates = 4;
+}
+
+message ResolutionConflict {
+  string identity = 2;
+  repeated string proposal_contribution_ids = 3;
+  repeated ResolutionConflictCandidate candidates = 4;
+}
+
+message PlacementConflictCandidate {
+  string contribution_id = 1;
+  string parent_node_id = 2;
+  SequenceAnchor anchor = 3;
+  string actor_id = 4;
+  string replica_id = 5;
+  map<string, uint64> observed_frontier = 6;
+}
+
+message PlacementConflict {
+  string identity = 2;
+  string occurrence_id = 3;
+  string canonical_parent_node_id = 4;
+  repeated PlacementConflictCandidate candidates = 5;
+}
+
+message SchemaExtensionCycleConflict {
+  string identity = 2;
+  repeated string schema_ids = 3;
+}
+
+message FieldConfigConflictCandidate {
+  FieldTemplateConfig config = 1;
+  repeated string contribution_ids = 2;
+}
+
+message FieldConfigConflict {
+  string identity = 2;
+  google.protobuf.StringValue owner_node_id = 3;
+  string field_definition_id = 4;
+  repeated string schema_ids = 5;
+  repeated string template_occurrence_ids = 6;
+  repeated FieldConfigConflictCandidate candidates = 7;
+}
+
+message FieldInitializationConflictCandidate {
+  string initialization_id = 1;
+  string schema_id = 2;
+  FieldInitializationSource source = 3;
+  repeated FieldValueSeed values = 4;
+}
+
+message FieldInitializationConflict {
+  string identity = 2;
+  string owner_node_id = 3;
+  string field_definition_id = 4;
+  repeated FieldInitializationConflictCandidate candidates = 5;
+}
+
+message ConflictIssue {
+  oneof issue {
+    UnsupportedDirectIntentConflict unsupported_direct_intent = 1;
+    NodeTypeConflict node_type_conflict = 2;
+    ResolutionConflict resolution_conflict = 3;
+    PlacementConflict placement_conflict = 4;
+    SchemaExtensionCycleConflict schema_extension_cycle = 5;
+    FieldConfigConflict field_config_conflict = 6;
+    FieldInitializationConflict field_initialization_conflict = 7;
+  }
+}
+
+message ConflictQueryResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  repeated ConflictIssue issues = 3;
+  google.protobuf.StringValue next = 4;
+}

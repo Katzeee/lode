@@ -2,6 +2,8 @@ import { deriveActiveContributions, pendingProposalFacts } from "../activation/i
 import {
   canonicalJson,
   compareFacts,
+  contributionFactsOfKind,
+  factObserves,
   stableStringCompare,
   type ContributionFact,
   type Fact,
@@ -12,9 +14,7 @@ import type { HardDeleteAssessment, HardDeleteBlocker, HardDeleteEvidence } from
 export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAssessment {
   const { workspaceId, nodeId, snapshot, localReplicaId } = evidence;
   const active = deriveActiveContributions(snapshot.facts, "origin").facts;
-  const deletionFactIds = [...(nodeDeletionFactIds(active).get(nodeId) ?? [])].sort(
-    stableStringCompare,
-  );
+  const deletionFactIds = [...(nodeDeletionFactIds(active).get(nodeId) ?? [])].sort(stableStringCompare);
   const retiredReplicaIds = retiredReplicas(snapshot.facts);
   const knownReplicaIds = [...new Set([localReplicaId, ...Object.keys(snapshot.frontier)])]
     .filter((replicaId) => !retiredReplicaIds.includes(replicaId))
@@ -57,8 +57,7 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
     schemaApplicationNodeIds: currentSchemaApplicationOwners(active, nodeId),
     materializedFieldNodeIds: active
       .flatMap((fact) =>
-        fact.body.mutation.kind === "field-materialize" &&
-        fact.body.mutation.fieldDefinitionId === nodeId
+        fact.body.mutation.kind === "field-materialize" && fact.body.mutation.fieldDefinitionId === nodeId
           ? [fact.body.mutation.fieldNodeId]
           : [],
       )
@@ -91,18 +90,13 @@ function retiredReplicas(facts: readonly Fact[]): string[] {
     .sort(stableStringCompare);
 }
 
-function currentAcknowledgements(
-  facts: readonly Fact[],
-  nodeId: string,
-  deletionFactIds: readonly string[],
-): Fact[] {
+function currentAcknowledgements(facts: readonly Fact[], nodeId: string, deletionFactIds: readonly string[]): Fact[] {
   const matching = facts.filter(
     (fact) =>
       fact.body.kind === "maintenance" &&
       fact.body.action.kind === "deletion-acknowledge" &&
       fact.body.action.nodeId === nodeId &&
-      canonicalJson([...fact.body.action.deletionFactIds].sort()) ===
-        canonicalJson(deletionFactIds),
+      canonicalJson([...fact.body.action.deletionFactIds].sort()) === canonicalJson(deletionFactIds),
   );
   const byReplica = new Map<string, Fact>();
   for (const fact of matching.sort(compareFacts)) {
@@ -113,10 +107,7 @@ function currentAcknowledgements(
   );
 }
 
-function currentOccurrenceReferences(
-  active: readonly ContributionFact[],
-  nodeId: string,
-): string[] {
+function currentOccurrenceReferences(active: readonly ContributionFact[], nodeId: string): string[] {
   const deleted = new Set(
     active.flatMap((fact) =>
       fact.body.mutation.kind === "occurrence-delete" ? [fact.body.mutation.occurrenceId] : [],
@@ -134,39 +125,23 @@ function currentOccurrenceReferences(
     .sort(stableStringCompare);
 }
 
-function currentSchemaApplicationOwners(
-  active: readonly ContributionFact[],
-  schemaId: string,
-): string[] {
-  const additions = active.filter(
-    (fact) =>
-      fact.body.mutation.kind === "schema-apply" && fact.body.mutation.schemaId === schemaId,
+function currentSchemaApplicationOwners(active: readonly ContributionFact[], schemaId: string): string[] {
+  const additions = contributionFactsOfKind(active, "schema-apply").filter(
+    (fact) => fact.body.mutation.schemaId === schemaId,
   );
-  const removals = active.filter(
-    (fact) =>
-      fact.body.mutation.kind === "schema-remove" && fact.body.mutation.schemaId === schemaId,
+  const removals = contributionFactsOfKind(active, "schema-remove").filter(
+    (fact) => fact.body.mutation.schemaId === schemaId,
   );
   return additions
     .flatMap((addition) => {
-      if (addition.body.mutation.kind !== "schema-apply") {
-        return [];
-      }
       const ownerNodeId = addition.body.mutation.nodeId;
       const removed = removals.some(
-        (removal) =>
-          removal.body.mutation.kind === "schema-remove" &&
-          removal.body.mutation.nodeId === ownerNodeId &&
-          observes(removal, addition),
+        (removal) => removal.body.mutation.nodeId === ownerNodeId && factObserves(removal, addition),
       );
       return removed ? [] : [ownerNodeId];
     })
     .filter(unique)
     .sort(stableStringCompare);
-}
-
-function observes(observer: Fact, observed: Fact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
 }
 
 function unique(value: string, index: number, values: readonly string[]): boolean {

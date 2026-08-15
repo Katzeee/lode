@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { HardDeletePreview, MutationCommand } from "../../application/contract.js";
+import type { HardDeletePreview, MutationCommand } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
@@ -92,9 +92,7 @@ describe("Hard Delete maintenance", () => {
 
     await opened.workspace.close();
     const restarted = await open(documents, "202", opened.facts.replicaId);
-    expect(await projectionMap(restarted.workspace, "nodeStatuses")).not.toHaveProperty(
-      "task-schema",
-    );
+    expect(await projectionMap(restarted.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
     const restartedPreview = await previewHardDelete(restarted.workspace);
     expect(restartedPreview.canExecute).toBe(false);
     expect(restartedPreview.blockers).toContain("already-purged");
@@ -122,13 +120,9 @@ describe("Hard Delete maintenance", () => {
         })
       ).status,
     ).toBe("published");
-    expect(
-      (await opened.workspace.execute(deleteSchemaCommand("delete-with-pending"))).status,
-    ).toBe("published");
+    expect((await opened.workspace.execute(deleteSchemaCommand("delete-with-pending"))).status).toBe("published");
     const preview = await previewHardDelete(opened.workspace);
-    expect(preview.blockers).toEqual(
-      expect.arrayContaining(["pending-proposal", "replica-unconfirmed"]),
-    );
+    expect(preview.blockers).toEqual(expect.arrayContaining(["pending-proposal", "replica-unconfirmed"]));
     expect(preview.pendingProposalContributionIds).toHaveLength(1);
   });
 
@@ -141,10 +135,7 @@ describe("Hard Delete maintenance", () => {
       throw new Error("Expected multi-Replica tombstone");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
-    await syncPair(
-      new FactSyncComposite(left.facts.replication),
-      new FactSyncComposite(right.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
@@ -154,24 +145,16 @@ describe("Hard Delete maintenance", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(
-      new FactSyncComposite(right.facts.replication),
-      new FactSyncComposite(left.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(right.facts.replication), new FactSyncComposite(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
 
     await acknowledge(left.workspace, "left-ack", deletionFactIds);
     let preview = await previewHardDelete(left.workspace);
-    expect(preview.knownReplicaIds).toEqual(
-      expect.arrayContaining([left.facts.replicaId, right.facts.replicaId]),
-    );
+    expect(preview.knownReplicaIds).toEqual(expect.arrayContaining([left.facts.replicaId, right.facts.replicaId]));
     expect(preview.blockers).toContain("replica-unconfirmed");
 
     await acknowledge(right.workspace, "right-ack", deletionFactIds);
-    await syncPair(
-      new FactSyncComposite(right.facts.replication),
-      new FactSyncComposite(left.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(right.facts.replication), new FactSyncComposite(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     preview = await previewHardDelete(left.workspace);
     expect(preview.acknowledgedReplicaIds).toEqual(
@@ -189,10 +172,7 @@ describe("Hard Delete maintenance", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(
-      new FactSyncComposite(left.facts.replication),
-      new FactSyncComposite(right.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(await projectionMap(right.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
   });
@@ -206,10 +186,7 @@ describe("Hard Delete maintenance", () => {
       throw new Error("Expected retirement fixture tombstone");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
-    await syncPair(
-      new FactSyncComposite(left.facts.replication),
-      new FactSyncComposite(right.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
@@ -219,10 +196,7 @@ describe("Hard Delete maintenance", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(
-      new FactSyncComposite(right.facts.replication),
-      new FactSyncComposite(left.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(right.facts.replication), new FactSyncComposite(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await acknowledge(left.workspace, "retirement-left-ack", deletionFactIds);
     expect((await previewHardDelete(left.workspace)).blockers).toContain("replica-unconfirmed");
@@ -245,11 +219,7 @@ describe("Hard Delete maintenance", () => {
   });
 });
 
-async function open(
-  documents: InMemoryDocumentStore,
-  peer: `${number}`,
-  replicaId = createReplicaId(),
-) {
+async function open(documents: InMemoryDocumentStore, peer: `${number}`, replicaId = createReplicaId()) {
   const facts = await FactAuthorityStore.open({
     workspaceId: "workspace",
     replicaId,
@@ -346,10 +316,7 @@ async function acknowledge(
   ).toBe("published");
 }
 
-async function projectionMap(
-  workspace: ProposalWorkspace,
-  section: "nodeStatuses" | "schemaApplications",
-) {
+async function projectionMap(workspace: ProposalWorkspace, section: "nodeStatuses" | "schemaApplications") {
   const result = await workspace.query({
     kind: "projection",
     workspaceId: "workspace",

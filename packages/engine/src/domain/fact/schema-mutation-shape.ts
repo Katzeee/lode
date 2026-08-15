@@ -5,12 +5,9 @@ import {
   assertKeys,
   assertStringArray,
   requireString,
-} from "./shape-validation-primitives.js";
-import type {
-  FieldTemplateConfig,
-  FieldValueSeed,
-  InitializedFieldValue,
-} from "./field-template-types.js";
+} from "../../shape-validation/index.js";
+import type { InitializedFieldValue } from "./field-template-types.js";
+import { parseFieldTemplateConfig } from "./field-template-shape.js";
 
 export function assertSchemaMutationShape(value: Record<string, unknown>): void {
   if (value.kind === "field-materialize") {
@@ -47,9 +44,9 @@ export function assertSchemaMutationShape(value: Record<string, unknown>): void 
   if (value.kind === "schema-field-configure") {
     requireString(value.fieldDefinitionId, "Field Definition identity");
     requireString(value.fieldNodeId, "Template Field Node identity");
-    assertFieldTemplateConfig(value.config, "Field Template config");
+    parseFieldTemplateConfig(value.config);
     if (value.previousConfig !== undefined && value.previousConfig !== null) {
-      assertFieldTemplateConfig(value.previousConfig, "previous Field Template config");
+      parseFieldTemplateConfig(value.previousConfig);
     }
     if (value.observedConfigFactIds !== undefined) {
       assertStringArray(value.observedConfigFactIds, "observed Field config Facts");
@@ -95,9 +92,7 @@ function assertInitializedFieldValues(
     assertObject(item, label);
     assertKeys(
       item,
-      item.kind === "text"
-        ? ["kind", "nodeId", "occurrenceId", "value"]
-        : ["kind", "nodeId", "occurrenceId"],
+      item.kind === "text" ? ["kind", "nodeId", "occurrenceId", "value"] : ["kind", "nodeId", "occurrenceId"],
       label,
     );
     requireString(item.nodeId, `${label} Node`);
@@ -107,53 +102,6 @@ function assertInitializedFieldValues(
         throw new Error(`${label} text value is invalid`);
       }
     } else if (item.kind !== "reference") {
-      throw new Error(`${label} kind is invalid`);
-    }
-  }
-}
-
-function assertFieldTemplateConfig(
-  value: unknown,
-  label: string,
-): asserts value is FieldTemplateConfig {
-  assertObject(value, label);
-  assertKeys(value, ["visibility", "staticDefault", "initializer"], label);
-  assertOneOf(value.visibility, ["pinned", "normal", "optional"], `${label} visibility`);
-  if (value.staticDefault !== null) {
-    assertFieldValueSeeds(value.staticDefault, `${label} static default`);
-  }
-  if (value.initializer === null) {
-    return;
-  }
-  assertObject(value.initializer, `${label} initializer`);
-  if (value.initializer.kind === "application-node-text") {
-    assertKeys(value.initializer, ["kind"], `${label} initializer`);
-    return;
-  }
-  assertKeys(value.initializer, ["kind", "values"], `${label} initializer`);
-  if (value.initializer.kind !== "literal") {
-    throw new Error(`${label} initializer kind is invalid`);
-  }
-  assertFieldValueSeeds(value.initializer.values, `${label} initializer values`);
-}
-
-function assertFieldValueSeeds(
-  value: unknown,
-  label: string,
-): asserts value is readonly FieldValueSeed[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-  for (const seed of value) {
-    assertObject(seed, label);
-    assertKeys(seed, seed.kind === "text" ? ["kind", "value"] : ["kind", "nodeId"], label);
-    if (seed.kind === "text") {
-      if (typeof seed.value !== "string") {
-        throw new Error(`${label} text value is invalid`);
-      }
-    } else if (seed.kind === "reference") {
-      requireString(seed.nodeId, `${label} Reference Node`);
-    } else {
       throw new Error(`${label} kind is invalid`);
     }
   }

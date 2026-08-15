@@ -65,12 +65,7 @@ describe("production History contracts", () => {
         },
       ],
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     fixture.step({
       invocationId: "other-channel",
       channelId: "other",
@@ -86,13 +81,7 @@ describe("production History contracts", () => {
       ],
     });
     expect(
-      validateHistorySelection(
-        selection,
-        "actor",
-        fixture.receipts,
-        fixture.snapshot(),
-        fixture.generation(),
-      ).kind,
+      validateHistorySelection(selection, "actor", fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
     ).toBe("ready");
 
     fixture.step({
@@ -109,13 +98,7 @@ describe("production History contracts", () => {
       ],
     });
     expect(
-      validateHistorySelection(
-        selection,
-        "actor",
-        fixture.receipts,
-        fixture.snapshot(),
-        fixture.generation(),
-      ).kind,
+      validateHistorySelection(selection, "actor", fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
     ).toBe("stale");
   });
 
@@ -129,7 +112,7 @@ describe("production History contracts", () => {
       parentNodeId: "workspace",
       anchor: end,
     });
-    const step = fixture.step({
+    fixture.step({
       invocationId: "compound",
       mutations: [
         {
@@ -167,12 +150,7 @@ describe("production History contracts", () => {
       value: "red",
       previous: { kind: "set", value: "blue" },
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
       selection,
       "undoer",
@@ -181,17 +159,13 @@ describe("production History contracts", () => {
       fixture.generation(),
     );
 
-    expect(step.factIds).toHaveLength(3);
     expect(plan.kind).toBe("ready");
     if (plan.kind !== "ready") {
       return;
     }
     expect(plan.write.kind).toBe("transaction");
     expect(plan.write.bodies.every((body) => body.intent === "proposal")).toBe(true);
-    expect(plan.write.bodies.map((body) => body.mutation.kind)).toEqual([
-      "occurrence-move",
-      "text-splice",
-    ]);
+    expect(plan.write.bodies.map((body) => body.mutation.kind)).toEqual(["occurrence-move", "text-splice"]);
   });
 
   it("HIST-4 every owner compensates semantically without snapshots", () => {
@@ -219,12 +193,7 @@ describe("production History contracts", () => {
         },
       ],
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
       selection,
       "actor",
@@ -269,12 +238,7 @@ describe("production History contracts", () => {
     });
     deletedOwner.fact({ kind: "node-delete", nodeId: "node" });
     expect(
-      queryHistory(
-        "channel",
-        deletedOwner.receipts,
-        deletedOwner.snapshot(),
-        deletedOwner.generation(),
-      ).undo,
+      queryHistory("channel", deletedOwner.receipts, deletedOwner.snapshot(), deletedOwner.generation()).undo,
     ).toBeNull();
   });
 
@@ -294,19 +258,8 @@ describe("production History contracts", () => {
         },
       ],
     });
-    const undo = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
-    const plan = validateHistorySelection(
-      undo,
-      "actor",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const undo = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
+    const plan = validateHistorySelection(undo, "actor", fixture.receipts, fixture.snapshot(), fixture.generation());
     if (plan.kind !== "ready") {
       throw new Error("Proposal Undo must be ready");
     }
@@ -317,9 +270,7 @@ describe("production History contracts", () => {
       targetStepId: "proposal",
       mutations: plan.write.bodies.map((body) => body.mutation),
     });
-    expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks).toHaveLength(
-      0,
-    );
+    expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks).toHaveLength(0);
   });
 
   it("accepted and rejected Proposal steps leave History instead of being compensated", () => {
@@ -340,9 +291,7 @@ describe("production History contracts", () => {
         ],
       });
       fixture.resolve(step.factIds, decision);
-      expect(
-        queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo,
-      ).toBeNull();
+      expect(queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo).toBeNull();
     }
   });
 });

@@ -4,10 +4,7 @@ import { validateFieldInitialization, validateSchemaMutation } from "./schema-st
 import { isWellFormedUnicode } from "./text-validation.js";
 import { validateTemplateDetachment } from "./template-node-validation.js";
 import { validateWorkspaceRootPolicy } from "./workspace-root-policy.js";
-import {
-  validateStaticFieldContentDeletion,
-  validateStaticFieldMaterialization,
-} from "./field-content-validation.js";
+import { validateStaticFieldContentDeletion, validateStaticFieldMaterialization } from "./field-content-validation.js";
 import {
   FACT_SCHEMA_VERSION,
   FORMAT_GENERATION,
@@ -44,21 +41,14 @@ export function validateStaticFact(workspaceId: WorkspaceId, fact: Fact): void {
     throw new Error(`Invalid Fact transaction position: ${fact.id}`);
   }
   const firstSequence = sequence - transaction.index;
-  if (
-    firstSequence < 1 ||
-    transaction.transactionId !== factTransactionId(workspaceId, replicaId, firstSequence)
-  ) {
+  if (firstSequence < 1 || transaction.transactionId !== factTransactionId(workspaceId, replicaId, firstSequence)) {
     throw new Error(`Fact transaction identity does not match its position: ${fact.id}`);
   }
   if (!Number.isSafeInteger(fact.coordinate.lamport) || fact.coordinate.lamport < 1) {
     throw new Error(`Invalid Fact Lamport rank: ${fact.id}`);
   }
   for (const [observedReplicaId, observedSequence] of Object.entries(fact.coordinate.observed)) {
-    if (
-      !isReplicaId(observedReplicaId) ||
-      !Number.isSafeInteger(observedSequence) ||
-      observedSequence < 0
-    ) {
+    if (!isReplicaId(observedReplicaId) || !Number.isSafeInteger(observedSequence) || observedSequence < 0) {
       throw new Error(`Invalid observed frontier: ${fact.id}`);
     }
     if (observedReplicaId === replicaId && observedSequence >= sequence) {
@@ -102,10 +92,7 @@ function validateBody(body: FactBody, id: string): void {
   validateMutation(body.mutation, id);
 }
 
-function validateMaintenanceAction(
-  action: Extract<FactBody, { kind: "maintenance" }>["action"],
-  id: string,
-): void {
+function validateMaintenanceAction(action: Extract<FactBody, { kind: "maintenance" }>["action"], id: string): void {
   if (action.kind === "replica-retire") {
     if (!isReplicaId(action.replicaId)) {
       throw new Error(`Invalid retired Replica identity: ${id}`);
@@ -120,10 +107,7 @@ function validateMaintenanceAction(
   if (identities.length === 0 || new Set(identities).size !== identities.length) {
     throw new Error(`Maintenance evidence is empty or duplicated: ${id}`);
   }
-  if (
-    action.kind === "node-purge" &&
-    action.retiredReplicaIds.some((replicaId) => !isReplicaId(replicaId))
-  ) {
+  if (action.kind === "node-purge" && action.retiredReplicaIds.some((replicaId) => !isReplicaId(replicaId))) {
     throw new Error(`Invalid retired Replica evidence: ${id}`);
   }
 }
@@ -192,8 +176,7 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       }
       if (
         new Set(mutation.deleteAtomIds).size !== mutation.deleteAtomIds.length ||
-        new Set(mutation.deletedAtoms.map((atom) => atom.id)).size !==
-          mutation.deletedAtoms.length ||
+        new Set(mutation.deletedAtoms.map((atom) => atom.id)).size !== mutation.deletedAtoms.length ||
         canonicalJson([...mutation.deleteAtomIds].sort()) !==
           canonicalJson(mutation.deletedAtoms.map((atom) => atom.id).sort())
       ) {
@@ -206,10 +189,7 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       if (mutation.previous === undefined) {
         throw new Error(`Text mark lacks semantic evidence: ${factIdentity}`);
       }
-      if (
-        mutation.atomIds.length === 0 ||
-        new Set(mutation.atomIds).size !== mutation.atomIds.length
-      ) {
+      if (mutation.atomIds.length === 0 || new Set(mutation.atomIds).size !== mutation.atomIds.length) {
         throw new Error(`Text mark targets are empty or duplicated: ${factIdentity}`);
       }
       return;
@@ -220,13 +200,13 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       if (mutation.previous === undefined) {
         throw new Error(`Value mutation lacks semantic evidence: ${factIdentity}`);
       }
+      return;
+    default:
+      assertNever(mutation);
   }
 }
 
-function validateNodeCreation(
-  mutation: Extract<Mutation, { kind: "node-create" }>,
-  factIdentity: string,
-): void {
+function validateNodeCreation(mutation: Extract<Mutation, { kind: "node-create" }>, factIdentity: string): void {
   requireIdentity(mutation.nodeId, "node-create", factIdentity);
   if (mutation.seed?.text.some((atom) => !isWellFormedUnicode(atom.value))) {
     throw new Error(`Node seed contains an unpaired surrogate: ${factIdentity}`);
@@ -291,4 +271,8 @@ function requireNullableIdentity(value: string | null, label: string, factIdenti
   if (value !== null) {
     requireIdentity(value, label, factIdentity);
   }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled Mutation validation: ${JSON.stringify(value)}`);
 }

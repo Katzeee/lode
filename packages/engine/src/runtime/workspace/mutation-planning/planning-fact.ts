@@ -35,11 +35,7 @@ export function createPlanningTransaction(
     observed = normalizeFrontier({ ...observed, [PLANNING_REPLICA]: sequence });
     return fact;
   });
-  const [first, ...rest] = facts;
-  if (!first) {
-    throw new Error("Planning transaction requires at least one Mutation");
-  }
-  return [first, ...rest];
+  return facts as [Fact, ...Fact[]];
 }
 
 function maximumLamport(snapshot: FactSnapshot): number {

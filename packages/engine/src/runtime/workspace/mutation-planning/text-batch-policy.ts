@@ -1,9 +1,6 @@
 import type { Mutation } from "../../../domain/fact/index.js";
 
-export function assertNoBatchCreatedAtomReference(
-  mutation: Mutation,
-  batchCreatedAtomIds: ReadonlySet<string>,
-): void {
+export function assertNoBatchCreatedAtomReference(mutation: Mutation, batchCreatedAtomIds: ReadonlySet<string>): void {
   const references =
     mutation.kind === "text-splice"
       ? [...mutation.deleteAtomIds, mutation.anchor.after, mutation.anchor.before]
@@ -15,11 +12,7 @@ export function assertNoBatchCreatedAtomReference(
   }
 }
 
-export function rememberCreatedAtomIds(
-  mutation: Mutation,
-  factId: string,
-  createdAtomIds: Set<string>,
-): void {
+export function rememberCreatedAtomIds(mutation: Mutation, factId: string, createdAtomIds: Set<string>): void {
   if (mutation.kind === "text-splice") {
     [...mutation.insert].forEach((_, atomIndex) => {
       createdAtomIds.add(`${factId}#${atomIndex}`);

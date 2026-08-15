@@ -1,14 +1,9 @@
 import { LoroDoc } from "loro-crdt";
 
-import {
-  parseAuthorityRecords,
-  type Admission,
-  type WorkspaceId,
-} from "../../domain/fact/index.js";
+import type { Admission, AuthorityRecord, WorkspaceId } from "../../domain/fact/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import { addFactsToSyncProjection, buildFactSyncProjection } from "./fact-sync-projection.js";
 import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
-import { validRecordPrefix } from "./authority-records.js";
 import { validateStagedSyncImport } from "./sync-import-validation.js";
 
 export const FACT_SYNC_STATE_DOCUMENT_ID = "fact-sync-state";
@@ -21,6 +16,7 @@ export async function loadSyncProjection(
     admitRecords: AuthorityAdmissionPolicy;
   }>,
   authorityRecords: readonly unknown[],
+  validAuthorityRecords: readonly AuthorityRecord[],
 ): Promise<LoroDoc> {
   const admit = options.admitRecords;
   const loaded = await options.documents.load(FACT_SYNC_STATE_DOCUMENT_ID);
@@ -37,43 +33,24 @@ export async function loadSyncProjection(
     for (const update of loaded.updates) {
       projection.import(update);
     }
-    const valid = parseAuthorityRecords(
-      validRecordPrefix(options.workspaceId, authorityRecords, admit),
-    );
     addFactsToSyncProjection(
       projection,
-      valid.flatMap((record) => (record.recordKind === "fact" ? [record.fact] : [])),
+      validAuthorityRecords.flatMap((record) => (record.recordKind === "fact" ? [record.fact] : [])),
     );
-    const validation = validateStagedSyncImport(
-      options.workspaceId,
-      authorityRecords,
-      projection,
-      admit,
-    );
+    const validation = validateStagedSyncImport(options.workspaceId, authorityRecords, projection, admit);
     if (validation.kind === "fault" || validation.records.length > 0) {
       throw new Error("Persisted Fact sync state does not match authority");
     }
   } catch {
-    projection = buildFactSyncProjection(
-      options.workspaceId,
-      options.loroPeerId,
-      authorityRecords,
-      admit,
-    );
+    projection = buildFactSyncProjection(options.loroPeerId, validAuthorityRecords);
   }
   await persistSyncProjection(options.documents, projection);
   return projection;
 }
 
-export async function persistSyncProjection(
-  documents: DocumentStore,
-  projection: LoroDoc,
-): Promise<void> {
+export async function persistSyncProjection(documents: DocumentStore, projection: LoroDoc): Promise<void> {
   try {
-    await documents.writeSnapshot(
-      FACT_SYNC_STATE_DOCUMENT_ID,
-      projection.export({ mode: "snapshot" }),
-    );
+    await documents.writeSnapshot(FACT_SYNC_STATE_DOCUMENT_ID, projection.export({ mode: "snapshot" }));
   } catch {
     /* Derived sync state is rebuilt from immutable Facts. */
   }

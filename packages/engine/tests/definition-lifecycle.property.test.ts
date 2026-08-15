@@ -101,12 +101,7 @@ function definitionFixture(): Facts {
   return facts;
 }
 
-function remoteFact(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  mutation: Mutation,
-): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, mutation: Mutation): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,

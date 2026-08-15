@@ -27,13 +27,7 @@ export async function includeOwnedDeletionScope(
   if (ownedNodeIds.length === 0) {
     return initialOccurrences;
   }
-  const occurrenceIds = await readIndex(
-    store,
-    generationId,
-    view,
-    "occurrenceIdsByNode",
-    ownedNodeIds,
-  );
+  const occurrenceIds = await readIndex(store, generationId, view, "occurrenceIdsByNode", ownedNodeIds);
   const batch = await store.read(generationId, view, "occurrences", occurrenceIds);
   const occurrences = await includeOccurrenceAncestors(store, generationId, view, {
     ...initialOccurrences,
@@ -76,10 +70,7 @@ function deletedOccurrenceId(mutation: Mutation): string | null {
   return mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : null;
 }
 
-function includeOccurrenceScope(
-  scope: GenerationReadScope,
-  occurrences: Record<string, ProjectedOccurrence>,
-): void {
+function includeOccurrenceScope(scope: GenerationReadScope, occurrences: Record<string, ProjectedOccurrence>): void {
   for (const occurrence of Object.values(occurrences)) {
     scope.nodes.add(occurrence.nodeId);
     scope.nodes.add(occurrence.parentNodeId);

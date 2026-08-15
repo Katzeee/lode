@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProjectionPage } from "../../application/contract.js";
+import type { ProjectionPage } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
-import {
-  templateInstanceNodeId,
-  templateInstanceOccurrenceId,
-  type ViewMode,
-} from "../../domain/fact/index.js";
+import { templateInstanceNodeId, templateInstanceOccurrenceId, type ViewMode } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
@@ -59,9 +55,9 @@ describe("ordinary Schema Template Nodes", () => {
       instanceNodeId: null,
       state: "linked",
     });
-    expect(
-      await occurrenceNode(opened, templateInstanceOccurrenceId("workspace", "workspace-guidance")),
-    ).toBe("workspace-guidance");
+    expect(await occurrenceNode(opened, templateInstanceOccurrenceId("workspace", "workspace-guidance"))).toBe(
+      "workspace-guidance",
+    );
   });
 
   it("trashes a detached Node when its Original is deleted and restores the same identity", async () => {
@@ -88,9 +84,7 @@ describe("ordinary Schema Template Nodes", () => {
       { kind: "occurrence-delete", occurrenceId: instanceOccurrenceId },
     ]);
     if (deletion.status !== "published") {
-      throw new Error(
-        `Expected detached Original deletion to publish: ${JSON.stringify(deletion)}`,
-      );
+      throw new Error(`Expected detached Original deletion to publish: ${JSON.stringify(deletion)}`);
     }
     const deletionFactId = deletion.receipt.factIds[0];
     if (!deletionFactId) {
@@ -119,18 +113,14 @@ describe("ordinary Schema Template Nodes", () => {
     expect((await mutate(first, "setup", setupProgram())).status).toBe("published");
 
     const templateOccurrenceId = "note-schema-guidance-template-occurrence";
-    const templateOccurrence = (await section(first, "origin", "occurrences")).occurrences[
-      templateOccurrenceId
-    ];
+    const templateOccurrence = (await section(first, "origin", "occurrences")).occurrences[templateOccurrenceId];
     expect(templateOccurrence).toMatchObject({
       occurrenceId: templateOccurrenceId,
       nodeId: "guidance",
       parentNodeId: "note-schema",
       derived: false,
     });
-    expect((await section(first, "origin", "children")).children["note-schema"]).toContain(
-      templateOccurrenceId,
-    );
+    expect((await section(first, "origin", "children")).children["note-schema"]).toContain(templateOccurrenceId);
     expect((await section(first, "origin", "nodeOwners")).nodeOwners.guidance).toBe("note-schema");
 
     const linked = await templateInstance(first, "origin");
@@ -298,15 +288,12 @@ describe("ordinary Schema Template Nodes", () => {
       throw new Error("Expected Template Node Review Hunks");
     }
     const textHunk = review.hunks.find(
-      (hunk) =>
-        hunk.diffSpace.kind === "node-content" && hunk.diffSpace.identity === instanceNodeId,
+      (hunk) => hunk.diffSpace.kind === "node-content" && hunk.diffSpace.identity === instanceNodeId,
     );
     if (!textHunk) {
       throw new Error("Expected detached instance text Hunk");
     }
-    expect(textHunk.selection.evidence.supportClosure).toEqual(
-      textHunk.selection.evidence.proposalTargets,
-    );
+    expect(textHunk.selection.evidence.supportClosure).toEqual(textHunk.selection.evidence.proposalTargets);
     const acceptedDetachment = await opened.workspace.execute({
       kind: "resolve-review",
       workspaceId: "workspace",

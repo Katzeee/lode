@@ -13,15 +13,8 @@ export function expandPlanningEdit(edit: EditMutation, available: ScopedProjecti
     : expandEditMutation(edit);
 }
 
-export function assertNoWorkspaceCreation(
-  workspaceId: string,
-  operations: readonly EditMutation[],
-): void {
-  if (
-    operations.some(
-      (operation) => operation.kind === "node-create" && operation.nodeId === workspaceId,
-    )
-  ) {
+export function assertNoWorkspaceCreation(workspaceId: string, operations: readonly EditMutation[]): void {
+  if (operations.some((operation) => operation.kind === "node-create" && operation.nodeId === workspaceId)) {
     throw new Error("Workspace identity is created only by Workspace genesis");
   }
 }

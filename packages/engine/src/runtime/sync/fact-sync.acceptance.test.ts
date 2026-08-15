@@ -15,7 +15,7 @@ import { queryReview } from "../../domain/review/index.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "./fact-sync.js";
 import { SyncExchange } from "./sync-exchange.js";
-import { InMemorySyncTransport, syncPair } from "../../../tests/support/sync.js";
+import { InMemoryReplicaPeer, syncPair } from "../../../tests/support/sync.js";
 
 const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
@@ -89,10 +89,7 @@ describe("Fact-only production sync", () => {
     const remote = new LoroDoc();
     remote.setPeerId("202");
     const facts = remote.getMap<string>("facts");
-    facts.set(
-      `${first.id}/${first.contentDigest}`,
-      canonicalJson({ recordKind: "fact", fact: first }),
-    );
+    facts.set(`${first.id}/${first.contentDigest}`, canonicalJson({ recordKind: "fact", fact: first }));
     remote.commit({ message: "first transaction member" });
     const beforeSecond = remote.version();
     await target.replication.importUpdate(remote.export({ mode: "snapshot" }));
@@ -103,10 +100,7 @@ describe("Fact-only production sync", () => {
       pendingTransactionIds: [transactionId],
     });
 
-    facts.set(
-      `${second.id}/${second.contentDigest}`,
-      canonicalJson({ recordKind: "fact", fact: second }),
-    );
+    facts.set(`${second.id}/${second.contentDigest}`, canonicalJson({ recordKind: "fact", fact: second }));
     remote.commit({ message: "complete transaction" });
     await target.replication.importUpdate(remote.export({ mode: "update", from: beforeSecond }));
 
@@ -256,7 +250,7 @@ describe("Fact-only production sync", () => {
       publishedFrontier: {},
     });
     const remote = new FactSyncComposite(b.replication);
-    const transport = new CountingSyncTransport(new InMemorySyncTransport(remote));
+    const transport = new CountingReplicaPeer(new InMemoryReplicaPeer(remote));
     const exchange = new SyncExchange(new FactSyncComposite(a.replication), transport);
     await exchange.sync();
     await a.commit({
@@ -309,14 +303,9 @@ describe("Fact-only production sync", () => {
         publishedFrontier: local.snapshot().frontier,
       });
     }
-    await syncPair(
-      new FactSyncComposite(local.replication),
-      new FactSyncComposite(remote.replication),
-    );
+    await syncPair(new FactSyncComposite(local.replication), new FactSyncComposite(remote.replication));
     local = await open();
-    const transport = new CountingSyncTransport(
-      new InMemorySyncTransport(new FactSyncComposite(remote.replication)),
-    );
+    const transport = new CountingReplicaPeer(new InMemoryReplicaPeer(new FactSyncComposite(remote.replication)));
     const exchange = new SyncExchange(new FactSyncComposite(local.replication), transport);
     expect(await exchange.sync()).toEqual({ pulled: 0, pushed: 0 });
     expect(transport.sentBytes).toBe(0);
@@ -361,14 +350,8 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     lineage: null,
     publishedFrontier: {},
   });
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[1], "second composite"),
-  );
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[2], "third composite"),
-  );
+  await syncPair(required(composites[0], "first composite"), required(composites[1], "second composite"));
+  await syncPair(required(composites[0], "first composite"), required(composites[2], "third composite"));
   const proposal = await required(stores[0], "first store").commit({
     invocationId: "proposal",
     request: { command: "proposal" },
@@ -376,14 +359,8 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     lineage: null,
     publishedFrontier: required(stores[0], "first store").snapshot().frontier,
   });
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[1], "second composite"),
-  );
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[2], "third composite"),
-  );
+  await syncPair(required(composites[0], "first composite"), required(composites[1], "second composite"));
+  await syncPair(required(composites[0], "first composite"), required(composites[2], "third composite"));
   await required(stores[1], "second store").commit({
     invocationId: "b",
     request: { command: "b" },
@@ -417,23 +394,11 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     publishedFrontier: required(stores[2], "third store").snapshot().frontier,
   });
   for (const [left, right] of edges) {
-    await syncPair(
-      required(composites[left], `composite ${left}`),
-      required(composites[right], `composite ${right}`),
-    );
+    await syncPair(required(composites[left], `composite ${left}`), required(composites[right], `composite ${right}`));
   }
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[1], "second composite"),
-  );
-  await syncPair(
-    required(composites[1], "second composite"),
-    required(composites[2], "third composite"),
-  );
-  await syncPair(
-    required(composites[0], "first composite"),
-    required(composites[2], "third composite"),
-  );
+  await syncPair(required(composites[0], "first composite"), required(composites[1], "second composite"));
+  await syncPair(required(composites[1], "second composite"), required(composites[2], "third composite"));
+  await syncPair(required(composites[0], "first composite"), required(composites[2], "third composite"));
 
   const snapshots = stores.map((store) => store.snapshot());
   expect(snapshots[1]).toEqual(snapshots[0]);
@@ -481,10 +446,10 @@ function nodeTransaction(nodeId: string, actorId: string, intent: EditIntent): F
   };
 }
 
-class CountingSyncTransport {
+class CountingReplicaPeer {
   sentBytes = 0;
 
-  constructor(private readonly inner: InMemorySyncTransport) {}
+  constructor(private readonly inner: InMemoryReplicaPeer) {}
 
   profile() {
     return this.inner.profile();

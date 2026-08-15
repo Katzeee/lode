@@ -64,9 +64,7 @@ type DirectEditMutationKind = {
   [Kind in Mutation["kind"]]: (typeof MUTATION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
 }[Mutation["kind"]];
 
-type UnpreparedMutation<M extends Mutation> = M extends Mutation
-  ? Readonly<Omit<M, PreparedEvidence>>
-  : never;
+type UnpreparedMutation<M extends Mutation> = M extends Mutation ? Readonly<Omit<M, PreparedEvidence>> : never;
 
 type UnpreparedMutations<M extends Mutation> = M extends Mutation ? UnpreparedMutation<M> : never;
 
@@ -95,19 +93,6 @@ export function mutationWriteMembers(write: MutationWrite): readonly [Mutation, 
   return write.kind === "single" ? [write.mutation] : write.mutations;
 }
 
-export function createNodeAt(
-  input: Readonly<{
-    nodeId: string;
-    occurrenceId: string;
-    parentNodeId: string;
-    anchor: SequenceAnchor;
-    seed?: NodeSeed;
-    nodeType?: NodeType;
-  }>,
-): CreateNodeEdit {
-  return { kind: "node-create", ...input };
-}
-
 export function expandEditMutation(edit: ExpandableEdit): MutationWrite {
   if (edit.kind !== "node-create") {
     return singleMutationWrite(edit);
@@ -122,8 +107,6 @@ export function expandEditMutation(edit: ExpandableEdit): MutationWrite {
       parentNodeId,
       anchor,
     },
-    ...(nodeType === undefined
-      ? []
-      : ([{ kind: "node-type-declare", nodeId: edit.nodeId, nodeType }] as const)),
+    ...(nodeType === undefined ? [] : ([{ kind: "node-type-declare", nodeId: edit.nodeId, nodeType }] as const)),
   ]);
 }

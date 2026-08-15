@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { canonicalDigest, frontierOf, makeFact } from "../../domain/fact/index.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-  validateGenerationCheckpoint,
-} from "./generation-checkpoint.js";
+import { createGenerationCheckpoint, reconcileFromCheckpoint } from "./generation-checkpoint.js";
+import type { FactSnapshot } from "../../domain/fact/index.js";
+import type { ProjectionVersions } from "../../domain/reconcile/index.js";
 import { rebuildGeneration } from "../../domain/reconcile/reconcile.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -31,33 +29,19 @@ describe("generation checkpoints", () => {
     const generation = rebuildGeneration("workspace", snapshot, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", snapshot, generation, INTEGRITY_KEY);
 
+    expect(generationFromCheckpoint(checkpoint, "workspace", snapshot, versions)).toEqual(generation);
     expect(
-      validateGenerationCheckpoint(checkpoint, "workspace", snapshot, versions, INTEGRITY_KEY),
-    ).toEqual(generation);
-    expect(
-      validateGenerationCheckpoint(
-        { ...checkpoint, projectionDigest: "corrupt" },
-        "workspace",
-        snapshot,
-        versions,
-        INTEGRITY_KEY,
-      ),
+      generationFromCheckpoint({ ...checkpoint, projectionDigest: "corrupt" }, "workspace", snapshot, versions),
     ).toBeNull();
     expect(
-      validateGenerationCheckpoint(
-        checkpoint,
-        "workspace",
-        snapshot,
-        {
-          ...versions,
-          rulesVersion: "unknown-rules",
-        },
-        INTEGRITY_KEY,
-      ),
+      generationFromCheckpoint(checkpoint, "workspace", snapshot, {
+        ...versions,
+        rulesVersion: "unknown-rules",
+      }),
     ).toBeNull();
   });
 
-  it("Checkpoint restart", () => {
+  it("reconciles a valid tail and rejects mismatched checkpoint shapes", () => {
     const first = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
@@ -74,12 +58,7 @@ describe("generation checkpoints", () => {
     const before = { facts: [first], frontier: frontierOf([first]) };
     const generation = rebuildGeneration("workspace", before, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", before, generation, INTEGRITY_KEY);
-    expect(
-      validateGenerationCheckpoint(checkpoint, "workspace", before, versions, INTEGRITY_KEY),
-    ).toEqual(generation);
-    expect(
-      validateGenerationCheckpoint(checkpoint, "other", before, versions, INTEGRITY_KEY),
-    ).toBeNull();
+    expect(generationFromCheckpoint(checkpoint, "other", before, versions)).toBeNull();
 
     const second = makeFact({
       workspaceId: "workspace",
@@ -95,9 +74,9 @@ describe("generation checkpoints", () => {
       },
     });
     const after = { facts: [second, first], frontier: frontierOf([first, second]) };
-    expect(
-      reconcileFromCheckpoint(checkpoint, "workspace", after, versions, INTEGRITY_KEY)?.generation,
-    ).toEqual(rebuildGeneration("workspace", after, versions).generation);
+    expect(reconcileFromCheckpoint(checkpoint, "workspace", after, versions, INTEGRITY_KEY)?.generation).toEqual(
+      rebuildGeneration("workspace", after, versions).generation,
+    );
 
     const mismatchedGeneration = {
       ...checkpoint.generation,
@@ -114,9 +93,7 @@ describe("generation checkpoints", () => {
       generation: mismatchedGeneration,
       projectionDigest: canonicalDigest(mismatchedGeneration),
     };
-    expect(
-      validateGenerationCheckpoint(mismatched, "workspace", before, versions, INTEGRITY_KEY),
-    ).toBeNull();
+    expect(generationFromCheckpoint(mismatched, "workspace", before, versions)).toBeNull();
 
     const wrongGeneration = {
       ...checkpoint.generation,
@@ -127,26 +104,19 @@ describe("generation checkpoints", () => {
       generation: wrongGeneration,
       projectionDigest: canonicalDigest(wrongGeneration),
     };
-    expect(
-      validateGenerationCheckpoint(wrongView, "workspace", before, versions, INTEGRITY_KEY),
-    ).toBeNull();
-    expect(
-      validateGenerationCheckpoint(
-        { ...checkpoint, future: true },
-        "workspace",
-        before,
-        versions,
-        INTEGRITY_KEY,
-      ),
-    ).toBeNull();
-    expect(
-      validateGenerationCheckpoint(
-        { format: "broken" },
-        "workspace",
-        before,
-        versions,
-        INTEGRITY_KEY,
-      ),
-    ).toBeNull();
+    expect(generationFromCheckpoint(wrongView, "workspace", before, versions)).toBeNull();
+    expect(generationFromCheckpoint({ ...checkpoint, future: true }, "workspace", before, versions)).toBeNull();
+    expect(generationFromCheckpoint({ format: "broken" }, "workspace", before, versions)).toBeNull();
   });
 });
+
+function generationFromCheckpoint(
+  checkpoint: unknown,
+  workspaceId: string,
+  snapshot: FactSnapshot,
+  checkpointVersions: ProjectionVersions,
+) {
+  return (
+    reconcileFromCheckpoint(checkpoint, workspaceId, snapshot, checkpointVersions, INTEGRITY_KEY)?.generation ?? null
+  );
+}

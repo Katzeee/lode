@@ -5,7 +5,7 @@ import {
   assertNullableString,
   assertStringArray,
   requireString,
-} from "./shape-validation-primitives.js";
+} from "../../shape-validation/index.js";
 import type { Mutation } from "./types.js";
 import { templateInstanceNodeId, templateInstanceOccurrenceId } from "./identity.js";
 
@@ -15,11 +15,7 @@ export function assertTemplateDetachmentShape(value: Record<string, unknown>): v
   requireString(value.instanceNodeId, "Detached Template instance Node");
   requireString(value.instanceOccurrenceId, "Detached Template instance Occurrence");
   assertObject(value.anchor, "Detached Template instance anchor");
-  assertKeys(
-    value.anchor,
-    ["after", "before", "affinity", "fallback"],
-    "Detached Template instance anchor",
-  );
+  assertKeys(value.anchor, ["after", "before", "affinity", "fallback"], "Detached Template instance anchor");
   assertNullableString(value.anchor.after, "anchor after");
   assertNullableString(value.anchor.before, "anchor before");
   assertOneOf(value.anchor.affinity, ["after", "before"], "anchor affinity");
@@ -42,35 +38,19 @@ export function validateTemplateDetachment(
   requireIdentity(mutation.ownerNodeId, "Template instance owner", factIdentity);
   requireIdentity(mutation.templateNodeId, "Template Node", factIdentity);
   requireIdentity(mutation.instanceNodeId, "Detached Template instance Node", factIdentity);
-  requireIdentity(
-    mutation.instanceOccurrenceId,
-    "Detached Template instance Occurrence",
-    factIdentity,
-  );
-  if (
-    mutation.instanceNodeId !==
-    templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId)
-  ) {
+  requireIdentity(mutation.instanceOccurrenceId, "Detached Template instance Occurrence", factIdentity);
+  if (mutation.instanceNodeId !== templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId)) {
     throw new Error(`Template detachment Node identity is not canonical: ${factIdentity}`);
   }
-  if (
-    mutation.instanceOccurrenceId !==
-    templateInstanceOccurrenceId(mutation.ownerNodeId, mutation.templateNodeId)
-  ) {
+  if (mutation.instanceOccurrenceId !== templateInstanceOccurrenceId(mutation.ownerNodeId, mutation.templateNodeId)) {
     throw new Error(`Template detachment Occurrence identity is not canonical: ${factIdentity}`);
   }
   if (!hasValidSourceEvidence(mutation)) {
     throw new Error(`Template detachment lacks unique source evidence: ${factIdentity}`);
   }
-  mutation.sourceSchemaIds.forEach((id) =>
-    requireIdentity(id, "Template source Schema", factIdentity),
-  );
-  mutation.sourceApplicationSchemaIds.forEach((id) =>
-    requireIdentity(id, "Template source Application", factIdentity),
-  );
-  mutation.sourceTemplateOccurrenceIds.forEach((id) =>
-    requireIdentity(id, "Template source Occurrence", factIdentity),
-  );
+  mutation.sourceSchemaIds.forEach((id) => requireIdentity(id, "Template source Schema", factIdentity));
+  mutation.sourceApplicationSchemaIds.forEach((id) => requireIdentity(id, "Template source Application", factIdentity));
+  mutation.sourceTemplateOccurrenceIds.forEach((id) => requireIdentity(id, "Template source Occurrence", factIdentity));
 }
 
 function hasValidSourceEvidence(

@@ -6,10 +6,7 @@ export type ActiveContributions = Readonly<{
   activation: Activation;
 }>;
 
-export function deriveActiveContributions(
-  facts: readonly Fact[],
-  view: ViewMode,
-): ActiveContributions {
+export function deriveActiveContributions(facts: readonly Fact[], view: ViewMode): ActiveContributions {
   const activation = deriveActivation(facts, view);
   return {
     facts: facts

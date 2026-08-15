@@ -7,9 +7,7 @@ export function canApplyNodeDirectTail(projection: Projection, mutation: NodeMut
       return (
         projection.nodes[mutation.nodeId] === undefined &&
         !Object.values(projection.conflictIssues).some(
-          (issue) =>
-            issue.kind === "unsupported-direct-intent" &&
-            issue.requiredNodeIds.includes(mutation.nodeId),
+          (issue) => issue.kind === "unsupported-direct-intent" && issue.requiredNodeIds.includes(mutation.nodeId),
         )
       );
     case "node-delete":
@@ -21,9 +19,7 @@ export function canApplyNodeDirectTail(projection: Projection, mutation: NodeMut
         projection.nodes[mutation.nodeId] !== undefined &&
         projection.nodes[mutation.ownerNodeId] !== undefined &&
         Object.values(projection.occurrences).some(
-          (occurrence) =>
-            occurrence.nodeId === mutation.nodeId &&
-            occurrence.parentNodeId === mutation.ownerNodeId,
+          (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
         )
       );
     case "node-type-declare":

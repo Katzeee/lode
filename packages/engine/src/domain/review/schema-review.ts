@@ -1,14 +1,5 @@
-import {
-  canonicalJson,
-  isSchemaMutation,
-  type ContributionFact,
-  type SchemaMutation,
-} from "../fact/index.js";
-import {
-  impactAddress,
-  type ScopedProjection,
-  type ScopedProjectionGeneration,
-} from "../reconcile/index.js";
+import { canonicalJson, isSchemaMutation, type ContributionFact, type SchemaMutation } from "../fact/index.js";
+import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { SchemaRelationDecisionEffect } from "./types.js";
 import { addAffectedFieldImpacts } from "./field-impacts.js";
 
@@ -41,15 +32,9 @@ export function addSchemaRelationImpacts(
   if (!isSchemaMutation(mutation)) {
     return;
   }
-  if (
-    mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
-  ) {
+  if (mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove") {
     impacts.add(schemaRelationAddress(mutation));
-    for (const instance of [
-      ...generation.origin.templateNodeInstances,
-      ...generation.review.templateNodeInstances,
-    ]) {
+    for (const instance of [...generation.origin.templateNodeInstances, ...generation.review.templateNodeInstances]) {
       if (
         instance.templateNodeId === mutation.templateNodeId &&
         instance.sources.some((source) => source.schemaId === mutation.schemaId)
@@ -68,10 +53,7 @@ export function addSchemaRelationImpacts(
     mutation.kind === "schema-apply" || mutation.kind === "schema-remove"
       ? fieldsOfSchema(generation, mutation.schemaId)
       : mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
-        ? [
-            ...fieldsOfSchema(generation, mutation.schemaId),
-            ...fieldsOfSchema(generation, mutation.baseSchemaId),
-          ]
+        ? [...fieldsOfSchema(generation, mutation.schemaId), ...fieldsOfSchema(generation, mutation.baseSchemaId)]
         : [mutation.fieldDefinitionId];
   impacts.add(schemaRelationAddress(mutation));
   for (const nodeId of nodeIds) {
@@ -92,8 +74,7 @@ export function schemaRelationAddress(mutation: SchemaMutation): string {
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
     return impactAddress("schema-extension", mutation.schemaId, mutation.baseSchemaId);
   }
-  return mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
+  return mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove"
     ? impactAddress("schema-template-node", mutation.schemaId, mutation.templateNodeId)
     : impactAddress("schema-field", mutation.schemaId, mutation.fieldDefinitionId);
 }
@@ -122,30 +103,23 @@ function schemaRelationKind(mutation: SchemaMutation): SchemaRelationDecisionEff
   }
   return mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
     ? "extension"
-    : mutation.kind === "schema-template-node-add" ||
-        mutation.kind === "schema-template-node-remove"
+    : mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove"
       ? "template-node"
       : "field";
 }
 
-function schemaRelationIdentities(
-  mutation: SchemaMutation,
-): readonly [ownerId: string, targetId: string] {
+function schemaRelationIdentities(mutation: SchemaMutation): readonly [ownerId: string, targetId: string] {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return [mutation.nodeId, mutation.schemaId];
   }
   return mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
     ? [mutation.schemaId, mutation.baseSchemaId]
-    : mutation.kind === "schema-template-node-add" ||
-        mutation.kind === "schema-template-node-remove"
+    : mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove"
       ? [mutation.schemaId, mutation.templateNodeId]
       : [mutation.schemaId, mutation.fieldDefinitionId];
 }
 
-function fieldsOfSchema(
-  generation: ScopedProjectionGeneration,
-  schemaId: string,
-): readonly string[] {
+function fieldsOfSchema(generation: ScopedProjectionGeneration, schemaId: string): readonly string[] {
   return [
     ...new Set([
       ...(generation.origin.schemaFields[schemaId] ?? []),
@@ -154,10 +128,7 @@ function fieldsOfSchema(
   ];
 }
 
-function nodesApplyingSchema(
-  generation: ScopedProjectionGeneration,
-  schemaId: string,
-): readonly string[] {
+function nodesApplyingSchema(generation: ScopedProjectionGeneration, schemaId: string): readonly string[] {
   return [
     ...new Set(
       [generation.origin, generation.review].flatMap((projection) => [
@@ -171,9 +142,5 @@ function nodesApplyingSchema(
 }
 
 function effectiveField(projection: ScopedProjection, nodeId: string, fieldDefinitionId: string) {
-  return (
-    projection.effectiveFields[nodeId]?.find(
-      (field) => field.fieldDefinitionId === fieldDefinitionId,
-    ) ?? null
-  );
+  return projection.effectiveFields[nodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId) ?? null;
 }

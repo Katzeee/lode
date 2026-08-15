@@ -5,12 +5,13 @@ import { end, Facts, versions } from "../../../tests/support/reconcile/reconcile
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { BoundedProjectionMaterializer } from "./bounded-materializer.js";
 import { directoryPrefix } from "./materialized-generation-format.js";
+import { projectionMaterializedDataset } from "./projection-materialized-dataset.js";
 import { readMutationGeneration } from "../workspace/generation-reading/index.js";
 
 const emptyReviewReadModel = { scopes: {}, supportByContribution: {} } as const;
 
 describe("bounded derived materialization", () => {
-  it("serves public Projection pages without assembling every shard", async () => {
+  it("serves Projection section pages without assembling every shard", async () => {
     const documents = new InMemoryDocumentStore();
     const materializer = new BoundedProjectionMaterializer(documents, { capacity: 8 });
     const facts = new Facts();
@@ -19,19 +20,12 @@ describe("bounded derived materialization", () => {
     }
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
     await materializer.publish(generation, emptyReviewReadModel);
-    const first = await materializer.page(generation.identity.generationId, {
-      kind: "projection",
-      workspaceId: "workspace",
-      view: "origin",
-      section: "nodes",
-      after: null,
-      limit: 25,
-    });
-    if (first.section !== "nodes") {
-      throw new Error("Expected Node Projection page");
-    }
+    const first = await materializer.page(generation.identity.generationId, "origin", "nodes", null, 25);
     expect(first.next).not.toBeNull();
-    expect(Object.keys(first.nodes)).toHaveLength(25);
+    expect(first.entries).toHaveLength(25);
+    await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 0)).rejects.toThrow(
+      "Materialized page limit must be a positive safe integer",
+    );
   });
 
   it("publishes Review indexes beside, but outside, the semantic Projection", async () => {
@@ -45,15 +39,11 @@ describe("bounded derived materialization", () => {
     });
 
     expect(await materializer.load(generation.identity.generationId)).toEqual(generation);
-    expect(
-      await materializer.reviewScopes(generation.identity.generationId, null, 1),
-    ).toMatchObject({
+    expect(await materializer.reviewScopes(generation.identity.generationId, null, 1)).toMatchObject({
       scopes: [{ identity: "scope-a", contributionIds: ["proposal-a"] }],
       next: "scope-a",
     });
-    expect(
-      await materializer.reviewSupport(generation.identity.generationId, ["proposal-a"]),
-    ).toMatchObject({
+    expect(await materializer.reviewSupport(generation.identity.generationId, ["proposal-a"])).toMatchObject({
       entries: [{ identity: "proposal-a", supportIds: ["support-a"] }],
     });
   });
@@ -83,13 +73,7 @@ describe("bounded derived materialization", () => {
     const nodeIds: string[] = [];
     let after: string | null = null;
     do {
-      const page = await materializer.schemaSearch(
-        generation.identity.generationId,
-        "origin",
-        "anime",
-        after,
-        25,
-      );
+      const page = await materializer.schemaSearch(generation.identity.generationId, "origin", "anime", after, 25);
       nodeIds.push(...page.nodeIds);
       after = page.next;
     } while (after !== null);
@@ -132,9 +116,7 @@ describe("bounded derived materialization", () => {
     await materializer.publish(first, emptyReviewReadModel);
     documents.fail = true;
 
-    await expect(materializer.publish(second, emptyReviewReadModel)).rejects.toThrow(
-      "lost derived acknowledgement",
-    );
+    await expect(materializer.publish(second, emptyReviewReadModel)).rejects.toThrow("lost derived acknowledgement");
     expect(await materializer.load(first.identity.generationId)).toEqual(first);
   });
 
@@ -145,9 +127,7 @@ describe("bounded derived materialization", () => {
     const documents = new InMemoryDocumentStore();
     const materializer = new BoundedProjectionMaterializer(documents, { capacity: 1 });
     await materializer.publish(generation, emptyReviewReadModel);
-    const shardId = (await documents.listIds()).find((id) =>
-      id.startsWith("materialized-generation/shard/"),
-    );
+    const shardId = (await documents.listIds()).find((id) => id.startsWith("materialized-generation/shard/"));
     if (!shardId) {
       throw new Error("Expected a stored Projection shard");
     }
@@ -160,9 +140,9 @@ describe("bounded derived materialization", () => {
     };
     corrupted.value = { ...corrupted.value, injected: true };
     await documents.writeSnapshot(shardId, new TextEncoder().encode(JSON.stringify(corrupted)));
-    await expect(
-      new BoundedProjectionMaterializer(documents).load(generation.identity.generationId),
-    ).rejects.toThrow("Projection shard is corrupt");
+    await expect(new BoundedProjectionMaterializer(documents).load(generation.identity.generationId)).rejects.toThrow(
+      "materialized dataset shard is corrupt",
+    );
   });
 
   it("verifies paged directory nodes against the fixed generation root", async () => {
@@ -174,7 +154,10 @@ describe("bounded derived materialization", () => {
     await materializer.publish(generation, emptyReviewReadModel);
     const directoryId = (
       await documents.listIds({
-        prefix: directoryPrefix(generation.identity.generationId, "origin", "nodes"),
+        prefix: directoryPrefix(
+          generation.identity.generationId,
+          projectionMaterializedDataset("origin", "nodes").root,
+        ),
       })
     )[0];
     if (!directoryId) {
@@ -189,16 +172,9 @@ describe("bounded derived materialization", () => {
     };
     corrupted.contentDigest = "0".repeat(64);
     await documents.writeSnapshot(directoryId, new TextEncoder().encode(JSON.stringify(corrupted)));
-    await expect(
-      materializer.page(generation.identity.generationId, {
-        kind: "projection",
-        workspaceId: "workspace",
-        view: "origin",
-        section: "nodes",
-        after: null,
-        limit: 1,
-      }),
-    ).rejects.toThrow("Projection directory is corrupt");
+    await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 1)).rejects.toThrow(
+      "materialized dataset directory is corrupt",
+    );
   });
 
   it("fails closed when a first, middle, or last authenticated directory leaf is absent", async () => {
@@ -211,7 +187,10 @@ describe("bounded derived materialization", () => {
       const documents = new InMemoryDocumentStore();
       const materializer = new BoundedProjectionMaterializer(documents, { capacity: 1 });
       await materializer.publish(generation, emptyReviewReadModel);
-      const prefix = directoryPrefix(generation.identity.generationId, "origin", "nodes");
+      const prefix = directoryPrefix(
+        generation.identity.generationId,
+        projectionMaterializedDataset("origin", "nodes").root,
+      );
       const leaves = [];
       for (const id of await documents.listIds({ prefix })) {
         const stored = await documents.load(id);
@@ -226,35 +205,21 @@ describe("bounded derived materialization", () => {
           leaves.push({ id, entries: value.entries });
         }
       }
-      leaves.sort(
-        (left, right) =>
-          left.entries[0]?.identity.localeCompare(right.entries[0]?.identity ?? "") ?? 0,
-      );
+      leaves.sort((left, right) => left.entries[0]?.identity.localeCompare(right.entries[0]?.identity ?? "") ?? 0);
       const selected =
-        position === "first"
-          ? leaves[0]
-          : position === "last"
-            ? leaves.at(-1)
-            : leaves[Math.floor(leaves.length / 2)];
+        position === "first" ? leaves[0] : position === "last" ? leaves.at(-1) : leaves[Math.floor(leaves.length / 2)];
       const identity = selected?.entries[Math.floor(selected.entries.length / 2)]?.identity;
       if (!selected || !identity) {
         throw new Error("Expected a materialized directory leaf");
       }
       await documents.delete(selected.id);
 
-      await expect(
-        materializer.page(generation.identity.generationId, {
-          kind: "projection",
-          workspaceId: "workspace",
-          view: "origin",
-          section: "nodes",
-          after: null,
-          limit: 100,
-        }),
-      ).rejects.toThrow("Projection directory is unavailable");
-      await expect(
-        materializer.read(generation.identity.generationId, "origin", "nodes", [identity]),
-      ).rejects.toThrow("Projection directory is unavailable");
+      await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 100)).rejects.toThrow(
+        "materialized dataset directory is unavailable",
+      );
+      await expect(materializer.read(generation.identity.generationId, "origin", "nodes", [identity])).rejects.toThrow(
+        "materialized dataset directory is unavailable",
+      );
     }
   });
 
@@ -274,23 +239,13 @@ describe("bounded derived materialization", () => {
     }
     await materializer.publish(generation0, emptyReviewReadModel);
     documents.delay = true;
-    const reading = materializer.page(generation0.identity.generationId, {
-      kind: "projection",
-      workspaceId: "workspace",
-      view: "origin",
-      section: "nodes",
-      after: "node-0",
-      limit: 2,
-    });
+    const reading = materializer.page(generation0.identity.generationId, "origin", "nodes", "node-0", 2);
     await documents.entered;
     await materializer.publish(generation1, emptyReviewReadModel);
     await materializer.publish(generation2, emptyReviewReadModel);
     documents.release();
     const result = await reading;
-    if (result.section !== "nodes") {
-      throw new Error("Expected Node Projection page");
-    }
-    expect(Object.keys(result.nodes)).toEqual(["node-1", "node-2"]);
+    expect(result.entries.map((entry) => entry.identity)).toEqual(["node-1", "node-2"]);
   });
 
   it("holds one read lease across every page of a state-dependent command read", async () => {
@@ -341,11 +296,9 @@ describe("bounded derived materialization", () => {
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
     await materializer.publish(generation, emptyReviewReadModel);
 
-    const originalDeletion = await readMutationGeneration(
-      materializer,
-      generation.identity.generationId,
-      [{ kind: "occurrence-delete", occurrenceId: "parent-original" }],
-    );
+    const originalDeletion = await readMutationGeneration(materializer, generation.identity.generationId, [
+      { kind: "occurrence-delete", occurrenceId: "parent-original" },
+    ]);
     expect(originalDeletion.origin.nodes).toMatchObject({
       parent: { nodeId: "parent" },
       child: { nodeId: "child" },
@@ -357,11 +310,9 @@ describe("bounded derived materialization", () => {
       grandchild: "child",
     });
 
-    const referenceDeletion = await readMutationGeneration(
-      materializer,
-      generation.identity.generationId,
-      [{ kind: "occurrence-delete", occurrenceId: "parent-reference" }],
-    );
+    const referenceDeletion = await readMutationGeneration(materializer, generation.identity.generationId, [
+      { kind: "occurrence-delete", occurrenceId: "parent-reference" },
+    ]);
     expect(referenceDeletion.origin.nodes.child).toBeUndefined();
     expect(referenceDeletion.origin.nodes.grandchild).toBeUndefined();
   });
@@ -384,26 +335,14 @@ describe("bounded derived materialization", () => {
       await materializer.publish(generation, emptyReviewReadModel);
       documents.shardLoads = 0;
       documents.loadedBytes = 0;
-      const page = await materializer.page(generation.identity.generationId, {
-        kind: "projection",
-        workspaceId: "workspace",
-        view: "origin",
-        section: "nodes",
-        after: null,
-        limit: 1,
-      });
-      if (page.section !== "nodes") {
-        throw new Error("Expected Node Projection page");
-      }
-      expect(Object.keys(page.nodes)).toHaveLength(1);
+      const page = await materializer.page(generation.identity.generationId, "origin", "nodes", null, 1);
+      expect(page.entries).toHaveLength(1);
       pageBytes.push(documents.loadedBytes);
       documents.loadedBytes = 0;
       const target = `node-${String(count - 1).padStart(4, "0")}`;
-      const selected = await readMutationGeneration(
-        materializer,
-        generation.identity.generationId,
-        [{ kind: "node-delete", nodeId: target }],
-      );
+      const selected = await readMutationGeneration(materializer, generation.identity.generationId, [
+        { kind: "node-delete", nodeId: target },
+      ]);
       expect(Object.keys(selected.origin.nodes)).toEqual([target]);
       expect(Object.keys(selected.review.nodes)).toEqual([target]);
       expect(selected).not.toHaveProperty("planCaches");

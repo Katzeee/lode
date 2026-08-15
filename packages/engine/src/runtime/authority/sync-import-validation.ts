@@ -1,8 +1,4 @@
-import {
-  canonicalJson,
-  parseAuthorityRecords,
-  type AuthorityRecord,
-} from "../../domain/fact/index.js";
+import { canonicalJson, parseAuthorityRecords, type AuthorityRecord } from "../../domain/fact/index.js";
 import type { LoroDoc } from "loro-crdt";
 import { syncProjectionFacts } from "./fact-sync-projection.js";
 import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
@@ -38,9 +34,7 @@ export function validateStagedSyncImport(
     const existingIds = new Set(authorityFacts.map((fact) => fact.id));
     return {
       kind: "ready",
-      records: novel.filter(
-        (record) => record.recordKind === "fact" && !existingIds.has(record.fact.id),
-      ),
+      records: novel.filter((record) => record.recordKind === "fact" && !existingIds.has(record.fact.id)),
     };
   } catch (error) {
     return fault(error instanceof Error ? error.message : String(error), []);

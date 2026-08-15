@@ -1,5 +1,6 @@
 import {
   compareFacts,
+  contributionFactsOfKind,
   isFieldContentDeletionMutation,
   isNodeMutation,
   isOccurrenceMutation,
@@ -55,10 +56,7 @@ export function compensateNodeCreate(
   projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
-  if (
-    (mutation.kind !== "node-create" && mutation.kind !== "node-restore") ||
-    !projection.nodes[mutation.nodeId]
-  ) {
+  if ((mutation.kind !== "node-create" && mutation.kind !== "node-restore") || !projection.nodes[mutation.nodeId]) {
     return noCompensation();
   }
   if (hasAlternateNodeCreator(target, targetIds, activeFacts)) {
@@ -88,9 +86,7 @@ export function compensateNodeDelete(
       fact.body.mutation.kind === "node-delete" &&
       fact.body.mutation.nodeId === mutation.nodeId &&
       !activeFacts.some(
-        (restore) =>
-          restore.body.mutation.kind === "node-restore" &&
-          restore.body.mutation.deletionFactId === fact.id,
+        (restore) => restore.body.mutation.kind === "node-restore" && restore.body.mutation.deletionFactId === fact.id,
       ),
   );
   return independentDelete
@@ -144,8 +140,7 @@ export function compensateOccurrenceDelete(
       occurrenceDeletion(fact)?.occurrenceId === mutation.occurrenceId &&
       !activeFacts.some(
         (restore) =>
-          restore.body.mutation.kind === "occurrence-restore" &&
-          restore.body.mutation.deletionFactId === fact.id,
+          restore.body.mutation.kind === "occurrence-restore" && restore.body.mutation.deletionFactId === fact.id,
       ),
   );
   if (independentDelete || mutation.previousAnchor === undefined) {
@@ -214,11 +209,7 @@ export function compensateMove(
     )
     .sort(compareFacts)
     .at(-1);
-  if (
-    winner?.id !== target.id ||
-    !occurrence ||
-    occurrence.parentNodeId !== mutation.parentNodeId
-  ) {
+  if (winner?.id !== target.id || !occurrence || occurrence.parentNodeId !== mutation.parentNodeId) {
     return noCompensation();
   }
   if (mutation.previousAnchor === undefined || mutation.previousParentNodeId === undefined) {
@@ -251,12 +242,8 @@ export function compensateNodeOwner(
   if (mutation.kind !== "node-owner-set") {
     return noCompensation();
   }
-  const winner = activeFacts
-    .filter(
-      (fact) =>
-        fact.body.mutation.kind === "node-owner-set" &&
-        fact.body.mutation.nodeId === mutation.nodeId,
-    )
+  const winner = [...contributionFactsOfKind(activeFacts, "node-owner-set")]
+    .filter((fact) => fact.body.mutation.nodeId === mutation.nodeId)
     .sort(compareFacts)
     .at(-1);
   if (winner?.id !== target.id || projection.nodeOwners[mutation.nodeId] !== mutation.ownerNodeId) {
@@ -266,9 +253,7 @@ export function compensateNodeOwner(
     !mutation.previousOwnerNodeId ||
     !projection.nodes[mutation.previousOwnerNodeId] ||
     !Object.values(projection.occurrences).some(
-      (occurrence) =>
-        occurrence.nodeId === mutation.nodeId &&
-        occurrence.parentNodeId === mutation.previousOwnerNodeId,
+      (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.previousOwnerNodeId,
     )
   ) {
     return { kind: "stale", reason: "Previous owner Node placement is no longer valid" };

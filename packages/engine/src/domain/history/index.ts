@@ -1,4 +1,3 @@
-export * from "./types.js";
-export * from "./state.js";
-export * from "./compensation.js";
-export * from "./history.js";
+export type { HistoryQuery, HistorySelection } from "./types.js";
+export { nextHistoryLineage } from "./state.js";
+export { historyTargetFactIds, queryHistory, validateHistorySelection } from "./history.js";

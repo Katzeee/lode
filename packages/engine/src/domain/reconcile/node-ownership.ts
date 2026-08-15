@@ -13,15 +13,8 @@ export function projectNodeOwners(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
 ): Readonly<Record<string, string | null>> {
   const ownerPlacements = replayOwnerPlacements(active);
-  const owners = selectRootedOwners(
-    workspaceNodeId,
-    nodes.keys(),
-    occurrences.values(),
-    ownerPlacements,
-  );
-  return Object.fromEntries(
-    [...owners].sort(([left], [right]) => stableStringCompare(left, right)),
-  );
+  const owners = selectRootedOwners(workspaceNodeId, nodes.keys(), occurrences.values(), ownerPlacements);
+  return Object.fromEntries([...owners].sort(([left], [right]) => stableStringCompare(left, right)));
 }
 
 export function selectRootedOwners(
@@ -34,10 +27,7 @@ export function selectRootedOwners(
   if (!known.has(workspaceNodeId)) {
     return new Map();
   }
-  const placements = new Map<
-    string,
-    Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>[]
-  >();
+  const placements = new Map<string, Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>[]>();
   for (const occurrence of occurrences) {
     if (!known.has(occurrence.nodeId) || !known.has(occurrence.parentNodeId)) {
       continue;
@@ -64,9 +54,7 @@ export function selectRootedOwners(
     const originalOccurrenceId = originalOccurrenceIds.get(nodeId);
     if (
       originalOccurrenceId !== undefined &&
-      !(placements.get(nodeId) ?? []).some(
-        (occurrence) => occurrence.occurrenceId === originalOccurrenceId,
-      )
+      !(placements.get(nodeId) ?? []).some((occurrence) => occurrence.occurrenceId === originalOccurrenceId)
     ) {
       resolving.delete(nodeId);
       failed.add(nodeId);
@@ -75,9 +63,7 @@ export function selectRootedOwners(
     const candidates = [...(placements.get(nodeId) ?? [])].sort((left, right) => {
       const leftPreferred = left.occurrenceId === originalOccurrenceId ? 0 : 1;
       const rightPreferred = right.occurrenceId === originalOccurrenceId ? 0 : 1;
-      return (
-        leftPreferred - rightPreferred || stableStringCompare(left.occurrenceId, right.occurrenceId)
-      );
+      return leftPreferred - rightPreferred || stableStringCompare(left.occurrenceId, right.occurrenceId);
     });
     for (const candidate of candidates) {
       if (candidate.parentNodeId !== nodeId && resolve(candidate.parentNodeId)) {
@@ -159,9 +145,7 @@ function originalOccurrenceIds(active: readonly ContributionFact[]): Map<string,
   }
   for (const facts of transactions.values()) {
     const createdNodeIds = new Set(
-      facts.flatMap((fact) =>
-        fact.body.mutation.kind === "node-create" ? [fact.body.mutation.nodeId] : [],
-      ),
+      facts.flatMap((fact) => (fact.body.mutation.kind === "node-create" ? [fact.body.mutation.nodeId] : [])),
     );
     for (const fact of facts) {
       const mutation = fact.body.mutation;
@@ -179,8 +163,6 @@ function findOwnerPlacement(
   ownerNodeId: string,
 ): string | undefined {
   return [...placements]
-    .filter(
-      ([, placement]) => placement.nodeId === nodeId && placement.parentNodeId === ownerNodeId,
-    )
+    .filter(([, placement]) => placement.nodeId === nodeId && placement.parentNodeId === ownerNodeId)
     .sort(([left], [right]) => stableStringCompare(left, right))[0]?.[0];
 }

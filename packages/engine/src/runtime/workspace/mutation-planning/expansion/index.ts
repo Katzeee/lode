@@ -26,9 +26,7 @@ export function expandMutation(mutation: Mutation, available: ScopedProjection):
     return expandTemplateMutation(mutation, available);
   }
   if (isNodeMutation(mutation)) {
-    return mutation.kind === "node-delete"
-      ? expandNodeDeletion(mutation, available)
-      : singleMutationWrite(mutation);
+    return mutation.kind === "node-delete" ? expandNodeDeletion(mutation, available) : singleMutationWrite(mutation);
   }
   if (isOccurrenceMutation(mutation)) {
     return mutation.kind === "occurrence-delete"

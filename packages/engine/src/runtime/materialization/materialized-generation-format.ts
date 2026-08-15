@@ -1,45 +1,21 @@
-import {
-  canonicalDigest,
-  type ProjectionIdentity,
-  type ViewMode,
-} from "../../domain/fact/index.js";
-import { type ProjectionPlanCache } from "../../domain/reconcile/index.js";
-import {
-  REVIEW_READ_MODEL_SECTION_NAMES,
-  type ReviewReadModelSection,
-} from "./materialized-review-read-model.js";
-import { PROJECTION_SLICE_NAMES, type ProjectionSliceName } from "./ports.js";
+import { canonicalDigest } from "../../domain/fact/index.js";
+import type { MaterializedDatasetRoot } from "./materialized-dataset.js";
+import { sameMaterializedDatasetRoot } from "./materialized-dataset.js";
 
 export const MANIFEST_DOCUMENT_ID = "materialized-generation/manifest";
 export const MANIFEST_FORMAT = "lode-materialized-generation-manifest-v1";
-export const HEADER_FORMAT = "lode-materialized-generation-header-v15";
-export const DIRECTORY_FORMAT = "lode-materialized-generation-directory-v2";
-export const SHARD_FORMAT = "lode-materialized-generation-shard-v2";
-export const PLAN_CACHE_FORMAT = "lode-materialized-generation-plan-cache-v1";
+export const HEADER_FORMAT = "lode-materialized-generation-header-v16";
+export const DIRECTORY_FORMAT = "lode-materialized-generation-directory-v3";
+export const SHARD_FORMAT = "lode-materialized-generation-shard-v3";
 export const DIRECTORY_FANOUT = 16;
 
-export const MATERIALIZED_SECTIONS = [
-  ...PROJECTION_SLICE_NAMES,
-  ...REVIEW_READ_MODEL_SECTION_NAMES,
-] as const;
-
-export type MaterializedSection = ProjectionSliceName | ReviewReadModelSection;
-
-export const MATERIALIZED_DIRECTORY_ROOTS = [
-  ...(["origin", "review"] as const).flatMap((view) =>
-    PROJECTION_SLICE_NAMES.map((section) => ({ view, section })),
-  ),
-  ...REVIEW_READ_MODEL_SECTION_NAMES.map((section) => ({ view: "review" as const, section })),
-] as const satisfies readonly Readonly<{ view: ViewMode; section: MaterializedSection }>[];
-
-export type ShardDescriptor = Readonly<{
-  documentId: string;
-  key: string;
-  view: ViewMode;
-  section: MaterializedSection;
-  identity: string;
-  contentDigest: string;
-}>;
+export type ShardDescriptor = MaterializedDatasetRoot &
+  Readonly<{
+    documentId: string;
+    key: string;
+    identity: string;
+    contentDigest: string;
+  }>;
 
 export type DirectoryNodeReference = Readonly<{
   documentId: string;
@@ -50,54 +26,34 @@ export type DirectoryNodeReference = Readonly<{
   maxIdentity: string | null;
 }>;
 
-export type DirectoryRoot = DirectoryNodeReference &
+export type DirectoryRoot = DirectoryNodeReference & MaterializedDatasetRoot;
+
+export type StoredDirectoryNode = MaterializedDatasetRoot &
   Readonly<{
-    view: ViewMode;
-    section: MaterializedSection;
+    format: typeof DIRECTORY_FORMAT;
+    generationId: string;
+    contentDigest: string;
+    level: number;
+    count: number;
+    minIdentity: string | null;
+    maxIdentity: string | null;
+    entries?: readonly ShardDescriptor[];
+    children?: readonly DirectoryNodeReference[];
   }>;
 
-export type StoredDirectoryNode = Readonly<{
-  format: typeof DIRECTORY_FORMAT;
-  generationId: string;
-  contentDigest: string;
-  view: ViewMode;
-  section: MaterializedSection;
-  level: number;
-  count: number;
-  minIdentity: string | null;
-  maxIdentity: string | null;
-  entries?: readonly ShardDescriptor[];
-  children?: readonly DirectoryNodeReference[];
-}>;
-
-export type ProjectionHeader = Readonly<{
-  view: ViewMode;
-  identity: ProjectionIdentity;
-}>;
-
-export type GenerationHeader = Readonly<{
+export type GenerationHeader<Identity = unknown> = Readonly<{
   format: typeof HEADER_FORMAT;
   contentDigest: string;
-  identity: ProjectionIdentity;
-  planCache: Readonly<{ documentId: string; contentDigest: string }>;
+  identity: Identity;
   directory: readonly DirectoryRoot[];
-  origin: ProjectionHeader;
-  review: ProjectionHeader;
 }>;
 
-export type StoredPlanCaches = Readonly<{
-  format: typeof PLAN_CACHE_FORMAT;
-  generationId: string;
-  contentDigest: string;
-  value: Readonly<{ origin: ProjectionPlanCache; review: ProjectionPlanCache }>;
-}>;
-
-export type StoredShard = Readonly<{
+export type StoredShard<Value = unknown> = Readonly<{
   format: typeof SHARD_FORMAT;
   generationId: string;
   key: string;
   contentDigest: string;
-  value: unknown;
+  value: Value;
 }>;
 
 export type GenerationManifest = Readonly<{
@@ -105,19 +61,14 @@ export type GenerationManifest = Readonly<{
   generationIds: readonly string[];
 }>;
 
-export type MaterializedGeneration = Readonly<{
-  header: GenerationHeader;
-  planCaches: StoredPlanCaches;
+export type MaterializedGeneration<Identity = unknown> = Readonly<{
+  header: GenerationHeader<Identity>;
   shards: readonly Readonly<{ descriptor: ShardDescriptor; value: unknown }>[];
   directoryNodes: readonly StoredDirectoryNode[];
 }>;
 
-export function projectionShardKey(
-  view: ViewMode,
-  section: MaterializedSection,
-  identity: string,
-): string {
-  return `${view}/${sectionKey(section)}/${identity}`;
+export function materializedShardKey(root: MaterializedDatasetRoot, identity: string): string {
+  return `${rootKey(root)}/${identity}`;
 }
 
 export function headerDocumentId(generationId: string): string {
@@ -132,44 +83,21 @@ export function shardPrefix(generationId: string): string {
   return `materialized-generation/shard/${generationId}/`;
 }
 
-export function planCacheDocumentId(generationId: string): string {
-  return `materialized-generation/plan-cache/${generationId}`;
+export function directoryNodeDocumentId(generationId: string, root: MaterializedDatasetRoot, digest: string): string {
+  return `${directoryPrefix(generationId, root)}${digest}`;
 }
 
-export function directoryNodeDocumentId(
-  generationId: string,
-  view: ViewMode,
-  section: MaterializedSection,
-  digest: string,
-): string {
-  return `${directoryPrefix(generationId, view, section)}${digest}`;
-}
-
-export function directoryPrefix(
-  generationId: string,
-  view?: ViewMode,
-  section?: MaterializedSection,
-): string {
+export function directoryPrefix(generationId: string, root?: MaterializedDatasetRoot): string {
   const base = `materialized-generation/directory/${generationId}/`;
-  if (!view) {
-    return base;
-  }
-  const viewPrefix = `${base}${view}/`;
-  return section ? `${viewPrefix}${sectionKey(section)}/` : viewPrefix;
+  return root ? `${base}${rootKey(root)}/` : base;
 }
 
-export function directoryRoot(
-  header: GenerationHeader,
-  view: ViewMode,
-  section: MaterializedSection,
-): DirectoryRoot {
-  const root = header.directory.find(
-    (candidate) => candidate.view === view && candidate.section === section,
-  );
-  if (!root) {
-    throw new Error("Published Projection directory root is absent");
+export function directoryRoot(header: GenerationHeader, root: MaterializedDatasetRoot): DirectoryRoot {
+  const found = header.directory.find((candidate) => sameMaterializedDatasetRoot(candidate, root));
+  if (!found) {
+    throw new Error("Published materialized dataset directory root is absent");
   }
-  return root;
+  return found;
 }
 
 export function cacheKey(generationId: string, key: string): string {
@@ -180,12 +108,6 @@ export function encodeMaterialized(value: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(value));
 }
 
-function sectionKey(section: MaterializedSection): string {
-  if (section === "nodes") {
-    return "node";
-  }
-  if (section === "occurrences") {
-    return "occurrence";
-  }
-  return section;
+function rootKey(root: MaterializedDatasetRoot): string {
+  return [root.dataset, root.partition, root.section].map(encodeURIComponent).join("/");
 }

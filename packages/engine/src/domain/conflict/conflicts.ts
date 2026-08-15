@@ -17,8 +17,7 @@ export function resolutionAdjudicationProblem(
     }
     if (
       candidates.some(
-        (candidate) =>
-          canonicalJson([...candidate.body.proposalContributionIds].sort()) !== requestedProposals,
+        (candidate) => canonicalJson([...candidate.body.proposalContributionIds].sort()) !== requestedProposals,
       )
     ) {
       return "Adjudication Proposal targets do not match one Resolution conflict";

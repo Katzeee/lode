@@ -1,9 +1,4 @@
-import {
-  canonicalJson,
-  type ContributionFact,
-  type JsonValue,
-  type PreviousValue,
-} from "../fact/index.js";
+import { canonicalJson, type ContributionFact, type JsonValue, type PreviousValue } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { TextDecisionEffect } from "./types.js";
 
@@ -25,9 +20,7 @@ export function textEffect(
   const targetMarks = new Set(
     targets.flatMap((target) => {
       const mutation = target.body.mutation;
-      return mutation.kind === "text-mark"
-        ? mutation.atomIds.map((atomId) => `${atomId}/${mutation.key}`)
-        : [];
+      return mutation.kind === "text-mark" ? mutation.atomIds.map((atomId) => `${atomId}/${mutation.key}`) : [];
     }),
   );
   const addedAtomIds = review
@@ -40,10 +33,7 @@ export function textEffect(
     .filter(([id]) => reviewById.has(id))
     .flatMap(([id, originAtom]) => {
       const reviewAtom = reviewById.get(id)!;
-      const keys = new Set([
-        ...Object.keys(originAtom.attributes),
-        ...Object.keys(reviewAtom.attributes),
-      ]);
+      const keys = new Set([...Object.keys(originAtom.attributes), ...Object.keys(reviewAtom.attributes)]);
       return [...keys]
         .filter(
           (key) =>
@@ -67,15 +57,10 @@ export function hasTextEffect(effect: TextDecisionEffect): boolean {
 
 export function isTextMutation(
   mutation: ContributionFact["body"]["mutation"],
-): mutation is Extract<
-  ContributionFact["body"]["mutation"],
-  { kind: "text-splice" | "text-mark" }
-> {
+): mutation is Extract<ContributionFact["body"]["mutation"], { kind: "text-splice" | "text-mark" }> {
   return mutation.kind === "text-splice" || mutation.kind === "text-mark";
 }
 
 function attributeState(values: Readonly<Record<string, JsonValue>>, key: string): PreviousValue {
-  return Object.hasOwn(values, key)
-    ? { kind: "set", value: values[key] ?? null }
-    : { kind: "unset" };
+  return Object.hasOwn(values, key) ? { kind: "set", value: values[key] ?? null } : { kind: "unset" };
 }

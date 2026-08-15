@@ -1,17 +1,7 @@
-import type {
-  ContributionFact,
-  FactSnapshot,
-  ProjectionIdentity,
-  ViewMode,
-} from "../fact/index.js";
+import type { ContributionFact, FactSnapshot, ProjectionIdentity, ViewMode } from "../fact/index.js";
 import type { ProjectionReplayPolicy } from "./projection-rule.js";
 import { projectionIdentity } from "./projection-identity.js";
-import type {
-  Projection,
-  ProjectionPlanCache,
-  ProjectionSections,
-  ProjectionVersions,
-} from "./projection-types.js";
+import type { Projection, ProjectionPlanCache, ProjectionSections, ProjectionVersions } from "./projection-types.js";
 import type { AuthoredStructure, MutableNode } from "./projection-state.js";
 import { cloneNodes } from "./node-state.js";
 import { stripProjectedValues } from "./projection-value-assembly.js";
@@ -93,14 +83,8 @@ export function incrementalProjectionPlanContext(
   versions: ProjectionVersions,
   replayPolicy: ProjectionReplayPolicy,
 ): ProjectionPlanContext {
-  const stripped = stripProjectedValues(
-    previous.nodes,
-    previous.occurrences,
-    previous.addressedValues,
-  );
-  const effectiveChildren = new Map(
-    Object.entries(previous.children).map(([id, children]) => [id, [...children]]),
-  );
+  const stripped = stripProjectedValues(previous.nodes, previous.occurrences, previous.addressedValues);
+  const effectiveChildren = new Map(Object.entries(previous.children).map(([id, children]) => [id, [...children]]));
   const authored = authoredStructureWithoutProjectedTemplates(
     previous.templateNodeInstances,
     stripped.occurrences,

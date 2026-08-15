@@ -10,12 +10,7 @@ export function projectNodeStatuses(
 ): Readonly<Record<string, NodeStatus>> {
   const nodeTypes = activeNodeTypes(active);
   const declaredNodeIds = declaredNodeTypeIds(active);
-  const nodeIds = new Set([
-    ...knownNodeIds,
-    ...activeNodeIds,
-    ...deletionFactIds.keys(),
-    ...declaredNodeIds,
-  ]);
+  const nodeIds = new Set([...knownNodeIds, ...activeNodeIds, ...deletionFactIds.keys(), ...declaredNodeIds]);
   return Object.fromEntries(
     [...nodeIds].sort(stableStringCompare).flatMap((nodeId) => {
       const state = activeNodeIds.has(nodeId)
@@ -40,9 +35,7 @@ export function projectNodeStatuses(
   );
 }
 
-export function activeNodeTypes(
-  active: readonly ContributionFact[],
-): ReadonlyMap<string, NodeType> {
+export function activeNodeTypes(active: readonly ContributionFact[]): ReadonlyMap<string, NodeType> {
   const declarations = declaredNodeTypes(active);
   return new Map(
     [...declarations].flatMap(([nodeId, nodeTypes]) => {
@@ -56,9 +49,7 @@ function declaredNodeTypeIds(active: readonly ContributionFact[]): ReadonlySet<s
   return new Set(declaredNodeTypes(active).keys());
 }
 
-function declaredNodeTypes(
-  active: readonly ContributionFact[],
-): ReadonlyMap<string, Set<NodeType>> {
+function declaredNodeTypes(active: readonly ContributionFact[]): ReadonlyMap<string, Set<NodeType>> {
   return new Map(
     [...nodeTypeDeclarationsByNode(active)].map(([nodeId, facts]) => [
       nodeId,

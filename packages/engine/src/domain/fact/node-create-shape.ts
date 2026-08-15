@@ -4,7 +4,7 @@ import {
   assertObject,
   requireString,
   requireStringAllowEmpty,
-} from "./shape-validation-primitives.js";
+} from "../../shape-validation/index.js";
 
 export function assertOptionalNodeSeed(value: unknown): void {
   if (value === undefined) {

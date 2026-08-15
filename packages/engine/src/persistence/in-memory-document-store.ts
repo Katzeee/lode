@@ -17,9 +17,7 @@ export class InMemoryDocumentStore implements DocumentStore {
     );
   }
 
-  listIds(
-    query: Readonly<{ prefix?: string; after?: string; limit?: number }> = {},
-  ): Promise<string[]> {
+  listIds(query: Readonly<{ prefix?: string; after?: string; limit?: number }> = {}): Promise<string[]> {
     const ids = [...new Set([...this.snapshots.keys(), ...this.updates.keys()])]
       .filter(
         (id) =>

@@ -1,10 +1,5 @@
 import { pendingProposalActivation } from "../activation/index.js";
-import {
-  compareFacts,
-  stableStringCompare,
-  type ContributionFact,
-  type FactSnapshot,
-} from "../fact/index.js";
+import { compareFacts, stableStringCompare, type ContributionFact, type FactSnapshot } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { associatedReviewImpacts, normalizedReviewEffects } from "./review-plan.js";
 import type { DecisionEvidence } from "./types.js";

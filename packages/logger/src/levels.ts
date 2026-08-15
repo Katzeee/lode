@@ -9,15 +9,7 @@
 /** pino level vocabulary (`silent` mutes everything). */
 export type Level = "trace" | "debug" | "info" | "warn" | "error" | "fatal" | "silent";
 
-const LEVELS: ReadonlySet<string> = new Set([
-  "trace",
-  "debug",
-  "info",
-  "warn",
-  "error",
-  "fatal",
-  "silent",
-]);
+const LEVELS: ReadonlySet<string> = new Set(["trace", "debug", "info", "warn", "error", "fatal", "silent"]);
 
 export type LevelRule = {
   match: (name: string) => boolean;

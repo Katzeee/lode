@@ -64,9 +64,7 @@ function addNode(
 
 function seededTextAtoms(
   fact: ContributionFact,
-  seeds: NonNullable<
-    Extract<ContributionFact["body"]["mutation"], { kind: "node-create" }>["seed"]
-  >["text"],
+  seeds: NonNullable<Extract<ContributionFact["body"]["mutation"], { kind: "node-create" }>["seed"]>["text"],
 ): TextAtom[] {
   return seeds.map((atom, index) => ({
     id: `${fact.id}#${index}`,

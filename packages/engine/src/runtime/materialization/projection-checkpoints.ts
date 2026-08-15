@@ -1,8 +1,5 @@
 import { canonicalJson, type FactSnapshot } from "../../domain/fact/index.js";
-import {
-  type ProjectionGeneration,
-  type ProjectionVersions,
-} from "../../domain/reconcile/index.js";
+import { type ProjectionGeneration, type ProjectionVersions } from "../../domain/reconcile/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import { createGenerationCheckpoint, reconcileFromCheckpoint } from "./generation-checkpoint.js";
 import type { ProjectionCheckpointLoad, ProjectionCheckpointStore } from "./ports.js";
@@ -16,10 +13,7 @@ export class ProjectionCheckpointRepository implements ProjectionCheckpointStore
     private readonly integrityKey: string,
   ) {}
 
-  async load(
-    snapshot: FactSnapshot,
-    versions: ProjectionVersions,
-  ): Promise<ProjectionCheckpointLoad> {
+  async load(snapshot: FactSnapshot, versions: ProjectionVersions): Promise<ProjectionCheckpointLoad> {
     const stored = await this.documents.load(PROJECTION_CHECKPOINT_DOCUMENT_ID);
     if (!stored) {
       return { kind: "missing" };
@@ -29,13 +23,7 @@ export class ProjectionCheckpointRepository implements ProjectionCheckpointStore
     }
     try {
       const parsed: unknown = JSON.parse(new TextDecoder().decode(stored.snapshot));
-      const result = reconcileFromCheckpoint(
-        parsed,
-        this.workspaceId,
-        snapshot,
-        versions,
-        this.integrityKey,
-      );
+      const result = reconcileFromCheckpoint(parsed, this.workspaceId, snapshot, versions, this.integrityKey);
       return result
         ? { kind: "valid", generation: result.generation }
         : { kind: "invalid", reason: "checkpoint identity or integrity does not validate" };
@@ -48,12 +36,7 @@ export class ProjectionCheckpointRepository implements ProjectionCheckpointStore
   }
 
   save(snapshot: FactSnapshot, generation: ProjectionGeneration): Promise<void> {
-    const checkpoint = createGenerationCheckpoint(
-      this.workspaceId,
-      snapshot,
-      generation,
-      this.integrityKey,
-    );
+    const checkpoint = createGenerationCheckpoint(this.workspaceId, snapshot, generation, this.integrityKey);
     return this.documents.writeSnapshot(
       PROJECTION_CHECKPOINT_DOCUMENT_ID,
       new TextEncoder().encode(canonicalJson(checkpoint)),

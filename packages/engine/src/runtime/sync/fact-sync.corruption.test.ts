@@ -40,9 +40,9 @@ describe("Fact sync corruption boundaries", () => {
     remote.getMap("projection").set("leak", "derived");
     remote.commit({ message: "inject-derived-container" });
 
-    await expect(
-      target.replication.importUpdate(remote.export({ mode: "snapshot" })),
-    ).rejects.toThrow(/unknown root container/i);
+    await expect(target.replication.importUpdate(remote.export({ mode: "snapshot" }))).rejects.toThrow(
+      /unknown root container/i,
+    );
     expect(target.admission().kind).toBe("fault");
     await target.recoverToLastValidPrefix();
     const exported = new LoroDoc();
@@ -66,9 +66,9 @@ describe("Fact sync corruption boundaries", () => {
     facts.delete(key);
     remote.commit({ message: "delete-immutable-fact" });
 
-    await expect(
-      target.replication.importUpdate(remote.export({ mode: "update", from: before })),
-    ).rejects.toThrow(/removes immutable authority content/i);
+    await expect(target.replication.importUpdate(remote.export({ mode: "update", from: before }))).rejects.toThrow(
+      /removes immutable authority content/i,
+    );
     expect(target.admission().kind).toBe("fault");
     await target.recoverToLastValidPrefix();
     const downstream = await store("303");
@@ -91,9 +91,9 @@ describe("Fact sync corruption boundaries", () => {
     remote.setPeerId("202");
     remote.getMap("projection").set("leak", "derived");
     remote.commit({ message: "inject-derived-container" });
-    await expect(
-      target.replication.importUpdate(remote.export({ mode: "snapshot" })),
-    ).rejects.toThrow(/unknown root container/i);
+    await expect(target.replication.importUpdate(remote.export({ mode: "snapshot" }))).rejects.toThrow(
+      /unknown root container/i,
+    );
 
     const restarted = await FactAuthorityStore.open({
       workspaceId: "workspace",
@@ -133,7 +133,5 @@ function factKeys(value: unknown): string[] {
     return [];
   }
   const facts = (value as Record<string, unknown>).facts;
-  return typeof facts === "object" && facts !== null && !Array.isArray(facts)
-    ? Object.keys(facts)
-    : [];
+  return typeof facts === "object" && facts !== null && !Array.isArray(facts) ? Object.keys(facts) : [];
 }

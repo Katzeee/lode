@@ -87,28 +87,12 @@ describe("Template Node convergence", () => {
       ],
     );
     const expected = summary(
-      rebuildGeneration(
-        "workspace",
-        admitted([...merged.facts, detachedNode, detach, detachedOccurrence]),
-        versions,
-      ),
+      rebuildGeneration("workspace", admitted([...merged.facts, detachedNode, detach, detachedOccurrence]), versions),
     );
 
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = admitted(
-        shuffle(
-          [
-            ...base.values,
-            remove,
-            removePlacement,
-            add,
-            detachedNode,
-            detach,
-            detachedOccurrence,
-            add,
-          ],
-          seed,
-        ),
+        shuffle([...base.values, remove, removePlacement, add, detachedNode, detach, detachedOccurrence, add], seed),
       );
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
@@ -136,20 +120,8 @@ describe("Template Node convergence", () => {
       detach,
       detachedOccurrence,
     ]);
-    const incremental = advanceGeneration(
-      "workspace",
-      baseSnapshot,
-      finalSnapshot,
-      versions,
-      before,
-    );
-    const checkpointTail = reconcileFromCheckpoint(
-      checkpoint,
-      "workspace",
-      finalSnapshot,
-      versions,
-      checkpointKey,
-    );
+    const incremental = advanceGeneration("workspace", baseSnapshot, finalSnapshot, versions, before);
+    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, checkpointKey);
     expect(summary(incremental)).toEqual(expected);
     expect(summary(checkpointTail)).toEqual(expected);
   });
@@ -180,12 +152,7 @@ function fixture(): Facts {
   return facts;
 }
 
-function remoteFact(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  mutation: Mutation,
-): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, mutation: Mutation): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,

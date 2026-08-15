@@ -16,10 +16,7 @@ import {
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import type { Projection } from "./projection-types.js";
 import { end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
-import {
-  addDefinitionNode,
-  addPlacedNode,
-} from "../../../tests/support/reconcile/placed-node-test-helpers.js";
+import { addDefinitionNode, addPlacedNode } from "../../../tests/support/reconcile/placed-node-test-helpers.js";
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
@@ -168,9 +165,7 @@ describe("Schema applications and effective Fields", () => {
     const valueNodeId = "initialized-field:v1:task:status-field:value:0";
     const valueOccurrenceId = "initialized-field-occ:v1:task:status-field:value:0";
     let projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([
-      valueOccurrenceId,
-    ]);
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([valueOccurrenceId]);
     expect(projection.nodeStatuses[valueNodeId]).toMatchObject({
       nodeId: valueNodeId,
       nodeType: null,
@@ -203,9 +198,7 @@ describe("Schema applications and effective Fields", () => {
     facts.add({ kind: "node-restore", nodeId: valueNodeId, deletionFactId: nodeDeletion.id });
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projectionText(projection, valueNodeId)).toBe("Ready");
-    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([
-      valueOccurrenceId,
-    ]);
+    expect(projection.materializedFields.task?.[0]?.valueOccurrenceIds).toEqual([valueOccurrenceId]);
   });
 
   it("keeps multiple Schema applications and deduplicates a shared Field Definition by source", () => {
@@ -265,10 +258,7 @@ describe("Schema applications and effective Fields", () => {
     });
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.children["project-schema"]).toEqual([
-      fieldOccurrenceId,
-      "project-guidance-template-occurrence",
-    ]);
+    expect(projection.children["project-schema"]).toEqual([fieldOccurrenceId, "project-guidance-template-occurrence"]);
     expect(projection.occurrences["project-guidance-template-occurrence"]).toMatchObject({
       nodeId: "project-guidance",
       parentNodeId: "project-schema",
@@ -380,9 +370,7 @@ describe("Schema applications and effective Fields", () => {
     });
     expect(projection.templateFields["project-schema"]?.[0]?.configCandidates).toHaveLength(2);
     expect(
-      Object.values(projection.conflictIssues).filter(
-        (issue) => issue.kind === "field-config-conflict",
-      ),
+      Object.values(projection.conflictIssues).filter((issue) => issue.kind === "field-config-conflict"),
     ).toHaveLength(2);
 
     appendRemote(facts, "dddddddddddddddddddddddddd", frontierOf(facts.values), [
@@ -413,11 +401,9 @@ describe("Schema applications and effective Fields", () => {
     expect(projection.templateFields["project-schema"]?.[0]?.effectiveConfig).toMatchObject({
       staticDefault: [{ kind: "text", value: "Planned" }],
     });
-    expect(
-      Object.values(projection.conflictIssues).filter(
-        (issue) => issue.kind === "field-config-conflict",
-      ),
-    ).toEqual([]);
+    expect(Object.values(projection.conflictIssues).filter((issue) => issue.kind === "field-config-conflict")).toEqual(
+      [],
+    );
   });
 
   it("preserves divergent concurrent initializers as candidates until an observing choice", () => {
@@ -469,9 +455,7 @@ describe("Schema applications and effective Fields", () => {
     expect(projection.materializedFields.task).toBeUndefined();
     expect(projection.effectiveFields.task?.[0]?.initializationCandidates).toHaveLength(2);
     expect(
-      Object.values(projection.conflictIssues).some(
-        (issue) => issue.kind === "field-initialization-conflict",
-      ),
+      Object.values(projection.conflictIssues).some((issue) => issue.kind === "field-initialization-conflict"),
     ).toBe(true);
 
     appendRemote(facts, "dddddddddddddddddddddddddd", frontierOf(facts.values), [
@@ -500,9 +484,7 @@ describe("Schema applications and effective Fields", () => {
       valueOccurrenceIds: ["initialized-field-occ:v1:task:status-field:value:0"],
     });
     expect(
-      Object.values(projection.conflictIssues).some(
-        (issue) => issue.kind === "field-initialization-conflict",
-      ),
+      Object.values(projection.conflictIssues).some((issue) => issue.kind === "field-initialization-conflict"),
     ).toBe(false);
   });
 
@@ -727,9 +709,7 @@ describe("Schema applications and effective Fields", () => {
         schemaIds: ["schema-a", "schema-b"],
       }),
     ]);
-    expect(projection.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual([
-      "field-a",
-    ]);
+    expect(projection.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual(["field-a"]);
     expect(projection.schemaSearchMembers).toEqual({
       "schema-a": ["schema-a"],
       "schema-b": ["schema-b"],
@@ -746,10 +726,7 @@ describe("Schema applications and effective Fields", () => {
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projection.schemaExtensionConflicts).toEqual({});
     expect(projection.conflictIssues).toEqual({});
-    expect(projection.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual([
-      "field-b",
-      "field-a",
-    ]);
+    expect(projection.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual(["field-b", "field-a"]);
   });
 
   it("binds a Materialized Field to real Node and Occurrence identities with ordered values", () => {
@@ -824,9 +801,7 @@ describe("Schema applications and effective Fields", () => {
       },
     ]);
     expect(projection.nodes["status-on-task"]).toBeDefined();
-    expect(projection.occurrences["project-reference-occurrence"]?.nodeId).toBe(
-      "project-reference",
-    );
+    expect(projection.occurrences["project-reference-occurrence"]?.nodeId).toBe("project-reference");
 
     const tombstone = facts.add({ kind: "node-delete", nodeId: "status-field" });
     projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
@@ -858,20 +833,8 @@ describe("Schema applications and effective Fields", () => {
       anchor: end,
     });
     const branchFrontier = frontierOf(facts.values);
-    appendMaterializationBranch(
-      facts,
-      "bbbbbbbbbbbbbbbbbbbbbbbbbb",
-      branchFrontier,
-      "offline-a",
-      "Alpha",
-    );
-    appendMaterializationBranch(
-      facts,
-      "cccccccccccccccccccccccccc",
-      branchFrontier,
-      "offline-b",
-      "Beta",
-    );
+    appendMaterializationBranch(facts, "bbbbbbbbbbbbbbbbbbbbbbbbbb", branchFrontier, "offline-a", "Alpha");
+    appendMaterializationBranch(facts, "cccccccccccccccccccccccccc", branchFrontier, "offline-b", "Beta");
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
 

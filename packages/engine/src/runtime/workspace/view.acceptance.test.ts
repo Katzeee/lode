@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createEngineTransportServer,
-  createTransportEngineContract,
-} from "../../application/transport.js";
-import type { EngineContract, EngineQueryValue } from "../../application/contract.js";
+import { createTransportEngineApplication, type EngineApplicationContract, type EngineQueryValue } from "@lode/sdk";
+import { createEngineTransportServer } from "../../../tests/support/application-transport.js";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
 import {
@@ -71,16 +68,10 @@ describe("persistent View Nodes", () => {
         )
       ).status,
     ).toBe("published");
-    expect((await view(opened.contract, "origin")).fieldDefinitionIds).toEqual([
-      "work-field",
-      "status-field",
-    ]);
+    expect((await view(opened.contract, "origin")).fieldDefinitionIds).toEqual(["work-field", "status-field"]);
     expect((await view(opened.contract, "review")).fieldDefinitionIds).toEqual(["work-field"]);
     await resolveHunk(opened.contract, "value", "reject", "reject-view-columns");
-    expect((await view(opened.contract, "review")).fieldDefinitionIds).toEqual([
-      "work-field",
-      "status-field",
-    ]);
+    expect((await view(opened.contract, "review")).fieldDefinitionIds).toEqual(["work-field", "status-field"]);
 
     expect(
       (
@@ -92,10 +83,7 @@ describe("persistent View Nodes", () => {
         )
       ).status,
     ).toBe("published");
-    expect((await view(opened.contract, "origin")).rows.map((row) => row.nodeId)).toEqual([
-      "row-a",
-      "row-b",
-    ]);
+    expect((await view(opened.contract, "origin")).rows.map((row) => row.nodeId)).toEqual(["row-a", "row-b"]);
     const reviewBeforeAccept = await view(opened.contract, "review");
     expect(reviewBeforeAccept.rows.map((row) => row.nodeId)).toEqual(["row-a", "row-b", "row-c"]);
     await resolveHunk(opened.contract, "schema-application", "accept", "accept-view-member");
@@ -112,10 +100,7 @@ describe("persistent View Nodes", () => {
 
   it("paginates View rows and excludes unrelated entities", async () => {
     const opened = await open(new InMemoryDocumentStore(), "903", 16);
-    const members = Array.from(
-      { length: 50 },
-      (_, index) => `member-${String(index).padStart(3, "0")}`,
-    );
+    const members = Array.from({ length: 50 }, (_, index) => `member-${String(index).padStart(3, "0")}`);
     const unrelated = ["unrelated"];
     expect(
       (
@@ -194,9 +179,7 @@ describe("persistent View Nodes", () => {
 
 function viewProgram(): readonly EditMutation[] {
   return [
-    ...["anime-view", "anime", "review", "work-field", "status-field", "row-c"].flatMap(
-      nodeAtWorkspace,
-    ),
+    ...["anime-view", "anime", "review", "work-field", "status-field", "row-c"].flatMap(nodeAtWorkspace),
     {
       kind: "node-type-declare",
       nodeId: "anime-view",
@@ -321,12 +304,12 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`, c
   return {
     workspace,
     materializer,
-    contract: createTransportEngineContract(createEngineTransportServer(registry.contract)),
+    contract: createTransportEngineApplication(createEngineTransportServer(registry.contract)),
   };
 }
 
 async function mutate(
-  contract: EngineContract,
+  contract: EngineApplicationContract,
   invocationId: string,
   mutations: readonly EditMutation[],
   intent: "direct" | "proposal" = "direct",
@@ -343,7 +326,7 @@ async function mutate(
 }
 
 async function resolveHunk(
-  contract: EngineContract,
+  contract: EngineApplicationContract,
   diffKind: string,
   decision: "accept" | "reject",
   invocationId: string,
@@ -371,7 +354,7 @@ async function resolveHunk(
 }
 
 async function view(
-  contract: EngineContract,
+  contract: EngineApplicationContract,
   projectionView: "origin" | "review",
   after: string | null = null,
   limit = 50,
@@ -392,8 +375,8 @@ async function view(
 }
 
 async function query(
-  contract: EngineContract,
-  request: Parameters<EngineContract["query"]>[0],
+  contract: EngineApplicationContract,
+  request: Parameters<EngineApplicationContract["query"]>[0],
 ): Promise<EngineQueryValue> {
   const result = await contract.query(request);
   if (result.status !== "ok") {

@@ -1,0 +1,383 @@
+{
+  "format": "lode-acceptance-catalog-v1",
+  "capabilities": [
+    {
+      "id": "authority.fact-only",
+      "contract": "Facts are the only durable and synchronized domain authority; app capabilities cannot append raw Facts or Projection data.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/fact/contracts.test.ts > production Fact contracts > AUTH-1 facts are the only domain authority"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/application/sdk-contract.acceptance.test.ts > transport-neutral SDK contract > CMD-1 app capability exposes only the typed engine contract"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > SYNC-1 only the authority FactAuthority enters domain sync"
+        }
+      ]
+    },
+    {
+      "id": "model.node-occurrence-reference",
+      "contract": "Stable Node and Occurrence identities preserve ordered ownership, references, transclusion, and rich text.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/reconcile.acceptance.test.ts > production Reconcile > MODEL-2 node and occurrence ownership preserves transclusion"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/reconcile.scenarios.test.ts > production Reconcile scenarios > renders a self-reference once as a non-recursive Reference"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/proposal-workspace.acceptance.test.ts > Proposal Workspace coordinator > partially overlapping text marks restore atom state through public Undo and Redo"
+        }
+      ]
+    },
+    {
+      "id": "schema.applications-and-fields",
+      "contract": "A Node applies multiple Schemas; ordered Field Contributions merge by stable Field Definition identity.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > writes, queries, and restarts multiple Schema applications with shared effective Fields"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > keeps multiple Schema applications and deduplicates a shared Field Definition by source"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > uses observed-remove for concurrent Schema Application and Field Contribution intent"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Schema Application observed-remove intent across 32 four-replica topologies"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
+        }
+      ]
+    },
+    {
+      "id": "field.placeholder-materialization-values",
+      "contract": "Effective placeholders remain distinct from Materialized Fields whose ordered values are Node or Reference occurrences.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > binds a Materialized Field to real Node and Occurrence identities with ordered values"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > materializes a Field as real structure and preserves authored values after Schema removal"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > presents polymorphic Schema members and Field identities through Origin, Review, and restart"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
+        }
+      ]
+    },
+    {
+      "id": "field.optional-default-initializer",
+      "contract": "Optional Fields, static defaults, and one-shot initializers preserve instance-owned values and expose conflicts.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > materializes a static default once and preserves its Node identity after source removal"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > evaluates an initializer at Schema application once and never recomputes it"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > three replicas converge without choosing divergent Field initialization results"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
+        }
+      ]
+    },
+    {
+      "id": "template.provenance-detach",
+      "contract": "Ordinary Template Nodes retain source provenance, follow definitions while linked, and become instance snapshots when detached.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Schema Template Nodes > follows the definition until detach, then preserves instance identity and content"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Schema Template Nodes > keeps Proposal detachment out of Origin and accepts its edit through support closure"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/template-node.property.test.ts > Template Node convergence > preserves concurrent observed-remove support and detached content across 32 arrival topologies"
+        }
+      ]
+    },
+    {
+      "id": "schema.extension-search-cycle",
+      "contract": "Multiple Schema Extension paths build a polymorphic search closure while cycles remain explicit conflicts.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > inherits Fields through multi-base and diamond Extensions and builds polymorphic search"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > keeps concurrent Extension edges but suspends inheritance and search inside a cycle"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > Schema Extension cycle and search projections converge across seeded arrival and checkpoints"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+        }
+      ]
+    },
+    {
+      "id": "definition.lifecycle",
+      "contract": "Definition tombstone, restore, and gated Hard Delete retain identities and enforce replica-safe anti-resurrection.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > shows deleted Definitions, blocks new use, permits cleanup, and restores the same identity"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/definition-lifecycle.property.test.ts > Definition lifecycle convergence > preserves concurrent offline config through tombstone and restores it for every arrival order"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires every known Replica to causally acknowledge the tombstone"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires explicit retirement before an unavailable known Replica stops blocking purge"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > makes a Definition tombstone selection stale when a newly related instance appears"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > makes Schema tombstone and Extension selections stale when affected Fields materialize"
+        }
+      ]
+    },
+    {
+      "id": "instance.field-content-deletion",
+      "contract": "Value deletion and whole Field clearing preserve Node content, placeholder semantics, History restoration, and concurrent values.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > deletes one ordered Field Value through Proposal, Direct, Reject, and History"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > restores the full Field subtree including a concurrently authored value"
+        }
+      ]
+    },
+    {
+      "id": "view.persistent-bounded",
+      "contract": "Persistent View Nodes present the same graph identities through bounded Schema-polymorphic pages.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > presents polymorphic Schema members and Field identities through Origin, Review, and restart"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > paginates View rows and excludes unrelated entities"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
+        }
+      ]
+    },
+    {
+      "id": "proposal.shared-domain-review",
+      "contract": "Direct and Proposal share one mutation vocabulary; Review exposes typed net effects, impacts, support closure, and freshness.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/reconcile.acceptance.test.ts > production Reconcile > MODEL-1 direct and proposal share the complete mutation vocabulary"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/review/review.acceptance.test.ts > production Review contracts > REVIEW-1 hunks are derived typed net differences"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/review/review.acceptance.test.ts > production Review contracts > REVIEW-2 scope is visible targets plus minimal support closure"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated Review evidence for every mutation owner survives only unrelated advances"
+        }
+      ]
+    },
+    {
+      "id": "proposal.resolution-history",
+      "contract": "Accept, Reject, opposite Resolution conflict, adjudication, and History preserve immutable terminal intent.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/conflict/conflicts.acceptance.test.ts > Conflict lifecycle > queries opposite Resolutions with provenance and clears them through adjudication"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/history/history.acceptance.test.ts > production History contracts > accepted and rejected Proposal steps leave History instead of being compensated"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > every Proposal mutation kind preserves all rebuild paths through Accept and Reject"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/proposal-workspace.acceptance.test.ts > Proposal Workspace coordinator > exposes rejected unsupported Direct intent and restores it after restart and sync"
+        }
+      ]
+    },
+    {
+      "id": "local-first.invocation-durability",
+      "contract": "Invocation retry, lost acknowledgement, outcome query, publication lag, authority fault, recovery, and restart are durable and explicit.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/authority/fact-authority-store.acceptance.test.ts > production Fact authority store > Durable crash boundaries audit and adopt a durable commit after its acknowledgement is lost"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/proposal-workspace.acceptance.test.ts > Proposal Workspace coordinator > CMD-5 returns outcome-unknown when durable append acknowledgement is lost"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/proposal-workspace.acceptance.test.ts > Proposal Workspace coordinator > authority fault keeps the last published generation readable until explicit recovery"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > preserves completion, retry and read-your-write semantics"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Schema Application initializer Resolution and History compensation after lost acknowledgements"
+        }
+      ]
+    },
+    {
+      "id": "local-first.sync-restart",
+      "contract": "Authenticated app paths synchronize only Facts between fresh durable replicas and retain restart behavior.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "tests/engine.test.ts > Engine composition > production engine sync exchanges only Facts and publishes remote authority advances"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > restart preserves Fact-sync CRDT history and sends only a new tail"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > daemon sync RPC composes the production Fact SyncExchange across replicas"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Schema Application initializer Resolution and History compensation after lost acknowledgements"
+        }
+      ]
+    },
+    {
+      "id": "product.anime-notes",
+      "contract": "The public CLI and daemon build, navigate, review, restart, and synchronize the complete Anime Notes knowledge graph.",
+      "tests": [
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
+        }
+      ]
+    },
+    {
+      "id": "product.outline-transport",
+      "contract": "The public CLI and daemon enforce authenticated transport while a Workspace-rooted outline supports multiple top-level placements, CRUD, reorder, rich-text marks, Reference transclusion, restart, isolation, and bidirectional fresh-replica sync.",
+      "tests": [
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > runs an authenticated Workspace-rooted outline on two fresh machines in both directions"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > preserves completion, retry and read-your-write semantics"
+        }
+      ]
+    },
+    {
+      "id": "convergence.multi-replica",
+      "contract": "Permutation, duplicate delivery, batch, checkpoint, restart, and three-or-more-replica topologies converge without silent intent loss.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated bounded domain graphs shrink and preserve full incremental and checkpoint semantics"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/placement-conflict.property.test.ts > Placement Conflict convergence > preserves both cross-parent move intents across 32 arrival and replay topologies"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > preserves a concurrent new value while deleting only the selected value across 32 topologies"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Schema Application observed-remove intent across 32 four-replica topologies"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
+        }
+      ]
+    }
+  ]
+}

@@ -1,44 +1,39 @@
 import type {
   ConflictQueryRequest,
+  ProjectionPage,
+  ProjectionPageSection,
   ProjectionQuery,
   SchemaSearchQueryRequest,
   SchemaSearchResult,
-} from "../../../application/contract.js";
+} from "@lode/sdk";
 import type { ConflictQuery } from "../../../domain/conflict/index.js";
+import type { ProjectionIdentity, ViewMode } from "../../../domain/fact/index.js";
 import type {
-  ProjectionPageReader,
   ProjectionSchemaSearchReader,
+  ProjectionSectionPageReader,
+  ProjectionSlicePage,
 } from "../../materialization/index.js";
 
-export function queryProjection(
+export async function queryProjection(
   query: ProjectionQuery,
   generationId: string,
-  projections: ProjectionPageReader,
-) {
-  return projections.page(generationId, query);
+  projections: ProjectionSectionPageReader,
+): Promise<ProjectionPage> {
+  const section = query.section ?? "nodes";
+  const page = await projections.page(generationId, query.view, section, query.after ?? null, query.limit ?? 100);
+  return projectionPage(page.identity, query.view, section, page.next, page.entries);
 }
 
 export async function queryConflicts(
-  workspaceId: string,
   query: ConflictQueryRequest,
   generationId: string,
-  projections: ProjectionPageReader,
+  projections: ProjectionSectionPageReader,
 ): Promise<ConflictQuery> {
-  const page = await projections.page(generationId, {
-    kind: "projection",
-    workspaceId,
-    view: "review",
-    section: "conflictIssues",
-    after: query.after,
-    limit: query.limit,
-  });
-  if (page.section !== "conflictIssues") {
-    throw new Error("Conflict query received another Projection section");
-  }
+  const page = await projections.page(generationId, "review", "conflictIssues", query.after ?? null, query.limit ?? 50);
   return {
     generationId: page.identity.generationId,
     frontier: page.identity.frontier,
-    issues: Object.values(page.conflictIssues),
+    issues: page.entries.map((entry) => entry.value),
     next: page.next,
   };
 }
@@ -63,4 +58,18 @@ export async function querySchemaSearch(
     nodeIds: page.nodeIds,
     next: page.next,
   };
+}
+
+function projectionPage<Section extends ProjectionPageSection>(
+  identity: ProjectionIdentity,
+  view: ViewMode,
+  section: Section,
+  next: string | null,
+  entries: ProjectionSlicePage<Section>["entries"],
+): ProjectionPage<Section> {
+  const value =
+    section === "templateNodeInstances"
+      ? entries.map((entry) => entry.value)
+      : Object.fromEntries(entries.map((entry) => [entry.identity, entry.value]));
+  return { identity, view, section, next, [section]: value } as ProjectionPage<Section>;
 }

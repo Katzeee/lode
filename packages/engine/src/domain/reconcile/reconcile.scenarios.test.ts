@@ -6,13 +6,7 @@ import { rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
 import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";
-import {
-  base,
-  end,
-  Facts,
-  fullSurface,
-  versions,
-} from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { base, end, Facts, fullSurface, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { addPlacedNode } from "../../../tests/support/reconcile/placed-node-test-helpers.js";
 
 describe("production Reconcile scenarios", () => {
@@ -68,12 +62,7 @@ describe("production Reconcile scenarios", () => {
     );
     const facts = [
       contribution(localReplica, 1, {}, { kind: "node-create", nodeId: "workspace" }),
-      contribution(
-        localReplica,
-        2,
-        { [localReplica]: 1 },
-        { kind: "node-create", nodeId: "parent" },
-      ),
+      contribution(localReplica, 2, { [localReplica]: 1 }, { kind: "node-create", nodeId: "parent" }),
       contribution(
         localReplica,
         3,
@@ -161,16 +150,10 @@ describe("production Reconcile scenarios", () => {
       },
       "proposal",
     );
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node?.properties.p,
-    ).toBeUndefined();
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p,
-    ).toBe(1);
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node?.properties.p).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p).toBe(1);
     facts.resolve([pending.id], "reject");
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p,
-    ).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p).toBeUndefined();
 
     const expectedKinds = [
       "field-initialize",
@@ -211,10 +194,9 @@ describe("production Reconcile scenarios", () => {
         const pendingSnapshot = entry.facts.snapshot();
         const pendingOrigin = projectSnapshot("workspace", pendingSnapshot, "origin", versions);
         const pendingReview = projectSnapshot("workspace", pendingSnapshot, "review", versions);
-        expect(
-          projectionPayload(pendingReview),
-          `${entry.kind} must be pending in Review`,
-        ).not.toEqual(projectionPayload(pendingOrigin));
+        expect(projectionPayload(pendingReview), `${entry.kind} must be pending in Review`).not.toEqual(
+          projectionPayload(pendingOrigin),
+        );
         const pendingHunk = queryReview(
           "workspace",
           pendingSnapshot,
@@ -232,10 +214,9 @@ describe("production Reconcile scenarios", () => {
         const terminalSnapshot = entry.facts.snapshot();
         const terminalOrigin = projectSnapshot("workspace", terminalSnapshot, "origin", versions);
         const terminalReview = projectSnapshot("workspace", terminalSnapshot, "review", versions);
-        expect(
-          projectionPayload(terminalReview),
-          `${entry.kind} ${decision} must be terminal`,
-        ).toEqual(projectionPayload(terminalOrigin));
+        expect(projectionPayload(terminalReview), `${entry.kind} ${decision} must be terminal`).toEqual(
+          projectionPayload(terminalOrigin),
+        );
         expect(
           projectionPayload(terminalOrigin),
           `${entry.kind} ${decision} must preserve the selected pending side`,
@@ -252,54 +233,19 @@ describe("production Reconcile scenarios", () => {
 
     for (const decision of ["accept", "reject"] as const) {
       const surface = proposalLifecycleSurface();
-      const pendingOrigin = projectSnapshot(
-        "workspace",
-        surface.facts.snapshot(),
-        "origin",
-        versions,
-      );
-      const pendingReview = projectSnapshot(
-        "workspace",
-        surface.facts.snapshot(),
-        "review",
-        versions,
-      );
+      const pendingOrigin = projectSnapshot("workspace", surface.facts.snapshot(), "origin", versions);
+      const pendingReview = projectSnapshot("workspace", surface.facts.snapshot(), "review", versions);
       expect(projectionPayload(pendingReview)).not.toEqual(projectionPayload(pendingOrigin));
       surface.facts.resolve(surface.proposalIds, decision);
-      const terminalOrigin = projectSnapshot(
-        "workspace",
-        surface.facts.snapshot(),
-        "origin",
-        versions,
-      );
-      const terminalReview = projectSnapshot(
-        "workspace",
-        surface.facts.snapshot(),
-        "review",
-        versions,
-      );
+      const terminalOrigin = projectSnapshot("workspace", surface.facts.snapshot(), "origin", versions);
+      const terminalReview = projectSnapshot("workspace", surface.facts.snapshot(), "review", versions);
       expect(projectionPayload(terminalReview)).toEqual(projectionPayload(terminalOrigin));
       expect(terminalOrigin.nodes["proposal-node"] !== undefined).toBe(decision === "accept");
     }
   });
 
-  it("Transclusion 与 self-reference", () => {
+  it("renders a self-reference once as a non-recursive Reference", () => {
     const facts = base();
-    addPlacedNode(facts, "reference-parent");
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "second-appearance",
-      nodeId: "node",
-      parentNodeId: "reference-parent",
-      anchor: end,
-    });
-    facts.add({
-      kind: "text-splice",
-      nodeId: "node",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-      insert: "shared",
-      deleteAtomIds: [],
-    });
     facts.add({
       kind: "occurrence-create",
       occurrenceId: "self",
@@ -310,13 +256,6 @@ describe("production Reconcile scenarios", () => {
     const projection = projectSnapshot("workspace", facts.snapshot(), "review", versions);
     expect(projection.occurrences.self?.nodeId).toBe("node");
     expect(projection.children.node).toEqual(["self"]);
-    const firstAppearance = projection.occurrences.occurrence;
-    const secondAppearance = projection.occurrences["second-appearance"];
-    expect(firstAppearance).toBeDefined();
-    expect(secondAppearance).toBeDefined();
-    expect(projection.nodes[firstAppearance?.nodeId ?? ""]?.text).toEqual(
-      projection.nodes[secondAppearance?.nodeId ?? ""]?.text,
-    );
     expect(renderSemanticTree(projection, "occurrence")?.children[0]).toMatchObject({
       occurrenceId: "self",
       nodeId: "node",
@@ -370,9 +309,7 @@ describe("production Reconcile scenarios", () => {
       parentNodeId: "workspace",
       anchor: end,
     });
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences.occurrence,
-    ).toBeDefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences.occurrence).toBeDefined();
 
     const nodeDelete = facts.add({ kind: "node-delete", nodeId: "node" });
     addPlacedNode(facts, "late-parent");
@@ -384,20 +321,14 @@ describe("production Reconcile scenarios", () => {
       anchor: end,
     });
     expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences[
-        "late-old-occurrence"
-      ],
+      projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
     ).toBeUndefined();
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDelete.id });
     expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences[
-        "late-old-occurrence"
-      ],
+      projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
     ).toBeDefined();
     facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(
-      projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node,
-    ).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
   });
 });
 

@@ -1,10 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import { canonicalDigest } from "../../domain/fact/index.js";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
-import { ensureDir } from "../../persistence/atomic-file.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { WorkspaceStore } from "../../persistence/workspace-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
@@ -13,10 +13,7 @@ import type { SyncableDoc } from "../../sync/syncable.js";
 import { WorkspaceDocStore } from "./doc-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../domain/reconcile/index.js";
-import {
-  BoundedProjectionMaterializer,
-  ProjectionCheckpointRepository,
-} from "../materialization/index.js";
+import { BoundedProjectionMaterializer, ProjectionCheckpointRepository } from "../materialization/index.js";
 
 const LOCAL_REPLICA_DOCUMENT_ID = "local-replica";
 
@@ -34,10 +31,7 @@ export type OpenedProposalWorkspace = Readonly<{
   close(): Promise<void>;
 }>;
 
-export async function openProposalWorkspace(
-  workspaceId: string,
-  dataRoot?: string,
-): Promise<OpenedProposalWorkspace> {
+export async function openProposalWorkspace(workspaceId: string, dataRoot?: string): Promise<OpenedProposalWorkspace> {
   const storage = await openDocuments(workspaceId, dataRoot);
   const local = await loadOrCreateLocalReplica(storage.documents);
   const facts = await FactAuthorityStore.open({
@@ -54,11 +48,7 @@ export async function openProposalWorkspace(
     versions: CURRENT_PROJECTION_VERSIONS,
     reviewCapabilityKey: local.reviewCapabilityKey,
     projection: {
-      checkpoints: new ProjectionCheckpointRepository(
-        storage.documents,
-        workspaceId,
-        local.reviewCapabilityKey,
-      ),
+      checkpoints: new ProjectionCheckpointRepository(storage.documents, workspaceId, local.reviewCapabilityKey),
       projections: materializer,
     },
   });
@@ -82,10 +72,8 @@ async function openDocuments(
     return { documents: new InMemoryDocumentStore(), close: () => Promise.resolve() };
   }
   const directory = join(dataRoot, "workspaces");
-  await ensureDir(directory);
-  const store = await WorkspaceStore.open(
-    join(directory, `${canonicalDigest(workspaceId)}.sqlite`),
-  );
+  await mkdir(directory, { recursive: true });
+  const store = await WorkspaceStore.open(join(directory, `${canonicalDigest(workspaceId)}.sqlite`));
   return { documents: new WorkspaceDocStore(store), close: () => store.close() };
 }
 
@@ -103,10 +91,7 @@ async function loadOrCreateLocalReplica(documents: DocumentStore): Promise<Local
     loroPeerId: createLoroPeerId(),
     reviewCapabilityKey: randomBytes(32).toString("hex"),
   } as const;
-  await documents.writeSnapshot(
-    LOCAL_REPLICA_DOCUMENT_ID,
-    new TextEncoder().encode(JSON.stringify(local)),
-  );
+  await documents.writeSnapshot(LOCAL_REPLICA_DOCUMENT_ID, new TextEncoder().encode(JSON.stringify(local)));
   return local;
 }
 

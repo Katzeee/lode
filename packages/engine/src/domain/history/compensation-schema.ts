@@ -26,10 +26,7 @@ export function compensateSchemaMutation(
           kind: "schema-remove",
           nodeId: mutation.nodeId,
           schemaId: mutation.schemaId,
-          previousAnchor: currentAnchor(
-            projection.schemaApplications[mutation.nodeId] ?? [],
-            mutation.schemaId,
-          ),
+          previousAnchor: currentAnchor(projection.schemaApplications[mutation.nodeId] ?? [], mutation.schemaId),
         })
       : noCompensation();
   }
@@ -51,10 +48,7 @@ export function compensateSchemaMutation(
           fieldDefinitionId: mutation.fieldDefinitionId,
           fieldNodeId: mutation.fieldNodeId,
           fieldOccurrenceId: mutation.fieldOccurrenceId,
-          previousAnchor: currentAnchor(
-            projection.children[mutation.schemaId] ?? [],
-            mutation.fieldOccurrenceId,
-          ),
+          previousAnchor: currentAnchor(projection.children[mutation.schemaId] ?? [], mutation.fieldOccurrenceId),
         })
       : noCompensation();
   }
@@ -89,10 +83,7 @@ export function compensateSchemaMutation(
           kind: "schema-extension-remove",
           schemaId: mutation.schemaId,
           baseSchemaId: mutation.baseSchemaId,
-          previousAnchor: currentAnchor(
-            projection.schemaExtensions[mutation.schemaId] ?? [],
-            mutation.baseSchemaId,
-          ),
+          previousAnchor: currentAnchor(projection.schemaExtensions[mutation.schemaId] ?? [], mutation.baseSchemaId),
         })
       : noCompensation();
   }
@@ -120,10 +111,7 @@ function compensateTemplateNodeRelation(
           schemaId: mutation.schemaId,
           templateNodeId: mutation.templateNodeId,
           templateOccurrenceId: mutation.templateOccurrenceId,
-          previousAnchor: currentAnchor(
-            projection.children[mutation.schemaId] ?? [],
-            mutation.templateOccurrenceId,
-          ),
+          previousAnchor: currentAnchor(projection.children[mutation.schemaId] ?? [], mutation.templateOccurrenceId),
         })
       : noCompensation();
   }
@@ -159,19 +147,14 @@ function contains(projection: ScopedProjection, mutation: SchemaMutation): boole
     return (projection.schemaExtensions[mutation.schemaId] ?? []).includes(mutation.baseSchemaId);
   }
   const occurrence = projection.occurrences[mutation.templateOccurrenceId];
-  return (
-    occurrence?.nodeId === mutation.templateNodeId && occurrence.parentNodeId === mutation.schemaId
-  );
+  return occurrence?.nodeId === mutation.templateNodeId && occurrence.parentNodeId === mutation.schemaId;
 }
 
 function currentAnchor(identities: readonly string[], identity: string) {
   return sequenceAnchorAt(identities, identities.indexOf(identity));
 }
 
-function hasLaterRelationEdit(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
-): boolean {
+function hasLaterRelationEdit(target: ContributionFact, activeFacts: readonly ContributionFact[]): boolean {
   const mutation = target.body.mutation;
   if (!isSchemaMutation(mutation)) {
     return false;

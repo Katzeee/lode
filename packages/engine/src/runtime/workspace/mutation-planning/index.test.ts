@@ -1,23 +1,39 @@
 import { describe, expect, it } from "vitest";
 
 import { rebuildGeneration } from "../../../domain/reconcile/index.js";
-import {
-  base,
-  end,
-  Facts,
-  versions,
-} from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { base, end, Facts, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { prepareEdits } from "./index.js";
 
 describe("domain Edit write boundaries", () => {
+  it("reserves Workspace root creation for genesis at the planning boundary", () => {
+    const facts = new Facts();
+    const snapshot = facts.snapshot();
+    const generation = rebuildGeneration("workspace", snapshot, versions).generation;
+
+    expect(() =>
+      prepareEdits(
+        "workspace",
+        "actor",
+        [
+          {
+            kind: "node-create",
+            nodeId: "workspace",
+            occurrenceId: "workspace-original",
+            parentNodeId: "workspace",
+            anchor: end,
+          },
+        ],
+        generation,
+        "direct",
+        snapshot,
+      ),
+    ).toThrow("Workspace identity is created only by Workspace genesis");
+  });
+
   it("declares Node creation and deletion atomic at their domain handlers", () => {
     const creationFacts = new Facts();
     const creationSnapshot = creationFacts.snapshot();
-    const creationGeneration = rebuildGeneration(
-      "workspace",
-      creationSnapshot,
-      versions,
-    ).generation;
+    const creationGeneration = rebuildGeneration("workspace", creationSnapshot, versions).generation;
     expect(
       prepareEdits(
         "workspace",
@@ -47,11 +63,7 @@ describe("domain Edit write boundaries", () => {
 
     const deletionFacts = base();
     const deletionSnapshot = deletionFacts.snapshot();
-    const deletionGeneration = rebuildGeneration(
-      "workspace",
-      deletionSnapshot,
-      versions,
-    ).generation;
+    const deletionGeneration = rebuildGeneration("workspace", deletionSnapshot, versions).generation;
     expect(
       prepareEdits(
         "workspace",

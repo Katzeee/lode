@@ -6,15 +6,14 @@
   },
   "workspaces": [
     "packages/*",
-    "packages/ipc/*",
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-daemon && npm run build --workspace=@lode/app-cli",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",
-    "test:app-cli": "npm run test --workspace=@lode/app-cli",
+    "test:cli": "npm run test --workspace=@lode/app-cli",
     "typecheck": "npm run typecheck:build && npm run typecheck:test",
     "typecheck:build": "npm run typecheck --workspaces --if-present",
     "typecheck:test": "npm run typecheck:test --workspaces --if-present",

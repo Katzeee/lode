@@ -20,22 +20,8 @@ export function queryHistory(
   const state = rebuildHistoryState(receipts, channelId);
   return {
     channelId,
-    undo: selectionFor(
-      "undo",
-      state.undoStack.at(-1) ?? null,
-      state,
-      receipts,
-      snapshot,
-      generation,
-    ),
-    redo: selectionFor(
-      "redo",
-      state.redoStack.at(-1) ?? null,
-      state,
-      receipts,
-      snapshot,
-      generation,
-    ),
+    undo: selectionFor("undo", state.undoStack.at(-1) ?? null, state, receipts, snapshot, generation),
+    redo: selectionFor("redo", state.redoStack.at(-1) ?? null, state, receipts, snapshot, generation),
   };
 }
 
@@ -59,9 +45,7 @@ export function validateHistorySelection(
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
 ): HistoryPlan {
-  const current = queryHistory(selection.channelId, receipts, snapshot, generation)[
-    selection.operation
-  ];
+  const current = queryHistory(selection.channelId, receipts, snapshot, generation)[selection.operation];
   if (!current) {
     return { kind: "unavailable", reason: "History operation has no current target" };
   }
@@ -74,10 +58,7 @@ export function validateHistorySelection(
   ) {
     return { kind: "stale", reason: "History channel head or compensation evidence changed" };
   }
-  const targetFacts = contributionFactsForReceipt(
-    receiptById(receipts, selection.targetInvocationId),
-    snapshot,
-  );
+  const targetFacts = contributionFactsForReceipt(receiptById(receipts, selection.targetInvocationId), snapshot);
   const intent = targetFacts[0]?.body.intent;
   if (!intent) {
     return { kind: "unavailable", reason: "History target has no Contributions" };
@@ -136,13 +117,10 @@ function selectionFor(
     headOrdinal: state.headOrdinal,
     frontier: generation.identity.frontier,
     evidence,
-  } as HistorySelection;
+  };
 }
 
-function receiptById(
-  receipts: readonly AuthorityReceipt[],
-  invocationId: string,
-): AuthorityReceipt | null {
+function receiptById(receipts: readonly AuthorityReceipt[], invocationId: string): AuthorityReceipt | null {
   return receipts.find((receipt) => receipt.invocationId === invocationId) ?? null;
 }
 

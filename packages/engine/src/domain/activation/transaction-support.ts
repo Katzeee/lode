@@ -19,9 +19,7 @@ export function addTransactionSupport(
       if (!next) {
         throw new Error("Fact transaction support cycle is incomplete");
       }
-      supportByContribution.set(fact.id, [
-        ...new Set([...(supportByContribution.get(fact.id) ?? []), next.id]),
-      ]);
+      supportByContribution.set(fact.id, [...new Set([...(supportByContribution.get(fact.id) ?? []), next.id])]);
     }
   }
 }

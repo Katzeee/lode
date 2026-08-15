@@ -47,11 +47,7 @@ export type CompiledProjectionPlan<
   run(context: Context, selected?: ReadonlySet<StageKey>): readonly StageKey[];
 }>;
 
-export function compileProjectionPlan<
-  Context,
-  StageKey extends string = string,
-  ArtifactKey extends string = string,
->(
+export function compileProjectionPlan<Context, StageKey extends string = string, ArtifactKey extends string = string>(
   stages: readonly ProjectionStage<Context, StageKey, ArtifactKey>[],
 ): CompiledProjectionPlan<Context, StageKey, ArtifactKey> {
   const byKey = new Map<StageKey, ProjectionStage<Context, StageKey, ArtifactKey>>();
@@ -81,9 +77,7 @@ export function compileProjectionPlan<
   const remaining = new Set(byKey.keys());
   while (remaining.size > 0) {
     const ready = [...remaining]
-      .filter((key) =>
-        byKey.get(key)!.dependencies.every((dependency) => !remaining.has(dependency)),
-      )
+      .filter((key) => byKey.get(key)!.dependencies.every((dependency) => !remaining.has(dependency)))
       .sort(stableStringCompare);
     if (ready.length === 0) {
       throw new Error(`Projection stage dependency cycle: ${[...remaining].sort().join(", ")}`);
@@ -102,10 +96,7 @@ export function compileProjectionPlan<
       while (changed) {
         changed = false;
         for (const rule of ordered) {
-          if (
-            !selected.has(rule.key) &&
-            rule.dependencies.some((dependency) => selected.has(dependency))
-          ) {
+          if (!selected.has(rule.key) && rule.dependencies.some((dependency) => selected.has(dependency))) {
             selected.add(rule.key);
             changed = true;
           }

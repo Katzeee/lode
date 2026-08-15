@@ -6,15 +6,37 @@ current product decisions determine actual behavior.
 
 ## System boundary
 
-Lode is local-first. Its application surfaces communicate with a headless Engine through a
-serializable, transport-neutral contract. Desktop, mobile, CLI, and other hosts may use different
-adapters—such as in-process calls, native bridges, IPC, or network transports—without creating
-different application semantics. An adapter translates transport concerns; it does not become a
+Lode is local-first. Its application surfaces communicate with a headless, embeddable Engine through
+a serializable, transport-neutral contract whose source of truth is protobuf. Generated types define
+the commands, queries, results, events, Workspace Session operations, and replica-exchange messages
+used across implementation languages. The SDK provides an ergonomic Engine client surface,
+validation, and generated-message adaptation without redeclaring DTO fields or depending on an
+Engine implementation. Hosts may use in-process, native, IPC, or network adapters without creating
+different application semantics. An adapter translates boundary concerns; it does not become a
 second home for domain rules.
 
 The Engine is the application core rather than a business-agnostic storage wrapper. It owns domain
 commands and validation, workspace state, persistence coordination, queries, and change
 publication. Apps own presentation and genuinely client-local interaction state.
+
+An Engine Host creates and closes an Engine instance and supplies its platform resources. The Engine
+owns Workspace Sessions, domain state, persistence coordination, and replica-exchange semantics;
+the host owns process or application lifetime, platform integration, and connection orchestration.
+The desktop Daemon is one Engine Host per Lode Home. CLI, GUI, and TUI surfaces reach it through the
+shared desktop client and do not own domain authority. A host that embeds the Engine reaches the same
+application contract without requiring a Daemon.
+
+The protobuf boundary separates five relationships. `EngineService` carries application commands,
+queries, results, and events. `EngineWorkspaceService` controls Engine-owned Workspace Sessions.
+`ReplicaSyncService` carries the profile, fetch, and send primitives used by Engine-owned replica
+exchange, and `EngineLifecycleService` gives a host an explicit release boundary for an embedded
+Engine. `DaemonService` contains only desktop-host operations such as remote connection orchestration
+and process shutdown. This split allows Engine and Daemon implementations to vary independently
+while preserving the same generated contracts.
+
+Repository placement follows deployment ownership. `apps` contains executable composition roots;
+`packages` contains reusable modules. The daemon process entry and CLI therefore live as apps,
+while the SDK, Engine, daemon host, desktop client, protocol, and logging modules remain packages.
 
 ## State authority
 

@@ -51,8 +51,7 @@ export type ValueTarget = Readonly<{
   id: string;
 }>;
 
-export type PreviousValue =
-  Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
+export type PreviousValue = Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
 
 export type Mutation =
   | Readonly<{ kind: "node-create"; nodeId: string; seed?: NodeSeed }>
@@ -274,7 +273,6 @@ export type Fact = Readonly<{
 
 export type ContributionFact = Fact & Readonly<{ body: ContributionBody }>;
 export type ResolutionFact = Fact & Readonly<{ body: ResolutionBody }>;
-export type MaintenanceFact = Fact & Readonly<{ body: MaintenanceBody }>;
 
 export type FactSnapshot = Readonly<{
   facts: readonly Fact[];
@@ -318,9 +316,4 @@ export type ProjectionIdentity = Readonly<{
   frontier: FactFrontier;
   rulesVersion: RulesVersion;
   schemaVersion: SchemaVersion;
-}>;
-
-export type AuthorityFault = Readonly<{
-  message: string;
-  conflictingFactId?: FactId;
 }>;

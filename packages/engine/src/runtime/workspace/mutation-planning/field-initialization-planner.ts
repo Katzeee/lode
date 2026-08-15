@@ -9,6 +9,18 @@ import {
 } from "../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../domain/reconcile/index.js";
 
+export function fieldInitializationFollowUps(
+  mutation: Mutation,
+  before: ScopedProjection,
+  after: ScopedProjection,
+): readonly Mutation[] {
+  if (mutation.kind !== "schema-apply") {
+    return [];
+  }
+  const alreadyApplied = (before.schemaApplications[mutation.nodeId] ?? []).includes(mutation.schemaId);
+  return alreadyApplied ? [] : schemaApplicationInitializations(mutation, after);
+}
+
 export function schemaApplicationInitializations(
   mutation: Extract<Mutation, { kind: "schema-apply" }>,
   projection: ScopedProjection,
@@ -18,19 +30,12 @@ export function schemaApplicationInitializations(
   }
   const fields = projection.effectiveFields[mutation.nodeId] ?? [];
   return fields.flatMap((field): readonly Mutation[] => {
-    if (
-      field.materializedFieldNodeId !== null ||
-      field.visibility === "optional" ||
-      field.effectiveConfig === null
-    ) {
+    if (field.materializedFieldNodeId !== null || field.visibility === "optional" || field.effectiveConfig === null) {
       return [];
     }
     const initialized = initializationValues(field.effectiveConfig, mutation.nodeId, projection);
     const fieldNodeId = initializedFieldNodeId(mutation.nodeId, field.fieldDefinitionId);
-    const fieldOccurrenceId = initializedFieldOccurrenceId(
-      mutation.nodeId,
-      field.fieldDefinitionId,
-    );
+    const fieldOccurrenceId = initializedFieldOccurrenceId(mutation.nodeId, field.fieldDefinitionId);
     return initialized === null
       ? []
       : [

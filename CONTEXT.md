@@ -6,6 +6,34 @@ The formal app transport authenticates every command, query, event stream, maint
 
 ## Language
 
+**Engine**:
+Lode's headless, embeddable application core, which owns domain commands and queries, Workspace state, persistence coordination, and replica-exchange semantics. An Engine does not own client transport, process lifetime, listening addresses, or access authentication.
+_Avoid_: Engine Runtime, server, daemon
+
+**Engine Host**:
+A component that creates and closes an Engine instance, supplies platform resources, and makes the Engine available through a platform adapter. An Engine Host decides process and platform integration without redefining Engine semantics.
+_Avoid_: Engine Runtime, application core
+
+**Daemon**:
+The desktop Engine Host, which exposes Engine capabilities through an authenticated local process and coordinates remote connections. The Daemon owns listeners, connections, and process shutdown, but not Workspaces or domain authority.
+_Avoid_: Engine server, desktop Engine
+
+**Workspace Session**:
+The active Engine resources for one open Workspace, binding its domain capabilities to its persistent and replica state. Closing a Session stops new use and drains active work without changing the Workspace's persistent identity.
+_Avoid_: Hosted Workspace, Workspace Host
+
+**Engine Application Contract**:
+The serializable command, query, result, and event semantics shared by every Engine client. It is independent of whether a call crosses an in-process, native, or network boundary.
+_Avoid_: IPC contract, daemon API
+
+**Replica**:
+One independently evolving copy of a Workspace's Fact authority, identified separately so it can advance while disconnected and later exchange Facts with another Replica. A Replica is not a Projection cache or a client connection.
+_Avoid_: Peer connection, synchronized view
+
+**Replica Exchange**:
+The Engine capability through which two Workspace Replicas compare versions and exchange authoritative data. Endpoint discovery, connection establishment, and retry belong to the Engine Host rather than Replica Exchange.
+_Avoid_: Remote sync connection, transport authority
+
 **Node**:
 A persistent knowledge object with stable identity. Anything users can name, reference, nest, reuse, query, or authorize independently is a Node, including Workspaces, Schemas, Field Definitions, Fields, Search Nodes, Command Nodes, Calendars, Views, and ordinary outline content. A Node Type selects specialized behavior without creating a parallel identity system. Every non-Workspace Node has exactly one Owner Node; the Workspace Node is the ownership root and has no Owner.
 

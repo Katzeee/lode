@@ -90,27 +90,13 @@ export function fixtureConsequences(mutation: Mutation): readonly Mutation[] {
     ];
   }
   if (mutation.kind === "schema-template-node-remove") {
-    return [
-      occurrenceDeletion(mutation.templateOccurrenceId, mutation.schemaId, mutation.previousAnchor),
-    ];
+    return [occurrenceDeletion(mutation.templateOccurrenceId, mutation.schemaId, mutation.previousAnchor)];
   }
   if (mutation.kind === "field-value-delete") {
-    return [
-      occurrenceDeletion(
-        mutation.valueOccurrenceId,
-        mutation.previousParentNodeId,
-        mutation.previousAnchor,
-      ),
-    ];
+    return [occurrenceDeletion(mutation.valueOccurrenceId, mutation.previousParentNodeId, mutation.previousAnchor)];
   }
   if (mutation.kind === "materialized-field-delete") {
-    return [
-      occurrenceDeletion(
-        mutation.fieldOccurrenceId,
-        mutation.previousParentNodeId,
-        mutation.previousAnchor,
-      ),
-    ];
+    return [occurrenceDeletion(mutation.fieldOccurrenceId, mutation.previousParentNodeId, mutation.previousAnchor)];
   }
   if (mutation.kind === "template-node-detach") {
     return [

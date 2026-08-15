@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+
+service DaemonService {
+  rpc SyncWorkspace(WorkspaceSyncRequest) returns (google.protobuf.Empty);
+  rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message WorkspaceSyncRequest {
+  string workspace_id = 1;
+  string remote_endpoint = 2;
+}

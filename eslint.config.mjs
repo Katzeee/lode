@@ -11,6 +11,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/coverage/**",
       "**/src/gen/**",
+      "**/src/dto-gen/**",
       "**/*.config.js",
       "**/*.config.mjs",
       "**/*.config.ts",
@@ -38,10 +39,7 @@ export default tseslint.config(
       "@typescript-eslint/prefer-includes": "error",
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/switch-exhaustiveness-check": "error",
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
-      ],
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       curly: "error",
       "no-unneeded-ternary": "error",
       "no-useless-return": "error",
@@ -73,18 +71,16 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["@lode/protocol", "@lode/protocol/**", "@lode/client", "@bufbuild/**"],
+              group: ["@lode/protocol", "@lode/protocol/**", "@lode/desktop-client", "@bufbuild/**"],
               message: "Engine contracts and domain code are transport-neutral.",
             },
             {
               regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?mutation-evidence/(?!index\\.js$).+",
-              message:
-                "Mutation evidence is consumed through its public domain seam, never its family internals.",
+              message: "Mutation evidence is consumed through its public domain seam, never its family internals.",
             },
             {
               regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?review/(?!index\\.js$).+",
-              message:
-                "Review is consumed through its public domain seam, never its family internals.",
+              message: "Review is consumed through its public domain seam, never its family internals.",
             },
           ],
         },
@@ -107,11 +103,27 @@ export default tseslint.config(
                 "../../sync/**",
                 "loro-crdt",
                 "@lode/protocol",
-                "@lode/client",
+                "@lode/sdk",
+                "@lode/desktop-client",
                 "@bufbuild/**",
               ],
-              message:
-                "Domain policy cannot depend on applications, runtime, storage, CRDTs, or wire types.",
+              message: "Domain policy cannot depend on applications, runtime, storage, CRDTs, or wire types.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/shape-validation/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["../application/**", "../domain/**", "../persistence/**", "../runtime/**", "../sync/**"],
+              message: "Shape validation is a neutral leaf and cannot depend on engine concepts or layers.",
             },
           ],
         },
@@ -128,8 +140,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../{admission,conflict,history,reconcile,review}/**"],
-              message:
-                "Fact activation is a lower-level policy and depends only on Fact vocabulary.",
+              message: "Fact activation is a lower-level policy and depends only on Fact vocabulary.",
             },
           ],
         },
@@ -146,13 +157,11 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../{history,review}/**"],
-              message:
-                "Projection reconciliation cannot depend on its Review or History consumers.",
+              message: "Projection reconciliation cannot depend on its Review or History consumers.",
             },
             {
               regex: "^(?:\\./|(?:\\.\\./)+)direct-tail/(?!index\\.js$).+",
-              message:
-                "Incremental Projection eligibility is consumed through its family-rule funnel.",
+              message: "Incremental Projection eligibility is consumed through its family-rule funnel.",
             },
           ],
         },
@@ -169,8 +178,7 @@ export default tseslint.config(
           patterns: [
             {
               group: ["../{admission,conflict,history,reconcile,review}/**"],
-              message:
-                "Maintenance policy depends only on Fact vocabulary and lower-level Activation policy.",
+              message: "Maintenance policy depends only on Fact vocabulary and lower-level Activation policy.",
             },
           ],
         },
@@ -203,14 +211,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                "../runtime/**",
-                "../persistence/**",
-                "../sync/**",
-                "loro-crdt",
-                "@bufbuild/**",
-              ],
-              message: "The App contract depends only on domain-owned types.",
+              group: ["../runtime/**", "../persistence/**", "../sync/**", "loro-crdt", "@bufbuild/**"],
+              message: "Engine application adapters depend only on the SDK contract and domain-owned types.",
             },
           ],
         },
@@ -243,13 +245,87 @@ export default tseslint.config(
         {
           patterns: [
             {
+              group: ["../../application/**", "../../domain/{history,reconcile,review}/**", "../workspace/**"],
+              message:
+                "Fact authority cannot depend on projections, review, history, applications, or workspace orchestration.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/runtime/authority/authority-commit-plan.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
               group: [
                 "../../application/**",
                 "../../domain/{history,reconcile,review}/**",
+                "../../persistence/**",
+                "../../sync/**",
                 "../workspace/**",
+                "./authority-journal-*.js",
+                "./authority-sync-*.js",
+                "./fact-authority-store*.js",
+                "./loro-*.js",
               ],
               message:
-                "Fact authority cannot depend on projections, review, history, applications, or workspace orchestration.",
+                "Authority commit planning is a policy seam and cannot depend on persistence, replication, or the store facade.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/runtime/authority/authority-journal-session.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../../application/**",
+                "../../domain/{history,reconcile,review}/**",
+                "../../sync/**",
+                "../workspace/**",
+                "./authority-commit-plan.js",
+                "./authority-sync-*.js",
+                "./fact-authority-store.js",
+                "./loro-*.js",
+              ],
+              message:
+                "The authority journal owns durable authority state and cannot depend on commit, sync, or store orchestration.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/runtime/authority/authority-sync-import.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../../application/**",
+                "../../domain/{history,reconcile,review}/**",
+                "../../persistence/**",
+                "../workspace/**",
+                "./authority-commit-plan.js",
+                "./authority-journal-*.js",
+                "./fact-authority-store.js",
+              ],
+              message:
+                "Authority sync import coordinates a replica through explicit callbacks and cannot own journal or store state.",
             },
           ],
         },
@@ -285,15 +361,10 @@ export default tseslint.config(
             },
             {
               regex: "^(?:\\.\\./)+(?:authority-lifecycle|command|query)/index\\.js$",
-              message:
-                "Workspace command, query, and authority use cases remain independent sibling modules.",
+              message: "Workspace command, query, and authority use cases remain independent sibling modules.",
             },
             {
-              group: [
-                "../proposal-registry.js",
-                "../proposal-storage.js",
-                "../proposal-workspace.js",
-              ],
+              group: ["../proposal-registry.js", "../proposal-storage.js", "../proposal-workspace.js"],
               message: "Workspace use cases cannot depend back on workspace composition.",
             },
           ],
@@ -310,9 +381,45 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{authority,sync,workspace}/**"],
+              group: ["../../application/**", "../{authority,sync,workspace}/**"],
               message:
-                "Projection materialization is a lower runtime module and cannot depend on workspace composition, authority, or sync.",
+                "Projection materialization exposes storage-native data and cannot depend on application contracts, workspace composition, authority, or sync.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: [
+      "packages/engine/src/runtime/materialization/bounded-materialized-store.ts",
+      "packages/engine/src/runtime/materialization/materialize-generation.ts",
+      "packages/engine/src/runtime/materialization/materialized-dataset.ts",
+      "packages/engine/src/runtime/materialization/materialized-directory.ts",
+      "packages/engine/src/runtime/materialization/materialized-format-validation.ts",
+      "packages/engine/src/runtime/materialization/materialized-generation-format.ts",
+      "packages/engine/src/runtime/materialization/materialized-publication.ts",
+      "packages/engine/src/runtime/materialization/materialized-value-validation.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../../application/**",
+                "../../domain/{reconcile,review}/**",
+                "../{authority,sync,workspace}/**",
+                "./ports.js",
+                "./projection-*.js",
+                "./review-*.js",
+                "./materialized-projection-*.js",
+                "./materialized-review-*.js",
+                "./schema-search-reader.js",
+              ],
+              message:
+                "The materialized storage kernel depends on dataset contracts, never higher runtime modules or Projection and Review adapters.",
             },
           ],
         },
@@ -328,13 +435,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                "../../application/**",
-                "../../domain/{history,reconcile,review}/**",
-                "../workspace/**",
-              ],
-              message:
-                "Fact sync exchanges authority bytes and cannot depend on derived views or App orchestration.",
+              group: ["../../application/**", "../../domain/{history,reconcile,review}/**", "../workspace/**"],
+              message: "Fact sync exchanges authority bytes and cannot depend on derived views or App orchestration.",
             },
           ],
         },
@@ -342,15 +444,85 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/**/*.ts", "packages/ipc/client/**/*.ts"],
+    files: ["packages/sdk/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
             {
-              group: ["@lode/engine/server", "@lode/engine/server/**"],
-              message: "App and client code can only import the typed @lode/engine App contract.",
+              group: [
+                "@lode/engine",
+                "@lode/engine/**",
+                "@lode/daemon",
+                "@lode/daemon/**",
+                "@lode/desktop-client",
+                "@connectrpc/**",
+                "@bufbuild/**",
+              ],
+              message:
+                "The SDK can depend on generated protocol contracts, but not an implementation or transport library.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/desktop-client/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/engine", "@lode/engine/**"],
+              message: "Desktop clients consume the host-neutral @lode/sdk contract, never the Engine implementation.",
+            },
+            {
+              group: ["@lode/daemon", "@lode/daemon/**"],
+              message: "Desktop callers reach the daemon through @lode/desktop-client, never its host implementation.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["apps/{cli,gui,tui}/**/*.ts"],
+    ignores: ["**/*.test.ts", "**/tests/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/engine", "@lode/engine/**", "@lode/daemon", "@lode/daemon/**"],
+              message: "Desktop apps reach product behavior through @lode/sdk and @lode/desktop-client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/daemon/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/engine", "@lode/engine/**"],
+              message:
+                "The daemon depends on the host-neutral Engine contract; its composition root selects an implementation.",
+            },
+            {
+              group: ["@lode/desktop-client", "@lode/desktop-client/**"],
+              message: "The daemon host publishes the Engine service and cannot depend on its desktop consumer.",
             },
           ],
         },
@@ -372,6 +544,18 @@ export default tseslint.config(
         {
           selector: "ImportDeclaration[source.value='loro-crdt']",
           message: "Loro belongs only in the Fact replication adapter.",
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/engine/src/**/index.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "ExportAllDeclaration",
+          message: "Engine module seams list their exports explicitly so internal helpers cannot leak by accident.",
         },
       ],
     },

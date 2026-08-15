@@ -1,10 +1,7 @@
 import type { FactSnapshot } from "../../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../../domain/reconcile/index.js";
 import { createReviewReadModel } from "../../../domain/review/index.js";
-import type {
-  ProjectionCheckpointStore,
-  ProjectionPublisher,
-} from "../../materialization/index.js";
+import type { ProjectionCheckpointStore, ProjectionPublisher } from "../../materialization/index.js";
 
 export type ProjectionPublication = Readonly<{
   projections: ProjectionPublisher;

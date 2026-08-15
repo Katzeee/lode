@@ -3,17 +3,12 @@ import { isReplicaId } from "./fact.js";
 import { frontierEquals, normalizeFrontier } from "./frontier.js";
 import type { AuthorityReceipt, AuthorityRecord, Fact, WorkspaceId } from "./types.js";
 
-export function validateReceipts(
-  workspaceId: WorkspaceId,
-  records: readonly AuthorityRecord[],
-): void {
+export function validateReceipts(workspaceId: WorkspaceId, records: readonly AuthorityRecord[]): void {
   const receiptCanonicals = new Map<string, string>();
   const receipts = new Map<string, AuthorityReceipt>();
   const factClaims = new Map<string, string>();
   const facts = new Map(
-    records.flatMap((record) =>
-      record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [],
-    ),
+    records.flatMap((record) => (record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [])),
   );
   for (const record of records) {
     if (record.recordKind !== "receipt") {
@@ -47,13 +42,9 @@ export function validatePlannedReceiptAppend(
   previousHistoryReceipt: AuthorityReceipt | null,
 ): void {
   const facts = new Map(
-    records.flatMap((record) =>
-      record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [],
-    ),
+    records.flatMap((record) => (record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [])),
   );
-  const receipts = records.flatMap((record) =>
-    record.recordKind === "receipt" ? [record.receipt] : [],
-  );
+  const receipts = records.flatMap((record) => (record.recordKind === "receipt" ? [record.receipt] : []));
   const [receipt, ...additionalReceipts] = receipts;
   if (!receipt || additionalReceipts.length > 0) {
     throw new Error("Planned authority append requires exactly one Invocation receipt");
@@ -69,9 +60,7 @@ export function validatePlannedReceiptAppend(
     lineage.parentStepId !== (previousHistoryReceipt?.invocationId ?? null) ||
     (previousHistoryReceipt?.lineage?.channelId ?? lineage.channelId) !== lineage.channelId
   ) {
-    throw new Error(
-      `History lineage gap or parent mismatch: ${receipt.replicaId}/${lineage.channelId}`,
-    );
+    throw new Error(`History lineage gap or parent mismatch: ${receipt.replicaId}/${lineage.channelId}`);
   }
 }
 
@@ -139,8 +128,7 @@ function validateReceiptBatch(
     if (
       available.some(
         (fact, index) =>
-          fact.coordinate.dot.replicaId !== receipt.replicaId ||
-          fact.coordinate.dot.sequence !== sequences[index],
+          fact.coordinate.dot.replicaId !== receipt.replicaId || fact.coordinate.dot.sequence !== sequences[index],
       )
     ) {
       throw new Error(`Receipt complete batch has a Replica mismatch: ${receipt.invocationId}`);
@@ -151,9 +139,7 @@ function validateReceiptBatch(
       [receipt.replicaId]: last.coordinate.dot.sequence,
     });
     if (!frontierEquals(receipt.committedFrontier, expected)) {
-      throw new Error(
-        `Receipt frontier differs from its complete Fact batch: ${receipt.invocationId}`,
-      );
+      throw new Error(`Receipt frontier differs from its complete Fact batch: ${receipt.invocationId}`);
     }
   }
 }
@@ -175,9 +161,7 @@ function validateLineages(receipts: readonly AuthorityReceipt[]): void {
 }
 
 function validateLineageChannel(key: string, receipts: readonly AuthorityReceipt[]): void {
-  const ordered = [...receipts].sort(
-    (left, right) => left.lineage!.ordinal - right.lineage!.ordinal,
-  );
+  const ordered = [...receipts].sort((left, right) => left.lineage!.ordinal - right.lineage!.ordinal);
   const undo: string[] = [];
   const redo: string[] = [];
   let parent: string | null = null;

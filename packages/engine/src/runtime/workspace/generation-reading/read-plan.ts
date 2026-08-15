@@ -1,8 +1,4 @@
-import {
-  expandEditMutation,
-  mutationWriteMembers,
-  type EditMutation,
-} from "../../../domain/edit/index.js";
+import { expandEditMutation, mutationWriteMembers, type EditMutation } from "../../../domain/edit/index.js";
 import { mutationRelations, type Mutation } from "../../../domain/fact/index.js";
 import { valueTargetAddress } from "../../../domain/reconcile/index.js";
 
@@ -71,17 +67,12 @@ function emptyGenerationReadScope(): GenerationReadScope {
   };
 }
 
-function addRelations(
-  scope: GenerationReadScope,
-  relations: ReturnType<typeof mutationRelations>,
-): void {
+function addRelations(scope: GenerationReadScope, relations: ReturnType<typeof mutationRelations>): void {
   relations.nodeIds.forEach((id) => scope.nodes.add(id));
   relations.occurrenceIds.forEach((id) => scope.occurrences.add(id));
   relations.childrenOfNodeIds.forEach((id) => scope.children.add(id));
   relations.schemaIds.forEach((id) => scope.schemas.add(id));
   relations.instanceSchemaIds.forEach((id) => scope.instanceSchemas.add(id));
   relations.fieldDefinitionIds.forEach((id) => scope.fields.add(id));
-  relations.values.forEach(({ target, namespace }) =>
-    scope.values.add(valueTargetAddress(target, namespace)),
-  );
+  relations.values.forEach(({ target, namespace }) => scope.values.add(valueTargetAddress(target, namespace)));
 }

@@ -1,5 +1,5 @@
 import type { FieldContentDeletionMutation, Mutation } from "./types.js";
-import { requireString } from "./shape-validation-primitives.js";
+import { requireString } from "../../shape-validation/index.js";
 
 export function assertFieldContentDeletionShape(
   value: Record<string, unknown>,
@@ -19,16 +19,11 @@ export function assertFieldContentDeletionShape(
   optionalAnchor(value.previousAnchor);
 }
 
-export function validateStaticFieldContentDeletion(
-  mutation: FieldContentDeletionMutation,
-  factIdentity: string,
-): void {
+export function validateStaticFieldContentDeletion(mutation: FieldContentDeletionMutation, factIdentity: string): void {
   const identities = [
     mutation.ownerNodeId,
     mutation.fieldDefinitionId,
-    mutation.kind === "field-value-delete"
-      ? mutation.valueOccurrenceId
-      : mutation.fieldOccurrenceId,
+    mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId,
     ...(mutation.kind === "materialized-field-delete" ? [mutation.fieldNodeId] : []),
   ];
   if (identities.some((identity) => identity.length === 0)) {
@@ -48,12 +43,9 @@ export function validateStaticFieldMaterialization(
   factIdentity: string,
 ): void {
   if (
-    [
-      mutation.ownerNodeId,
-      mutation.fieldDefinitionId,
-      mutation.fieldNodeId,
-      mutation.fieldOccurrenceId,
-    ].some((identity) => identity.length === 0)
+    [mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId, mutation.fieldOccurrenceId].some(
+      (identity) => identity.length === 0,
+    )
   ) {
     throw new Error(`Materialized Field identity is empty: ${factIdentity}`);
   }

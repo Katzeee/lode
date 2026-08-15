@@ -8,16 +8,10 @@ import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 import { createNodeUnlessPresent, nodeSeed } from "./generated-lifecycle.js";
 import { atomicExpansion } from "./mutation-write.js";
 
-export function expandTemplateMutation(
-  mutation: TemplateMutation,
-  available: ScopedProjection,
-): MutationWrite {
+export function expandTemplateMutation(mutation: TemplateMutation, available: ScopedProjection): MutationWrite {
   const source = available.nodes[mutation.templateNodeId];
   const instanceNodeId = templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId);
-  const instanceOccurrenceId = templateInstanceOccurrenceId(
-    mutation.ownerNodeId,
-    mutation.templateNodeId,
-  );
+  const instanceOccurrenceId = templateInstanceOccurrenceId(mutation.ownerNodeId, mutation.templateNodeId);
   const detachment = { ...mutation, instanceNodeId, instanceOccurrenceId };
   const seed = source
     ? nodeSeed(

@@ -5,6 +5,7 @@ import type {
   ResolutionDecision,
   SequenceAnchor,
   NodeType,
+  Mutation,
 } from "../fact/index.js";
 
 export type ResolutionConflictCandidate = Readonly<{
@@ -20,7 +21,7 @@ export type ConflictIssue =
       kind: "unsupported-direct-intent";
       identity: string;
       contributionId: string;
-      mutationKind: string;
+      mutationKind: Mutation["kind"];
       actorId: string;
       replicaId: string;
       observedFrontier: FactFrontier;

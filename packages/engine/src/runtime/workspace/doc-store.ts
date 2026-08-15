@@ -10,9 +10,7 @@ export class WorkspaceDocStore implements DocumentStore {
     return bytes ? { snapshot: bytes.snapshotBytes, updates: bytes.updateBytes } : null;
   }
 
-  listIds(
-    query?: Readonly<{ prefix?: string; after?: string; limit?: number }>,
-  ): Promise<string[]> {
+  listIds(query?: Readonly<{ prefix?: string; after?: string; limit?: number }>): Promise<string[]> {
     return this.store.listSubDocs(query);
   }
 

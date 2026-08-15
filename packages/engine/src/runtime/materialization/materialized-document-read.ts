@@ -1,15 +1,8 @@
 import type { DocumentStore } from "../../persistence/document-store.js";
-import {
-  MANIFEST_DOCUMENT_ID,
-  MANIFEST_FORMAT,
-  type GenerationManifest,
-} from "./materialized-generation-format.js";
+import { MANIFEST_DOCUMENT_ID, MANIFEST_FORMAT, type GenerationManifest } from "./materialized-generation-format.js";
 import { isManifest } from "./materialized-format-validation.js";
 
-export async function loadMaterializedSnapshot(
-  documents: DocumentStore,
-  id: string,
-): Promise<Uint8Array> {
+export async function loadMaterializedSnapshot(documents: DocumentStore, id: string): Promise<Uint8Array> {
   const stored = await documents.load(id);
   if (!stored?.snapshot || stored.updates.length > 0) {
     throw new Error("Published Projection Generation is unavailable");
@@ -17,9 +10,7 @@ export async function loadMaterializedSnapshot(
   return stored.snapshot;
 }
 
-export async function loadGenerationManifest(
-  documents: DocumentStore,
-): Promise<GenerationManifest> {
+export async function loadGenerationManifest(documents: DocumentStore): Promise<GenerationManifest> {
   const stored = await documents.load(MANIFEST_DOCUMENT_ID);
   if (!stored) {
     return { format: MANIFEST_FORMAT, generationIds: [] };

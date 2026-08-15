@@ -1,9 +1,9 @@
-import type { EngineQuery, EngineQueryValue } from "../../../application/contract.js";
+import type { EngineQuery, EngineQueryValue } from "@lode/sdk";
 import type { FactSnapshot } from "../../../domain/fact/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
 import type {
   ProjectionIdentityReader,
-  ProjectionPageReader,
+  ProjectionSectionPageReader,
   ReviewReadModelReader,
   ProjectionSchemaSearchReader,
   ProjectionSnapshotReader,
@@ -16,7 +16,7 @@ import { queryWorkspaceReview } from "./review.js";
 import { readView } from "./view.js";
 
 type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
-  ProjectionPageReader &
+  ProjectionSectionPageReader &
   ReviewReadModelReader &
   ProjectionSchemaSearchReader &
   ProjectionSnapshotReader;
@@ -43,10 +43,7 @@ type WorkspaceQueryContext = Readonly<{
   reviewCapabilityKey?: string;
 }>;
 
-export function queryWorkspace(
-  query: EngineQuery,
-  context: WorkspaceQueryContext,
-): Promise<EngineQueryValue> {
+export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContext): Promise<EngineQueryValue> {
   if (query.workspaceId !== context.workspaceId) {
     throw new Error("Query belongs to another Workspace");
   }
@@ -54,7 +51,7 @@ export function queryWorkspace(
     case "projection":
       return queryProjection(query, context.generationId, context.projections);
     case "conflicts":
-      return queryConflicts(context.workspaceId, query, context.generationId, context.projections);
+      return queryConflicts(query, context.generationId, context.projections);
     case "schema-search":
       return querySchemaSearch(query, context.generationId, context.projections);
     case "view":
@@ -68,13 +65,7 @@ export function queryWorkspace(
       );
     case "hard-delete-preview":
       return Promise.resolve(
-        hardDeletePreview(
-          context.workspaceId,
-          query.nodeId,
-          context.snapshot,
-          context.facts,
-          context.generationId,
-        ),
+        hardDeletePreview(context.workspaceId, query.nodeId, context.snapshot, context.facts, context.generationId),
       );
     case "review":
       return queryWorkspaceReview(
@@ -87,13 +78,7 @@ export function queryWorkspace(
         context.reviewCapabilityKey,
       );
     case "history":
-      return queryWorkspaceHistory(
-        query,
-        context.snapshot,
-        context.facts,
-        context.projections,
-        context.generationId,
-      );
+      return queryWorkspaceHistory(query, context.snapshot, context.facts, context.projections, context.generationId);
     case "invocation":
       return queryWorkspaceInvocation(
         query,

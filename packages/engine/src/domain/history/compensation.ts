@@ -1,9 +1,4 @@
-import {
-  canonicalJson,
-  type ContributionFact,
-  type FactSnapshot,
-  type Mutation,
-} from "../fact/index.js";
+import { canonicalJson, type ContributionFact, type FactSnapshot, type Mutation } from "../fact/index.js";
 import { rebuildGeneration, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import { deriveActivation } from "../activation/index.js";
 import { normalizeCompensationTargets } from "./compensation-normalization.js";
@@ -39,8 +34,7 @@ export function planCompensation(
     intent === "direct" &&
     eligibleTargets.some(
       (fact) =>
-        reviewActivation.activeContributionIds.has(fact.id) &&
-        !originActivation.activeContributionIds.has(fact.id),
+        reviewActivation.activeContributionIds.has(fact.id) && !originActivation.activeContributionIds.has(fact.id),
     );
   const view = intent === "proposal" || contingentDirect ? "review" : "origin";
   const projection = generation[view];

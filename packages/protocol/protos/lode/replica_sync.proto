@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+
+service ReplicaSyncService {
+  rpc Profile(WorkspaceSyncProfileRequest) returns (WorkspaceSyncProfile);
+  rpc Fetch(WorkspaceSyncFetchRequest) returns (WorkspaceSyncPayload);
+  rpc Send(WorkspaceSyncSendRequest) returns (google.protobuf.Empty);
+}
+
+message WorkspaceSyncProfileRequest {
+  string workspace_id = 1;
+}
+
+message WorkspaceSyncProfileEntry {
+  string document_id = 1;
+  bytes version = 2;
+}
+
+message WorkspaceSyncProfile {
+  repeated WorkspaceSyncProfileEntry entries = 1;
+}
+
+message WorkspaceSyncFetchRequest {
+  string workspace_id = 1;
+  string document_id = 2;
+  bytes from = 3;
+}
+
+message WorkspaceSyncPayload {
+  bytes payload = 1;
+}
+
+message WorkspaceSyncSendRequest {
+  string workspace_id = 1;
+  string document_id = 2;
+  bytes payload = 3;
+}
+
+message WorkspaceSynchronizationRequest {
+  string workspace_id = 1;
+}
+
+message WorkspaceSynchronizationResult {
+  uint32 pulled = 1;
+  uint32 pushed = 2;
+}

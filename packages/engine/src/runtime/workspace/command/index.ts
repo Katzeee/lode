@@ -1,4 +1,5 @@
-import type { EngineCommand, RejectedResult, WriteResult } from "../../../application/contract.js";
+import type { RejectedResult, WriteResult } from "@lode/sdk";
+import type { AcceptedEngineCommand } from "../../../application/input-validation.js";
 import {
   frontierCovers,
   frontierEquals,
@@ -17,8 +18,8 @@ import {
   rejectedResult,
 } from "../workspace-results.js";
 import type { WorkspaceSignals } from "../workspace-signals.js";
-import { readCommandGeneration, workspaceCommandReadPlan } from "./generation-reader.js";
-import { planWorkspaceCommand } from "./planner.js";
+import { bindWorkspaceCommand } from "./command-rules.js";
+import { readCommandGeneration } from "./generation-reader.js";
 
 type WorkspaceCommandExecutorOptions = Readonly<{
   workspaceId: string;
@@ -43,7 +44,7 @@ type WorkspaceCommandAuthority = Pick<
 export class WorkspaceCommandExecutor {
   constructor(private readonly options: WorkspaceCommandExecutorOptions) {}
 
-  async execute(command: EngineCommand): Promise<WriteResult> {
+  async execute(command: AcceptedEngineCommand): Promise<WriteResult> {
     try {
       if (command.workspaceId !== this.options.workspaceId) {
         return this.rejected("invalid-input", "Command belongs to another Workspace");
@@ -68,11 +69,10 @@ export class WorkspaceCommandExecutor {
           "Projection Generation does not cover the admitted authority frontier",
         );
       }
-      const readPlan = workspaceCommandReadPlan(command);
+      const bound = bindWorkspaceCommand(command);
+      const { readPlan } = bound;
       const scopedFacts =
-        readPlan.kind === "facts"
-          ? this.options.facts.relatedFacts(readPlan.factIds)
-          : admission.snapshot.facts;
+        readPlan.kind === "facts" ? this.options.facts.relatedFacts(readPlan.factIds) : admission.snapshot.facts;
       const commandSnapshot = { facts: scopedFacts, frontier: admission.snapshot.frontier };
       const generation = await readCommandGeneration(
         this.options.projection.projections,
@@ -80,18 +80,14 @@ export class WorkspaceCommandExecutor {
         commandSnapshot,
         readPlan,
       );
-      const planned = planWorkspaceCommand(command, {
+      const planned = bound.plan({
         workspaceId: this.options.workspaceId,
         snapshot: commandSnapshot,
         generation,
         receipts:
-          readPlan.historyChannelId === null
-            ? []
-            : this.options.facts.receiptsForChannel(readPlan.historyChannelId),
+          readPlan.historyChannelId === null ? [] : this.options.facts.receiptsForChannel(readPlan.historyChannelId),
         maintenanceAuthority: this.options.facts,
-        ...(this.options.reviewCapabilityKey
-          ? { reviewCapabilityKey: this.options.reviewCapabilityKey }
-          : {}),
+        ...(this.options.reviewCapabilityKey ? { reviewCapabilityKey: this.options.reviewCapabilityKey } : {}),
       });
       if ("status" in planned) {
         return planned;

@@ -8,18 +8,25 @@ import type {
   EngineQueryValueForKind,
   Unsubscribe,
   WriteResult,
-} from "../../application/contract.js";
+} from "@lode/sdk";
+import { parseEngineCommand, type AcceptedEngineCommand } from "../../application/input-validation.js";
+import type { ProjectionVersions } from "../../domain/reconcile/index.js";
+import type { FactAuthority } from "../authority/fact-authority.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
-import {
-  ensureWorkspaceGenesis,
-  WorkspaceAuthorityLifecycle,
-} from "./authority-lifecycle/index.js";
+import { ensureWorkspaceGenesis, WorkspaceAuthorityLifecycle } from "./authority-lifecycle/index.js";
 import { WorkspaceCommandExecutor } from "./command/index.js";
-import type { ProposalWorkspaceOptions } from "./proposal-workspace-types.js";
-import { WorkspaceProjectionLifecycle } from "./projection-lifecycle/index.js";
+import { WorkspaceProjectionLifecycle, type ProjectionLifecycleOptions } from "./projection-lifecycle/index.js";
 import { queryWorkspace } from "./query/index.js";
 import { rejectedResult } from "./workspace-results.js";
 import { WorkspaceSignals } from "./workspace-signals.js";
+
+export type ProposalWorkspaceOptions = Readonly<{
+  workspaceId: string;
+  facts: FactAuthority;
+  versions: ProjectionVersions;
+  reviewCapabilityKey?: string;
+  projection?: ProjectionLifecycleOptions;
+}>;
 
 export class ProposalWorkspace {
   private readonly commands: WorkspaceCommandExecutor;
@@ -47,8 +54,7 @@ export class ProposalWorkspace {
   static async open(options: ProposalWorkspaceOptions): Promise<ProposalWorkspace> {
     await ensureWorkspaceGenesis(options.workspaceId, options.facts);
     const admission = options.facts.admission();
-    const authorityFault =
-      admission.kind === "fault" ? (admission.fault ?? "Authority admission fault") : null;
+    const authorityFault = admission.kind === "fault" ? (admission.fault ?? "Authority admission fault") : null;
     const signals = new WorkspaceSignals(options.workspaceId, authorityFault);
     const projection = await WorkspaceProjectionLifecycle.open(
       options.workspaceId,
@@ -63,20 +69,27 @@ export class ProposalWorkspace {
     return this.options.workspaceId;
   }
   async execute(command: EngineCommand): Promise<WriteResult> {
+    let accepted: AcceptedEngineCommand;
+    try {
+      accepted = parseEngineCommand(command);
+    } catch (error) {
+      return this.rejected("invalid-input", error instanceof Error ? error.message : String(error));
+    }
+    return this.executeAccepted(accepted);
+  }
+  async executeAccepted(command: AcceptedEngineCommand): Promise<WriteResult> {
     if (this.stopped) {
       return this.rejected("projection-unavailable", "Workspace is closed");
     }
     return this.serial.run(() => this.executeExclusive(command));
   }
-  private async executeExclusive(command: EngineCommand): Promise<WriteResult> {
+  private async executeExclusive(command: AcceptedEngineCommand): Promise<WriteResult> {
     if (this.stopped) {
       return this.rejected("projection-unavailable", "Workspace is closed");
     }
     return this.commands.execute(command);
   }
-  async query<Kind extends EngineQueryKind>(
-    query: EngineQueryInput<Kind>,
-  ): Promise<EngineQueryValueForKind<Kind>>;
+  async query<Kind extends EngineQueryKind>(query: EngineQueryInput<Kind>): Promise<EngineQueryValueForKind<Kind>>;
   async query(query: EngineQuery): Promise<EngineQueryValue> {
     return queryWorkspace(query, {
       workspaceId: this.options.workspaceId,
@@ -85,9 +98,7 @@ export class ProposalWorkspace {
       projections: this.projection.projections,
       generationId: this.projection.identity.generationId,
       projectionFailure: this.projection.failure,
-      ...(this.options.reviewCapabilityKey
-        ? { reviewCapabilityKey: this.options.reviewCapabilityKey }
-        : {}),
+      ...(this.options.reviewCapabilityKey ? { reviewCapabilityKey: this.options.reviewCapabilityKey } : {}),
     });
   }
   subscribe(listener: (event: EngineEvent) => void): Unsubscribe {
@@ -114,10 +125,7 @@ export class ProposalWorkspace {
     this.signals.clear();
   }
 
-  private rejected(
-    code: Parameters<typeof rejectedResult>[0],
-    message: string,
-  ): ReturnType<typeof rejectedResult> {
+  private rejected(code: Parameters<typeof rejectedResult>[0], message: string): ReturnType<typeof rejectedResult> {
     return rejectedResult(code, message, this.projection.identity.generationId);
   }
 }

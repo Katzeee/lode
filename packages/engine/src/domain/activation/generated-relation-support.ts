@@ -1,4 +1,4 @@
-import type { ContributionFact, Mutation } from "../fact/index.js";
+import { factObserves, type ContributionFact, type Mutation } from "../fact/index.js";
 import {
   addFieldInitializationSupport,
   addTemplateDetachmentSupport,
@@ -28,14 +28,8 @@ export function addInitializationSupport(
   ]) {
     addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
   }
-  for (const occurrenceId of [
-    mutation.fieldOccurrenceId,
-    ...mutation.values.map((value) => value.occurrenceId),
-  ]) {
-    addIfPresent(
-      support,
-      effectiveCandidate(existence.occurrences, occurrenceId, existence.viable),
-    );
+  for (const occurrenceId of [mutation.fieldOccurrenceId, ...mutation.values.map((value) => value.occurrenceId)]) {
+    addIfPresent(support, effectiveCandidate(existence.occurrences, occurrenceId, existence.viable));
   }
 }
 
@@ -47,10 +41,7 @@ export function addTemplateNodeSupport(
   existence: ExistenceSupport,
 ): void {
   addTemplateDetachmentSupport(support, mutation, fact, schemaSupport);
-  addIfPresent(
-    support,
-    effectiveCandidate(existence.nodes, mutation.instanceNodeId, existence.viable),
-  );
+  addIfPresent(support, effectiveCandidate(existence.nodes, mutation.instanceNodeId, existence.viable));
 }
 
 export function addGeneratedOccurrenceSupport(
@@ -65,7 +56,7 @@ export function addGeneratedOccurrenceSupport(
   }
   const candidate = lifecycleFacts
     .get(`${expected.kind}/${expected.occurrenceId}`)
-    ?.find((lifecycle) => observes(lifecycle, fact));
+    ?.find((lifecycle) => factObserves(lifecycle, fact));
   if (candidate !== undefined) {
     support.add(candidate.id);
   }
@@ -89,9 +80,4 @@ function generatedOccurrenceEffect(
   return mutation.kind === "template-node-detach"
     ? { kind: "occurrence-create", occurrenceId: mutation.instanceOccurrenceId }
     : null;
-}
-
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
 }

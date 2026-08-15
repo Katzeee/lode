@@ -70,10 +70,7 @@ export function placeOccurrence(
   insertAtAnchor(listFor(children, occurrence.parentNodeId), occurrence.occurrenceId, anchor);
 }
 
-export function createdOccurrenceNodeId(
-  active: readonly ContributionFact[],
-  occurrenceId: string,
-): string | null {
+export function createdOccurrenceNodeId(active: readonly ContributionFact[], occurrenceId: string): string | null {
   for (const fact of active) {
     const mutation = fact.body.mutation;
     if (mutation.kind === "occurrence-create" && mutation.occurrenceId === occurrenceId) {

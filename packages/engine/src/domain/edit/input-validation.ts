@@ -31,9 +31,6 @@ export function parseEditMutation(value: unknown): EditMutation {
     parentNodeId: edit.parentNodeId,
     anchor: edit.anchor,
   });
-  if (identity.kind !== "node-create" || placement.kind !== "occurrence-create") {
-    throw new Error("Invalid Node creation edit");
-  }
   const nodeType =
     edit.nodeType === undefined
       ? undefined
@@ -42,9 +39,6 @@ export function parseEditMutation(value: unknown): EditMutation {
           nodeId: edit.nodeId,
           nodeType: edit.nodeType,
         });
-  if (nodeType !== undefined && nodeType.kind !== "node-type-declare") {
-    throw new Error("Invalid Node type declaration");
-  }
   return {
     ...identity,
     occurrenceId: placement.occurrenceId,

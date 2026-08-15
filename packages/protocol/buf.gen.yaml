@@ -8,3 +8,16 @@ plugins:
     opt:
       - target=ts
       - import_extension=.js
+      - json_types=true
+  - local: protoc-gen-ts_proto
+    out: src/dto-gen
+    strategy: all
+    opt:
+      - useReadonlyTypes=true
+      - useNullAsOptional=true
+      - useExactTypes=false
+      - oneof=unions-value
+      - exportCommonSymbols=false
+      - outputServices=none
+      - esModuleInterop=true
+      - importSuffix=.js

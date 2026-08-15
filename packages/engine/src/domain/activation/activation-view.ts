@@ -1,12 +1,8 @@
 import type { ContributionFact, Fact, ResolutionFact, ViewMode } from "../fact/index.js";
 
-export function resolutionsByContribution(
-  facts: readonly Fact[],
-): ReadonlyMap<string, readonly ResolutionFact[]> {
+export function resolutionsByContribution(facts: readonly Fact[]): ReadonlyMap<string, readonly ResolutionFact[]> {
   const resolutions = new Map<string, ResolutionFact[]>();
-  const superseded = new Set(
-    facts.flatMap((fact) => (isResolution(fact) ? fact.body.adjudicatesResolutionIds : [])),
-  );
+  const superseded = new Set(facts.flatMap((fact) => (isResolution(fact) ? fact.body.adjudicatesResolutionIds : [])));
   for (const fact of facts) {
     if (!isResolution(fact) || superseded.has(fact.id)) {
       continue;

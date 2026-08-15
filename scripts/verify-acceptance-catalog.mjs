@@ -4,15 +4,15 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const catalog = JSON.parse(await readFile(resolve(root, "acceptance/catalog.json"), "utf8"));
+const catalog = JSON.parse(await readFile(resolve(root, "acceptance-catalog.json"), "utf8"));
 if (catalog.format !== "lode-acceptance-catalog-v1" || !Array.isArray(catalog.capabilities)) {
   throw new Error("Acceptance catalog format is invalid");
 }
 
 const workspaceRoots = {
   engine: resolve(root, "packages/engine"),
-  daemon: resolve(root, "packages/ipc/daemon"),
-  "app-cli": resolve(root, "apps/app-cli"),
+  daemon: resolve(root, "packages/daemon"),
+  cli: resolve(root, "apps/cli"),
 };
 const vitest = resolve(root, "node_modules/vitest/vitest.mjs");
 const collected = new Map();

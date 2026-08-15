@@ -79,8 +79,7 @@ export class AuthorityQueryIndex {
   receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
     return [...(this.receiptsByChannel.get(channelId) ?? [])].sort(
       (left, right) =>
-        (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) -
-          (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
+        (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) - (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
         stableStringCompare(left.invocationId, right.invocationId),
     );
   }
@@ -102,9 +101,7 @@ export class AuthorityQueryIndex {
     return [...invocationIds]
       .flatMap((invocationId) => {
         const receipt = this.historyReceiptByInvocation.get(invocationId);
-        return receipt?.lineage
-          ? [{ channelId: receipt.lineage.channelId, invocationId: receipt.invocationId }]
-          : [];
+        return receipt?.lineage ? [{ channelId: receipt.lineage.channelId, invocationId: receipt.invocationId }] : [];
       })
       .sort(
         (left, right) =>
@@ -118,8 +115,7 @@ export class AuthorityQueryIndex {
       return;
     }
     this.factsById.set(fact.id, fact);
-    const transactionFacts =
-      this.factIdsByTransaction.get(fact.transaction.transactionId) ?? new Set<string>();
+    const transactionFacts = this.factIdsByTransaction.get(fact.transaction.transactionId) ?? new Set<string>();
     transactionFacts.add(fact.id);
     this.factIdsByTransaction.set(fact.transaction.transactionId, transactionFacts);
     this.maximumLamportValue = Math.max(this.maximumLamportValue, fact.coordinate.lamport);

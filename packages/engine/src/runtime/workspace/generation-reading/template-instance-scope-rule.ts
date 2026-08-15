@@ -16,14 +16,10 @@ export async function includeTemplateInstanceScope(
     readIndex(store, generationId, view, "templateNodeInstancesByOwner", [...scope.nodes]),
     readIndex(store, generationId, view, "templateNodeInstancesByTemplate", [...scope.nodes]),
     readIndex(store, generationId, view, "templateNodeInstancesByNode", [...scope.nodes]),
-    readIndex(store, generationId, view, "templateNodeInstancesByOccurrence", [
-      ...scope.occurrences,
-    ]),
+    readIndex(store, generationId, view, "templateNodeInstancesByOccurrence", [...scope.occurrences]),
     readIndex(store, generationId, view, "templateNodeInstancesBySchema", [...scope.schemas]),
   ]);
-  const values = await readTemplateNodeInstances(store, generationId, view, [
-    ...new Set(groups.flat()),
-  ]);
+  const values = await readTemplateNodeInstances(store, generationId, view, [...new Set(groups.flat())]);
   for (const value of Object.values(values)) {
     scope.nodes.add(value.ownerNodeId);
     scope.nodes.add(value.templateNodeId);

@@ -73,10 +73,7 @@ function addMutationRelations(relations: MutableMutationRelations, mutation: Mut
   }
 }
 
-function addNodeMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: NodeMutation,
-): void {
+function addNodeMutationRelations(relations: MutableMutationRelations, mutation: NodeMutation): void {
   relations.nodeIds.add(mutation.nodeId);
   if (mutation.kind === "node-restore") {
     relations.factIds.add(mutation.deletionFactId);
@@ -88,10 +85,7 @@ function addNodeMutationRelations(
   }
 }
 
-function addOccurrenceMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: OccurrenceMutation,
-): void {
+function addOccurrenceMutationRelations(relations: MutableMutationRelations, mutation: OccurrenceMutation): void {
   relations.occurrenceIds.add(mutation.occurrenceId);
   if (mutation.kind === "occurrence-create") {
     relations.nodeIds.add(mutation.nodeId);
@@ -109,10 +103,7 @@ function addOccurrenceMutationRelations(
   }
 }
 
-function addSchemaMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: SchemaMutation,
-): void {
+function addSchemaMutationRelations(relations: MutableMutationRelations, mutation: SchemaMutation): void {
   addSchemaRelation(relations, mutation.schemaId);
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     relations.nodeIds.add(mutation.nodeId);
@@ -126,10 +117,7 @@ function addSchemaMutationRelations(
     addRelationAnchor(relations, mutation);
     return;
   }
-  if (
-    mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
-  ) {
+  if (mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove") {
     relations.nodeIds.add(mutation.templateNodeId);
     relations.occurrenceIds.add(mutation.templateOccurrenceId);
     addRelationAnchor(relations, mutation);
@@ -162,10 +150,7 @@ function addRelationAnchor(
   }
 }
 
-function addTemplateMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: TemplateMutation,
-): void {
+function addTemplateMutationRelations(relations: MutableMutationRelations, mutation: TemplateMutation): void {
   relations.nodeIds.add(mutation.ownerNodeId);
   relations.nodeIds.add(mutation.templateNodeId);
   relations.nodeIds.add(mutation.instanceNodeId);
@@ -180,10 +165,7 @@ function addTemplateMutationRelations(
   mutation.sourceTemplateOccurrenceIds?.forEach((id) => relations.occurrenceIds.add(id));
 }
 
-function addFieldMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: FieldMutation,
-): void {
+function addFieldMutationRelations(relations: MutableMutationRelations, mutation: FieldMutation): void {
   relations.nodeIds.add(mutation.ownerNodeId);
   addFieldDefinition(relations, mutation.fieldDefinitionId);
   if (mutation.kind === "field-value-delete") {
@@ -209,10 +191,7 @@ function addFieldMutationRelations(
   }
 }
 
-function addTextMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: TextMutation,
-): void {
+function addTextMutationRelations(relations: MutableMutationRelations, mutation: TextMutation): void {
   relations.nodeIds.add(mutation.nodeId);
   if (mutation.kind === "text-splice") {
     addAnchorRelations(relations, mutation.anchor);
@@ -222,10 +201,7 @@ function addTextMutationRelations(
   }
 }
 
-function addValueMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: ValueMutation,
-): void {
+function addValueMutationRelations(relations: MutableMutationRelations, mutation: ValueMutation): void {
   if (mutation.target.kind === "node") {
     relations.nodeIds.add(mutation.target.id);
   } else {
@@ -239,11 +215,7 @@ function addFieldDefinition(relations: MutableMutationRelations, fieldDefinition
   relations.fieldDefinitionIds.add(fieldDefinitionId);
 }
 
-function addPlacement(
-  relations: MutableMutationRelations,
-  parentNodeId: string,
-  anchor: SequenceAnchor,
-): void {
+function addPlacement(relations: MutableMutationRelations, parentNodeId: string, anchor: SequenceAnchor): void {
   addChildrenRelation(relations, parentNodeId);
   addAnchorRelations(relations, anchor);
 }

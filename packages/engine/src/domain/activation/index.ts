@@ -1,4 +1,3 @@
-export * from "./support.js";
-export * from "./support-closure.js";
-export * from "./pending-proposals.js";
-export * from "./active-contributions.js";
+export { deriveActivation, deriveSupport } from "./support.js";
+export { pendingProposalActivation, pendingProposalFacts } from "./pending-proposals.js";
+export { deriveActiveContributions } from "./active-contributions.js";

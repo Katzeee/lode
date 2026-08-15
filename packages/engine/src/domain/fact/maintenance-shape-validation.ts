@@ -1,9 +1,4 @@
-import {
-  assertKeys,
-  assertObject,
-  assertStringArray,
-  requireString,
-} from "./shape-validation-primitives.js";
+import { assertKeys, assertObject, assertStringArray, requireString } from "../../shape-validation/index.js";
 
 export function assertMaintenanceAction(value: unknown): void {
   assertObject(value, "Maintenance action");

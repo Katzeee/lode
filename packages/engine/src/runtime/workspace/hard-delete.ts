@@ -1,4 +1,4 @@
-import type { HardDeletePreview } from "../../application/contract.js";
+import type { HardDeletePreview } from "@lode/sdk";
 import { evaluateHardDelete, type HardDeleteAssessment } from "../../domain/maintenance/index.js";
 import type { FactSnapshot } from "../../domain/fact/index.js";
 import type { FactAuthority } from "../authority/fact-authority.js";
@@ -7,8 +7,7 @@ const HISTORY_IMPACT_LIMIT = 50;
 
 type HardDeleteAssessmentAuthority = Pick<FactAuthority, "replicaId" | "uncertainInvocations">;
 
-type HardDeletePreviewAuthority = HardDeleteAssessmentAuthority &
-  Pick<FactAuthority, "historyImpacts">;
+type HardDeletePreviewAuthority = HardDeleteAssessmentAuthority & Pick<FactAuthority, "historyImpacts">;
 
 export function assessWorkspaceHardDelete(
   workspaceId: string,

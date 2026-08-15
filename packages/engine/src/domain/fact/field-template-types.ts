@@ -8,8 +8,7 @@ export type InitializedFieldValue =
   | Readonly<{ kind: "reference"; nodeId: string; occurrenceId: string }>;
 
 export type FieldInitializer =
-  | Readonly<{ kind: "literal"; values: readonly FieldValueSeed[] }>
-  | Readonly<{ kind: "application-node-text" }>;
+  Readonly<{ kind: "literal"; values: readonly FieldValueSeed[] }> | Readonly<{ kind: "application-node-text" }>;
 
 export type FieldTemplateConfig = Readonly<{
   visibility: FieldVisibility;

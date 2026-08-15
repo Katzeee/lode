@@ -1,4 +1,4 @@
-import type { ContributionFact, SequenceAnchor } from "../fact/index.js";
+import { factObserves, type ContributionFact, type SequenceAnchor } from "../fact/index.js";
 
 type RelationEvent = Readonly<{
   fact: ContributionFact;
@@ -13,11 +13,10 @@ export const schemaApplicationEvent = relationEvent("schema-apply", "schema-remo
   mutation.schemaId,
 ]);
 
-export const schemaExtensionEvent = relationEvent(
-  "schema-extension-add",
-  "schema-extension-remove",
-  (mutation) => [mutation.schemaId, mutation.baseSchemaId],
-);
+export const schemaExtensionEvent = relationEvent("schema-extension-add", "schema-extension-remove", (mutation) => [
+  mutation.schemaId,
+  mutation.baseSchemaId,
+]);
 
 export function observedRelations(
   active: readonly ContributionFact[],
@@ -38,7 +37,7 @@ export function observedRelations(
         (removal) =>
           removal.ownerId === addition.ownerId &&
           removal.targetId === addition.targetId &&
-          observes(removal.fact, addition.fact),
+          factObserves(removal.fact, addition.fact),
       )
     ) {
       continue;
@@ -75,11 +74,6 @@ function relationEvent<
   };
 }
 
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
-}
-
 function list(map: Map<string, string[]>, key: string): string[] {
   const value = map.get(key) ?? [];
   map.set(key, value);
@@ -93,7 +87,6 @@ function insertUnique(values: string[], value: string, anchor: SequenceAnchor): 
   }
   const after = anchor.after === null ? -1 : values.indexOf(anchor.after);
   const before = anchor.before === null ? -1 : values.indexOf(anchor.before);
-  const index =
-    after >= 0 ? after + 1 : before >= 0 ? before : anchor.fallback === "start" ? 0 : values.length;
+  const index = after >= 0 ? after + 1 : before >= 0 ? before : anchor.fallback === "start" ? 0 : values.length;
   values.splice(index, 0, value);
 }

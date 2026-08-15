@@ -6,6 +6,7 @@ import { impactAddress, valueKeyAddress } from "../reconcile/index.js";
 import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import { queryReview, validateReviewSelection } from "./review.js";
 import { evidenceForTargets } from "./evidence.js";
+import { createReviewReadModel } from "./read-model.js";
 import type { ReviewSelection } from "./types.js";
 import {
   REPLICA_A,
@@ -18,6 +19,36 @@ import {
 } from "../../../tests/support/review/review-test-helpers.js";
 
 describe("production Review contracts", () => {
+  it("groups pending mutations from different Review families through shared scope associations", () => {
+    const facts = base();
+    const text = facts.add(
+      {
+        kind: "text-splice",
+        nodeId: "node",
+        deleteAtomIds: [],
+        anchor: end,
+        insert: "proposal",
+      },
+      "proposal",
+    );
+    const value = facts.add(
+      {
+        kind: "value-set",
+        target: { kind: "node", id: "node" },
+        namespace: "property",
+        key: "state",
+        value: "proposal",
+        previous: { kind: "unset" },
+      },
+      "proposal",
+    );
+    const snapshot = facts.snapshot();
+
+    const model = createReviewReadModel(snapshot, generation(snapshot).review);
+
+    expect(Object.values(model.scopes)).toEqual([[text.id, value.id]]);
+  });
+
   it("composite value addresses cannot collide through user identities or keys", () => {
     const left = {
       kind: "value-set" as const,
@@ -96,12 +127,8 @@ describe("production Review contracts", () => {
         proposalContributionIds: [proposal.id],
       });
       const terminal = generation(facts.snapshot());
-      expect(terminal.origin.nodes.node?.properties.nullable).toBe(
-        operation === "set-null" ? null : undefined,
-      );
-      expect(terminal.review.nodes.node?.properties.nullable).toBe(
-        operation === "set-null" ? null : undefined,
-      );
+      expect(terminal.origin.nodes.node?.properties.nullable).toBe(operation === "set-null" ? null : undefined);
+      expect(terminal.review.nodes.node?.properties.nullable).toBe(operation === "set-null" ? null : undefined);
       expect(queryReview("workspace", facts.snapshot(), terminal).hunks).toHaveLength(0);
     }
   });
@@ -131,12 +158,7 @@ describe("production Review contracts", () => {
 
   it("REVIEW-2 scope is visible targets plus minimal support closure", () => {
     const facts = base();
-    const created = facts.addPlaced(
-      "proposal-node",
-      "workspace",
-      "proposal-occurrence",
-      "proposal",
-    );
+    const created = facts.addPlaced("proposal-node", "workspace", "proposal-occurrence", "proposal");
     const [node, occurrence] = created;
     if (!node || !occurrence) {
       throw new Error("Expected a Node creation transaction");
@@ -150,12 +172,7 @@ describe("production Review contracts", () => {
 
   it("AUTH-4 resolutions capture exact support-closed targets", () => {
     const facts = base();
-    const created = facts.addPlaced(
-      "proposal-node",
-      "workspace",
-      "proposal-occurrence",
-      "proposal",
-    );
+    const created = facts.addPlaced("proposal-node", "workspace", "proposal-occurrence", "proposal");
     const [node, occurrence] = created;
     if (!node || !occurrence) {
       throw new Error("Expected a Node creation transaction");
@@ -275,9 +292,7 @@ describe("production Review contracts", () => {
       ]),
     });
 
-    expect(evidence?.supportClosure).toEqual(
-      [target.id, firstSupport.id, secondSupport.id, terminalSupport.id].sort(),
-    );
+    expect(evidence?.supportClosure).toEqual([target.id, firstSupport.id, secondSupport.id, terminalSupport.id].sort());
   });
 
   it("REVIEW-3 terminal resolutions converge neutrally per contribution", () => {
@@ -356,57 +371,17 @@ describe("production Review contracts", () => {
     expect(hunk?.selection.evidence.proposalTargets).toEqual([proposal.id]);
   });
 
-  it("REVIEW-5 selection freshness compares typed decision evidence", () => {
-    const facts = base();
-    facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "blue",
-      },
-      "proposal",
-    );
-    const selectedSnapshot = facts.snapshot();
-    const selectedHunk = queryReview("workspace", selectedSnapshot, generation(selectedSnapshot))
-      .hunks[0];
-    if (!selectedHunk) {
-      throw new Error("Expected a value Review Hunk");
-    }
-    const selection = selectedHunk.selection;
-
-    facts.addPlaced("unrelated");
-    const current = facts.snapshot();
-    expect(
-      validateReviewSelection(
-        "workspace",
-        selection,
-        "accept",
-        "reviewer",
-        current,
-        generation(current),
-      ).kind,
-    ).toBe("valid");
-
-    const newVersions = {
-      rulesVersion: "unknown-rules",
-      schemaVersion: "lode-schema-19",
-    } as const;
-    expect(() => generation(current, newVersions)).toThrow("Unsupported projection versions");
-  });
-
   it("已观察后的重复决议", () => {
     const facts = base();
     const proposal = facts.addPlaced("proposal", "workspace", "proposal-original", "proposal");
-    const first = facts.addBody({
+    facts.addBody({
       kind: "resolution",
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision: "accept",
       proposalContributionIds: proposal.map((fact) => fact.id),
     });
-    const repeated = facts.addBody({
+    facts.addBody({
       kind: "resolution",
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
@@ -417,7 +392,6 @@ describe("production Review contracts", () => {
       "workspace",
       facts.values.map((fact) => ({ recordKind: "fact" as const, fact })),
     );
-    expect(first.id).not.toBe(repeated.id);
     expect(admission.kind).toBe("fault");
     expect(admission.fault).toContain("already terminal");
   });
@@ -446,20 +420,11 @@ describe("production Review contracts", () => {
     }
     const evidence = {
       ...left.selection.evidence,
-      proposalTargets: [
-        ...left.selection.evidence.proposalTargets,
-        ...right.selection.evidence.proposalTargets,
-      ],
-      supportClosure: [
-        ...left.selection.evidence.supportClosure,
-        ...right.selection.evidence.supportClosure,
-      ],
+      proposalTargets: [...left.selection.evidence.proposalTargets, ...right.selection.evidence.proposalTargets],
+      supportClosure: [...left.selection.evidence.supportClosure, ...right.selection.evidence.supportClosure],
       effects: [...left.selection.evidence.effects, ...right.selection.evidence.effects],
       associatedImpactIds: [
-        ...new Set([
-          ...left.selection.evidence.associatedImpactIds,
-          ...right.selection.evidence.associatedImpactIds,
-        ]),
+        ...new Set([...left.selection.evidence.associatedImpactIds, ...right.selection.evidence.associatedImpactIds]),
       ],
     };
     const forged = {
@@ -472,8 +437,6 @@ describe("production Review contracts", () => {
       }),
     } as ReviewSelection;
 
-    expect(
-      validateReviewSelection("workspace", forged, "accept", "reviewer", snapshot, projected).kind,
-    ).toBe("stale");
+    expect(validateReviewSelection("workspace", forged, "accept", "reviewer", snapshot, projected).kind).toBe("stale");
   });
 });

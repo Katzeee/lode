@@ -1,18 +1,7 @@
-import {
-  compileProjectionPlan,
-  type ProjectionArtifactKey,
-  type ProjectionStageKey,
-} from "./projection-plan-dag.js";
-import {
-  projectionInvalidationFor,
-  projectionReplayPolicyFor,
-  projectionRule,
-} from "./projection-rule.js";
-import {
-  activeContributions,
-  activeFactsFromCache,
-  incrementalPlanCache,
-} from "./projection-active.js";
+import { compileProjectionPlan, type ProjectionArtifactKey, type ProjectionStageKey } from "./projection-plan-dag.js";
+import { projectionInvalidationFor, projectionReplayPolicyFor, projectionRule } from "./projection-rule.js";
+import { activeContributions, activeFactsFromCache, incrementalPlanCache } from "./projection-active.js";
+import type { ContributionFact } from "../fact/index.js";
 import { applyText, applyValues } from "./projection-content.js";
 import { createOccurrences } from "./projection-state.js";
 import { cloneNodes, createNodes } from "./node-state.js";
@@ -23,12 +12,7 @@ import { projectConflictIssues } from "./projection-conflicts.js";
 import { projectInitializedFields } from "./initialized-field.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
 import { projectNodeStatuses } from "./node-status.js";
-import { knownNodeIds } from "./node-lifecycle.js";
-import {
-  excludePurgedContributions,
-  nodeDeletionFactIds,
-  purgedNodeIds,
-} from "../maintenance/index.js";
+import { excludePurgedContributions, nodeDeletionFactIds, purgedNodeIds } from "../maintenance/index.js";
 import { projectTemplateStructure } from "./template-node-projection.js";
 
 const PROJECTION_RULES = [
@@ -37,14 +21,9 @@ const PROJECTION_RULES = [
     dependencies: [],
     factScope: "tail",
     invalidatedBy: [],
-    writes: ["activation"],
     evaluate(context) {
       if (context.incremental) {
-        const planCache = incrementalPlanCache(
-          context.previousPlanCache,
-          context.activeTail,
-          context.snapshot,
-        );
+        const planCache = incrementalPlanCache(context.previousPlanCache, context.activeTail, context.snapshot);
         const allActive = context.requiresAllActive
           ? activeFactsFromCache(context.snapshot, context.previousPlanCache, context.activeTail)
           : context.activeTail;
@@ -77,11 +56,8 @@ const PROJECTION_RULES = [
       "template-node-detach",
       "field-initialize",
     ],
-    writes: ["storedNodes"],
     evaluate: (context) => ({
-      storedNodes: createNodes(
-        context.replayAllActive ? context.activation.allActive : context.activation.active,
-      ),
+      storedNodes: createNodes(context.replayAllActive ? context.activation.allActive : context.activation.active),
     }),
   }),
   projectionRule({
@@ -99,7 +75,6 @@ const PROJECTION_RULES = [
       "schema-template-node-add",
       "schema-template-node-remove",
     ],
-    writes: ["authoredStructure"],
     evaluate(context) {
       return {
         authoredStructure: createOccurrences(
@@ -114,15 +89,11 @@ const PROJECTION_RULES = [
     dependencies: ["activation", "node"],
     factScope: "tail",
     invalidatedBy: ["text-splice", "text-mark"],
-    writes: ["contentNodes"],
     evaluate(context) {
       const replayAllText = !context.incremental || context.replayAllActive;
       const source = replayAllText ? context.storedNodes : context.contentNodes;
       const contentNodes = cloneNodes(source);
-      applyText(
-        replayAllText ? context.activation.allActive : context.activation.active,
-        contentNodes,
-      );
+      applyText(replayAllText ? context.activation.allActive : context.activation.active, contentNodes);
       return { contentNodes };
     },
   }),
@@ -131,7 +102,6 @@ const PROJECTION_RULES = [
     dependencies: ["activation"],
     factScope: "tail",
     invalidatedBy: ["value-set", "value-unset"],
-    writes: ["addressedValues"],
     evaluate: (context) => ({
       addressedValues: applyValues(
         context.replayAllActive ? context.activation.allActive : context.activation.active,
@@ -144,7 +114,6 @@ const PROJECTION_RULES = [
     dependencies: ["activation", "node", "occurrence"],
     factScope: "history",
     invalidatedBy: ["node-owner-set"],
-    writes: ["nodeOwners"],
     evaluate: (context) => ({
       nodeOwners: projectNodeOwners(
         context.workspaceNodeId,
@@ -167,7 +136,6 @@ const PROJECTION_RULES = [
       "schema-extension-remove",
       "field-materialize",
     ],
-    writes: ["schemaRelations"],
     evaluate(context) {
       const initializedFields = projectInitializedFields(
         context.activation.allActive,
@@ -192,7 +160,6 @@ const PROJECTION_RULES = [
     dependencies: ["activation", "owner"],
     factScope: "history",
     invalidatedBy: ["node-type-declare"],
-    writes: ["nodeStatuses"],
     evaluate: (context) => ({
       nodeStatuses: projectNodeStatuses(
         context.activation.allActive,
@@ -207,7 +174,6 @@ const PROJECTION_RULES = [
     dependencies: ["activation", "occurrence", "schema-relations"],
     factScope: "history",
     invalidatedBy: [],
-    writes: ["conflictIssues"],
     evaluate: (context) => ({
       conflictIssues: projectConflictIssues(
         context.snapshot,
@@ -224,7 +190,6 @@ const PROJECTION_RULES = [
     dependencies: ["activation", "node", "occurrence", "owner", "schema-relations"],
     factScope: "history",
     invalidatedBy: [],
-    writes: ["templateStructure"],
     evaluate(context) {
       return {
         templateStructure: projectTemplateStructure(
@@ -242,28 +207,25 @@ const PROJECTION_RULES = [
   }),
   projectionRule({
     key: "assembly",
-    dependencies: [
-      "node",
-      "text",
-      "value",
-      "owner",
-      "schema-relations",
-      "node-status",
-      "conflict",
-      "template",
-    ],
+    dependencies: ["node", "text", "value", "owner", "schema-relations", "node-status", "conflict", "template"],
     factScope: "tail",
     invalidatedBy: [],
-    writes: ["projection"],
     evaluate: (context) => ({ projection: assembleProjectionArtifacts(context) }),
   }),
 ];
 
-export const PROJECTION_PLAN = compileProjectionPlan<
-  ProjectionPlanContext,
-  ProjectionStageKey,
-  ProjectionArtifactKey
->(PROJECTION_RULES);
+export const PROJECTION_PLAN = compileProjectionPlan<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey>(
+  PROJECTION_RULES,
+);
 
 export const invalidatedProjectionStages = projectionInvalidationFor(PROJECTION_RULES);
 export const projectionReplayPolicy = projectionReplayPolicyFor(PROJECTION_RULES);
+
+function knownNodeIds(active: readonly ContributionFact[]): ReadonlySet<string> {
+  return new Set(
+    active.flatMap((fact) => {
+      const mutation = fact.body.mutation;
+      return mutation.kind === "node-create" ? [mutation.nodeId] : [];
+    }),
+  );
+}

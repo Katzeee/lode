@@ -1,34 +1,28 @@
 import type { Fact, Mutation } from "../fact/index.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
-import type {
-  ProjectionArtifactKey,
-  ProjectionStage,
-  ProjectionStageKey,
-} from "./projection-plan-dag.js";
+import type { ProjectionArtifactKey, ProjectionStage, ProjectionStageKey } from "./projection-plan-dag.js";
 
-export type ProjectionRule = ProjectionStage<
-  ProjectionPlanContext,
-  ProjectionStageKey,
-  ProjectionArtifactKey
-> &
+export type ProjectionRule = ProjectionStage<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey> &
   Readonly<{
     factScope: "tail" | "history" | "rebuild";
     invalidatedBy: readonly Mutation["kind"][];
   }>;
 
-type ProjectionStageArtifact = Readonly<{
-  activation: "activation";
-  node: "storedNodes";
-  occurrence: "authoredStructure";
-  text: "contentNodes";
-  value: "addressedValues";
-  owner: "nodeOwners";
-  "schema-relations": "schemaRelations";
-  "node-status": "nodeStatuses";
-  conflict: "conflictIssues";
-  template: "templateStructure";
-  assembly: "projection";
-}>;
+const PROJECTION_STAGE_ARTIFACTS = {
+  activation: "activation",
+  node: "storedNodes",
+  occurrence: "authoredStructure",
+  text: "contentNodes",
+  value: "addressedValues",
+  owner: "nodeOwners",
+  "schema-relations": "schemaRelations",
+  "node-status": "nodeStatuses",
+  conflict: "conflictIssues",
+  template: "templateStructure",
+  assembly: "projection",
+} as const satisfies Readonly<Record<ProjectionStageKey, ProjectionArtifactKey>>;
+
+type ProjectionStageArtifact = typeof PROJECTION_STAGE_ARTIFACTS;
 
 type ProjectionPlanInputKey = Exclude<keyof ProjectionPlanContext, ProjectionArtifactKey>;
 
@@ -38,9 +32,7 @@ type ProjectionRuleContext<
 > = Readonly<
   Pick<
     ProjectionPlanContext,
-    | ProjectionPlanInputKey
-    | ProjectionStageArtifact[Key]
-    | ProjectionStageArtifact[Dependencies[number]]
+    ProjectionPlanInputKey | ProjectionStageArtifact[Key] | ProjectionStageArtifact[Dependencies[number]]
   >
 >;
 
@@ -53,25 +45,22 @@ export function projectionRule<
   dependencies: Dependencies;
   factScope: "tail" | "history" | "rebuild";
   invalidatedBy: Invalidations;
-  writes: readonly [ProjectionStageArtifact[Key]];
   evaluate(
     context: ProjectionRuleContext<Key, Dependencies>,
   ): Pick<ProjectionPlanContext, ProjectionStageArtifact[Key]>;
 }): ProjectionRule & Readonly<{ invalidatedBy: Invalidations }> {
+  const writes = [PROJECTION_STAGE_ARTIFACTS[definition.key]] as const;
   return {
     key: definition.key,
     dependencies: definition.dependencies,
     factScope: definition.factScope,
     invalidatedBy: definition.invalidatedBy,
-    writes: definition.writes,
+    writes,
     evaluate(context) {
       const update = definition.evaluate(context);
-      const declared = [...definition.writes].sort();
+      const declared = [...writes].sort();
       const actual = Object.keys(update).sort();
-      if (
-        declared.length !== actual.length ||
-        declared.some((output, index) => output !== actual[index])
-      ) {
+      if (declared.length !== actual.length || declared.some((output, index) => output !== actual[index])) {
         throw new Error(
           `Projection stage ${definition.key} returned [${actual.join(", ")}] but declares [${declared.join(", ")}]`,
         );
@@ -94,8 +83,7 @@ export function projectionReplayPolicyFor(
     const replayAllActive = selectedRules.some((rule) => rule.factScope === "rebuild");
     return {
       replayAllActive,
-      requiresAllActive:
-        replayAllActive || selectedRules.some((rule) => rule.factScope === "history"),
+      requiresAllActive: replayAllActive || selectedRules.some((rule) => rule.factScope === "history"),
     };
   };
 }

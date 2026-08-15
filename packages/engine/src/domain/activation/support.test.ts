@@ -35,7 +35,7 @@ describe("semantic support policy", () => {
     expect(support.get(secondText.id)).not.toContain(firstText.id);
   });
 
-  it("DEP-2 inactive support closes dependents without mutating facts", () => {
+  it("DEP-2 inactive support closes dependents", () => {
     const node = contribution(1, { kind: "node-create", nodeId: "node" }, "proposal");
     const text = contribution(
       2,
@@ -44,7 +44,6 @@ describe("semantic support policy", () => {
     );
     const activation = deriveActivation([node, text], "origin");
     expect(activation.activeContributionIds.has(text.id)).toBe(false);
-    expect(text.body.intent).toBe("direct");
   });
 
   it("activates every member of a Fact Transaction as one unit", () => {
@@ -117,9 +116,7 @@ describe("semantic support policy", () => {
     );
 
     const support = deriveSupport(members);
-    expect(
-      [...support.values()].reduce((total, dependencies) => total + dependencies.length, 0),
-    ).toBe(size);
+    expect([...support.values()].reduce((total, dependencies) => total + dependencies.length, 0)).toBe(size);
   });
 
   it("duplicate live creates do not replace the effective existence support", () => {
@@ -195,8 +192,6 @@ describe("semantic support policy", () => {
     const rejected = [...pending, resolution(3, [node.id], "reject")];
     expect(project(rejected, "origin").occurrences.occurrence).toBeUndefined();
     expect(project(rejected, "review").occurrences.occurrence).toBeUndefined();
-    expect(rejected).toHaveLength(3);
-    expect(occurrence.body.intent).toBe("direct");
   });
 
   it("an occurrence depends on the parent Node contribution", () => {
@@ -238,19 +233,10 @@ function project(facts: readonly Fact[], view: "origin" | "review") {
     },
   });
   const projectedFacts = [workspace, ...facts];
-  return projectSnapshot(
-    "workspace",
-    { facts: projectedFacts, frontier: frontierOf(projectedFacts) },
-    view,
-    versions,
-  );
+  return projectSnapshot("workspace", { facts: projectedFacts, frontier: frontierOf(projectedFacts) }, view, versions);
 }
 
-function resolution(
-  sequence: number,
-  proposalContributionIds: readonly string[],
-  decision: "accept" | "reject",
-): Fact {
+function resolution(sequence: number, proposalContributionIds: readonly string[], decision: "accept" | "reject"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,

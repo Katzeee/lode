@@ -4,6 +4,7 @@ import { nodeCreationPlacements } from "./node-creation-placement.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewEffectEntry, ReviewFamilyRule } from "./review-family.js";
 import { addDefinitionLifecycleImpacts } from "./schema-definition-impact.js";
+import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import {
   isStructuralOccurrenceMutation,
   mutationAnchor,
@@ -25,6 +26,22 @@ const LIFECYCLE_MUTATION_KINDS = [
 export const lifecycleReviewFamily = {
   key: "lifecycle",
   mutationKinds: LIFECYCLE_MUTATION_KINDS,
+  scopes(fact) {
+    const mutation = fact.body.mutation;
+    if (!isLifecycleReviewMutation(mutation)) {
+      throw new Error("Lifecycle Review family received another Mutation family");
+    }
+    if (mutation.kind === "template-node-detach") {
+      return [
+        reviewScope("template-detachment", mutation.ownerNodeId, mutation.templateNodeId),
+        associatedNodeScope(mutation.ownerNodeId),
+        associatedNodeScope(mutation.templateNodeId),
+      ];
+    }
+    const category =
+      mutation.kind === "node-owner-set" ? "owner" : mutation.kind === "node-type-declare" ? "node-type" : "lifecycle";
+    return [reviewScope(category, mutation.nodeId), associatedNodeScope(mutation.nodeId)];
+  },
   candidates: ({ generation, pending }) => lifecycleCandidates(generation, pending),
   effect(fact, _targets, generation) {
     const mutation = fact.body.mutation;
@@ -49,10 +66,7 @@ export const lifecycleReviewFamily = {
         impacts.add(mutation.ownerNodeId);
         impacts.add(mutation.templateNodeId);
         for (const instance of templateInstances(generation)) {
-          if (
-            instance.ownerNodeId === mutation.ownerNodeId &&
-            instance.templateNodeId === mutation.templateNodeId
-          ) {
+          if (instance.ownerNodeId === mutation.ownerNodeId && instance.templateNodeId === mutation.templateNodeId) {
             impacts.add(instance.instanceOccurrenceId);
             if (instance.instanceNodeId !== null) {
               impacts.add(instance.instanceNodeId);
@@ -113,8 +127,7 @@ function candidatesForGroup(
         ? templateInstances(generation)
             .filter(
               (instance) =>
-                instance.ownerNodeId === mutation.ownerNodeId &&
-                instance.templateNodeId === mutation.templateNodeId,
+                instance.ownerNodeId === mutation.ownerNodeId && instance.templateNodeId === mutation.templateNodeId,
             )
             .map((instance) => instance.instanceOccurrenceId)
         : [];
@@ -129,10 +142,7 @@ function candidatesForGroup(
   }));
 }
 
-function lifecycleEffect(
-  fact: ContributionFact,
-  generation: ScopedProjectionGeneration,
-): ReviewEffectEntry | null {
+function lifecycleEffect(fact: ContributionFact, generation: ScopedProjectionGeneration): ReviewEffectEntry | null {
   const mutation = fact.body.mutation;
   if (!isLifecycleReviewMutation(mutation)) {
     return null;
@@ -149,18 +159,14 @@ function lifecycleEffect(
   }
   if (mutation.kind === "node-type-declare") {
     const origin =
-      generation.origin.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType
-        ? mutation.nodeType
-        : null;
+      generation.origin.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
     const review =
-      generation.review.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType
-        ? mutation.nodeType
-        : null;
+      generation.review.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
     return origin === review
       ? null
       : {
           identity: `nodeType/${mutation.nodeId}/${mutation.nodeType}`,
-          effect: { kind: "lifecycle", identity: mutation.nodeId, origin, review },
+          effect: { kind: "node-type", identity: mutation.nodeId, origin, review },
         };
   }
   const identity = mutationIdentity(fact);
@@ -174,10 +180,7 @@ function lifecycleEffect(
       };
 }
 
-function candidateHasEffect(
-  facts: readonly ContributionFact[],
-  generation: ScopedProjectionGeneration,
-): boolean {
+function candidateHasEffect(facts: readonly ContributionFact[], generation: ScopedProjectionGeneration): boolean {
   return facts.some((fact) => {
     if (lifecycleEffect(fact, generation) !== null) {
       return true;
@@ -185,9 +188,7 @@ function candidateHasEffect(
     const mutation = fact.body.mutation;
     return (
       isStructuralOccurrenceMutation(mutation) &&
-      structureEffectChanged(
-        structureEffect(structuralOccurrenceId(mutation), generation, mutationAnchor(mutation)),
-      )
+      structureEffectChanged(structureEffect(structuralOccurrenceId(mutation), generation, mutationAnchor(mutation)))
     );
   });
 }
@@ -216,9 +217,7 @@ function isBoundFieldNode(generation: ScopedProjectionGeneration, nodeId: string
       Object.values(projection.materializedFields).some((fields) =>
         fields.some((field) => field.fieldNodeId === nodeId),
       ) ||
-      Object.values(projection.templateFields).some((fields) =>
-        fields.some((field) => field.fieldNodeId === nodeId),
-      ),
+      Object.values(projection.templateFields).some((fields) => fields.some((field) => field.fieldNodeId === nodeId)),
   );
 }
 
@@ -246,21 +245,12 @@ function templateInstances(generation: ScopedProjectionGeneration) {
   return [...generation.origin.templateNodeInstances, ...generation.review.templateNodeInstances];
 }
 
-function isLifecycleReviewMutation(
-  mutation: ContributionFact["body"]["mutation"],
-): mutation is Extract<
+function isLifecycleReviewMutation(mutation: ContributionFact["body"]["mutation"]): mutation is Extract<
   ContributionFact["body"]["mutation"],
   {
     kind:
-      | "node-create"
-      | "node-delete"
-      | "node-restore"
-      | "node-owner-set"
-      | "node-type-declare"
-      | "template-node-detach";
+      "node-create" | "node-delete" | "node-restore" | "node-owner-set" | "node-type-declare" | "template-node-detach";
   }
 > {
-  return LIFECYCLE_MUTATION_KINDS.includes(
-    mutation.kind as (typeof LIFECYCLE_MUTATION_KINDS)[number],
-  );
+  return LIFECYCLE_MUTATION_KINDS.includes(mutation.kind as (typeof LIFECYCLE_MUTATION_KINDS)[number]);
 }

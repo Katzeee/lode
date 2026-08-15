@@ -2,12 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { rebuildGeneration } from "../reconcile/index.js";
 import { end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
-import {
-  completeMutableOccurrenceEvidence,
-  completeSchemaMutationEvidence,
-  completeTextMarkEvidence,
-  completeValueMutationEvidence,
-} from "./index.js";
+import { completeMutationEvidence } from "./policy.js";
 
 describe("Mutation evidence", () => {
   it("derives Direct Value evidence from Origin while Review contains a Proposal", () => {
@@ -26,7 +21,7 @@ describe("Mutation evidence", () => {
     );
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
 
-    const completed = completeValueMutationEvidence(
+    const completed = completeMutationEvidence(
       {
         kind: "value-set",
         target: { kind: "node", id: "node" },
@@ -34,12 +29,14 @@ describe("Mutation evidence", () => {
         key: "color",
         value: "red",
       },
-      generation.origin,
-      generation.review,
+      {
+        snapshot: facts.snapshot(),
+        projections: () => ({ previous: generation.origin, available: generation.review }),
+      },
     );
 
     expect(generation.review.nodes.node?.properties.color).toBe("blue");
-    expect(completed.previous).toEqual({ kind: "unset" });
+    expect(completed).toMatchObject({ previous: { kind: "unset" } });
   });
 
   it("compares Text mark states by canonical value", () => {
@@ -74,7 +71,7 @@ describe("Mutation evidence", () => {
     };
     const atomIds = observed.nodes.node.text.map((atom) => atom.id);
 
-    const completed = completeTextMarkEvidence(
+    const completed = completeMutationEvidence(
       {
         kind: "text-mark",
         nodeId: "node",
@@ -82,11 +79,13 @@ describe("Mutation evidence", () => {
         key: "style",
         value: { kind: "unset" },
       },
-      observed,
-      observed,
+      {
+        snapshot: facts.snapshot(),
+        projections: () => ({ previous: observed, available: observed }),
+      },
     );
 
-    expect(completed.previous).toEqual({ kind: "set", value: { weight: 700 } });
+    expect(completed).toMatchObject({ previous: { kind: "set", value: { weight: 700 } } });
   });
 
   it("derives one stable previous Occurrence placement", () => {
@@ -94,10 +93,12 @@ describe("Mutation evidence", () => {
     facts.addPlaced("node");
     const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.review;
 
-    const completed = completeMutableOccurrenceEvidence(
+    const completed = completeMutationEvidence(
       { kind: "occurrence-delete", occurrenceId: "node-original" },
-      projection,
-      projection,
+      {
+        snapshot: facts.snapshot(),
+        projections: () => ({ previous: projection, available: projection }),
+      },
     );
 
     expect(completed).toMatchObject({
@@ -130,10 +131,12 @@ describe("Mutation evidence", () => {
     );
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
 
-    const completed = completeSchemaMutationEvidence(
+    const completed = completeMutationEvidence(
       { kind: "schema-remove", nodeId: "target", schemaId: "schema-a" },
-      generation.origin,
-      generation.review,
+      {
+        snapshot: facts.snapshot(),
+        projections: () => ({ previous: generation.origin, available: generation.review }),
+      },
     );
 
     expect(generation.review.schemaApplications.target).toEqual(["schema-b", "schema-a"]);

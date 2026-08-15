@@ -29,18 +29,14 @@ export function selectEligibleDirectTail(
   if (!tail) {
     return null;
   }
-  const contributions = tail.filter(
-    (fact): fact is ContributionFact => fact.body.kind === "contribution",
-  );
+  const contributions = tail.filter((fact): fact is ContributionFact => fact.body.kind === "contribution");
   return contributions.length === tail.length &&
-    contributions.every(
-      (fact) => fact.body.intent === "direct" && canApplyDirectTail(projection, fact.body.mutation),
-    )
+    contributions.every((fact) => fact.body.intent === "direct" && canApplyDirectTail(projection, fact.body.mutation))
     ? contributions
     : null;
 }
 
-export function canApplyDirectTail(projection: Projection, mutation: Mutation): boolean {
+function canApplyDirectTail(projection: Projection, mutation: Mutation): boolean {
   if (isNodeMutation(mutation)) {
     return canApplyNodeDirectTail(projection, mutation);
   }

@@ -6,9 +6,7 @@ export type SchemaExtensionGraph = Readonly<{
   lineage(schemaId: string): readonly string[];
 }>;
 
-export function schemaExtensionGraph(
-  extensions: Readonly<Record<string, readonly string[]>>,
-): SchemaExtensionGraph {
+export function schemaExtensionGraph(extensions: Readonly<Record<string, readonly string[]>>): SchemaExtensionGraph {
   const cyclic = cyclicSchemas(extensions);
   return {
     searchMembers: searchMembers(extensions, cyclic),
@@ -29,9 +27,7 @@ function searchMembers(
         baseSchemaId,
         [...schemas]
           .filter(
-            (schemaId) =>
-              schemaId === baseSchemaId ||
-              lineage(schemaId, extensions, cyclic).includes(baseSchemaId),
+            (schemaId) => schemaId === baseSchemaId || lineage(schemaId, extensions, cyclic).includes(baseSchemaId),
           )
           .sort(stableStringCompare),
       ]),
@@ -48,10 +44,7 @@ function extensionConflicts(
       .map((schemaId) => [
         schemaId,
         [...cyclic]
-          .filter(
-            (candidate) =>
-              reaches(extensions, schemaId, candidate) && reaches(extensions, candidate, schemaId),
-          )
+          .filter((candidate) => reaches(extensions, schemaId, candidate) && reaches(extensions, candidate, schemaId))
           .sort(stableStringCompare),
       ]),
   );
@@ -80,17 +73,11 @@ function lineage(
   return result;
 }
 
-function cyclicSchemas(
-  extensions: Readonly<Record<string, readonly string[]>>,
-): ReadonlySet<string> {
-  return new Set(
-    [...schemaIdentities(extensions)].filter((schemaId) => reaches(extensions, schemaId, schemaId)),
-  );
+function cyclicSchemas(extensions: Readonly<Record<string, readonly string[]>>): ReadonlySet<string> {
+  return new Set([...schemaIdentities(extensions)].filter((schemaId) => reaches(extensions, schemaId, schemaId)));
 }
 
-function schemaIdentities(
-  extensions: Readonly<Record<string, readonly string[]>>,
-): ReadonlySet<string> {
+function schemaIdentities(extensions: Readonly<Record<string, readonly string[]>>): ReadonlySet<string> {
   return new Set([...Object.keys(extensions), ...Object.values(extensions).flat()]);
 }
 
@@ -104,9 +91,7 @@ function reaches(
     return false;
   }
   const nextVisited = new Set([...visited, from]);
-  return (extensions[from] ?? []).some(
-    (base) => base === target || reaches(extensions, base, target, nextVisited),
-  );
+  return (extensions[from] ?? []).some((base) => base === target || reaches(extensions, base, target, nextVisited));
 }
 
 function appendUnique(values: string[], value: string): void {

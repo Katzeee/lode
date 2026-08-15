@@ -1,14 +1,7 @@
 export type DeviceState = "active" | "background" | "idle";
 
 export type InstanceState =
-  | "new"
-  | "starting"
-  | "active"
-  | "quiescing"
-  | "draining"
-  | "checkpointing"
-  | "stopping"
-  | "stopped";
+  "new" | "starting" | "active" | "quiescing" | "draining" | "checkpointing" | "stopping" | "stopped";
 
 export type StopReason = {
   readonly kind: "requested" | "owner" | "startup-failure" | "removed";

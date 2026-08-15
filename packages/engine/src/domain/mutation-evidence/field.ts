@@ -1,15 +1,67 @@
 import {
   FIELD_DEFINITION_NODE_TYPE,
   SCHEMA_NODE_TYPE,
+  canonicalJson,
   fieldContentDeletionOccurrenceId,
   type FieldContentDeletionMutation,
+  type FieldMutation,
   type Mutation,
 } from "../fact/index.js";
 import {
+  assertMaterializedField,
   definitionNodeState,
   occurrenceAnchor,
   type ScopedProjection,
 } from "../reconcile/index.js";
+import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
+
+const FIELD_MUTATION_KINDS = [
+  "field-materialize",
+  "field-value-delete",
+  "materialized-field-delete",
+  "field-initialize",
+] as const satisfies readonly FieldMutation["kind"][];
+
+export const fieldMutationEvidence = {
+  key: "field",
+  mutationKinds: FIELD_MUTATION_KINDS,
+  complete: completeFieldMutationEvidence,
+  validate(mutation, context) {
+    const { previous, available } = context.projections();
+    if (mutation.kind === "field-value-delete" || mutation.kind === "materialized-field-delete") {
+      const expected = completeFieldContentDeletionEvidence(mutation, previous, available);
+      if (
+        expected.previousParentNodeId !== mutation.previousParentNodeId ||
+        canonicalJson(expected.previousAnchor) !== canonicalJson(mutation.previousAnchor)
+      ) {
+        throw new Error("Field content deletion evidence does not match the observed Projection");
+      }
+    }
+    if (mutation.kind === "field-initialize") {
+      const expected = completeFieldInitializationEvidence(mutation, available);
+      if (
+        canonicalJson([...(expected.observedInitializationFactIds ?? [])].sort()) !==
+        canonicalJson([...(mutation.observedInitializationFactIds ?? [])].sort())
+      ) {
+        throw new Error("Field initialization evidence does not match current candidates");
+      }
+    }
+  },
+} satisfies MutationEvidenceFamily<(typeof FIELD_MUTATION_KINDS)[number]>;
+
+function completeFieldMutationEvidence(mutation: FieldMutation, context: MutationEvidenceContext): FieldMutation {
+  const { previous, available } = context.projections();
+  switch (mutation.kind) {
+    case "field-materialize":
+      assertMaterializedField(mutation, available);
+      return mutation;
+    case "field-value-delete":
+    case "materialized-field-delete":
+      return completeFieldContentDeletionEvidence(mutation, previous, available);
+    case "field-initialize":
+      return completeFieldInitializationEvidence(mutation, available);
+  }
+}
 
 export function completeFieldContentDeletionEvidence(
   mutation: FieldContentDeletionMutation,
@@ -47,10 +99,7 @@ export function completeFieldInitializationEvidence(
   if (definitionNodeState(available, mutation.schemaId, SCHEMA_NODE_TYPE) === "absent") {
     throw new Error("Field initialization Schema type is absent");
   }
-  if (
-    definitionNodeState(available, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) ===
-    "absent"
-  ) {
+  if (definitionNodeState(available, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) === "absent") {
     throw new Error("Field initialization Field Definition type is absent");
   }
   for (const nodeId of [mutation.ownerNodeId, mutation.schemaId, mutation.fieldDefinitionId]) {
@@ -69,8 +118,6 @@ export function completeFieldInitializationEvidence(
   }
   return {
     ...mutation,
-    observedInitializationFactIds: field.initializationCandidates.map(
-      (candidate) => candidate.initializationId,
-    ),
+    observedInitializationFactIds: field.initializationCandidates.map((candidate) => candidate.initializationId),
   };
 }

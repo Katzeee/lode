@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  factObserves,
   stableStringCompare,
   type ContributionFact,
   type FactSnapshot,
@@ -69,9 +70,7 @@ function unsupportedDirectIntents(snapshot: FactSnapshot): readonly ConflictIssu
         requiredNodeIds: missingSupportContributionIds
           .flatMap((supportId) => {
             const support = contributions.get(supportId);
-            return support?.body.mutation.kind === "node-create"
-              ? [support.body.mutation.nodeId]
-              : [];
+            return support?.body.mutation.kind === "node-create" ? [support.body.mutation.nodeId] : [];
           })
           .sort(stableStringCompare),
         recoveryActions: ["restore-support"],
@@ -80,14 +79,9 @@ function unsupportedDirectIntents(snapshot: FactSnapshot): readonly ConflictIssu
   });
 }
 
-function rejectedProposalSupport(
-  activation: ReturnType<typeof deriveActivation>,
-  contributionId: string,
-): boolean {
+function rejectedProposalSupport(activation: ReturnType<typeof deriveActivation>, contributionId: string): boolean {
   const decisions = new Set(
-    (activation.resolutionByContribution.get(contributionId) ?? []).map(
-      (resolution) => resolution.body.decision,
-    ),
+    (activation.resolutionByContribution.get(contributionId) ?? []).map((resolution) => resolution.body.decision),
   );
   return decisions.size === 1 && decisions.has("reject");
 }
@@ -98,10 +92,7 @@ function placementConflicts(
 ): readonly ConflictIssue[] {
   const moves = new Map<string, ContributionFact[]>();
   for (const fact of active) {
-    if (
-      fact.body.mutation.kind === "occurrence-move" &&
-      occurrences.has(fact.body.mutation.occurrenceId)
-    ) {
+    if (fact.body.mutation.kind === "occurrence-move" && occurrences.has(fact.body.mutation.occurrenceId)) {
       const candidates = moves.get(fact.body.mutation.occurrenceId) ?? [];
       candidates.push(fact);
       moves.set(fact.body.mutation.occurrenceId, candidates);
@@ -110,8 +101,7 @@ function placementConflicts(
   const issues: ConflictIssue[] = [];
   for (const [occurrenceId, candidates] of moves) {
     const maximal = candidates.filter(
-      (candidate) =>
-        !candidates.some((other) => other.id !== candidate.id && observes(other, candidate)),
+      (candidate) => !candidates.some((other) => other.id !== candidate.id && factObserves(other, candidate)),
     );
     if (new Set(maximal.map((fact) => moveOf(fact).parentNodeId)).size < 2) {
       continue;
@@ -143,11 +133,6 @@ function moveOf(fact: ContributionFact) {
   return mutation;
 }
 
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
-}
-
 function fieldConfigConflicts(
   templateFields: Readonly<Record<string, readonly TemplateField[]>>,
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
@@ -157,13 +142,7 @@ function fieldConfigConflicts(
     for (const item of items) {
       if (item.configCandidates.length > 1) {
         issues.push(
-          fieldConfigConflict(
-            null,
-            item.fieldDefinitionId,
-            [item.schemaId],
-            [item.fieldNodeId],
-            item.configCandidates,
-          ),
+          fieldConfigConflict(null, item.fieldDefinitionId, [item.schemaId], [item.fieldNodeId], item.configCandidates),
         );
       }
     }
@@ -181,17 +160,11 @@ function fieldConfigConflicts(
           ),
         );
       }
-      const values = new Set(
-        field.initializationCandidates.map((candidate) => canonicalJson(candidate.values)),
-      );
+      const values = new Set(field.initializationCandidates.map((candidate) => canonicalJson(candidate.values)));
       if (values.size > 1) {
         issues.push({
           kind: "field-initialization-conflict",
-          identity: canonicalJson([
-            "field-initialization-conflict",
-            ownerNodeId,
-            field.fieldDefinitionId,
-          ]),
+          identity: canonicalJson(["field-initialization-conflict", ownerNodeId, field.fieldDefinitionId]),
           ownerNodeId,
           fieldDefinitionId: field.fieldDefinitionId,
           candidates: field.initializationCandidates,
@@ -244,15 +217,10 @@ function resolutionConflicts(snapshot: FactSnapshot): readonly ConflictIssue[] {
   return [...groups].map(([key, targets]) => resolutionConflict(snapshot, key, targets));
 }
 
-function resolutionConflict(
-  snapshot: FactSnapshot,
-  key: string,
-  targets: ReadonlySet<string>,
-): ConflictIssue {
+function resolutionConflict(snapshot: FactSnapshot, key: string, targets: ReadonlySet<string>): ConflictIssue {
   const candidateIds = JSON.parse(key) as string[];
   const candidates = snapshot.facts.filter(
-    (fact): fact is ResolutionFact =>
-      fact.body.kind === "resolution" && candidateIds.includes(fact.id),
+    (fact): fact is ResolutionFact => fact.body.kind === "resolution" && candidateIds.includes(fact.id),
   );
   return {
     kind: "resolution-conflict",
@@ -270,9 +238,7 @@ function resolutionConflict(
   };
 }
 
-function schemaExtensionConflicts(
-  conflicts: Readonly<Record<string, readonly string[]>>,
-): readonly ConflictIssue[] {
+function schemaExtensionConflicts(conflicts: Readonly<Record<string, readonly string[]>>): readonly ConflictIssue[] {
   const groups = new Map<string, readonly string[]>();
   for (const schemaIds of Object.values(conflicts)) {
     const ordered = [...schemaIds].sort(stableStringCompare);

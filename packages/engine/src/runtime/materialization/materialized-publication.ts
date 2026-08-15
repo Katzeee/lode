@@ -1,7 +1,6 @@
-import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
-import type { ReviewReadModel } from "../../domain/review/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
 import type { BoundedShardCache } from "./bounded-shard-cache.js";
+import type { MaterializedDatasetCatalog, MaterializedDatasetEntry } from "./materialized-dataset.js";
 import { cleanupMaterializedGenerations } from "./materialized-cleanup.js";
 import { loadGenerationManifest } from "./materialized-document-read.js";
 import {
@@ -9,16 +8,16 @@ import {
   MANIFEST_FORMAT,
   encodeMaterialized,
   headerDocumentId,
-  planCacheDocumentId,
   type GenerationManifest,
 } from "./materialized-generation-format.js";
 import { writeDirectoryNodes, writeMaterializedEntry } from "./materialized-directory.js";
 import { materialize } from "./materialize-generation.js";
 
-export async function commitMaterializedPublication(
+export async function commitMaterializedPublication<Identity extends Readonly<{ generationId: string }>>(
   documents: DocumentStore,
-  generation: ProjectionGeneration,
-  review: ReviewReadModel,
+  identity: Identity,
+  entries: readonly MaterializedDatasetEntry[],
+  catalog: MaterializedDatasetCatalog<Identity>,
   shardCache: BoundedShardCache,
   capacity: number,
   pinned: ReadonlyMap<string, number>,
@@ -29,25 +28,16 @@ export async function commitMaterializedPublication(
   } catch {
     // A later successful publication repeats cleanup from the durable manifest.
   }
-  const materialized = materialize(generation, review);
+  const materialized = materialize(identity, entries, catalog);
   for (const shard of materialized.shards) {
-    await writeMaterializedEntry(documents, generation.identity.generationId, shard);
+    await writeMaterializedEntry(documents, identity.generationId, shard);
   }
   await writeDirectoryNodes(documents, materialized.directoryNodes);
-  await documents.writeSnapshot(
-    planCacheDocumentId(generation.identity.generationId),
-    encodeMaterialized(materialized.planCaches),
-  );
-  await documents.writeSnapshot(
-    headerDocumentId(generation.identity.generationId),
-    encodeMaterialized(materialized.header),
-  );
+  await documents.writeSnapshot(headerDocumentId(identity.generationId), encodeMaterialized(materialized.header));
 
   const generationIds = [
-    ...previousManifest.generationIds.filter(
-      (generationId) => generationId !== generation.identity.generationId,
-    ),
-    generation.identity.generationId,
+    ...previousManifest.generationIds.filter((generationId) => generationId !== identity.generationId),
+    identity.generationId,
   ].slice(-2);
   await documents.writeSnapshot(
     MANIFEST_DOCUMENT_ID,
@@ -56,7 +46,7 @@ export async function commitMaterializedPublication(
 
   shardCache.reset();
   for (const shard of materialized.shards.slice(0, capacity)) {
-    shardCache.set(shard.descriptor.key, generation.identity.generationId, shard.value);
+    shardCache.set(shard.descriptor.key, identity.generationId, shard.value);
   }
   try {
     await cleanupMaterializedGenerations(documents, generationIds, pinned);

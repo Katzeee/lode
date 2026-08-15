@@ -7,10 +7,7 @@ export function initializedFieldNodeId(ownerNodeId: string, fieldDefinitionId: s
   return `${INITIALIZED_FIELD_NODE_PREFIX}${encodeURIComponent(ownerNodeId)}:${encodeURIComponent(fieldDefinitionId)}`;
 }
 
-export function initializedFieldOccurrenceId(
-  ownerNodeId: string,
-  fieldDefinitionId: string,
-): string {
+export function initializedFieldOccurrenceId(ownerNodeId: string, fieldDefinitionId: string): string {
   return `${INITIALIZED_FIELD_OCCURRENCE_PREFIX}${encodeURIComponent(ownerNodeId)}:${encodeURIComponent(fieldDefinitionId)}`;
 }
 

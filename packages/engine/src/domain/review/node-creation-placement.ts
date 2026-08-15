@@ -1,8 +1,6 @@
 import { compareFacts, type ContributionFact } from "../fact/index.js";
 
-export function nodeCreationPlacements(
-  pending: ReadonlyMap<string, ContributionFact>,
-): ReadonlyMap<string, string> {
+export function nodeCreationPlacements(pending: ReadonlyMap<string, ContributionFact>): ReadonlyMap<string, string> {
   const result = new Map<string, string>();
   for (const creation of pending.values()) {
     if (creation.body.mutation.kind !== "node-create") {

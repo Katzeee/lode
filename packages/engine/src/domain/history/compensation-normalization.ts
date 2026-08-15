@@ -77,14 +77,8 @@ function lifecycleRepresentatives(
   if (!mutation) {
     return null;
   }
-  if (
-    mutation.kind === "node-create" ||
-    mutation.kind === "node-delete" ||
-    mutation.kind === "node-restore"
-  ) {
-    const wanted = projection.nodes[mutation.nodeId]
-      ? ["node-create", "node-restore"]
-      : ["node-delete"];
+  if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
+    const wanted = projection.nodes[mutation.nodeId] ? ["node-create", "node-restore"] : ["node-delete"];
     const matching = ordered.filter((fact) => wanted.includes(fact.body.mutation.kind));
     return projection.nodes[mutation.nodeId] ? matching.slice(-1) : matching;
   }
@@ -103,11 +97,7 @@ function lifecycleRepresentatives(
 }
 
 function compensationOwner(mutation: Mutation): string | null {
-  if (
-    mutation.kind === "node-create" ||
-    mutation.kind === "node-delete" ||
-    mutation.kind === "node-restore"
-  ) {
+  if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
     return `node-lifecycle/${mutation.nodeId}`;
   }
   if (

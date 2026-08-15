@@ -4,7 +4,7 @@ import type {
   PublishedResult,
   RejectedResult,
   WriteResult,
-} from "../../application/contract.js";
+} from "@lode/sdk";
 import { frontierCovers, type Admission, type AuthorityReceipt } from "../../domain/fact/index.js";
 import {
   AuthorityCommitUnknownError,
@@ -46,11 +46,7 @@ export function executionErrorResult(error: unknown, currentGenerationId: string
   if (error instanceof AuthorityFaultError) {
     return rejectedResult("authority-fault", error.message, currentGenerationId);
   }
-  return rejectedResult(
-    "invalid-input",
-    error instanceof Error ? error.message : String(error),
-    currentGenerationId,
-  );
+  return rejectedResult("invalid-input", error instanceof Error ? error.message : String(error), currentGenerationId);
 }
 
 export async function finishWorkspaceReceipt(

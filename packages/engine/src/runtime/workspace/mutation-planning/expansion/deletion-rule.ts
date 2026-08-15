@@ -20,19 +20,13 @@ export function expandOccurrenceDeletion(
     : singleMutationWrite(mutation);
 }
 
-export function deletePlacement(
-  occurrenceId: string,
-  available: ScopedProjection,
-): readonly Mutation[] {
+export function deletePlacement(occurrenceId: string, available: ScopedProjection): readonly Mutation[] {
   const occurrence = available.occurrences[occurrenceId];
   if (!occurrence) {
     return [];
   }
   return available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId
-    ? [
-        { kind: "occurrence-delete", occurrenceId },
-        ...deleteOwnedSubtree(occurrence.nodeId, available),
-      ]
+    ? [{ kind: "occurrence-delete", occurrenceId }, ...deleteOwnedSubtree(occurrence.nodeId, available)]
     : [{ kind: "occurrence-delete", occurrenceId }];
 }
 
@@ -42,9 +36,7 @@ function deleteOwnedSubtree(nodeId: string, available: ScopedProjection): readon
   for (let index = 0; index < nodeIds.length; index += 1) {
     const parentNodeId = nodeIds[index];
     const children = Object.entries(available.nodeOwners)
-      .filter(
-        ([ownedNodeId, ownerNodeId]) => ownerNodeId === parentNodeId && !visited.has(ownedNodeId),
-      )
+      .filter(([ownedNodeId, ownerNodeId]) => ownerNodeId === parentNodeId && !visited.has(ownedNodeId))
       .map(([ownedNodeId]) => ownedNodeId)
       .sort(stableStringCompare);
     children.forEach((ownedNodeId) => visited.add(ownedNodeId));

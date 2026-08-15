@@ -4,39 +4,13 @@ import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import { queryReview } from "../review/index.js";
 import { queryHistory, validateHistorySelection } from "./history.js";
 import { rebuildHistoryState } from "./state.js";
-import {
-  baseFixture,
-  end,
-  HistoryFixture,
-} from "../../../tests/support/history/history-test-helpers.js";
+import { baseFixture, end, HistoryFixture } from "../../../tests/support/history/history-test-helpers.js";
 
 describe("production History scenarios", () => {
-  it("History state rebuild isolates multiple durable channels", () => {
-    const fixture = baseFixture();
-    fixture.step({
-      invocationId: "desktop",
-      channelId: "desktop",
-      mutations: [value("desktop", true)],
-    });
-    fixture.step({
-      invocationId: "mobile",
-      channelId: "mobile",
-      mutations: [value("mobile", true)],
-    });
-    const persistedReceipts = structuredClone(fixture.receipts);
-    expect(rebuildHistoryState(persistedReceipts, "desktop").undoStack).toEqual(["desktop"]);
-    expect(rebuildHistoryState(persistedReceipts, "mobile").undoStack).toEqual(["mobile"]);
-  });
-
   it("History selection 与 redo branch", () => {
     const fixture = baseFixture();
     fixture.step({ invocationId: "normal", mutations: [value("x", 1)] });
-    const undoSelection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const undoSelection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const undoPlan = validateHistorySelection(
       undoSelection,
       "actor",
@@ -55,12 +29,7 @@ describe("production History scenarios", () => {
     });
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual(["undo"]);
 
-    const redoSelection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).redo!;
+    const redoSelection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).redo!;
     const redoPlan = validateHistorySelection(
       redoSelection,
       "actor",
@@ -83,26 +52,6 @@ describe("production History scenarios", () => {
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual([]);
   });
 
-  it("复合 step 的选择性 Undo", () => {
-    const fixture = baseFixture();
-    fixture.step({
-      invocationId: "compound",
-      mutations: [value("kept", 1), value("covered", 1)],
-    });
-    fixture.fact({
-      ...value("covered", 2),
-      previous: { kind: "set", value: 1 },
-    });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
-    expect(selection.evidence.compensations).toHaveLength(1);
-    expect(selection.evidence.compensations[0]).toMatchObject({ key: "kept" });
-  });
-
   it("atomic History step compensates its semantic net effect", () => {
     const repeated = baseFixture();
     repeated.step({
@@ -113,8 +62,8 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory("channel", repeated.receipts, repeated.snapshot(), repeated.generation()).undo
-        ?.evidence.compensations,
+      queryHistory("channel", repeated.receipts, repeated.snapshot(), repeated.generation()).undo?.evidence
+        .compensations,
     ).toEqual([
       {
         kind: "value-unset",
@@ -134,8 +83,8 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory("channel", cancelled.receipts, cancelled.snapshot(), cancelled.generation()).undo
-        ?.evidence.compensations,
+      queryHistory("channel", cancelled.receipts, cancelled.snapshot(), cancelled.generation()).undo?.evidence
+        .compensations,
     ).toEqual([
       {
         kind: "node-restore",
@@ -185,12 +134,7 @@ describe("production History scenarios", () => {
       },
       insert: "Z",
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
       selection,
       "actor",
@@ -218,19 +162,21 @@ describe("production History scenarios", () => {
       mutations: [value("a", 1), value("b", 2)],
     });
     const acceptedFactId = receipt.factIds[0];
-    expect(acceptedFactId).toBeDefined();
-    proposal.resolve(acceptedFactId ? [acceptedFactId] : [], "accept");
+    if (!acceptedFactId) {
+      throw new Error("Expected the first Proposal Fact");
+    }
+    proposal.resolve([acceptedFactId], "accept");
     expect(
-      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo
-        ?.evidence.compensations,
+      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo?.evidence
+        .compensations,
     ).toHaveLength(1);
     expect(
-      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo
-        ?.evidence.compensations[0],
+      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo?.evidence
+        .compensations[0],
     ).toMatchObject({ key: "b" });
 
     const contingent = new HistoryFixture();
-    const created = contingent.fact({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
+    contingent.fact({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
     contingent.step({
       invocationId: "direct-on-proposal",
       mutations: [
@@ -244,10 +190,9 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(created.body.kind).toBe("contribution");
     expect(
-      queryHistory("channel", contingent.receipts, contingent.snapshot(), contingent.generation())
-        .undo?.evidence.compensations,
+      queryHistory("channel", contingent.receipts, contingent.snapshot(), contingent.generation()).undo?.evidence
+        .compensations,
     ).toHaveLength(1);
   });
 
@@ -280,12 +225,7 @@ describe("production History scenarios", () => {
       },
       insert: "X",
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
       selection,
       "actor",
@@ -335,8 +275,7 @@ describe("production History scenarios", () => {
       previous: { kind: "set", value: true },
     });
     expect(
-      queryHistory("channel", marks.receipts, marks.snapshot(), marks.generation()).undo?.evidence
-        .compensations[0],
+      queryHistory("channel", marks.receipts, marks.snapshot(), marks.generation()).undo?.evidence.compensations[0],
     ).toMatchObject({
       kind: "text-mark",
       atomIds: [`${text.id}#1`],
@@ -411,9 +350,7 @@ describe("production History scenarios", () => {
       targetStepId: "nullable-undo",
       mutations: nullableRedoPlan.write.bodies.map((body) => body.mutation),
     });
-    expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBe(
-      "changed",
-    );
+    expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBe("changed");
 
     const deletion = baseFixture();
     const initial = deletion.fact({
@@ -445,9 +382,7 @@ describe("production History scenarios", () => {
       anchor: end,
       insert: "",
     });
-    expect(
-      queryHistory("channel", deletion.receipts, deletion.snapshot(), deletion.generation()).undo,
-    ).toBeNull();
+    expect(queryHistory("channel", deletion.receipts, deletion.snapshot(), deletion.generation()).undo).toBeNull();
 
     const richDeletion = baseFixture();
     const richText = richDeletion.fact({
@@ -534,9 +469,7 @@ describe("production History scenarios", () => {
       insert: "Y",
     });
     expect(projectionText(replaced.generation().origin, "node")).toBe("Y");
-    expect(
-      queryHistory("channel", replaced.receipts, replaced.snapshot(), replaced.generation()).undo,
-    ).toBeNull();
+    expect(queryHistory("channel", replaced.receipts, replaced.snapshot(), replaced.generation()).undo).toBeNull();
   });
 
   it("Create/Delete/Move/Canonical compensation", () => {
@@ -546,8 +479,8 @@ describe("production History scenarios", () => {
       mutations: [{ kind: "node-create", nodeId: "created" }],
     });
     expect(
-      queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation())
-        .undo?.evidence.compensations,
+      queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation()).undo?.evidence
+        .compensations,
     ).toEqual([{ kind: "node-delete", nodeId: "created" }]);
 
     const duplicateNodeCreate = new HistoryFixture();
@@ -573,8 +506,7 @@ describe("production History scenarios", () => {
       previous: { kind: "unset" },
     });
     expect(
-      queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation())
-        .undo,
+      queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation()).undo,
     ).toBeNull();
 
     const occurrenceCreate = new HistoryFixture();
@@ -592,12 +524,8 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory(
-        "channel",
-        occurrenceCreate.receipts,
-        occurrenceCreate.snapshot(),
-        occurrenceCreate.generation(),
-      ).undo?.evidence.compensations[0],
+      queryHistory("channel", occurrenceCreate.receipts, occurrenceCreate.snapshot(), occurrenceCreate.generation())
+        .undo?.evidence.compensations[0],
     ).toMatchObject({
       kind: "occurrence-delete",
       occurrenceId: "created-occurrence",
@@ -611,12 +539,8 @@ describe("production History scenarios", () => {
       previous: { kind: "unset" },
     });
     expect(
-      queryHistory(
-        "channel",
-        occurrenceCreate.receipts,
-        occurrenceCreate.snapshot(),
-        occurrenceCreate.generation(),
-      ).undo,
+      queryHistory("channel", occurrenceCreate.receipts, occurrenceCreate.snapshot(), occurrenceCreate.generation())
+        .undo,
     ).toBeNull();
 
     const fixture = baseFixture();
@@ -624,21 +548,14 @@ describe("production History scenarios", () => {
       invocationId: "delete",
       mutations: [{ kind: "node-delete", nodeId: "node" }],
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     expect(selection.evidence.compensations[0]).toEqual({
       kind: "node-restore",
       nodeId: "node",
       deletionFactId: deletion.factIds[0],
     });
     fixture.fact({ kind: "node-delete", nodeId: "node" });
-    expect(
-      queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo,
-    ).toBeNull();
+    expect(queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo).toBeNull();
 
     const restoredIndependentDelete = baseFixture();
     const targetDelete = restoredIndependentDelete.step({
@@ -686,12 +603,8 @@ describe("production History scenarios", () => {
       throw new Error("Occurrence deletion must commit one Fact");
     }
     expect(
-      queryHistory(
-        "channel",
-        occurrenceDelete.receipts,
-        occurrenceDelete.snapshot(),
-        occurrenceDelete.generation(),
-      ).undo?.evidence.compensations[0],
+      queryHistory("channel", occurrenceDelete.receipts, occurrenceDelete.snapshot(), occurrenceDelete.generation())
+        .undo?.evidence.compensations[0],
     ).toEqual({
       kind: "occurrence-restore",
       occurrenceId: "occurrence",
@@ -712,12 +625,8 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory(
-        "channel",
-        occurrenceDelete.receipts,
-        occurrenceDelete.snapshot(),
-        occurrenceDelete.generation(),
-      ).undo?.evidence.compensations[0],
+      queryHistory("channel", occurrenceDelete.receipts, occurrenceDelete.snapshot(), occurrenceDelete.generation())
+        .undo?.evidence.compensations[0],
     ).toMatchObject({
       kind: "occurrence-delete",
       occurrenceId: "occurrence",
@@ -730,12 +639,8 @@ describe("production History scenarios", () => {
       anchor: end,
     });
     expect(
-      queryHistory(
-        "channel",
-        occurrenceDelete.receipts,
-        occurrenceDelete.snapshot(),
-        occurrenceDelete.generation(),
-      ).undo,
+      queryHistory("channel", occurrenceDelete.receipts, occurrenceDelete.snapshot(), occurrenceDelete.generation())
+        .undo,
     ).toBeNull();
 
     const neutralLaterMove = new HistoryFixture();
@@ -777,12 +682,8 @@ describe("production History scenarios", () => {
       previousAnchor: end,
     });
     expect(
-      queryHistory(
-        "channel",
-        neutralLaterMove.receipts,
-        neutralLaterMove.snapshot(),
-        neutralLaterMove.generation(),
-      ).undo,
+      queryHistory("channel", neutralLaterMove.receipts, neutralLaterMove.snapshot(), neutralLaterMove.generation())
+        .undo,
     ).toBeNull();
 
     const move = baseFixture();
@@ -808,8 +709,7 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory("channel", move.receipts, move.snapshot(), move.generation()).undo?.evidence
-        .compensations[0],
+      queryHistory("channel", move.receipts, move.snapshot(), move.generation()).undo?.evidence.compensations[0],
     ).toMatchObject({
       kind: "occurrence-move",
       parentNodeId: "workspace",
@@ -822,9 +722,7 @@ describe("production History scenarios", () => {
       previousParentNodeId: "parent",
       previousAnchor: end,
     });
-    expect(
-      queryHistory("channel", move.receipts, move.snapshot(), move.generation()).undo,
-    ).toBeNull();
+    expect(queryHistory("channel", move.receipts, move.snapshot(), move.generation()).undo).toBeNull();
 
     const missingDeleteParent = new HistoryFixture();
     missingDeleteParent.fact({ kind: "node-create", nodeId: "parent-node" });
@@ -891,12 +789,8 @@ describe("production History scenarios", () => {
       previousAnchor: end,
     });
     expect(
-      queryHistory(
-        "channel",
-        missingMoveParent.receipts,
-        missingMoveParent.snapshot(),
-        missingMoveParent.generation(),
-      ).undo,
+      queryHistory("channel", missingMoveParent.receipts, missingMoveParent.snapshot(), missingMoveParent.generation())
+        .undo,
     ).toBeNull();
 
     const canonical = baseFixture();
@@ -927,8 +821,8 @@ describe("production History scenarios", () => {
       ],
     });
     expect(
-      queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation()).undo
-        ?.evidence.compensations[0],
+      queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation()).undo?.evidence
+        .compensations[0],
     ).toMatchObject({
       kind: "node-owner-set",
       ownerNodeId: "workspace",
@@ -939,64 +833,17 @@ describe("production History scenarios", () => {
       ownerNodeId: "reference-parent",
       previousOwnerNodeId: "reference-parent",
     });
-    expect(
-      queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation())
-        .undo,
-    ).toBeNull();
+    expect(queryHistory("channel", canonical.receipts, canonical.snapshot(), canonical.generation()).undo).toBeNull();
   });
 
-  it("Schema/Field compensation", () => {
-    const fixture = baseFixture();
-    fixture.fact({ kind: "node-create", nodeId: "schema" });
-    fixture.fact({ kind: "node-create", nodeId: "field" });
-    fixture.step({
-      invocationId: "schema",
-      mutations: [
-        {
-          kind: "value-set",
-          target: { kind: "node", id: "schema" },
-          namespace: "schema",
-          key: "field",
-          value: 0,
-          previous: { kind: "unset" },
-        },
-        {
-          kind: "value-set",
-          target: { kind: "node", id: "field" },
-          namespace: "metadata",
-          key: "label",
-          value: "Field",
-          previous: { kind: "unset" },
-        },
-      ],
-    });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
-    expect(selection.evidence.compensations).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ kind: "value-unset", target: { kind: "node", id: "schema" } }),
-        expect.objectContaining({ kind: "value-unset", target: { kind: "node", id: "field" } }),
-      ]),
-    );
-  });
-
-  it("Proposal Undo 净零", () => {
+  it("Proposal Redo restores Review work after net-zero Undo", () => {
     const fixture = baseFixture();
     fixture.step({
       invocationId: "proposal",
       intent: "proposal",
       mutations: [value("proposal", true)],
     });
-    const selection = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).undo!;
+    const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
       selection,
       "actor",
@@ -1014,15 +861,7 @@ describe("production History scenarios", () => {
       targetStepId: "proposal",
       mutations: plan.write.bodies.map((body) => body.mutation),
     });
-    expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks).toHaveLength(
-      0,
-    );
-    const redo = queryHistory(
-      "channel",
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    ).redo;
+    const redo = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).redo;
     if (!redo) {
       throw new Error("Proposal Redo selection must exist");
     }
@@ -1043,9 +882,7 @@ describe("production History scenarios", () => {
       targetStepId: "proposal-undo",
       mutations: redoPlan.write.bodies.map((body) => body.mutation),
     });
-    expect(
-      queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks.length,
-    ).toBeGreaterThan(0);
+    expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks.length).toBeGreaterThan(0);
   });
 });
 

@@ -1,8 +1,6 @@
 import type { ContributionFact } from "../fact/index.js";
 
-export function occurrenceDeletionIds(
-  active: readonly ContributionFact[],
-): ReadonlyMap<string, readonly string[]> {
+export function occurrenceDeletionIds(active: readonly ContributionFact[]): ReadonlyMap<string, readonly string[]> {
   const result = new Map<string, string[]>();
   for (const fact of active) {
     const mutation = fact.body.mutation;
@@ -20,7 +18,5 @@ export function hasUnrestoredDeletion(
   deletionIds: ReadonlyMap<string, readonly string[]>,
   restoredDeletionIds: ReadonlySet<string>,
 ): boolean {
-  return (deletionIds.get(occurrenceId) ?? []).some(
-    (deletionId) => !restoredDeletionIds.has(deletionId),
-  );
+  return (deletionIds.get(occurrenceId) ?? []).some((deletionId) => !restoredDeletionIds.has(deletionId));
 }

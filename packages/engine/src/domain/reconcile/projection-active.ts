@@ -1,9 +1,4 @@
-import {
-  compareFacts,
-  type ContributionFact,
-  type FactSnapshot,
-  type ViewMode,
-} from "../fact/index.js";
+import { compareFacts, type ContributionFact, type FactSnapshot, type ViewMode } from "../fact/index.js";
 import { deriveActiveContributions, deriveSupport } from "../activation/index.js";
 import type { ProjectionPlanCache } from "./projection-types.js";
 
@@ -29,9 +24,7 @@ export function activeFactsFromCache(
 ): readonly ContributionFact[] {
   const ids = new Set([...previous.activeContributionIds, ...tail.map((fact) => fact.id)]);
   return snapshot.facts
-    .filter(
-      (fact): fact is ContributionFact => fact.body.kind === "contribution" && ids.has(fact.id),
-    )
+    .filter((fact): fact is ContributionFact => fact.body.kind === "contribution" && ids.has(fact.id))
     .sort(compareFacts);
 }
 

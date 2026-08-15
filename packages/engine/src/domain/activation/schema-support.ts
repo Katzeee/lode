@@ -1,5 +1,6 @@
 import {
   compareFacts,
+  factObserves,
   FIELD_DEFINITION_NODE_TYPE,
   mutationRelations,
   SCHEMA_NODE_TYPE,
@@ -17,10 +18,7 @@ export function addSchemaMutationSupport(
 ): void {
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     addCandidateSupport(support, context.nodes, mutation.nodeId, context.viable);
-  } else if (
-    mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
-  ) {
+  } else if (mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove") {
     addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
     if (mutation.kind === "schema-template-node-remove") {
       const binding = latestObservedCandidate(
@@ -31,10 +29,7 @@ export function addSchemaMutationSupport(
         support.add(binding.id);
       }
     }
-  } else if (
-    mutation.kind === "schema-field-configure" ||
-    mutation.kind === "schema-field-remove"
-  ) {
+  } else if (mutation.kind === "schema-field-configure" || mutation.kind === "schema-field-remove") {
     addCandidateSupport(support, context.nodes, mutation.fieldNodeId, context.viable);
   }
   const relations = mutationRelations(mutation);
@@ -68,10 +63,7 @@ export function addTemplateDetachmentSupport(
   addCandidateSupport(support, context.nodes, mutation.ownerNodeId, context.viable);
   addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
   for (const templateOccurrenceId of mutation.sourceTemplateOccurrenceIds ?? []) {
-    const item = latestObservedCandidate(
-      context.templateOccurrences.get(templateOccurrenceId) ?? [],
-      fact,
-    );
+    const item = latestObservedCandidate(context.templateOccurrences.get(templateOccurrenceId) ?? [], fact);
     if (item !== null) {
       support.add(item.id);
     }
@@ -130,12 +122,7 @@ function addNodeTypeSupport(
   nodeId: string,
   nodeType: NodeType,
 ): void {
-  addCandidateSupport(
-    support,
-    context.nodeTypeDeclarations,
-    nodeTypeSupportKey(nodeId, nodeType),
-    context.viable,
-  );
+  addCandidateSupport(support, context.nodeTypeDeclarations, nodeTypeSupportKey(nodeId, nodeType), context.viable);
 }
 
 function schemaApplicationKey(nodeId: string, schemaId: string): string {
@@ -148,10 +135,7 @@ function latestObservedCandidate(
 ): ContributionFact | null {
   return (
     candidates
-      .filter((candidate) => {
-        const { replicaId, sequence } = candidate.coordinate.dot;
-        return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
-      })
+      .filter((candidate) => factObserves(observer, candidate))
       .sort(compareFacts)
       .at(-1) ?? null
   );

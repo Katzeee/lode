@@ -10,11 +10,7 @@ import {
   type FactSnapshot,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import {
-  advanceGeneration,
-  rebuildGeneration,
-  type ProjectionGeneration,
-} from "../src/domain/reconcile/index.js";
+import { advanceGeneration, rebuildGeneration, type ProjectionGeneration } from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
@@ -78,19 +74,8 @@ export function assertSchemaConvergence(
     const incremental = advanceGeneration("workspace", beforeSnapshot, snapshot, versions, before);
     expect(canonicalJson(incremental.generation)).toBe(expectedSummary);
 
-    const checkpoint = createGenerationCheckpoint(
-      "workspace",
-      beforeSnapshot,
-      before,
-      checkpointKey,
-    );
-    const checkpointTail = reconcileFromCheckpoint(
-      checkpoint,
-      "workspace",
-      snapshot,
-      versions,
-      checkpointKey,
-    );
+    const checkpoint = createGenerationCheckpoint("workspace", beforeSnapshot, before, checkpointKey);
+    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, checkpointKey);
     expect(canonicalJson(checkpointTail?.generation)).toBe(expectedSummary);
 
     const restarted = rebuildGeneration("workspace", structuredClone(snapshot), versions);

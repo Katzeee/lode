@@ -1,15 +1,8 @@
 import type { EditMutation } from "../../../domain/edit/index.js";
 import type { Mutation, ViewMode } from "../../../domain/fact/index.js";
-import type {
-  ScopedProjection,
-  ScopedProjectionGeneration,
-} from "../../../domain/reconcile/index.js";
+import type { ScopedProjection, ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
-import {
-  planEditGenerationRead,
-  planMutationGenerationRead,
-  type GenerationReadPlan,
-} from "./read-plan.js";
+import { planEditGenerationRead, planMutationGenerationRead, type GenerationReadPlan } from "./read-plan.js";
 import { readResolvedProjection } from "./projection-reader.js";
 import { resolveGenerationRead } from "./scope-resolver.js";
 

@@ -3,12 +3,11 @@ import type {
   FactFrontier,
   FieldTemplateConfig,
   PreviousValue,
+  NodeType,
   ResolutionBody,
   SequenceAnchor,
   TextAtomId,
 } from "../fact/index.js";
-
-declare const REVIEW_SELECTION: unique symbol;
 
 export type TextDecisionEffect = Readonly<{
   kind: "text";
@@ -52,10 +51,24 @@ export type ValueDecisionEffect = Readonly<{
 }>;
 
 export type LifecycleDecisionEffect = Readonly<{
-  kind: "lifecycle" | "owner";
+  kind: "lifecycle";
   identity: string;
-  origin: string | boolean | null;
-  review: string | boolean | null;
+  origin: boolean | null;
+  review: boolean | null;
+}>;
+
+export type OwnerDecisionEffect = Readonly<{
+  kind: "owner";
+  identity: string;
+  origin: string | null;
+  review: string | null;
+}>;
+
+export type NodeTypeDecisionEffect = Readonly<{
+  kind: "node-type";
+  identity: string;
+  origin: NodeType | null;
+  review: NodeType | null;
 }>;
 
 export type SchemaRelationDecisionEffect = Readonly<{
@@ -90,6 +103,8 @@ export type DecisionEffect =
   | StructureDecisionEffect
   | ValueDecisionEffect
   | LifecycleDecisionEffect
+  | OwnerDecisionEffect
+  | NodeTypeDecisionEffect
   | SchemaRelationDecisionEffect
   | FieldConfigurationDecisionEffect
   | FieldMaterializationDecisionEffect;
@@ -109,7 +124,6 @@ export type ReviewSelection = Readonly<{
   frontier: FactFrontier;
   generationId: string;
   evidence: DecisionEvidence;
-  [REVIEW_SELECTION]: true;
 }>;
 
 export type ReviewHunk = Readonly<{

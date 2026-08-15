@@ -1,4 +1,4 @@
-import type { InvocationOutcome, InvocationQuery } from "../../../application/contract.js";
+import type { InvocationOutcome, InvocationQuery } from "@lode/sdk";
 import { frontierCovers } from "../../../domain/fact/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
 import type { ProjectionIdentityReader } from "../../materialization/index.js";

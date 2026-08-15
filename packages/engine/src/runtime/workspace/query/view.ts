@@ -5,15 +5,8 @@ import type {
   ProjectedNode,
   ProjectedOccurrence,
 } from "../../../domain/reconcile/index.js";
-import {
-  readViewDefinition,
-  type ViewFieldCell,
-  type ViewResult,
-} from "../../../domain/view/index.js";
-import type {
-  ProjectionSchemaSearchReader,
-  ProjectionSnapshotReader,
-} from "../../materialization/index.js";
+import { readViewDefinition, type ViewFieldCell, type ViewResult } from "../../../domain/view/index.js";
+import type { ProjectionSchemaSearchReader, ProjectionSnapshotReader } from "../../materialization/index.js";
 
 type ViewProjectionReader = ProjectionSnapshotReader & ProjectionSchemaSearchReader;
 
@@ -31,13 +24,7 @@ export async function readView(
       exactNodeType(projections, generationId, view, viewNodeId),
     ]);
     const definition = readViewDefinition(definitionNode, definitionNodeType);
-    const membership = await projections.schemaSearch(
-      generationId,
-      view,
-      definition.schemaId,
-      after,
-      limit,
-    );
+    const membership = await projections.schemaSearch(generationId, view, definition.schemaId, after, limit);
     const rowIds = membership.nodeIds;
     const [nodes, effectiveFields, materializedFields] = await Promise.all([
       projections.read(generationId, view, "nodes", rowIds),
@@ -50,12 +37,7 @@ export async function readView(
     const valueOccurrenceIds = rowIds.flatMap((nodeId) =>
       (materializedById.get(nodeId) ?? []).flatMap((field) => field.valueOccurrenceIds),
     );
-    const occurrences = await projections.read(
-      generationId,
-      view,
-      "occurrences",
-      valueOccurrenceIds,
-    );
+    const occurrences = await projections.read(generationId, view, "occurrences", valueOccurrenceIds);
     const occurrenceById = batchMap(occurrences);
     return {
       generationId: membership.identity.generationId,
@@ -95,9 +77,7 @@ function cell(
   materializedFields: readonly MaterializedField[],
   occurrenceById: ReadonlyMap<string, ProjectedOccurrence>,
 ): ViewFieldCell {
-  const materialized = materializedFields.find(
-    (field) => field.fieldDefinitionId === fieldDefinitionId,
-  );
+  const materialized = materializedFields.find((field) => field.fieldDefinitionId === fieldDefinitionId);
   if (materialized) {
     return {
       fieldDefinitionId,

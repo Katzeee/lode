@@ -9,10 +9,7 @@ export type SemanticTreeNode = Readonly<{
 }>;
 
 /** Traverses storage occurrences while terminating semantic self-reference by stable Node identity. */
-export function renderSemanticTree(
-  projection: Projection,
-  rootOccurrenceId: string,
-): SemanticTreeNode | null {
+export function renderSemanticTree(projection: Projection, rootOccurrenceId: string): SemanticTreeNode | null {
   return renderOccurrence(projection, rootOccurrenceId, new Set());
 }
 

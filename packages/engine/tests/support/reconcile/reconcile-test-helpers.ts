@@ -36,20 +36,16 @@ export class Facts {
 
   add(mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {
     const prerequisites = fixturePrerequisites(mutation);
-    const fact = this.addTransaction(
-      [...prerequisites, mutation, ...fixtureConsequences(mutation)],
-      intent,
-    )[prerequisites.length];
+    const fact = this.addTransaction([...prerequisites, mutation, ...fixtureConsequences(mutation)], intent)[
+      prerequisites.length
+    ];
     if (!fact) {
       throw new Error("Fixture transaction did not contain its requested mutation");
     }
     return fact;
   }
 
-  addTransaction(
-    mutations: readonly Mutation[],
-    intent: "direct" | "proposal" = "direct",
-  ): readonly Fact[] {
+  addTransaction(mutations: readonly Mutation[], intent: "direct" | "proposal" = "direct"): readonly Fact[] {
     return this.bodies(
       mutations.map((mutation) => ({
         kind: "contribution" as const,

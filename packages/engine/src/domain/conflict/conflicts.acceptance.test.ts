@@ -84,9 +84,7 @@ describe("Conflict lifecycle", () => {
         ],
       },
     ]);
-    expect(
-      resolutionAdjudicationProblem(conflicted, [proposal.id], [accept.id, reject.id]),
-    ).toBeNull();
+    expect(resolutionAdjudicationProblem(conflicted, [proposal.id], [accept.id, reject.id])).toBeNull();
 
     const adjudication = makeFact({
       workspaceId: "workspace",

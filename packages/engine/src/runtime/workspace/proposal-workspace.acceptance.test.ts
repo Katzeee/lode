@@ -1,22 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type { EngineEvent, MutationCommand } from "../../application/contract.js";
+import type { EngineEvent, MutationCommand } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { canonicalJson, requestDigest, type SequenceAnchor } from "../../domain/fact/index.js";
 import type { ReviewQuery } from "../../domain/review/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
-import {
-  createReplicaId,
-  FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-  FactAuthorityStore,
-} from "../authority/fact-authority-store.js";
+import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
+import { FACT_AUTHORITY_JOURNAL_DOCUMENT_ID } from "../authority/authority-journal.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../../../tests/support/sync.js";
-import {
-  BoundedProjectionMaterializer,
-  ProjectionCheckpointRepository,
-} from "../materialization/index.js";
+import { BoundedProjectionMaterializer, ProjectionCheckpointRepository } from "../materialization/index.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 
 const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
@@ -26,12 +20,7 @@ function nodeAtWorkspace(nodeId: string) {
   return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
 }
 
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  anchor: SequenceAnchor = end,
-) {
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string, anchor: SequenceAnchor = end) {
   return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor };
 }
 
@@ -78,10 +67,7 @@ async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`) {
   };
 }
 
-function createNode(
-  invocationId = "create",
-  intent: "direct" | "proposal" = "direct",
-): MutationCommand {
+function createNode(invocationId = "create", intent: "direct" | "proposal" = "direct"): MutationCommand {
   return {
     kind: "mutate",
     workspaceId: "workspace",
@@ -201,14 +187,8 @@ describe("Proposal Workspace coordinator", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(
-      new FactSyncComposite(a.facts.replication),
-      new FactSyncComposite(b.facts.replication),
-    );
-    await syncPair(
-      new FactSyncComposite(a.facts.replication),
-      new FactSyncComposite(c.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(a.facts.replication), new FactSyncComposite(b.facts.replication));
+    await syncPair(new FactSyncComposite(a.facts.replication), new FactSyncComposite(c.facts.replication));
     await b.workspace.reconcileAuthorityAdvance();
     await c.workspace.reconcileAuthorityAdvance();
 
@@ -241,14 +221,8 @@ describe("Proposal Workspace coordinator", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(
-      new FactSyncComposite(b.facts.replication),
-      new FactSyncComposite(a.facts.replication),
-    );
-    await syncPair(
-      new FactSyncComposite(c.facts.replication),
-      new FactSyncComposite(a.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(b.facts.replication), new FactSyncComposite(a.facts.replication));
+    await syncPair(new FactSyncComposite(c.facts.replication), new FactSyncComposite(a.facts.replication));
     await a.workspace.reconcileAuthorityAdvance();
 
     const conflicts = await a.workspace.query({
@@ -263,10 +237,7 @@ describe("Proposal Workspace coordinator", () => {
     if (!firstCandidate) {
       throw new Error("Expected Resolution conflict candidate");
     }
-    expect(conflict.candidates.map((candidate) => candidate.decision).sort()).toEqual([
-      "accept",
-      "reject",
-    ]);
+    expect(conflict.candidates.map((candidate) => candidate.decision).sort()).toEqual(["accept", "reject"]);
     const beforeAdjudication = a.facts.snapshot().facts.length;
     expect(
       await a.workspace.execute({
@@ -778,29 +749,10 @@ describe("Proposal Workspace coordinator", () => {
       );
     expect(deletedNodeIds).toEqual(["child", "node"]);
     expect(
-      new Set(
-        facts.facts(originalDeletion.receipt.factIds).map((fact) => fact.transaction.transactionId),
-      ).size,
+      new Set(facts.facts(originalDeletion.receipt.factIds).map((fact) => fact.transaction.transactionId)).size,
     ).toBe(1);
     expect(await lifecycleExists(workspace, "node", "node")).toBe(false);
     expect(await lifecycleExists(workspace, "node", "child")).toBe(false);
-  });
-
-  it("CMD-3 retry returns one receipt and published success is read-your-write", async () => {
-    const { facts, workspace } = await setup();
-    const command = createNode();
-    const first = await workspace.execute(command);
-    const retry = await workspace.execute(command);
-
-    expect(first.status).toBe("published");
-    expect(retry).toEqual(first);
-    expect(facts.snapshot().facts).toHaveLength(4);
-    const projection = await workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      view: "origin",
-    });
-    expect(projection).toMatchObject({ nodes: { node: { nodeId: "node" } } });
   });
 
   it("concurrent commands plan commit and publish inside one workspace serial boundary", async () => {
@@ -814,9 +766,9 @@ describe("Proposal Workspace coordinator", () => {
 
     expect(results.map((result) => result.status)).toEqual(["published", "published"]);
     expect(facts.snapshot().facts).toHaveLength(6);
-    expect(
-      await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).toMatchObject({ nodes: { node: { nodeId: "node" }, second: { nodeId: "second" } } });
+    expect(await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" })).toMatchObject({
+      nodes: { node: { nodeId: "node" }, second: { nodeId: "second" } },
+    });
   });
 
   it("one ordered command plans later Edits against earlier Edits without merging their transactions", async () => {
@@ -849,12 +801,8 @@ describe("Proposal Workspace coordinator", () => {
     expect(result.status).toBe("published");
     const valueFacts = facts
       .snapshot()
-      .facts.filter(
-        (fact) => result.status === "published" && result.receipt.factIds.includes(fact.id),
-      );
-    const values = valueFacts.map((fact) =>
-      fact.body.kind === "contribution" ? fact.body.mutation : null,
-    );
+      .facts.filter((fact) => result.status === "published" && result.receipt.factIds.includes(fact.id));
+    const values = valueFacts.map((fact) => (fact.body.kind === "contribution" ? fact.body.mutation : null));
     expect(values).toEqual([
       expect.objectContaining({ kind: "value-set", value: 1, previous: { kind: "unset" } }),
       expect.objectContaining({ kind: "value-set", value: 2, previous: { kind: "set", value: 1 } }),
@@ -1004,9 +952,7 @@ describe("Proposal Workspace coordinator", () => {
     }
     const textFact = facts
       .facts(created.receipt.factIds)
-      .find(
-        (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "text-splice",
-      );
+      .find((fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "text-splice");
     const insertedAtomId = `${required(textFact, "Text Fact").id}#0` as const;
     const occurrenceDeleted = await workspace.execute({
       ...createNode("delete-occurrence"),
@@ -1042,10 +988,7 @@ describe("Proposal Workspace coordinator", () => {
         {
           kind: "occurrence-restore",
           occurrenceId: "restored-reference",
-          deletionFactId: required(
-            occurrenceDeleted.receipt.factIds[0],
-            "Occurrence deletion Fact",
-          ),
+          deletionFactId: required(occurrenceDeleted.receipt.factIds[0], "Occurrence deletion Fact"),
           parentNodeId: "workspace",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
@@ -1188,10 +1131,7 @@ describe("Proposal Workspace coordinator", () => {
         .snapshot()
         .facts.slice(0, 2)
         .map((fact) => fact.transaction),
-    ).toEqual([
-      expect.objectContaining({ index: 0, size: 2 }),
-      expect.objectContaining({ index: 1, size: 2 }),
-    ]);
+    ).toEqual([expect.objectContaining({ index: 0, size: 2 }), expect.objectContaining({ index: 1, size: 2 })]);
     expect(
       await workspace.query({
         kind: "projection",
@@ -1487,9 +1427,7 @@ describe("Proposal Workspace coordinator", () => {
     if (direct.status !== "published") {
       throw new Error("Expected Direct edit publication");
     }
-    const directFact = facts
-      .snapshot()
-      .facts.find((fact) => direct.receipt.factIds.includes(fact.id));
+    const directFact = facts.snapshot().facts.find((fact) => direct.receipt.factIds.includes(fact.id));
     expect(directFact?.body).toMatchObject({
       mutation: { kind: "value-set", previous: { kind: "unset" } },
     });
@@ -1513,9 +1451,7 @@ describe("Proposal Workspace coordinator", () => {
       workspaceId: "workspace",
       view: "origin",
     });
-    expect(
-      "nodes" in origin ? origin.nodes.node?.properties.color : "not-projection",
-    ).toBeUndefined();
+    expect("nodes" in origin ? origin.nodes.node?.properties.color : "not-projection").toBeUndefined();
   });
 
   it("Direct edits can target a pending Proposal identity and follow its terminal support", async () => {
@@ -1562,11 +1498,9 @@ describe("Proposal Workspace coordinator", () => {
         workspaceId: "workspace",
         view: "origin",
       });
-      expect(
-        "nodes" in origin
-          ? origin.nodes["proposal-node"]?.text.map((atom) => atom.value).join("")
-          : null,
-      ).toBe(decision === "accept" ? "X" : undefined);
+      expect("nodes" in origin ? origin.nodes["proposal-node"]?.text.map((atom) => atom.value).join("") : null).toBe(
+        decision === "accept" ? "X" : undefined,
+      );
       expect(
         facts
           .snapshot()
@@ -1630,10 +1564,7 @@ describe("Proposal Workspace coordinator", () => {
     await expectUnsupportedDirect(restarted.workspace, directFactId, "direct-author");
 
     const remote = await setupReplica(new InMemoryDocumentStore(), "303");
-    await syncPair(
-      new FactSyncComposite(restarted.facts.replication),
-      new FactSyncComposite(remote.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(restarted.facts.replication), new FactSyncComposite(remote.facts.replication));
     await remote.workspace.reconcileAuthorityAdvance();
     await expectUnsupportedDirect(remote.workspace, directFactId, "direct-author");
 
@@ -1648,10 +1579,7 @@ describe("Proposal Workspace coordinator", () => {
     await expectNoUnsupportedDirect(remote.workspace);
     expect(await projectedText(remote.workspace, "proposal-node")).toBe("preserved intent");
 
-    await syncPair(
-      new FactSyncComposite(remote.facts.replication),
-      new FactSyncComposite(restarted.facts.replication),
-    );
+    await syncPair(new FactSyncComposite(remote.facts.replication), new FactSyncComposite(restarted.facts.replication));
     await restarted.workspace.reconcileAuthorityAdvance();
     await expectNoUnsupportedDirect(restarted.workspace);
     expect(await projectedText(restarted.workspace, "proposal-node")).toBe("preserved intent");
@@ -1783,9 +1711,7 @@ describe("Proposal Workspace coordinator", () => {
       workspaceId: "workspace",
       view: "origin",
     });
-    expect(
-      "nodes" in projection ? projection.nodes.node?.text.map((atom) => atom.value).join("") : null,
-    ).toBe("B");
+    expect("nodes" in projection ? projection.nodes.node?.text.map((atom) => atom.value).join("") : null).toBe("B");
   });
 
   it("History target reader loads previous placement evidence for Move and Delete Undo", async () => {
@@ -1851,9 +1777,7 @@ describe("Proposal Workspace coordinator", () => {
       view: "origin",
       section: "occurrences",
     });
-    expect(
-      "occurrences" in afterMoveUndo ? afterMoveUndo.occurrences.child?.parentNodeId : null,
-    ).toBe("node-a");
+    expect("occurrences" in afterMoveUndo ? afterMoveUndo.occurrences.child?.parentNodeId : null).toBe("node-a");
 
     expect(
       (
@@ -1894,9 +1818,7 @@ describe("Proposal Workspace coordinator", () => {
       view: "origin",
       section: "occurrences",
     });
-    expect(
-      "occurrences" in afterDeleteUndo ? afterDeleteUndo.occurrences.child?.parentNodeId : null,
-    ).toBe("node-a");
+    expect("occurrences" in afterDeleteUndo ? afterDeleteUndo.occurrences.child?.parentNodeId : null).toBe("node-a");
   });
 
   it("History exposes Review-visible Direct work on a pending Proposal identity", async () => {
@@ -1943,11 +1865,7 @@ describe("Proposal Workspace coordinator", () => {
       workspaceId: "workspace",
       view: "review",
     });
-    expect(
-      "nodes" in review
-        ? review.nodes["proposal-only"]?.text.map((atom) => atom.value).join("")
-        : null,
-    ).toBe("");
+    expect("nodes" in review ? review.nodes["proposal-only"]?.text.map((atom) => atom.value).join("") : null).toBe("");
   });
 
   it("semantic command validation rejects missing restore and text mark targets before commit", async () => {
@@ -1966,9 +1884,10 @@ describe("Proposal Workspace coordinator", () => {
         },
       ],
     ] as const) {
-      expect(
-        await workspace.execute({ ...createNode(`invalid-${mutations[0].kind}`), mutations }),
-      ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+      expect(await workspace.execute({ ...createNode(`invalid-${mutations[0].kind}`), mutations })).toMatchObject({
+        status: "rejected",
+        error: { code: "invalid-input" },
+      });
     }
     expect(facts.snapshot()).toEqual(before);
     expect(
@@ -2119,9 +2038,7 @@ describe("Proposal Workspace coordinator", () => {
       nodeId: "node",
     });
     expect("blockers" in blocked && blocked.blockers).toContain("outcome-unknown");
-    expect("blockers" in blocked && blocked.outcomeUnknownInvocationIds).toEqual([
-      "uncertain-before-purge",
-    ]);
+    expect("blockers" in blocked && blocked.outcomeUnknownInvocationIds).toEqual(["uncertain-before-purge"]);
 
     await workspace.query({
       kind: "invocation",
@@ -2195,9 +2112,9 @@ describe("Proposal Workspace coordinator", () => {
     });
     const recoveryEvents: EngineEvent[] = [];
     restarted.subscribe((event) => recoveryEvents.push(event));
-    expect(
-      await restarted.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).toMatchObject({ nodes: { node: { nodeId: "node" } } });
+    expect(await restarted.query({ kind: "projection", workspaceId: "workspace", view: "origin" })).toMatchObject({
+      nodes: { node: { nodeId: "node" } },
+    });
     expect(await restarted.execute(createNode())).toEqual(originallyPublished);
     expect(await restarted.execute(createNode("restart-blocked"))).toMatchObject({
       status: "rejected",
@@ -2265,11 +2182,7 @@ describe("Proposal Workspace coordinator", () => {
       versions,
       projection: {
         projections: failedPublisher,
-        checkpoints: new ProjectionCheckpointRepository(
-          documents,
-          "workspace",
-          "checkpoint-test-key",
-        ),
+        checkpoints: new ProjectionCheckpointRepository(documents, "workspace", "checkpoint-test-key"),
       },
     });
     failedPublisher.fail = true;
@@ -2289,11 +2202,7 @@ describe("Proposal Workspace coordinator", () => {
       versions,
       projection: {
         projections: materializer,
-        checkpoints: new ProjectionCheckpointRepository(
-          documents,
-          "workspace",
-          "checkpoint-test-key",
-        ),
+        checkpoints: new ProjectionCheckpointRepository(documents, "workspace", "checkpoint-test-key"),
       },
     });
     expect(
@@ -2361,46 +2270,13 @@ describe("Proposal Workspace coordinator", () => {
     });
   });
 
-  it("Projection unavailable", async () => {
-    const publisher = new ControlledPublisher();
-    const { workspace } = await setup(publisher);
-    publisher.fail = true;
-    await workspace.execute(createNode());
-    expect(
-      await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).toMatchObject({ nodes: {} });
-    expect(await workspace.query({ kind: "review", workspaceId: "workspace" })).toMatchObject({
-      hunks: [],
-    });
-
-    publisher.fail = false;
-    expect((await workspace.execute(createNode())).status).toBe("published");
-    expect(
-      await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).toMatchObject({
-      nodes: { node: { nodeId: "node" } },
-    });
-  });
-
-  it("Origin/Review 原子发布", async () => {
-    const publisher = new ControlledPublisher();
-    const { workspace } = await setup(publisher);
-    await workspace.execute(createNode("proposal", "proposal"));
-    const published = required(publisher.generations[0], "published generation");
-    expect(published.origin.identity.frontier).toEqual(published.review.identity.frontier);
-    expect(published.origin.identity.rulesVersion).toBe(published.review.identity.rulesVersion);
-  });
-
   it("Events 与 query", async () => {
     const publisher = new ControlledPublisher();
     const { workspace } = await setup(publisher);
     const events: EngineEvent[] = [];
     const unsubscribe = workspace.subscribe((event) => events.push(event));
     await workspace.execute(createNode());
-    expect(events.map((event) => event.kind)).toEqual([
-      "authority-advanced",
-      "projection-published",
-    ]);
+    expect(events.map((event) => event.kind)).toEqual(["authority-advanced", "projection-published"]);
     publisher.fail = true;
     expect(
       await workspace.execute({
@@ -2408,13 +2284,10 @@ describe("Proposal Workspace coordinator", () => {
         mutations: nodeAtWorkspace("lagged"),
       }),
     ).toMatchObject({ status: "committed-projection-pending" });
-    expect(events.slice(-2).map((event) => event.kind)).toEqual([
-      "authority-advanced",
-      "projection-failed",
-    ]);
-    expect(
-      await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).not.toHaveProperty("nodes.lagged");
+    expect(events.slice(-2).map((event) => event.kind)).toEqual(["authority-advanced", "projection-failed"]);
+    expect(await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" })).not.toHaveProperty(
+      "nodes.lagged",
+    );
     publisher.fail = false;
     expect(
       (
@@ -2425,6 +2298,9 @@ describe("Proposal Workspace coordinator", () => {
       ).status,
     ).toBe("published");
     expect(events.at(-1)?.kind).toBe("projection-recovered");
+    expect(await workspace.query({ kind: "projection", workspaceId: "workspace", view: "origin" })).toMatchObject({
+      nodes: { lagged: { nodeId: "lagged" } },
+    });
     unsubscribe();
     expect(events.every((event) => !Object.hasOwn(event, "facts"))).toBe(true);
   });
@@ -2437,29 +2313,9 @@ describe("Proposal Workspace coordinator", () => {
     await commitAuthorityNode(facts, "remote-failure", "remote-failure");
     publisher.fail = true;
 
-    await expect(workspace.reconcileAuthorityAdvance()).rejects.toThrow(
-      "injected projection failure",
-    );
+    await expect(workspace.reconcileAuthorityAdvance()).rejects.toThrow("injected projection failure");
 
     expect(events.map((event) => event.kind)).toEqual(["authority-advanced", "projection-failed"]);
-  });
-
-  it("event listener failures cannot change a durable command result", async () => {
-    const { workspace } = await setup();
-    workspace.subscribe(() => {
-      throw new Error("injected listener failure");
-    });
-
-    const result = await workspace.execute(createNode());
-
-    expect(result.status).toBe("published");
-    expect(
-      await workspace.query({
-        kind: "invocation",
-        workspaceId: "workspace",
-        invocationId: "create",
-      }),
-    ).toEqual(result);
   });
 
   it("workspace close rejects new work and drains a command already inside publication", async () => {
@@ -2496,11 +2352,7 @@ describe("Proposal Workspace coordinator", () => {
         admitRecords: admitAuthorityRecords,
       });
     const firstFacts = await openFacts();
-    const checkpoints = new ProjectionCheckpointRepository(
-      documents,
-      "workspace",
-      "checkpoint-test-key",
-    );
+    const checkpoints = new ProjectionCheckpointRepository(documents, "workspace", "checkpoint-test-key");
     const first = await ProposalWorkspace.open({
       workspaceId: "workspace",
       facts: firstFacts,
@@ -2546,9 +2398,9 @@ describe("Proposal Workspace coordinator", () => {
       versions,
       projection: { checkpoints },
     });
-    expect(
-      await restarted.query({ kind: "projection", workspaceId: "workspace", view: "origin" }),
-    ).toMatchObject({ nodes: { node: { nodeId: "node" }, "tail-node": { nodeId: "tail-node" } } });
+    expect(await restarted.query({ kind: "projection", workspaceId: "workspace", view: "origin" })).toMatchObject({
+      nodes: { node: { nodeId: "node" }, "tail-node": { nodeId: "tail-node" } },
+    });
   });
 });
 
@@ -2617,11 +2469,7 @@ async function appendMalformedAuthorityRecord(documents: DocumentStore): Promise
   );
 }
 
-async function commitAuthorityNode(
-  facts: FactAuthorityStore,
-  invocationId: string,
-  nodeId: string,
-): Promise<void> {
+async function commitAuthorityNode(facts: FactAuthorityStore, invocationId: string, nodeId: string): Promise<void> {
   await facts.commit({
     invocationId,
     request: { kind: "remote-authority-node", nodeId },

@@ -108,18 +108,13 @@ export function advanceGeneration(
   };
 }
 
-export function snapshotAtFrontier(
-  snapshot: FactSnapshot,
-  frontier: Readonly<Record<string, number>>,
-): FactSnapshot {
+export function snapshotAtFrontier(snapshot: FactSnapshot, frontier: Readonly<Record<string, number>>): FactSnapshot {
   if (!frontierCovers(snapshot.frontier, frontier)) {
     throw new Error("Requested frontier is not covered by the Fact snapshot");
   }
   return {
     facts: snapshot.facts
-      .filter(
-        (fact) => fact.coordinate.dot.sequence <= (frontier[fact.coordinate.dot.replicaId] ?? 0),
-      )
+      .filter((fact) => fact.coordinate.dot.sequence <= (frontier[fact.coordinate.dot.replicaId] ?? 0))
       .sort(compareFacts),
     frontier,
   };

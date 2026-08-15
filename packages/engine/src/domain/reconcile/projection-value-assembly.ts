@@ -1,21 +1,10 @@
-import {
-  stableStringCompare,
-  type JsonValue,
-  type ProjectionIdentity,
-  type ViewMode,
-} from "../fact/index.js";
-import type {
-  Projection,
-  ProjectionSections,
-  ProjectedNode,
-  ProjectedOccurrence,
-} from "./projection-types.js";
+import { stableStringCompare, type JsonValue, type ProjectionIdentity, type ViewMode } from "../fact/index.js";
+import type { Projection, ProjectionSections, ProjectedNode, ProjectedOccurrence } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import type { SchemaRelations } from "./schema-relations.js";
 import type { TemplateStructureProjection } from "./template-node-projection.js";
 import { validateStoredTree } from "./occurrence-tree.js";
 import { valueTargetAddress } from "./value-address.js";
-import { sortedRecord } from "./sorted-record.js";
 
 type ProjectionAssemblyInput = Readonly<{
   view: ViewMode;
@@ -115,10 +104,7 @@ export function applyProjectedValues(
         addressed[valueTargetAddress(owner, "property")],
         addressed[valueTargetAddress(owner, "schema")],
       );
-      const metadata = Object.assign(
-        { ...occurrence.metadata },
-        addressed[valueTargetAddress(owner, "metadata")],
-      );
+      const metadata = Object.assign({ ...occurrence.metadata }, addressed[valueTargetAddress(owner, "metadata")]);
       return [id, { ...occurrence, properties, metadata }] as const;
     }),
   );
@@ -165,4 +151,8 @@ function deleteAddressedKeys(
   for (const key of Object.keys(addressed[valueTargetAddress(owner, namespace)] ?? {})) {
     delete target[key];
   }
+}
+
+function sortedRecord<T>(values: ReadonlyMap<string, T>): Readonly<Record<string, T>> {
+  return Object.fromEntries([...values].sort(([left], [right]) => stableStringCompare(left, right)));
 }

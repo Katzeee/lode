@@ -2,6 +2,7 @@ import {
   compareFacts,
   isFieldContentDeletionMutation,
   isSchemaMutation,
+  isTemplateMutation,
   type ContributionFact,
   type Fact,
   type ResolutionFact,
@@ -10,10 +11,7 @@ import {
 } from "../fact/index.js";
 import { eligibleForView, resolutionsByContribution } from "./activation-view.js";
 import { addSchemaMutationSupport, type SchemaSupportContext } from "./schema-support.js";
-import {
-  addGeneratedOccurrenceSupport,
-  addTemplateNodeSupport,
-} from "./generated-relation-support.js";
+import { addGeneratedOccurrenceSupport, addTemplateNodeSupport } from "./generated-relation-support.js";
 import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
 import { addFieldContentDeletionSupport } from "./field-content-support.js";
 import { registerNodeExistence } from "./support-node-existence.js";
@@ -29,14 +27,10 @@ export type Activation = Readonly<{
 
 export function deriveActivation(facts: readonly Fact[], mode: ViewMode): Activation {
   const ordered = [...facts].sort(compareFacts);
-  const contributions = ordered.filter(
-    (fact): fact is ContributionFact => fact.body.kind === "contribution",
-  );
+  const contributions = ordered.filter((fact): fact is ContributionFact => fact.body.kind === "contribution");
   const resolutions = resolutionsByContribution(ordered);
   const initiallyEligible = new Set(
-    contributions
-      .filter((fact) => eligibleForView(fact, resolutions.get(fact.id), mode))
-      .map((fact) => fact.id),
+    contributions.filter((fact) => eligibleForView(fact, resolutions.get(fact.id), mode)).map((fact) => fact.id),
   );
   const supportByContribution = deriveSupport(contributions, initiallyEligible);
   const active = new Set(initiallyEligible);
@@ -130,7 +124,7 @@ function contributionSupport(
       nodeExistenceSupport,
       occurrenceExistenceSupport,
     );
-  } else if (mutation.kind === "template-node-detach") {
+  } else if (isTemplateMutation(mutation)) {
     addTemplateNodeSupport(support, mutation, fact, schemaSupport, existence);
   } else if (isFieldContentDeletionMutation(mutation)) {
     addFieldContentDeletionSupport(support, mutation, existence);
@@ -168,27 +162,14 @@ function addSchemaContributionSupport(
 ): void {
   addSchemaMutationSupport(support, mutation, fact, schemaSupport);
   if (mutation.kind === "schema-field-add") {
-    addIfPresent(
-      support,
-      effectiveCandidate(nodeExistence, mutation.fieldNodeId, schemaSupport.viable),
-    );
-    addIfPresent(
-      support,
-      effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, schemaSupport.viable),
-    );
+    addIfPresent(support, effectiveCandidate(nodeExistence, mutation.fieldNodeId, schemaSupport.viable));
+    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, schemaSupport.viable));
   } else if (mutation.kind === "schema-template-node-add") {
-    addIfPresent(
-      support,
-      effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, schemaSupport.viable),
-    );
+    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, schemaSupport.viable));
   }
 }
 
-function existenceSupport(
-  nodes: Map<string, string[]>,
-  occurrences: Map<string, string[]>,
-  viable: Set<string>,
-) {
+function existenceSupport(nodes: Map<string, string[]>, occurrences: Map<string, string[]>, viable: Set<string>) {
   return { nodes, occurrences, viable };
 }
 

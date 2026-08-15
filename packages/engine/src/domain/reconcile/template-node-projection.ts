@@ -1,4 +1,6 @@
 import {
+  contributionFactsOfKind,
+  factObserves,
   stableStringCompare,
   templateInstanceOccurrenceId,
   type ContributionFact,
@@ -35,10 +37,7 @@ export function projectTemplateStructure(
     ]),
   );
   const children = new Map(
-    [...authoredChildren].map(([parentNodeId, occurrenceIds]) => [
-      parentNodeId,
-      [...occurrenceIds],
-    ]),
+    [...authoredChildren].map(([parentNodeId, occurrenceIds]) => [parentNodeId, [...occurrenceIds]]),
   );
   const extensionGraph = schemaExtensionGraph(schemaExtensions);
   const currentSources = new Map<string, TemplateNodeSource[]>();
@@ -71,8 +70,7 @@ export function projectTemplateStructure(
     }
     const detached = detachFacts.length > 0;
     const detachment = detached ? detachmentMutation(detachFacts) : null;
-    const occurrenceId =
-      detachment?.instanceOccurrenceId ?? templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
+    const occurrenceId = detachment?.instanceOccurrenceId ?? templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
     const nodeId = detachment?.instanceNodeId ?? templateNodeId;
     if (detached) {
       const occurrence = occurrences.get(occurrenceId);
@@ -121,9 +119,7 @@ function activeTemplateOccurrenceId(
   schemaId: string,
   templateNodeId: string,
 ): string | null {
-  const removals = active.filter(
-    (fact) => fact.body.mutation.kind === "schema-template-node-remove",
-  );
+  const removals = contributionFactsOfKind(active, "schema-template-node-remove");
   let result: string | null = null;
   for (const fact of active) {
     const mutation = fact.body.mutation;
@@ -137,11 +133,10 @@ function activeTemplateOccurrenceId(
     const removed = removals.some((candidate) => {
       const removal = candidate.body.mutation;
       return (
-        removal.kind === "schema-template-node-remove" &&
         removal.schemaId === mutation.schemaId &&
         removal.templateNodeId === mutation.templateNodeId &&
         removal.templateOccurrenceId === mutation.templateOccurrenceId &&
-        observes(candidate, fact)
+        factObserves(candidate, fact)
       );
     });
     if (!removed) {
@@ -170,16 +165,12 @@ export function authoredStructureWithoutProjectedTemplates(
     ]),
   );
   const children = new Map(
-    [...effectiveChildren].map(([parentNodeId, occurrenceIds]) => [
-      parentNodeId,
-      [...occurrenceIds],
-    ]),
+    [...effectiveChildren].map(([parentNodeId, occurrenceIds]) => [parentNodeId, [...occurrenceIds]]),
   );
   const occurrenceIds = new Set<string>();
   for (const instance of instances) {
     const occurrence = occurrences.get(instance.instanceOccurrenceId);
-    const stillProjected =
-      instance.instanceNodeId === null && occurrence?.nodeId === instance.templateNodeId;
+    const stillProjected = instance.instanceNodeId === null && occurrence?.nodeId === instance.templateNodeId;
     if (stillProjected) {
       occurrenceIds.add(instance.instanceOccurrenceId);
       occurrences.delete(instance.instanceOccurrenceId);
@@ -194,9 +185,7 @@ export function authoredStructureWithoutProjectedTemplates(
   return { occurrences, children };
 }
 
-function detachments(
-  active: readonly ContributionFact[],
-): ReadonlyMap<string, readonly ContributionFact[]> {
+function detachments(active: readonly ContributionFact[]): ReadonlyMap<string, readonly ContributionFact[]> {
   const result = new Map<string, ContributionFact[]>();
   for (const fact of active) {
     const mutation = fact.body.mutation;
@@ -268,11 +257,6 @@ function parseIdentity(value: string): readonly [string, string] {
     throw new Error(`Invalid Template Node instance identity: ${value}`);
   }
   return [decodeURIComponent(ownerNodeId), decodeURIComponent(templateNodeId)];
-}
-
-function observes(observer: ContributionFact, observed: ContributionFact): boolean {
-  const { replicaId, sequence } = observed.coordinate.dot;
-  return (observer.coordinate.observed[replicaId] ?? 0) >= sequence;
 }
 
 function appendUnique(values: string[], value: string): void {

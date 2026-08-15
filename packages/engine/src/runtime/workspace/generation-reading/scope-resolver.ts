@@ -28,12 +28,7 @@ export async function resolveGenerationRead(
   const scope = plan.createScope();
   await includeLifecycleScope(store, generationId, view, plan.mutations, scope);
   await includeSchemaAndFieldInstances(store, generationId, view, scope);
-  const templateNodeInstances = await includeTemplateInstanceScope(
-    store,
-    generationId,
-    view,
-    scope,
-  );
+  const templateNodeInstances = await includeTemplateInstanceScope(store, generationId, view, scope);
   let occurrences = await readOccurrenceClosure(store, generationId, view, scope);
   const nodeOwners = await readNodeOwners(store, generationId, view, scope, plan.readsOwnerGraph);
   occurrences = await includeOwnedDeletionScope(
@@ -74,9 +69,7 @@ async function readOccurrenceClosure(
   ]);
   let occurrences = await readSection(store, generationId, view, "occurrences", [...occurrenceIds]);
   includeOccurrenceScope(scope, occurrences);
-  const sharedOccurrenceIds = await readIndex(store, generationId, view, "occurrenceIdsByNode", [
-    ...scope.nodes,
-  ]);
+  const sharedOccurrenceIds = await readIndex(store, generationId, view, "occurrenceIdsByNode", [...scope.nodes]);
   sharedOccurrenceIds.forEach((identity) => occurrenceIds.add(identity));
   occurrences = {
     ...occurrences,
@@ -106,10 +99,7 @@ async function readNodeOwners(
   return nodeOwners;
 }
 
-function includeOccurrenceScope(
-  scope: GenerationReadScope,
-  occurrences: ScopedProjection["occurrences"],
-): void {
+function includeOccurrenceScope(scope: GenerationReadScope, occurrences: ScopedProjection["occurrences"]): void {
   for (const occurrence of Object.values(occurrences)) {
     scope.nodes.add(occurrence.nodeId);
     scope.nodes.add(occurrence.parentNodeId);

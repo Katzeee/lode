@@ -1,11 +1,8 @@
-import type { ReviewQueryRequest } from "../../../application/contract.js";
+import type { ReviewQueryRequest } from "@lode/sdk";
 import type { ContributionFact, FactSnapshot } from "../../../domain/fact/index.js";
 import { queryReview, type ReviewQuery } from "../../../domain/review/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
-import type {
-  ProjectionSnapshotReader,
-  ReviewReadModelReader,
-} from "../../materialization/index.js";
+import type { ProjectionSnapshotReader, ReviewReadModelReader } from "../../materialization/index.js";
 import { readMutationGeneration } from "../generation-reading/index.js";
 
 type ReviewFactReader = Pick<FactAuthority, "facts" | "relatedFacts">;
@@ -26,15 +23,10 @@ export async function queryWorkspaceReview(
   const selectedIds = scopePage.scopes.flatMap((scope) => scope.contributionIds);
   const selectedFacts = facts
     .facts(selectedIds)
-    .filter(
-      (fact): fact is ContributionFact =>
-        fact.body.kind === "contribution" && fact.body.intent === "proposal",
-    );
+    .filter((fact): fact is ContributionFact => fact.body.kind === "contribution" && fact.body.intent === "proposal");
   const pending = new Map(selectedFacts.map((fact) => [fact.id, fact]));
   const supportBatch = await projections.reviewSupport(generationId, selectedIds);
-  const supportByContribution = new Map(
-    supportBatch.entries.map((entry) => [entry.identity, entry.supportIds]),
-  );
+  const supportByContribution = new Map(supportBatch.entries.map((entry) => [entry.identity, entry.supportIds]));
   const generation = await readMutationGeneration(
     projections,
     generationId,

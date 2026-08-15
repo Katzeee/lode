@@ -17,8 +17,7 @@ export function admittedSnapshot(admission: Admission): FactSnapshot {
 export function sortedReceipts(receipts: Iterable<AuthorityReceipt>): AuthorityReceipt[] {
   return [...receipts].sort(
     (left, right) =>
-      (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) -
-        (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
+      (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) - (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
       stableStringCompare(left.invocationId, right.invocationId),
   );
 }

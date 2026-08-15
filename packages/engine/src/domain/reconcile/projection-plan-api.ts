@@ -1,10 +1,7 @@
 import type { ContributionFact, FactSnapshot, ViewMode } from "../fact/index.js";
 import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { PROJECTION_PLAN, projectionReplayPolicy } from "./projection-plan.js";
-import {
-  emptyProjectionPlanContext,
-  incrementalProjectionPlanContext,
-} from "./projection-plan-context.js";
+import { emptyProjectionPlanContext, incrementalProjectionPlanContext } from "./projection-plan-context.js";
 import type { Projection, ProjectionPlanCache, ProjectionVersions } from "./projection-types.js";
 
 export function projectWithPlan(

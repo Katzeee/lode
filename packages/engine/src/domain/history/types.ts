@@ -7,8 +7,6 @@ import type {
   Mutation,
 } from "../fact/index.js";
 
-declare const HISTORY_SELECTION: unique symbol;
-
 export type HistoryEvidence = Readonly<{
   targetInvocationId: InvocationId;
   targetFactIds: readonly string[];
@@ -24,7 +22,6 @@ export type HistorySelection = Readonly<{
   headOrdinal: number;
   frontier: FactFrontier;
   evidence: HistoryEvidence;
-  [HISTORY_SELECTION]: true;
 }>;
 
 export type HistoryQuery = Readonly<{

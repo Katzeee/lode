@@ -1,8 +1,10 @@
 import {
   canonicalJson,
+  contributionFactsOfKind,
   DEFAULT_FIELD_TEMPLATE_CONFIG,
   stableStringCompare,
   type ContributionFact,
+  type ContributionFactOf,
   type FieldTemplateConfig,
   type FieldVisibility,
 } from "../fact/index.js";
@@ -22,13 +24,7 @@ export function projectEffectiveFields(
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>,
   initializations: ReadonlyMap<string, readonly FieldInitializationCandidate[]> = new Map(),
 ): Readonly<Record<string, readonly EffectiveField[]>> {
-  return effective(
-    applications,
-    fieldItems,
-    schemaExtensionGraph(extensions),
-    materializedFields,
-    initializations,
-  );
+  return effective(applications, fieldItems, schemaExtensionGraph(extensions), materializedFields, initializations);
 }
 
 function effective(
@@ -42,26 +38,15 @@ function effective(
   return Object.fromEntries(
     [...ownerIds].sort(stableStringCompare).map((nodeId) => {
       const byField = effectiveItems(applications[nodeId] ?? [], fieldItems, extensionGraph);
-      const materialized = new Map(
-        (materializedFields[nodeId] ?? []).map((field) => [field.fieldDefinitionId, field]),
-      );
+      const materialized = new Map((materializedFields[nodeId] ?? []).map((field) => [field.fieldDefinitionId, field]));
       for (const fieldDefinitionId of materialized.keys()) {
         byField.set(fieldDefinitionId, byField.get(fieldDefinitionId) ?? []);
       }
       const fields = [...byField]
         .map(([fieldDefinitionId, items]) =>
-          effectiveField(
-            nodeId,
-            fieldDefinitionId,
-            items,
-            extensionGraph,
-            materialized,
-            initializations,
-          ),
+          effectiveField(nodeId, fieldDefinitionId, items, extensionGraph, materialized, initializations),
         )
-        .filter(
-          (field) => field.visibility !== "optional" || materialized.has(field.fieldDefinitionId),
-        );
+        .filter((field) => field.visibility !== "optional" || materialized.has(field.fieldDefinitionId));
       return [nodeId, fields];
     }),
   );
@@ -91,17 +76,8 @@ export function configuredFieldItems(
   active: readonly ContributionFact[],
   schemaFields: Readonly<Record<string, readonly TemplateField[]>>,
 ): Readonly<Record<string, readonly TemplateField[]>> {
-  const configurations = active.filter(
-    (fact) => fact.body.mutation.kind === "schema-field-configure",
-  );
-  const superseded = new Set(
-    configurations.flatMap((fact) => {
-      const mutation = fact.body.mutation;
-      return mutation.kind === "schema-field-configure"
-        ? (mutation.observedConfigFactIds ?? [])
-        : [];
-    }),
-  );
+  const configurations = contributionFactsOfKind(active, "schema-field-configure");
+  const superseded = new Set(configurations.flatMap((fact) => fact.body.mutation.observedConfigFactIds ?? []));
   return Object.fromEntries(
     Object.entries(schemaFields).map(([schemaId, fields]) => [
       schemaId,
@@ -111,24 +87,17 @@ export function configuredFieldItems(
 }
 
 function configuredFieldItem(
-  configurations: readonly ContributionFact[],
+  configurations: readonly ContributionFactOf<"schema-field-configure">[],
   superseded: ReadonlySet<string>,
   field: TemplateField,
 ): TemplateField {
   const candidates = configurations.filter((fact) => {
     const mutation = fact.body.mutation;
-    return (
-      mutation.kind === "schema-field-configure" &&
-      mutation.fieldNodeId === field.fieldNodeId &&
-      !superseded.has(fact.id)
-    );
+    return mutation.fieldNodeId === field.fieldNodeId && !superseded.has(fact.id);
   });
   const configCandidates = groupConfigCandidates(
     candidates.map((fact) => ({
-      config:
-        fact.body.mutation.kind === "schema-field-configure"
-          ? fact.body.mutation.config
-          : DEFAULT_FIELD_TEMPLATE_CONFIG,
+      config: fact.body.mutation.config,
       sourceSchemaId: field.schemaId,
       sourceFieldNodeId: field.fieldNodeId,
       contributionId: fact.id,
@@ -158,19 +127,14 @@ function effectiveField(
     (item) =>
       !items.some(
         (candidate) =>
-          candidate.schemaId !== item.schemaId &&
-          extensionGraph.lineage(candidate.schemaId).includes(item.schemaId),
+          candidate.schemaId !== item.schemaId && extensionGraph.lineage(candidate.schemaId).includes(item.schemaId),
       ),
   );
   const candidates = groupConfigCandidates(sources.flatMap(itemCandidateValues));
   const effectiveConfig = candidates.length === 1 ? (candidates[0]?.config ?? null) : null;
-  const initializationCandidates =
-    initializations.get(fieldInitializationKey(ownerNodeId, fieldDefinitionId)) ?? [];
+  const initializationCandidates = initializations.get(fieldInitializationKey(ownerNodeId, fieldDefinitionId)) ?? [];
   const initialized = new Map(
-    initializationCandidates.map((candidate) => [
-      canonicalJson(candidate.values),
-      candidate.values,
-    ]),
+    initializationCandidates.map((candidate) => [canonicalJson(candidate.values), candidate.values]),
   );
   return {
     fieldDefinitionId,
@@ -199,14 +163,12 @@ function itemCandidateValues(item: TemplateField) {
         ];
   return candidates.flatMap((candidate) =>
     candidate.sourceSchemaIds.flatMap((sourceSchemaId) =>
-      (candidate.contributionIds.length > 0 ? candidate.contributionIds : [null]).map(
-        (contributionId) => ({
-          config: candidate.config,
-          sourceSchemaId,
-          sourceFieldNodeId: item.fieldNodeId,
-          contributionId,
-        }),
-      ),
+      (candidate.contributionIds.length > 0 ? candidate.contributionIds : [null]).map((contributionId) => ({
+        config: candidate.config,
+        sourceSchemaId,
+        sourceFieldNodeId: item.fieldNodeId,
+        contributionId,
+      })),
     ),
   );
 }
@@ -214,19 +176,12 @@ function itemCandidateValues(item: TemplateField) {
 export function fieldInitializations(
   active: readonly ContributionFact[],
 ): ReadonlyMap<string, readonly FieldInitializationCandidate[]> {
-  const facts = active.filter((fact) => fact.body.mutation.kind === "field-initialize");
-  const superseded = new Set(
-    facts.flatMap((fact) => {
-      const mutation = fact.body.mutation;
-      return mutation.kind === "field-initialize"
-        ? (mutation.observedInitializationFactIds ?? [])
-        : [];
-    }),
-  );
+  const facts = contributionFactsOfKind(active, "field-initialize");
+  const superseded = new Set(facts.flatMap((fact) => fact.body.mutation.observedInitializationFactIds ?? []));
   const values = new Map<string, FieldInitializationCandidate[]>();
   for (const fact of facts) {
     const mutation = fact.body.mutation;
-    if (mutation.kind !== "field-initialize" || superseded.has(fact.id)) {
+    if (superseded.has(fact.id)) {
       continue;
     }
     const key = fieldInitializationKey(mutation.ownerNodeId, mutation.fieldDefinitionId);
@@ -265,10 +220,7 @@ function groupConfigCandidates(
     groups.set(key, {
       config: value.config,
       sourceSchemaIds: unique([...(existing?.sourceSchemaIds ?? []), value.sourceSchemaId]),
-      sourceFieldNodeIds: unique([
-        ...(existing?.sourceFieldNodeIds ?? []),
-        value.sourceFieldNodeId,
-      ]),
+      sourceFieldNodeIds: unique([...(existing?.sourceFieldNodeIds ?? []), value.sourceFieldNodeId]),
       contributionIds: unique([
         ...(existing?.contributionIds ?? []),
         ...(value.contributionId === null ? [] : [value.contributionId]),

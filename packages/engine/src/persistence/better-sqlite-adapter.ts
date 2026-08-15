@@ -2,13 +2,11 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
-import type { SqlDatabase, SqlParam, SqlRunResult } from "./sql-database.js";
+import type { SqlDatabase, SqlParam } from "./sql-database.js";
 
 /**
- * Node SQLite adapter over better-sqlite3 (sync) wrapped in the async `SqlDatabase` contract.
- * The one place that knows about a concrete binding; swapping bindings means swapping this file.
- * Connection-level SQLite pragmas live here (engine-specific config stays out of the stores' SQL,
- * which keeps the SQL portable for a future non-SQLite backend).
+ * Adapts the synchronous better-sqlite3 connection to the engine's async SQL boundary.
+ * Connection-level SQLite pragmas live here rather than in individual stores.
  */
 export async function openSqliteDatabase(filePath: string): Promise<SqlDatabase> {
   await mkdir(dirname(filePath), { recursive: true });
@@ -25,9 +23,8 @@ class BetterSqliteDatabase implements SqlDatabase {
     this.raw.exec(sql);
   }
 
-  async run(sql: string, ...params: SqlParam[]): Promise<SqlRunResult> {
-    const { changes, lastInsertRowid } = this.raw.prepare(sql).run(...params);
-    return { changes, lastInsertRowid };
+  async run(sql: string, ...params: SqlParam[]): Promise<void> {
+    this.raw.prepare(sql).run(...params);
   }
 
   async get<T>(sql: string, ...params: SqlParam[]): Promise<T | undefined> {

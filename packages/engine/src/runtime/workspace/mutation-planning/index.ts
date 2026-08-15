@@ -1,19 +1,16 @@
-import {
-  mutationWriteMembers,
-  type EditMutation,
-  type MutationWrite,
-} from "../../../domain/edit/index.js";
+import { mutationWriteMembers, type EditMutation, type MutationWrite } from "../../../domain/edit/index.js";
 import type { ActorId, EditIntent, FactSnapshot, Mutation } from "../../../domain/fact/index.js";
 import type { ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import {
   absorbWriteBoundary,
+  appendEditMutation,
   editWriteAccumulators,
   editWriteAt,
   finishEditWrite,
 } from "./edit-write-accumulator.js";
 import { assertNoWorkspaceCreation, expandPlanningEdit } from "./edit-expansion.js";
-import { followUpMutations } from "./follow-up.js";
 import { expandMutation } from "./expansion/index.js";
+import { fieldInitializationFollowUps } from "./field-initialization-planner.js";
 import { planningReconciler } from "./planning-reconciler.js";
 import { prepareMutation } from "./preparation.js";
 import { assertNoBatchCreatedAtomReference, rememberCreatedAtomIds } from "./text-batch-policy.js";
@@ -59,22 +56,14 @@ export function prepareEdits(
     const previous = intent === "direct" ? workingGeneration.origin : beforeReview;
     const mutation = prepareMutation(item.mutation, previous, beforeReview, workingSnapshot);
     const accumulator = editWriteAt(prepared, item.editIndex);
-    accumulator.mutations.push(mutation);
-    const [firstMutation, ...remainingMutations] = accumulator.mutations;
-    if (!firstMutation) {
-      throw new Error("Prepared Edit lost its planning Mutation");
-    }
-    const reconciled = planning.reconcileEdit(
-      item.editIndex,
-      [firstMutation, ...remainingMutations],
-      intent,
-    );
+    const mutations = appendEditMutation(accumulator, mutation);
+    const reconciled = planning.reconcileEdit(item.editIndex, mutations, intent);
     workingSnapshot = reconciled.snapshot;
     workingGeneration = reconciled.generation;
     pending.splice(
       index + 1,
       0,
-      ...followUpMutations(mutation, beforeReview, workingGeneration.review).map(
+      ...fieldInitializationFollowUps(mutation, beforeReview, workingGeneration.review).map(
         (followUp): PendingItem => ({
           stage: "expand",
           editIndex: item.editIndex,

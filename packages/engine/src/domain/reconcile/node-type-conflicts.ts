@@ -1,9 +1,6 @@
 import { canonicalJson, compareFacts, type ContributionFact } from "../fact/index.js";
 import type { ConflictIssue } from "../conflict/types.js";
-import {
-  nodeTypeDeclarationsByNode,
-  type NodeTypeDeclarationFact,
-} from "./node-type-declarations.js";
+import { nodeTypeDeclarationsByNode, type NodeTypeDeclarationFact } from "./node-type-declarations.js";
 
 export function nodeTypeConflicts(active: readonly ContributionFact[]): readonly ConflictIssue[] {
   return [...nodeTypeDeclarationsByNode(active)].flatMap(([nodeId, facts]) => {

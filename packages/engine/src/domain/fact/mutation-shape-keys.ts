@@ -1,10 +1,7 @@
 import type { Mutation } from "./types.js";
 
 type MutationShapeKeys = {
-  readonly [Kind in Mutation["kind"]]: readonly Extract<
-    keyof Extract<Mutation, { kind: Kind }>,
-    string
-  >[];
+  readonly [Kind in Mutation["kind"]]: readonly Extract<keyof Extract<Mutation, { kind: Kind }>, string>[];
 };
 
 export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = {
@@ -14,26 +11,12 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
   "occurrence-create": ["kind", "occurrenceId", "nodeId", "parentNodeId", "anchor"],
   "occurrence-delete": ["kind", "occurrenceId", "previousParentNodeId", "previousAnchor"],
   "occurrence-restore": ["kind", "occurrenceId", "deletionFactId", "parentNodeId", "anchor"],
-  "occurrence-move": [
-    "kind",
-    "occurrenceId",
-    "parentNodeId",
-    "anchor",
-    "previousParentNodeId",
-    "previousAnchor",
-  ],
+  "occurrence-move": ["kind", "occurrenceId", "parentNodeId", "anchor", "previousParentNodeId", "previousAnchor"],
   "node-owner-set": ["kind", "nodeId", "ownerNodeId", "previousOwnerNodeId"],
   "node-type-declare": ["kind", "nodeId", "nodeType"],
   "schema-apply": ["kind", "nodeId", "schemaId", "anchor"],
   "schema-remove": ["kind", "nodeId", "schemaId", "previousAnchor"],
-  "schema-field-add": [
-    "kind",
-    "schemaId",
-    "fieldDefinitionId",
-    "fieldNodeId",
-    "fieldOccurrenceId",
-    "anchor",
-  ],
+  "schema-field-add": ["kind", "schemaId", "fieldDefinitionId", "fieldNodeId", "fieldOccurrenceId", "anchor"],
   "schema-field-remove": [
     "kind",
     "schemaId",
@@ -53,20 +36,8 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
   ],
   "schema-extension-add": ["kind", "schemaId", "baseSchemaId", "anchor"],
   "schema-extension-remove": ["kind", "schemaId", "baseSchemaId", "previousAnchor"],
-  "schema-template-node-add": [
-    "kind",
-    "schemaId",
-    "templateNodeId",
-    "templateOccurrenceId",
-    "anchor",
-  ],
-  "schema-template-node-remove": [
-    "kind",
-    "schemaId",
-    "templateNodeId",
-    "templateOccurrenceId",
-    "previousAnchor",
-  ],
+  "schema-template-node-add": ["kind", "schemaId", "templateNodeId", "templateOccurrenceId", "anchor"],
+  "schema-template-node-remove": ["kind", "schemaId", "templateNodeId", "templateOccurrenceId", "previousAnchor"],
   "template-node-detach": [
     "kind",
     "ownerNodeId",
@@ -78,13 +49,7 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
     "sourceApplicationSchemaIds",
     "sourceTemplateOccurrenceIds",
   ],
-  "field-materialize": [
-    "kind",
-    "ownerNodeId",
-    "fieldDefinitionId",
-    "fieldNodeId",
-    "fieldOccurrenceId",
-  ],
+  "field-materialize": ["kind", "ownerNodeId", "fieldDefinitionId", "fieldNodeId", "fieldOccurrenceId"],
   "field-value-delete": [
     "kind",
     "ownerNodeId",
@@ -113,15 +78,7 @@ export const MUTATION_SHAPE_KEYS: Readonly<Record<string, readonly string[]>> = 
     "values",
     "observedInitializationFactIds",
   ],
-  "text-splice": [
-    "kind",
-    "nodeId",
-    "deleteAtomIds",
-    "deletedAtoms",
-    "anchor",
-    "insert",
-    "attributes",
-  ],
+  "text-splice": ["kind", "nodeId", "deleteAtomIds", "deletedAtoms", "anchor", "insert", "attributes"],
   "text-mark": ["kind", "nodeId", "atomIds", "key", "value", "previous"],
   "value-set": ["kind", "target", "namespace", "key", "value", "previous"],
   "value-unset": ["kind", "target", "namespace", "key", "previous"],

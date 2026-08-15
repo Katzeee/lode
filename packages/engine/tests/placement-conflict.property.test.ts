@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
-import {
-  canonicalJson,
-  makeFact,
-  type Fact,
-  type FactFrontier,
-  type Mutation,
-} from "../src/domain/fact/index.js";
+import { canonicalJson, makeFact, type Fact, type FactFrontier, type Mutation } from "../src/domain/fact/index.js";
 import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
@@ -67,20 +61,8 @@ describe("Placement Conflict convergence", () => {
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
-    const incremental = advanceGeneration(
-      "workspace",
-      baseSnapshot,
-      expectedSnapshot,
-      versions,
-      before,
-    );
-    const checkpointTail = reconcileFromCheckpoint(
-      checkpoint,
-      "workspace",
-      expectedSnapshot,
-      versions,
-      checkpointKey,
-    );
+    const incremental = advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before);
+    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey);
     expect(summary(incremental)).toBe(expectedSummary);
     expect(summary(checkpointTail)).toBe(expectedSummary);
   });

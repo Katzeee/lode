@@ -7,11 +7,7 @@ import {
   type FactSnapshot,
   type TextAtomId,
 } from "../src/domain/fact/index.js";
-import {
-  advanceGeneration,
-  rebuildGeneration,
-  type ProjectionGeneration,
-} from "../src/domain/reconcile/index.js";
+import { advanceGeneration, rebuildGeneration, type ProjectionGeneration } from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
@@ -26,10 +22,7 @@ export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: num
   if (!failure) {
     return;
   }
-  const shrunk = shrinkCausalFailure(
-    facts,
-    (candidate) => equivalenceFailure(candidate, seed) !== null,
-  );
+  const shrunk = shrinkCausalFailure(facts, (candidate) => equivalenceFailure(candidate, seed) !== null);
   const minimalFacts = shrunk
     .map(
       (fact) =>
@@ -97,10 +90,9 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     insert: "ABCDE".slice(0, 2 + (seed % 4)),
   });
   const atomCount = 2 + (seed % 4);
-  const marked = Array.from(
-    { length: atomCount },
-    (_, index): TextAtomId => `${text.id}#${index}`,
-  ).filter((_, index) => (index + seed) % 2 === 0);
+  const marked = Array.from({ length: atomCount }, (_, index): TextAtomId => `${text.id}#${index}`).filter(
+    (_, index) => (index + seed) % 2 === 0,
+  );
   facts.add({
     kind: "text-mark",
     nodeId: "shared",
@@ -149,12 +141,7 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   return facts.values;
 }
 
-function occurrence(
-  facts: Facts,
-  occurrenceId: string,
-  nodeId: string,
-  parentNodeId: string,
-): void {
+function occurrence(facts: Facts, occurrenceId: string, nodeId: string, parentNodeId: string): void {
   facts.add({
     kind: "occurrence-create",
     occurrenceId,
@@ -172,22 +159,11 @@ function equivalenceFailure(facts: readonly Fact[], seed: number): string | null
   for (const cut of cuts) {
     const prefix = factSnapshot(facts.slice(0, cut));
     const prefixGeneration = rebuildGeneration("workspace", prefix, versions).generation;
-    const incremental = advanceGeneration(
-      "workspace",
-      prefix,
-      snapshot,
-      versions,
-      prefixGeneration,
-    ).generation;
+    const incremental = advanceGeneration("workspace", prefix, snapshot, versions, prefixGeneration).generation;
     if (normalized(incremental) !== expected) {
       return `incremental path differs at cut ${cut}`;
     }
-    const checkpoint = createGenerationCheckpoint(
-      "workspace",
-      prefix,
-      prefixGeneration,
-      CHECKPOINT_KEY,
-    );
+    const checkpoint = createGenerationCheckpoint("workspace", prefix, prefixGeneration, CHECKPOINT_KEY);
     const checkpointResult = reconcileFromCheckpoint(
       checkpoint,
       "workspace",
@@ -200,10 +176,10 @@ function equivalenceFailure(facts: readonly Fact[], seed: number): string | null
     }
   }
   const expectedAdmission = admitAuthorityRecords("workspace", records(facts));
-  const delivered = shuffle(
-    [...facts, ...facts.filter((_, index) => (index + seed) % 3 === 0)],
-    seed,
-  ).map((fact) => ({ recordKind: "fact" as const, fact }));
+  const delivered = shuffle([...facts, ...facts.filter((_, index) => (index + seed) % 3 === 0)], seed).map((fact) => ({
+    recordKind: "fact" as const,
+    fact,
+  }));
   const received: AuthorityRecord[] = [];
   let offset = 0;
   while (offset < delivered.length) {

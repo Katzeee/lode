@@ -1,7 +1,9 @@
 import {
   canonicalJson,
+  contributionFactsOfKind,
   stableStringCompare,
   type ContributionFact,
+  type ContributionFactOf,
   type FieldValueSeed,
   type InitializedFieldValue,
 } from "../fact/index.js";
@@ -31,16 +33,14 @@ export function projectInitializedFields(
     const distinct = new Map(
       candidates.flatMap((candidate) => {
         const mutation = candidate.body.mutation;
-        return mutation.kind === "field-initialize"
-          ? [[canonicalJson(mutation.values.map(fieldValueSeed)), candidate] as const]
-          : [];
+        return [[canonicalJson(mutation.values.map(fieldValueSeed)), candidate] as const];
       }),
     );
     if (distinct.size !== 1) {
       continue;
     }
     const source = [...distinct.values()][0];
-    if (!source || source.body.mutation.kind !== "field-initialize") {
+    if (!source) {
       continue;
     }
     const mutation = source.body.mutation;
@@ -62,8 +62,7 @@ export function projectInitializedFields(
       fieldOccurrenceId: mutation.fieldOccurrenceId,
       valueOccurrenceIds: mutation.values.flatMap((value) => {
         const occurrence = occurrences.get(value.occurrenceId);
-        return occurrence?.nodeId === value.nodeId &&
-          occurrence.parentNodeId === mutation.fieldNodeId
+        return occurrence?.nodeId === value.nodeId && occurrence.parentNodeId === mutation.fieldNodeId
           ? [value.occurrenceId]
           : [];
       }),
@@ -74,28 +73,17 @@ export function projectInitializedFields(
 }
 
 export function fieldValueSeed(value: InitializedFieldValue): FieldValueSeed {
-  return value.kind === "text"
-    ? { kind: "text", value: value.value }
-    : { kind: "reference", nodeId: value.nodeId };
+  return value.kind === "text" ? { kind: "text", value: value.value } : { kind: "reference", nodeId: value.nodeId };
 }
 
 function maximalInitializations(
   active: readonly ContributionFact[],
-): ReadonlyMap<string, readonly ContributionFact[]> {
-  const facts = active.filter((fact) => fact.body.mutation.kind === "field-initialize");
-  const superseded = new Set(
-    facts.flatMap((fact) =>
-      fact.body.mutation.kind === "field-initialize"
-        ? (fact.body.mutation.observedInitializationFactIds ?? [])
-        : [],
-    ),
-  );
-  const groups = new Map<string, ContributionFact[]>();
+): ReadonlyMap<string, readonly ContributionFactOf<"field-initialize">[]> {
+  const facts = contributionFactsOfKind(active, "field-initialize");
+  const superseded = new Set(facts.flatMap((fact) => fact.body.mutation.observedInitializationFactIds ?? []));
+  const groups = new Map<string, ContributionFactOf<"field-initialize">[]>();
   for (const fact of facts.filter((candidate) => !superseded.has(candidate.id))) {
     const mutation = fact.body.mutation;
-    if (mutation.kind !== "field-initialize") {
-      continue;
-    }
     const key = canonicalJson([mutation.ownerNodeId, mutation.fieldDefinitionId]);
     const values = groups.get(key) ?? [];
     values.push(fact);

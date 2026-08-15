@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/struct.proto";
+import "lode/edit.proto";
+import "lode/model.proto";
+
+enum ContributionMutationKind {
+  CONTRIBUTION_MUTATION_KIND_UNSPECIFIED = 0;
+  CONTRIBUTION_MUTATION_KIND_NODE_CREATE = 1;
+  CONTRIBUTION_MUTATION_KIND_NODE_DELETE = 2;
+  CONTRIBUTION_MUTATION_KIND_NODE_RESTORE = 3;
+  CONTRIBUTION_MUTATION_KIND_OCCURRENCE_CREATE = 4;
+  CONTRIBUTION_MUTATION_KIND_OCCURRENCE_DELETE = 5;
+  CONTRIBUTION_MUTATION_KIND_OCCURRENCE_RESTORE = 6;
+  CONTRIBUTION_MUTATION_KIND_OCCURRENCE_MOVE = 7;
+  CONTRIBUTION_MUTATION_KIND_NODE_OWNER_SET = 8;
+  CONTRIBUTION_MUTATION_KIND_NODE_TYPE_DECLARE = 9;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_APPLY = 10;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_REMOVE = 11;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_ADD = 12;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_REMOVE = 13;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_CONFIGURE = 14;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_EXTENSION_ADD = 15;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_EXTENSION_REMOVE = 16;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_TEMPLATE_NODE_ADD = 17;
+  CONTRIBUTION_MUTATION_KIND_SCHEMA_TEMPLATE_NODE_REMOVE = 18;
+  CONTRIBUTION_MUTATION_KIND_TEMPLATE_NODE_DETACH = 19;
+  CONTRIBUTION_MUTATION_KIND_FIELD_MATERIALIZE = 20;
+  CONTRIBUTION_MUTATION_KIND_FIELD_VALUE_DELETE = 21;
+  CONTRIBUTION_MUTATION_KIND_MATERIALIZED_FIELD_DELETE = 22;
+  CONTRIBUTION_MUTATION_KIND_FIELD_INITIALIZE = 23;
+  CONTRIBUTION_MUTATION_KIND_TEXT_SPLICE = 24;
+  CONTRIBUTION_MUTATION_KIND_TEXT_MARK = 25;
+  CONTRIBUTION_MUTATION_KIND_VALUE_SET = 26;
+  CONTRIBUTION_MUTATION_KIND_VALUE_UNSET = 27;
+}
+
+message ContributionNodeCreateMutation {
+  string node_id = 1;
+  NodeSeed seed = 2;
+}
+
+message NodeOwnerSetMutation {
+  string node_id = 1;
+  string owner_node_id = 2;
+  optional string previous_owner_node_id = 3;
+}
+
+message PreviousFieldTemplateConfig {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    FieldTemplateConfig set = 2;
+  }
+}
+
+message StringValues { repeated string values = 1; }
+
+message ContributionSchemaFieldConfigureMutation {
+  string schema_id = 1;
+  string field_definition_id = 2;
+  string field_node_id = 3;
+  FieldTemplateConfig config = 4;
+  PreviousFieldTemplateConfig previous_config = 5;
+  StringValues observed_config_fact_ids = 6;
+}
+
+message InitializedTextFieldValue {
+  string node_id = 1;
+  string occurrence_id = 2;
+  string value = 3;
+}
+
+message InitializedReferenceFieldValue {
+  string node_id = 1;
+  string occurrence_id = 2;
+}
+
+message InitializedFieldValue {
+  oneof value {
+    InitializedTextFieldValue text = 1;
+    InitializedReferenceFieldValue reference = 2;
+  }
+}
+
+message FieldInitializeMutation {
+  string owner_node_id = 1;
+  string schema_id = 2;
+  string field_definition_id = 3;
+  string field_node_id = 4;
+  string field_occurrence_id = 5;
+  FieldInitializationSource source = 6;
+  repeated InitializedFieldValue values = 7;
+  StringValues observed_initialization_fact_ids = 8;
+}
+
+message DeletedTextAtom {
+  string id = 1;
+  string value = 2;
+  map<string, google.protobuf.Value> attributes = 3;
+}
+
+message DeletedTextAtoms { repeated DeletedTextAtom values = 1; }
+message JsonAttributes { map<string, google.protobuf.Value> values = 1; }
+
+message ContributionTextSpliceMutation {
+  string node_id = 1;
+  repeated string delete_atom_ids = 2;
+  DeletedTextAtoms deleted_atoms = 3;
+  SequenceAnchor anchor = 4;
+  string insert = 5;
+  JsonAttributes attributes = 6;
+}
+
+message ContributionTextMarkMutation {
+  string node_id = 1;
+  repeated string atom_ids = 2;
+  string key = 3;
+  PreviousValue value = 4;
+  PreviousValue previous = 5;
+}
+
+message ContributionValueSetMutation {
+  ValueTarget target = 1;
+  ValueNamespace namespace = 2;
+  string key = 3;
+  google.protobuf.Value value = 4;
+  PreviousValue previous = 5;
+}
+
+message ContributionValueUnsetMutation {
+  ValueTarget target = 1;
+  ValueNamespace namespace = 2;
+  string key = 3;
+  PreviousValue previous = 4;
+}
+
+message ContributionMutation {
+  oneof mutation {
+    ContributionNodeCreateMutation node_create = 1;
+    NodeDeleteMutation node_delete = 2;
+    NodeRestoreMutation node_restore = 3;
+    OccurrenceCreateMutation occurrence_create = 4;
+    OccurrenceDeleteMutation occurrence_delete = 5;
+    OccurrenceRestoreMutation occurrence_restore = 6;
+    OccurrenceMoveMutation occurrence_move = 7;
+    NodeOwnerSetMutation node_owner_set = 8;
+    NodeTypeDeclareMutation node_type_declare = 9;
+    SchemaApplyMutation schema_apply = 10;
+    SchemaRemoveMutation schema_remove = 11;
+    SchemaFieldAddMutation schema_field_add = 12;
+    SchemaFieldRemoveMutation schema_field_remove = 13;
+    ContributionSchemaFieldConfigureMutation schema_field_configure = 14;
+    SchemaExtensionAddMutation schema_extension_add = 15;
+    SchemaExtensionRemoveMutation schema_extension_remove = 16;
+    SchemaTemplateNodeAddMutation schema_template_node_add = 17;
+    SchemaTemplateNodeRemoveMutation schema_template_node_remove = 18;
+    TemplateNodeDetachMutation template_node_detach = 19;
+    FieldMaterializeMutation field_materialize = 20;
+    FieldValueDeleteMutation field_value_delete = 21;
+    MaterializedFieldDeleteMutation materialized_field_delete = 22;
+    FieldInitializeMutation field_initialize = 23;
+    ContributionTextSpliceMutation text_splice = 24;
+    ContributionTextMarkMutation text_mark = 25;
+    ContributionValueSetMutation value_set = 26;
+    ContributionValueUnsetMutation value_unset = 27;
+  }
+}

@@ -8,9 +8,3 @@ export type NodeSeed = Readonly<{
   properties: Readonly<Record<string, JsonValue>>;
   metadata: Readonly<Record<string, JsonValue>>;
 }>;
-
-export const EMPTY_NODE_SEED: NodeSeed = {
-  text: [],
-  properties: {},
-  metadata: {},
-};

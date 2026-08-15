@@ -1,7 +1,4 @@
-export async function invoke(
-  operation: () => void | Promise<void> | undefined,
-  errors: Error[],
-): Promise<void> {
+export async function invoke(operation: () => void | Promise<void> | undefined, errors: Error[]): Promise<void> {
   try {
     await operation();
   } catch (error) {

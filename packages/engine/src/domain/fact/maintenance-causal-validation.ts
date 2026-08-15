@@ -1,4 +1,5 @@
 import { canonicalJson } from "./canonical.js";
+import { factObserves } from "./frontier.js";
 import type { Fact } from "./types.js";
 
 export function validateMaintenanceFact(fact: Fact, admitted: readonly Fact[]): void {
@@ -21,11 +22,7 @@ export function validateMaintenanceFact(fact: Fact, admitted: readonly Fact[]): 
   validatePurge(fact, admitted, action, deletionFactIds);
 }
 
-function validateReplicaRetirement(
-  fact: Fact,
-  admitted: readonly Fact[],
-  retiredReplicaId: string,
-): void {
+function validateReplicaRetirement(fact: Fact, admitted: readonly Fact[], retiredReplicaId: string): void {
   if (retiredReplicaId === fact.coordinate.dot.replicaId) {
     throw new Error(`Replica cannot retire itself: ${fact.id}`);
   }
@@ -54,9 +51,8 @@ function validatePurge(
       acknowledgement?.body.kind !== "maintenance" ||
       acknowledgement.body.action.kind !== "deletion-acknowledge" ||
       acknowledgement.body.action.nodeId !== action.nodeId ||
-      canonicalJson([...acknowledgement.body.action.deletionFactIds].sort()) !==
-        canonicalJson(deletionFactIds) ||
-      !observesFact(fact, acknowledgement)
+      canonicalJson([...acknowledgement.body.action.deletionFactIds].sort()) !== canonicalJson(deletionFactIds) ||
+      !factObserves(fact, acknowledgement)
     ) {
       throw new Error(`Purge acknowledgement evidence is invalid: ${fact.id}`);
     }
@@ -69,7 +65,7 @@ function validatePurge(
         candidate.body.kind === "maintenance" &&
         candidate.body.action.kind === "replica-retire" &&
         candidate.body.action.replicaId === replicaId &&
-        observesFact(fact, candidate),
+        factObserves(fact, candidate),
     );
     if (!retirement) {
       throw new Error(`Purge retirement evidence is invalid: ${fact.id}`);
@@ -78,13 +74,11 @@ function validatePurge(
   const knownReplicaIds = new Set([
     fact.coordinate.dot.replicaId,
     ...admitted
-      .filter((candidate) => observesFact(fact, candidate))
+      .filter((candidate) => factObserves(fact, candidate))
       .map((candidate) => candidate.coordinate.dot.replicaId),
   ]);
   const required = [...knownReplicaIds].filter((replicaId) => !retired.has(replicaId)).sort();
-  const confirmed = [
-    ...new Set(acknowledgements.map((candidate) => candidate.coordinate.dot.replicaId)),
-  ].sort();
+  const confirmed = [...new Set(acknowledgements.map((candidate) => candidate.coordinate.dot.replicaId))].sort();
   if (canonicalJson(required) !== canonicalJson(confirmed)) {
     throw new Error(`Purge lacks acknowledgement from every known Replica: ${fact.id}`);
   }
@@ -99,15 +93,14 @@ function validateRetiredReplica(fact: Fact, admitted: readonly Fact[]): void {
   );
   if (
     retirement?.body.kind === "maintenance" &&
-    fact.coordinate.dot.sequence >
-      (retirement.coordinate.observed[fact.coordinate.dot.replicaId] ?? 0)
+    fact.coordinate.dot.sequence > (retirement.coordinate.observed[fact.coordinate.dot.replicaId] ?? 0)
   ) {
     throw new Error(`Retired Replica cannot append new Facts: ${fact.id}`);
   }
 }
 
 function currentDeletionFactIds(fact: Fact, admitted: readonly Fact[], nodeId: string): string[] {
-  const observed = admitted.filter((candidate) => observesFact(fact, candidate));
+  const observed = admitted.filter((candidate) => factObserves(fact, candidate));
   const restored = new Set(
     observed.flatMap((candidate) =>
       candidate.body.kind === "contribution" &&
@@ -127,11 +120,4 @@ function currentDeletionFactIds(fact: Fact, admitted: readonly Fact[], nodeId: s
     )
     .map((candidate) => candidate.id)
     .sort();
-}
-
-function observesFact(observer: Fact, observed: Fact): boolean {
-  return (
-    (observer.coordinate.observed[observed.coordinate.dot.replicaId] ?? 0) >=
-    observed.coordinate.dot.sequence
-  );
 }

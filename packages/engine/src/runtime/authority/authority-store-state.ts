@@ -1,5 +1,4 @@
 import {
-  parseAuthorityRecords,
   type Admission,
   type AuthorityReceipt,
   type AuthorityRecord,
@@ -8,14 +7,11 @@ import {
   type WorkspaceId,
 } from "../../domain/fact/index.js";
 import type { AuthorityAdmissionPolicy } from "./fact-authority.js";
-import {
-  admitStoredRecords,
-  localReceiptsByInvocation,
-  validRecordPrefix,
-} from "./authority-records.js";
+import { inspectStoredRecords, localReceiptsByInvocation } from "./authority-records.js";
 
 export type AuthorityCaches = Readonly<{
   admission: Admission;
+  recoveryAdmission: Admission;
   parsedRecords: readonly AuthorityRecord[];
   receipts: ReadonlyMap<InvocationId, AuthorityReceipt>;
 }>;
@@ -25,21 +21,25 @@ export function deriveAuthorityCaches(
   replicaId: ReplicaId,
   records: readonly unknown[],
   admit: AuthorityAdmissionPolicy,
-  admitted?: Admission,
 ): AuthorityCaches {
   try {
-    const admission = admitted ?? admitStoredRecords(workspaceId, records, admit);
-    const receiptRecords =
-      admission.kind === "fault" ? validRecordPrefix(workspaceId, records, admit) : records;
-    const parsedRecords = parseAuthorityRecords(receiptRecords);
+    const inspected = inspectStoredRecords(workspaceId, records, admit);
+    const parsedRecords = inspected.records;
     return {
-      admission,
+      admission: inspected.admission,
+      recoveryAdmission: inspected.recoveryAdmission,
       parsedRecords,
       receipts: new Map(localReceiptsByInvocation(workspaceId, replicaId, parsedRecords)),
     };
   } catch (error) {
     return {
       admission: {
+        kind: "fault",
+        snapshot: { facts: [], frontier: {} },
+        pendingTransactionIds: [],
+        fault: error instanceof Error ? error.message : String(error),
+      },
+      recoveryAdmission: {
         kind: "fault",
         snapshot: { facts: [], frontier: {} },
         pendingTransactionIds: [],

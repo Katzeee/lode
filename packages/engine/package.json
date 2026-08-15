@@ -3,13 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./server": {
-      "types": "./dist/server.d.ts",
-      "import": "./dist/server.js"
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js"
     }
   },
   "scripts": {
@@ -27,6 +23,7 @@
   },
   "dependencies": {
     "@lode/logger": "file:../logger",
+    "@lode/sdk": "file:../sdk",
     "better-sqlite3": "^12.0.0",
     "loro-crdt": "^1.11.0"
   },

@@ -9,10 +9,7 @@ import {
 } from "./generated-lifecycle.js";
 import { atomicExpansion } from "./mutation-write.js";
 
-export function expandSchemaMutation(
-  mutation: SchemaMutation,
-  available: ScopedProjection,
-): MutationWrite {
+export function expandSchemaMutation(mutation: SchemaMutation, available: ScopedProjection): MutationWrite {
   switch (mutation.kind) {
     case "schema-field-add":
       return atomicExpansion([
@@ -41,10 +38,7 @@ export function expandSchemaMutation(
         mutation,
       ]);
     case "schema-template-node-remove":
-      return atomicExpansion([
-        mutation,
-        ...deletePlacement(mutation.templateOccurrenceId, available),
-      ]);
+      return atomicExpansion([mutation, ...deletePlacement(mutation.templateOccurrenceId, available)]);
     case "schema-apply":
     case "schema-remove":
     case "schema-field-configure":

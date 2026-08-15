@@ -12,18 +12,8 @@ import {
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { collectReviewCandidates } from "./review-plan.js";
-import {
-  createReviewEvidenceContext,
-  evidenceForTargets,
-  type ReviewEvidenceContext,
-} from "./evidence.js";
-import type {
-  DecisionEvidence,
-  ReviewHunk,
-  ReviewQuery,
-  ReviewSelection,
-  SelectionValidation,
-} from "./types.js";
+import { createReviewEvidenceContext, evidenceForTargets, type ReviewEvidenceContext } from "./evidence.js";
+import type { DecisionEvidence, ReviewHunk, ReviewQuery, ReviewSelection, SelectionValidation } from "./types.js";
 
 const DEFAULT_REVIEW_CAPABILITY_KEY = randomBytes(32).toString("hex");
 
@@ -43,15 +33,7 @@ export function queryReview(
   const pending = page?.pending ?? context.pending;
   const evidenceCache = new Map<string, DecisionEvidence>();
   const hunks = collectReviewCandidates(snapshot, generation, pending).map((candidate) =>
-    candidateToHunk(
-      workspaceId,
-      snapshot,
-      generation,
-      candidate,
-      capabilityKey,
-      context,
-      evidenceCache,
-    ),
+    candidateToHunk(workspaceId, snapshot, generation, candidate, capabilityKey, context, evidenceCache),
   );
   return {
     generationId: generation.identity.generationId,
@@ -73,10 +55,7 @@ export function validateReviewSelection(
   if (selection.workspaceId !== workspaceId) {
     return stale(generation, "selection belongs to another Workspace");
   }
-  if (
-    selection.token !==
-    selectionToken(workspaceId, selection.generationId, selection.evidence, capabilityKey)
-  ) {
+  if (selection.token !== selectionToken(workspaceId, selection.generationId, selection.evidence, capabilityKey)) {
     return stale(generation, "selection token is invalid");
   }
   if (
@@ -116,8 +95,7 @@ function candidateToHunk(
   cache: Map<string, DecisionEvidence>,
 ): ReviewHunk {
   const cacheKey = [...candidate.targets].sort(stableStringCompare).join("\u0000");
-  const evidence =
-    cache.get(cacheKey) ?? evidenceForTargets(snapshot, generation, candidate.targets, context);
+  const evidence = cache.get(cacheKey) ?? evidenceForTargets(snapshot, generation, candidate.targets, context);
   if (!evidence) {
     throw new Error("Review candidate has no decision evidence");
   }
@@ -146,7 +124,7 @@ function makeSelection(
     frontier: generation.identity.frontier,
     generationId: generation.identity.generationId,
     evidence,
-  } as ReviewSelection;
+  };
 }
 
 function selectionToken(

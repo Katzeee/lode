@@ -7,10 +7,7 @@ import {
   type FactSnapshot,
   type Mutation,
 } from "../../../src/domain/fact/index.js";
-import {
-  rebuildGeneration,
-  type ProjectionGeneration,
-} from "../../../src/domain/reconcile/index.js";
+import { rebuildGeneration, type ProjectionGeneration } from "../../../src/domain/reconcile/index.js";
 import { nextHistoryLineage } from "../../../src/domain/history/state.js";
 
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";

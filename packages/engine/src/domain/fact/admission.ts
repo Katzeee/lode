@@ -17,11 +17,7 @@ import {
 
 export type FactAdmissionValidation = Readonly<{
   validateFact?: (fact: Fact, observed: FactSnapshot) => void;
-  validateTransaction?: (
-    transaction: FactTransaction,
-    before: FactSnapshot,
-    after: FactSnapshot,
-  ) => void;
+  validateTransaction?: (transaction: FactTransaction, before: FactSnapshot, after: FactSnapshot) => void;
 }>;
 
 export function admitAuthorityRecordShapes(
@@ -137,10 +133,7 @@ export function admitPlannedAuthorityAppend(
       for (const fact of transaction.facts) {
         validateStaticFact(workspaceId, fact);
         const { replicaId, sequence } = fact.coordinate.dot;
-        if (
-          sequence !== (frontier[replicaId] ?? 0) + 1 ||
-          !frontierEquals(fact.coordinate.observed, frontier)
-        ) {
+        if (sequence !== (frontier[replicaId] ?? 0) + 1 || !frontierEquals(fact.coordinate.observed, frontier)) {
           throw new Error(`Planned Fact does not extend the admitted frontier: ${fact.id}`);
         }
         validateAdmissibleFact(fact, admitted, observedMaximumLamport);
@@ -169,17 +162,13 @@ function observedSnapshot(admitted: readonly Fact[], fact: Fact): FactSnapshot {
   return {
     facts: admitted.filter(
       (candidate) =>
-        candidate.coordinate.dot.sequence <=
-        (fact.coordinate.observed[candidate.coordinate.dot.replicaId] ?? 0),
+        candidate.coordinate.dot.sequence <= (fact.coordinate.observed[candidate.coordinate.dot.replicaId] ?? 0),
     ),
     frontier: fact.coordinate.observed,
   };
 }
 
-function collectFacts(
-  workspaceId: WorkspaceId,
-  records: readonly AuthorityRecord[],
-): Map<string, Fact> {
+function collectFacts(workspaceId: WorkspaceId, records: readonly AuthorityRecord[]): Map<string, Fact> {
   const facts = new Map<string, { canonical: string; fact: Fact }>();
   for (const record of records) {
     if (record.recordKind !== "fact") {

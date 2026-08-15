@@ -1,10 +1,7 @@
 import type { OccurrenceMutation } from "../../fact/index.js";
 import type { Projection } from "../projection-types.js";
 
-export function canApplyOccurrenceDirectTail(
-  projection: Projection,
-  mutation: OccurrenceMutation,
-): boolean {
+export function canApplyOccurrenceDirectTail(projection: Projection, mutation: OccurrenceMutation): boolean {
   switch (mutation.kind) {
     case "occurrence-create":
       return (

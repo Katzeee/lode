@@ -1,0 +1,222 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
+import "lode/model.proto";
+import "lode/review.proto";
+
+enum ViewMode {
+  VIEW_MODE_UNSPECIFIED = 0;
+  VIEW_MODE_ORIGIN = 1;
+  VIEW_MODE_REVIEW = 2;
+}
+
+enum ProjectionSection {
+  PROJECTION_SECTION_UNSPECIFIED = 0;
+  PROJECTION_SECTION_NODES = 1;
+  PROJECTION_SECTION_OCCURRENCES = 2;
+  PROJECTION_SECTION_CHILDREN = 3;
+  PROJECTION_SECTION_NODE_OWNERS = 4;
+  PROJECTION_SECTION_ADDRESSED_VALUES = 5;
+  PROJECTION_SECTION_SCHEMA_APPLICATIONS = 6;
+  PROJECTION_SECTION_SCHEMA_FIELDS = 7;
+  PROJECTION_SECTION_TEMPLATE_FIELDS = 8;
+  PROJECTION_SECTION_SCHEMA_TEMPLATE_NODES = 9;
+  PROJECTION_SECTION_TEMPLATE_NODE_INSTANCES = 10;
+  PROJECTION_SECTION_SCHEMA_EXTENSIONS = 11;
+  PROJECTION_SECTION_SCHEMA_SEARCH_MEMBERS = 12;
+  PROJECTION_SECTION_SCHEMA_EXTENSION_CONFLICTS = 13;
+  PROJECTION_SECTION_NODE_STATUSES = 14;
+  PROJECTION_SECTION_CONFLICT_ISSUES = 15;
+  PROJECTION_SECTION_EFFECTIVE_FIELDS = 16;
+  PROJECTION_SECTION_MATERIALIZED_FIELDS = 17;
+}
+
+enum NodeState {
+  NODE_STATE_UNSPECIFIED = 0;
+  NODE_STATE_ACTIVE = 1;
+  NODE_STATE_DELETED = 2;
+}
+
+enum TemplateNodeState {
+  TEMPLATE_NODE_STATE_UNSPECIFIED = 0;
+  TEMPLATE_NODE_STATE_LINKED = 1;
+  TEMPLATE_NODE_STATE_DETACHED = 2;
+}
+
+enum ViewLayout {
+  VIEW_LAYOUT_UNSPECIFIED = 0;
+  VIEW_LAYOUT_TABLE = 1;
+  VIEW_LAYOUT_CARDS = 2;
+  VIEW_LAYOUT_CALENDAR = 3;
+}
+
+enum ViewFieldState {
+  VIEW_FIELD_STATE_UNSPECIFIED = 0;
+  VIEW_FIELD_STATE_ABSENT = 1;
+  VIEW_FIELD_STATE_PLACEHOLDER = 2;
+  VIEW_FIELD_STATE_MATERIALIZED = 3;
+}
+
+message TextAtom {
+  string id = 1;
+  string value = 2;
+  map<string, google.protobuf.Value> attributes = 3;
+  string contribution_id = 4;
+}
+
+message ProjectedNode {
+  string node_id = 1;
+  repeated TextAtom text = 2;
+  map<string, google.protobuf.Value> properties = 3;
+  map<string, google.protobuf.Value> metadata = 4;
+}
+
+message ProjectedOccurrence {
+  string occurrence_id = 1;
+  string node_id = 2;
+  string parent_node_id = 3;
+  map<string, google.protobuf.Value> properties = 4;
+  map<string, google.protobuf.Value> metadata = 5;
+  bool derived = 6;
+}
+
+message FieldConfigCandidate {
+  FieldTemplateConfig config = 1;
+  repeated string source_schema_ids = 2;
+  repeated string source_field_node_ids = 3;
+  repeated string contribution_ids = 4;
+}
+
+message FieldInitializationCandidate {
+  string initialization_id = 1;
+  string schema_id = 2;
+  FieldInitializationSource source = 3;
+  repeated FieldValueSeed values = 4;
+}
+
+message TemplateField {
+  string field_node_id = 1;
+  string field_occurrence_id = 2;
+  string schema_id = 3;
+  string field_definition_id = 4;
+  repeated FieldConfigCandidate config_candidates = 5;
+  FieldTemplateConfig effective_config = 6;
+}
+
+message EffectiveField {
+  string field_definition_id = 1;
+  repeated string source_schema_ids = 2;
+  repeated string source_field_node_ids = 3;
+  FieldVisibility visibility = 4;
+  repeated FieldConfigCandidate config_candidates = 5;
+  FieldTemplateConfig effective_config = 6;
+  repeated FieldInitializationCandidate initialization_candidates = 7;
+  FieldValueSeedList initialized_values = 8;
+  google.protobuf.StringValue materialized_field_node_id = 9;
+}
+
+message MaterializedField {
+  string owner_node_id = 1;
+  string field_definition_id = 2;
+  string field_node_id = 3;
+  string field_occurrence_id = 4;
+  repeated string value_occurrence_ids = 5;
+}
+
+message NodeStatus {
+  string node_id = 1;
+  optional NodeType node_type = 2;
+  NodeState state = 3;
+  repeated string deletion_fact_ids = 4;
+}
+
+message TemplateNodeSource {
+  string schema_id = 1;
+  string applied_schema_id = 2;
+  string template_occurrence_id = 3;
+}
+
+message TemplateNodeInstance {
+  string owner_node_id = 1;
+  string template_node_id = 2;
+  google.protobuf.StringValue instance_node_id = 3;
+  string instance_occurrence_id = 4;
+  TemplateNodeState state = 5;
+  repeated TemplateNodeSource sources = 6;
+  repeated string detachment_contribution_ids = 7;
+}
+
+message StringList { repeated string values = 1; }
+message TemplateFieldList { repeated TemplateField values = 1; }
+message EffectiveFieldList { repeated EffectiveField values = 1; }
+message MaterializedFieldList { repeated MaterializedField values = 1; }
+message JsonValueMap { map<string, google.protobuf.Value> values = 1; }
+
+message NodesSection { map<string, ProjectedNode> values = 1; }
+message OccurrencesSection { map<string, ProjectedOccurrence> values = 1; }
+message StringListsSection { map<string, StringList> values = 1; }
+message NullableStringsSection { map<string, google.protobuf.StringValue> values = 1; }
+message AddressedValuesSection { map<string, JsonValueMap> values = 1; }
+message TemplateFieldsSection { map<string, TemplateFieldList> values = 1; }
+message TemplateNodeInstancesSection { repeated TemplateNodeInstance values = 1; }
+message NodeStatusesSection { map<string, NodeStatus> values = 1; }
+message ConflictIssuesSection { map<string, ConflictIssue> values = 1; }
+message EffectiveFieldsSection { map<string, EffectiveFieldList> values = 1; }
+message MaterializedFieldsSection { map<string, MaterializedFieldList> values = 1; }
+
+message ProjectionPage {
+  ProjectionIdentity identity = 1;
+  ViewMode view = 2;
+  reserved 3;
+  reserved "section";
+  google.protobuf.StringValue next = 4;
+  oneof content {
+    NodesSection nodes = 10;
+    OccurrencesSection occurrences = 11;
+    StringListsSection children = 12;
+    NullableStringsSection node_owners = 13;
+    AddressedValuesSection addressed_values = 14;
+    StringListsSection schema_applications = 15;
+    StringListsSection schema_fields = 16;
+    TemplateFieldsSection template_fields = 17;
+    StringListsSection schema_template_nodes = 18;
+    TemplateNodeInstancesSection template_node_instances = 19;
+    StringListsSection schema_extensions = 20;
+    StringListsSection schema_search_members = 21;
+    StringListsSection schema_extension_conflicts = 22;
+    NodeStatusesSection node_statuses = 23;
+    ConflictIssuesSection conflict_issues = 24;
+    EffectiveFieldsSection effective_fields = 25;
+    MaterializedFieldsSection materialized_fields = 26;
+  }
+}
+
+message ViewFieldCell {
+  string field_definition_id = 1;
+  ViewFieldState state = 2;
+  google.protobuf.StringValue field_node_id = 3;
+  google.protobuf.StringValue field_occurrence_id = 4;
+  repeated string value_occurrence_ids = 5;
+  repeated string value_node_ids = 6;
+}
+
+message ViewRow {
+  string node_id = 1;
+  string text = 2;
+  repeated ViewFieldCell fields = 3;
+}
+
+message ViewResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ViewMode view = 3;
+  string view_node_id = 4;
+  string schema_id = 5;
+  ViewLayout layout = 6;
+  repeated string field_definition_ids = 7;
+  repeated ViewRow rows = 8;
+  google.protobuf.StringValue next = 9;
+}

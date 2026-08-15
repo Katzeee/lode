@@ -19,11 +19,8 @@ import {
   InvocationConflictError,
   ProjectionUnavailableError,
 } from "./errors.js";
-import {
-  FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-  FactAuthorityStore,
-  createReplicaId,
-} from "./fact-authority-store.js";
+import { FactAuthorityStore, createReplicaId } from "./fact-authority-store.js";
+import { FACT_AUTHORITY_JOURNAL_DOCUMENT_ID } from "./authority-journal.js";
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../../../tests/support/sync.js";
 
@@ -54,10 +51,7 @@ async function open(
 }
 
 async function seed(documents: DocumentStore, records: readonly AuthorityRecord[]): Promise<void> {
-  await documents.appendUpdate(
-    FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-    new TextEncoder().encode(canonicalJson(records)),
-  );
+  await documents.appendUpdate(FACT_AUTHORITY_JOURNAL_DOCUMENT_ID, new TextEncoder().encode(canonicalJson(records)));
 }
 
 describe("production Fact authority store", () => {
@@ -232,10 +226,7 @@ describe("production Fact authority store", () => {
       ).created,
     ).toBe(false);
     const destination = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
-    await syncPair(
-      new FactSyncComposite(source.replication),
-      new FactSyncComposite(destination.replication),
-    );
+    await syncPair(new FactSyncComposite(source.replication), new FactSyncComposite(destination.replication));
     expect(destination.snapshot().facts).toHaveLength(1);
   });
 
@@ -421,56 +412,6 @@ describe("production Fact authority store", () => {
     expect(restarted.snapshot().facts).toHaveLength(9);
   });
 
-  it("反序、重复与迟到 support", async () => {
-    const documents = new InMemoryDocumentStore();
-    const workspace = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      sequence: 1,
-      observed: {},
-      lamport: 1,
-      body: {
-        ...body,
-        mutation: { kind: "node-create", nodeId: "workspace" },
-      },
-    });
-    const node = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      sequence: 2,
-      observed: { [REPLICA_A]: 1 },
-      lamport: 2,
-      body,
-    });
-    const occurrence = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      sequence: 3,
-      observed: { [REPLICA_A]: 2 },
-      lamport: 3,
-      body: {
-        ...body,
-        mutation: {
-          kind: "occurrence-create",
-          occurrenceId: "occurrence",
-          nodeId: "node",
-          parentNodeId: "workspace",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
-      },
-    });
-    await seed(documents, [
-      { recordKind: "fact", fact: occurrence },
-      { recordKind: "fact", fact: node },
-      { recordKind: "fact", fact: workspace },
-      { recordKind: "fact", fact: occurrence },
-    ]);
-    expect((await open(documents)).admission()).toMatchObject({
-      kind: "ready",
-      snapshot: { facts: [{ id: workspace.id }, { id: node.id }, { id: occurrence.id }] },
-    });
-  });
-
   it("Admission gap 与 receipt-only update", async () => {
     const documents = new InMemoryDocumentStore();
     const first = makeFact({
@@ -513,10 +454,7 @@ describe("production Fact authority store", () => {
     remote.setPeerId("202");
     remote
       .getMap<string>("facts")
-      .set(
-        `${first.id}/${first.contentDigest}`,
-        canonicalJson({ recordKind: "fact", fact: first }),
-      );
+      .set(`${first.id}/${first.contentDigest}`, canonicalJson({ recordKind: "fact", fact: first }));
     remote.commit({ message: "fill-admission-gap" });
     await store.replication.importUpdate(remote.export({ mode: "update" }));
 

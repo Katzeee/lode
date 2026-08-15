@@ -12,9 +12,7 @@ export async function readResolvedProjection(
 ): Promise<ScopedProjection> {
   const { scope } = resolved;
   const nodesBatch = await store.read(generationId, view, "nodes", [...scope.nodes]);
-  const nodes = Object.fromEntries(
-    nodesBatch.entries.map((entry) => [entry.identity, entry.value]),
-  );
+  const nodes = Object.fromEntries(nodesBatch.entries.map((entry) => [entry.identity, entry.value]));
   const [children, addressedValues, schema] = await Promise.all([
     readSection(store, generationId, view, "children", [...scope.children]),
     readSection(store, generationId, view, "addressedValues", [...scope.values]),

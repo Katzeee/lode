@@ -2,11 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
-import {
-  FIELD_DEFINITION_NODE_TYPE,
-  SCHEMA_NODE_TYPE,
-  type NodeType,
-} from "../../domain/fact/index.js";
+import { FIELD_DEFINITION_NODE_TYPE, SCHEMA_NODE_TYPE, type NodeType } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
@@ -103,9 +99,7 @@ describe("Schema product model", () => {
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
-        { kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end },
-      ],
+      mutations: [{ kind: "schema-apply", nodeId: "other", schemaId: "project-schema", anchor: end }],
     });
     expect(blocked).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
 
@@ -258,9 +252,7 @@ describe("Schema product model", () => {
           actorId: "actor",
           intent: "direct",
           historyChannelId: "desktop",
-          mutations: [
-            { kind: "schema-apply", nodeId: "task-2", schemaId: "project-schema", anchor: end },
-          ],
+          mutations: [{ kind: "schema-apply", nodeId: "task-2", schemaId: "project-schema", anchor: end }],
         })
       ).status,
     ).toBe("published");
@@ -296,10 +288,7 @@ describe("Schema product model", () => {
           actorId: "actor",
           intent: "direct",
           historyChannelId: "desktop",
-          mutations: [
-            ...schemaProgram(),
-            nodeAt("late-field-node", "task", "late-field-occurrence"),
-          ],
+          mutations: [...schemaProgram(), nodeAt("late-field-node", "task", "late-field-occurrence")],
         })
       ).status,
     ).toBe("published");
@@ -364,11 +353,7 @@ describe("Schema product model", () => {
       throw new Error("Expected refreshed Schema tombstone Review Hunk");
     }
     expect(refreshedTombstone.hunks[0].selection.evidence.associatedImpactIds).toEqual(
-      expect.arrayContaining([
-        "smaterialized-field/stask/sstatus-field",
-        "late-field-node",
-        "late-field-occurrence",
-      ]),
+      expect.arrayContaining(["smaterialized-field/stask/sstatus-field", "late-field-node", "late-field-occurrence"]),
     );
 
     const extension = await open(new InMemoryDocumentStore(), "115");
@@ -559,9 +544,7 @@ describe("Schema product model", () => {
     const conflicts = await first.workspace.query({ kind: "conflicts", workspaceId: "workspace" });
     expect(
       "issues" in conflicts &&
-        conflicts.issues.some(
-          (issue) => issue.kind === "field-config-conflict" && issue.ownerNodeId === "task",
-        ),
+        conflicts.issues.some((issue) => issue.kind === "field-config-conflict" && issue.ownerNodeId === "task"),
     ).toBe(true);
 
     expect(
@@ -591,9 +574,9 @@ describe("Schema product model", () => {
       view: "origin",
       section: "effectiveFields",
     });
-    expect(
-      "effectiveFields" in afterRestart && afterRestart.effectiveFields.task?.[0]?.effectiveConfig,
-    ).toMatchObject({ staticDefault: [{ kind: "text", value: "Planned" }] });
+    expect("effectiveFields" in afterRestart && afterRestart.effectiveFields.task?.[0]?.effectiveConfig).toMatchObject({
+      staticDefault: [{ kind: "text", value: "Planned" }],
+    });
   });
 
   it("materializes a static default once and preserves its Node identity after source removal", async () => {
@@ -690,9 +673,7 @@ describe("Schema product model", () => {
       view: "origin",
       section: "materializedFields",
     });
-    expect(
-      "materializedFields" in preserved && preserved.materializedFields.task?.[0]?.fieldNodeId,
-    ).toBe(fieldNodeId);
+    expect("materializedFields" in preserved && preserved.materializedFields.task?.[0]?.fieldNodeId).toBe(fieldNodeId);
 
     await first.workspace.close();
     const restarted = await open(documents, "215");
@@ -703,8 +684,7 @@ describe("Schema product model", () => {
       section: "materializedFields",
     });
     expect(
-      "materializedFields" in afterRestart &&
-        afterRestart.materializedFields.task?.[0]?.valueOccurrenceIds,
+      "materializedFields" in afterRestart && afterRestart.materializedFields.task?.[0]?.valueOccurrenceIds,
     ).toEqual(valueOccurrenceIds);
   });
 
@@ -837,9 +817,7 @@ describe("Schema product model", () => {
           actorId: "actor",
           intent: "proposal",
           historyChannelId: "desktop",
-          mutations: [
-            { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
-          ],
+          mutations: [{ kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end }],
         })
       ).status,
     ).toBe("published");
@@ -850,9 +828,7 @@ describe("Schema product model", () => {
       view: "origin",
       section: "materializedFields",
     });
-    expect(
-      "materializedFields" in originBefore && originBefore.materializedFields.task,
-    ).toBeUndefined();
+    expect("materializedFields" in originBefore && originBefore.materializedFields.task).toBeUndefined();
     const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
     if (!("hunks" in review)) {
       throw new Error("Expected initialized Field Review Hunks");
@@ -956,11 +932,7 @@ describe("Schema product model", () => {
         },
       },
     });
-    expect(
-      hunk.selection.evidence.associatedImpactIds.some((impact) =>
-        impact.includes("effective-field"),
-      ),
-    ).toBe(true);
+    expect(hunk.selection.evidence.associatedImpactIds.some((impact) => impact.includes("effective-field"))).toBe(true);
     const redone = await workspace.execute({
       kind: "mutate",
       workspaceId: "workspace",
@@ -1014,9 +986,7 @@ describe("Schema product model", () => {
           actorId: "actor",
           intent: "proposal",
           historyChannelId: "desktop",
-          mutations: [
-            { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
-          ],
+          mutations: [{ kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end }],
         })
       ).status,
     ).toBe("published");
@@ -1106,9 +1076,7 @@ describe("Schema product model", () => {
     ).toBe("published");
     const query = await workspace.query({ kind: "review", workspaceId: "workspace" });
     const schemaFieldHunk =
-      "hunks" in query
-        ? query.hunks.find((hunk) => hunk.diffSpace.kind === "schema-template")
-        : undefined;
+      "hunks" in query ? query.hunks.find((hunk) => hunk.diffSpace.kind === "schema-template") : undefined;
     if (!schemaFieldHunk) {
       throw new Error("Expected Schema Field Review Hunk");
     }
@@ -1210,9 +1178,7 @@ describe("Schema product model", () => {
       ).status,
     ).toBe("published");
     const effective = await readProjectionMap(first.workspace, "origin", "effectiveFields");
-    expect(effective.note).toMatchObject([
-      { fieldDefinitionId: "base-field", sourceSchemaIds: ["base-schema"] },
-    ]);
+    expect(effective.note).toMatchObject([{ fieldDefinitionId: "base-field", sourceSchemaIds: ["base-schema"] }]);
 
     await first.workspace.close();
     const restarted = await open(documents, "455");
@@ -1325,9 +1291,7 @@ describe("Schema product model", () => {
         })
       ).status,
     ).toBe("published");
-    expect((await readProjectionMap(first.workspace, "origin", "effectiveFields")).task).toEqual(
-      [],
-    );
+    expect((await readProjectionMap(first.workspace, "origin", "effectiveFields")).task).toEqual([]);
     expect(await projectionEntries(first.workspace, "materializedFields")).toEqual({});
     const items = await first.workspace.query({
       kind: "projection",
@@ -1395,9 +1359,7 @@ describe("Schema product model", () => {
         })
       ).status,
     ).toBe("published");
-    expect((await projectionEntries(first.workspace, "children")).value).toEqual([
-      "nested-occurrence",
-    ]);
+    expect((await projectionEntries(first.workspace, "children")).value).toEqual(["nested-occurrence"]);
 
     expect(
       (
@@ -1415,18 +1377,14 @@ describe("Schema product model", () => {
     await first.workspace.close();
 
     const restarted = await open(documents, "616");
-    expect((await projectionEntries(restarted.workspace, "materializedFields")).task).toMatchObject(
-      [
-        {
-          fieldDefinitionId: "notes-field",
-          fieldNodeId: "notes-on-task",
-          valueOccurrenceIds: ["value-occurrence"],
-        },
-      ],
-    );
-    expect((await projectionEntries(restarted.workspace, "children")).value).toEqual([
-      "nested-occurrence",
+    expect((await projectionEntries(restarted.workspace, "materializedFields")).task).toMatchObject([
+      {
+        fieldDefinitionId: "notes-field",
+        fieldNodeId: "notes-on-task",
+        valueOccurrenceIds: ["value-occurrence"],
+      },
     ]);
+    expect((await projectionEntries(restarted.workspace, "children")).value).toEqual(["nested-occurrence"]);
     await expectNodeText(restarted.workspace, "value", "value content");
     await expectNodeText(restarted.workspace, "nested", "nested content");
   });
@@ -1565,7 +1523,7 @@ describe("Schema product model", () => {
               reviewFieldNodeId: "status-on-task",
             },
             {
-              kind: "lifecycle",
+              kind: "node-type",
               identity: "status-on-task",
               origin: null,
               review: "field",
@@ -1589,10 +1547,9 @@ describe("Schema product model", () => {
       view: "origin",
       section: "materializedFields",
     });
-    expect(
-      "materializedFields" in materialized &&
-        materialized.materializedFields.task?.[0]?.fieldNodeId,
-    ).toBe("status-on-task");
+    expect("materializedFields" in materialized && materialized.materializedFields.task?.[0]?.fieldNodeId).toBe(
+      "status-on-task",
+    );
   });
 });
 
@@ -1610,11 +1567,7 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   };
 }
 
-async function expectNodeText(
-  workspace: ProposalWorkspace,
-  nodeId: string,
-  expected: string,
-): Promise<void> {
+async function expectNodeText(workspace: ProposalWorkspace, nodeId: string, expected: string): Promise<void> {
   const projection = await workspace.query({
     kind: "projection",
     workspaceId: "workspace",
@@ -1645,9 +1598,7 @@ async function expectSchemaProjection(
     view: "origin",
     section: "effectiveFields",
   });
-  expect("schemaApplications" in applications && applications.schemaApplications[nodeId]).toEqual(
-    expectedApplications,
-  );
+  expect("schemaApplications" in applications && applications.schemaApplications[nodeId]).toEqual(expectedApplications);
   expect("effectiveFields" in effective && effective.effectiveFields[nodeId]?.[0]).toMatchObject({
     fieldDefinitionId,
     sourceSchemaIds: expectedApplications,
@@ -1707,8 +1658,7 @@ async function readNodeStatus(
 async function readProjectionMap(
   workspace: ProposalWorkspace,
   view: "origin" | "review",
-  section:
-    "schemaExtensions" | "schemaSearchMembers" | "schemaExtensionConflicts" | "effectiveFields",
+  section: "schemaExtensions" | "schemaSearchMembers" | "schemaExtensionConflicts" | "effectiveFields",
 ): Promise<Readonly<Record<string, unknown>>> {
   const result = await workspace.query({
     kind: "projection",
@@ -1779,13 +1729,11 @@ async function expectMaterializedField(
     },
   ]);
   expect(
-    effective.effectiveFields.task?.map(
-      ({ fieldDefinitionId, sourceSchemaIds, materializedFieldNodeId }) => ({
-        fieldDefinitionId,
-        sourceSchemaIds,
-        materializedFieldNodeId,
-      }),
-    ),
+    effective.effectiveFields.task?.map(({ fieldDefinitionId, sourceSchemaIds, materializedFieldNodeId }) => ({
+      fieldDefinitionId,
+      sourceSchemaIds,
+      materializedFieldNodeId,
+    })),
   ).toEqual([
     {
       fieldDefinitionId: "status-field",

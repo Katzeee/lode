@@ -89,9 +89,7 @@ describe("production Fact contracts", () => {
   it("VER-1 unsupported format schema rules and checkpoints fail closed", () => {
     const supported = contribution(1);
     const unsupported = { ...supported, schemaVersion: 9 } as unknown as Fact;
-    const admission = admitAuthorityRecordShapes("workspace", [
-      { recordKind: "fact", fact: unsupported },
-    ]);
+    const admission = admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: unsupported }]);
 
     expect(admission.kind).toBe("fault");
     expect(admission.fault).toContain("Unsupported Fact version");
@@ -149,9 +147,7 @@ describe("production Fact contracts", () => {
     for (const body of bodies) {
       const unsigned = { ...unsignedFact(base), body };
       const fact = { ...unsigned, contentDigest: canonicalDigest(unsigned) };
-      expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact }]).kind).toBe(
-        "fault",
-      );
+      expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact }]).kind).toBe("fault");
     }
 
     expect(
@@ -185,9 +181,7 @@ describe("production Fact contracts", () => {
       ...forwardUnsigned,
       contentDigest: canonicalDigest(forwardUnsigned),
     };
-    expect(
-      admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forward }]).kind,
-    ).toBe("fault");
+    expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forward }]).kind).toBe("fault");
 
     const forgedUnsigned = {
       ...unsignedFact(base),
@@ -211,9 +205,7 @@ describe("production Fact contracts", () => {
       },
     };
     const forged = { ...forgedUnsigned, contentDigest: canonicalDigest(forgedUnsigned) };
-    expect(
-      admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forged }]).kind,
-    ).toBe("fault");
+    expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forged }]).kind).toBe("fault");
 
     expect(
       admitAuthorityRecordShapes("workspace", [
@@ -312,9 +304,7 @@ describe("production Fact contracts", () => {
   });
 
   it("canonical request bytes and Fact identities are deterministic", () => {
-    expect(canonicalJson({ z: 1, a: { y: true, x: false } })).toBe(
-      '{"a":{"x":false,"y":true},"z":1}',
-    );
+    expect(canonicalJson({ z: 1, a: { y: true, x: false } })).toBe('{"a":{"x":false,"y":true},"z":1}');
     expect(canonicalDigest({ b: 2, a: 1 })).toBe(canonicalDigest({ a: 1, b: 2 }));
     expect(factId("workspace", REPLICA_A, 7)).toBe(`g1/workspace/${REPLICA_A}/7`);
   });
@@ -322,9 +312,7 @@ describe("production Fact contracts", () => {
   it("duplicate records are idempotent and conflicting content faults", () => {
     const original = contribution(1);
     const duplicate: AuthorityRecord = { recordKind: "fact", fact: original };
-    expect(admitAuthorityRecordShapes("workspace", [duplicate, duplicate]).snapshot.facts).toEqual([
-      original,
-    ]);
+    expect(admitAuthorityRecordShapes("workspace", [duplicate, duplicate]).snapshot.facts).toEqual([original]);
 
     const alteredUnsigned = {
       ...unsignedFact(original),
@@ -336,10 +324,7 @@ describe("production Fact contracts", () => {
       },
     };
     const altered = { ...alteredUnsigned, contentDigest: canonicalDigest(alteredUnsigned) };
-    const conflicted = admitAuthorityRecordShapes("workspace", [
-      duplicate,
-      { recordKind: "fact", fact: altered },
-    ]);
+    const conflicted = admitAuthorityRecordShapes("workspace", [duplicate, { recordKind: "fact", fact: altered }]);
     expect(conflicted.kind).toBe("fault");
     expect(conflicted.fault).toContain("FactId content conflict");
   });

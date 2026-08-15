@@ -65,9 +65,7 @@ describe("Field content deletion convergence", () => {
     const expectedSummary = summary(expected);
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const snapshot = admitted(
-        shuffle([...base.values, insertion, ...deletion, unrelated, ...deletion], seed),
-      );
+      const snapshot = admitted(shuffle([...base.values, insertion, ...deletion, unrelated, ...deletion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
       expect(full.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
@@ -81,14 +79,12 @@ describe("Field content deletion convergence", () => {
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
-    expect(
-      summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before)),
-    ).toBe(expectedSummary);
-    expect(
-      summary(
-        reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey),
-      ),
-    ).toBe(expectedSummary);
+    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
+      expectedSummary,
+    );
+    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
+      expectedSummary,
+    );
   });
 
   it("restores the full Field subtree including a concurrently authored value", () => {
@@ -124,8 +120,7 @@ describe("Field content deletion convergence", () => {
     expect(hidden.nodes["value-c"]).toBeDefined();
     expect(merged.facts.some((fact) => fact.id === insertion.id)).toBe(true);
     const occurrenceDeletion = deletion.find(
-      (fact) =>
-        fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-delete",
+      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-delete",
     );
     const nodeDeletions = new Map(
       deletion.flatMap((fact) =>
@@ -162,9 +157,7 @@ describe("Field content deletion convergence", () => {
     const expectedSummary = summary(expected);
 
     for (let seed = 33; seed <= 64; seed += 1) {
-      const snapshot = admitted(
-        shuffle([...base.values, insertion, ...restoration, ...deletion, insertion], seed),
-      );
+      const snapshot = admitted(shuffle([...base.values, insertion, ...restoration, ...deletion, insertion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
       expect(full.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
@@ -179,14 +172,12 @@ describe("Field content deletion convergence", () => {
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
     const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
-    expect(
-      summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before)),
-    ).toBe(expectedSummary);
-    expect(
-      summary(
-        reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey),
-      ),
-    ).toBe(expectedSummary);
+    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
+      expectedSummary,
+    );
+    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
+      expectedSummary,
+    );
   });
 });
 
@@ -247,10 +238,7 @@ function remoteDeletion(
   mutation: Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>,
   ownedNodeIds: readonly string[],
 ): readonly Fact[] {
-  const occurrenceId =
-    mutation.kind === "field-value-delete"
-      ? mutation.valueOccurrenceId
-      : mutation.fieldOccurrenceId;
+  const occurrenceId = mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
   return remoteTransaction(replicaId, observed, [
     mutation,
     {

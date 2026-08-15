@@ -40,9 +40,7 @@ export function createMutationRelationCollection(): MutableMutationRelations {
   };
 }
 
-export function finishMutationRelationCollection(
-  relations: MutableMutationRelations,
-): MutationRelations {
+export function finishMutationRelationCollection(relations: MutableMutationRelations): MutationRelations {
   return {
     nodeIds: [...relations.nodeIds],
     occurrenceIds: [...relations.occurrenceIds],
@@ -65,10 +63,7 @@ export function addChildrenRelation(relations: MutableMutationRelations, nodeId:
   relations.childrenOfNodeIds.add(nodeId);
 }
 
-export function addAnchorRelations(
-  relations: MutableMutationRelations,
-  anchor: SequenceAnchor | undefined,
-): void {
+export function addAnchorRelations(relations: MutableMutationRelations, anchor: SequenceAnchor | undefined): void {
   if (anchor?.after !== null && anchor?.after !== undefined) {
     relations.occurrenceIds.add(anchor.after);
   }

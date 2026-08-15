@@ -1,5 +1,4 @@
-export * from "./types.js";
-export * from "./schema-review.js";
-export * from "./review.js";
-export * from "./evidence.js";
-export * from "./read-model.js";
+export type { DecisionEffect, PlacementRelation, ReviewQuery, ReviewSelection } from "./types.js";
+export { queryReview, validateReviewSelection } from "./review.js";
+export type { ReviewReadModel } from "./read-model.js";
+export { createReviewReadModel } from "./read-model.js";

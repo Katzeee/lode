@@ -12,15 +12,10 @@ export function createNodeUnlessPresent(
   available: ScopedProjection,
   seed?: NodeSeed,
 ): readonly Mutation[] {
-  return available.nodes[nodeId]
-    ? []
-    : [{ kind: "node-create", nodeId, ...(seed ? { seed } : {}) }];
+  return available.nodes[nodeId] ? [] : [{ kind: "node-create", nodeId, ...(seed ? { seed } : {}) }];
 }
 
-export function declareFieldNodeUnlessPresent(
-  nodeId: string,
-  available: ScopedProjection,
-): readonly Mutation[] {
+export function declareFieldNodeUnlessPresent(nodeId: string, available: ScopedProjection): readonly Mutation[] {
   return available.nodeStatuses[nodeId]?.nodeType === FIELD_NODE_TYPE
     ? []
     : [{ kind: "node-type-declare", nodeId, nodeType: FIELD_NODE_TYPE }];

@@ -9,17 +9,10 @@ import {
 import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
 
 export type StructuralOccurrenceMutation =
-  | OccurrenceMutation
-  | Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>;
+  OccurrenceMutation | Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>;
 
-export function occurrenceIdsForNode(
-  generation: ScopedProjectionGeneration,
-  nodeId: string,
-): readonly string[] {
-  return [
-    ...Object.values(generation.origin.occurrences),
-    ...Object.values(generation.review.occurrences),
-  ]
+export function occurrenceIdsForNode(generation: ScopedProjectionGeneration, nodeId: string): readonly string[] {
+  return [...Object.values(generation.origin.occurrences), ...Object.values(generation.review.occurrences)]
     .filter((occurrence) => occurrence.nodeId === nodeId)
     .map((occurrence) => occurrence.occurrenceId)
     .filter((id, index, all) => all.indexOf(id) === index)
@@ -41,10 +34,8 @@ export function structureEffect(
     originParentId: origin?.parentNodeId ?? null,
     reviewParentId: review?.parentNodeId ?? null,
     anchor,
-    originRelation:
-      origin && anchor ? placementRelation(generation.origin, occurrenceId, anchor) : null,
-    reviewRelation:
-      review && anchor ? placementRelation(generation.review, occurrenceId, anchor) : null,
+    originRelation: origin && anchor ? placementRelation(generation.origin, occurrenceId, anchor) : null,
+    reviewRelation: review && anchor ? placementRelation(generation.review, occurrenceId, anchor) : null,
   };
 }
 
@@ -55,9 +46,7 @@ export function structureEffectChanged(effect: ReturnType<typeof structureEffect
   );
 }
 
-export function isStructuralOccurrenceMutation(
-  mutation: Mutation,
-): mutation is StructuralOccurrenceMutation {
+export function isStructuralOccurrenceMutation(mutation: Mutation): mutation is StructuralOccurrenceMutation {
   return (
     isOccurrenceMutation(mutation) ||
     mutation.kind === "field-value-delete" ||
@@ -69,9 +58,7 @@ export function structuralOccurrenceId(mutation: StructuralOccurrenceMutation): 
   if ("occurrenceId" in mutation) {
     return mutation.occurrenceId;
   }
-  return mutation.kind === "field-value-delete"
-    ? mutation.valueOccurrenceId
-    : mutation.fieldOccurrenceId;
+  return mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
 }
 
 export function mutationAnchor(mutation: StructuralOccurrenceMutation): SequenceAnchor | null {
@@ -87,11 +74,7 @@ export function mutationAnchor(mutation: StructuralOccurrenceMutation): Sequence
   }
 }
 
-function placementRelation(
-  projection: ScopedProjection,
-  occurrenceId: string,
-  anchor: SequenceAnchor,
-) {
+function placementRelation(projection: ScopedProjection, occurrenceId: string, anchor: SequenceAnchor) {
   const occurrence = projection.occurrences[occurrenceId];
   if (!occurrence) {
     return null;

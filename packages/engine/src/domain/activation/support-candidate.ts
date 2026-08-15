@@ -4,11 +4,7 @@ export function addIfPresent(target: Set<string>, value: string | undefined): vo
   }
 }
 
-export function addCandidate(
-  target: Map<string, string[]>,
-  identity: string,
-  factId: string,
-): void {
+export function addCandidate(target: Map<string, string[]>, identity: string, factId: string): void {
   const candidates = target.get(identity) ?? [];
   candidates.push(factId);
   target.set(identity, candidates);

@@ -1,81 +1,61 @@
-import {
-  admitPlannedAuthorityAppend,
-  canonicalDigest,
-  frontierEquals,
-  requestDigest,
-  type Admission,
-  type AuthorityReceipt,
-  type AuthorityRecord,
-  type FactSnapshot,
-  type InvocationId,
-  type ReplicaId,
+import type {
+  Admission,
+  AuthorityReceipt,
+  FactFrontier,
+  FactSnapshot,
+  InvocationId,
+  ReplicaId,
+  WorkspaceId,
 } from "../../domain/fact/index.js";
+import type { DocumentStore } from "../../persistence/document-store.js";
 import type { SyncBytes, SyncableDoc } from "../../sync/syncable.js";
 import { SerialExecutor } from "../kernel/serial-executor.js";
+import { planAuthorityCommit } from "./authority-commit-plan.js";
+import { AuthorityJournalSession } from "./authority-journal-session.js";
+import { importAuthorityUpdate } from "./authority-sync-import.js";
 import type {
   AuthorityAdmissionPolicy,
   AuthorityCommit,
   AuthorityCommitResult,
   FactAuthority,
 } from "./fact-authority.js";
-import {
-  AuthorityCommitUnknownError,
-  AuthorityFaultError,
-  InvocationConflictError,
-  ProjectionUnavailableError,
-} from "./errors.js";
-import { notifyAdmissionAdvance } from "./authority-records.js";
-import { recoverAuthorityJournal } from "./authority-recovery.js";
-import {
-  appendAuthorityBatch,
-  loadAuthorityJournal,
-  writeAuthoritySnapshot,
-} from "./authority-journal.js";
-import { validateReplicaId } from "./replica-identity.js";
+import { AuthorityCommitUnknownError } from "./errors.js";
 import { LoroFactReplica } from "./loro-fact-replica.js";
-import { createAuthorityCommitBatch } from "./authority-commit-batch.js";
-import { assertLocalFactsAdmitted } from "./authority-local-admission.js";
-import {
-  FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-  type FactAuthorityStoreOptions,
-} from "./fact-authority-store-options.js";
-import { admittedSnapshot, sortedInvocationIds } from "./authority-store-queries.js";
-import { AuthorityStoreCache } from "./authority-store-cache.js";
+import { validateReplicaId } from "./replica-identity.js";
+import { sortedInvocationIds } from "./authority-store-queries.js";
 
 export { createReplicaId } from "./replica-identity.js";
-export { FACT_AUTHORITY_JOURNAL_DOCUMENT_ID } from "./fact-authority-store-options.js";
+
+export type FactAuthorityStoreOptions = Readonly<{
+  workspaceId: WorkspaceId;
+  replicaId: ReplicaId;
+  loroPeerId: `${number}`;
+  documents: DocumentStore;
+  onAuthorityAdvanced?: (frontier: FactFrontier) => void;
+  snapshotInterval?: number;
+  admitRecords: AuthorityAdmissionPolicy;
+}>;
 
 export class FactAuthorityStore implements FactAuthority {
   readonly replication: SyncableDoc;
-  private readonly replicaKernel: LoroFactReplica;
   private readonly serial = new SerialExecutor();
-  private updatesSinceSnapshot: number;
-  private readonly cache: AuthorityStoreCache;
   private readonly uncertain = new Set<InvocationId>();
-  private readonly admitRecords: AuthorityAdmissionPolicy;
 
   private constructor(
     private readonly options: FactAuthorityStoreOptions,
-    records: readonly unknown[],
-    replicaKernel: LoroFactReplica,
-    updatesSinceSnapshot: number,
+    private readonly journal: AuthorityJournalSession,
+    private readonly replica: LoroFactReplica,
     readonly replicaId: ReplicaId,
   ) {
-    this.admitRecords = options.admitRecords;
-    this.replicaKernel = replicaKernel;
-    this.updatesSinceSnapshot = updatesSinceSnapshot;
-    this.cache = new AuthorityStoreCache(options.workspaceId, replicaId, this.admitRecords);
-    this.cache.refresh(records);
-    this.replication = replicaKernel.syncDoc;
+    this.replication = replica.connect(
+      (bytes) => this.importUpdate(bytes),
+      () => this.serial.run(() => this.replica.heal(this.admission())),
+    );
   }
 
   static async open(options: FactAuthorityStoreOptions): Promise<FactAuthorityStore> {
     validateReplicaId(options.replicaId);
-    const loaded = await loadAuthorityJournal(
-      options.documents,
-      FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-    );
-    const owner: { store?: FactAuthorityStore } = {};
+    const journal = await AuthorityJournalSession.open(options);
     const replica = await LoroFactReplica.open(
       {
         workspaceId: options.workspaceId,
@@ -83,239 +63,113 @@ export class FactAuthorityStore implements FactAuthority {
         documents: options.documents,
         admitRecords: options.admitRecords,
       },
-      loaded.records,
-      (bytes) => requiredStore(owner).importUpdate(bytes),
-      () => {
-        const store = requiredStore(owner);
-        return store.serial.run(() => store.replicaKernel.heal(store.admission()));
-      },
+      journal.records(),
+      journal.validRecords(),
     );
-    const store = new FactAuthorityStore(
-      options,
-      loaded.records,
-      replica,
-      loaded.updateCount,
-      options.replicaId,
-    );
-    owner.store = store;
-    return store;
+    return new FactAuthorityStore(options, journal, replica, options.replicaId);
   }
 
-  admission = (): Admission => this.cache.admission();
+  admission = (): Admission => this.journal.admission();
 
-  snapshot = () => admittedSnapshot(this.admission());
+  snapshot = (): FactSnapshot => this.journal.snapshot();
 
-  receipt = (invocationId: InvocationId): AuthorityReceipt | null =>
-    this.cache.receipt(invocationId);
+  receipt = (invocationId: InvocationId): AuthorityReceipt | null => this.journal.receipt(invocationId);
 
-  receipts = (): readonly AuthorityReceipt[] => this.cache.receipts();
+  receipts = (): readonly AuthorityReceipt[] => this.journal.receipts();
 
   receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
-    return this.cache.receiptsForChannel(channelId);
+    return this.journal.receiptsForChannel(channelId);
   }
 
   facts(factIds: readonly string[]) {
-    return this.cache.facts(factIds);
+    return this.journal.facts(factIds);
   }
 
   relatedFacts(factIds: readonly string[]) {
-    return this.cache.relatedFacts(factIds);
+    return this.journal.relatedFacts(factIds);
   }
 
   occurrenceNodeId(occurrenceId: string): string | null {
-    return this.cache.occurrenceNodeId(occurrenceId);
+    return this.journal.occurrenceNodeId(occurrenceId);
   }
 
   historyImpacts(nodeId: string) {
-    return this.cache.historyImpacts(nodeId);
+    return this.journal.historyImpacts(nodeId);
   }
 
   uncertainInvocations = (): readonly InvocationId[] => sortedInvocationIds(this.uncertain);
 
   settleInvocation = (invocationId: InvocationId): void => void this.uncertain.delete(invocationId);
 
-  recoverToLastValidPrefix = (): Promise<FactSnapshot> =>
-    this.serial.run(() => this.recoverExclusive());
+  recoverToLastValidPrefix = (): Promise<FactSnapshot> => this.serial.run(() => this.recoverExclusive());
 
-  compact = (): Promise<void> => this.serial.run(() => this.compactExclusive());
+  compact = (): Promise<void> => this.serial.run(() => this.journal.compact());
 
   commit = (input: AuthorityCommit): Promise<AuthorityCommitResult> =>
     this.serial.run(() => this.commitExclusive(input));
 
   private async commitExclusive(input: AuthorityCommit): Promise<AuthorityCommitResult> {
-    const digest = requestDigest(input.request);
-    const existing = this.receipt(input.invocationId);
-    if (existing) {
-      if (existing.requestDigest !== digest) {
-        throw new InvocationConflictError(`Invocation request conflict: ${input.invocationId}`);
-      }
-      await this.replicaKernel.heal(this.admission());
+    const plan = planAuthorityCommit(input, {
+      workspaceId: this.options.workspaceId,
+      replicaId: this.replicaId,
+      admission: this.admission(),
+      records: this.journal.records(),
+      existingReceipt: this.receipt(input.invocationId),
+      maximumLamport: this.journal.maximumLamport(),
+      previousChannelReceipt: input.lineage ? this.journal.lastReceiptForChannel(input.lineage.channelId) : null,
+      admitRecords: this.options.admitRecords,
+    });
+    if (plan.kind === "replay") {
+      await this.replica.heal(this.admission());
       this.uncertain.delete(input.invocationId);
-      return { receipt: existing, created: false };
+      return { receipt: plan.receipt, created: false };
     }
-    if (
-      input.writes.length === 0 ||
-      input.writes.some((write) => write.kind === "transaction" && write.bodies.length === 0)
-    ) {
-      throw new Error("Authority commit requires non-empty Fact transactions");
-    }
-
-    const before = this.admission();
-    if (before.kind === "fault") {
-      throw new AuthorityFaultError(before.fault ?? "Authority admission fault");
-    }
-    if (!frontierEquals(before.snapshot.frontier, input.publishedFrontier)) {
-      throw new ProjectionUnavailableError(
-        "State-dependent command requires a complete generation at the admitted frontier",
-      );
-    }
-
-    const { facts, receipt, records } = createAuthorityCommitBatch(
-      this.options.workspaceId,
-      this.replicaId,
-      input,
-      digest,
-      before.snapshot,
-      this.cache.maximumLamport(),
-    );
-    const candidate = admitPlannedAuthorityAppend(
-      this.options.workspaceId,
-      before.snapshot,
-      records,
-      this.cache.maximumLamport(),
-      input.lineage ? this.cache.lastReceiptForChannel(input.lineage.channelId) : null,
-    );
-    if (candidate.kind !== "ready") {
-      throw new Error(candidate.fault ?? "Local Fact batch did not admit completely");
-    }
-    const domainCandidate = this.admitRecords(this.options.workspaceId, [
-      ...this.cache.records(),
-      ...records,
-    ]);
-    assertLocalFactsAdmitted(candidate, domainCandidate, facts);
     try {
-      await this.appendRecords(records, domainCandidate, false);
+      await this.journal.append(plan.records, plan.admission, false);
     } catch (error) {
       await this.adoptDurableAuthorityAfterUnknown();
       this.uncertain.add(input.invocationId);
       throw new AuthorityCommitUnknownError(input.invocationId, { cause: error });
     }
     try {
-      await this.replicaKernel.publish(facts);
-      await this.compactIfNeeded();
+      await this.replica.publish(plan.facts);
+      await this.journal.compactIfNeeded();
     } catch (error) {
       this.uncertain.add(input.invocationId);
       throw new AuthorityCommitUnknownError(input.invocationId, { cause: error });
     }
-    return { receipt, created: true };
-  }
-
-  private async appendRecords(
-    records: readonly AuthorityRecord[],
-    admitted?: Admission,
-    compact = true,
-  ): Promise<void> {
-    const before = this.admission();
-    await appendAuthorityBatch(this.options.documents, FACT_AUTHORITY_JOURNAL_DOCUMENT_ID, records);
-    if (admitted) {
-      this.cache.append(records, admitted);
-    } else {
-      this.cache.refresh([...this.cache.records(), ...records]);
-    }
-    this.updatesSinceSnapshot += 1;
-    if (compact) {
-      await this.compactIfNeeded();
-    }
-    notifyAdmissionAdvance(before, this.admission(), this.options.onAuthorityAdvanced);
+    return { receipt: plan.receipt, created: true };
   }
 
   private async importUpdate(bytes: SyncBytes): Promise<void> {
-    return this.serial.run(() => this.importUpdateExclusive(bytes));
-  }
-
-  private async importUpdateExclusive(bytes: SyncBytes): Promise<void> {
-    const before = this.admission();
-    if (before.kind === "fault") {
-      throw new AuthorityFaultError(before.fault ?? "Authority admission fault");
-    }
-    const authorityRecords = this.cache.records();
-    const validation = this.replicaKernel.prepareImport(bytes, authorityRecords);
-    if (validation.kind === "fault") {
-      const durableRecords =
-        validation.records.length > 0
-          ? validation.records
-          : [
-              {
-                recordKind: "quarantine" as const,
-                reason: validation.reason,
-                updateDigest: canonicalDigest([...bytes]),
-              },
-            ];
-      await this.appendRecords(durableRecords);
-      throw new AuthorityFaultError(validation.reason);
-    }
-    if (validation.records.length > 0) {
-      await this.appendRecords(validation.records);
-    }
-    await validation.accept();
+    return this.serial.run(() =>
+      importAuthorityUpdate(bytes, {
+        admission: this.admission(),
+        records: this.journal.records(),
+        replica: this.replica,
+        append: (records) => this.journal.append(records),
+      }),
+    );
   }
 
   private async recoverExclusive(): Promise<FactSnapshot> {
-    const before = this.admission();
-    if (before.kind !== "fault") {
-      return before.snapshot;
+    if (this.admission().kind !== "fault") {
+      return this.snapshot();
     }
-    const recovered = await recoverAuthorityJournal({
-      workspaceId: this.options.workspaceId,
-      documents: this.options.documents,
-      documentId: FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-      records: this.cache.records(),
-      admitRecords: this.admitRecords,
-      onAuthorityAdvanced: this.options.onAuthorityAdvanced,
-    });
-    this.cache.refresh(recovered.records);
-    await this.replicaKernel.rebuild(recovered.records);
-    this.updatesSinceSnapshot = 0;
-    return recovered.snapshot;
-  }
-
-  private compactIfNeeded(): Promise<void> {
-    return this.updatesSinceSnapshot >= (this.options.snapshotInterval ?? 64)
-      ? this.compactExclusive()
-      : Promise.resolve();
-  }
-
-  private async compactExclusive(): Promise<void> {
-    await writeAuthoritySnapshot(
-      this.options.documents,
-      FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-      this.cache.records(),
-    );
-    this.updatesSinceSnapshot = 0;
+    const snapshot = await this.journal.recover();
+    await this.replica.rebuild(this.journal.records(), this.journal.validRecords());
+    return snapshot;
   }
 
   private async adoptDurableAuthorityAfterUnknown(): Promise<void> {
     try {
-      const before = this.admission();
-      const loaded = await loadAuthorityJournal(
-        this.options.documents,
-        FACT_AUTHORITY_JOURNAL_DOCUMENT_ID,
-      );
-      this.updatesSinceSnapshot = loaded.updateCount;
-      this.cache.refresh(loaded.records);
-      if (this.admission().kind === "ready") {
-        await this.replicaKernel.publish(this.admission().snapshot.facts);
-      }
-      notifyAdmissionAdvance(before, this.admission(), this.options.onAuthorityAdvanced);
+      await this.journal.reloadDurable(async (admission) => {
+        if (admission.kind === "ready") {
+          await this.replica.publish(admission.snapshot.facts);
+        }
+      });
     } catch {
       // The caller retains outcome-unknown when durable authority cannot be audited.
     }
   }
-}
-
-function requiredStore(owner: Readonly<{ store?: FactAuthorityStore }>): FactAuthorityStore {
-  if (!owner.store) {
-    throw new Error("Fact authority store is not initialized");
-  }
-  return owner.store;
 }

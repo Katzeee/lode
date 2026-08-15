@@ -6,11 +6,7 @@ import {
   type SchemaMutation,
   type SequenceAnchor,
 } from "../fact/index.js";
-import {
-  definitionNodeState,
-  sequenceAnchorAt,
-  type ScopedProjection,
-} from "../reconcile/index.js";
+import { definitionNodeState, sequenceAnchorAt, type ScopedProjection } from "../reconcile/index.js";
 
 export function completeSchemaMutationEvidence(
   mutation: SchemaMutation,
@@ -18,7 +14,7 @@ export function completeSchemaMutationEvidence(
   available: ScopedProjection,
 ): SchemaMutation {
   if (mutation.kind === "schema-field-configure") {
-    return completeFieldConfiguration(mutation, available);
+    return completeSchemaFieldConfigurationEvidence(mutation, available);
   }
   if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
     return completeApplication(mutation, previous, available);
@@ -26,27 +22,18 @@ export function completeSchemaMutationEvidence(
   if (mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove") {
     return completeExtension(mutation, previous, available);
   }
-  if (
-    mutation.kind === "schema-template-node-add" ||
-    mutation.kind === "schema-template-node-remove"
-  ) {
+  if (mutation.kind === "schema-template-node-add" || mutation.kind === "schema-template-node-remove") {
     return completeTemplateNodeRelation(mutation, previous, available);
   }
   return completeTemplateField(mutation, previous, available);
 }
 
-function completeFieldConfiguration(
+export function completeSchemaFieldConfigurationEvidence(
   mutation: Extract<Mutation, { kind: "schema-field-configure" }>,
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "schema-field-configure" }> {
   assertDefinition(available, mutation.schemaId, "Schema", SCHEMA_NODE_TYPE, false);
-  assertDefinition(
-    available,
-    mutation.fieldDefinitionId,
-    "Field",
-    FIELD_DEFINITION_NODE_TYPE,
-    false,
-  );
+  assertDefinition(available, mutation.fieldDefinitionId, "Field", FIELD_DEFINITION_NODE_TYPE, false);
   assertNode(available, mutation.fieldNodeId, "Template Field");
   const field = available.templateFields[mutation.schemaId]?.find(
     (candidate) => candidate.fieldNodeId === mutation.fieldNodeId,
@@ -70,11 +57,7 @@ function completeApplication(
   assertDefinition(available, mutation.schemaId, "Schema", SCHEMA_NODE_TYPE, removing);
   assertNode(available, mutation.nodeId, "Schema application target");
   if (!removing) {
-    assertRelationAnchor(
-      available.schemaApplications[mutation.nodeId] ?? [],
-      mutation.anchor,
-      "Schema Application",
-    );
+    assertRelationAnchor(available.schemaApplications[mutation.nodeId] ?? [], mutation.anchor, "Schema Application");
     return mutation;
   }
   return withPreviousAnchor(
@@ -94,11 +77,7 @@ function completeExtension(
   assertDefinition(available, mutation.schemaId, "Schema", SCHEMA_NODE_TYPE, removing);
   assertDefinition(available, mutation.baseSchemaId, "Base Schema", SCHEMA_NODE_TYPE, removing);
   if (!removing) {
-    assertRelationAnchor(
-      available.schemaExtensions[mutation.schemaId] ?? [],
-      mutation.anchor,
-      "Schema Extension",
-    );
+    assertRelationAnchor(available.schemaExtensions[mutation.schemaId] ?? [], mutation.anchor, "Schema Extension");
     return mutation;
   }
   return withPreviousAnchor(
@@ -116,13 +95,7 @@ function completeTemplateField(
 ): Extract<Mutation, { kind: "schema-field-add" | "schema-field-remove" }> {
   const removing = mutation.kind === "schema-field-remove";
   assertDefinition(available, mutation.schemaId, "Schema", SCHEMA_NODE_TYPE, removing);
-  assertDefinition(
-    available,
-    mutation.fieldDefinitionId,
-    "Field",
-    FIELD_DEFINITION_NODE_TYPE,
-    removing,
-  );
+  assertDefinition(available, mutation.fieldDefinitionId, "Field", FIELD_DEFINITION_NODE_TYPE, removing);
   if (!removing) {
     assertTemplateFieldAddition(mutation, available);
     return mutation;
@@ -166,18 +139,12 @@ function assertTemplateFieldAddition(
   }
   if (
     (available.templateFields[mutation.schemaId] ?? []).some(
-      (field) =>
-        field.fieldNodeId !== mutation.fieldNodeId &&
-        field.fieldDefinitionId === mutation.fieldDefinitionId,
+      (field) => field.fieldNodeId !== mutation.fieldNodeId && field.fieldDefinitionId === mutation.fieldDefinitionId,
     )
   ) {
     throw new Error("Schema already contains the Template Field or Field Definition");
   }
-  assertRelationAnchor(
-    available.children[mutation.schemaId] ?? [],
-    mutation.anchor,
-    "Template Field Occurrence",
-  );
+  assertRelationAnchor(available.children[mutation.schemaId] ?? [], mutation.anchor, "Template Field Occurrence");
 }
 
 function completeTemplateNodeRelation(
@@ -192,10 +159,7 @@ function completeTemplateNodeRelation(
     return mutation;
   }
   const occurrence = previous.occurrences[mutation.templateOccurrenceId];
-  if (
-    occurrence?.nodeId !== mutation.templateNodeId ||
-    occurrence.parentNodeId !== mutation.schemaId
-  ) {
+  if (occurrence?.nodeId !== mutation.templateNodeId || occurrence.parentNodeId !== mutation.schemaId) {
     throw new Error("Schema Template Node Occurrence is absent from the observed projection");
   }
   return withPreviousAnchor(
@@ -212,21 +176,14 @@ function assertTemplateNodeAddition(
 ): void {
   assertNode(available, mutation.templateNodeId, "Template");
   const occurrence = available.occurrences[mutation.templateOccurrenceId];
-  if (
-    occurrence &&
-    (occurrence.nodeId !== mutation.templateNodeId || occurrence.parentNodeId !== mutation.schemaId)
-  ) {
+  if (occurrence && (occurrence.nodeId !== mutation.templateNodeId || occurrence.parentNodeId !== mutation.schemaId)) {
     throw new Error("Template Node Occurrence identity already exists");
   }
   const existing = templateOccurrenceFor(available, mutation.schemaId, mutation.templateNodeId);
   if (existing && existing !== mutation.templateOccurrenceId) {
     throw new Error("Schema already contains the Template Node");
   }
-  assertRelationAnchor(
-    available.children[mutation.schemaId] ?? [],
-    mutation.anchor,
-    "Schema Template Node Occurrence",
-  );
+  assertRelationAnchor(available.children[mutation.schemaId] ?? [], mutation.anchor, "Schema Template Node Occurrence");
 }
 
 function withPreviousAnchor<MutationType extends SchemaMutation>(
@@ -242,11 +199,7 @@ function withPreviousAnchor<MutationType extends SchemaMutation>(
   return { ...mutation, previousAnchor: sequenceAnchorAt(identities, index) };
 }
 
-function assertRelationAnchor(
-  identities: readonly string[],
-  anchor: SequenceAnchor,
-  label: string,
-): void {
+function assertRelationAnchor(identities: readonly string[], anchor: SequenceAnchor, label: string): void {
   if ([anchor.after, anchor.before].some((id) => id !== null && !identities.includes(id))) {
     throw new Error(`${label} anchor is absent from the observed projection`);
   }
@@ -279,10 +232,7 @@ function templateOccurrenceFor(
 ): string | null {
   return (
     Object.values(projection.occurrences)
-      .filter(
-        (occurrence) =>
-          occurrence.parentNodeId === schemaId && occurrence.nodeId === templateNodeId,
-      )
+      .filter((occurrence) => occurrence.parentNodeId === schemaId && occurrence.nodeId === templateNodeId)
       .map((occurrence) => occurrence.occurrenceId)
       .sort()[0] ?? null
   );

@@ -1,11 +1,7 @@
 import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../src/sync/syncable.js";
-import {
-  SyncExchange,
-  type SyncProfileEntry,
-  type SyncTransport,
-} from "../../src/runtime/sync/sync-exchange.js";
+import { SyncExchange, type ReplicaPeer, type SyncProfileEntry } from "../../src/runtime/sync/sync-exchange.js";
 
-export class InMemorySyncTransport implements SyncTransport {
+export class InMemoryReplicaPeer implements ReplicaPeer {
   constructor(private readonly remote: SyncableComposite) {}
 
   profile(): Promise<readonly SyncProfileEntry[]> {
@@ -31,6 +27,6 @@ export class InMemorySyncTransport implements SyncTransport {
 }
 
 export async function syncPair(left: SyncableComposite, right: SyncableComposite): Promise<void> {
-  await new SyncExchange(left, new InMemorySyncTransport(right)).sync();
+  await new SyncExchange(left, new InMemoryReplicaPeer(right)).sync();
   await right.heal();
 }

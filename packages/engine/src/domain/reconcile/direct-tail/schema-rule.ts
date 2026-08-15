@@ -1,10 +1,7 @@
 import type { SchemaMutation } from "../../fact/index.js";
 import type { Projection } from "../projection-types.js";
 
-export function canApplySchemaDirectTail(
-  projection: Projection,
-  mutation: SchemaMutation,
-): boolean {
+export function canApplySchemaDirectTail(projection: Projection, mutation: SchemaMutation): boolean {
   switch (mutation.kind) {
     case "schema-apply":
     case "schema-remove":

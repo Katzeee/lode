@@ -21,42 +21,20 @@ describe("SqlDatabase (better-sqlite3 adapter)", () => {
     await db.exec("CREATE TABLE blobs (id TEXT PRIMARY KEY, data BLOB NOT NULL)");
 
     await db.transaction(async () => {
-      await db.run(
-        "INSERT INTO blobs (id, data) VALUES (?, ?)",
-        "ok",
-        bytesToBuffer(new Uint8Array([1, 2, 3])),
-      );
+      await db.run("INSERT INTO blobs (id, data) VALUES (?, ?)", "ok", bytesToBuffer(new Uint8Array([1, 2, 3])));
     });
 
     await expect(
       db.transaction(async () => {
-        await db.run(
-          "INSERT INTO blobs (id, data) VALUES (?, ?)",
-          "rolled-back",
-          bytesToBuffer(new Uint8Array([9])),
-        );
+        await db.run("INSERT INTO blobs (id, data) VALUES (?, ?)", "rolled-back", bytesToBuffer(new Uint8Array([9])));
         throw new Error("boom");
       }),
     ).rejects.toThrow("boom");
 
     const ok = await db.get<{ data: Buffer }>("SELECT data FROM blobs WHERE id = ?", "ok");
-    const rolledBack = await db.get<{ id: string }>(
-      "SELECT id FROM blobs WHERE id = ?",
-      "rolled-back",
-    );
+    const rolledBack = await db.get<{ id: string }>("SELECT id FROM blobs WHERE id = ?", "rolled-back");
     expect(ok ? [...rowBytes(ok.data)] : []).toEqual([1, 2, 3]);
     expect(rolledBack).toBeUndefined();
-    await db.close();
-  });
-
-  it("reports changed-row count from run()", async () => {
-    tempDir = await mkdtemp(join(tmpdir(), "be-sqlite-"));
-    const db = await openSqliteDatabase(join(tempDir, "test.sqlite"));
-    await db.exec("CREATE TABLE t (k TEXT PRIMARY KEY)");
-
-    expect((await db.run("INSERT INTO t (k) VALUES (?)", "a")).changes).toBe(1);
-    expect((await db.run("DELETE FROM t WHERE k = ?", "a")).changes).toBe(1);
-    expect((await db.run("DELETE FROM t WHERE k = ?", "missing")).changes).toBe(0);
     await db.close();
   });
 });

@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import type { Mutation } from "../../fact/index.js";
+import { makeFact, type Mutation } from "../../fact/index.js";
 import {
   base,
   end,
   fullSurface,
+  REPLICA,
   versions,
 } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { rebuildGeneration } from "../reconcile.js";
 import type { Projection } from "../projection-types.js";
-import { canApplyDirectTail, selectEligibleDirectTail } from "./index.js";
+import { selectEligibleDirectTail } from "./index.js";
 
 describe("Direct Projection tail policy", () => {
   it("delegates Projection prerequisites to each Mutation family", () => {
@@ -39,18 +40,16 @@ describe("Direct Projection tail policy", () => {
       },
     ] as const satisfies readonly Mutation[];
 
-    expect(eligible.map((mutation) => canApplyDirectTail(projection, mutation))).toEqual(
-      eligible.map(() => true),
-    );
+    expect(eligible.map((mutation) => isEligible(projection, mutation))).toEqual(eligible.map(() => true));
     expect(
-      canApplyDirectTail(projection, {
+      isEligible(projection, {
         kind: "node-type-declare",
         nodeId: "node",
         nodeType: "view",
       }),
     ).toBe(false);
     expect(
-      canApplyDirectTail(projection, {
+      isEligible(projection, {
         kind: "schema-apply",
         nodeId: "node",
         schemaId: "missing-schema",
@@ -85,8 +84,8 @@ describe("Direct Projection tail policy", () => {
       anchor: end,
     } as const satisfies Mutation;
 
-    expect(canApplyDirectTail(projection, mutation)).toBe(false);
-    expect(canApplyDirectTail(linked, mutation)).toBe(true);
+    expect(isEligible(projection, mutation)).toBe(false);
+    expect(isEligible(linked, mutation)).toBe(true);
   });
 
   it("selects only a neutral-order all-Direct Fact suffix", () => {
@@ -119,3 +118,15 @@ describe("Direct Projection tail policy", () => {
     expect(selectEligibleDirectTail(projection, proposalSnapshot.facts, [direct])).toBeNull();
   });
 });
+
+function isEligible(projection: Projection, mutation: Mutation): boolean {
+  const fact = makeFact({
+    workspaceId: "workspace",
+    replicaId: REPLICA,
+    sequence: 1,
+    observed: {},
+    lamport: 1,
+    body: { kind: "contribution", actorId: "actor", intent: "direct", mutation },
+  });
+  return selectEligibleDirectTail(projection, [fact], [fact]) !== null;
+}

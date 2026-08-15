@@ -1,16 +1,36 @@
 import type { FactSnapshot, ProjectionIdentity } from "../../../domain/fact/index.js";
 import {
   advanceGeneration,
+  rebuildGeneration,
   type ProjectionGeneration,
   type ProjectionVersions,
 } from "../../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../../../persistence/in-memory-document-store.js";
-import { BoundedProjectionMaterializer } from "../../materialization/index.js";
-import { initialProjectionGeneration } from "./opening.js";
+import {
+  BoundedProjectionMaterializer,
+  type ProjectionCheckpointStore,
+  type ProjectionGenerationReader,
+  type ProjectionIdentityReader,
+  type ProjectionSectionPageReader,
+  type ProjectionPublisher,
+  type ProjectionSchemaSearchReader,
+  type ProjectionSnapshotReader,
+  type ReviewReadModelReader,
+} from "../../materialization/index.js";
 import { publishProjectionGeneration, type ProjectionPublication } from "./publication.js";
-import type { ProjectionLifecycleOptions, WorkspaceProjectionAccess } from "./types.js";
 
-export type { ProjectionLifecycleOptions, WorkspaceProjectionAccess } from "./types.js";
+export type WorkspaceProjectionAccess = ProjectionPublisher &
+  ProjectionGenerationReader &
+  ProjectionIdentityReader &
+  ProjectionSnapshotReader &
+  ProjectionSectionPageReader &
+  ReviewReadModelReader &
+  ProjectionSchemaSearchReader;
+
+export type ProjectionLifecycleOptions = Readonly<{
+  projections?: WorkspaceProjectionAccess;
+  checkpoints?: ProjectionCheckpointStore;
+}>;
 
 export type ProjectionAdvance = Readonly<{
   eventKind: "projection-published" | "projection-recovered";
@@ -43,28 +63,18 @@ export class WorkspaceProjectionLifecycle {
     options: ProjectionLifecycleOptions = {},
     notify: (event: ProjectionLifecycleEvent) => void = () => undefined,
   ): Promise<WorkspaceProjectionLifecycle> {
-    const access =
-      options.projections ?? new BoundedProjectionMaterializer(new InMemoryDocumentStore());
-    const generation = await initialProjectionGeneration(
-      workspaceId,
-      snapshot,
-      versions,
-      options.checkpoints,
-    );
+    const access = options.projections ?? new BoundedProjectionMaterializer(new InMemoryDocumentStore());
+    const checkpoint = await options.checkpoints?.load(snapshot, versions);
+    const generation =
+      checkpoint?.kind === "valid"
+        ? checkpoint.generation
+        : rebuildGeneration(workspaceId, snapshot, versions).generation;
     const publication: ProjectionPublication = {
       projections: access,
       ...(options.checkpoints ? { checkpoints: options.checkpoints } : {}),
     };
     await publishProjectionGeneration(generation, snapshot, publication);
-    return new WorkspaceProjectionLifecycle(
-      workspaceId,
-      versions,
-      access,
-      publication,
-      generation,
-      snapshot,
-      notify,
-    );
+    return new WorkspaceProjectionLifecycle(workspaceId, versions, access, publication, generation, snapshot, notify);
   }
 
   get identity(): ProjectionIdentity {
@@ -87,19 +97,10 @@ export class WorkspaceProjectionLifecycle {
     const acknowledgedGenerationId = this.generation.identity.generationId;
     try {
       return await this.access.withReadLease(acknowledgedGenerationId, async () => {
-        const previous = freezeProjectionGeneration(
-          await this.access.load(acknowledgedGenerationId),
-        );
-        const reconcile = advanceGeneration(
-          this.workspaceId,
-          this.snapshot,
-          snapshot,
-          this.versions,
-          previous,
-        );
+        const previous = freezeProjectionGeneration(await this.access.load(acknowledgedGenerationId));
+        const reconcile = advanceGeneration(this.workspaceId, this.snapshot, snapshot, this.versions, previous);
         await publishProjectionGeneration(reconcile.generation, snapshot, this.publication);
-        const eventKind =
-          this.projectionFailure === null ? "projection-published" : "projection-recovered";
+        const eventKind = this.projectionFailure === null ? "projection-published" : "projection-recovered";
         this.generation = reconcile.generation;
         this.snapshot = snapshot;
         this.projectionFailure = null;

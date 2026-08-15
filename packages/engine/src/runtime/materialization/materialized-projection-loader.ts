@@ -1,34 +1,32 @@
-import type { Projection } from "../../domain/reconcile/index.js";
-import type { ProjectionHeader, ShardDescriptor } from "./materialized-generation-format.js";
+import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import { PROJECTION_SECTION_NAMES, type Projection, type ProjectionSectionName } from "../../domain/reconcile/index.js";
+import type { LoadedMaterializedEntry } from "./bounded-materialized-store.js";
 import { isProjectionIndexSection } from "./materialized-projection-index.js";
 import {
   assignMaterializedProjectionValue,
   emptyMaterializedProjection,
 } from "./materialized-projection-section-codec.js";
-import { isReviewReadModelSection } from "./materialized-review-read-model.js";
 
-export async function loadMaterializedProjection(
-  header: ProjectionHeader,
-  descriptors: readonly ShardDescriptor[],
-  load: (descriptor: ShardDescriptor) => Promise<unknown>,
-): Promise<Projection> {
-  const projection = emptyMaterializedProjection(header.view, header.identity);
-  for (const descriptor of descriptors) {
-    assignMaterializedValue(projection, descriptor, await load(descriptor));
+export function loadMaterializedProjection(
+  view: ViewMode,
+  identity: ProjectionIdentity,
+  entries: readonly LoadedMaterializedEntry[],
+): Projection {
+  const projection = emptyMaterializedProjection(view, identity);
+  for (const entry of entries) {
+    assignMaterializedValue(projection, entry);
   }
   return projection;
 }
 
-function assignMaterializedValue(
-  projection: Projection,
-  descriptor: ShardDescriptor,
-  value: unknown,
-): void {
-  if (
-    isProjectionIndexSection(descriptor.section) ||
-    isReviewReadModelSection(descriptor.section)
-  ) {
+function assignMaterializedValue(projection: Projection, entry: LoadedMaterializedEntry): void {
+  const section = entry.descriptor.section;
+  if (isProjectionIndexSection(section) || !isProjectionSection(section)) {
     return;
   }
-  assignMaterializedProjectionValue(projection, descriptor.section, descriptor.identity, value);
+  assignMaterializedProjectionValue(projection, section, entry.descriptor.identity, entry.value);
+}
+
+function isProjectionSection(section: string): section is ProjectionSectionName {
+  return PROJECTION_SECTION_NAMES.includes(section as ProjectionSectionName);
 }

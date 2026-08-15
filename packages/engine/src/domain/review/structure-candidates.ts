@@ -19,12 +19,7 @@ export function mergeLocalStructureCandidates(
       continue;
     }
     const space = `${candidate.diffSpace.kind}/${candidate.diffSpace.identity}`;
-    const region = structureRegion(
-      candidate,
-      pending,
-      affectedBySpace.get(space) ?? new Set(),
-      generation,
-    );
+    const region = structureRegion(candidate, pending, affectedBySpace.get(space) ?? new Set(), generation);
     const key = `${space}/${region}`;
     const existing = bySpace.get(key);
     bySpace.set(
@@ -78,17 +73,11 @@ function structureRegion(
   }
   const positions = [origin, review]
     .filter((sequence) => sequence.includes(occurrenceId))
-    .map(
-      (sequence) =>
-        sequence.slice(0, sequence.indexOf(occurrenceId)).filter((id) => stable.has(id)).length,
-    );
+    .map((sequence) => sequence.slice(0, sequence.indexOf(occurrenceId)).filter((id) => stable.has(id)).length);
   return Math.min(...positions);
 }
 
-function targetOccurrence(
-  candidate: HunkCandidate,
-  pending: ReadonlyMap<string, ContributionFact>,
-): string | null {
+function targetOccurrence(candidate: HunkCandidate, pending: ReadonlyMap<string, ContributionFact>): string | null {
   for (const target of candidate.targets) {
     const mutation = pending.get(target)?.body.mutation;
     if (mutation && "occurrenceId" in mutation) {

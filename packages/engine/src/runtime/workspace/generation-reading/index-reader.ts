@@ -1,8 +1,5 @@
 import type { ViewMode } from "../../../domain/fact/index.js";
-import type {
-  ProjectionListIndexName,
-  ProjectionSnapshotReader,
-} from "../../materialization/index.js";
+import type { ProjectionListIndexName, ProjectionSnapshotReader } from "../../materialization/index.js";
 
 export async function readIndex(
   store: ProjectionSnapshotReader,

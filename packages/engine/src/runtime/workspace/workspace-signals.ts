@@ -1,4 +1,4 @@
-import type { EngineEvent, Unsubscribe } from "../../application/contract.js";
+import type { EngineEvent, Unsubscribe } from "@lode/sdk";
 import type { ProjectionIdentity } from "../../domain/fact/index.js";
 import { deliverListeners } from "../../application/event-delivery.js";
 
@@ -15,11 +15,7 @@ export class WorkspaceSignals {
     return () => this.listeners.delete(listener);
   }
 
-  emit(
-    kind: EngineEvent["kind"],
-    frontier: EngineEvent["frontier"],
-    generationId: string | null,
-  ): void {
+  emit(kind: EngineEvent["kind"], frontier: EngineEvent["frontier"], generationId: string | null): void {
     const event = freezeWorkspaceEvent({
       kind,
       workspaceId: this.workspaceId,

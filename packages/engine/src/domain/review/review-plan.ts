@@ -26,9 +26,7 @@ const REVIEW_FAMILIES = [
 
 type OwnedMutationKind = (typeof REVIEW_FAMILIES)[number]["mutationKinds"][number];
 type AssertNever<Value extends never> = Value;
-export type ReviewMutationOwnershipIsComplete = AssertNever<
-  Exclude<Mutation["kind"], OwnedMutationKind>
->;
+export type ReviewMutationOwnershipIsComplete = AssertNever<Exclude<Mutation["kind"], OwnedMutationKind>>;
 
 const FAMILY_BY_MUTATION = compileReviewFamilies(REVIEW_FAMILIES);
 
@@ -41,24 +39,35 @@ export function collectReviewCandidates(
   return REVIEW_FAMILIES.flatMap((family) => family.candidates(context));
 }
 
+export function reviewPaginationScopeKeys(
+  fact: ContributionFact,
+  occurrenceNodeId: (occurrenceId: string) => string | null,
+): readonly string[] {
+  const family = familyFor(fact.body.mutation.kind);
+  return family.scopes(fact, { occurrenceNodeId });
+}
+
 export function normalizedReviewEffects(
   targets: readonly ContributionFact[],
   generation: ScopedProjectionGeneration,
 ): readonly DecisionEffect[] {
   const effects = new Map<string, DecisionEffect>();
   for (const fact of targets) {
-    const family = FAMILY_BY_MUTATION.get(fact.body.mutation.kind);
-    if (!family) {
-      throw new Error(`Review Mutation has no family owner: ${fact.body.mutation.kind}`);
-    }
+    const family = familyFor(fact.body.mutation.kind);
     const entry = family.effect(fact, targets, generation);
     if (entry) {
       effects.set(entry.identity, entry.effect);
     }
   }
-  return [...effects.values()].sort((left, right) =>
-    stableStringCompare(canonicalJson(left), canonicalJson(right)),
-  );
+  return [...effects.values()].sort((left, right) => stableStringCompare(canonicalJson(left), canonicalJson(right)));
+}
+
+function familyFor(kind: Mutation["kind"]): ReviewFamilyRule {
+  const family = FAMILY_BY_MUTATION.get(kind);
+  if (!family) {
+    throw new Error(`Review Mutation has no family owner: ${kind}`);
+  }
+  return family;
 }
 
 export function associatedReviewImpacts(
@@ -72,17 +81,13 @@ export function associatedReviewImpacts(
   return [...impacts].sort(stableStringCompare);
 }
 
-function compileReviewFamilies(
-  families: readonly ReviewFamilyRule[],
-): ReadonlyMap<Mutation["kind"], ReviewFamilyRule> {
+function compileReviewFamilies(families: readonly ReviewFamilyRule[]): ReadonlyMap<Mutation["kind"], ReviewFamilyRule> {
   const byMutation = new Map<Mutation["kind"], ReviewFamilyRule>();
   for (const family of families) {
     for (const kind of family.mutationKinds) {
       const owner = byMutation.get(kind);
       if (owner) {
-        throw new Error(
-          `Review Mutation ${kind} has duplicate family owners: ${owner.key}, ${family.key}`,
-        );
+        throw new Error(`Review Mutation ${kind} has duplicate family owners: ${owner.key}, ${family.key}`);
       }
       byMutation.set(kind, family);
     }

@@ -1,6 +1,6 @@
 import type {
   EngineCommand,
-  EngineContract,
+  EngineApplicationContract,
   EngineError,
   EngineEvent,
   EngineQuery,
@@ -11,16 +11,18 @@ import type {
   EngineQueryValueForKind,
   Unsubscribe,
   WriteResult,
-} from "../../application/contract.js";
-import { parseEngineCommand, parseEngineQuery } from "../../application/input-validation.js";
+} from "@lode/sdk";
+import {
+  parseEngineCommand,
+  parseEngineQuery,
+  type AcceptedEngineCommand,
+} from "../../application/input-validation.js";
 import { deliverListeners } from "../../application/event-delivery.js";
 
 type WorkspaceApplication = Readonly<{
   readonly workspaceId: string;
-  execute(command: EngineCommand): Promise<WriteResult>;
-  query<Kind extends EngineQueryKind>(
-    query: EngineQueryInput<Kind>,
-  ): Promise<EngineQueryValueForKind<Kind>>;
+  executeAccepted(command: AcceptedEngineCommand): Promise<WriteResult>;
+  query<Kind extends EngineQueryKind>(query: EngineQueryInput<Kind>): Promise<EngineQueryValueForKind<Kind>>;
   subscribe(listener: (event: EngineEvent) => void): Unsubscribe;
 }>;
 
@@ -29,7 +31,7 @@ export class ProposalWorkspaceRegistry {
   private readonly workspaceSubscriptions = new Map<string, Unsubscribe>();
   private readonly listeners = new Set<(event: EngineEvent) => void>();
 
-  readonly contract: EngineContract = {
+  readonly contract: EngineApplicationContract = {
     execute: (command) => this.execute(command),
     query: (query) => this.query(query),
     subscribe: (listener) => this.subscribe(listener),
@@ -59,7 +61,7 @@ export class ProposalWorkspaceRegistry {
   }
 
   private execute(command: EngineCommand): Promise<WriteResult> {
-    let parsed: EngineCommand;
+    let parsed: AcceptedEngineCommand;
     try {
       parsed = parseEngineCommand(command);
     } catch (error) {
@@ -67,7 +69,7 @@ export class ProposalWorkspaceRegistry {
     }
     const workspace = this.workspaces.get(parsed.workspaceId);
     return workspace
-      ? workspace.execute(parsed)
+      ? workspace.executeAccepted(parsed)
       : Promise.resolve({ status: "rejected", error: notLoaded(parsed.workspaceId) });
   }
 
