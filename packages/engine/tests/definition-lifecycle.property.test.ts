@@ -2,70 +2,64 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 import {
-  DEFAULT_FIELD_TEMPLATE_CONFIG,
+  DEFAULT_SUPERTAG_FIELD_CONFIG,
   frontierOf,
   makeFact,
   type Fact,
   type FactFrontier,
   type Mutation,
+  workspaceTrashNodeId,
 } from "../src/domain/fact/index.js";
 import { projectSnapshot } from "./support/reconcile/projection.js";
 import { end, Facts, versions } from "./support/reconcile/reconcile-test-helpers.js";
 
-const tombstoneReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+const deletionReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const editReplica = "cccccccccccccccccccccccccc";
 const restoreReplica = "dddddddddddddddddddddddddd";
 
 describe("Definition lifecycle convergence", () => {
-  it("preserves concurrent offline config through tombstone and restores it for every arrival order", () => {
+  it("preserves concurrent offline config while the Definition is in Trash and restores it for every arrival order", () => {
     const base = definitionFixture();
     const frontier = frontierOf(base.values);
     const lamport = base.values.length + 1;
-    const tombstone = remoteFact(tombstoneReplica, frontier, lamport, {
+    const deletion = remoteFact(deletionReplica, frontier, lamport, {
       kind: "node-delete",
       nodeId: "status-field",
     });
     const configure = remoteFact(editReplica, frontier, lamport, {
-      kind: "schema-field-configure",
-      schemaId: "task-schema",
+      kind: "supertag-field-configure",
+      supertagId: "task-supertag",
       fieldDefinitionId: "status-field",
-      fieldNodeId: "task-schema-status-field-template-field",
+      fieldNodeId: "task-supertag-status-field-template-field",
 
       config: {
         visibility: "pinned",
         staticDefault: [{ kind: "text", value: "Planned" }],
-        initializer: null,
       },
-      previousConfig: DEFAULT_FIELD_TEMPLATE_CONFIG,
+      previousConfig: DEFAULT_SUPERTAG_FIELD_CONFIG,
       observedConfigFactIds: [],
     });
-    const merged = [...base.values, tombstone, configure];
+    const merged = [...base.values, deletion, configure];
     const mergedFrontier = frontierOf(merged);
     const restore = remoteFact(restoreReplica, mergedFrontier, lamport + 1, {
       kind: "node-restore",
       nodeId: "status-field",
-      deletionFactId: tombstone.id,
+      deletionFactId: deletion.id,
     });
 
     for (let seed = 1; seed <= 32; seed += 1) {
       const deleted = admitted(shuffle([...merged, configure], seed));
       const deletedProjection = projectSnapshot("workspace", deleted, "origin", versions);
-      expect(deletedProjection.nodeStatuses["status-field"]).toMatchObject({
-        state: "deleted",
-        deletionFactIds: [tombstone.id],
-      });
-      expect(deletedProjection.schemaFields["task-schema"]).toEqual(["status-field"]);
-      expect(deletedProjection.templateFields["task-schema"]?.[0]?.effectiveConfig).toMatchObject({
+      expect(deletedProjection.nodeOwners["status-field"]).toBe(workspaceTrashNodeId("workspace"));
+      expect(deletedProjection.supertagFields["task-supertag"]).toEqual(["status-field"]);
+      expect(deletedProjection.templateFields["task-supertag"]?.[0]?.effectiveConfig).toMatchObject({
         staticDefault: [{ kind: "text", value: "Planned" }],
       });
       expect(deletedProjection.effectiveFields.task).toEqual([]);
 
-      const restored = admitted(shuffle([...merged, restore, tombstone], seed * 17));
+      const restored = admitted(shuffle([...merged, restore, deletion], seed * 17));
       const restoredProjection = projectSnapshot("workspace", restored, "origin", versions);
-      expect(restoredProjection.nodeStatuses["status-field"]).toMatchObject({
-        state: "active",
-        deletionFactIds: [],
-      });
+      expect(restoredProjection.nodeOwners["status-field"]).not.toBe(workspaceTrashNodeId("workspace"));
       expect(restoredProjection.effectiveFields.task?.[0]).toMatchObject({
         fieldDefinitionId: "status-field",
         effectiveConfig: { staticDefault: [{ kind: "text", value: "Planned" }] },
@@ -76,13 +70,13 @@ describe("Definition lifecycle convergence", () => {
 
 function definitionFixture(): Facts {
   const facts = new Facts();
-  for (const nodeId of ["task", "task-schema", "status-field"]) {
+  for (const nodeId of ["task", "task-supertag", "status-field"]) {
     facts.addPlaced(nodeId);
   }
   facts.add({
     kind: "node-type-declare",
-    nodeId: "task-schema",
-    nodeType: "schema",
+    nodeId: "task-supertag",
+    nodeType: "supertag-definition",
   });
   facts.add({
     kind: "node-type-declare",
@@ -90,14 +84,14 @@ function definitionFixture(): Facts {
     nodeType: "field-definition",
   });
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "task-schema",
+    kind: "supertag-field-add",
+    supertagId: "task-supertag",
     fieldDefinitionId: "status-field",
-    fieldNodeId: "task-schema-status-field-template-field",
-    fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
+    fieldNodeId: "task-supertag-status-field-template-field",
+    fieldOccurrenceId: "task-supertag-status-field-template-field-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "task", supertagId: "task-supertag", anchor: end });
   return facts;
 }
 

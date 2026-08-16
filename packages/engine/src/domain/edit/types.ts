@@ -1,4 +1,13 @@
-import type { Mutation, NodeType, NodeSeed, SequenceAnchor } from "../fact/index.js";
+import type {
+  FieldCardinality,
+  FieldDatatype,
+  FieldInitializationExpression,
+  Mutation,
+  NodeType,
+  NodeSeed,
+  SequenceAnchor,
+  ViewType,
+} from "../fact/index.js";
 
 const MUTATION_EDIT_ACCESS = {
   "node-create": "composite",
@@ -9,38 +18,56 @@ const MUTATION_EDIT_ACCESS = {
   "occurrence-restore": "direct",
   "occurrence-move": "direct",
   "node-owner-set": "internal",
+  "metanode-attach": "internal",
   "node-type-declare": "direct",
-  "schema-apply": "direct",
-  "schema-remove": "direct",
-  "schema-field-add": "direct",
-  "schema-field-remove": "direct",
-  "schema-field-configure": "direct",
-  "schema-extension-add": "direct",
-  "schema-extension-remove": "direct",
-  "schema-template-node-add": "direct",
-  "schema-template-node-remove": "direct",
+  "supertag-apply": "direct",
+  "supertag-remove": "direct",
+  "supertag-field-add": "direct",
+  "supertag-field-remove": "direct",
+  "supertag-field-configure": "direct",
+  "supertag-extension-add": "direct",
+  "supertag-extension-remove": "direct",
+  "supertag-template-node-add": "direct",
+  "supertag-template-node-remove": "direct",
   "template-node-detach": "direct",
   "field-materialize": "direct",
   "field-value-delete": "direct",
   "materialized-field-delete": "direct",
   "field-initialize": "internal",
+  "field-datatype-configure": "direct",
+  "field-cardinality-configure": "direct",
+  "field-initialization-expression-configure": "direct",
   "text-splice": "direct",
   "text-mark": "direct",
-  "value-set": "direct",
-  "value-unset": "direct",
+  "inline-reference-create": "direct",
+  "inline-reference-delete": "direct",
+  "inline-reference-alias-attach": "direct",
+  "inline-reference-alias-detach": "direct",
+  "search-supertag-clause-attach": "internal",
+  "search-field-clause-attach": "internal",
+  "shared-default-view-definition-attach": "internal",
+  "shared-default-view-definition-mode-set": "direct",
 } as const satisfies Readonly<Record<Mutation["kind"], "direct" | "composite" | "internal">>;
 
 export const PREPARED_MUTATION_EVIDENCE_KEYS = [
   "deletedAtoms",
   "observedConfigFactIds",
   "observedInitializationFactIds",
+  "observedValueFactIds",
+  "observedModeFactIds",
   "previous",
   "previousAnchor",
   "previousConfig",
   "previousOwnerNodeId",
+  "previousDatatype",
+  "previousCardinality",
+  "previousExpression",
   "previousParentNodeId",
-  "sourceApplicationSchemaIds",
-  "sourceSchemaIds",
+  "previousHostNodeId",
+  "previousViewType",
+  "previousTargetNodeId",
+  "sourceApplicationSupertagIds",
+  "sourceSupertagIds",
   "sourceTemplateOccurrenceIds",
 ] as const;
 
@@ -59,6 +86,62 @@ export type PromoteReferenceEdit = Readonly<{
   occurrenceId: string;
 }>;
 
+export type CreateInlineReferenceAliasEdit = Readonly<{
+  kind: "inline-reference-alias-create";
+  inlineReferenceId: string;
+  hostNodeId: string;
+  metanodeId: string;
+  aliasNodeId: string;
+  aliasOccurrenceId: string;
+  seed?: NodeSeed;
+}>;
+
+type SearchClauseCreateEditBase = Readonly<{
+  searchNodeId: string;
+  metanodeId: string;
+  clauseNodeId: string;
+  clauseOccurrenceId: string;
+  anchor: SequenceAnchor;
+  seed?: NodeSeed;
+}>;
+
+export type CreateSearchSupertagClauseEdit = SearchClauseCreateEditBase &
+  Readonly<{ kind: "search-supertag-clause-create"; supertagId: string }>;
+
+export type CreateSearchFieldClauseEdit = SearchClauseCreateEditBase &
+  Readonly<{ kind: "search-field-clause-create"; fieldDefinitionId: string }>;
+
+export type CreateSharedDefaultViewDefinitionEdit = Readonly<{
+  kind: "shared-default-view-definition-create";
+  hostNodeId: string;
+  metanodeId: string;
+  viewDefinitionNodeId: string;
+  viewDefinitionOccurrenceId: string;
+  viewType: ViewType;
+  anchor: SequenceAnchor;
+  seed?: NodeSeed;
+}>;
+
+type CreateFieldDefinitionConfigurationEditBase = Readonly<{
+  fieldDefinitionId: string;
+  metanodeId: string;
+  configurationNodeId: string;
+  configurationOccurrenceId: string;
+  anchor: SequenceAnchor;
+  seed?: NodeSeed;
+}>;
+
+export type CreateFieldDefinitionConfigurationEdit =
+  | (CreateFieldDefinitionConfigurationEditBase &
+      Readonly<{ kind: "field-datatype-configuration-create"; datatype: FieldDatatype }>)
+  | (CreateFieldDefinitionConfigurationEditBase &
+      Readonly<{ kind: "field-cardinality-configuration-create"; cardinality: FieldCardinality }>)
+  | (CreateFieldDefinitionConfigurationEditBase &
+      Readonly<{
+        kind: "field-initialization-expression-configuration-create";
+        expression: FieldInitializationExpression;
+      }>);
+
 type PreparedEvidence = (typeof PREPARED_MUTATION_EVIDENCE_KEYS)[number];
 type DirectEditMutationKind = {
   [Kind in Mutation["kind"]]: (typeof MUTATION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
@@ -70,8 +153,24 @@ type UnpreparedMutations<M extends Mutation> = M extends Mutation ? UnpreparedMu
 
 type FactMutationEdit = UnpreparedMutations<Extract<Mutation, { kind: DirectEditMutationKind }>>;
 
-export type EditMutation = FactMutationEdit | CreateNodeEdit | PromoteReferenceEdit;
-type ExpandableEdit = Exclude<EditMutation, PromoteReferenceEdit>;
+export type EditMutation =
+  | FactMutationEdit
+  | CreateNodeEdit
+  | PromoteReferenceEdit
+  | CreateInlineReferenceAliasEdit
+  | CreateSearchSupertagClauseEdit
+  | CreateSearchFieldClauseEdit
+  | CreateSharedDefaultViewDefinitionEdit
+  | CreateFieldDefinitionConfigurationEdit;
+type ExpandableEdit = Exclude<
+  EditMutation,
+  | PromoteReferenceEdit
+  | CreateInlineReferenceAliasEdit
+  | CreateSearchSupertagClauseEdit
+  | CreateSearchFieldClauseEdit
+  | CreateSharedDefaultViewDefinitionEdit
+  | CreateFieldDefinitionConfigurationEdit
+>;
 
 export function isFactMutationEdit(mutation: Mutation): mutation is FactMutationEdit {
   return MUTATION_EDIT_ACCESS[mutation.kind] === "direct";

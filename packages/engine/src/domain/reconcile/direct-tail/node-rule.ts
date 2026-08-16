@@ -1,5 +1,6 @@
 import type { NodeMutation } from "../../fact/index.js";
 import type { Projection } from "../projection-types.js";
+import { nodeLocation } from "../node-graph.js";
 
 export function canApplyNodeDirectTail(projection: Projection, mutation: NodeMutation): boolean {
   switch (mutation.kind) {
@@ -11,9 +12,9 @@ export function canApplyNodeDirectTail(projection: Projection, mutation: NodeMut
         )
       );
     case "node-delete":
-      return projection.nodes[mutation.nodeId] !== undefined;
+      return nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) === "active";
     case "node-restore":
-      return projection.nodes[mutation.nodeId] === undefined;
+      return nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) === "trash";
     case "node-owner-set":
       return (
         projection.nodes[mutation.nodeId] !== undefined &&

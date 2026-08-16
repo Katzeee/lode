@@ -6,20 +6,22 @@ import {
   admitAuthorityRecordShapes,
   factTransactionId,
   makeFact,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
   type AuthorityRecord,
   type AuthorityReceipt,
   type Fact,
   type FactSnapshot,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { rebuildGeneration } from "../src/domain/reconcile/index.js";
+import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration } from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
 import { queryHistory, validateHistorySelection } from "../src/domain/history/history.js";
-import { base, generation } from "./support/review/review-test-helpers.js";
+import { base, end, generation } from "./support/review/review-test-helpers.js";
 import { queryReview, validateReviewSelection } from "../src/domain/review/review.js";
 import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-dag.js";
 import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
@@ -32,7 +34,6 @@ const CHECKPOINT_KEY = "property-test-key";
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const C = "cccccccccccccccccccccccccc";
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 describe("seeded Proposal Mode property and permutation contracts", () => {
   it("arrival order and duplicate delivery preserve one admitted snapshot", () => {
@@ -69,7 +70,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("Schema Extension cycle and search projections converge across seeded arrival and checkpoints", () => {
+  it("Supertag Extension cycle and search projections converge across seeded arrival and checkpoints", () => {
     const facts = extensionCycleFixture();
     const prefixFacts = facts.slice(0, 6);
     const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
@@ -80,9 +81,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       CHECKPOINT_KEY,
     );
     const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions).generation;
-    expect(expected.origin.schemaExtensionConflicts).toEqual({
-      "schema-a": ["schema-a", "schema-b"],
-      "schema-b": ["schema-a", "schema-b"],
+    expect(expected.origin.supertagExtensionConflicts).toEqual({
+      "supertag-a": ["supertag-a", "supertag-b"],
+      "supertag-b": ["supertag-a", "supertag-b"],
     });
     expect(expected.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual(["field-a"]);
     for (let seed = 1; seed <= 32; seed += 1) {
@@ -134,12 +135,11 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       const reviewFacts = base();
       const proposal = reviewFacts.add(
         {
-          kind: "value-set",
-          target: { kind: "node", id: "node" },
-          namespace: "property",
-          key: "selected",
-          value: true,
-          previous: { kind: "unset" },
+          kind: "text-splice",
+          nodeId: "node",
+          deleteAtomIds: [],
+          anchor: end,
+          insert: "selected",
         },
         "proposal",
       );
@@ -169,16 +169,15 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       ).toBe("stale");
 
       const history = baseFixture();
-      history.step({
+      const historyStep = history.step({
         invocationId: "selected",
         mutations: [
           {
-            kind: "value-set",
-            target: { kind: "node", id: "node" },
-            namespace: "property",
-            key: "selected",
-            value: true,
-            previous: { kind: "unset" },
+            kind: "text-splice",
+            nodeId: "node",
+            deleteAtomIds: [],
+            anchor: end,
+            insert: "S",
           },
         ],
       });
@@ -187,26 +186,19 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         throw new Error("Expected a History selection");
       }
       for (const key of shuffle(["a", "b", "c", "d"], seed)) {
-        history.fact({
-          kind: "value-set",
-          target: { kind: "node", id: "node" },
-          namespace: "property",
-          key,
-          value: seed,
-          previous: { kind: "unset" },
-        });
+        history.fact({ kind: "node-create", nodeId: `unrelated-${key}` });
       }
       expect(
         validateHistorySelection(historySelection, "actor", history.receipts, history.snapshot(), history.generation())
           .kind,
       ).toBe("ready");
       history.fact({
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "selected",
-        value: false,
-        previous: { kind: "set", value: true },
+        kind: "text-splice",
+        nodeId: "node",
+        deleteAtomIds: [`${historyStep.factIds[0]}#0`],
+        deletedAtoms: [{ id: `${historyStep.factIds[0]}#0`, value: "S", attributes: {} }],
+        anchor: end,
+        insert: "R",
       });
       expect(
         validateHistorySelection(historySelection, "actor", history.receipts, history.snapshot(), history.generation())
@@ -317,63 +309,11 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             operation: "redo",
             targetStepId: redo.targetInvocationId,
           });
-          expect(generationFingerprint(history.generation())).toBe(targetProjection);
+          expect(
+            generationFingerprint(history.generation()),
+            `${intent} ${ownerCase.kind} must round-trip through History`,
+          ).toBe(targetProjection);
         }
-      }
-    }
-  });
-
-  it("generated History command matrix covers partial no-effect stale and atomic outcomes", () => {
-    for (const [index, ownerCase] of historyLifecycleCases().entries()) {
-      for (const intent of ["direct", "proposal"] as const) {
-        const mutations = caseMutations(ownerCase);
-        const channelId = `matrix-${index}-${intent}`;
-
-        const partial = historyFor(caseSetupFacts(ownerCase));
-        const extra = matrixValueMutation(ownerCase.kind, 1);
-        partial.step({
-          invocationId: "target",
-          mutations: [...mutations, extra],
-          intent,
-          channelId,
-        });
-        partial.fact(matrixValueMutation(ownerCase.kind, 2), intent);
-        const partialUndo = queryHistory(channelId, partial.receipts, partial.snapshot(), partial.generation()).undo;
-        if (!partialUndo) {
-          throw new Error(`Generated partial ${intent} ${ownerCase.kind} has no Undo`);
-        }
-        expect(partialUndo.evidence.compensations.length).toBeGreaterThan(0);
-        expect(partialUndo.evidence.compensations.length).toBeLessThan(mutations.length + 1);
-        const atomic = partial.step({
-          invocationId: "partial-undo",
-          mutations: partialUndo.evidence.compensations,
-          intent,
-          channelId,
-          operation: "undo",
-          targetStepId: "target",
-        });
-        expect(atomic.factIds).toHaveLength(partialUndo.evidence.compensations.length);
-
-        const noEffect = historyFor(caseSetupFacts(ownerCase));
-        noEffect.step({ invocationId: "target", mutations, intent, channelId });
-        const compensation = requiredUndo(noEffect, channelId, `${intent}/${ownerCase.kind}`);
-        for (const compensatingMutation of compensation.evidence.compensations) {
-          noEffect.fact(compensatingMutation, intent);
-        }
-        expect(queryHistory(channelId, noEffect.receipts, noEffect.snapshot(), noEffect.generation()).undo).toBeNull();
-
-        const stale = historyFor(caseSetupFacts(ownerCase));
-        stale.step({ invocationId: "target", mutations, intent, channelId });
-        const selection = requiredUndo(stale, channelId, `${intent}/${ownerCase.kind}`);
-        stale.step({
-          invocationId: "new-head",
-          mutations: [matrixValueMutation(ownerCase.kind, 3)],
-          intent,
-          channelId,
-        });
-        expect(
-          validateHistorySelection(selection, "actor", stale.receipts, stale.snapshot(), stale.generation()).kind,
-        ).toBe("stale");
       }
     }
   });
@@ -453,25 +393,6 @@ function clonedHistoryState(history: HistoryFixture): Readonly<{
   };
 }
 
-function matrixValueMutation(_kind: Mutation["kind"], value: number): Mutation {
-  return {
-    kind: "value-set",
-    target: { kind: "node", id: "workspace" },
-    namespace: "metadata",
-    key: "winner",
-    value,
-    previous: value === 1 ? { kind: "unset" } : { kind: "set", value: value - 1 },
-  };
-}
-
-function requiredUndo(history: HistoryFixture, channelId: string, label: string) {
-  const undo = queryHistory(channelId, history.receipts, history.snapshot(), history.generation()).undo;
-  if (!undo) {
-    throw new Error(`Generated ${label} program has no Undo`);
-  }
-  return undo;
-}
-
 function generationFingerprint(value: ReturnType<HistoryFixture["generation"]>): string {
   return JSON.stringify({
     origin: semanticProjection(value.origin),
@@ -488,7 +409,17 @@ function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>
         id,
         {
           ...node,
-          text: node.text.map((atom) => ({ value: atom.value, attributes: atom.attributes })),
+          content: node.content.map((item) =>
+            item.kind === "text"
+              ? { kind: item.kind, value: item.value, attributes: { ...item.attributes } }
+              : {
+                  kind: item.kind,
+                  id: item.id,
+                  targetNodeId: item.targetNodeId,
+                  aliasNodeId: item.aliasNodeId,
+                  targetStatus: item.targetStatus,
+                },
+          ),
         },
       ]),
     ),
@@ -498,6 +429,8 @@ function semanticProjection(projection: ReturnType<HistoryFixture["generation"]>
 
 function omitSemanticProvenance(key: string, value: unknown): unknown {
   return key === "contributionIds" ||
+    key === "contributionId" ||
+    key === "modeContributionIds" ||
     key === "detachmentContributionIds" ||
     key === "initializationId" ||
     key === "deletionFactIds"
@@ -531,27 +464,27 @@ function extensionCycleFixture(): Fact[] {
   const mutations: readonly Mutation[] = [
     { kind: "node-create", nodeId: "workspace" },
     { kind: "node-create", nodeId: "base" },
-    { kind: "node-create", nodeId: "schema-a" },
-    { kind: "node-create", nodeId: "schema-b" },
-    { kind: "node-type-declare", nodeId: "schema-a", nodeType: "schema" },
-    { kind: "node-type-declare", nodeId: "schema-b", nodeType: "schema" },
+    { kind: "node-create", nodeId: "supertag-a" },
+    { kind: "node-create", nodeId: "supertag-b" },
+    { kind: "node-type-declare", nodeId: "supertag-a", nodeType: "supertag-definition" },
+    { kind: "node-type-declare", nodeId: "supertag-b", nodeType: "supertag-definition" },
     { kind: "node-create", nodeId: "task" },
     { kind: "node-create", nodeId: "field-a" },
     { kind: "node-type-declare", nodeId: "field-a", nodeType: "field-definition" },
-    { kind: "node-create", nodeId: "schema-a-field-a-template-field" },
+    { kind: "node-create", nodeId: "supertag-a-field-a-template-field" },
     {
       kind: "occurrence-create",
-      occurrenceId: "schema-a-field-a-template-field-occurrence",
-      nodeId: "schema-a-field-a-template-field",
-      parentNodeId: "schema-a",
+      occurrenceId: "supertag-a-field-a-template-field-occurrence",
+      nodeId: "supertag-a-field-a-template-field",
+      parentNodeId: "supertag-a",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     {
-      kind: "schema-field-add",
-      schemaId: "schema-a",
+      kind: "supertag-field-add",
+      supertagId: "supertag-a",
       fieldDefinitionId: "field-a",
-      fieldNodeId: "schema-a-field-a-template-field",
-      fieldOccurrenceId: "schema-a-field-a-template-field-occurrence",
+      fieldNodeId: "supertag-a-field-a-template-field",
+      fieldOccurrenceId: "supertag-a-field-a-template-field-occurrence",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
   ];
@@ -562,21 +495,21 @@ function extensionCycleFixture(): Fact[] {
   return [
     ...prefix,
     mutationFact(B, 1, observed, prefix.length + 1, {
-      kind: "schema-extension-add",
-      schemaId: "schema-a",
-      baseSchemaId: "schema-b",
+      kind: "supertag-extension-add",
+      supertagId: "supertag-a",
+      baseSupertagId: "supertag-b",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
     mutationFact(C, 1, observed, prefix.length + 1, {
-      kind: "schema-extension-add",
-      schemaId: "schema-b",
-      baseSchemaId: "schema-a",
+      kind: "supertag-extension-add",
+      supertagId: "supertag-b",
+      baseSupertagId: "supertag-a",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
     mutationFact(A, prefix.length + 1, observed, prefix.length + 1, {
-      kind: "schema-apply",
+      kind: "supertag-apply",
       nodeId: "task",
-      schemaId: "schema-a",
+      supertagId: "supertag-a",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
   ];
@@ -589,6 +522,14 @@ function initializationFixture(seed: number): Readonly<{
 }> {
   const mutations: readonly Mutation[] = [
     { kind: "node-create", nodeId: "workspace" },
+    { kind: "node-create", nodeId: workspaceTrashNodeId("workspace") },
+    {
+      kind: "occurrence-create",
+      occurrenceId: workspaceTrashOccurrenceId("workspace"),
+      nodeId: workspaceTrashNodeId("workspace"),
+      parentNodeId: "workspace",
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+    },
     { kind: "node-create", nodeId: "task" },
     {
       kind: "occurrence-create",
@@ -597,12 +538,12 @@ function initializationFixture(seed: number): Readonly<{
       parentNodeId: "workspace",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
-    { kind: "node-create", nodeId: "task-schema" },
-    { kind: "node-type-declare", nodeId: "task-schema", nodeType: "schema" },
+    { kind: "node-create", nodeId: "task-supertag" },
+    { kind: "node-type-declare", nodeId: "task-supertag", nodeType: "supertag-definition" },
     {
       kind: "occurrence-create",
-      occurrenceId: "task-schema-original",
-      nodeId: "task-schema",
+      occurrenceId: "task-supertag-original",
+      nodeId: "task-supertag",
       parentNodeId: "workspace",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
@@ -615,40 +556,39 @@ function initializationFixture(seed: number): Readonly<{
       parentNodeId: "workspace",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
-    { kind: "node-create", nodeId: "task-schema-status-field-template-field" },
+    { kind: "node-create", nodeId: "task-supertag-status-field-template-field" },
     {
       kind: "occurrence-create",
-      occurrenceId: "task-schema-status-field-template-field-occurrence",
-      nodeId: "task-schema-status-field-template-field",
-      parentNodeId: "task-schema",
+      occurrenceId: "task-supertag-status-field-template-field-occurrence",
+      nodeId: "task-supertag-status-field-template-field",
+      parentNodeId: "task-supertag",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     {
-      kind: "schema-field-add",
-      schemaId: "task-schema",
+      kind: "supertag-field-add",
+      supertagId: "task-supertag",
       fieldDefinitionId: "status-field",
-      fieldNodeId: "task-schema-status-field-template-field",
-      fieldOccurrenceId: "task-schema-status-field-template-field-occurrence",
+      fieldNodeId: "task-supertag-status-field-template-field",
+      fieldOccurrenceId: "task-supertag-status-field-template-field-occurrence",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
     {
-      kind: "schema-field-configure",
-      schemaId: "task-schema",
+      kind: "supertag-field-configure",
+      supertagId: "task-supertag",
       fieldDefinitionId: "status-field",
-      fieldNodeId: "task-schema-status-field-template-field",
+      fieldNodeId: "task-supertag-status-field-template-field",
 
       config: {
         visibility: "normal",
         staticDefault: null,
-        initializer: { kind: "literal", values: [] },
       },
-      previousConfig: { visibility: "normal", staticDefault: null, initializer: null },
+      previousConfig: { visibility: "normal", staticDefault: null },
       observedConfigFactIds: [],
     },
     {
-      kind: "schema-apply",
+      kind: "supertag-apply",
       nodeId: "task",
-      schemaId: "task-schema",
+      supertagId: "task-supertag",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
   ];
@@ -685,8 +625,6 @@ function initializationFacts(
       nodeId: "initialized-field:v1:task:status-field",
       seed: {
         text: [],
-        properties: { fieldDefinitionId: "status-field" },
-        metadata: { initializedBy: "auto-initialize" },
       },
     },
     {
@@ -701,8 +639,6 @@ function initializationFacts(
       nodeId: "initialized-field:v1:task:status-field:value:0",
       seed: {
         text: [...value].map((character) => ({ value: character, attributes: {} })),
-        properties: {},
-        metadata: { initializedBy: "auto-initialize" },
       },
     },
     {
@@ -745,7 +681,7 @@ function initialization(value: string): Extract<Mutation, { kind: "field-initial
   return {
     kind: "field-initialize",
     ownerNodeId: "task",
-    schemaId: "task-schema",
+    supertagId: "task-supertag",
     fieldDefinitionId: "status-field",
     fieldNodeId: "initialized-field:v1:task:status-field",
     fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",

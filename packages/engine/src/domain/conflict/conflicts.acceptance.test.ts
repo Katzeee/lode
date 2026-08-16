@@ -119,10 +119,10 @@ describe("Conflict lifecycle", () => {
     }
     const observed = { [REPLICA_A]: facts.values.length };
     const previousAnchor = {
-      after: null,
+      after: "workspace-trash-occ:v1:workspace",
       before: "parent-b-occurrence",
       affinity: "after",
-      fallback: "start",
+      fallback: "end",
     } as const;
     const moveB = remoteFact({
       replicaId: REPLICA_B,
@@ -180,7 +180,7 @@ describe("Conflict lifecycle", () => {
     if (!currentParent) {
       throw new Error("Expected occurrence to have a parent Node");
     }
-    const siblings = generation.origin.children[currentParent] ?? [];
+    const siblings = generation.origin.childOccurrences[currentParent] ?? [];
     const index = siblings.indexOf("occurrence");
     const resolution = remoteFact({
       replicaId: REPLICA_D,
@@ -237,10 +237,10 @@ describe("Conflict lifecycle", () => {
             anchor,
             previousParentNodeId: "workspace",
             previousAnchor: {
-              after: null,
+              after: "workspace-trash-occ:v1:workspace",
               before: "parent-occurrence",
               affinity: "after",
-              fallback: "start",
+              fallback: "end",
             },
           },
         },
@@ -253,7 +253,7 @@ describe("Conflict lifecycle", () => {
     );
     const generation = rebuildGeneration("workspace", snapshot, versions).generation;
     expect(generation.origin.occurrences.occurrence?.parentNodeId).toBe("parent");
-    expect(generation.origin.children.parent).toContain("occurrence");
+    expect(generation.origin.childOccurrences.parent).toContain("occurrence");
     expect(Object.values(generation.review.conflictIssues)).toEqual([]);
   });
 });

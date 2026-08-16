@@ -1,5 +1,5 @@
-import { type Mutation, type OccurrenceMutation } from "../fact/index.js";
-import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
+import { workspaceTrashOccurrenceId, type Mutation, type OccurrenceMutation } from "../fact/index.js";
+import { isPresentNodeOutsideTrash, occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
 import { assertObservedDeletion } from "./lifecycle.js";
 import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
 import { assertEvidenceEqual } from "./evidence-validation.js";
@@ -55,7 +55,7 @@ export function completeOccurrenceCreate(
   mutation: Extract<Mutation, { kind: "occurrence-create" }>,
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "occurrence-create" }> {
-  if (!available.nodes[mutation.nodeId]) {
+  if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId)) {
     throw new Error("Occurrence Node is absent from the observed projection");
   }
   assertOccurrenceParent(available, mutation.parentNodeId);
@@ -72,6 +72,9 @@ function completeMutableOccurrenceEvidence(
   previous: ScopedProjection,
   available: ScopedProjection,
 ): MutableOccurrenceMutation {
+  if (mutation.occurrenceId === workspaceTrashOccurrenceId(available.identity.workspaceNodeId)) {
+    throw new Error("Workspace Trash role cannot be moved or deleted");
+  }
   const occurrence = available.occurrences[mutation.occurrenceId];
   if (!occurrence) {
     throw new Error("Occurrence target is absent from the observed projection");
@@ -89,7 +92,7 @@ function completeMutableOccurrenceEvidence(
 }
 
 export function assertOccurrenceParent(projection: ScopedProjection, parentNodeId: string): void {
-  if (!projection.nodes[parentNodeId]) {
+  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, parentNodeId)) {
     throw new Error("Parent Node is absent from the observed projection");
   }
 }
@@ -108,6 +111,6 @@ function assertUniquePlacement(
         occurrence.parentNodeId === parentNodeId,
     )
   ) {
-    throw new Error("A Node cannot appear twice in one parent Node children list");
+    throw new Error("A Node cannot appear twice in one parent Node childOccurrences list");
   }
 }

@@ -1,7 +1,7 @@
 import type { EngineCommand, EngineQuery } from "./contract.js";
 import { COMMAND_KINDS, DECISION_EFFECT_KINDS, MUTATION_KINDS, QUERY_KINDS } from "./protocol-cases.js";
 import { editIntent } from "./protocol-enums/engine.js";
-import { viewMode } from "./protocol-enums/projection.js";
+import { projectionPerspective } from "./protocol-enums/projection.js";
 import { resolutionDecision } from "./protocol-enums/review.js";
 import { PROJECTION_PAGE_SECTIONS } from "./projection.js";
 import { validateHardDeleteSelection } from "./maintenance-validation.js";
@@ -10,13 +10,17 @@ const PREPARED_EVIDENCE = [
   "deletedAtoms",
   "observedConfigFactIds",
   "observedInitializationFactIds",
+  "observedModeFactIds",
   "previous",
   "previousAnchor",
   "previousConfig",
   "previousOwnerNodeId",
   "previousParentNodeId",
-  "sourceApplicationSchemaIds",
-  "sourceSchemaIds",
+  "previousHostNodeId",
+  "previousViewType",
+  "previousTargetNodeId",
+  "sourceApplicationSupertagIds",
+  "sourceSupertagIds",
   "sourceTemplateOccurrenceIds",
 ] as const;
 
@@ -84,22 +88,35 @@ export function parseEngineQuery(value: unknown): EngineQuery {
   const kind = enumString(query.kind, QUERY_KINDS, "Engine query kind");
   const pagination = ["kind", "workspaceId", "after", "limit"];
   if (kind === "projection") {
-    exact(query, [...pagination, "view", "section"]);
-    enumString(query.view, viewMode.values, "Projection view");
+    exact(query, [...pagination, "perspective", "section"]);
+    enumString(query.perspective, projectionPerspective.values, "Projection perspective");
     if (query.section !== undefined) {
       enumString(query.section, PROJECTION_PAGE_SECTIONS, "Projection section");
     }
     paginationValues(query, 100, "Projection");
-  } else if (kind === "schema-search") {
-    exact(query, [...pagination, "view", "schemaId"]);
-    enumString(query.view, viewMode.values, "Schema Search view");
-    nonempty(query.schemaId, "Schema identity");
-    paginationValues(query, 99, "Schema Search");
-  } else if (kind === "view") {
-    exact(query, [...pagination, "view", "viewNodeId"]);
-    enumString(query.view, viewMode.values, "View projection mode");
-    nonempty(query.viewNodeId, "View Node identity");
-    paginationValues(query, 50, "View");
+  } else if (kind === "supertag-instances") {
+    exact(query, [...pagination, "perspective", "supertagId"]);
+    enumString(query.perspective, projectionPerspective.values, "Supertag Instances perspective");
+    nonempty(query.supertagId, "Supertag identity");
+    paginationValues(query, 99, "Supertag Instances");
+  } else if (kind === "backlinks") {
+    exact(query, [...pagination, "perspective", "targetNodeId"]);
+    enumString(query.perspective, projectionPerspective.values, "Backlinks perspective");
+    nonempty(query.targetNodeId, "Backlink target Node identity");
+    paginationValues(query, 100, "Backlinks");
+  } else if (kind === "search-results") {
+    exact(query, [...pagination, "perspective", "searchNodeId"]);
+    enumString(query.perspective, projectionPerspective.values, "Search Results perspective");
+    nonempty(query.searchNodeId, "Search Node identity");
+    paginationValues(query, 100, "Search Results");
+  } else if (kind === "view-rows") {
+    exact(query, [...pagination, "perspective", "hostNodeId", "viewDefinitionNodeId"]);
+    enumString(query.perspective, projectionPerspective.values, "View Rows perspective");
+    nonempty(query.hostNodeId, "View host Node identity");
+    if (query.viewDefinitionNodeId !== undefined) {
+      nonempty(query.viewDefinitionNodeId, "View Definition Node identity");
+    }
+    paginationValues(query, 100, "View Rows");
   } else if (kind === "review" || kind === "conflicts") {
     exact(query, pagination);
     paginationValues(query, 100, kind === "review" ? "Review" : "Conflict");

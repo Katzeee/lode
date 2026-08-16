@@ -55,8 +55,13 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     case "review":
     case "conflicts":
       return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "schema-search":
-    case "view":
+    case "supertag-instances":
+      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
+    case "backlinks":
+      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
+    case "search-results":
+      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
+    case "view-rows":
       return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
     case "history":
     case "invocation":

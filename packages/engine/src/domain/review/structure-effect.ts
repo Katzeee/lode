@@ -79,7 +79,7 @@ function placementRelation(projection: ScopedProjection, occurrenceId: string, a
   if (!occurrence) {
     return null;
   }
-  const siblings = projection.children[occurrence.parentNodeId] ?? [];
+  const siblings = projection.childOccurrences[occurrence.parentNodeId] ?? [];
   const index = siblings.indexOf(occurrenceId);
   return {
     parentMatches: true,

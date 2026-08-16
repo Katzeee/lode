@@ -39,14 +39,14 @@ import {
   type ProtocolMutationCase,
 } from "./protocol-cases.js";
 import {
-  fromFieldTemplateConfig,
+  fromSupertagFieldConfig,
   fromInvocationOutcome,
   fromProtocolValue,
   fromReviewQuery,
   fromReviewSelection,
   required,
   toConflictIssue,
-  toFieldTemplateConfig,
+  toSupertagFieldConfig,
   toInvocationOutcome,
   toProtocolValue,
   toReviewQuery,
@@ -90,7 +90,7 @@ export function decodeEngineQuery(bytes: Uint8Array): EngineQuery {
   >;
   const selected = required(message.query, "Engine query");
   const value = fromProtocolValue(selected.value) as Record<string, unknown>;
-  for (const key of ["section", "after", "limit"] as const) {
+  for (const key of ["section", "after", "limit", "viewDefinitionNodeId"] as const) {
     if (value[key] === null) {
       delete value[key];
     }
@@ -190,10 +190,13 @@ function commandValue(
 function toEditMutation(mutation: EditMutation): Record<string, unknown> {
   assertMutationFields(mutation);
   const value = toProtocolValue(mutation) as Record<string, unknown>;
-  if (mutation.kind === "schema-field-configure") {
-    value.config = toFieldTemplateConfig(mutation.config);
-  } else if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    value.target = { target: { $case: mutation.target.kind, value: mutation.target.id } };
+  if (mutation.kind === "supertag-field-configure") {
+    value.config = toSupertagFieldConfig(mutation.config);
+  } else if (
+    mutation.kind === "field-initialization-expression-configure" ||
+    mutation.kind === "field-initialization-expression-configuration-create"
+  ) {
+    value.expression = { sourceFieldDefinitionId: mutation.expression.sourceFieldDefinitionId };
   }
   return { mutation: { $case: protocolMutationCase(mutation.kind), value } };
 }
@@ -204,25 +207,34 @@ function fromEditMutation(value: unknown): EditMutation {
     "Edit mutation",
   );
   const decoded = fromProtocolValue(mutation.value) as Record<string, unknown>;
-  if (mutation.$case === "schemaFieldConfigure") {
-    decoded.config = fromFieldTemplateConfig(decoded.config);
-  } else if (mutation.$case === "valueSet" || mutation.$case === "valueUnset") {
-    const target = required(
-      decoded.target as { target: { $case: "node" | "occurrence"; value: string } | null } | null,
-      "Value target",
+  if (mutation.$case === "supertagFieldConfigure") {
+    decoded.config = fromSupertagFieldConfig(decoded.config);
+  } else if (
+    mutation.$case === "fieldInitializationExpressionConfigure" ||
+    mutation.$case === "fieldInitializationExpressionConfigurationCreate"
+  ) {
+    const expression = required(
+      decoded.expression as Record<string, unknown> | null,
+      "Field initialization expression",
     );
-    const selectedTarget = required(target.target, "Value target");
-    decoded.target = { kind: selectedTarget.$case, id: selectedTarget.value };
+    decoded.expression = {
+      kind: "ancestor-field-values",
+      sourceFieldDefinitionId: expression.sourceFieldDefinitionId,
+    };
   }
   for (const key of ["seed", "nodeType", "previousParentNodeId", "previousAnchor"] as const) {
     if (decoded[key] === null) {
       delete decoded[key];
     }
   }
-  for (const key of ["sourceSchemaIds", "sourceApplicationSchemaIds", "sourceTemplateOccurrenceIds"] as const) {
+  for (const key of ["sourceSupertagIds", "sourceApplicationSupertagIds", "sourceTemplateOccurrenceIds"] as const) {
     if (Array.isArray(decoded[key]) && decoded[key].length === 0) {
       delete decoded[key];
     }
+  }
+  if (mutation.$case === "sharedDefaultViewDefinitionModeSet") {
+    delete decoded.previousViewType;
+    delete decoded.observedModeFactIds;
   }
   return { ...decoded, kind: mutationKind(mutation.$case) } as EditMutation;
 }

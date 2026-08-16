@@ -38,12 +38,3 @@ message WorkspaceSyncSendRequest {
   string document_id = 2;
   bytes payload = 3;
 }
-
-message WorkspaceSynchronizationRequest {
-  string workspace_id = 1;
-}
-
-message WorkspaceSynchronizationResult {
-  uint32 pulled = 1;
-  uint32 pushed = 2;
-}

@@ -6,15 +6,15 @@ import {
   type FactSnapshot,
   type Mutation,
   factTransactionId,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
 } from "../../../src/domain/fact/index.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fixtureConsequences, fixturePrerequisites } from "./reconcile-test-mutations.js";
+import { CURRENT_PROJECTION_VERSIONS } from "../../../src/domain/reconcile/index.js";
 
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-export const versions = {
-  rulesVersion: "proposal-rules-5",
-  schemaVersion: "lode-schema-19",
-} as const;
+export const versions = CURRENT_PROJECTION_VERSIONS;
 export const end = {
   after: null,
   before: null,
@@ -25,13 +25,18 @@ export const end = {
 export class Facts {
   readonly values: Fact[] = [];
 
-  constructor() {
-    this.body({
-      kind: "contribution",
-      actorId: "actor",
-      intent: "direct",
-      mutation: { kind: "node-create", nodeId: "workspace" },
-    });
+  constructor(trashNodeId = workspaceTrashNodeId("workspace")) {
+    this.addTransaction([
+      { kind: "node-create", nodeId: "workspace" },
+      { kind: "node-create", nodeId: trashNodeId },
+      {
+        kind: "occurrence-create",
+        occurrenceId: workspaceTrashOccurrenceId("workspace"),
+        nodeId: trashNodeId,
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    ]);
   }
 
   add(mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {
@@ -135,9 +140,9 @@ export function fullSurface(intent: "direct" | "proposal"): Facts {
   const facts = base(intent);
   addPlacedNode(facts, "reference-parent", intent);
   addPlacedNode(facts, "moved-parent", intent);
-  addPlacedNode(facts, "schema", intent);
+  addPlacedNode(facts, "supertag", intent);
   addPlacedNode(facts, "field", intent);
-  facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" }, intent);
+  facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" }, intent);
   facts.add({ kind: "node-type-declare", nodeId: "field", nodeType: "field-definition" }, intent);
   const splice = facts.add(
     {
@@ -163,38 +168,16 @@ export function fullSurface(intent: "direct" | "proposal"): Facts {
   );
   facts.add(
     {
-      kind: "value-set",
-      target: { kind: "node", id: "node" },
-      namespace: "property",
-      key: "color",
-      value: "blue",
-      previous: { kind: "unset" },
-    },
-    intent,
-  );
-  facts.add(
-    {
-      kind: "schema-field-add",
-      schemaId: "schema",
+      kind: "supertag-field-add",
+      supertagId: "supertag",
       fieldDefinitionId: "field",
-      fieldNodeId: "schema-field-template-field",
-      fieldOccurrenceId: "schema-field-template-field-occurrence",
+      fieldNodeId: "supertag-field-template-field",
+      fieldOccurrenceId: "supertag-field-template-field-occurrence",
       anchor: end,
     },
     intent,
   );
-  facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end }, intent);
-  facts.add(
-    {
-      kind: "value-set",
-      target: { kind: "node", id: "field" },
-      namespace: "metadata",
-      key: "label",
-      value: "Field",
-      previous: { kind: "unset" },
-    },
-    intent,
-  );
+  facts.add({ kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end }, intent);
   facts.add(
     {
       kind: "occurrence-create",

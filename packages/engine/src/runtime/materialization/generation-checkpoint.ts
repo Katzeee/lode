@@ -69,8 +69,8 @@ function validateGenerationCheckpoint(
       checkpoint.generation.identity.rulesVersion !== versions.rulesVersion ||
       checkpoint.generation.identity.schemaVersion !== versions.schemaVersion ||
       checkpoint.generation.identity.generationId !== expectedGenerationId ||
-      checkpoint.generation.origin.view !== "origin" ||
-      checkpoint.generation.review.view !== "review" ||
+      checkpoint.generation.origin.perspective !== "origin" ||
+      checkpoint.generation.review.perspective !== "review" ||
       canonicalDigest(checkpoint.generation.identity) !== canonicalDigest(checkpoint.generation.origin.identity) ||
       canonicalDigest(checkpoint.generation.identity) !== canonicalDigest(checkpoint.generation.review.identity) ||
       !frontierCovers(snapshot.frontier, checkpoint.generation.identity.frontier) ||

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { projectionText } from "../../../tests/support/reconcile/projection.js";
+import { textAtoms } from "../reconcile/index.js";
 import { queryReview } from "../review/index.js";
 import { queryHistory, validateHistorySelection } from "./history.js";
 import { rebuildHistoryState } from "./state.js";
@@ -9,7 +10,10 @@ import { baseFixture, end, HistoryFixture } from "../../../tests/support/history
 describe("production History scenarios", () => {
   it("History selection 与 redo branch", () => {
     const fixture = baseFixture();
-    fixture.step({ invocationId: "normal", mutations: [value("x", 1)] });
+    fixture.step({
+      invocationId: "normal",
+      mutations: [{ kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "A" }],
+    });
     const undoSelection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const undoPlan = validateHistorySelection(
       undoSelection,
@@ -46,39 +50,28 @@ describe("production History scenarios", () => {
       targetStepId: "undo",
       mutations: redoPlan.write.bodies.map((body) => body.mutation),
     });
-    expect(fixture.generation().origin.nodes.node?.properties.x).toBe(1);
+    expect(projectionText(fixture.generation().origin, "node")).toBe("A");
 
-    fixture.step({ invocationId: "branch", mutations: [value("branch", true)] });
+    fixture.step({
+      invocationId: "branch",
+      mutations: [{ kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "B" }],
+    });
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual([]);
   });
 
   it("atomic History step compensates its semantic net effect", () => {
-    const repeated = baseFixture();
-    repeated.step({
-      invocationId: "repeated-value",
-      mutations: [
-        { ...value("chain", 1), previous: { kind: "unset" } },
-        { ...value("chain", 2), previous: { kind: "set", value: 1 } },
-      ],
-    });
-    expect(
-      queryHistory("channel", repeated.receipts, repeated.snapshot(), repeated.generation()).undo?.evidence
-        .compensations,
-    ).toEqual([
-      {
-        kind: "value-unset",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "chain",
-        previous: { kind: "set", value: 2 },
-      },
-    ]);
-
     const cancelled = new HistoryFixture();
     cancelled.step({
       invocationId: "create-delete",
       mutations: [
         { kind: "node-create", nodeId: "temporary" },
+        {
+          kind: "occurrence-create",
+          occurrenceId: "temporary-original",
+          nodeId: "temporary",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
         { kind: "node-delete", nodeId: "temporary" },
       ],
     });
@@ -89,7 +82,7 @@ describe("production History scenarios", () => {
       {
         kind: "node-restore",
         nodeId: "temporary",
-        deletionFactId: cancelled.snapshot().facts[2]?.id,
+        deletionFactId: cancelled.snapshot().facts[5]?.id,
       },
     ]);
   });
@@ -154,27 +147,7 @@ describe("production History scenarios", () => {
     expect(projectionText(fixture.generation().origin, "node")).toBe("ZB");
   });
 
-  it("History skips terminal Proposal siblings and sees contingent Direct effects", () => {
-    const proposal = baseFixture();
-    const receipt = proposal.step({
-      invocationId: "proposal-batch",
-      intent: "proposal",
-      mutations: [value("a", 1), value("b", 2)],
-    });
-    const acceptedFactId = receipt.factIds[0];
-    if (!acceptedFactId) {
-      throw new Error("Expected the first Proposal Fact");
-    }
-    proposal.resolve([acceptedFactId], "accept");
-    expect(
-      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo?.evidence
-        .compensations,
-    ).toHaveLength(1);
-    expect(
-      queryHistory("channel", proposal.receipts, proposal.snapshot(), proposal.generation()).undo?.evidence
-        .compensations[0],
-    ).toMatchObject({ key: "b" });
-
+  it("History sees contingent Direct effects", () => {
     const contingent = new HistoryFixture();
     contingent.fact({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
     contingent.step({
@@ -327,7 +300,7 @@ describe("production History scenarios", () => {
       targetStepId: "nullable-mark",
       mutations: nullableUndoPlan.write.bodies.map((body) => body.mutation),
     });
-    expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBeNull();
+    expect(textAtoms(nullableMark.generation().origin.nodes.node)[0]?.attributes.nullable).toBeNull();
     const nullableRedo = queryHistory(
       "channel",
       nullableMark.receipts,
@@ -350,7 +323,7 @@ describe("production History scenarios", () => {
       targetStepId: "nullable-undo",
       mutations: nullableRedoPlan.write.bodies.map((body) => body.mutation),
     });
-    expect(nullableMark.generation().origin.nodes.node?.text[0]?.attributes.nullable).toBe("changed");
+    expect(textAtoms(nullableMark.generation().origin.nodes.node)[0]?.attributes.nullable).toBe("changed");
 
     const deletion = baseFixture();
     const initial = deletion.fact({
@@ -434,7 +407,7 @@ describe("production History scenarios", () => {
       mutations: richUndo.evidence.compensations,
     });
     expect(projectionText(richDeletion.generation().origin, "node")).toBe("AB");
-    expect(richDeletion.generation().origin.nodes.node?.text[1]?.attributes).toEqual({
+    expect(textAtoms(richDeletion.generation().origin.nodes.node)[1]?.attributes).toEqual({
       bold: true,
     });
 
@@ -476,7 +449,16 @@ describe("production History scenarios", () => {
     const nodeCreate = new HistoryFixture();
     nodeCreate.step({
       invocationId: "node-create",
-      mutations: [{ kind: "node-create", nodeId: "created" }],
+      mutations: [
+        { kind: "node-create", nodeId: "created" },
+        {
+          kind: "occurrence-create",
+          occurrenceId: "created-original",
+          nodeId: "created",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
+      ],
     });
     expect(
       queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation()).undo?.evidence
@@ -486,7 +468,16 @@ describe("production History scenarios", () => {
     const duplicateNodeCreate = new HistoryFixture();
     duplicateNodeCreate.step({
       invocationId: "node-create",
-      mutations: [{ kind: "node-create", nodeId: "created" }],
+      mutations: [
+        { kind: "node-create", nodeId: "created" },
+        {
+          kind: "occurrence-create",
+          occurrenceId: "created-original",
+          nodeId: "created",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
+      ],
     });
     duplicateNodeCreate.fact({ kind: "node-create", nodeId: "created" });
     expect(
@@ -497,18 +488,6 @@ describe("production History scenarios", () => {
         duplicateNodeCreate.generation(),
       ).undo,
     ).toBeNull();
-    nodeCreate.fact({
-      kind: "value-set",
-      target: { kind: "node", id: "created" },
-      namespace: "property",
-      key: "offline-work",
-      value: true,
-      previous: { kind: "unset" },
-    });
-    expect(
-      queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation()).undo,
-    ).toBeNull();
-
     const occurrenceCreate = new HistoryFixture();
     occurrenceCreate.fact({ kind: "node-create", nodeId: "node" });
     occurrenceCreate.step({
@@ -530,19 +509,6 @@ describe("production History scenarios", () => {
       kind: "occurrence-delete",
       occurrenceId: "created-occurrence",
     });
-    occurrenceCreate.fact({
-      kind: "value-set",
-      target: { kind: "occurrence", id: "created-occurrence" },
-      namespace: "metadata",
-      key: "later",
-      value: true,
-      previous: { kind: "unset" },
-    });
-    expect(
-      queryHistory("channel", occurrenceCreate.receipts, occurrenceCreate.snapshot(), occurrenceCreate.generation())
-        .undo,
-    ).toBeNull();
-
     const fixture = baseFixture();
     const deletion = fixture.step({
       invocationId: "delete",
@@ -841,7 +807,7 @@ describe("production History scenarios", () => {
     fixture.step({
       invocationId: "proposal",
       intent: "proposal",
-      mutations: [value("proposal", true)],
+      mutations: [{ kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "proposal" }],
     });
     const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
     const plan = validateHistorySelection(
@@ -885,14 +851,3 @@ describe("production History scenarios", () => {
     expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks.length).toBeGreaterThan(0);
   });
 });
-
-function value(key: string, value: string | number | boolean) {
-  return {
-    kind: "value-set" as const,
-    target: { kind: "node" as const, id: "node" },
-    namespace: "property" as const,
-    key,
-    value,
-    previous: { kind: "unset" as const },
-  };
-}

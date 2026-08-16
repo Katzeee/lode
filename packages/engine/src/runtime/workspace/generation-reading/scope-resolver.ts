@@ -1,4 +1,4 @@
-import type { ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { Projection, ScopedProjection } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 import { readIndex } from "./index-reader.js";
@@ -22,19 +22,19 @@ export type ResolvedGenerationRead = Readonly<{
 export async function resolveGenerationRead(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   plan: GenerationReadPlan,
 ): Promise<ResolvedGenerationRead> {
   const scope = plan.createScope();
-  await includeLifecycleScope(store, generationId, view, plan.mutations, scope);
-  await includeSchemaAndFieldInstances(store, generationId, view, scope);
-  const templateNodeInstances = await includeTemplateInstanceScope(store, generationId, view, scope);
-  let occurrences = await readOccurrenceClosure(store, generationId, view, scope);
-  const nodeOwners = await readNodeOwners(store, generationId, view, scope, plan.readsOwnerGraph);
+  await includeLifecycleScope(store, generationId, perspective, plan.mutations, scope);
+  await includeSupertagAndFieldInstances(store, generationId, perspective, scope);
+  const templateNodeInstances = await includeTemplateInstanceScope(store, generationId, perspective, scope);
+  let occurrences = await readOccurrenceClosure(store, generationId, perspective, scope);
+  const nodeOwners = await readNodeOwners(store, generationId, perspective, scope, plan.readsOwnerGraph);
   occurrences = await includeOwnedDeletionScope(
     store,
     generationId,
-    view,
+    perspective,
     plan.mutations,
     occurrences,
     nodeOwners,
@@ -43,39 +43,41 @@ export async function resolveGenerationRead(
   return { scope, occurrences, nodeOwners, templateNodeInstances };
 }
 
-async function includeSchemaAndFieldInstances(
+async function includeSupertagAndFieldInstances(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   scope: GenerationReadScope,
 ): Promise<void> {
-  const [fieldInstanceNodeIds, schemaInstanceNodeIds] = await Promise.all([
-    readIndex(store, generationId, view, "nodeIdsByFieldDefinition", [...scope.fields]),
-    readIndex(store, generationId, view, "nodeIdsBySchema", [...scope.instanceSchemas]),
+  const [fieldInstanceNodeIds, supertagInstanceNodeIds] = await Promise.all([
+    readIndex(store, generationId, perspective, "nodeIdsByFieldDefinition", [...scope.fields]),
+    readIndex(store, generationId, perspective, "nodeIdsBySupertag", [...scope.instanceSupertags]),
   ]);
   fieldInstanceNodeIds.forEach((nodeId) => scope.nodes.add(nodeId));
-  schemaInstanceNodeIds.forEach((nodeId) => scope.nodes.add(nodeId));
+  supertagInstanceNodeIds.forEach((nodeId) => scope.nodes.add(nodeId));
 }
 
 async function readOccurrenceClosure(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   scope: GenerationReadScope,
 ): Promise<ScopedProjection["occurrences"]> {
   const occurrenceIds = new Set([
     ...scope.occurrences,
-    ...(await readIndex(store, generationId, view, "occurrenceIdsByNode", [...scope.nodes])),
+    ...(await readIndex(store, generationId, perspective, "occurrenceIdsByNode", [...scope.nodes])),
   ]);
-  let occurrences = await readSection(store, generationId, view, "occurrences", [...occurrenceIds]);
+  let occurrences = await readSection(store, generationId, perspective, "occurrences", [...occurrenceIds]);
   includeOccurrenceScope(scope, occurrences);
-  const sharedOccurrenceIds = await readIndex(store, generationId, view, "occurrenceIdsByNode", [...scope.nodes]);
+  const sharedOccurrenceIds = await readIndex(store, generationId, perspective, "occurrenceIdsByNode", [
+    ...scope.nodes,
+  ]);
   sharedOccurrenceIds.forEach((identity) => occurrenceIds.add(identity));
   occurrences = {
     ...occurrences,
-    ...(await readSection(store, generationId, view, "occurrences", [...occurrenceIds])),
+    ...(await readSection(store, generationId, perspective, "occurrences", [...occurrenceIds])),
   };
-  occurrences = await includeOccurrenceAncestors(store, generationId, view, occurrences);
+  occurrences = await includeOccurrenceAncestors(store, generationId, perspective, occurrences);
   includeOccurrenceScope(scope, occurrences);
   return occurrences;
 }
@@ -83,14 +85,14 @@ async function readOccurrenceClosure(
 async function readNodeOwners(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   scope: GenerationReadScope,
   readsOwnerGraph: boolean,
 ): Promise<ScopedProjection["nodeOwners"]> {
   if (!readsOwnerGraph) {
-    return readSection(store, generationId, view, "nodeOwners", [...scope.nodes]);
+    return readSection(store, generationId, perspective, "nodeOwners", [...scope.nodes]);
   }
-  const nodeOwners = await readOwnerClosure(store, generationId, view, scope.nodes);
+  const nodeOwners = await readOwnerClosure(store, generationId, perspective, scope.nodes);
   for (const ownerNodeId of Object.values(nodeOwners)) {
     if (typeof ownerNodeId === "string") {
       scope.nodes.add(ownerNodeId);
@@ -103,6 +105,6 @@ function includeOccurrenceScope(scope: GenerationReadScope, occurrences: ScopedP
   for (const occurrence of Object.values(occurrences)) {
     scope.nodes.add(occurrence.nodeId);
     scope.nodes.add(occurrence.parentNodeId);
-    scope.children.add(occurrence.parentNodeId);
+    scope.childOccurrences.add(occurrence.parentNodeId);
   }
 }

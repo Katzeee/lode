@@ -12,25 +12,27 @@ enum ResolutionDecision {
   RESOLUTION_DECISION_REJECT = 2;
 }
 
-enum SchemaRelationKind {
-  SCHEMA_RELATION_KIND_UNSPECIFIED = 0;
-  SCHEMA_RELATION_KIND_APPLICATION = 1;
-  SCHEMA_RELATION_KIND_FIELD = 2;
-  SCHEMA_RELATION_KIND_EXTENSION = 3;
-  SCHEMA_RELATION_KIND_TEMPLATE_NODE = 4;
+enum SupertagRelationKind {
+  SUPERTAG_RELATION_KIND_UNSPECIFIED = 0;
+  SUPERTAG_RELATION_KIND_APPLICATION = 1;
+  SUPERTAG_RELATION_KIND_FIELD = 2;
+  SUPERTAG_RELATION_KIND_EXTENSION = 3;
+  SUPERTAG_RELATION_KIND_TEMPLATE_NODE = 4;
 }
 
 enum DiffSpaceKind {
   DIFF_SPACE_KIND_UNSPECIFIED = 0;
   DIFF_SPACE_KIND_NODE_CONTENT = 1;
   DIFF_SPACE_KIND_CHILD_SEQUENCE = 2;
-  DIFF_SPACE_KIND_VALUE = 3;
-  DIFF_SPACE_KIND_LIFECYCLE = 4;
-  DIFF_SPACE_KIND_OWNER = 5;
-  DIFF_SPACE_KIND_SCHEMA_APPLICATION = 6;
-  DIFF_SPACE_KIND_SCHEMA_TEMPLATE = 7;
-  DIFF_SPACE_KIND_FIELD_CONFIGURATION = 8;
-  DIFF_SPACE_KIND_MATERIALIZED_FIELD = 9;
+  DIFF_SPACE_KIND_LIFECYCLE = 3;
+  DIFF_SPACE_KIND_OWNER = 4;
+  DIFF_SPACE_KIND_SUPERTAG_APPLICATION = 5;
+  DIFF_SPACE_KIND_SUPERTAG_TEMPLATE = 6;
+  DIFF_SPACE_KIND_FIELD_CONFIGURATION = 7;
+  DIFF_SPACE_KIND_MATERIALIZED_FIELD = 8;
+  DIFF_SPACE_KIND_INLINE_REFERENCE = 9;
+  DIFF_SPACE_KIND_VIEW_DEFINITION = 10;
+  DIFF_SPACE_KIND_FIELD_DEFINITION_CONFIGURATION = 11;
 }
 
 enum RecoveryAction {
@@ -53,10 +55,10 @@ message MarkChange {
 }
 
 message TextDecisionEffect {
-  string node_id = 2;
-  repeated string added_atom_ids = 3;
-  repeated string deleted_atom_ids = 4;
-  repeated MarkChange mark_changes = 5;
+  string node_id = 1;
+  repeated string added_atom_ids = 2;
+  repeated string deleted_atom_ids = 3;
+  repeated MarkChange mark_changes = 4;
 }
 
 message PlacementRelation {
@@ -66,37 +68,26 @@ message PlacementRelation {
 }
 
 message StructureDecisionEffect {
-  string occurrence_id = 2;
-  bool origin_present = 3;
-  bool review_present = 4;
-  google.protobuf.StringValue origin_parent_id = 5;
-  google.protobuf.StringValue review_parent_id = 6;
-  SequenceAnchor anchor = 7;
-  PlacementRelation origin_relation = 8;
-  PlacementRelation review_relation = 9;
-}
-
-message ValueDecisionEffect {
-  oneof target {
-    string node = 2;
-    string occurrence = 3;
-  }
-  ValueNamespace namespace = 4;
-  string key = 5;
-  PreviousValue origin = 6;
-  PreviousValue review = 7;
+  string occurrence_id = 1;
+  bool origin_present = 2;
+  bool review_present = 3;
+  google.protobuf.StringValue origin_parent_id = 4;
+  google.protobuf.StringValue review_parent_id = 5;
+  SequenceAnchor anchor = 6;
+  PlacementRelation origin_relation = 7;
+  PlacementRelation review_relation = 8;
 }
 
 message LifecycleDecisionEffect {
-  string identity = 2;
-  google.protobuf.BoolValue origin = 3;
-  google.protobuf.BoolValue review = 4;
+  string identity = 1;
+  google.protobuf.BoolValue origin = 2;
+  google.protobuf.BoolValue review = 3;
 }
 
 message OwnerDecisionEffect {
-  string identity = 2;
-  google.protobuf.StringValue origin = 3;
-  google.protobuf.StringValue review = 4;
+  string identity = 1;
+  google.protobuf.StringValue origin = 2;
+  google.protobuf.StringValue review = 3;
 }
 
 message NodeTypeDecisionEffect {
@@ -105,41 +96,83 @@ message NodeTypeDecisionEffect {
   optional NodeType review = 3;
 }
 
-message SchemaRelationDecisionEffect {
-  SchemaRelationKind relation = 2;
-  string owner_id = 3;
-  string target_id = 4;
-  google.protobuf.Int32Value origin_index = 5;
-  google.protobuf.Int32Value review_index = 6;
+message SupertagRelationDecisionEffect {
+  SupertagRelationKind relation = 1;
+  string owner_id = 2;
+  string target_id = 3;
+  google.protobuf.Int32Value origin_index = 4;
+  google.protobuf.Int32Value review_index = 5;
 }
 
 message FieldConfigurationDecisionEffect {
-  string schema_id = 2;
-  string field_definition_id = 3;
-  FieldTemplateConfig origin = 4;
-  FieldTemplateConfig review = 5;
+  string supertag_id = 1;
+  string field_definition_id = 2;
+  SupertagFieldConfig origin = 3;
+  SupertagFieldConfig review = 4;
 }
 
 message FieldMaterializationDecisionEffect {
-  string owner_node_id = 2;
-  string field_definition_id = 3;
-  google.protobuf.StringValue origin_field_node_id = 4;
-  google.protobuf.StringValue review_field_node_id = 5;
-  google.protobuf.StringValue origin_field_occurrence_id = 6;
-  google.protobuf.StringValue review_field_occurrence_id = 7;
+  string owner_node_id = 1;
+  string field_definition_id = 2;
+  google.protobuf.StringValue origin_field_node_id = 3;
+  google.protobuf.StringValue review_field_node_id = 4;
+  google.protobuf.StringValue origin_field_occurrence_id = 5;
+  google.protobuf.StringValue review_field_occurrence_id = 6;
+}
+
+message InlineReferenceDecisionState {
+  string host_node_id = 1;
+  string target_node_id = 2;
+  google.protobuf.StringValue alias_node_id = 3;
+  InlineReferenceTargetStatus target_status = 4;
+  SequenceAnchor anchor = 5;
+}
+
+message InlineReferenceDecisionEffect {
+  string inline_reference_id = 1;
+  InlineReferenceDecisionState origin = 2;
+  InlineReferenceDecisionState review = 3;
+}
+
+message ViewDefinitionDecisionState {
+  string host_node_id = 1;
+  ViewType view_type = 2;
+}
+
+message ViewDefinitionDecisionEffect {
+  string view_definition_node_id = 1;
+  ViewDefinitionDecisionState origin = 2;
+  ViewDefinitionDecisionState review = 3;
+}
+
+message FieldDefinitionConfigurationDecisionState {
+  oneof configuration {
+    FieldDatatype datatype = 1;
+    FieldCardinality cardinality = 2;
+    FieldInitializationExpression initialization_expression = 3;
+  }
+}
+
+message FieldDefinitionConfigurationDecisionEffect {
+  string field_definition_id = 1;
+  string configuration_node_id = 2;
+  FieldDefinitionConfigurationDecisionState origin = 3;
+  FieldDefinitionConfigurationDecisionState review = 4;
 }
 
 message DecisionEffect {
   oneof effect {
     TextDecisionEffect text = 1;
     StructureDecisionEffect structure = 2;
-    ValueDecisionEffect value = 3;
-    LifecycleDecisionEffect lifecycle = 4;
-    OwnerDecisionEffect owner = 8;
-    NodeTypeDecisionEffect node_type = 9;
-    SchemaRelationDecisionEffect schema_relation = 5;
-    FieldConfigurationDecisionEffect field_configuration = 6;
-    FieldMaterializationDecisionEffect field_materialization = 7;
+    LifecycleDecisionEffect lifecycle = 3;
+    OwnerDecisionEffect owner = 4;
+    NodeTypeDecisionEffect node_type = 5;
+    SupertagRelationDecisionEffect supertag_relation = 6;
+    FieldConfigurationDecisionEffect field_configuration = 7;
+    FieldMaterializationDecisionEffect field_materialization = 8;
+    InlineReferenceDecisionEffect inline_reference = 9;
+    ViewDefinitionDecisionEffect view_definition = 10;
+    FieldDefinitionConfigurationDecisionEffect field_definition_configuration = 11;
   }
 }
 
@@ -190,15 +223,15 @@ message ResolutionConflictCandidate {
 }
 
 message UnsupportedDirectIntentConflict {
-  string identity = 2;
-  string contribution_id = 3;
-  ContributionMutationKind mutation_kind = 4;
-  string actor_id = 5;
-  string replica_id = 6;
-  map<string, uint64> observed_frontier = 7;
-  repeated string missing_support_contribution_ids = 8;
-  repeated string required_node_ids = 9;
-  repeated RecoveryAction recovery_actions = 10;
+  string identity = 1;
+  string contribution_id = 2;
+  ContributionMutationKind mutation_kind = 3;
+  string actor_id = 4;
+  string replica_id = 5;
+  map<string, uint64> observed_frontier = 6;
+  repeated string missing_support_contribution_ids = 7;
+  repeated string required_node_ids = 8;
+  repeated RecoveryAction recovery_actions = 9;
 }
 
 message NodeTypeConflictCandidate {
@@ -210,15 +243,15 @@ message NodeTypeConflictCandidate {
 }
 
 message NodeTypeConflict {
-  string identity = 2;
-  string node_id = 3;
-  repeated NodeTypeConflictCandidate candidates = 4;
+  string identity = 1;
+  string node_id = 2;
+  repeated NodeTypeConflictCandidate candidates = 3;
 }
 
 message ResolutionConflict {
-  string identity = 2;
-  repeated string proposal_contribution_ids = 3;
-  repeated ResolutionConflictCandidate candidates = 4;
+  string identity = 1;
+  repeated string proposal_contribution_ids = 2;
+  repeated ResolutionConflictCandidate candidates = 3;
 }
 
 message PlacementConflictCandidate {
@@ -231,43 +264,43 @@ message PlacementConflictCandidate {
 }
 
 message PlacementConflict {
-  string identity = 2;
-  string occurrence_id = 3;
-  string canonical_parent_node_id = 4;
-  repeated PlacementConflictCandidate candidates = 5;
+  string identity = 1;
+  string occurrence_id = 2;
+  string canonical_parent_node_id = 3;
+  repeated PlacementConflictCandidate candidates = 4;
 }
 
-message SchemaExtensionCycleConflict {
-  string identity = 2;
-  repeated string schema_ids = 3;
+message SupertagExtensionCycleConflict {
+  string identity = 1;
+  repeated string supertag_ids = 2;
 }
 
 message FieldConfigConflictCandidate {
-  FieldTemplateConfig config = 1;
+  SupertagFieldConfig config = 1;
   repeated string contribution_ids = 2;
 }
 
 message FieldConfigConflict {
-  string identity = 2;
-  google.protobuf.StringValue owner_node_id = 3;
-  string field_definition_id = 4;
-  repeated string schema_ids = 5;
-  repeated string template_occurrence_ids = 6;
-  repeated FieldConfigConflictCandidate candidates = 7;
+  string identity = 1;
+  google.protobuf.StringValue owner_node_id = 2;
+  string field_definition_id = 3;
+  repeated string supertag_ids = 4;
+  repeated string template_occurrence_ids = 5;
+  repeated FieldConfigConflictCandidate candidates = 6;
 }
 
 message FieldInitializationConflictCandidate {
   string initialization_id = 1;
-  string schema_id = 2;
+  string supertag_id = 2;
   FieldInitializationSource source = 3;
   repeated FieldValueSeed values = 4;
 }
 
 message FieldInitializationConflict {
-  string identity = 2;
-  string owner_node_id = 3;
-  string field_definition_id = 4;
-  repeated FieldInitializationConflictCandidate candidates = 5;
+  string identity = 1;
+  string owner_node_id = 2;
+  string field_definition_id = 3;
+  repeated FieldInitializationConflictCandidate candidates = 4;
 }
 
 message ConflictIssue {
@@ -276,7 +309,7 @@ message ConflictIssue {
     NodeTypeConflict node_type_conflict = 2;
     ResolutionConflict resolution_conflict = 3;
     PlacementConflict placement_conflict = 4;
-    SchemaExtensionCycleConflict schema_extension_cycle = 5;
+    SupertagExtensionCycleConflict supertag_extension_cycle = 5;
     FieldConfigConflict field_config_conflict = 6;
     FieldInitializationConflict field_initialization_conflict = 7;
   }

@@ -1,4 +1,4 @@
-import type { ContributionFact, FactSnapshot, ViewMode } from "../fact/index.js";
+import type { ContributionFact, FactSnapshot, ProjectionPerspective } from "../fact/index.js";
 import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { PROJECTION_PLAN, projectionReplayPolicy } from "./projection-plan.js";
 import { emptyProjectionPlanContext, incrementalProjectionPlanContext } from "./projection-plan-context.js";
@@ -7,14 +7,14 @@ import type { Projection, ProjectionPlanCache, ProjectionVersions } from "./proj
 export function projectWithPlan(
   workspaceId: string,
   snapshot: FactSnapshot,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   versions: ProjectionVersions,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
   evaluatedStages: readonly ProjectionStageKey[];
 }> {
-  const context = emptyProjectionPlanContext(workspaceId, snapshot, view, versions);
+  const context = emptyProjectionPlanContext(workspaceId, snapshot, perspective, versions);
   const evaluatedStages = PROJECTION_PLAN.run(context);
   if (!context.projection) {
     throw new Error("Projection owner plan did not assemble a Projection");

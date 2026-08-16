@@ -8,6 +8,7 @@ import {
   type SequenceAnchor,
 } from "../fact/index.js";
 import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
+import { nodeLocation } from "../reconcile/node-graph.js";
 import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
@@ -56,7 +57,10 @@ export function compensateNodeCreate(
   projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
-  if ((mutation.kind !== "node-create" && mutation.kind !== "node-restore") || !projection.nodes[mutation.nodeId]) {
+  if (
+    (mutation.kind !== "node-create" && mutation.kind !== "node-restore") ||
+    nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) !== "active"
+  ) {
     return noCompensation();
   }
   if (hasAlternateNodeCreator(target, targetIds, activeFacts)) {
@@ -77,7 +81,10 @@ export function compensateNodeDelete(
   projection: ScopedProjection,
 ): CompensationStep {
   const mutation = target.body.mutation;
-  if (mutation.kind !== "node-delete" || projection.nodes[mutation.nodeId]) {
+  if (
+    mutation.kind !== "node-delete" ||
+    nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) !== "trash"
+  ) {
     return noCompensation();
   }
   const independentDelete = activeFacts.some(

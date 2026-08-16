@@ -1,18 +1,18 @@
-import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import { PROJECTION_SECTION_NAMES, type Projection, type ProjectionSectionName } from "../../domain/reconcile/index.js";
 import type { LoadedMaterializedEntry } from "./bounded-materialized-store.js";
-import { isProjectionIndexSection } from "./materialized-projection-index.js";
+import { isProjectionLookupIndexSection } from "./materialized-projection-index.js";
 import {
   assignMaterializedProjectionValue,
   emptyMaterializedProjection,
 } from "./materialized-projection-section-codec.js";
 
 export function loadMaterializedProjection(
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   identity: ProjectionIdentity,
   entries: readonly LoadedMaterializedEntry[],
 ): Projection {
-  const projection = emptyMaterializedProjection(view, identity);
+  const projection = emptyMaterializedProjection(perspective, identity);
   for (const entry of entries) {
     assignMaterializedValue(projection, entry);
   }
@@ -21,7 +21,7 @@ export function loadMaterializedProjection(
 
 function assignMaterializedValue(projection: Projection, entry: LoadedMaterializedEntry): void {
   const section = entry.descriptor.section;
-  if (isProjectionIndexSection(section) || !isProjectionSection(section)) {
+  if (isProjectionLookupIndexSection(section) || !isProjectionSection(section)) {
     return;
   }
   assignMaterializedProjectionValue(projection, section, entry.descriptor.identity, entry.value);

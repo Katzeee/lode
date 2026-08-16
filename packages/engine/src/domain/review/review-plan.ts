@@ -9,18 +9,24 @@ import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { fieldMaterializationReviewFamily } from "./field-materialization-review-family.js";
 import { lifecycleReviewFamily } from "./lifecycle-review-family.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
-import { schemaReviewFamily } from "./schema-review-family.js";
+import { supertagReviewFamily } from "./supertag-review-family.js";
 import { structureReviewFamily } from "./structure-review-family.js";
 import { textReviewFamily } from "./text-review-family.js";
 import type { DecisionEffect } from "./types.js";
-import { valueReviewFamily } from "./value-review-family.js";
+import { configurationReviewFamily } from "./configuration-review-family.js";
+import { inlineReferenceReviewFamily } from "./inline-reference-review-family.js";
+import { viewDefinitionReviewFamily } from "./view-definition-review-family.js";
+import { fieldDefinitionConfigurationReviewFamily } from "./field-definition-configuration-review-family.js";
 
 const REVIEW_FAMILIES = [
   textReviewFamily,
   structureReviewFamily,
-  valueReviewFamily,
   lifecycleReviewFamily,
-  schemaReviewFamily,
+  configurationReviewFamily,
+  inlineReferenceReviewFamily,
+  viewDefinitionReviewFamily,
+  fieldDefinitionConfigurationReviewFamily,
+  supertagReviewFamily,
   fieldMaterializationReviewFamily,
 ] as const satisfies readonly ReviewFamilyRule[];
 

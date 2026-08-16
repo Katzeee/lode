@@ -1,17 +1,11 @@
-import {
-  assertJsonValue,
-  assertKeys,
-  assertObject,
-  requireString,
-  requireStringAllowEmpty,
-} from "../../shape-validation/index.js";
+import { assertJsonValue, assertKeys, assertObject, requireStringAllowEmpty } from "../../shape-validation/index.js";
 
 export function assertOptionalNodeSeed(value: unknown): void {
   if (value === undefined) {
     return;
   }
   assertObject(value, "Node seed");
-  assertKeys(value, ["text", "properties", "metadata"], "Node seed");
+  assertKeys(value, ["text"], "Node seed");
   if (!Array.isArray(value.text)) {
     throw new Error("Node seed text must be an array");
   }
@@ -23,11 +17,5 @@ export function assertOptionalNodeSeed(value: unknown): void {
     for (const item of Object.values(atom.attributes)) {
       assertJsonValue(item, "Node seed Text Atom attribute");
     }
-  }
-  assertObject(value.properties, "Node seed properties");
-  assertObject(value.metadata, "Node seed metadata");
-  for (const [key, item] of Object.entries({ ...value.properties, ...value.metadata })) {
-    requireString(key, "Node seed value key");
-    assertJsonValue(item, "Node seed value");
   }
 }

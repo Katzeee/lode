@@ -86,9 +86,9 @@ describe("production Fact contracts", () => {
     });
   });
 
-  it("VER-1 unsupported format schema rules and checkpoints fail closed", () => {
+  it("VER-1 unsupported format supertag rules and checkpoints fail closed", () => {
     const supported = contribution(1);
-    const unsupported = { ...supported, schemaVersion: 9 } as unknown as Fact;
+    const unsupported = { ...supported, schemaVersion: supported.schemaVersion + 1 } as unknown as Fact;
     const admission = admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: unsupported }]);
 
     expect(admission.kind).toBe("fault");
@@ -103,32 +103,6 @@ describe("production Fact contracts", () => {
         actorId: "actor",
         intent: "direct",
         mutation: { kind: "totally-unknown" },
-      },
-      {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "value-set",
-          target: { kind: "schema", id: "schema" },
-          namespace: "property",
-          key: "key",
-          value: true,
-          previous: { kind: "unset" },
-        },
-      },
-      {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "value-set",
-          target: { kind: "field", id: "field" },
-          namespace: "schema",
-          key: "visibility",
-          value: "normal",
-          previous: { kind: "unset" },
-        },
       },
       {
         kind: "contribution",
@@ -168,7 +142,7 @@ describe("production Fact contracts", () => {
     ).toBe("fault");
   });
 
-  it("closed schemas reject forward fields forged text evidence and invalid numeric ledgers", () => {
+  it("closed supertags reject forward fields forged text evidence and invalid numeric ledgers", () => {
     const base = contribution(1);
     const forwardUnsigned = {
       ...unsignedFact(base),

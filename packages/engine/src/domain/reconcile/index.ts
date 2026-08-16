@@ -5,16 +5,27 @@ export {
 } from "./projection-types.js";
 export type {
   EffectiveField,
+  ConflictProjection,
+  FieldProjection,
+  FieldDefinitionConfiguration,
+  InlineReferenceTargetStatus,
   MaterializedField,
+  NodeGraph,
   ProjectedNode,
+  ProjectedInlineReference,
+  NodeContentItem,
   ProjectedOccurrence,
   Projection,
   ProjectionGeneration,
   ProjectionSectionName,
   ProjectionSections,
   ProjectionVersions,
+  SupertagProjection,
+  SearchClause,
+  SearchProjection,
   ScopedProjection,
   ScopedProjectionGeneration,
+  WorkspaceSystemNodeProjection,
 } from "./projection-types.js";
 export {
   isProjectionSectionEntry,
@@ -24,7 +35,21 @@ export {
 } from "./projection-section-shape.js";
 export { advanceGeneration, rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
 export type { ReconcileResult } from "./reconcile.js";
-export { impactAddress, valueKeyAddress, valueTargetAddress } from "./value-address.js";
+export { impactAddress } from "./impact-address.js";
 export { assertMaterializedField } from "./materialized-field.js";
 export { definitionNodeState } from "./definition-node.js";
 export { occurrenceAnchor, sequenceAnchorAt } from "./sequence.js";
+export {
+  isActiveNode,
+  isNodeInTrash,
+  isPresentNodeOutsideTrash,
+  locateInlineReference,
+  nodeLocation,
+  textAtoms,
+} from "./node-graph.js";
+export {
+  WORKSPACE_SYSTEM_NODE_ROLES,
+  projectWorkspaceSystemNodes,
+  type WorkspaceSystemNodeRole,
+  type WorkspaceSystemNodes,
+} from "./workspace-system-nodes.js";

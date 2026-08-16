@@ -1,14 +1,24 @@
 import { FIELD_DEFINITION_NODE_TYPE, type Mutation } from "../fact/index.js";
 import { definitionNodeState } from "./definition-node.js";
+import { isActiveNode } from "./node-graph.js";
 import type { Projection } from "./projection-types.js";
 
-type MaterializedFieldProjection = Pick<Projection, "materializedFields" | "nodes" | "nodeStatuses" | "occurrences">;
+type MaterializedFieldProjection = Pick<
+  Projection,
+  | "identity"
+  | "materializedFields"
+  | "nodes"
+  | "occurrences"
+  | "childOccurrences"
+  | "nodeOwners"
+  | "workspaceSystemNodes"
+>;
 
 export function materializedFieldProblem(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
   projection: MaterializedFieldProjection,
 ): string | null {
-  if (definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) === "absent") {
+  if (definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) !== "active") {
     return `Field Definition type is absent: ${mutation.fieldDefinitionId}`;
   }
   for (const [nodeId, label] of [
@@ -16,7 +26,7 @@ export function materializedFieldProblem(
     [mutation.fieldDefinitionId, "Field Definition"],
     [mutation.fieldNodeId, "Materialized Field"],
   ] as const) {
-    if (!projection.nodes[nodeId]) {
+    if (!isActiveNode(projection.identity.workspaceNodeId, projection, nodeId)) {
       return `${label} Node does not exist: ${nodeId}`;
     }
   }

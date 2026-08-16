@@ -20,14 +20,13 @@ enum AnchorFallback {
 
 enum NodeType {
   NODE_TYPE_UNSPECIFIED = 0;
-  NODE_TYPE_SCHEMA = 1;
+  NODE_TYPE_SUPERTAG_DEFINITION = 1;
   NODE_TYPE_FIELD_DEFINITION = 2;
   NODE_TYPE_FIELD = 3;
   NODE_TYPE_SEARCH = 4;
   NODE_TYPE_COMMAND = 5;
   NODE_TYPE_WORKSPACE = 6;
   NODE_TYPE_CALENDAR = 7;
-  NODE_TYPE_VIEW = 8;
 }
 
 enum FieldVisibility {
@@ -37,6 +36,18 @@ enum FieldVisibility {
   FIELD_VISIBILITY_OPTIONAL = 3;
 }
 
+enum FieldDatatype {
+  FIELD_DATATYPE_UNSPECIFIED = 0;
+  FIELD_DATATYPE_PLAIN = 1;
+  FIELD_DATATYPE_OPTIONS = 2;
+}
+
+enum FieldCardinality {
+  FIELD_CARDINALITY_UNSPECIFIED = 0;
+  FIELD_CARDINALITY_SINGLE = 1;
+  FIELD_CARDINALITY_LIST = 2;
+}
+
 enum HistoryOperation {
   HISTORY_OPERATION_UNSPECIFIED = 0;
   HISTORY_OPERATION_NORMAL = 1;
@@ -44,17 +55,23 @@ enum HistoryOperation {
   HISTORY_OPERATION_REDO = 3;
 }
 
-enum ValueNamespace {
-  VALUE_NAMESPACE_UNSPECIFIED = 0;
-  VALUE_NAMESPACE_PROPERTY = 1;
-  VALUE_NAMESPACE_METADATA = 2;
-  VALUE_NAMESPACE_SCHEMA = 3;
-}
-
 enum FieldInitializationSource {
   FIELD_INITIALIZATION_SOURCE_UNSPECIFIED = 0;
   FIELD_INITIALIZATION_SOURCE_STATIC_DEFAULT = 1;
   FIELD_INITIALIZATION_SOURCE_AUTO_INITIALIZE = 2;
+}
+
+enum InlineReferenceTargetStatus {
+  INLINE_REFERENCE_TARGET_STATUS_UNSPECIFIED = 0;
+  INLINE_REFERENCE_TARGET_STATUS_ACTIVE = 1;
+  INLINE_REFERENCE_TARGET_STATUS_TRASH = 2;
+  INLINE_REFERENCE_TARGET_STATUS_UNAVAILABLE = 3;
+}
+
+enum ViewType {
+  VIEW_TYPE_UNSPECIFIED = 0;
+  VIEW_TYPE_OUTLINE = 1;
+  VIEW_TYPE_TABLE = 2;
 }
 
 message SequenceAnchor {
@@ -71,13 +88,6 @@ message PreviousValue {
   }
 }
 
-message ValueTarget {
-  oneof target {
-    string node = 1;
-    string occurrence = 2;
-  }
-}
-
 message TextSegmentSeed {
   string value = 1;
   map<string, google.protobuf.Value> attributes = 2;
@@ -85,8 +95,6 @@ message TextSegmentSeed {
 
 message NodeSeed {
   repeated TextSegmentSeed text = 1;
-  map<string, google.protobuf.Value> properties = 2;
-  map<string, google.protobuf.Value> metadata = 3;
 }
 
 message FieldValueSeed {
@@ -96,17 +104,13 @@ message FieldValueSeed {
   }
 }
 
-message FieldInitializer {
-  oneof initializer {
-    FieldValueSeedList literal = 1;
-    google.protobuf.Empty application_node_text = 2;
-  }
-}
-
-message FieldTemplateConfig {
+message SupertagFieldConfig {
   FieldVisibility visibility = 1;
   FieldValueSeedList static_default = 2;
-  FieldInitializer initializer = 3;
+}
+
+message FieldInitializationExpression {
+  string source_field_definition_id = 1;
 }
 
 message FieldValueSeedList {

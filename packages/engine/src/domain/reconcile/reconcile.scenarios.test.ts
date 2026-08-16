@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { compareFacts, frontierOf, makeFact, type Mutation } from "../fact/index.js";
+import { compareFacts, frontierOf, makeFact, workspaceTrashNodeId, type Mutation } from "../fact/index.js";
 import { queryReview } from "../review/index.js";
-import { rebuildGeneration } from "./index.js";
+import { nodeLocation, rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
 import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";
@@ -16,9 +16,8 @@ describe("production Reconcile scenarios", () => {
     expect(root.identity.workspaceNodeId).toBe("workspace");
     expect(root.nodes.workspace).toEqual({
       nodeId: "workspace",
-      text: [],
-      properties: {},
-      metadata: {},
+      nodeType: null,
+      content: [],
     });
     expect(root.nodeOwners.workspace).toBeNull();
 
@@ -27,10 +26,33 @@ describe("production Reconcile scenarios", () => {
     const unattached = projectSnapshot("workspace", unattachedFacts.snapshot(), "origin", versions);
     expect(unattached.nodes.node).toBeDefined();
     expect(unattached.nodeOwners.node).toBeUndefined();
-    expect(unattached.nodeStatuses.node).toBeUndefined();
 
     const placed = projectSnapshot("workspace", base().snapshot(), "origin", versions);
     expect(placed.nodeOwners.node).toBe("workspace");
+  });
+
+  it("attaches one persistent Metanode without creating a visible Outline Occurrence", () => {
+    const facts = base();
+    facts.addTransaction([
+      { kind: "node-create", nodeId: "node-configuration" },
+      {
+        kind: "metanode-attach",
+        hostNodeId: "node",
+        metanodeId: "node-configuration",
+      },
+    ]);
+
+    const active = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(active.metanodes).toEqual({ node: "node-configuration" });
+    expect(active.nodeOwners["node-configuration"]).toBe("node");
+    expect(Object.values(active.occurrences).some((occurrence) => occurrence.nodeId === "node-configuration")).toBe(
+      false,
+    );
+    expect(active.childOccurrences.node ?? []).not.toContain("node-configuration");
+
+    facts.add({ kind: "node-delete", nodeId: "node" });
+    const deleted = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(nodeLocation("workspace", deleted, "node-configuration")).toBe("trash");
   });
 
   it("does not let a concurrent Reference steal the Original placement", () => {
@@ -103,35 +125,13 @@ describe("production Reconcile scenarios", () => {
       parentNodeId: "moved-parent",
       anchor: end,
     });
-    facts.add({
-      kind: "value-set",
-      target: { kind: "node", id: "node" },
-      namespace: "metadata",
-      key: "favorite",
-      value: true,
-    });
-    facts.add({
-      kind: "value-unset",
-      target: { kind: "node", id: "node" },
-      namespace: "property",
-      key: "color",
-    });
-    facts.add({
-      kind: "value-set",
-      target: { kind: "node", id: "node" },
-      namespace: "property",
-      key: "color",
-      value: "blue",
-    });
     const nodeDeletion = facts.add({ kind: "node-delete", nodeId: "node" });
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDeletion.id });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projectionText(projection, "node")).toBe("AB");
-    expect(projection.nodes.node?.properties).toMatchObject({ color: "blue" });
-    expect(projection.schemaApplications.node).toEqual(["schema"]);
+    expect(projection.supertagApplications.node).toEqual(["supertag"]);
     expect(projection.effectiveFields.node?.[0]?.fieldDefinitionId).toBe("field");
     expect(projection.nodeOwners.node).toBe("moved-parent");
-    expect(projection.nodes.node?.metadata.favorite).toBe(true);
     expect(projectSnapshot("workspace", facts.snapshot(), "review", versions)).toMatchObject({
       nodes: projection.nodes,
       occurrences: projection.occurrences,
@@ -142,23 +142,30 @@ describe("production Reconcile scenarios", () => {
     const facts = base("direct");
     const pending = facts.add(
       {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "p",
-        value: 1,
+        kind: "text-splice",
+        nodeId: "node",
+        deleteAtomIds: [],
+        anchor: end,
+        insert: "P",
       },
       "proposal",
     );
-    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node?.properties.p).toBeUndefined();
-    expect(projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p).toBe(1);
+    expect(projectionText(projectSnapshot("workspace", facts.snapshot(), "origin", versions), "node")).toBe("");
+    expect(projectionText(projectSnapshot("workspace", facts.snapshot(), "review", versions), "node")).toBe("P");
     facts.resolve([pending.id], "reject");
-    expect(projectSnapshot("workspace", facts.snapshot(), "review", versions).nodes.node?.properties.p).toBeUndefined();
+    expect(projectionText(projectSnapshot("workspace", facts.snapshot(), "review", versions), "node")).toBe("");
 
     const expectedKinds = [
+      "field-cardinality-configure",
+      "field-datatype-configure",
+      "field-initialization-expression-configure",
       "field-initialize",
       "field-materialize",
       "field-value-delete",
+      "inline-reference-alias-attach",
+      "inline-reference-alias-detach",
+      "inline-reference-create",
+      "inline-reference-delete",
       "materialized-field-delete",
       "node-create",
       "node-delete",
@@ -169,20 +176,19 @@ describe("production Reconcile scenarios", () => {
       "occurrence-delete",
       "occurrence-move",
       "occurrence-restore",
-      "schema-apply",
-      "schema-extension-add",
-      "schema-extension-remove",
-      "schema-field-add",
-      "schema-field-configure",
-      "schema-field-remove",
-      "schema-remove",
-      "schema-template-node-add",
-      "schema-template-node-remove",
+      "shared-default-view-definition-mode-set",
+      "supertag-apply",
+      "supertag-extension-add",
+      "supertag-extension-remove",
+      "supertag-field-add",
+      "supertag-field-configure",
+      "supertag-field-remove",
+      "supertag-remove",
+      "supertag-template-node-add",
+      "supertag-template-node-remove",
       "template-node-detach",
       "text-mark",
       "text-splice",
-      "value-set",
-      "value-unset",
     ];
     expect(
       proposalLifecycleCases()
@@ -203,7 +209,7 @@ describe("production Reconcile scenarios", () => {
           rebuildGeneration("workspace", pendingSnapshot, versions).generation,
         ).hunks.find((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id));
         expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
-        if (entry.kind === "schema-field-configure") {
+        if (entry.kind === "supertag-field-configure") {
           expect(pendingHunk?.diffSpace.kind).toBe("field-configuration");
           expect(pendingHunk?.selection.evidence.effects).toEqual([
             expect.objectContaining({ kind: "field-configuration" }),
@@ -255,12 +261,12 @@ describe("production Reconcile scenarios", () => {
     });
     const projection = projectSnapshot("workspace", facts.snapshot(), "review", versions);
     expect(projection.occurrences.self?.nodeId).toBe("node");
-    expect(projection.children.node).toEqual(["self"]);
-    expect(renderSemanticTree(projection, "occurrence")?.children[0]).toMatchObject({
+    expect(projection.childOccurrences.node).toEqual(["self"]);
+    expect(renderSemanticTree(projection, "occurrence")?.childOccurrences[0]).toMatchObject({
       occurrenceId: "self",
       nodeId: "node",
       reference: true,
-      children: [],
+      childOccurrences: [],
     });
   });
 
@@ -322,13 +328,15 @@ describe("production Reconcile scenarios", () => {
     });
     expect(
       projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
-    ).toBeUndefined();
+    ).toBeDefined();
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDelete.id });
     expect(
       projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
     ).toBeDefined();
     facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
+      workspaceTrashNodeId("workspace"),
+    );
   });
 });
 
@@ -383,36 +391,6 @@ function proposalLifecycleSurface(): Readonly<{
     ).id,
     facts.add(
       {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "metadata",
-        key: "reviewed",
-        value: true,
-      },
-      "proposal",
-    ).id,
-    facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "schema" },
-        namespace: "schema",
-        key: "field",
-        value: 0,
-      },
-      "proposal",
-    ).id,
-    facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "field" },
-        namespace: "metadata",
-        key: "label",
-        value: "Field",
-      },
-      "proposal",
-    ).id,
-    facts.add(
-      {
         kind: "occurrence-move",
         occurrenceId: "occurrence",
         parentNodeId: "target",
@@ -447,20 +425,20 @@ function projectionPayload(projection: ReturnType<typeof projectSnapshot>) {
   return {
     nodes: projection.nodes,
     occurrences: projection.occurrences,
-    children: projection.children,
+    childOccurrences: projection.childOccurrences,
     nodeOwners: projection.nodeOwners,
-    addressedValues: projection.addressedValues,
-    schemaApplications: projection.schemaApplications,
-    schemaFields: projection.schemaFields,
+    supertagApplications: projection.supertagApplications,
+    supertagFields: projection.supertagFields,
     templateFields: projection.templateFields,
-    schemaTemplateNodes: projection.schemaTemplateNodes,
+    supertagTemplateNodes: projection.supertagTemplateNodes,
     templateNodeInstances: projection.templateNodeInstances,
-    schemaExtensions: projection.schemaExtensions,
-    schemaSearchMembers: projection.schemaSearchMembers,
-    nodeStatuses: projection.nodeStatuses,
+    supertagExtensions: projection.supertagExtensions,
+    supertagInstanceSupertags: projection.supertagInstanceSupertags,
     conflictIssues: projection.conflictIssues,
     effectiveFields: projection.effectiveFields,
     materializedFields: projection.materializedFields,
+    sharedDefaultViewDefinitions: projection.sharedDefaultViewDefinitions,
+    fieldDefinitionConfigurations: projection.fieldDefinitionConfigurations,
   };
 }
 

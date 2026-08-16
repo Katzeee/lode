@@ -1,5 +1,5 @@
 import { canonicalJson, type ContributionFact, type JsonValue, type PreviousValue } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { TextDecisionEffect } from "./types.js";
 
 export function textEffect(
@@ -7,8 +7,8 @@ export function textEffect(
   targets: readonly ContributionFact[],
   generation: ScopedProjectionGeneration,
 ): TextDecisionEffect {
-  const origin = generation.origin.nodes[nodeId]?.text ?? [];
-  const review = generation.review.nodes[nodeId]?.text ?? [];
+  const origin = textAtoms(generation.origin.nodes[nodeId]);
+  const review = textAtoms(generation.review.nodes[nodeId]);
   const originById = new Map(origin.map((atom) => [atom.id, atom]));
   const reviewById = new Map(review.map((atom) => [atom.id, atom]));
   const targetIds = new Set(targets.map((target) => target.id));

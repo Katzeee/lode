@@ -1,15 +1,15 @@
-import type { ContributionFact, FactSnapshot, ProjectionIdentity, ViewMode } from "../fact/index.js";
+import type { ContributionFact, FactSnapshot, ProjectionIdentity, ProjectionPerspective } from "../fact/index.js";
 import type { ProjectionReplayPolicy } from "./projection-rule.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type { Projection, ProjectionPlanCache, ProjectionSections, ProjectionVersions } from "./projection-types.js";
 import type { AuthoredStructure, MutableNode } from "./projection-state.js";
 import { cloneNodes } from "./node-state.js";
-import { stripProjectedValues } from "./projection-value-assembly.js";
 import {
   authoredStructureWithoutProjectedTemplates,
   type TemplateStructureProjection,
 } from "./template-node-projection.js";
-import type { SchemaRelations } from "./schema-relations.js";
+import type { SupertagRelations } from "./supertag-relations.js";
+import type { NodeGraphStructure } from "./trash-structure.js";
 
 export type ProjectionActivation = Readonly<{
   active: readonly ContributionFact[];
@@ -19,7 +19,7 @@ export type ProjectionActivation = Readonly<{
 
 export type ProjectionPlanContext = {
   readonly snapshot: FactSnapshot;
-  readonly view: ViewMode;
+  readonly perspective: ProjectionPerspective;
   readonly activeTail: readonly ContributionFact[];
   readonly incremental: boolean;
   readonly requiresAllActive: boolean;
@@ -31,11 +31,14 @@ export type ProjectionPlanContext = {
   storedNodes: Map<string, MutableNode>;
   contentNodes: Map<string, MutableNode>;
   authoredStructure: AuthoredStructure;
+  metanodes: ProjectionSections["metanodes"];
   templateStructure: TemplateStructureProjection;
-  addressedValues: ProjectionSections["addressedValues"];
   nodeOwners: ProjectionSections["nodeOwners"];
-  schemaRelations: SchemaRelations;
-  nodeStatuses: ProjectionSections["nodeStatuses"];
+  nodeGraphStructure: NodeGraphStructure;
+  supertagRelations: SupertagRelations;
+  searchClauses: ProjectionSections["searchClauses"];
+  sharedDefaultViewDefinitions: ProjectionSections["sharedDefaultViewDefinitions"];
+  fieldDefinitionConfigurations: ProjectionSections["fieldDefinitionConfigurations"];
   conflictIssues: ProjectionSections["conflictIssues"];
   projection: Projection | null;
 };
@@ -43,12 +46,12 @@ export type ProjectionPlanContext = {
 export function emptyProjectionPlanContext(
   workspaceId: string,
   snapshot: FactSnapshot,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   versions: ProjectionVersions,
 ): ProjectionPlanContext {
   return {
     snapshot,
-    view,
+    perspective,
     activeTail: [],
     incremental: false,
     requiresAllActive: true,
@@ -62,12 +65,21 @@ export function emptyProjectionPlanContext(
     },
     storedNodes: new Map(),
     contentNodes: new Map(),
-    authoredStructure: { occurrences: new Map(), children: new Map() },
-    templateStructure: { occurrences: new Map(), children: new Map(), instances: [] },
-    addressedValues: {},
+    authoredStructure: { occurrences: new Map(), childOccurrences: new Map() },
+    metanodes: {},
+    templateStructure: { occurrences: new Map(), childOccurrences: new Map(), instances: [] },
     nodeOwners: {},
-    schemaRelations: emptySchemaRelations(),
-    nodeStatuses: {},
+    nodeGraphStructure: {
+      occurrences: new Map(),
+      childOccurrences: new Map(),
+      nodeOwners: {},
+      workspaceSystemNodes: {},
+      metanodes: {},
+    },
+    supertagRelations: emptySupertagRelations(),
+    searchClauses: {},
+    sharedDefaultViewDefinitions: {},
+    fieldDefinitionConfigurations: {},
     conflictIssues: {},
     projection: null,
     previousPlanCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
@@ -83,8 +95,13 @@ export function incrementalProjectionPlanContext(
   versions: ProjectionVersions,
   replayPolicy: ProjectionReplayPolicy,
 ): ProjectionPlanContext {
-  const stripped = stripProjectedValues(previous.nodes, previous.occurrences, previous.addressedValues);
-  const effectiveChildren = new Map(Object.entries(previous.children).map(([id, children]) => [id, [...children]]));
+  const stripped = {
+    nodes: new Map(Object.entries(previous.nodes).map(([id, node]) => [id, { ...node, content: [...node.content] }])),
+    occurrences: new Map(Object.entries(previous.occurrences).map(([id, occurrence]) => [id, { ...occurrence }])),
+  };
+  const effectiveChildren = new Map(
+    Object.entries(previous.childOccurrences).map(([id, childOccurrences]) => [id, [...childOccurrences]]),
+  );
   const authored = authoredStructureWithoutProjectedTemplates(
     previous.templateNodeInstances,
     stripped.occurrences,
@@ -93,7 +110,7 @@ export function incrementalProjectionPlanContext(
   const { replayAllActive, requiresAllActive } = replayPolicy;
   return {
     snapshot,
-    view: previous.view,
+    perspective: previous.perspective,
     activeTail: active,
     incremental: true,
     requiresAllActive,
@@ -104,42 +121,49 @@ export function incrementalProjectionPlanContext(
     storedNodes: cloneNodes(stripped.nodes),
     contentNodes: stripped.nodes,
     authoredStructure: authored,
+    metanodes: { ...previous.metanodes },
     templateStructure: {
       occurrences: stripped.occurrences,
-      children: effectiveChildren,
+      childOccurrences: effectiveChildren,
       instances: [...previous.templateNodeInstances],
     },
-    addressedValues: Object.fromEntries(
-      Object.entries(previous.addressedValues).map(([address, values]) => [address, { ...values }]),
-    ),
     nodeOwners: { ...previous.nodeOwners },
-    schemaRelations: {
-      schemaApplications: previous.schemaApplications,
-      schemaFields: previous.schemaFields,
+    nodeGraphStructure: {
+      occurrences: stripped.occurrences,
+      childOccurrences: effectiveChildren,
+      nodeOwners: { ...previous.nodeOwners },
+      workspaceSystemNodes: { ...previous.workspaceSystemNodes },
+      metanodes: { ...previous.metanodes },
+    },
+    supertagRelations: {
+      supertagApplications: previous.supertagApplications,
+      supertagFields: previous.supertagFields,
       templateFields: previous.templateFields,
-      schemaTemplateNodes: previous.schemaTemplateNodes,
-      schemaExtensions: previous.schemaExtensions,
-      schemaSearchMembers: previous.schemaSearchMembers,
-      schemaExtensionConflicts: previous.schemaExtensionConflicts,
+      supertagTemplateNodes: previous.supertagTemplateNodes,
+      supertagExtensions: previous.supertagExtensions,
+      supertagInstanceSupertags: previous.supertagInstanceSupertags,
+      supertagExtensionConflicts: previous.supertagExtensionConflicts,
       effectiveFields: previous.effectiveFields,
       materializedFields: previous.materializedFields,
     },
-    nodeStatuses: previous.nodeStatuses,
+    searchClauses: previous.searchClauses,
+    sharedDefaultViewDefinitions: previous.sharedDefaultViewDefinitions,
+    fieldDefinitionConfigurations: previous.fieldDefinitionConfigurations,
     conflictIssues: previous.conflictIssues,
     projection: null,
     previousPlanCache: previousCache,
   };
 }
 
-function emptySchemaRelations(): SchemaRelations {
+function emptySupertagRelations(): SupertagRelations {
   return {
-    schemaApplications: {},
-    schemaFields: {},
+    supertagApplications: {},
+    supertagFields: {},
     templateFields: {},
-    schemaTemplateNodes: {},
-    schemaExtensions: {},
-    schemaSearchMembers: {},
-    schemaExtensionConflicts: {},
+    supertagTemplateNodes: {},
+    supertagExtensions: {},
+    supertagInstanceSupertags: {},
+    supertagExtensionConflicts: {},
     effectiveFields: {},
     materializedFields: {},
   };

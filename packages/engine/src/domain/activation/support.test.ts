@@ -10,10 +10,10 @@ import {
 } from "../fact/index.js";
 import { projectSnapshot } from "../../../tests/support/reconcile/projection.js";
 import { deriveActivation, deriveSupport } from "./support.js";
+import { CURRENT_PROJECTION_VERSIONS as versions } from "../reconcile/index.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {
@@ -218,7 +218,7 @@ describe("semantic support policy", () => {
   });
 });
 
-function project(facts: readonly Fact[], view: "origin" | "review") {
+function project(facts: readonly Fact[], perspective: "origin" | "review") {
   const workspace = makeFact({
     workspaceId: "workspace",
     replicaId: "zzzzzzzzzzzzzzzzzzzzzzzzzz",
@@ -233,7 +233,12 @@ function project(facts: readonly Fact[], view: "origin" | "review") {
     },
   });
   const projectedFacts = [workspace, ...facts];
-  return projectSnapshot("workspace", { facts: projectedFacts, frontier: frontierOf(projectedFacts) }, view, versions);
+  return projectSnapshot(
+    "workspace",
+    { facts: projectedFacts, frontier: frontierOf(projectedFacts) },
+    perspective,
+    versions,
+  );
 }
 
 function resolution(sequence: number, proposalContributionIds: readonly string[], decision: "accept" | "reject"): Fact {

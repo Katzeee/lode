@@ -37,58 +37,58 @@ enum EngineEventKind {
 }
 
 message MutationCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  EditIntent intent = 5;
-  string history_channel_id = 6;
-  repeated EditMutation mutations = 7;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  EditIntent intent = 4;
+  string history_channel_id = 5;
+  repeated EditMutation mutations = 6;
 }
 
 message ResolveReviewCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  ResolutionDecision decision = 5;
-  ReviewSelection selection = 6;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  ResolutionDecision decision = 4;
+  ReviewSelection selection = 5;
 }
 
 message AdjudicateResolutionCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  ResolutionDecision decision = 5;
-  repeated string proposal_contribution_ids = 6;
-  repeated string resolution_ids = 7;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  ResolutionDecision decision = 4;
+  repeated string proposal_contribution_ids = 5;
+  repeated string resolution_ids = 6;
 }
 
 message HistoryCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  HistorySelection selection = 5;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  HistorySelection selection = 4;
 }
 
 message AcknowledgeDeletionCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  string node_id = 5;
-  repeated string deletion_fact_ids = 6;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  string node_id = 4;
+  repeated string deletion_fact_ids = 5;
 }
 
 message RetireReplicaCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  string replica_id = 5;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  string replica_id = 4;
 }
 
 message HardDeleteCommand {
-  string workspace_id = 2;
-  string invocation_id = 3;
-  string actor_id = 4;
-  HardDeleteSelection selection = 5;
+  string workspace_id = 1;
+  string invocation_id = 2;
+  string actor_id = 3;
+  HardDeleteSelection selection = 4;
 }
 
 message EngineCommand {
@@ -111,22 +111,22 @@ message EngineError {
 }
 
 message PublishedResult {
-  AuthorityReceipt receipt = 2;
-  string generation_id = 3;
+  AuthorityReceipt receipt = 1;
+  string generation_id = 2;
 }
 
 message CommittedProjectionPendingResult {
-  AuthorityReceipt receipt = 2;
-  google.protobuf.StringValue published_generation_id = 3;
-  string failure = 4;
+  AuthorityReceipt receipt = 1;
+  google.protobuf.StringValue published_generation_id = 2;
+  string failure = 3;
 }
 
 message RejectedResult {
-  EngineError error = 2;
+  EngineError error = 1;
 }
 
 message OutcomeUnknownResult {
-  string invocation_id = 2;
+  string invocation_id = 1;
 }
 
 message WriteResult {
@@ -139,54 +139,71 @@ message WriteResult {
 }
 
 message ProjectionQuery {
-  string workspace_id = 2;
-  ViewMode view = 3;
-  optional ProjectionSection section = 4;
-  optional string after = 5;
-  optional uint32 limit = 6;
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  optional ProjectionSection section = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
 }
 
 message ReviewQueryRequest {
-  string workspace_id = 2;
-  optional string after = 3;
-  optional uint32 limit = 4;
+  string workspace_id = 1;
+  optional string after = 2;
+  optional uint32 limit = 3;
 }
 
 message HistoryQueryRequest {
-  string workspace_id = 2;
-  string channel_id = 3;
+  string workspace_id = 1;
+  string channel_id = 2;
 }
 
 message InvocationQuery {
-  string workspace_id = 2;
-  string invocation_id = 3;
+  string workspace_id = 1;
+  string invocation_id = 2;
 }
 
 message ConflictQueryRequest {
-  string workspace_id = 2;
-  optional string after = 3;
-  optional uint32 limit = 4;
+  string workspace_id = 1;
+  optional string after = 2;
+  optional uint32 limit = 3;
 }
 
-message SchemaSearchQueryRequest {
-  string workspace_id = 2;
-  ViewMode view = 3;
-  string schema_id = 4;
-  optional string after = 5;
-  optional uint32 limit = 6;
-}
-
-message ViewQueryRequest {
-  string workspace_id = 2;
-  ViewMode view = 3;
-  string view_node_id = 4;
-  optional string after = 5;
-  optional uint32 limit = 6;
+message SupertagInstancesQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string supertag_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
 }
 
 message HardDeletePreviewQuery {
-  string workspace_id = 2;
-  string node_id = 3;
+  string workspace_id = 1;
+  string node_id = 2;
+}
+
+message BacklinksQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string target_node_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message SearchResultsQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string search_node_id = 3;
+  optional string after = 4;
+  optional uint32 limit = 5;
+}
+
+message ViewRowsQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string host_node_id = 3;
+  optional string view_definition_node_id = 4;
+  optional string after = 5;
+  optional uint32 limit = 6;
 }
 
 message EngineQuery {
@@ -196,19 +213,83 @@ message EngineQuery {
     HistoryQueryRequest history = 3;
     InvocationQuery invocation = 4;
     ConflictQueryRequest conflicts = 5;
-    SchemaSearchQueryRequest schema_search = 6;
-    ViewQueryRequest view = 7;
-    HardDeletePreviewQuery hard_delete_preview = 8;
+    SupertagInstancesQueryRequest supertag_instances = 6;
+    HardDeletePreviewQuery hard_delete_preview = 7;
+    BacklinksQueryRequest backlinks = 8;
+    SearchResultsQueryRequest search_results = 9;
+    ViewRowsQueryRequest view_rows = 10;
   }
 }
 
-message SchemaSearchResult {
+message SupertagInstancesResult {
   string generation_id = 1;
   map<string, uint64> frontier = 2;
-  ViewMode view = 3;
-  string schema_id = 4;
+  ProjectionPerspective perspective = 3;
+  string supertag_id = 4;
   repeated string node_ids = 5;
   google.protobuf.StringValue next = 6;
+}
+
+enum BacklinkSourceKind {
+  BACKLINK_SOURCE_KIND_UNSPECIFIED = 0;
+  BACKLINK_SOURCE_KIND_BLOCK = 1;
+  BACKLINK_SOURCE_KIND_INLINE = 2;
+}
+
+message Backlink {
+  BacklinkSourceKind source_kind = 1;
+  string source_identity = 2;
+  string host_node_id = 3;
+  InlineReferenceTargetStatus target_status = 4;
+}
+
+message BacklinksResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string target_node_id = 4;
+  repeated Backlink backlinks = 5;
+  google.protobuf.StringValue next = 6;
+}
+
+message SearchResultReference {
+  string search_node_id = 1;
+  string target_node_id = 2;
+  string row_key = 3;
+}
+
+message SearchResultsResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string search_node_id = 4;
+  repeated SearchResultReference results = 5;
+  google.protobuf.StringValue next = 6;
+  bool available = 7;
+}
+
+message ViewRowReference {
+  enum SourceKind {
+    SOURCE_KIND_UNSPECIFIED = 0;
+    SOURCE_KIND_OCCURRENCE = 1;
+    SOURCE_KIND_SEARCH_RESULT = 2;
+  }
+  string row_key = 1;
+  string target_node_id = 2;
+  SourceKind source_kind = 3;
+  string source_identity = 4;
+}
+
+message ViewRowsResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string host_node_id = 4;
+  google.protobuf.StringValue view_definition_node_id = 5;
+  ViewType view_type = 6;
+  repeated ViewRowReference rows = 7;
+  google.protobuf.StringValue next = 8;
+  bool available = 9;
 }
 
 message AbsentInvocationOutcome {}
@@ -229,9 +310,11 @@ message QueryResult {
     HistoryQueryResult history = 4;
     InvocationOutcome invocation = 5;
     ConflictQueryResult conflicts = 6;
-    SchemaSearchResult schema_search = 7;
-    ViewResult view = 8;
-    HardDeletePreview hard_delete_preview = 9;
+    SupertagInstancesResult supertag_instances = 7;
+    HardDeletePreview hard_delete_preview = 8;
+    BacklinksResult backlinks = 9;
+    SearchResultsResult search_results = 10;
+    ViewRowsResult view_rows = 11;
   }
 }
 

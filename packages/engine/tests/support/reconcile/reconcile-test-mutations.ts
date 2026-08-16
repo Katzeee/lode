@@ -3,7 +3,7 @@ import type { Mutation } from "../../../src/domain/fact/index.js";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 export function fixturePrerequisites(mutation: Mutation): readonly Mutation[] {
-  if (mutation.kind === "schema-field-add") {
+  if (mutation.kind === "supertag-field-add") {
     return [
       { kind: "node-create", nodeId: mutation.fieldNodeId },
       { kind: "node-type-declare", nodeId: mutation.fieldNodeId, nodeType: "field" },
@@ -11,18 +11,18 @@ export function fixturePrerequisites(mutation: Mutation): readonly Mutation[] {
         kind: "occurrence-create",
         occurrenceId: mutation.fieldOccurrenceId,
         nodeId: mutation.fieldNodeId,
-        parentNodeId: mutation.schemaId,
+        parentNodeId: mutation.supertagId,
         anchor: mutation.anchor,
       },
     ];
   }
-  if (mutation.kind === "schema-template-node-add") {
+  if (mutation.kind === "supertag-template-node-add") {
     return [
       {
         kind: "occurrence-create",
         occurrenceId: mutation.templateOccurrenceId,
         nodeId: mutation.templateNodeId,
-        parentNodeId: mutation.schemaId,
+        parentNodeId: mutation.supertagId,
         anchor: mutation.anchor,
       },
     ];
@@ -34,8 +34,6 @@ export function fixturePrerequisites(mutation: Mutation): readonly Mutation[] {
         nodeId: mutation.fieldNodeId,
         seed: {
           text: [],
-          properties: { fieldDefinitionId: mutation.fieldDefinitionId },
-          metadata: { initializedBy: mutation.source },
         },
       },
       { kind: "node-type-declare", nodeId: mutation.fieldNodeId, nodeType: "field" },
@@ -54,8 +52,6 @@ export function fixturePrerequisites(mutation: Mutation): readonly Mutation[] {
           nodeId: value.nodeId,
           seed: {
             text: [...value.value].map((character) => ({ value: character, attributes: {} })),
-            properties: {},
-            metadata: { initializedBy: mutation.source },
           },
         });
       }
@@ -79,18 +75,11 @@ export function fixturePrerequisites(mutation: Mutation): readonly Mutation[] {
 }
 
 export function fixtureConsequences(mutation: Mutation): readonly Mutation[] {
-  if (mutation.kind === "schema-field-remove") {
-    return [
-      occurrenceDeletion(
-        mutation.fieldOccurrenceId,
-        mutation.schemaId,
-        mutation.previousAnchor ? { ...mutation.previousAnchor, affinity: "after" } : undefined,
-      ),
-      { kind: "node-delete", nodeId: mutation.fieldNodeId },
-    ];
+  if (mutation.kind === "supertag-field-remove") {
+    return [{ kind: "node-delete", nodeId: mutation.fieldNodeId }];
   }
-  if (mutation.kind === "schema-template-node-remove") {
-    return [occurrenceDeletion(mutation.templateOccurrenceId, mutation.schemaId, mutation.previousAnchor)];
+  if (mutation.kind === "supertag-template-node-remove") {
+    return [occurrenceDeletion(mutation.templateOccurrenceId, mutation.supertagId, mutation.previousAnchor)];
   }
   if (mutation.kind === "field-value-delete") {
     return [occurrenceDeletion(mutation.valueOccurrenceId, mutation.previousParentNodeId, mutation.previousAnchor)];

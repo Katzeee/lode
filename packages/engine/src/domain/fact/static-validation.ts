@@ -1,7 +1,7 @@
-import { canonicalDigest, canonicalJson } from "./canonical.js";
+import { canonicalDigest } from "./canonical.js";
 import { factId, factTransactionId, isReplicaId, unsignedFact } from "./fact.js";
-import { validateFieldInitialization, validateSchemaMutation } from "./schema-static-validation.js";
-import { isWellFormedUnicode } from "./text-validation.js";
+import { validateFieldInitialization, validateSupertagMutation } from "./supertag-static-validation.js";
+import { isWellFormedUnicode, validateStaticTextSpliceEvidence } from "./text-validation.js";
 import { validateTemplateDetachment } from "./template-node-validation.js";
 import { validateWorkspaceRootPolicy } from "./workspace-root-policy.js";
 import { validateStaticFieldContentDeletion, validateStaticFieldMaterialization } from "./field-content-validation.js";
@@ -15,6 +15,14 @@ import {
   type WorkspaceId,
 } from "./types.js";
 import type { OccurrenceMutation } from "./mutation-family.js";
+import { validateSearchClauseMutation } from "./search-clause-validation.js";
+import {
+  validateSharedDefaultViewDefinitionMode,
+  validateSharedDefaultViewDefinitionMutation,
+} from "./view-definition-validation.js";
+import { validateInlineReferenceMutation } from "./inline-reference-validation.js";
+import { requireIdentity, validateAnchor } from "./mutation-static-validation-primitives.js";
+import { validateFieldDefinitionConfigMutation } from "./field-definition-config-validation.js";
 
 export function validateStaticFact(workspaceId: WorkspaceId, fact: Fact): void {
   if (fact.workspaceId !== workspaceId) {
@@ -138,19 +146,26 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       }
       requireIdentity(mutation.previousOwnerNodeId, "previous owner Node", factIdentity);
       return;
+    case "metanode-attach":
+      requireIdentity(mutation.hostNodeId, "configuration host Node", factIdentity);
+      requireIdentity(mutation.metanodeId, "metanode Node", factIdentity);
+      if (mutation.hostNodeId === mutation.metanodeId) {
+        throw new Error(`Metanode cannot attach to itself: ${factIdentity}`);
+      }
+      return;
     case "node-type-declare":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
       return;
-    case "schema-apply":
-    case "schema-remove":
-    case "schema-field-add":
-    case "schema-field-remove":
-    case "schema-field-configure":
-    case "schema-extension-add":
-    case "schema-extension-remove":
-    case "schema-template-node-add":
-    case "schema-template-node-remove":
-      validateSchemaMutation(mutation, factIdentity);
+    case "supertag-apply":
+    case "supertag-remove":
+    case "supertag-field-add":
+    case "supertag-field-remove":
+    case "supertag-field-configure":
+    case "supertag-extension-add":
+    case "supertag-extension-remove":
+    case "supertag-template-node-add":
+    case "supertag-template-node-remove":
+      validateSupertagMutation(mutation, factIdentity);
       return;
     case "template-node-detach":
       validateTemplateDetachment(mutation, factIdentity);
@@ -165,23 +180,13 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
     case "field-initialize":
       validateFieldInitialization(mutation, factIdentity);
       return;
+    case "field-datatype-configure":
+    case "field-cardinality-configure":
+    case "field-initialization-expression-configure":
+      validateFieldDefinitionConfigMutation(mutation, factIdentity);
+      return;
     case "text-splice":
-      requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
-      validateAnchor(mutation.anchor, factIdentity);
-      if (!isWellFormedUnicode(mutation.insert)) {
-        throw new Error(`Text mutation contains an unpaired surrogate: ${factIdentity}`);
-      }
-      if (mutation.deletedAtoms === undefined) {
-        throw new Error(`Text splice lacks semantic evidence: ${factIdentity}`);
-      }
-      if (
-        new Set(mutation.deleteAtomIds).size !== mutation.deleteAtomIds.length ||
-        new Set(mutation.deletedAtoms.map((atom) => atom.id)).size !== mutation.deletedAtoms.length ||
-        canonicalJson([...mutation.deleteAtomIds].sort()) !==
-          canonicalJson(mutation.deletedAtoms.map((atom) => atom.id).sort())
-      ) {
-        throw new Error(`Text splice deletion evidence does not match targets: ${factIdentity}`);
-      }
+      validateTextSplice(mutation, factIdentity);
       return;
     case "text-mark":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
@@ -193,17 +198,31 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
         throw new Error(`Text mark targets are empty or duplicated: ${factIdentity}`);
       }
       return;
-    case "value-set":
-    case "value-unset":
-      requireIdentity(mutation.target.id, `${mutation.target.kind} owner`, factIdentity);
-      requireIdentity(mutation.key, "value key", factIdentity);
-      if (mutation.previous === undefined) {
-        throw new Error(`Value mutation lacks semantic evidence: ${factIdentity}`);
-      }
+    case "inline-reference-create":
+    case "inline-reference-delete":
+    case "inline-reference-alias-attach":
+    case "inline-reference-alias-detach":
+      validateInlineReferenceMutation(mutation, factIdentity);
+      return;
+    case "search-supertag-clause-attach":
+    case "search-field-clause-attach":
+      validateSearchClauseMutation(mutation, factIdentity);
+      return;
+    case "shared-default-view-definition-attach":
+      validateSharedDefaultViewDefinitionMutation(mutation, factIdentity);
+      return;
+    case "shared-default-view-definition-mode-set":
+      validateSharedDefaultViewDefinitionMode(mutation, factIdentity);
       return;
     default:
       assertNever(mutation);
   }
+}
+
+function validateTextSplice(mutation: Extract<Mutation, { kind: "text-splice" }>, factIdentity: string): void {
+  requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
+  validateAnchor(mutation.anchor, factIdentity);
+  validateStaticTextSpliceEvidence(mutation, factIdentity);
 }
 
 function validateNodeCreation(mutation: Extract<Mutation, { kind: "node-create" }>, factIdentity: string): void {
@@ -251,20 +270,6 @@ function validateRestorationAnchor(anchor: SequenceAnchor, factIdentity: string)
   }
   requireNullableIdentity(anchor.after, "anchor endpoint", factIdentity);
   requireNullableIdentity(anchor.before, "anchor endpoint", factIdentity);
-}
-
-function validateAnchor(anchor: SequenceAnchor, factIdentity: string): void {
-  if (anchor.after !== null && anchor.before !== null && anchor.after === anchor.before) {
-    throw new Error(`Sequence anchor repeats one identity: ${factIdentity}`);
-  }
-  requireNullableIdentity(anchor.after, "anchor endpoint", factIdentity);
-  requireNullableIdentity(anchor.before, "anchor endpoint", factIdentity);
-}
-
-function requireIdentity(value: string, label: string, factIdentity: string): void {
-  if (value.length === 0) {
-    throw new Error(`${label} identity is empty: ${factIdentity}`);
-  }
 }
 
 function requireNullableIdentity(value: string | null, label: string, factIdentity: string): void {

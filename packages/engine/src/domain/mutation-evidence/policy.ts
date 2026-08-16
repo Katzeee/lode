@@ -1,12 +1,16 @@
 import type { FactSnapshot, Mutation } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 import { fieldMutationEvidence } from "./field.js";
+import { fieldDefinitionMutationEvidence } from "./field-definition.js";
 import { nodeMutationEvidence } from "./node.js";
 import { occurrenceMutationEvidence } from "./occurrence.js";
-import { schemaMutationEvidence } from "./schema-family.js";
+import { supertagMutationEvidence } from "./supertag-family.js";
 import { templateMutationEvidence } from "./template.js";
 import { textMutationEvidence } from "./text.js";
-import { valueMutationEvidence } from "./value.js";
+import { metanodeMutationEvidence } from "./metanode.js";
+import { inlineReferenceMutationEvidence } from "./inline-reference.js";
+import { searchMutationEvidence } from "./search.js";
+import { viewMutationEvidence } from "./view.js";
 
 export type MutationEvidenceContext = Readonly<{
   snapshot: FactSnapshot;
@@ -27,12 +31,16 @@ export type MutationEvidenceFamily<Kind extends Mutation["kind"] = Mutation["kin
 
 const MUTATION_EVIDENCE_FAMILIES = [
   nodeMutationEvidence,
+  metanodeMutationEvidence,
   occurrenceMutationEvidence,
-  schemaMutationEvidence,
+  supertagMutationEvidence,
   templateMutationEvidence,
   fieldMutationEvidence,
+  fieldDefinitionMutationEvidence,
   textMutationEvidence,
-  valueMutationEvidence,
+  inlineReferenceMutationEvidence,
+  searchMutationEvidence,
+  viewMutationEvidence,
 ] as const;
 
 type OwnedMutationKind = (typeof MUTATION_EVIDENCE_FAMILIES)[number]["mutationKinds"][number];

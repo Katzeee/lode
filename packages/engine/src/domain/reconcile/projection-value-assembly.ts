@@ -1,156 +1,153 @@
-import { stableStringCompare, type JsonValue, type ProjectionIdentity, type ViewMode } from "../fact/index.js";
-import type { Projection, ProjectionSections, ProjectedNode, ProjectedOccurrence } from "./projection-types.js";
+import {
+  compareFacts,
+  stableStringCompare,
+  type ContributionFact,
+  type ProjectionIdentity,
+  type ProjectionPerspective,
+} from "../fact/index.js";
+import type { Projection, ProjectionSections } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
-import type { SchemaRelations } from "./schema-relations.js";
+import type { SupertagRelations } from "./supertag-relations.js";
 import type { TemplateStructureProjection } from "./template-node-projection.js";
-import { validateStoredTree } from "./occurrence-tree.js";
-import { valueTargetAddress } from "./value-address.js";
+import { validateNodeGraph } from "./node-graph.js";
+import type { NodeGraphStructure } from "./trash-structure.js";
+import { nodeLocation, type ProjectedNode } from "./node-graph.js";
 
 type ProjectionAssemblyInput = Readonly<{
-  view: ViewMode;
+  perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
-  nodes: ReadonlyMap<string, MutableNode>;
+  nodes: ReadonlyMap<string, ProjectedNode>;
   occurrences: ReadonlyMap<string, MutableOccurrence>;
-  children: ReadonlyMap<string, readonly string[]>;
+  childOccurrences: ReadonlyMap<string, readonly string[]>;
 }> &
-  Omit<ProjectionSections, "nodes" | "occurrences" | "children">;
+  Omit<ProjectionSections, "nodes" | "occurrences" | "childOccurrences">;
 
 type ProjectionArtifactAssemblyInput = Readonly<{
-  view: ViewMode;
+  perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
   storedNodes: ReadonlyMap<string, MutableNode>;
   contentNodes: ReadonlyMap<string, MutableNode>;
   templateStructure: TemplateStructureProjection;
-  nodeOwners: ProjectionSections["nodeOwners"];
-  addressedValues: ProjectionSections["addressedValues"];
-  schemaRelations: SchemaRelations;
-  nodeStatuses: ProjectionSections["nodeStatuses"];
+  nodeGraphStructure: NodeGraphStructure;
+  supertagRelations: SupertagRelations;
+  searchClauses: ProjectionSections["searchClauses"];
+  sharedDefaultViewDefinitions: ProjectionSections["sharedDefaultViewDefinitions"];
+  fieldDefinitionConfigurations: ProjectionSections["fieldDefinitionConfigurations"];
   conflictIssues: ProjectionSections["conflictIssues"];
+  active: readonly ContributionFact[];
 }>;
 
 export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInput): Projection {
-  validateStoredTree(input.storedNodes, input.templateStructure.occurrences);
-  return assembleProjection({
-    view: input.view,
-    identity: input.identity,
-    nodes: input.contentNodes,
+  validateNodeGraph({
+    nodes: input.storedNodes,
     occurrences: input.templateStructure.occurrences,
-    children: input.templateStructure.children,
-    nodeOwners: input.nodeOwners,
-    addressedValues: input.addressedValues,
-    ...input.schemaRelations,
+    childOccurrences: input.templateStructure.childOccurrences,
+    nodeOwners: input.nodeGraphStructure.nodeOwners,
+    metanodes: input.nodeGraphStructure.metanodes,
+  });
+  return assembleProjection({
+    perspective: input.perspective,
+    identity: input.identity,
+    nodes: projectNodes(input.contentNodes, input.active, input.nodeGraphStructure, input.identity.workspaceNodeId),
+    occurrences: input.templateStructure.occurrences,
+    childOccurrences: input.templateStructure.childOccurrences,
+    nodeOwners: input.nodeGraphStructure.nodeOwners,
+    metanodes: input.nodeGraphStructure.metanodes,
+    workspaceSystemNodes: input.nodeGraphStructure.workspaceSystemNodes,
+    ...input.supertagRelations,
+    searchClauses: input.searchClauses,
+    sharedDefaultViewDefinitions: input.sharedDefaultViewDefinitions,
+    fieldDefinitionConfigurations: input.fieldDefinitionConfigurations,
     templateNodeInstances: input.templateStructure.instances,
-    nodeStatuses: input.nodeStatuses,
     conflictIssues: input.conflictIssues,
   });
 }
 
+function projectNodes(
+  nodes: ReadonlyMap<string, MutableNode>,
+  active: readonly ContributionFact[],
+  graph: NodeGraphStructure,
+  workspaceNodeId: string,
+): ReadonlyMap<string, ProjectedNode> {
+  const aliases = inlineAliases(active, nodes);
+  const locationGraph = { ...graph, nodes: Object.fromEntries(nodes) };
+  return new Map(
+    [...nodes].map(([nodeId, node]) => [
+      nodeId,
+      {
+        nodeId,
+        nodeType: node.nodeType,
+        content: node.content.map((item) => {
+          if (item.kind === "text") {
+            return item;
+          }
+          const location = nodeLocation(workspaceNodeId, locationGraph, item.targetNodeId);
+          const aliasNodeId = aliases.get(item.id) ?? null;
+          return {
+            ...item,
+            aliasNodeId: aliasNodeId !== null && nodes.has(aliasNodeId) ? aliasNodeId : null,
+            targetStatus: location === "absent" ? ("unavailable" as const) : location,
+          };
+        }),
+      },
+    ]),
+  );
+}
+
+function inlineAliases(
+  active: readonly ContributionFact[],
+  nodes: ReadonlyMap<string, MutableNode>,
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>(
+    [...nodes.values()].flatMap((node) =>
+      node.content.flatMap((item) =>
+        item.kind === "inline-reference" && item.aliasNodeId ? [[item.id, item.aliasNodeId] as const] : [],
+      ),
+    ),
+  );
+  for (const fact of [...active].sort(compareFacts)) {
+    const mutation = fact.body.mutation;
+    if (mutation.kind === "inline-reference-alias-attach") {
+      result.set(mutation.inlineReferenceId, mutation.aliasNodeId);
+    } else if (
+      mutation.kind === "inline-reference-alias-detach" &&
+      result.get(mutation.inlineReferenceId) === mutation.aliasNodeId
+    ) {
+      result.delete(mutation.inlineReferenceId);
+    }
+  }
+  return result;
+}
+
 export function assembleProjection(input: ProjectionAssemblyInput): Projection {
-  const values = applyProjectedValues(input.nodes, input.occurrences, input.addressedValues);
   return {
-    view: input.view,
+    perspective: input.perspective,
     identity: input.identity,
-    nodes: sortedRecord(values.nodes),
-    occurrences: sortedRecord(values.occurrences),
-    children: Object.fromEntries(
-      [...input.children]
+    nodes: sortedRecord(input.nodes),
+    occurrences: sortedRecord(input.occurrences),
+    childOccurrences: Object.fromEntries(
+      [...input.childOccurrences]
         .filter(([, ids]) => ids.length > 0)
         .sort(([left], [right]) => stableStringCompare(left, right)),
     ),
     nodeOwners: input.nodeOwners,
-    addressedValues: input.addressedValues,
-    schemaApplications: input.schemaApplications,
-    schemaFields: input.schemaFields,
+    metanodes: input.metanodes,
+    workspaceSystemNodes: input.workspaceSystemNodes,
+    supertagApplications: input.supertagApplications,
+    supertagFields: input.supertagFields,
     templateFields: input.templateFields,
-    schemaTemplateNodes: input.schemaTemplateNodes,
+    supertagTemplateNodes: input.supertagTemplateNodes,
     templateNodeInstances: input.templateNodeInstances,
-    schemaExtensions: input.schemaExtensions,
-    schemaSearchMembers: input.schemaSearchMembers,
-    schemaExtensionConflicts: input.schemaExtensionConflicts,
-    nodeStatuses: input.nodeStatuses,
+    supertagExtensions: input.supertagExtensions,
+    supertagInstanceSupertags: input.supertagInstanceSupertags,
+    supertagExtensionConflicts: input.supertagExtensionConflicts,
     conflictIssues: input.conflictIssues,
     effectiveFields: input.effectiveFields,
     materializedFields: input.materializedFields,
+    searchClauses: input.searchClauses,
+    sharedDefaultViewDefinitions: input.sharedDefaultViewDefinitions,
+    fieldDefinitionConfigurations: input.fieldDefinitionConfigurations,
   };
-}
-
-export function applyProjectedValues(
-  nodes: ReadonlyMap<string, MutableNode>,
-  occurrences: ReadonlyMap<string, MutableOccurrence>,
-  addressed: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>,
-): Readonly<{
-  nodes: ReadonlyMap<string, MutableNode>;
-  occurrences: ReadonlyMap<string, MutableOccurrence>;
-}> {
-  const projectedNodes = new Map(
-    [...nodes].map(([id, node]) => {
-      const properties = Object.assign(
-        { ...node.properties },
-        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "property")],
-        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "schema")],
-      );
-      const metadata = Object.assign(
-        { ...node.metadata },
-        addressed[valueTargetAddress({ kind: "node", id: node.nodeId }, "metadata")],
-      );
-      return [id, { ...node, properties, metadata }] as const;
-    }),
-  );
-  const projectedOccurrences = new Map(
-    [...occurrences].map(([id, occurrence]) => {
-      const owner = { kind: "occurrence" as const, id: occurrence.occurrenceId };
-      const properties = Object.assign(
-        { ...occurrence.properties },
-        addressed[valueTargetAddress(owner, "property")],
-        addressed[valueTargetAddress(owner, "schema")],
-      );
-      const metadata = Object.assign({ ...occurrence.metadata }, addressed[valueTargetAddress(owner, "metadata")]);
-      return [id, { ...occurrence, properties, metadata }] as const;
-    }),
-  );
-  return { nodes: projectedNodes, occurrences: projectedOccurrences };
-}
-
-export function stripProjectedValues(
-  nodes: Readonly<Record<string, ProjectedNode>>,
-  occurrences: Readonly<Record<string, ProjectedOccurrence>>,
-  addressed: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>,
-): Readonly<{
-  nodes: Map<string, MutableNode>;
-  occurrences: Map<string, MutableOccurrence>;
-}> {
-  const strippedNodes = new Map(
-    Object.entries(nodes).map(([id, node]): [string, MutableNode] => {
-      const properties = { ...node.properties };
-      const metadata = { ...node.metadata };
-      deleteAddressedKeys(properties, addressed, { kind: "node", id }, "property");
-      deleteAddressedKeys(properties, addressed, { kind: "node", id }, "schema");
-      deleteAddressedKeys(metadata, addressed, { kind: "node", id }, "metadata");
-      return [id, { ...node, text: [...node.text], properties, metadata }];
-    }),
-  );
-  const strippedOccurrences = new Map(
-    Object.entries(occurrences).map(([id, occurrence]): [string, MutableOccurrence] => {
-      const properties = { ...occurrence.properties };
-      const metadata = { ...occurrence.metadata };
-      deleteAddressedKeys(properties, addressed, { kind: "occurrence", id }, "property");
-      deleteAddressedKeys(properties, addressed, { kind: "occurrence", id }, "schema");
-      deleteAddressedKeys(metadata, addressed, { kind: "occurrence", id }, "metadata");
-      return [id, { ...occurrence, properties, metadata }];
-    }),
-  );
-  return { nodes: strippedNodes, occurrences: strippedOccurrences };
-}
-
-function deleteAddressedKeys(
-  target: Record<string, JsonValue>,
-  addressed: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>,
-  owner: Readonly<{ kind: "node" | "occurrence"; id: string }>,
-  namespace: "property" | "metadata" | "schema",
-): void {
-  for (const key of Object.keys(addressed[valueTargetAddress(owner, namespace)] ?? {})) {
-    delete target[key];
-  }
 }
 
 function sortedRecord<T>(values: ReadonlyMap<string, T>): Readonly<Record<string, T>> {

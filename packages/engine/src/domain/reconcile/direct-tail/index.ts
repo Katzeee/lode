@@ -1,11 +1,15 @@
 import {
   isFieldMutation,
+  isFieldDefinitionConfigMutation,
+  isInlineReferenceMutation,
+  isMetanodeMutation,
   isNodeMutation,
   isOccurrenceMutation,
-  isSchemaMutation,
+  isSupertagMutation,
   isTemplateMutation,
   isTextMutation,
-  isValueMutation,
+  isSearchMutation,
+  isViewMutation,
   type ContributionFact,
   type Fact,
   type Mutation,
@@ -14,11 +18,11 @@ import type { Projection } from "../projection-types.js";
 import { canApplyFieldDirectTail } from "./field-rule.js";
 import { canApplyNodeDirectTail } from "./node-rule.js";
 import { canApplyOccurrenceDirectTail } from "./occurrence-rule.js";
-import { canApplySchemaDirectTail } from "./schema-rule.js";
+import { canApplySupertagDirectTail } from "./supertag-rule.js";
 import { selectNeutralFactTail } from "./tail-selection.js";
 import { canApplyTemplateDirectTail } from "./template-rule.js";
 import { canApplyTextDirectTail } from "./text-rule.js";
-import { canApplyValueDirectTail } from "./value-rule.js";
+import { canApplyInlineReferenceDirectTail } from "./inline-reference-rule.js";
 
 export function selectEligibleDirectTail(
   projection: Projection,
@@ -37,14 +41,17 @@ export function selectEligibleDirectTail(
 }
 
 function canApplyDirectTail(projection: Projection, mutation: Mutation): boolean {
+  if (isMetanodeMutation(mutation)) {
+    return false;
+  }
   if (isNodeMutation(mutation)) {
     return canApplyNodeDirectTail(projection, mutation);
   }
   if (isOccurrenceMutation(mutation)) {
     return canApplyOccurrenceDirectTail(projection, mutation);
   }
-  if (isSchemaMutation(mutation)) {
-    return canApplySchemaDirectTail(projection, mutation);
+  if (isSupertagMutation(mutation)) {
+    return canApplySupertagDirectTail(projection, mutation);
   }
   if (isTemplateMutation(mutation)) {
     return canApplyTemplateDirectTail(projection, mutation);
@@ -52,11 +59,20 @@ function canApplyDirectTail(projection: Projection, mutation: Mutation): boolean
   if (isFieldMutation(mutation)) {
     return canApplyFieldDirectTail(projection, mutation);
   }
+  if (isFieldDefinitionConfigMutation(mutation)) {
+    return false;
+  }
   if (isTextMutation(mutation)) {
     return canApplyTextDirectTail(projection, mutation);
   }
-  if (isValueMutation(mutation)) {
-    return canApplyValueDirectTail(projection, mutation);
+  if (isInlineReferenceMutation(mutation)) {
+    return canApplyInlineReferenceDirectTail(projection, mutation);
+  }
+  if (isSearchMutation(mutation)) {
+    return false;
+  }
+  if (isViewMutation(mutation)) {
+    return false;
   }
   return assertNever(mutation);
 }

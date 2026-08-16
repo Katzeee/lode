@@ -9,14 +9,17 @@ import {
   type FactFrontier,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
+import {
+  advanceGeneration,
+  rebuildGeneration,
+  CURRENT_PROJECTION_VERSIONS as versions,
+} from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const deleteReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const insertReplica = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";
@@ -72,9 +75,11 @@ describe("Field content deletion convergence", () => {
         "value-b-occurrence",
         "value-c-occurrence",
       ]);
-      expect(full.generation.origin.occurrences["value-a-occurrence"]).toBeUndefined();
-      expect(full.generation.origin.nodes["value-a"]).toBeUndefined();
-      expect(full.generation.review).toEqual({ ...full.generation.origin, view: "review" });
+      expect(full.generation.origin.occurrences["value-a-occurrence"]?.parentNodeId).toBe(
+        "workspace-trash:v1:workspace",
+      );
+      expect(full.generation.origin.nodes["value-a"]).toBeDefined();
+      expect(full.generation.review).toEqual({ ...full.generation.origin, perspective: "review" });
     }
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
@@ -114,14 +119,11 @@ describe("Field content deletion convergence", () => {
     const merged = admitted([...base.values, ...deletion, insertion]);
     const hidden = rebuildGeneration("workspace", merged, versions).generation.origin;
     expect(hidden.materializedFields.owner).toBeUndefined();
-    expect(hidden.nodes["field-node"]).toBeUndefined();
-    expect(hidden.nodes["value-a"]).toBeUndefined();
-    expect(hidden.nodes["value-b"]).toBeUndefined();
+    expect(hidden.nodes["field-node"]).toBeDefined();
+    expect(hidden.nodes["value-a"]).toBeDefined();
+    expect(hidden.nodes["value-b"]).toBeDefined();
     expect(hidden.nodes["value-c"]).toBeDefined();
     expect(merged.facts.some((fact) => fact.id === insertion.id)).toBe(true);
-    const occurrenceDeletion = deletion.find(
-      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-delete",
-    );
     const nodeDeletions = new Map(
       deletion.flatMap((fact) =>
         fact.body.kind === "contribution" && fact.body.mutation.kind === "node-delete"
@@ -129,27 +131,14 @@ describe("Field content deletion convergence", () => {
           : [],
       ),
     );
-    if (!occurrenceDeletion) {
-      throw new Error("Expected generated Field Occurrence deletion");
+    const fieldDeletionFactId = nodeDeletions.get("field-node");
+    if (!fieldDeletionFactId) {
+      throw new Error("Expected structural Field Node deletion");
     }
     const restoration = remoteTransaction(
       restoreReplica,
       merged.frontier,
-      ["field-node", "value-a", "value-b"]
-        .map((nodeId): Mutation => {
-          const deletionFactId = nodeDeletions.get(nodeId);
-          if (!deletionFactId) {
-            throw new Error(`Expected ${nodeId} deletion Fact`);
-          }
-          return { kind: "node-restore", nodeId, deletionFactId };
-        })
-        .concat({
-          kind: "occurrence-restore",
-          occurrenceId: "field-occurrence",
-          deletionFactId: occurrenceDeletion.id,
-          parentNodeId: "owner",
-          anchor: end,
-        }),
+      [{ kind: "node-restore", nodeId: "field-node", deletionFactId: fieldDeletionFactId }],
       Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
     );
     const expectedSnapshot = admitted([...base.values, ...deletion, insertion, ...restoration]);
@@ -183,9 +172,9 @@ describe("Field content deletion convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("schema");
+  facts.addPlaced("supertag");
   facts.addPlaced("field-definition");
-  facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+  facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
   facts.add({
     kind: "node-type-declare",
     nodeId: "field-definition",
@@ -198,14 +187,14 @@ function fixture(): Facts {
   facts.addPlaced("value-c", "workspace");
   facts.addPlaced("unrelated", "workspace");
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "schema",
+    kind: "supertag-field-add",
+    supertagId: "supertag",
     fieldDefinitionId: "field-definition",
-    fieldNodeId: "schema-field-definition-template-field",
-    fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
+    fieldNodeId: "supertag-field-definition-template-field",
+    fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end });
   facts.add({
     kind: "field-materialize",
     ownerNodeId: "owner",
@@ -238,17 +227,11 @@ function remoteDeletion(
   mutation: Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>,
   ownedNodeIds: readonly string[],
 ): readonly Fact[] {
-  const occurrenceId = mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
-  return remoteTransaction(replicaId, observed, [
-    mutation,
-    {
-      kind: "occurrence-delete",
-      occurrenceId,
-      previousParentNodeId: mutation.previousParentNodeId,
-      previousAnchor: mutation.previousAnchor,
-    },
-    ...ownedNodeIds.map((nodeId): Mutation => ({ kind: "node-delete", nodeId })),
-  ]);
+  const rootNodeId = ownedNodeIds.at(-1);
+  if (!rootNodeId) {
+    throw new Error("Field content deletion fixture requires a structural root");
+  }
+  return remoteTransaction(replicaId, observed, [mutation, { kind: "node-delete", nodeId: rootNodeId }]);
 }
 
 function remoteTransaction(

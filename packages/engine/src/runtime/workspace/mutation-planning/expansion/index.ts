@@ -1,26 +1,36 @@
 import { singleMutationWrite, type MutationWrite } from "../../../../domain/edit/index.js";
 import {
   isFieldMutation,
+  isFieldDefinitionConfigMutation,
+  isInlineReferenceMutation,
+  isMetanodeMutation,
   isNodeMutation,
   isOccurrenceMutation,
-  isSchemaMutation,
+  isSupertagMutation,
   isTemplateMutation,
   isTextMutation,
-  isValueMutation,
+  isSearchMutation,
+  isViewMutation,
   type Mutation,
 } from "../../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 import { expandNodeDeletion, expandOccurrenceDeletion } from "./deletion-rule.js";
 import { expandFieldMutation } from "./field-rule.js";
-import { expandSchemaMutation } from "./schema-rule.js";
+import { expandSupertagMutation } from "./supertag-rule.js";
 import { expandTemplateMutation } from "./template-rule.js";
 
 export function expandMutation(mutation: Mutation, available: ScopedProjection): MutationWrite {
-  if (isSchemaMutation(mutation)) {
-    return expandSchemaMutation(mutation, available);
+  if (isMetanodeMutation(mutation)) {
+    return singleMutationWrite(mutation);
+  }
+  if (isSupertagMutation(mutation)) {
+    return expandSupertagMutation(mutation, available);
   }
   if (isFieldMutation(mutation)) {
     return expandFieldMutation(mutation, available);
+  }
+  if (isFieldDefinitionConfigMutation(mutation)) {
+    return singleMutationWrite(mutation);
   }
   if (isTemplateMutation(mutation)) {
     return expandTemplateMutation(mutation, available);
@@ -33,7 +43,16 @@ export function expandMutation(mutation: Mutation, available: ScopedProjection):
       ? expandOccurrenceDeletion(mutation, available)
       : singleMutationWrite(mutation);
   }
-  if (isTextMutation(mutation) || isValueMutation(mutation)) {
+  if (isTextMutation(mutation)) {
+    return singleMutationWrite(mutation);
+  }
+  if (isInlineReferenceMutation(mutation)) {
+    return singleMutationWrite(mutation);
+  }
+  if (isSearchMutation(mutation)) {
+    return singleMutationWrite(mutation);
+  }
+  if (isViewMutation(mutation)) {
     return singleMutationWrite(mutation);
   }
   return assertNever(mutation);

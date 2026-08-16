@@ -5,7 +5,7 @@ export type {
   ProjectionGenerationReader,
   ProjectionIdentityReader,
   ProjectionPublisher,
-  ProjectionSchemaSearchReader,
+  ProjectionSupertagInstancesReader,
   ProjectionSectionPageReader,
   ProjectionSnapshotReader,
   ReviewReadModelReader,

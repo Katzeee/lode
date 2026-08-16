@@ -7,7 +7,7 @@ import {
   type Fact,
   type TextAtomId,
 } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { hasTextEffect, textEffect } from "./text-review-effect.js";
 
@@ -97,7 +97,7 @@ function textContinuityGroups(
   generation: ScopedProjectionGeneration,
   nodeId: string,
 ): readonly Readonly<{ targets: readonly ContributionFact[]; bridges: readonly TextAtomId[] }>[] {
-  const atoms = generation.review.nodes[nodeId]?.text ?? [];
+  const atoms = textAtoms(generation.review.nodes[nodeId]);
   const pendingIds = new Set(facts.map((fact) => fact.id));
   const indexed = facts
     .map((fact) => ({

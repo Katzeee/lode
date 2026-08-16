@@ -1,4 +1,4 @@
-import type { ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { Projection } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 import { readIndex } from "./index-reader.js";
@@ -9,17 +9,17 @@ type TemplateNodeInstance = Projection["templateNodeInstances"][number];
 export async function includeTemplateInstanceScope(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   scope: GenerationReadScope,
 ): Promise<Readonly<Record<string, TemplateNodeInstance>>> {
   const groups = await Promise.all([
-    readIndex(store, generationId, view, "templateNodeInstancesByOwner", [...scope.nodes]),
-    readIndex(store, generationId, view, "templateNodeInstancesByTemplate", [...scope.nodes]),
-    readIndex(store, generationId, view, "templateNodeInstancesByNode", [...scope.nodes]),
-    readIndex(store, generationId, view, "templateNodeInstancesByOccurrence", [...scope.occurrences]),
-    readIndex(store, generationId, view, "templateNodeInstancesBySchema", [...scope.schemas]),
+    readIndex(store, generationId, perspective, "templateNodeInstancesByOwner", [...scope.nodes]),
+    readIndex(store, generationId, perspective, "templateNodeInstancesByTemplate", [...scope.nodes]),
+    readIndex(store, generationId, perspective, "templateNodeInstancesByNode", [...scope.nodes]),
+    readIndex(store, generationId, perspective, "templateNodeInstancesByOccurrence", [...scope.occurrences]),
+    readIndex(store, generationId, perspective, "templateNodeInstancesBySupertag", [...scope.supertags]),
   ]);
-  const values = await readTemplateNodeInstances(store, generationId, view, [...new Set(groups.flat())]);
+  const values = await readTemplateNodeInstances(store, generationId, perspective, [...new Set(groups.flat())]);
   for (const value of Object.values(values)) {
     scope.nodes.add(value.ownerNodeId);
     scope.nodes.add(value.templateNodeId);
@@ -28,8 +28,8 @@ export async function includeTemplateInstanceScope(
     }
     scope.occurrences.add(value.instanceOccurrenceId);
     value.sources.forEach((source) => {
-      scope.schemas.add(source.schemaId);
-      scope.schemas.add(source.appliedSchemaId);
+      scope.supertags.add(source.supertagId);
+      scope.supertags.add(source.appliedSupertagId);
     });
   }
   return values;
@@ -38,9 +38,9 @@ export async function includeTemplateInstanceScope(
 async function readTemplateNodeInstances(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   identities: readonly string[],
 ): Promise<Record<string, TemplateNodeInstance>> {
-  const batch = await store.read(generationId, view, "templateNodeInstances", identities);
+  const batch = await store.read(generationId, perspective, "templateNodeInstances", identities);
   return Object.fromEntries(batch.entries.map((entry) => [entry.identity, entry.value]));
 }

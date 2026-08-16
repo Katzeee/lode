@@ -23,7 +23,7 @@ export function projectConflictIssues(
   const issues = [
     ...unsupportedDirectIntents(snapshot),
     ...resolutionConflicts(snapshot),
-    ...schemaExtensionConflicts(extensionConflicts),
+    ...supertagExtensionConflicts(extensionConflicts),
     ...nodeTypeConflicts(active),
     ...fieldConfigConflicts(templateFields, effectiveFields),
     ...placementConflicts(active, occurrences),
@@ -142,7 +142,13 @@ function fieldConfigConflicts(
     for (const item of items) {
       if (item.configCandidates.length > 1) {
         issues.push(
-          fieldConfigConflict(null, item.fieldDefinitionId, [item.schemaId], [item.fieldNodeId], item.configCandidates),
+          fieldConfigConflict(
+            null,
+            item.fieldDefinitionId,
+            [item.supertagId],
+            [item.fieldNodeId],
+            item.configCandidates,
+          ),
         );
       }
     }
@@ -154,7 +160,7 @@ function fieldConfigConflicts(
           fieldConfigConflict(
             ownerNodeId,
             field.fieldDefinitionId,
-            field.sourceSchemaIds,
+            field.sourceSupertagIds,
             field.sourceFieldNodeIds,
             field.configCandidates,
           ),
@@ -178,7 +184,7 @@ function fieldConfigConflicts(
 function fieldConfigConflict(
   ownerNodeId: string | null,
   fieldDefinitionId: string,
-  schemaIds: readonly string[],
+  supertagIds: readonly string[],
   templateOccurrenceIds: readonly string[],
   candidates: readonly EffectiveField["configCandidates"][number][],
 ): ConflictIssue {
@@ -193,7 +199,7 @@ function fieldConfigConflict(
     identity,
     ownerNodeId,
     fieldDefinitionId,
-    schemaIds: [...schemaIds].sort(stableStringCompare),
+    supertagIds: [...supertagIds].sort(stableStringCompare),
     templateOccurrenceIds: [...templateOccurrenceIds].sort(stableStringCompare),
     candidates: candidates.map((candidate) => ({
       config: candidate.config,
@@ -238,15 +244,15 @@ function resolutionConflict(snapshot: FactSnapshot, key: string, targets: Readon
   };
 }
 
-function schemaExtensionConflicts(conflicts: Readonly<Record<string, readonly string[]>>): readonly ConflictIssue[] {
+function supertagExtensionConflicts(conflicts: Readonly<Record<string, readonly string[]>>): readonly ConflictIssue[] {
   const groups = new Map<string, readonly string[]>();
-  for (const schemaIds of Object.values(conflicts)) {
-    const ordered = [...schemaIds].sort(stableStringCompare);
+  for (const supertagIds of Object.values(conflicts)) {
+    const ordered = [...supertagIds].sort(stableStringCompare);
     groups.set(canonicalJson(ordered), ordered);
   }
-  return [...groups.values()].map((schemaIds) => ({
-    kind: "schema-extension-cycle",
-    identity: canonicalJson(["schema-extension-cycle", schemaIds]),
-    schemaIds,
+  return [...groups.values()].map((supertagIds) => ({
+    kind: "supertag-extension-cycle",
+    identity: canonicalJson(["supertag-extension-cycle", supertagIds]),
+    supertagIds,
   }));
 }

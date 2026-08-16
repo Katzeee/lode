@@ -1,5 +1,6 @@
 import { compareFacts, type ContributionFact, type Mutation } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
+import { nodeLocation } from "../reconcile/node-graph.js";
 
 export function normalizeCompensationTargets(
   targets: readonly ContributionFact[],
@@ -48,12 +49,6 @@ function normalizeOwnerChanges(
 }
 
 function restoreFirstPrevious(first: Mutation, last: Mutation): Mutation {
-  if (
-    (first.kind === "value-set" || first.kind === "value-unset") &&
-    (last.kind === "value-set" || last.kind === "value-unset")
-  ) {
-    return { ...last, previous: first.previous };
-  }
   if (first.kind === "text-mark" && last.kind === "text-mark") {
     return { ...last, previous: first.previous };
   }
@@ -78,9 +73,10 @@ function lifecycleRepresentatives(
     return null;
   }
   if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
-    const wanted = projection.nodes[mutation.nodeId] ? ["node-create", "node-restore"] : ["node-delete"];
+    const active = nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) === "active";
+    const wanted = active ? ["node-create", "node-restore"] : ["node-delete"];
     const matching = ordered.filter((fact) => wanted.includes(fact.body.mutation.kind));
-    return projection.nodes[mutation.nodeId] ? matching.slice(-1) : matching;
+    return active ? matching.slice(-1) : matching;
   }
   if (
     mutation.kind === "occurrence-create" ||
@@ -107,9 +103,6 @@ function compensationOwner(mutation: Mutation): string | null {
   ) {
     return `occurrence-lifecycle/${mutation.occurrenceId}`;
   }
-  if (mutation.kind === "value-set" || mutation.kind === "value-unset") {
-    return `value/${mutation.target.kind}/${mutation.target.id}/${mutation.namespace}/${mutation.key}`;
-  }
   if (mutation.kind === "text-mark") {
     return `mark/${mutation.nodeId}/${mutation.key}/${[...mutation.atomIds].sort().join("|")}`;
   }
@@ -122,17 +115,17 @@ function compensationOwner(mutation: Mutation): string | null {
   if (mutation.kind === "node-type-declare") {
     return `node-type/${mutation.nodeId}`;
   }
-  if (mutation.kind === "schema-apply" || mutation.kind === "schema-remove") {
-    return `schema-application/${mutation.nodeId}/${mutation.schemaId}`;
+  if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
+    return `supertag-application/${mutation.nodeId}/${mutation.supertagId}`;
   }
   if (
-    mutation.kind === "schema-field-add" ||
-    mutation.kind === "schema-field-remove" ||
-    mutation.kind === "schema-field-configure"
+    mutation.kind === "supertag-field-add" ||
+    mutation.kind === "supertag-field-remove" ||
+    mutation.kind === "supertag-field-configure"
   ) {
-    return `schema-field/${mutation.schemaId}/${mutation.fieldDefinitionId}`;
+    return `supertag-field/${mutation.supertagId}/${mutation.fieldDefinitionId}`;
   }
-  return mutation.kind === "schema-extension-add" || mutation.kind === "schema-extension-remove"
-    ? `schema-extension/${mutation.schemaId}/${mutation.baseSchemaId}`
+  return mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
+    ? `supertag-extension/${mutation.supertagId}/${mutation.baseSupertagId}`
     : null;
 }

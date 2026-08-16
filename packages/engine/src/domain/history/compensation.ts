@@ -36,9 +36,9 @@ export function planCompensation(
       (fact) =>
         reviewActivation.activeContributionIds.has(fact.id) && !originActivation.activeContributionIds.has(fact.id),
     );
-  const view = intent === "proposal" || contingentDirect ? "review" : "origin";
-  const projection = generation[view];
-  const active = view === "review" ? reviewActivation : originActivation;
+  const perspective = intent === "proposal" || contingentDirect ? "review" : "origin";
+  const projection = generation[perspective];
+  const active = perspective === "review" ? reviewActivation : originActivation;
   const eligibleIds = new Set(eligibleTargets.map((fact) => fact.id));
   const counterfactualFacts = scopedFacts.filter((fact) => !eligibleIds.has(fact.id));
   const firstTarget = eligibleTargets[0];
@@ -53,17 +53,21 @@ export function planCompensation(
     firstTarget.workspaceId,
     { facts: scopedFacts, frontier: snapshot.frontier },
     versions,
-  ).generation[view];
+  ).generation[perspective];
   const counterfactual = rebuildGeneration(
     firstTarget.workspaceId,
     { facts: counterfactualFacts, frontier: snapshot.frontier },
     versions,
-  ).generation[view];
+  ).generation[perspective];
   if (canonicalJson(scoped) === canonicalJson(counterfactual)) {
     return { kind: "unavailable", reason: "History Step has no attributable effect" };
   }
 
-  const normalizedTargets = normalizeCompensationTargets(eligibleTargets, projection);
+  const creationPlacementIds = nodeCreationPlacementIds(eligibleTargets);
+  const infrastructureNodeCreationIds = metanodeCreationIds(eligibleTargets);
+  const normalizedTargets = normalizeCompensationTargets(eligibleTargets, projection).filter(
+    (fact) => !creationPlacementIds.has(fact.id) && !infrastructureNodeCreationIds.has(fact.id),
+  );
   const normalizedIds = new Set(normalizedTargets.map((fact) => fact.id));
   const activeFacts = scopedFacts.filter(
     (fact): fact is ContributionFact =>
@@ -85,4 +89,33 @@ export function planCompensation(
   return mutations.length === 0
     ? { kind: "unavailable", reason: "History Step has no attributable effect" }
     : { kind: "ready", mutations };
+}
+
+function metanodeCreationIds(targets: readonly ContributionFact[]): ReadonlySet<string> {
+  const attachedRootIds = new Set(
+    targets.flatMap((fact) => (fact.body.mutation.kind === "metanode-attach" ? [fact.body.mutation.metanodeId] : [])),
+  );
+  return new Set(
+    targets.flatMap((fact) =>
+      fact.body.mutation.kind === "node-create" && attachedRootIds.has(fact.body.mutation.nodeId) ? [fact.id] : [],
+    ),
+  );
+}
+
+function nodeCreationPlacementIds(targets: readonly ContributionFact[]): ReadonlySet<string> {
+  const transactionNodeIds = new Set(
+    targets.flatMap((fact) =>
+      fact.body.mutation.kind === "node-create"
+        ? [`${fact.transaction.transactionId}/${fact.body.mutation.nodeId}`]
+        : [],
+    ),
+  );
+  return new Set(
+    targets.flatMap((fact) =>
+      fact.body.mutation.kind === "occurrence-create" &&
+      transactionNodeIds.has(`${fact.transaction.transactionId}/${fact.body.mutation.nodeId}`)
+        ? [fact.id]
+        : [],
+    ),
+  );
 }

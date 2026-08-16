@@ -1,8 +1,8 @@
-import { isOccurrenceMutation, type ContributionFact, type JsonValue } from "../fact/index.js";
+import { isOccurrenceMutation, type ContributionFact, type NodeType } from "../fact/index.js";
+import type { InlineReferenceId } from "../fact/index.js";
 import type { TextAtom } from "./projection-types.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
 import { hasUnrestoredDeletion, occurrenceDeletionIds } from "./field-content-deletion.js";
-import { removeOccurrencesWithMissingNodes } from "./occurrence-tree.js";
 import {
   createdOccurrenceNodeId,
   hasPlacement,
@@ -15,21 +15,28 @@ export type MutableOccurrence = {
   occurrenceId: string;
   nodeId: string;
   parentNodeId: string;
-  properties: Record<string, JsonValue>;
-  metadata: Record<string, JsonValue>;
   derived: boolean;
 };
 
 export type MutableNode = {
   nodeId: string;
-  text: TextAtom[];
-  properties: Record<string, JsonValue>;
-  metadata: Record<string, JsonValue>;
+  nodeType: NodeType | null;
+  content: MutableNodeContentItem[];
 };
+
+export type MutableInlineReference = {
+  kind: "inline-reference";
+  id: InlineReferenceId;
+  targetNodeId: string;
+  aliasNodeId?: string | null;
+  contributionId: string;
+};
+
+export type MutableNodeContentItem = TextAtom | MutableInlineReference;
 
 export type AuthoredStructure = Readonly<{
   occurrences: Map<string, MutableOccurrence>;
-  children: Map<string, string[]>;
+  childOccurrences: Map<string, string[]>;
 }>;
 
 export function createOccurrences(
@@ -37,7 +44,7 @@ export function createOccurrences(
   nodes: ReadonlyMap<string, MutableNode>,
 ): AuthoredStructure {
   const occurrences = new Map<string, MutableOccurrence>();
-  const children = new Map<string, string[]>();
+  const childOccurrences = new Map<string, string[]>();
   const createdIdentities = new Set<string>();
   const restoredDeletionIds = restoredOccurrenceDeletionIds(active);
   const deletionIds = occurrenceDeletionIds(active);
@@ -49,7 +56,7 @@ export function createOccurrences(
     }
     switch (mutation.kind) {
       case "occurrence-create":
-        placeCreatedOccurrence(mutation, occurrences, children, nodes, createdIdentities);
+        placeCreatedOccurrence(mutation, occurrences, childOccurrences, nodes, createdIdentities);
         break;
       case "occurrence-move": {
         const occurrence = occurrences.get(mutation.occurrenceId);
@@ -58,25 +65,45 @@ export function createOccurrences(
           nodes.has(mutation.parentNodeId) &&
           !hasPlacement(occurrences, occurrence.nodeId, mutation.parentNodeId, mutation.occurrenceId)
         ) {
-          removePlacement(children, mutation.occurrenceId);
+          removePlacement(childOccurrences, mutation.occurrenceId);
           occurrence.parentNodeId = mutation.parentNodeId;
-          insertAtAnchor(listFor(children, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
+          insertAtAnchor(listFor(childOccurrences, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
         }
         break;
       }
       case "occurrence-delete":
         if (!restoredDeletionIds.has(fact.id)) {
-          deleteOccurrence(mutation.occurrenceId, occurrences, children);
+          deleteOccurrence(mutation.occurrenceId, occurrences, childOccurrences);
         }
         break;
       case "occurrence-restore":
-        applyOccurrenceRestore(active, mutation, deletionIds, restoredDeletionIds, occurrences, children, nodes);
+        applyOccurrenceRestore(
+          active,
+          mutation,
+          deletionIds,
+          restoredDeletionIds,
+          occurrences,
+          childOccurrences,
+          nodes,
+        );
         break;
     }
   }
 
-  removeOccurrencesWithMissingNodes(nodes, occurrences, children);
-  return { occurrences, children };
+  removeOccurrencesWithMissingNodes(nodes, occurrences, childOccurrences);
+  return { occurrences, childOccurrences };
+}
+
+function removeOccurrencesWithMissingNodes(
+  nodes: ReadonlyMap<string, MutableNode>,
+  occurrences: Map<string, MutableOccurrence>,
+  childOccurrences: Map<string, string[]>,
+): void {
+  for (const [occurrenceId, occurrence] of occurrences) {
+    if (!nodes.has(occurrence.nodeId)) {
+      deleteOccurrence(occurrenceId, occurrences, childOccurrences);
+    }
+  }
 }
 
 function restoredOccurrenceDeletionIds(active: readonly ContributionFact[]): ReadonlySet<string> {
@@ -93,20 +120,20 @@ function applyOccurrenceRestore(
   deletionIds: ReadonlyMap<string, readonly string[]>,
   restoredDeletionIds: ReadonlySet<string>,
   occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  childOccurrences: Map<string, string[]>,
   nodes: ReadonlyMap<string, MutableNode>,
 ): void {
   if (hasUnrestoredDeletion(mutation.occurrenceId, deletionIds, restoredDeletionIds)) {
     return;
   }
-  restoreOccurrence(active, mutation, occurrences, children, nodes);
+  restoreOccurrence(active, mutation, occurrences, childOccurrences, nodes);
 }
 
 function restoreOccurrence(
   active: readonly ContributionFact[],
   mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-restore" }>,
   occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  childOccurrences: Map<string, string[]>,
   nodes: ReadonlyMap<string, MutableNode>,
 ): void {
   const nodeId = createdOccurrenceNodeId(active, mutation.occurrenceId);
@@ -115,14 +142,14 @@ function restoreOccurrence(
   }
   const existing = occurrences.get(mutation.occurrenceId);
   if (existing) {
-    removePlacement(children, mutation.occurrenceId);
+    removePlacement(childOccurrences, mutation.occurrenceId);
     existing.parentNodeId = mutation.parentNodeId;
-    insertAtAnchor(listFor(children, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
+    insertAtAnchor(listFor(childOccurrences, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
     return;
   }
   placeOccurrence(
     occurrences,
-    children,
+    childOccurrences,
     newOccurrence(mutation.occurrenceId, nodeId, mutation.parentNodeId),
     mutation.anchor,
     nodes,
@@ -132,8 +159,8 @@ function restoreOccurrence(
 function deleteOccurrence(
   occurrenceId: string,
   occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  childOccurrences: Map<string, string[]>,
 ): void {
-  removePlacement(children, occurrenceId);
+  removePlacement(childOccurrences, occurrenceId);
   occurrences.delete(occurrenceId);
 }

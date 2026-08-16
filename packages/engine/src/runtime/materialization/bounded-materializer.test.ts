@@ -48,24 +48,24 @@ describe("bounded derived materialization", () => {
     });
   });
 
-  it("pages Schema Search from its membership index without reading the whole result", async () => {
+  it("pages Supertag Search from its membership index without reading the whole result", async () => {
     const materializer = new BoundedProjectionMaterializer(new InMemoryDocumentStore(), {
       capacity: 8,
     });
     const facts = new Facts();
-    for (const schemaId of ["anime", "book"]) {
-      facts.add({ kind: "node-create", nodeId: schemaId });
-      facts.add({ kind: "node-type-declare", nodeId: schemaId, nodeType: "schema" });
+    for (const supertagId of ["anime", "book"]) {
+      facts.addPlaced(supertagId);
+      facts.add({ kind: "node-type-declare", nodeId: supertagId, nodeType: "supertag-definition" });
     }
     for (let index = 0; index < 250; index += 1) {
       const nodeId = `anime-${String(index).padStart(3, "0")}`;
-      facts.add({ kind: "node-create", nodeId });
-      facts.add({ kind: "schema-apply", nodeId, schemaId: "anime", anchor: end });
+      facts.addPlaced(nodeId);
+      facts.add({ kind: "supertag-apply", nodeId, supertagId: "anime", anchor: end });
     }
     for (let index = 0; index < 50; index += 1) {
       const nodeId = `book-${String(index).padStart(3, "0")}`;
-      facts.add({ kind: "node-create", nodeId });
-      facts.add({ kind: "schema-apply", nodeId, schemaId: "book", anchor: end });
+      facts.addPlaced(nodeId);
+      facts.add({ kind: "supertag-apply", nodeId, supertagId: "book", anchor: end });
     }
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
     await materializer.publish(generation, emptyReviewReadModel);
@@ -73,7 +73,7 @@ describe("bounded derived materialization", () => {
     const nodeIds: string[] = [];
     let after: string | null = null;
     do {
-      const page = await materializer.schemaSearch(generation.identity.generationId, "origin", "anime", after, 25);
+      const page = await materializer.supertagInstances(generation.identity.generationId, "origin", "anime", after, 25);
       nodeIds.push(...page.nodeIds);
       after = page.next;
     } while (after !== null);

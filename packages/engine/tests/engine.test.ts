@@ -75,7 +75,7 @@ describe("Engine composition", () => {
       await restarted.application.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({
       status: "ok",
@@ -117,7 +117,7 @@ describe("Engine composition", () => {
       await restarted.application.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({
       status: "ok",
@@ -154,7 +154,7 @@ describe("Engine composition", () => {
       await afterUndoRestart.application.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({ status: "ok", value: { nodes: {} } });
     await afterUndoRestart.close();
@@ -208,7 +208,7 @@ describe("Engine composition", () => {
       await restarted.application.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({
       status: "ok",
@@ -231,7 +231,7 @@ describe("Engine composition", () => {
       await right.application.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({ status: "ok", value: { nodes: { node: { nodeId: "node" } } } });
     expect(events).toContain("authority-advanced");

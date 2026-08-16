@@ -1,20 +1,18 @@
-import type { Mutation } from "../../../src/domain/fact/index.js";
+import type { MetanodeMutation, Mutation, SearchClauseMutation, ViewMutation } from "../../../src/domain/fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
-import { schemaProposalLifecycleCases } from "./proposal-schema-lifecycle-test-helpers.js";
-
+import { supertagProposalLifecycleCases } from "./proposal-supertag-lifecycle-test-helpers.js";
+import { viewProposalLifecycleCases } from "./proposal-view-lifecycle-test-helpers.js";
+import { inlineReferenceProposalLifecycleCases } from "./proposal-inline-reference-lifecycle-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
-
 export type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 
-export function proposalLifecycleCases(): readonly ProposalLifecycleCase[] {
-  return Object.values(PROPOSAL_LIFECYCLE_CASES).map((createCase) => createCase());
-}
+export const proposalLifecycleCases = (): readonly ProposalLifecycleCase[] =>
+  Object.values(PROPOSAL_LIFECYCLE_CASES).map((createCase) => createCase());
 
-export function historyLifecycleCases(): readonly ProposalLifecycleCase[] {
-  return proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
-}
+export const historyLifecycleCases = (): readonly ProposalLifecycleCase[] =>
+  proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
 
 const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
   "node-create",
@@ -25,21 +23,26 @@ const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
   "occurrence-restore",
   "occurrence-move",
   "node-owner-set",
-  "schema-apply",
-  "schema-remove",
-  "schema-field-add",
-  "schema-field-remove",
-  "schema-field-configure",
-  "schema-extension-add",
-  "schema-extension-remove",
-  "schema-template-node-add",
-  "schema-template-node-remove",
+  "supertag-apply",
+  "supertag-remove",
+  "supertag-field-add",
+  "supertag-field-remove",
+  "supertag-field-configure",
+  "supertag-extension-add",
+  "supertag-extension-remove",
+  "supertag-template-node-add",
+  "supertag-template-node-remove",
   "field-value-delete",
   "materialized-field-delete",
+  "field-datatype-configure",
+  "field-cardinality-configure",
   "text-splice",
   "text-mark",
-  "value-set",
-  "value-unset",
+  "inline-reference-create",
+  "inline-reference-delete",
+  "inline-reference-alias-attach",
+  "inline-reference-alias-detach",
+  "shared-default-view-definition-mode-set",
 ]);
 
 const PROPOSAL_LIFECYCLE_CASES = {
@@ -52,20 +55,26 @@ const PROPOSAL_LIFECYCLE_CASES = {
   "occurrence-move": occurrenceMoveCase,
   "node-owner-set": nodeOwnerCase,
   "node-type-declare": nodeTypeDeclareCase,
-  ...schemaProposalLifecycleCases,
+  ...supertagProposalLifecycleCases,
   ...fieldProposalLifecycleCases,
+  ...viewProposalLifecycleCases,
+  ...inlineReferenceProposalLifecycleCases,
   "text-splice": textSpliceCase,
   "text-mark": textMarkCase,
-  "value-set": valueSetCase,
-  "value-unset": valueUnsetCase,
-} satisfies Record<Mutation["kind"], () => ProposalLifecycleCase>;
+} satisfies Record<
+  Exclude<
+    Mutation,
+    MetanodeMutation | SearchClauseMutation | Extract<ViewMutation, { kind: "shared-default-view-definition-attach" }>
+  >["kind"],
+  () => ProposalLifecycleCase
+>;
 
 function nodeTypeDeclareCase(): ProposalLifecycleCase {
   const facts = base();
   return lifecycle(facts, {
     kind: "node-type-declare",
     nodeId: "node",
-    nodeType: "schema",
+    nodeType: "supertag-definition",
   });
 }
 
@@ -230,44 +239,6 @@ function textMarkCase(): ProposalLifecycleCase {
     key: "bold",
     value: { kind: "set", value: true },
     previous: { kind: "unset" },
-  });
-}
-
-function valueSetCase(): ProposalLifecycleCase {
-  const facts = base();
-  facts.add({ kind: "node-create", nodeId: "field" });
-  facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "field-original",
-    nodeId: "field",
-    parentNodeId: "workspace",
-    anchor: end,
-  });
-  return lifecycle(facts, {
-    kind: "value-set",
-    target: { kind: "node", id: "field" },
-    namespace: "metadata",
-    key: "label",
-    value: "Proposal",
-    previous: { kind: "unset" },
-  });
-}
-
-function valueUnsetCase(): ProposalLifecycleCase {
-  const facts = base();
-  facts.add({
-    kind: "value-set",
-    target: { kind: "node", id: "node" },
-    namespace: "property",
-    key: "color",
-    value: "blue",
-  });
-  return lifecycle(facts, {
-    kind: "value-unset",
-    target: { kind: "node", id: "node" },
-    namespace: "property",
-    key: "color",
-    previous: { kind: "set", value: "blue" },
   });
 }
 

@@ -5,6 +5,4 @@ export type NodeSeed = Readonly<{
     value: string;
     attributes: Readonly<Record<string, JsonValue>>;
   }>[];
-  properties: Readonly<Record<string, JsonValue>>;
-  metadata: Readonly<Record<string, JsonValue>>;
 }>;

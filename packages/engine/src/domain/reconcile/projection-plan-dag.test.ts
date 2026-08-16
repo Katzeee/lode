@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { frontierOf, makeFact, type Fact, type Mutation } from "../fact/index.js";
 import { deriveActivation } from "../activation/index.js";
-import { advanceGeneration, rebuildGeneration } from "./index.js";
+import { advanceGeneration, rebuildGeneration, CURRENT_PROJECTION_VERSIONS as versions } from "./index.js";
 import { compileProjectionPlan } from "./projection-plan-dag.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 describe("Projection plan dataflow", () => {
   it("RULE-1 Projection plan rejects missing dependencies duplicate writers and cycles", () => {
@@ -68,7 +67,7 @@ describe("Projection plan dataflow", () => {
       versions,
       rebuildGeneration("workspace", before, versions).generation,
     );
-    expect(result.stats.evaluatedStages).toEqual(["activation", "text", "assembly"]);
+    expect(result.stats.evaluatedStages).toEqual(["activation", "content", "assembly"]);
     expect(result.generation.planCaches.origin.activeContributionIds).toEqual(afterFacts.map((fact) => fact.id));
   });
 });

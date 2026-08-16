@@ -2,15 +2,13 @@ import {
   canonicalJson,
   compareFacts,
   isTextMutation,
-  isValueMutation,
   type ContributionFact,
   type JsonValue,
   type Mutation,
   type TextAtomId,
 } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
-import { compensateValueMutation } from "./compensation-value.js";
 
 export function compensateContentMutation(
   target: ContributionFact,
@@ -19,9 +17,6 @@ export function compensateContentMutation(
   projection: ScopedProjection,
 ): CompensationStep | null {
   const mutation = target.body.mutation;
-  if (isValueMutation(mutation)) {
-    return compensateValueMutation(target, activeFacts, projection);
-  }
   if (!isTextMutation(mutation)) {
     return null;
   }
@@ -42,8 +37,10 @@ function compensateTextSplice(
   if (mutation.kind !== "text-splice") {
     return noCompensation();
   }
-  const atoms = projection.nodes[mutation.nodeId]?.text ?? [];
-  if (!projection.nodes[mutation.nodeId]) {
+  const node = projection.nodes[mutation.nodeId];
+  const atoms = textAtoms(node);
+  const content = node?.content ?? [];
+  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, mutation.nodeId)) {
     return noCompensation();
   }
   const inserted = atoms.filter((atom) => atom.contributionId === target.id);
@@ -89,10 +86,10 @@ function compensateTextSplice(
   const anchor = currentTextAnchor(
     mutation.anchor,
     inserted.map((atom) => atom.id),
-    atoms,
+    content,
   );
   const groups = restoreGroups(deletedStillAbsent);
-  const orderedGroups = anchorPrepends(anchor, atoms) ? [...groups].reverse() : groups;
+  const orderedGroups = anchorPrepends(anchor, content) ? [...groups].reverse() : groups;
   if (orderedGroups.length === 0) {
     orderedGroups.push({ text: "", attributes: {} });
   }
@@ -180,6 +177,9 @@ function compensateTextMark(
   if (mutation.kind !== "text-mark") {
     return noCompensation();
   }
+  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, mutation.nodeId)) {
+    return noCompensation();
+  }
   const independentlyMarked = new Set(
     activeFacts.flatMap((fact) => {
       const candidate = fact.body.mutation;
@@ -196,7 +196,7 @@ function compensateTextMark(
     return { kind: "stale", reason: "Text mark lacks its previous value" };
   }
   const liveIds = mutation.atomIds.filter(
-    (id) => !independentlyMarked.has(id) && projection.nodes[mutation.nodeId]?.text.some((atom) => atom.id === id),
+    (id) => !independentlyMarked.has(id) && textAtoms(projection.nodes[mutation.nodeId]).some((atom) => atom.id === id),
   );
   return liveIds.length === 0
     ? noCompensation()

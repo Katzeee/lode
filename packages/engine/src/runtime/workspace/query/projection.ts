@@ -3,13 +3,13 @@ import type {
   ProjectionPage,
   ProjectionPageSection,
   ProjectionQuery,
-  SchemaSearchQueryRequest,
-  SchemaSearchResult,
+  SupertagInstancesQueryRequest,
+  SupertagInstancesResult,
 } from "@lode/sdk";
 import type { ConflictQuery } from "../../../domain/conflict/index.js";
-import type { ProjectionIdentity, ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../../domain/fact/index.js";
 import type {
-  ProjectionSchemaSearchReader,
+  ProjectionSupertagInstancesReader,
   ProjectionSectionPageReader,
   ProjectionSlicePage,
 } from "../../materialization/index.js";
@@ -20,8 +20,14 @@ export async function queryProjection(
   projections: ProjectionSectionPageReader,
 ): Promise<ProjectionPage> {
   const section = query.section ?? "nodes";
-  const page = await projections.page(generationId, query.view, section, query.after ?? null, query.limit ?? 100);
-  return projectionPage(page.identity, query.view, section, page.next, page.entries);
+  const page = await projections.page(
+    generationId,
+    query.perspective,
+    section,
+    query.after ?? null,
+    query.limit ?? 100,
+  );
+  return projectionPage(page.identity, query.perspective, section, page.next, page.entries);
 }
 
 export async function queryConflicts(
@@ -38,23 +44,23 @@ export async function queryConflicts(
   };
 }
 
-export async function querySchemaSearch(
-  query: SchemaSearchQueryRequest,
+export async function querySupertagInstances(
+  query: SupertagInstancesQueryRequest,
   generationId: string,
-  projections: ProjectionSchemaSearchReader,
-): Promise<SchemaSearchResult> {
-  const page = await projections.schemaSearch(
+  projections: ProjectionSupertagInstancesReader,
+): Promise<SupertagInstancesResult> {
+  const page = await projections.supertagInstances(
     generationId,
-    query.view,
-    query.schemaId,
+    query.perspective,
+    query.supertagId,
     query.after ?? null,
     query.limit ?? 50,
   );
   return {
     generationId: page.identity.generationId,
     frontier: page.identity.frontier,
-    view: query.view,
-    schemaId: query.schemaId,
+    perspective: query.perspective,
+    supertagId: query.supertagId,
     nodeIds: page.nodeIds,
     next: page.next,
   };
@@ -62,7 +68,7 @@ export async function querySchemaSearch(
 
 function projectionPage<Section extends ProjectionPageSection>(
   identity: ProjectionIdentity,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   section: Section,
   next: string | null,
   entries: ProjectionSlicePage<Section>["entries"],
@@ -71,5 +77,5 @@ function projectionPage<Section extends ProjectionPageSection>(
     section === "templateNodeInstances"
       ? entries.map((entry) => entry.value)
       : Object.fromEntries(entries.map((entry) => [entry.identity, entry.value]));
-  return { identity, view, section, next, [section]: value } as ProjectionPage<Section>;
+  return { identity, perspective, section, next, [section]: value } as ProjectionPage<Section>;
 }

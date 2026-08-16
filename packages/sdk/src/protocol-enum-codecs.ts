@@ -1,30 +1,31 @@
-import { editMutationKind } from "./protocol-enums/edit.js";
-import { editIntent, engineErrorCode, engineEventKind } from "./protocol-enums/engine.js";
+import {
+  backlinkSourceKind,
+  editIntent,
+  engineErrorCode,
+  engineEventKind,
+  viewRowSourceKind,
+} from "./protocol-enums/engine.js";
 import { contributionMutationKind } from "./protocol-enums/fact.js";
 import { hardDeleteBlocker } from "./protocol-enums/maintenance.js";
 import {
   anchorAffinity,
   anchorFallback,
   fieldInitializationSource,
+  fieldDatatype,
+  fieldCardinality,
   fieldVisibility,
   historyOperation,
   nodeType,
-  valueNamespace,
+  inlineReferenceTargetStatus,
+  viewType,
 } from "./protocol-enums/model.js";
-import {
-  nodeState,
-  projectionSection,
-  templateNodeState,
-  viewFieldState,
-  viewLayout,
-  viewMode,
-} from "./protocol-enums/projection.js";
+import { projectionPerspective, projectionSection, templateNodeState } from "./protocol-enums/projection.js";
 import {
   diffSpaceKind,
   placementEndpoint,
   recoveryAction,
   resolutionDecision,
-  schemaRelationKind,
+  supertagRelationKind,
 } from "./protocol-enums/review.js";
 import type { ProtocolEnumCodec } from "./protocol-enums/enum-codec.js";
 
@@ -35,24 +36,25 @@ export const protocolEnumCodecs = new Map<string, AnyEnumCodec>([
   ["lode.AnchorFallback", anchorFallback],
   ["lode.ContributionMutationKind", contributionMutationKind],
   ["lode.EditIntent", editIntent],
-  ["lode.EditMutationKind", editMutationKind],
   ["lode.EngineErrorCode", engineErrorCode],
   ["lode.EngineEventKind", engineEventKind],
   ["lode.FieldInitializationSource", fieldInitializationSource],
+  ["lode.FieldDatatype", fieldDatatype],
+  ["lode.FieldCardinality", fieldCardinality],
   ["lode.FieldVisibility", fieldVisibility],
   ["lode.HardDeleteBlocker", hardDeleteBlocker],
   ["lode.HistoryOperation", historyOperation],
-  ["lode.NodeState", nodeState],
   ["lode.NodeType", nodeType],
   ["lode.PlacementEndpoint", placementEndpoint],
   ["lode.ProjectionSection", projectionSection],
   ["lode.RecoveryAction", recoveryAction],
   ["lode.ResolutionDecision", resolutionDecision],
-  ["lode.SchemaRelationKind", schemaRelationKind],
+  ["lode.SupertagRelationKind", supertagRelationKind],
   ["lode.TemplateNodeState", templateNodeState],
-  ["lode.ValueNamespace", valueNamespace],
-  ["lode.ViewFieldState", viewFieldState],
-  ["lode.ViewLayout", viewLayout],
-  ["lode.ViewMode", viewMode],
+  ["lode.ProjectionPerspective", projectionPerspective],
   ["lode.DiffSpaceKind", diffSpaceKind],
+  ["lode.InlineReferenceTargetStatus", inlineReferenceTargetStatus],
+  ["lode.BacklinkSourceKind", backlinkSourceKind],
+  ["lode.ViewType", viewType],
+  ["lode.ViewRowReference.SourceKind", viewRowSourceKind],
 ]);

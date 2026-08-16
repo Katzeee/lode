@@ -5,22 +5,22 @@ import {
   type ProjectionSections,
 } from "../../domain/reconcile/index.js";
 
-export const PROJECTION_INDEX_NAMES = [
+export const PROJECTION_LOOKUP_INDEX_NAMES = [
   "occurrenceIdsByNode",
   "nodeIdsByOwner",
-  "nodeIdsBySchema",
+  "nodeIdsBySupertag",
   "nodeIdsByFieldDefinition",
-  "schemaInstanceMemberships",
+  "supertagInstanceMemberships",
   "templateNodeInstancesByOwner",
   "templateNodeInstancesByTemplate",
   "templateNodeInstancesByNode",
   "templateNodeInstancesByOccurrence",
-  "templateNodeInstancesBySchema",
+  "templateNodeInstancesBySupertag",
 ] as const;
 
-export type ProjectionIndexName = (typeof PROJECTION_INDEX_NAMES)[number];
-export type ProjectionListIndexName = Exclude<ProjectionIndexName, "schemaInstanceMemberships">;
-export type ProjectionSliceName = ProjectionSectionName | ProjectionIndexName;
+export type ProjectionLookupIndexName = (typeof PROJECTION_LOOKUP_INDEX_NAMES)[number];
+export type ProjectionListIndexName = Exclude<ProjectionLookupIndexName, "supertagInstanceMemberships">;
+export type ProjectionSliceName = ProjectionSectionName | ProjectionLookupIndexName;
 
 type ProjectionSectionValue<Section extends ProjectionSectionName> =
   ProjectionSections[Section] extends readonly (infer Value)[]
@@ -31,13 +31,13 @@ type ProjectionSectionValue<Section extends ProjectionSectionName> =
 
 export type ProjectionSliceValue<Section extends ProjectionSliceName> = Section extends ProjectionSectionName
   ? ProjectionSectionValue<Section>
-  : Section extends "schemaInstanceMemberships"
+  : Section extends "supertagInstanceMemberships"
     ? string
     : readonly string[];
 
 export const PROJECTION_SLICE_NAMES = [
   ...PROJECTION_SECTION_NAMES,
-  ...PROJECTION_INDEX_NAMES,
+  ...PROJECTION_LOOKUP_INDEX_NAMES,
 ] as const satisfies readonly ProjectionSliceName[];
 
 export type ProjectionShardBatch<Section extends ProjectionSliceName = ProjectionSliceName> = Readonly<{

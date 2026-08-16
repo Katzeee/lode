@@ -1,19 +1,10 @@
-import type { Mutation, ValueMutation } from "../fact/index.js";
+import type { Mutation } from "../fact/index.js";
 
 export type ExistenceSupport = Readonly<{
   nodes: ReadonlyMap<string, readonly string[]>;
   occurrences: ReadonlyMap<string, readonly string[]>;
   viable: ReadonlySet<string>;
 }>;
-
-export function addValueTargetSupport(
-  support: Set<string>,
-  mutation: ValueMutation,
-  existence: ExistenceSupport,
-): void {
-  const candidates = mutation.target.kind === "node" ? existence.nodes : existence.occurrences;
-  addIfPresent(support, effectiveCandidate(candidates, mutation.target.id, existence.viable));
-}
 
 export function addOccurrenceChangeSupport(
   support: Set<string>,

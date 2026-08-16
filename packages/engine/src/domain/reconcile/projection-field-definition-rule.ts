@@ -1,0 +1,25 @@
+import { projectFieldDefinitionConfigurations } from "./field-definition-configurations.js";
+import { projectionRule } from "./projection-rule.js";
+
+export const fieldDefinitionProjectionRule = projectionRule({
+  key: "field-definition",
+  dependencies: ["activation", "node", "node-graph"],
+  factScope: "history",
+  invalidatedBy: [
+    "field-datatype-configure",
+    "field-cardinality-configure",
+    "field-initialization-expression-configure",
+  ],
+  evaluate: (context) => ({
+    fieldDefinitionConfigurations: projectFieldDefinitionConfigurations(
+      context.workspaceNodeId,
+      context.activation.allActive,
+      context.storedNodes,
+      context.nodeGraphStructure.occurrences,
+      context.nodeGraphStructure.childOccurrences,
+      context.nodeGraphStructure.nodeOwners,
+      context.nodeGraphStructure.metanodes,
+      context.nodeGraphStructure.workspaceSystemNodes,
+    ),
+  }),
+});

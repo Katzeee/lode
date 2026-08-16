@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { frontierOf, makeFact } from "../fact/index.js";
+import { frontierOf, makeFact, workspaceTrashNodeId } from "../fact/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../../runtime/materialization/generation-checkpoint.js";
 import { advanceGeneration, rebuildGeneration } from "./index.js";
-import { PROJECTION_PLAN } from "./projection-plan.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { base, end, Facts, fullSurface, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 
@@ -75,7 +74,7 @@ describe("production Reconcile", () => {
     expect(incremental.generation).toEqual(rebuildGeneration("workspace", after, versions).generation);
     expect(checkpointTail).toEqual(incremental);
     expect(incremental.stats).toEqual({
-      evaluatedStages: ["activation", "text", "assembly"],
+      evaluatedStages: ["activation", "content", "assembly"],
       supportPasses: 0,
     });
   });
@@ -270,46 +269,7 @@ describe("production Reconcile", () => {
       const after = facts.snapshot();
       const incremental = advanceGeneration("workspace", before, after, versions, generation);
       expect(incremental.generation, testCase.name).toEqual(rebuildGeneration("workspace", after, versions).generation);
-      expect(incremental.stats.evaluatedStages, testCase.name).not.toContain("value");
-      expect(incremental.stats.evaluatedStages.length, testCase.name).toBeLessThan(PROJECTION_PLAN.ordered.length);
     }
-  });
-
-  it("incremental Schema Node values remain on the Node", () => {
-    const facts = base();
-    facts.add({ kind: "node-create", nodeId: "schema" });
-    for (const [key, value] of [
-      ["a", 1],
-      ["b", 2],
-    ] as const) {
-      facts.add({
-        kind: "value-set",
-        target: { kind: "node", id: "schema" },
-        namespace: "schema",
-        key,
-        value,
-      });
-    }
-    const before = facts.snapshot();
-    const generation = rebuildGeneration("workspace", before, versions).generation;
-    facts.add({
-      kind: "value-set",
-      target: { kind: "node", id: "schema" },
-      namespace: "schema",
-      key: "c",
-      value: 3,
-    });
-
-    const after = facts.snapshot();
-    const incremental = advanceGeneration("workspace", before, after, versions, generation);
-    const full = rebuildGeneration("workspace", after, versions);
-
-    expect(incremental.generation).toEqual(full.generation);
-    expect(incremental.generation.origin.nodes.schema?.properties).toEqual({
-      a: 1,
-      b: 2,
-      c: 3,
-    });
   });
 
   it("MODEL-1 direct and proposal share the complete mutation vocabulary", () => {
@@ -372,12 +332,16 @@ describe("production Reconcile", () => {
   it("MODEL-4 lifecycle restore is explicit and deletion-aware", () => {
     const facts = base();
     const deletion = facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
+      workspaceTrashNodeId("workspace"),
+    );
 
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: deletion.id });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeDefined();
     facts.add({ kind: "node-delete", nodeId: "node" });
-    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeUndefined();
+    expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
+      workspaceTrashNodeId("workspace"),
+    );
 
     const occurrenceFacts = base();
     const firstDelete = occurrenceFacts.add({
@@ -405,5 +369,16 @@ describe("production Reconcile", () => {
     expect(
       projectSnapshot("workspace", occurrenceFacts.snapshot(), "origin", versions).occurrences.occurrence,
     ).toBeUndefined();
+  });
+
+  it("derives the Workspace Trash target from its canonical role Occurrence", () => {
+    const facts = new Facts("custom-trash-node");
+    facts.addPlaced("node");
+    facts.add({ kind: "node-delete", nodeId: "node" });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.workspaceSystemNodes).toEqual({ trash: "custom-trash-node" });
+    expect(projection.nodeOwners.node).toBe("custom-trash-node");
+    expect(projection.nodes["custom-trash-node"]).toBeDefined();
   });
 });

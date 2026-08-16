@@ -6,8 +6,11 @@ import {
   type FactSnapshot,
   type Mutation,
   factTransactionId,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
 } from "../../../src/domain/fact/index.js";
 import {
+  CURRENT_PROJECTION_VERSIONS,
   rebuildGeneration,
   type ProjectionGeneration,
   type ProjectionVersions,
@@ -16,10 +19,7 @@ import {
 export const REPLICA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 export const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 export const REPLICA_C = "cccccccccccccccccccccccccc";
-export const versions = {
-  rulesVersion: "proposal-rules-5",
-  schemaVersion: "lode-schema-19",
-} as const;
+export const versions = CURRENT_PROJECTION_VERSIONS;
 export const end = {
   after: null,
   before: null,
@@ -31,7 +31,17 @@ export class ReviewFacts {
   readonly values: Fact[] = [];
 
   constructor() {
-    this.add({ kind: "node-create", nodeId: "workspace" });
+    this.addTransaction([
+      { kind: "node-create", nodeId: "workspace" },
+      { kind: "node-create", nodeId: workspaceTrashNodeId("workspace") },
+      {
+        kind: "occurrence-create",
+        occurrenceId: workspaceTrashOccurrenceId("workspace"),
+        nodeId: workspaceTrashNodeId("workspace"),
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    ]);
   }
 
   add(mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {

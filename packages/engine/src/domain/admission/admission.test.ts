@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
 
-import { factTransactionId, makeFact } from "../fact/index.js";
+import { factTransactionId, makeFact, workspaceTrashOccurrenceId } from "../fact/index.js";
 import { Facts, REPLICA, end } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { admitAuthorityRecords } from "./index.js";
 
 describe("domain admission", () => {
   it("admits Node creation only with its Original Occurrence in one transaction", () => {
     const facts = new Facts();
+    const sequence = facts.values.length + 1;
     const invalid = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
-      sequence: 2,
-      observed: { [REPLICA]: 1 },
-      lamport: 2,
+      sequence,
+      observed: { [REPLICA]: sequence - 1 },
+      lamport: sequence,
       body: {
         kind: "contribution",
         actorId: "actor",
@@ -29,6 +30,27 @@ describe("domain admission", () => {
 
     facts.addPlaced("node");
     expect(admit(facts.values).kind).toBe("ready");
+  });
+
+  it("admits a Metanode through its typed host attachment instead of an Outline Occurrence", () => {
+    const facts = new Facts();
+    facts.addPlaced("host");
+    facts.addTransaction([
+      { kind: "node-create", nodeId: "host-configuration" },
+      {
+        kind: "metanode-attach",
+        hostNodeId: "host",
+        metanodeId: "host-configuration",
+      },
+    ]);
+
+    expect(admit(facts.values)).toMatchObject({ kind: "ready" });
+
+    facts.add({ kind: "node-delete", nodeId: "host-configuration" });
+    expect(admit(facts.values)).toMatchObject({
+      kind: "fault",
+      fault: "Metanode cannot be deleted independently of its host",
+    });
   });
 
   it("validates semantic evidence against the observed projection", () => {
@@ -58,11 +80,11 @@ describe("domain admission", () => {
     const facts = new Facts();
     facts.addPlaced("ordinary");
     facts.addPlaced("target");
-    facts.add({ kind: "schema-apply", nodeId: "target", schemaId: "ordinary", anchor: end });
+    facts.add({ kind: "supertag-apply", nodeId: "target", supertagId: "ordinary", anchor: end });
 
     expect(admit(facts.values)).toMatchObject({
       kind: "fault",
-      fault: "Schema type is absent from the observed projection",
+      fault: "Supertag type is absent from the observed projection",
     });
   });
 
@@ -79,17 +101,17 @@ describe("domain admission", () => {
 
   it("rejects a later edit that leaves an active Field Node without its binding", () => {
     const facts = new Facts();
-    facts.addPlaced("schema");
+    facts.addPlaced("supertag");
     facts.addPlaced("field-definition");
-    facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+    facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
     facts.add({
       kind: "node-type-declare",
       nodeId: "field-definition",
       nodeType: "field-definition",
     });
     facts.add({
-      kind: "schema-field-add",
-      schemaId: "schema",
+      kind: "supertag-field-add",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
       fieldNodeId: "field-node",
       fieldOccurrenceId: "field-occurrence",
@@ -99,8 +121,8 @@ describe("domain admission", () => {
 
     facts.addTransaction([
       {
-        kind: "schema-field-remove",
-        schemaId: "schema",
+        kind: "supertag-field-remove",
+        supertagId: "supertag",
         fieldDefinitionId: "field-definition",
         fieldNodeId: "field-node",
         fieldOccurrenceId: "field-occurrence",
@@ -121,24 +143,45 @@ describe("domain admission", () => {
       kind: "occurrence-delete",
       occurrenceId: "node-original",
       previousParentNodeId: "workspace",
-      previousAnchor: { ...end, fallback: "start" },
+      previousAnchor: {
+        after: workspaceTrashOccurrenceId("workspace"),
+        before: null,
+        affinity: "after",
+        fallback: "end",
+      },
     });
 
     expect(admit(facts.values)).toMatchObject({
       kind: "fault",
-      fault: "Active Node has no Original Occurrence: node",
+      fault: "Node Graph Node has no Owner: node",
+    });
+  });
+
+  it("rejects a committed state that removes the Workspace Trash role relation", () => {
+    const facts = new Facts();
+    facts.add({
+      kind: "occurrence-delete",
+      occurrenceId: workspaceTrashOccurrenceId("workspace"),
+      previousParentNodeId: "workspace",
+      previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
+    });
+
+    expect(admit(facts.values)).toMatchObject({
+      kind: "fault",
+      fault: "Workspace Trash role cannot be moved or deleted",
     });
   });
 
   it("requires one actor and intent across a multi-Fact domain transaction", () => {
     const facts = new Facts();
-    const transactionId = factTransactionId("workspace", REPLICA, 2);
+    const firstSequence = facts.values.length + 1;
+    const transactionId = factTransactionId("workspace", REPLICA, firstSequence);
     const node = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
-      sequence: 2,
-      observed: { [REPLICA]: 1 },
-      lamport: 2,
+      sequence: firstSequence,
+      observed: { [REPLICA]: firstSequence - 1 },
+      lamport: firstSequence,
       transaction: { transactionId, index: 0, size: 2 },
       body: {
         kind: "contribution",
@@ -150,9 +193,9 @@ describe("domain admission", () => {
     const occurrence = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
-      sequence: 3,
-      observed: { [REPLICA]: 2 },
-      lamport: 3,
+      sequence: firstSequence + 1,
+      observed: { [REPLICA]: firstSequence },
+      lamport: firstSequence + 1,
       transaction: { transactionId, index: 1, size: 2 },
       body: {
         kind: "contribution",

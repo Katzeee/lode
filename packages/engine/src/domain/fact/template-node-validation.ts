@@ -20,11 +20,11 @@ export function assertTemplateDetachmentShape(value: Record<string, unknown>): v
   assertNullableString(value.anchor.before, "anchor before");
   assertOneOf(value.anchor.affinity, ["after", "before"], "anchor affinity");
   assertOneOf(value.anchor.fallback, ["start", "end"], "anchor fallback");
-  if (value.sourceSchemaIds !== undefined) {
-    assertStringArray(value.sourceSchemaIds, "Template source Schemas");
+  if (value.sourceSupertagIds !== undefined) {
+    assertStringArray(value.sourceSupertagIds, "Template source Supertags");
   }
-  if (value.sourceApplicationSchemaIds !== undefined) {
-    assertStringArray(value.sourceApplicationSchemaIds, "Template source Applications");
+  if (value.sourceApplicationSupertagIds !== undefined) {
+    assertStringArray(value.sourceApplicationSupertagIds, "Template source Applications");
   }
   if (value.sourceTemplateOccurrenceIds !== undefined) {
     assertStringArray(value.sourceTemplateOccurrenceIds, "Template source Occurrences");
@@ -48,28 +48,30 @@ export function validateTemplateDetachment(
   if (!hasValidSourceEvidence(mutation)) {
     throw new Error(`Template detachment lacks unique source evidence: ${factIdentity}`);
   }
-  mutation.sourceSchemaIds.forEach((id) => requireIdentity(id, "Template source Schema", factIdentity));
-  mutation.sourceApplicationSchemaIds.forEach((id) => requireIdentity(id, "Template source Application", factIdentity));
+  mutation.sourceSupertagIds.forEach((id) => requireIdentity(id, "Template source Supertag", factIdentity));
+  mutation.sourceApplicationSupertagIds.forEach((id) =>
+    requireIdentity(id, "Template source Application", factIdentity),
+  );
   mutation.sourceTemplateOccurrenceIds.forEach((id) => requireIdentity(id, "Template source Occurrence", factIdentity));
 }
 
 function hasValidSourceEvidence(
   mutation: Extract<Mutation, { kind: "template-node-detach" }>,
 ): mutation is typeof mutation & {
-  sourceSchemaIds: readonly string[];
-  sourceApplicationSchemaIds: readonly string[];
+  sourceSupertagIds: readonly string[];
+  sourceApplicationSupertagIds: readonly string[];
   sourceTemplateOccurrenceIds: readonly string[];
 } {
-  const schemas = mutation.sourceSchemaIds;
-  const applications = mutation.sourceApplicationSchemaIds;
+  const supertags = mutation.sourceSupertagIds;
+  const applications = mutation.sourceApplicationSupertagIds;
   const items = mutation.sourceTemplateOccurrenceIds;
   return (
-    schemas !== undefined &&
+    supertags !== undefined &&
     applications !== undefined &&
     items !== undefined &&
-    schemas.length > 0 &&
-    schemas.length === applications.length &&
-    schemas.length === items.length &&
+    supertags.length > 0 &&
+    supertags.length === applications.length &&
+    supertags.length === items.length &&
     new Set(items.map((itemId, index) => `${applications[index]}/${itemId}`)).size === items.length
   );
 }

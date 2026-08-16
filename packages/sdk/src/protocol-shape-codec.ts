@@ -2,12 +2,12 @@ import type { InvocationOutcome as ProtocolInvocationOutcome } from "@lode/proto
 import {
   ConflictIssueSchema,
   DecisionEffectSchema,
-  FieldTemplateConfigSchema,
+  SupertagFieldConfigSchema,
   ReviewQueryResultSchema,
   ReviewSelectionSchema,
 } from "@lode/protocol/proto";
 import type { InvocationOutcome } from "./contract.js";
-import type { FieldTemplateConfig, FieldValueSeed, PreviousValue } from "./model.js";
+import type { SupertagFieldConfig, FieldValueSeed, PreviousValue } from "./model.js";
 import type { ConflictIssue, DecisionEffect, ReviewQuery, ReviewSelection } from "./review.js";
 import {
   conflictIssueKind,
@@ -61,13 +61,12 @@ export function fromReviewQuery(value: unknown): ReviewQuery {
 function toDecisionEffect(effect: DecisionEffect): Record<string, unknown> {
   const value = toProtocolValue(effect) as Record<string, unknown>;
   delete value.kind;
-  if (effect.kind === "value") {
-    delete value.targetKind;
-    delete value.targetId;
-    value.target = { $case: effect.targetKind, value: effect.targetId };
-  } else if (effect.kind === "field-configuration") {
-    value.origin = effect.origin === null ? null : toFieldTemplateConfig(effect.origin);
-    value.review = effect.review === null ? null : toFieldTemplateConfig(effect.review);
+  if (effect.kind === "field-configuration") {
+    value.origin = effect.origin === null ? null : toSupertagFieldConfig(effect.origin);
+    value.review = effect.review === null ? null : toSupertagFieldConfig(effect.review);
+  } else if (effect.kind === "field-definition-configuration") {
+    value.origin = fieldDefinitionConfigurationStateToProtocol(effect.origin);
+    value.review = fieldDefinitionConfigurationStateToProtocol(effect.review);
   }
   const wrapped = { effect: { $case: protocolDecisionEffectCase(effect.kind), value } };
   return toProtocolMessage(DecisionEffectSchema, wrapped) as Record<string, unknown>;
@@ -80,19 +79,61 @@ function fromDecisionEffect(value: unknown): DecisionEffect {
     "Decision effect",
   );
   const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  if (selected.$case === "value") {
-    const target = required(
-      decoded.target as { $case: "node" | "occurrence"; value: string } | null,
-      "Value decision target",
-    );
-    delete decoded.target;
-    decoded.targetKind = target.$case;
-    decoded.targetId = target.value;
-  } else if (selected.$case === "fieldConfiguration") {
-    decoded.origin = decoded.origin === null ? null : fromFieldTemplateConfig(decoded.origin);
-    decoded.review = decoded.review === null ? null : fromFieldTemplateConfig(decoded.review);
+  if (selected.$case === "fieldConfiguration") {
+    decoded.origin = decoded.origin === null ? null : fromSupertagFieldConfig(decoded.origin);
+    decoded.review = decoded.review === null ? null : fromSupertagFieldConfig(decoded.review);
+  } else if (selected.$case === "fieldDefinitionConfiguration") {
+    decoded.origin = fieldDefinitionConfigurationStateFromProtocol(decoded.origin);
+    decoded.review = fieldDefinitionConfigurationStateFromProtocol(decoded.review);
   }
   return { ...decoded, kind: decisionEffectKind(selected.$case) } as DecisionEffect;
+}
+
+function fieldDefinitionConfigurationStateToProtocol(
+  state: Extract<DecisionEffect, { kind: "field-definition-configuration" }>["origin"],
+): unknown {
+  if (state === null) {
+    return null;
+  }
+  if (state.kind === "datatype") {
+    return { configuration: { $case: "datatype", value: state.datatype } };
+  }
+  if (state.kind === "cardinality") {
+    return { configuration: { $case: "cardinality", value: state.cardinality } };
+  }
+  return {
+    configuration: {
+      $case: "initializationExpression",
+      value: { sourceFieldDefinitionId: state.expression.sourceFieldDefinitionId },
+    },
+  };
+}
+
+function fieldDefinitionConfigurationStateFromProtocol(value: unknown): unknown {
+  if (value === null) {
+    return null;
+  }
+  const selected = required(
+    (value as { configuration?: { $case: string; value: unknown } | null }).configuration,
+    "Field Definition configuration state",
+  );
+  if (selected.$case === "datatype") {
+    return { kind: "datatype", datatype: selected.value };
+  }
+  if (selected.$case === "cardinality") {
+    return { kind: "cardinality", cardinality: selected.value };
+  }
+  if (selected.$case === "initializationExpression") {
+    const expression = selected.value as Record<string, unknown>;
+    return {
+      kind: "initialization-expression",
+      expression: {
+        kind: "ancestor-field-values",
+        sourceFieldDefinitionId: expression.sourceFieldDefinitionId,
+      },
+    };
+  }
+  throw new Error(`Unknown Field Definition configuration state: ${selected.$case}`);
 }
 
 export function toConflictIssue(issue: ConflictIssue): Record<string, unknown> {
@@ -101,7 +142,7 @@ export function toConflictIssue(issue: ConflictIssue): Record<string, unknown> {
   if (issue.kind === "field-config-conflict") {
     value.candidates = issue.candidates.map((candidate) => ({
       ...candidate,
-      config: toFieldTemplateConfig(candidate.config),
+      config: toSupertagFieldConfig(candidate.config),
     }));
   } else if (issue.kind === "field-initialization-conflict") {
     value.candidates = issue.candidates.map((candidate) => ({
@@ -123,7 +164,7 @@ export function fromConflictIssue(value: unknown): ConflictIssue {
   if (selected.$case === "fieldConfigConflict") {
     decoded.candidates = (decoded.candidates as readonly Record<string, unknown>[]).map((candidate) => ({
       ...candidate,
-      config: fromFieldTemplateConfig(candidate.config),
+      config: fromSupertagFieldConfig(candidate.config),
     }));
   } else if (selected.$case === "fieldInitializationConflict") {
     decoded.candidates = (decoded.candidates as readonly Record<string, unknown>[]).map((candidate) => ({
@@ -134,48 +175,26 @@ export function fromConflictIssue(value: unknown): ConflictIssue {
   return { ...decoded, kind: conflictIssueKind(selected.$case) } as ConflictIssue;
 }
 
-export function toFieldTemplateConfig(config: FieldTemplateConfig): Record<string, unknown> {
+export function toSupertagFieldConfig(config: SupertagFieldConfig): Record<string, unknown> {
   const value = {
     visibility: config.visibility,
     staticDefault: config.staticDefault === null ? null : { values: config.staticDefault.map(toFieldValueSeed) },
-    initializer:
-      config.initializer === null
-        ? null
-        : {
-            initializer:
-              config.initializer.kind === "literal"
-                ? { $case: "literal", value: { values: config.initializer.values.map(toFieldValueSeed) } }
-                : { $case: "applicationNodeText", value: {} },
-          },
   };
-  return toProtocolMessage(FieldTemplateConfigSchema, value) as Record<string, unknown>;
+  return toProtocolMessage(SupertagFieldConfigSchema, value) as Record<string, unknown>;
 }
 
-export function fromFieldTemplateConfig(value: unknown): FieldTemplateConfig {
+export function fromSupertagFieldConfig(value: unknown): SupertagFieldConfig {
   const config = required(
-    fromProtocolMessage(FieldTemplateConfigSchema, value) as Record<string, unknown> | null,
+    fromProtocolMessage(SupertagFieldConfigSchema, value) as Record<string, unknown> | null,
     "Field template config",
   );
-  const initializer = config.initializer as {
-    initializer: { $case: "literal" | "applicationNodeText"; value: unknown } | null;
-  } | null;
-  const selected = initializer === null ? null : required(initializer.initializer, "Field initializer");
   return {
     visibility: config.visibility,
     staticDefault:
       config.staticDefault === null
         ? null
         : (config.staticDefault as { values: readonly unknown[] }).values.map(fromFieldValueSeed),
-    initializer:
-      selected === null
-        ? null
-        : selected.$case === "literal"
-          ? {
-              kind: "literal",
-              values: (selected.value as { values: readonly unknown[] }).values.map(fromFieldValueSeed),
-            }
-          : { kind: "application-node-text" },
-  } as FieldTemplateConfig;
+  } as SupertagFieldConfig;
 }
 
 export function toFieldValueSeed(seed: FieldValueSeed): Record<string, unknown> {

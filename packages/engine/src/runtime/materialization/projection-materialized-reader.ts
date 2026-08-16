@@ -1,4 +1,4 @@
-import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import type { ProjectionGeneration, ProjectionSectionName } from "../../domain/reconcile/index.js";
 import type { MaterializedGenerationRead } from "./bounded-materialized-store.js";
 import { loadMaterializedProjection } from "./materialized-projection-loader.js";
@@ -15,7 +15,8 @@ export async function loadProjectionGeneration(
   const entries = (
     await Promise.all(PROJECTION_MATERIALIZED_DATASETS.map((dataset) => generation.all(dataset)))
   ).flat();
-  const projectionEntries = (view: ViewMode) => entries.filter((entry) => entry.descriptor.partition === view);
+  const projectionEntries = (perspective: ProjectionPerspective) =>
+    entries.filter((entry) => entry.descriptor.partition === perspective);
   const planCaches = (await generation.all(planCacheMaterializedDataset))[0];
   if (!planCaches) {
     throw new Error("Published Projection plan cache is absent");
@@ -30,12 +31,12 @@ export async function loadProjectionGeneration(
 
 export async function readProjectionSectionPage<Section extends ProjectionSectionName>(
   generation: MaterializedGenerationRead<ProjectionIdentity>,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   section: Section,
   after: string | null,
   limit: number,
 ): Promise<ProjectionSlicePage<Section>> {
-  const page = await generation.page(projectionMaterializedDataset(view, section), after, limit);
+  const page = await generation.page(projectionMaterializedDataset(perspective, section), after, limit);
   return {
     identity: generation.identity,
     next: page.hasMore ? (page.entries.at(-1)?.descriptor.identity ?? null) : null,
@@ -48,11 +49,11 @@ export async function readProjectionSectionPage<Section extends ProjectionSectio
 
 export async function readProjectionSlice<Section extends ProjectionSliceName>(
   generation: MaterializedGenerationRead<ProjectionIdentity>,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   section: Section,
   identities: readonly string[],
 ): Promise<ProjectionShardBatch<Section>> {
-  const selected = await generation.exact(projectionMaterializedDataset(view, section), identities);
+  const selected = await generation.exact(projectionMaterializedDataset(perspective, section), identities);
   return {
     identity: generation.identity,
     entries: selected.map((entry) => ({
@@ -62,16 +63,16 @@ export async function readProjectionSlice<Section extends ProjectionSliceName>(
   };
 }
 
-export async function readProjectionSchemaSearch(
+export async function readProjectionSupertagInstances(
   generation: MaterializedGenerationRead<ProjectionIdentity>,
-  view: ViewMode,
-  schemaId: string,
+  perspective: ProjectionPerspective,
+  supertagId: string,
   after: string | null,
   limit: number,
 ) {
-  const prefix = `${encodeURIComponent(schemaId)}/`;
+  const prefix = `${encodeURIComponent(supertagId)}/`;
   const page = await generation.page(
-    projectionMaterializedDataset(view, "schemaInstanceMemberships"),
+    projectionMaterializedDataset(perspective, "supertagInstanceMemberships"),
     after === null ? prefix : `${prefix}${encodeURIComponent(after)}`,
     limit + 1,
   );

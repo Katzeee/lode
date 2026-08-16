@@ -1,4 +1,4 @@
-import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import type { ProjectionGeneration, ProjectionSectionName } from "../../domain/reconcile/index.js";
 import type { ReviewReadModel } from "../../domain/review/index.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
@@ -9,7 +9,7 @@ import type { ProjectionShardBatch, ProjectionSliceName } from "./projection-sli
 import {
   loadProjectionGeneration,
   readProjectionSectionPage,
-  readProjectionSchemaSearch,
+  readProjectionSupertagInstances,
   readProjectionSlice,
 } from "./projection-materialized-reader.js";
 import { projectionMaterializedEntries } from "./projection-materialized-dataset.js";
@@ -55,29 +55,37 @@ export class BoundedProjectionMaterializer {
 
   async page<Section extends ProjectionSectionName>(
     generationId: string,
-    view: ViewMode,
+    perspective: ProjectionPerspective,
     section: Section,
     after: string | null,
     limit: number,
   ) {
     return this.store.read(generationId, (generation) =>
-      readProjectionSectionPage(generation, view, section, after, limit),
+      readProjectionSectionPage(generation, perspective, section, after, limit),
     );
   }
 
-  async schemaSearch(generationId: string, view: ViewMode, schemaId: string, after: string | null, limit: number) {
+  async supertagInstances(
+    generationId: string,
+    perspective: ProjectionPerspective,
+    supertagId: string,
+    after: string | null,
+    limit: number,
+  ) {
     return this.store.read(generationId, (generation) =>
-      readProjectionSchemaSearch(generation, view, schemaId, after, limit),
+      readProjectionSupertagInstances(generation, perspective, supertagId, after, limit),
     );
   }
 
   async read<Section extends ProjectionSliceName>(
     generationId: string,
-    view: ViewMode,
+    perspective: ProjectionPerspective,
     section: Section,
     identities: readonly string[],
   ): Promise<ProjectionShardBatch<Section>> {
-    return this.store.read(generationId, (generation) => readProjectionSlice(generation, view, section, identities));
+    return this.store.read(generationId, (generation) =>
+      readProjectionSlice(generation, perspective, section, identities),
+    );
   }
 
   async withReadLease<T>(generationId: string, read: () => Promise<T>): Promise<T> {

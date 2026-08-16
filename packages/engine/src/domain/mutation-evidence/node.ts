@@ -1,5 +1,6 @@
 import { canonicalJson, type Mutation, type NodeMutation } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, nodeLocation } from "../reconcile/node-graph.js";
 import { assertObservedDeletion } from "./lifecycle.js";
 import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
 
@@ -53,7 +54,8 @@ export function completeNodeOwnerEvidence(
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "node-owner-set" }> {
   if (
-    !available.nodes[mutation.ownerNodeId] ||
+    !isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId) ||
+    !isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.ownerNodeId) ||
     !Object.values(available.occurrences).some(
       (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
     )
@@ -72,10 +74,10 @@ export function assertNodeTypeCompatible(
   mutation: Extract<Mutation, { kind: "node-type-declare" }>,
   available: ScopedProjection,
 ): void {
-  if (!available.nodes[mutation.nodeId]) {
-    throw new Error("Node type target is absent from the observed projection");
+  if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId)) {
+    throw new Error(`Node type target is absent from the observed projection: ${mutation.nodeId}`);
   }
-  const current = available.nodeStatuses[mutation.nodeId]?.nodeType ?? null;
+  const current = available.nodes[mutation.nodeId]?.nodeType ?? null;
   if (current !== null && current !== mutation.nodeType) {
     throw new Error("A Node cannot declare another type");
   }
@@ -85,7 +87,13 @@ export function assertNodeDeletionTarget(
   mutation: Extract<Mutation, { kind: "node-delete" }>,
   available: ScopedProjection,
 ): void {
-  if (!available.nodes[mutation.nodeId]) {
+  if (mutation.nodeId === available.workspaceSystemNodes.trash) {
+    throw new Error("Workspace Trash cannot be deleted");
+  }
+  if (Object.values(available.metanodes).includes(mutation.nodeId)) {
+    throw new Error("Metanode cannot be deleted independently of its host");
+  }
+  if (nodeLocation(available.identity.workspaceNodeId, available, mutation.nodeId) !== "active") {
     throw new Error(`Delete target Node does not exist: ${mutation.nodeId}`);
   }
 }

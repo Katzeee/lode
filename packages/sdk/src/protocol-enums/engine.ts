@@ -2,6 +2,8 @@ import {
   EditIntent as ProtocolEditIntent,
   EngineErrorCode as ProtocolEngineErrorCode,
   EngineEventKind as ProtocolEngineEventKind,
+  BacklinkSourceKind as ProtocolBacklinkSourceKind,
+  ViewRowReference_SourceKind as ProtocolViewRowSourceKind,
 } from "@lode/protocol/dto/engine";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
@@ -44,3 +46,25 @@ export const engineEventKind = defineProtocolEnum<ProtocolEngineEventKind>()(
   "Engine event kind",
 );
 export type EngineEventKind = DomainEnum<typeof engineEventKind>;
+
+export const backlinkSourceKind = defineProtocolEnum<ProtocolBacklinkSourceKind>()(
+  {
+    [ProtocolBacklinkSourceKind.BACKLINK_SOURCE_KIND_UNSPECIFIED]: null,
+    [ProtocolBacklinkSourceKind.BACKLINK_SOURCE_KIND_BLOCK]: "block",
+    [ProtocolBacklinkSourceKind.BACKLINK_SOURCE_KIND_INLINE]: "inline",
+    [ProtocolBacklinkSourceKind.UNRECOGNIZED]: null,
+  },
+  "Backlink source kind",
+);
+export type BacklinkSourceKind = DomainEnum<typeof backlinkSourceKind>;
+
+export const viewRowSourceKind = defineProtocolEnum<ProtocolViewRowSourceKind>()(
+  {
+    [ProtocolViewRowSourceKind.SOURCE_KIND_UNSPECIFIED]: null,
+    [ProtocolViewRowSourceKind.SOURCE_KIND_OCCURRENCE]: "occurrence",
+    [ProtocolViewRowSourceKind.SOURCE_KIND_SEARCH_RESULT]: "search-result",
+    [ProtocolViewRowSourceKind.UNRECOGNIZED]: null,
+  },
+  "View row source kind",
+);
+export type ViewRowSourceKind = DomainEnum<typeof viewRowSourceKind>;

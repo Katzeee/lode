@@ -1,16 +1,16 @@
 import {
   compareFacts,
   isFieldContentDeletionMutation,
-  isSchemaMutation,
+  isSupertagMutation,
   isTemplateMutation,
   type ContributionFact,
   type Fact,
   type ResolutionFact,
-  type SchemaMutation,
-  type ViewMode,
+  type SupertagMutation,
+  type ProjectionPerspective,
 } from "../fact/index.js";
-import { eligibleForView, resolutionsByContribution } from "./activation-view.js";
-import { addSchemaMutationSupport, type SchemaSupportContext } from "./schema-support.js";
+import { eligibleForPerspective, resolutionsByContribution } from "./activation-perspective.js";
+import { addSupertagMutationSupport, type SupertagSupportContext } from "./supertag-support.js";
 import { addGeneratedOccurrenceSupport, addTemplateNodeSupport } from "./generated-relation-support.js";
 import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
 import { addFieldContentDeletionSupport } from "./field-content-support.js";
@@ -25,12 +25,12 @@ export type Activation = Readonly<{
   convergencePasses: number;
 }>;
 
-export function deriveActivation(facts: readonly Fact[], mode: ViewMode): Activation {
+export function deriveActivation(facts: readonly Fact[], mode: ProjectionPerspective): Activation {
   const ordered = [...facts].sort(compareFacts);
   const contributions = ordered.filter((fact): fact is ContributionFact => fact.body.kind === "contribution");
   const resolutions = resolutionsByContribution(ordered);
   const initiallyEligible = new Set(
-    contributions.filter((fact) => eligibleForView(fact, resolutions.get(fact.id), mode)).map((fact) => fact.id),
+    contributions.filter((fact) => eligibleForPerspective(fact, resolutions.get(fact.id), mode)).map((fact) => fact.id),
   );
   const supportByContribution = deriveSupport(contributions, initiallyEligible);
   const active = new Set(initiallyEligible);
@@ -67,17 +67,19 @@ export function deriveSupport(
   const ordered = [...contributions].sort(compareFacts);
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
-  const schemaApplicationSupport = new Map<string, ContributionFact[]>();
-  const schemaTemplateOccurrenceSupport = new Map<string, ContributionFact[]>();
+  const supertagApplicationSupport = new Map<string, ContributionFact[]>();
+  const supertagTemplateOccurrenceSupport = new Map<string, ContributionFact[]>();
   const nodeTypeSupport = new Map<string, string[]>();
   const occurrenceLifecycleFacts = indexOccurrenceLifecycleFacts(ordered);
+  const inlineReferenceSupport = new Map<string, string[]>();
+  const inlineAliasSupport = new Map<string, string[]>();
   const viable = new Set<string>();
   const existence = existenceSupport(nodeExistenceSupport, occurrenceExistenceSupport, viable);
-  const schemaSupport = createSchemaSupport(
+  const supertagSupport = createSupertagSupport(
     nodeExistenceSupport,
     viable,
-    schemaApplicationSupport,
-    schemaTemplateOccurrenceSupport,
+    supertagApplicationSupport,
+    supertagTemplateOccurrenceSupport,
     nodeTypeSupport,
   );
   const result = new Map<string, readonly string[]>();
@@ -86,8 +88,10 @@ export function deriveSupport(
     occurrenceExistenceSupport,
     viable,
     existence,
-    schemaSupport,
+    supertagSupport,
     occurrenceLifecycleFacts,
+    inlineReferenceSupport,
+    inlineAliasSupport,
   };
 
   registerNodeExistence(ordered, nodeExistenceSupport, eligibleContributionIds, viable);
@@ -108,24 +112,26 @@ function contributionSupport(
     occurrenceExistenceSupport: Map<string, string[]>;
     viable: Set<string>;
     existence: ReturnType<typeof existenceSupport>;
-    schemaSupport: SchemaSupportContext;
+    supertagSupport: SupertagSupportContext;
     occurrenceLifecycleFacts: ReadonlyMap<string, readonly ContributionFact[]>;
+    inlineReferenceSupport: Map<string, string[]>;
+    inlineAliasSupport: Map<string, string[]>;
   }>,
 ): Set<string> {
-  const { nodeExistenceSupport, occurrenceExistenceSupport, existence, schemaSupport } = context;
+  const { nodeExistenceSupport, occurrenceExistenceSupport, existence, supertagSupport } = context;
   const mutation = fact.body.mutation;
   const support = new Set<string>();
-  if (isSchemaMutation(mutation)) {
-    addSchemaContributionSupport(
+  if (isSupertagMutation(mutation)) {
+    addSupertagContributionSupport(
       support,
       mutation,
       fact,
-      schemaSupport,
+      supertagSupport,
       nodeExistenceSupport,
       occurrenceExistenceSupport,
     );
   } else if (isTemplateMutation(mutation)) {
-    addTemplateNodeSupport(support, mutation, fact, schemaSupport, existence);
+    addTemplateNodeSupport(support, mutation, fact, supertagSupport, existence);
   } else if (isFieldContentDeletionMutation(mutation)) {
     addFieldContentDeletionSupport(support, mutation, existence);
   } else {
@@ -152,20 +158,23 @@ function indexOccurrenceLifecycleFacts(
   return result;
 }
 
-function addSchemaContributionSupport(
+function addSupertagContributionSupport(
   support: Set<string>,
-  mutation: SchemaMutation,
+  mutation: SupertagMutation,
   fact: ContributionFact,
-  schemaSupport: SchemaSupportContext,
+  supertagSupport: SupertagSupportContext,
   nodeExistence: Map<string, string[]>,
   occurrenceExistence: Map<string, string[]>,
 ): void {
-  addSchemaMutationSupport(support, mutation, fact, schemaSupport);
-  if (mutation.kind === "schema-field-add") {
-    addIfPresent(support, effectiveCandidate(nodeExistence, mutation.fieldNodeId, schemaSupport.viable));
-    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, schemaSupport.viable));
-  } else if (mutation.kind === "schema-template-node-add") {
-    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, schemaSupport.viable));
+  addSupertagMutationSupport(support, mutation, fact, supertagSupport);
+  if (mutation.kind === "supertag-field-add") {
+    addIfPresent(support, effectiveCandidate(nodeExistence, mutation.fieldNodeId, supertagSupport.viable));
+    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, supertagSupport.viable));
+  } else if (mutation.kind === "supertag-template-node-add") {
+    addIfPresent(
+      support,
+      effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, supertagSupport.viable),
+    );
   }
 }
 
@@ -173,13 +182,13 @@ function existenceSupport(nodes: Map<string, string[]>, occurrences: Map<string,
   return { nodes, occurrences, viable };
 }
 
-function createSchemaSupport(
+function createSupertagSupport(
   nodes: Map<string, string[]>,
   viable: Set<string>,
   applications: Map<string, ContributionFact[]>,
   templateOccurrences: Map<string, ContributionFact[]>,
   nodeTypeDeclarations: Map<string, string[]>,
-): SchemaSupportContext {
+): SupertagSupportContext {
   return { nodes, viable, applications, templateOccurrences, nodeTypeDeclarations };
 }
 

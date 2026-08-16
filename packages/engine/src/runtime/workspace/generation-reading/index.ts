@@ -1,5 +1,5 @@
 import type { EditMutation } from "../../../domain/edit/index.js";
-import type { Mutation, ViewMode } from "../../../domain/fact/index.js";
+import type { Mutation, ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ScopedProjection, ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 import { planEditGenerationRead, planMutationGenerationRead, type GenerationReadPlan } from "./read-plan.js";
@@ -37,9 +37,9 @@ async function readScopedGeneration(
 async function readView(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   plan: GenerationReadPlan,
 ): Promise<ScopedProjection> {
-  const resolved = await resolveGenerationRead(store, generationId, view, plan);
-  return readResolvedProjection(store, generationId, view, resolved);
+  const resolved = await resolveGenerationRead(store, generationId, perspective, plan);
+  return readResolvedProjection(store, generationId, perspective, resolved);
 }

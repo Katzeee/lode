@@ -26,7 +26,7 @@ export const fieldMaterializationReviewFamily = {
       associatedNodeScope(mutation.ownerNodeId),
       ...(mutation.kind === "field-initialize"
         ? [
-            associatedNodeScope(mutation.schemaId),
+            associatedNodeScope(mutation.supertagId),
             associatedNodeScope(mutation.fieldDefinitionId),
             ...mutation.values.flatMap((value) =>
               value.kind === "reference" ? [associatedNodeScope(value.nodeId)] : [],

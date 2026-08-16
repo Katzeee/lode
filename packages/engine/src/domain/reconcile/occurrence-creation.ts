@@ -5,7 +5,7 @@ import { insertAtAnchor, listFor } from "./sequence.js";
 export function placeCreatedOccurrence(
   mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-create" }>,
   occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  childOccurrences: Map<string, string[]>,
   nodes: ReadonlyMap<string, MutableNode>,
   createdIdentities: Set<string>,
 ): void {
@@ -19,7 +19,7 @@ export function placeCreatedOccurrence(
   createdIdentities.add(mutation.occurrenceId);
   placeOccurrence(
     occurrences,
-    children,
+    childOccurrences,
     newOccurrence(mutation.occurrenceId, mutation.nodeId, mutation.parentNodeId),
     mutation.anchor,
     nodes,
@@ -50,15 +50,13 @@ export function newOccurrence(
     occurrenceId,
     nodeId,
     parentNodeId,
-    properties: {},
-    metadata: {},
     derived,
   };
 }
 
 export function placeOccurrence(
   occurrences: Map<string, MutableOccurrence>,
-  children: Map<string, string[]>,
+  childOccurrences: Map<string, string[]>,
   occurrence: MutableOccurrence,
   anchor: SequenceAnchor,
   nodes: ReadonlyMap<string, MutableNode>,
@@ -67,7 +65,7 @@ export function placeOccurrence(
     return;
   }
   occurrences.set(occurrence.occurrenceId, occurrence);
-  insertAtAnchor(listFor(children, occurrence.parentNodeId), occurrence.occurrenceId, anchor);
+  insertAtAnchor(listFor(childOccurrences, occurrence.parentNodeId), occurrence.occurrenceId, anchor);
 }
 
 export function createdOccurrenceNodeId(active: readonly ContributionFact[], occurrenceId: string): string | null {

@@ -18,7 +18,7 @@ export async function queryWorkspaceHistory(
   const factIds = historyTargetFactIds(query.channelId, receipts);
   const historyFacts = facts.relatedFacts(factIds);
   const scopedSnapshot = { facts: historyFacts, frontier: snapshot.frontier };
-  const generation = await readFactGeneration(projections, generationId, scopedSnapshot, factIds);
+  const generation = await readFactGeneration(projections, generationId, scopedSnapshot);
   return queryHistory(query.channelId, receiptsCoveredBySnapshot(receipts, snapshot), scopedSnapshot, generation);
 }
 

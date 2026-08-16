@@ -18,17 +18,32 @@ import type {
   ResolveReviewCommand as ProtocolResolveReviewCommand,
   RetireReplicaCommand as ProtocolRetireReplicaCommand,
   ReviewQueryRequest as ProtocolReviewQueryRequest,
-  SchemaSearchQueryRequest as ProtocolSchemaSearchQueryRequest,
-  SchemaSearchResult as ProtocolSchemaSearchResult,
-  ViewQueryRequest as ProtocolViewQueryRequest,
+  SupertagInstancesQueryRequest as ProtocolSupertagInstancesQueryRequest,
+  SupertagInstancesResult as ProtocolSupertagInstancesResult,
+  Backlink as ProtocolBacklink,
+  BacklinksQueryRequest as ProtocolBacklinksQueryRequest,
+  BacklinksResult as ProtocolBacklinksResult,
+  SearchResultsQueryRequest as ProtocolSearchResultsQueryRequest,
+  SearchResultsResult as ProtocolSearchResultsResult,
+  SearchResultReference as ProtocolSearchResultReference,
+  ViewRowsQueryRequest as ProtocolViewRowsQueryRequest,
+  ViewRowsResult as ProtocolViewRowsResult,
+  ViewRowReference as ProtocolViewRowReference,
 } from "@lode/protocol/dto/engine";
 import type { EditMutation } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
 import type { HardDeletePreview, HardDeleteSelection } from "./maintenance.js";
-import type { AuthorityReceipt, ProtocolDto, ResolutionDecision, ViewMode } from "./model.js";
+import type { AuthorityReceipt, ProtocolDto, ResolutionDecision, ProjectionPerspective, ViewType } from "./model.js";
 import type { ProjectionPage, ProjectionPageSection } from "./projection.js";
-import type { ConflictQuery, ReviewQuery, ReviewSelection, ViewResult } from "./review.js";
-import type { EditIntent, EngineErrorCode, EngineEventKind } from "./protocol-enums/engine.js";
+import type { ConflictQuery, ReviewQuery, ReviewSelection } from "./review.js";
+import type {
+  BacklinkSourceKind,
+  EditIntent,
+  EngineErrorCode,
+  EngineEventKind,
+  ViewRowSourceKind,
+} from "./protocol-enums/engine.js";
+import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
 
 type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 
@@ -70,17 +85,51 @@ type OutcomeUnknownResult = Omit<ProtocolDto<ProtocolOutcomeUnknownResult>, "sta
   Readonly<{ status: "outcome-unknown" }>;
 export type WriteResult = PublishedResult | CommittedProjectionPendingResult | RejectedResult | OutcomeUnknownResult;
 
-export type ProjectionQuery = Omit<WithKind<ProtocolProjectionQuery, "projection">, "view" | "section"> &
-  Readonly<{ view: ViewMode; section?: ProjectionPageSection }>;
+export type ProjectionQuery = Omit<WithKind<ProtocolProjectionQuery, "projection">, "perspective" | "section"> &
+  Readonly<{ perspective: ProjectionPerspective; section?: ProjectionPageSection }>;
 export type ReviewQueryRequest = WithKind<ProtocolReviewQueryRequest, "review">;
 export type HistoryQueryRequest = WithKind<ProtocolHistoryQueryRequest, "history">;
 export type InvocationQuery = WithKind<ProtocolInvocationQuery, "invocation">;
 export type ConflictQueryRequest = WithKind<ProtocolConflictQueryRequest, "conflicts">;
-export type SchemaSearchQueryRequest = Omit<WithKind<ProtocolSchemaSearchQueryRequest, "schema-search">, "view"> &
-  Readonly<{ view: ViewMode }>;
-export type ViewQueryRequest = Omit<WithKind<ProtocolViewQueryRequest, "view">, "view"> & Readonly<{ view: ViewMode }>;
+export type SupertagInstancesQueryRequest = Omit<
+  WithKind<ProtocolSupertagInstancesQueryRequest, "supertag-instances">,
+  "perspective"
+> &
+  Readonly<{ perspective: ProjectionPerspective }>;
 export type HardDeletePreviewQuery = WithKind<ProtocolHardDeletePreviewQuery, "hard-delete-preview">;
-export type SchemaSearchResult = Omit<ProtocolDto<ProtocolSchemaSearchResult>, "view"> & Readonly<{ view: ViewMode }>;
+export type BacklinksQueryRequest = Omit<WithKind<ProtocolBacklinksQueryRequest, "backlinks">, "perspective"> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type SupertagInstancesResult = Omit<ProtocolDto<ProtocolSupertagInstancesResult>, "perspective"> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type Backlink = Omit<ProtocolDto<ProtocolBacklink>, "sourceKind" | "targetStatus"> &
+  Readonly<{ sourceKind: BacklinkSourceKind; targetStatus: InlineReferenceTargetStatus }>;
+export type BacklinksResult = Omit<ProtocolDto<ProtocolBacklinksResult>, "perspective" | "backlinks"> &
+  Readonly<{ perspective: ProjectionPerspective; backlinks: readonly Backlink[] }>;
+export type SearchResultsQueryRequest = Omit<
+  WithKind<ProtocolSearchResultsQueryRequest, "search-results">,
+  "perspective"
+> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type SearchResultReference = ProtocolDto<ProtocolSearchResultReference>;
+export type SearchResultsResult = Omit<ProtocolDto<ProtocolSearchResultsResult>, "perspective" | "results"> &
+  Readonly<{ perspective: ProjectionPerspective; results: readonly SearchResultReference[] }>;
+export type ViewRowsQueryRequest = Omit<
+  WithKind<ProtocolViewRowsQueryRequest, "view-rows">,
+  "perspective" | "viewDefinitionNodeId"
+> &
+  Readonly<{ perspective: ProjectionPerspective; viewDefinitionNodeId?: string }>;
+export type ViewRowReference = Omit<ProtocolDto<ProtocolViewRowReference>, "sourceKind"> &
+  Readonly<{ sourceKind: ViewRowSourceKind }>;
+export type ViewRowsResult = Omit<
+  ProtocolDto<ProtocolViewRowsResult>,
+  "perspective" | "viewType" | "rows" | "viewDefinitionNodeId"
+> &
+  Readonly<{
+    perspective: ProjectionPerspective;
+    viewDefinitionNodeId: string | null;
+    viewType: ViewType;
+    rows: readonly ViewRowReference[];
+  }>;
 export type InvocationOutcome = Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
 export type EngineQueryContract =
@@ -89,9 +138,11 @@ export type EngineQueryContract =
   | Readonly<{ query: HistoryQueryRequest; value: HistoryQuery }>
   | Readonly<{ query: InvocationQuery; value: InvocationOutcome }>
   | Readonly<{ query: ConflictQueryRequest; value: ConflictQuery }>
-  | Readonly<{ query: SchemaSearchQueryRequest; value: SchemaSearchResult }>
-  | Readonly<{ query: ViewQueryRequest; value: ViewResult }>
-  | Readonly<{ query: HardDeletePreviewQuery; value: HardDeletePreview }>;
+  | Readonly<{ query: SupertagInstancesQueryRequest; value: SupertagInstancesResult }>
+  | Readonly<{ query: HardDeletePreviewQuery; value: HardDeletePreview }>
+  | Readonly<{ query: BacklinksQueryRequest; value: BacklinksResult }>
+  | Readonly<{ query: SearchResultsQueryRequest; value: SearchResultsResult }>
+  | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>;
 export type EngineQuery = EngineQueryContract["query"];
 export type EngineQueryKind = EngineQuery["kind"];
 export type EngineQueryForKind<Kind extends EngineQueryKind> = Extract<EngineQuery, Readonly<{ kind: Kind }>>;

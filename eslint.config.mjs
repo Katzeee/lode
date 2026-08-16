@@ -416,7 +416,7 @@ export default tseslint.config(
                 "./review-*.js",
                 "./materialized-projection-*.js",
                 "./materialized-review-*.js",
-                "./schema-search-reader.js",
+                "./supertag-instances-reader.js",
               ],
               message:
                 "The materialized storage kernel depends on dataset contracts, never higher runtime modules or Projection and Review adapters.",

@@ -1,13 +1,18 @@
 import type {
   ContributionId,
   FactFrontier,
-  FieldTemplateConfig,
+  SupertagFieldConfig,
   PreviousValue,
   NodeType,
   ResolutionBody,
   SequenceAnchor,
   TextAtomId,
+  ViewType,
+  FieldCardinality,
+  FieldDatatype,
+  FieldInitializationExpression,
 } from "../fact/index.js";
+import type { InlineReferenceTargetStatus } from "../reconcile/index.js";
 
 export type TextDecisionEffect = Readonly<{
   kind: "text";
@@ -40,16 +45,6 @@ export type PlacementRelation = Readonly<{
   beforeEndpoint: "before" | "after" | "missing" | null;
 }>;
 
-export type ValueDecisionEffect = Readonly<{
-  kind: "value";
-  targetKind: "node" | "occurrence";
-  targetId: string;
-  namespace: "property" | "metadata" | "schema";
-  key: string;
-  origin: PreviousValue;
-  review: PreviousValue;
-}>;
-
 export type LifecycleDecisionEffect = Readonly<{
   kind: "lifecycle";
   identity: string;
@@ -71,8 +66,8 @@ export type NodeTypeDecisionEffect = Readonly<{
   review: NodeType | null;
 }>;
 
-export type SchemaRelationDecisionEffect = Readonly<{
-  kind: "schema-relation";
+export type SupertagRelationDecisionEffect = Readonly<{
+  kind: "supertag-relation";
   relation: "application" | "field" | "extension" | "template-node";
   ownerId: string;
   targetId: string;
@@ -92,22 +87,64 @@ export type FieldMaterializationDecisionEffect = Readonly<{
 
 export type FieldConfigurationDecisionEffect = Readonly<{
   kind: "field-configuration";
-  schemaId: string;
+  supertagId: string;
   fieldDefinitionId: string;
-  origin: FieldTemplateConfig | null;
-  review: FieldTemplateConfig | null;
+  origin: SupertagFieldConfig | null;
+  review: SupertagFieldConfig | null;
+}>;
+
+export type InlineReferenceDecisionState = Readonly<{
+  hostNodeId: string;
+  targetNodeId: string;
+  aliasNodeId: string | null;
+  targetStatus: InlineReferenceTargetStatus;
+  anchor: SequenceAnchor;
+}>;
+
+export type InlineReferenceDecisionEffect = Readonly<{
+  kind: "inline-reference";
+  inlineReferenceId: string;
+  origin: InlineReferenceDecisionState | null;
+  review: InlineReferenceDecisionState | null;
+}>;
+
+export type ViewDefinitionDecisionState = Readonly<{
+  hostNodeId: string;
+  viewType: ViewType;
+}>;
+
+export type ViewDefinitionDecisionEffect = Readonly<{
+  kind: "view-definition";
+  viewDefinitionNodeId: string;
+  origin: ViewDefinitionDecisionState | null;
+  review: ViewDefinitionDecisionState | null;
+}>;
+
+export type FieldDefinitionConfigurationDecisionState =
+  | Readonly<{ kind: "datatype"; datatype: FieldDatatype }>
+  | Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>
+  | Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>;
+
+export type FieldDefinitionConfigurationDecisionEffect = Readonly<{
+  kind: "field-definition-configuration";
+  fieldDefinitionId: string;
+  configurationNodeId: string;
+  origin: FieldDefinitionConfigurationDecisionState | null;
+  review: FieldDefinitionConfigurationDecisionState | null;
 }>;
 
 export type DecisionEffect =
   | TextDecisionEffect
   | StructureDecisionEffect
-  | ValueDecisionEffect
   | LifecycleDecisionEffect
   | OwnerDecisionEffect
   | NodeTypeDecisionEffect
-  | SchemaRelationDecisionEffect
+  | SupertagRelationDecisionEffect
   | FieldConfigurationDecisionEffect
-  | FieldMaterializationDecisionEffect;
+  | FieldMaterializationDecisionEffect
+  | InlineReferenceDecisionEffect
+  | ViewDefinitionDecisionEffect
+  | FieldDefinitionConfigurationDecisionEffect;
 
 export type DecisionEvidence = Readonly<{
   proposalTargets: readonly ContributionId[];
@@ -132,13 +169,15 @@ export type ReviewHunk = Readonly<{
     kind:
       | "node-content"
       | "child-sequence"
-      | "value"
       | "lifecycle"
       | "owner"
-      | "schema-application"
-      | "schema-template"
+      | "supertag-application"
+      | "supertag-template"
       | "field-configuration"
-      | "materialized-field";
+      | "materialized-field"
+      | "inline-reference"
+      | "view-definition"
+      | "field-definition-configuration";
     identity: string;
   }>;
   proposalContributionIds: readonly ContributionId[];

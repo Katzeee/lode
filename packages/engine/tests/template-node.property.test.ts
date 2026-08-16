@@ -11,14 +11,18 @@ import {
   type FactFrontier,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
+import {
+  advanceGeneration,
+  rebuildGeneration,
+  textAtoms,
+  CURRENT_PROJECTION_VERSIONS as versions,
+} from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const removeReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const addReplica = "cccccccccccccccccccccccccc";
 const detachReplica = "dddddddddddddddddddddddddd";
@@ -31,24 +35,24 @@ describe("Template Node convergence", () => {
     const frontier = baseSnapshot.frontier;
     const [remove, removePlacement] = remoteFacts(removeReplica, frontier, base.values.length + 1, [
       {
-        kind: "schema-template-node-remove",
-        schemaId: "schema",
+        kind: "supertag-template-node-remove",
+        supertagId: "supertag",
         templateNodeId: "guidance",
-        templateOccurrenceId: "schema-guidance-template-occurrence",
+        templateOccurrenceId: "supertag-guidance-template-occurrence",
         previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
       },
       {
         kind: "occurrence-delete",
-        occurrenceId: "schema-guidance-template-occurrence",
-        previousParentNodeId: "schema",
+        occurrenceId: "supertag-guidance-template-occurrence",
+        previousParentNodeId: "supertag",
         previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
       },
     ]);
     const add = remoteFact(addReplica, frontier, base.values.length + 1, {
-      kind: "schema-template-node-add",
-      schemaId: "schema",
+      kind: "supertag-template-node-add",
+      supertagId: "supertag",
       templateNodeId: "guidance",
-      templateOccurrenceId: "schema-guidance-template-occurrence",
+      templateOccurrenceId: "supertag-guidance-template-occurrence",
       anchor: end,
     });
     const merged = admitted([...base.values, remove, removePlacement, add]);
@@ -62,8 +66,6 @@ describe("Template Node convergence", () => {
           nodeId: templateInstanceNodeId("note", "guidance"),
           seed: {
             text: [..."Guidance"].map((value) => ({ value, attributes: {} })),
-            properties: {},
-            metadata: {},
           },
         },
         {
@@ -73,9 +75,9 @@ describe("Template Node convergence", () => {
           instanceNodeId: templateInstanceNodeId("note", "guidance"),
           instanceOccurrenceId: templateInstanceOccurrenceId("note", "guidance"),
           anchor: end,
-          sourceSchemaIds: ["schema"],
-          sourceApplicationSchemaIds: ["schema"],
-          sourceTemplateOccurrenceIds: ["schema-guidance-template-occurrence"],
+          sourceSupertagIds: ["supertag"],
+          sourceApplicationSupertagIds: ["supertag"],
+          sourceTemplateOccurrenceIds: ["supertag-guidance-template-occurrence"],
         },
         {
           kind: "occurrence-create",
@@ -96,14 +98,14 @@ describe("Template Node convergence", () => {
       );
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
-      expect(full.generation.origin.schemaTemplateNodes.schema).toEqual(["guidance"]);
+      expect(full.generation.origin.supertagTemplateNodes.supertag).toEqual(["guidance"]);
       expect(full.generation.origin.templateNodeInstances[0]).toMatchObject({
         state: "detached",
         instanceNodeId: templateInstanceNodeId("note", "guidance"),
         detachmentContributionIds: [detach.id],
       });
       expect(
-        full.generation.origin.nodes[templateInstanceNodeId("note", "guidance")]?.text
+        textAtoms(full.generation.origin.nodes[templateInstanceNodeId("note", "guidance")])
           .map((atom) => atom.value)
           .join(""),
       ).toBe("Guidance");
@@ -129,8 +131,8 @@ describe("Template Node convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("schema");
-  facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+  facts.addPlaced("supertag");
+  facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
   facts.addPlaced("guidance");
   facts.addPlaced("note", "workspace", "note-occurrence");
   facts.add({
@@ -142,13 +144,13 @@ function fixture(): Facts {
     insert: "Guidance",
   });
   facts.add({
-    kind: "schema-template-node-add",
-    schemaId: "schema",
+    kind: "supertag-template-node-add",
+    supertagId: "supertag",
     templateNodeId: "guidance",
-    templateOccurrenceId: "schema-guidance-template-occurrence",
+    templateOccurrenceId: "supertag-guidance-template-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "schema-apply", nodeId: "note", schemaId: "schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "note", supertagId: "supertag", anchor: end });
   return facts;
 }
 

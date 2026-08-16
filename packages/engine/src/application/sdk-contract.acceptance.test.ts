@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { admitAuthorityRecords } from "../domain/admission/index.js";
-import { templateInstanceNodeId, templateInstanceOccurrenceId } from "../domain/fact/index.js";
+import { templateInstanceNodeId, templateInstanceOccurrenceId, workspaceTrashNodeId } from "../domain/fact/index.js";
 import { FactAuthorityStore, createReplicaId } from "../runtime/authority/fact-authority-store.js";
 import { ProposalWorkspace } from "../runtime/workspace/proposal-workspace.js";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@lode/sdk";
 import { createEngineTransportServer } from "../../tests/support/application-transport.js";
 import { ProposalWorkspaceRegistry } from "../runtime/workspace/proposal-registry.js";
+import { CURRENT_PROJECTION_VERSIONS } from "../domain/reconcile/index.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
@@ -37,7 +38,7 @@ async function setup() {
   const workspace = await ProposalWorkspace.open({
     workspaceId: "workspace",
     facts,
-    versions: { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" },
+    versions: CURRENT_PROJECTION_VERSIONS,
   });
   const registry = new ProposalWorkspaceRegistry();
   registry.register(workspace);
@@ -77,23 +78,23 @@ describe("transport-neutral SDK contract", () => {
     expect(direct).not.toHaveProperty("materializer");
   });
 
-  it("Schema Search is a bounded serialized query with stable cursors", async () => {
+  it("Supertag Search is a bounded serialized query with stable cursors", async () => {
     const { serialized } = await setup();
     expect(
       (
         await serialized.execute({
           ...command,
-          invocationId: "schema-search-setup",
+          invocationId: "supertag-instances-setup",
           mutations: [
             ...nodeAtWorkspace("anime"),
             {
               kind: "node-type-declare",
               nodeId: "anime",
-              nodeType: "schema",
+              nodeType: "supertag-definition",
             },
             ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
               ...nodeAtWorkspace(nodeId),
-              { kind: "schema-apply" as const, nodeId, schemaId: "anime", anchor: end },
+              { kind: "supertag-apply" as const, nodeId, supertagId: "anime", anchor: end },
             ]),
           ],
         })
@@ -101,24 +102,24 @@ describe("transport-neutral SDK contract", () => {
     ).toBe("published");
 
     const first = await serialized.query({
-      kind: "schema-search",
+      kind: "supertag-instances",
       workspaceId: "workspace",
-      view: "origin",
-      schemaId: "anime",
+      perspective: "origin",
+      supertagId: "anime",
       limit: 2,
     });
     expect(first).toMatchObject({
       status: "ok",
-      value: { view: "origin", schemaId: "anime", nodeIds: ["a", "b"], next: "b" },
+      value: { perspective: "origin", supertagId: "anime", nodeIds: ["a", "b"], next: "b" },
     });
     if (first.status !== "ok" || !("nodeIds" in first.value)) {
-      throw new Error("Expected Schema Search result");
+      throw new Error("Expected Supertag Search result");
     }
     const second = await serialized.query({
-      kind: "schema-search",
+      kind: "supertag-instances",
       workspaceId: "workspace",
-      view: "origin",
-      schemaId: "anime",
+      perspective: "origin",
+      supertagId: "anime",
       after: first.value.next,
       limit: 2,
     });
@@ -131,25 +132,24 @@ describe("transport-neutral SDK contract", () => {
       (
         await serialized.execute({
           ...command,
-          invocationId: "delete-search-schema",
+          invocationId: "delete-search-supertag",
           mutations: [{ kind: "node-delete", nodeId: "anime" }],
         })
       ).status,
     ).toBe("published");
-    const statuses = await serialized.query({
+    const nodes = await serialized.query({
       kind: "projection",
       workspaceId: "workspace",
-      view: "origin",
-      section: "nodeStatuses",
+      perspective: "origin",
+      section: "nodes",
     });
-    expect(statuses).toMatchObject({
+    expect(nodes).toMatchObject({
       status: "ok",
       value: {
-        nodeStatuses: {
+        nodes: {
           anime: {
             nodeId: "anime",
-            nodeType: "schema",
-            state: "deleted",
+            nodeType: "supertag-definition",
           },
         },
       },
@@ -165,22 +165,22 @@ describe("transport-neutral SDK contract", () => {
           ...command,
           invocationId: "serialized-template-setup",
           mutations: [
-            nodeAt("note-schema", "workspace", "note-schema-original"),
+            nodeAt("note-supertag", "workspace", "note-supertag-original"),
             {
               kind: "node-type-declare",
-              nodeId: "note-schema",
-              nodeType: "schema",
+              nodeId: "note-supertag",
+              nodeType: "supertag-definition",
             },
-            nodeAt("guidance", "note-schema", "note-schema-guidance-template-occurrence"),
+            nodeAt("guidance", "note-supertag", "note-supertag-guidance-template-occurrence"),
             nodeAt("note", "workspace", "note-occurrence"),
             {
-              kind: "schema-template-node-add",
-              schemaId: "note-schema",
+              kind: "supertag-template-node-add",
+              supertagId: "note-supertag",
               templateNodeId: "guidance",
-              templateOccurrenceId: "note-schema-guidance-template-occurrence",
+              templateOccurrenceId: "note-supertag-guidance-template-occurrence",
               anchor: end,
             },
-            { kind: "schema-apply", nodeId: "note", schemaId: "note-schema", anchor: end },
+            { kind: "supertag-apply", nodeId: "note", supertagId: "note-supertag", anchor: end },
           ],
         })
       ).status,
@@ -210,7 +210,7 @@ describe("transport-neutral SDK contract", () => {
       await serialized.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
         section: "templateNodeInstances",
       }),
     ).toMatchObject({
@@ -239,9 +239,9 @@ describe("transport-neutral SDK contract", () => {
           invocationId: "serialized-field-setup",
           mutations: [
             nodeAt("owner", "workspace", "owner-occurrence"),
-            nodeAt("schema", "workspace", "schema-original"),
+            nodeAt("supertag", "workspace", "supertag-original"),
             nodeAt("field-definition", "workspace", "field-definition-original"),
-            { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+            { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
             {
               kind: "node-type-declare",
               nodeId: "field-definition",
@@ -250,14 +250,14 @@ describe("transport-neutral SDK contract", () => {
             nodeAt("field-node", "owner", "field-occurrence"),
             nodeAt("value", "field-node", "value-occurrence"),
             {
-              kind: "schema-field-add",
-              schemaId: "schema",
+              kind: "supertag-field-add",
+              supertagId: "supertag",
               fieldDefinitionId: "field-definition",
-              fieldNodeId: "schema-field-definition-template-field",
-              fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
+              fieldNodeId: "supertag-field-definition-template-field",
+              fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
               anchor: end,
             },
-            { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
+            { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
             {
               kind: "field-materialize",
               ownerNodeId: "owner",
@@ -289,13 +289,32 @@ describe("transport-neutral SDK contract", () => {
       await serialized.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
         section: "materializedFields",
       }),
     ).toMatchObject({
       status: "ok",
       value: { materializedFields: { owner: [{ valueOccurrenceIds: [] }] } },
     });
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "workspaceSystemNodes",
+      }),
+    ).toMatchObject({
+      status: "ok",
+      value: { workspaceSystemNodes: { trash: workspaceTrashNodeId("workspace") } },
+    });
+    expect(
+      await serialized.query({
+        kind: "projection",
+        workspaceId: "workspace",
+        perspective: "origin",
+        section: "metanodes",
+      }),
+    ).toMatchObject({ status: "ok", value: { metanodes: {} } });
     expect(
       await serialized.execute({
         ...command,
@@ -323,7 +342,7 @@ describe("transport-neutral SDK contract", () => {
       mutations: [{ kind: "node-delete", nodeId: "node" }],
     });
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
-      throw new Error("Expected serialized tombstone");
+      throw new Error("Expected serialized deletion");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
     let preview = await serialized.query({
@@ -407,14 +426,14 @@ describe("transport-neutral SDK contract", () => {
     const invalidQuery = {
       kind: "projection",
       workspaceId: "workspace",
-      view: "origin",
+      perspective: "origin",
       limit: 0,
     } as const;
     expect(decodeEngineQueryResult(await server.query(encodeEngineQuery(invalidQuery)), invalidQuery)).toMatchObject({
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    expect(facts.admission().snapshot.facts).toHaveLength(2);
+    expect(facts.admission().snapshot.facts).toHaveLength(4);
     expect(facts.receipts()).toHaveLength(1);
   });
 
@@ -424,16 +443,16 @@ describe("transport-neutral SDK contract", () => {
       ...command,
       mutations: [
         {
-          kind: "value-set",
-          target: { kind: "node", id: "node" },
-          namespace: "property",
-          key: "bigint",
-          value: 1n,
-          previous: { kind: "unset" },
+          kind: "node-create",
+          nodeId: "invalid",
+          seed: { text: [{ value: "invalid", attributes: { bigint: 1n } }] },
         },
       ],
     };
-    expect(await direct.execute(invalid as never)).toEqual(await serialized.execute(invalid as never));
+    expect(await direct.execute(invalid as never)).toMatchObject({
+      status: "rejected",
+      error: { code: "invalid-input" },
+    });
     expect(await serialized.execute(invalid as never)).toMatchObject({
       status: "rejected",
       error: { code: "invalid-input" },
@@ -444,7 +463,7 @@ describe("transport-neutral SDK contract", () => {
       const response = decodeWriteResult(await server.execute(malformedBytes));
       expect(response).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     }
-    expect(facts.admission().snapshot.facts).toHaveLength(2);
+    expect(facts.admission().snapshot.facts).toHaveLength(4);
     expect(facts.receipts()).toHaveLength(1);
   });
 
@@ -500,7 +519,7 @@ describe("transport-neutral SDK contract", () => {
       await adapter.query({
         kind: "projection",
         workspaceId: "workspace",
-        view: "origin",
+        perspective: "origin",
       }),
     ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
     let delivered = 0;
@@ -531,12 +550,12 @@ describe("transport-neutral SDK contract", () => {
     const first = await serialized.query({
       kind: "projection",
       workspaceId: "workspace",
-      view: "origin",
+      perspective: "origin",
     });
     const second = await serialized.query({
       kind: "projection",
       workspaceId: "workspace",
-      view: "origin",
+      perspective: "origin",
     });
     expect(first).toEqual(second);
     expect(first).not.toBe(second);

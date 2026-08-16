@@ -3,22 +3,26 @@ import type { FactSnapshot } from "../../../domain/fact/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
 import type {
   ProjectionIdentityReader,
+  ProjectionGenerationReader,
   ProjectionSectionPageReader,
   ReviewReadModelReader,
-  ProjectionSchemaSearchReader,
+  ProjectionSupertagInstancesReader,
   ProjectionSnapshotReader,
 } from "../../materialization/index.js";
 import { hardDeletePreview } from "../hard-delete.js";
 import { queryWorkspaceHistory } from "./history.js";
 import { queryWorkspaceInvocation } from "./invocation.js";
-import { queryConflicts, queryProjection, querySchemaSearch } from "./projection.js";
+import { queryConflicts, queryProjection, querySupertagInstances } from "./projection.js";
 import { queryWorkspaceReview } from "./review.js";
-import { readView } from "./view.js";
+import { queryBacklinks } from "./backlinks.js";
+import { querySearchResults } from "./search-results.js";
+import { queryViewRows } from "./view-rows.js";
 
 type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
+  ProjectionGenerationReader &
   ProjectionSectionPageReader &
   ReviewReadModelReader &
-  ProjectionSchemaSearchReader &
+  ProjectionSupertagInstancesReader &
   ProjectionSnapshotReader;
 
 type WorkspaceQueryAuthority = Pick<
@@ -52,20 +56,22 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
       return queryProjection(query, context.generationId, context.projections);
     case "conflicts":
       return queryConflicts(query, context.generationId, context.projections);
-    case "schema-search":
-      return querySchemaSearch(query, context.generationId, context.projections);
-    case "view":
-      return readView(
+    case "supertag-instances":
+      return querySupertagInstances(query, context.generationId, context.projections);
+    case "backlinks":
+      return queryBacklinks(query, context.generationId, context.projections);
+    case "search-results":
+      return querySearchResults(query, context.generationId, context.projections);
+    case "view-rows":
+      return queryViewRows(query, context.generationId, context.projections);
+    case "hard-delete-preview":
+      return hardDeletePreview(
+        context.workspaceId,
+        query.nodeId,
+        context.snapshot,
+        context.facts,
         context.projections,
         context.generationId,
-        query.view,
-        query.viewNodeId,
-        query.after ?? null,
-        query.limit ?? 50,
-      );
-    case "hard-delete-preview":
-      return Promise.resolve(
-        hardDeletePreview(context.workspaceId, query.nodeId, context.snapshot, context.facts, context.generationId),
       );
     case "review":
       return queryWorkspaceReview(

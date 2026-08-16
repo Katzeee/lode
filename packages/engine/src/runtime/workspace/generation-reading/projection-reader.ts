@@ -1,4 +1,4 @@
-import type { ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../domain/reconcile/index.js";
 import type { ProjectionSliceName, ProjectionSnapshotReader } from "../../materialization/index.js";
 import type { ResolvedGenerationRead } from "./scope-resolver.js";
@@ -7,87 +7,99 @@ import { readSection } from "./section-reader.js";
 export async function readResolvedProjection(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   resolved: ResolvedGenerationRead,
 ): Promise<ScopedProjection> {
   const { scope } = resolved;
-  const nodesBatch = await store.read(generationId, view, "nodes", [...scope.nodes]);
+  const nodesBatch = await store.read(generationId, perspective, "nodes", [...scope.nodes]);
   const nodes = Object.fromEntries(nodesBatch.entries.map((entry) => [entry.identity, entry.value]));
-  const [children, addressedValues, schema] = await Promise.all([
-    readSection(store, generationId, view, "children", [...scope.children]),
-    readSection(store, generationId, view, "addressedValues", [...scope.values]),
-    readSchemaProjection(store, generationId, view, scope.nodes, scope.schemas),
+  const [
+    childOccurrences,
+    metanodes,
+    workspaceSystemNodes,
+    fieldDefinitionConfigurations,
+    searchClauses,
+    sharedDefaultViewDefinitions,
+    supertag,
+  ] = await Promise.all([
+    readSection(store, generationId, perspective, "childOccurrences", [...scope.childOccurrences]),
+    readSection(store, generationId, perspective, "metanodes", [...scope.nodes]),
+    readSection(store, generationId, perspective, "workspaceSystemNodes", ["trash"]),
+    readSection(store, generationId, perspective, "fieldDefinitionConfigurations", [...scope.nodes]),
+    readSection(store, generationId, perspective, "searchClauses", [...scope.nodes]),
+    readSection(store, generationId, perspective, "sharedDefaultViewDefinitions", [...scope.nodes]),
+    readSupertagProjection(store, generationId, perspective, scope.nodes, scope.supertags),
   ]);
   return {
-    view,
+    perspective,
     identity: nodesBatch.identity,
     nodes,
     occurrences: resolved.occurrences,
-    children,
+    childOccurrences,
     nodeOwners: resolved.nodeOwners,
-    addressedValues,
+    metanodes,
+    workspaceSystemNodes,
+    fieldDefinitionConfigurations,
+    searchClauses,
+    sharedDefaultViewDefinitions,
     templateNodeInstances: Object.values(resolved.templateNodeInstances),
-    ...schema,
+    ...supertag,
   };
 }
 
-async function readSchemaProjection(
+async function readSupertagProjection(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   nodeIds: ReadonlySet<string>,
-  schemaIds: ReadonlySet<string>,
+  supertagIds: ReadonlySet<string>,
 ): Promise<
   Pick<
     ScopedProjection,
-    | "schemaApplications"
-    | "schemaFields"
+    | "supertagApplications"
+    | "supertagFields"
     | "templateFields"
-    | "schemaTemplateNodes"
-    | "schemaExtensions"
-    | "schemaSearchMembers"
-    | "schemaExtensionConflicts"
-    | "nodeStatuses"
+    | "supertagTemplateNodes"
+    | "supertagExtensions"
+    | "supertagInstanceSupertags"
+    | "supertagExtensionConflicts"
     | "effectiveFields"
     | "materializedFields"
   >
 > {
   const read = <Section extends ProjectionSliceName>(section: Section, ids: readonly string[]) =>
-    readSection(store, generationId, view, section, ids);
+    readSection(store, generationId, perspective, section, ids);
   const nodes = [...nodeIds];
-  const schemas = [...schemaIds];
+  const supertags = [...supertagIds];
   const [
     applications,
     fields,
     fieldItems,
     templateNodes,
     extensions,
-    search,
+    instanceSupertags,
     conflicts,
-    statuses,
     effective,
     materialized,
   ] = await Promise.all([
-    read("schemaApplications", nodes),
-    read("schemaFields", schemas),
-    read("templateFields", schemas),
-    read("schemaTemplateNodes", schemas),
-    read("schemaExtensions", schemas),
-    read("schemaSearchMembers", schemas),
-    read("schemaExtensionConflicts", schemas),
-    read("nodeStatuses", [...new Set([...schemas, ...nodeIds])]),
+    read("supertagApplications", nodes),
+    read("supertagFields", supertags),
+    read("templateFields", supertags),
+    read("supertagTemplateNodes", supertags),
+    read("supertagExtensions", supertags),
+    read("supertagInstanceSupertags", supertags),
+    read("supertagExtensionConflicts", supertags),
     read("effectiveFields", nodes),
     read("materializedFields", nodes),
   ]);
   return {
-    schemaApplications: applications,
-    schemaFields: fields,
+    supertagApplications: applications,
+    supertagFields: fields,
     templateFields: fieldItems,
-    schemaTemplateNodes: templateNodes,
-    schemaExtensions: extensions,
-    schemaSearchMembers: search,
-    schemaExtensionConflicts: conflicts,
-    nodeStatuses: statuses,
+    supertagTemplateNodes: templateNodes,
+    supertagExtensions: extensions,
+    supertagInstanceSupertags: instanceSupertags,
+    supertagExtensionConflicts: conflicts,
     effectiveFields: effective,
     materializedFields: materialized,
   };

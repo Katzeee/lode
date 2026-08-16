@@ -11,11 +11,11 @@ export function sequenceAnchorAt(identities: readonly string[], index: number): 
 }
 
 export function occurrenceAnchor(
-  projection: Pick<Projection, "occurrences" | "children">,
+  projection: Pick<Projection, "occurrences" | "childOccurrences">,
   occurrenceId: string,
 ): SequenceAnchor {
   const occurrence = projection.occurrences[occurrenceId];
-  const siblings = occurrence ? (projection.children[occurrence.parentNodeId] ?? []) : [];
+  const siblings = occurrence ? (projection.childOccurrences[occurrence.parentNodeId] ?? []) : [];
   const index = siblings.indexOf(occurrenceId);
   return {
     after: index > 0 ? (siblings[index - 1] ?? null) : null,
@@ -62,18 +62,18 @@ export function insertManyAtAnchor<T>(
   list.splice(index, 0, ...unique);
 }
 
-export function listFor(children: Map<string, string[]>, parentNodeId: string): string[] {
-  const existing = children.get(parentNodeId);
+export function listFor(childOccurrences: Map<string, string[]>, parentNodeId: string): string[] {
+  const existing = childOccurrences.get(parentNodeId);
   if (existing) {
     return existing;
   }
   const created: string[] = [];
-  children.set(parentNodeId, created);
+  childOccurrences.set(parentNodeId, created);
   return created;
 }
 
-export function removePlacement(children: ReadonlyMap<string, string[]>, occurrenceId: string): void {
-  for (const siblings of children.values()) {
+export function removePlacement(childOccurrences: ReadonlyMap<string, string[]>, occurrenceId: string): void {
+  for (const siblings of childOccurrences.values()) {
     const index = siblings.indexOf(occurrenceId);
     if (index >= 0) {
       siblings.splice(index, 1);

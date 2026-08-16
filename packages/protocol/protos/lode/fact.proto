@@ -18,15 +18,15 @@ enum ContributionMutationKind {
   CONTRIBUTION_MUTATION_KIND_OCCURRENCE_MOVE = 7;
   CONTRIBUTION_MUTATION_KIND_NODE_OWNER_SET = 8;
   CONTRIBUTION_MUTATION_KIND_NODE_TYPE_DECLARE = 9;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_APPLY = 10;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_REMOVE = 11;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_ADD = 12;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_REMOVE = 13;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_FIELD_CONFIGURE = 14;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_EXTENSION_ADD = 15;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_EXTENSION_REMOVE = 16;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_TEMPLATE_NODE_ADD = 17;
-  CONTRIBUTION_MUTATION_KIND_SCHEMA_TEMPLATE_NODE_REMOVE = 18;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_APPLY = 10;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_REMOVE = 11;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_ADD = 12;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_REMOVE = 13;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_CONFIGURE = 14;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_EXTENSION_ADD = 15;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_EXTENSION_REMOVE = 16;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_NODE_ADD = 17;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_NODE_REMOVE = 18;
   CONTRIBUTION_MUTATION_KIND_TEMPLATE_NODE_DETACH = 19;
   CONTRIBUTION_MUTATION_KIND_FIELD_MATERIALIZE = 20;
   CONTRIBUTION_MUTATION_KIND_FIELD_VALUE_DELETE = 21;
@@ -34,8 +34,18 @@ enum ContributionMutationKind {
   CONTRIBUTION_MUTATION_KIND_FIELD_INITIALIZE = 23;
   CONTRIBUTION_MUTATION_KIND_TEXT_SPLICE = 24;
   CONTRIBUTION_MUTATION_KIND_TEXT_MARK = 25;
-  CONTRIBUTION_MUTATION_KIND_VALUE_SET = 26;
-  CONTRIBUTION_MUTATION_KIND_VALUE_UNSET = 27;
+  CONTRIBUTION_MUTATION_KIND_METANODE_ATTACH = 26;
+  CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_CREATE = 27;
+  CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_DELETE = 28;
+  CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_ALIAS_ATTACH = 29;
+  CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_ALIAS_DETACH = 30;
+  CONTRIBUTION_MUTATION_KIND_SEARCH_SUPERTAG_CLAUSE_ATTACH = 31;
+  CONTRIBUTION_MUTATION_KIND_SEARCH_FIELD_CLAUSE_ATTACH = 32;
+  CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_ATTACH = 33;
+  CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_MODE_SET = 34;
+  CONTRIBUTION_MUTATION_KIND_FIELD_DATATYPE_CONFIGURE = 35;
+  CONTRIBUTION_MUTATION_KIND_FIELD_CARDINALITY_CONFIGURE = 36;
+  CONTRIBUTION_MUTATION_KIND_FIELD_INITIALIZATION_EXPRESSION_CONFIGURE = 37;
 }
 
 message ContributionNodeCreateMutation {
@@ -49,21 +59,26 @@ message NodeOwnerSetMutation {
   optional string previous_owner_node_id = 3;
 }
 
-message PreviousFieldTemplateConfig {
+message MetanodeAttachMutation {
+  string host_node_id = 1;
+  string metanode_id = 2;
+}
+
+message PreviousSupertagFieldConfig {
   oneof state {
     google.protobuf.Empty unset = 1;
-    FieldTemplateConfig set = 2;
+    SupertagFieldConfig set = 2;
   }
 }
 
 message StringValues { repeated string values = 1; }
 
-message ContributionSchemaFieldConfigureMutation {
-  string schema_id = 1;
+message ContributionSupertagFieldConfigureMutation {
+  string supertag_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
-  FieldTemplateConfig config = 4;
-  PreviousFieldTemplateConfig previous_config = 5;
+  SupertagFieldConfig config = 4;
+  PreviousSupertagFieldConfig previous_config = 5;
   StringValues observed_config_fact_ids = 6;
 }
 
@@ -87,7 +102,7 @@ message InitializedFieldValue {
 
 message FieldInitializeMutation {
   string owner_node_id = 1;
-  string schema_id = 2;
+  string supertag_id = 2;
   string field_definition_id = 3;
   string field_node_id = 4;
   string field_occurrence_id = 5;
@@ -122,19 +137,59 @@ message ContributionTextMarkMutation {
   PreviousValue previous = 5;
 }
 
-message ContributionValueSetMutation {
-  ValueTarget target = 1;
-  ValueNamespace namespace = 2;
-  string key = 3;
-  google.protobuf.Value value = 4;
-  PreviousValue previous = 5;
+message ContributionInlineReferenceDeleteMutation {
+  string inline_reference_id = 1;
+  optional string previous_host_node_id = 2;
+  optional string previous_target_node_id = 3;
+  optional SequenceAnchor previous_anchor = 4;
 }
 
-message ContributionValueUnsetMutation {
-  ValueTarget target = 1;
-  ValueNamespace namespace = 2;
-  string key = 3;
-  PreviousValue previous = 4;
+message ContributionFieldDatatypeConfigureMutation {
+  string field_definition_id = 1;
+  string configuration_node_id = 2;
+  string configuration_occurrence_id = 3;
+  FieldDatatype datatype = 4;
+  PreviousFieldDatatype previous_datatype = 5;
+  repeated string observed_value_fact_ids = 6;
+}
+
+message PreviousFieldDatatype {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    FieldDatatype set = 2;
+  }
+}
+
+message ContributionFieldCardinalityConfigureMutation {
+  string field_definition_id = 1;
+  string configuration_node_id = 2;
+  string configuration_occurrence_id = 3;
+  FieldCardinality cardinality = 4;
+  PreviousFieldCardinality previous_cardinality = 5;
+  repeated string observed_value_fact_ids = 6;
+}
+
+message PreviousFieldCardinality {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    FieldCardinality set = 2;
+  }
+}
+
+message ContributionFieldInitializationExpressionConfigureMutation {
+  string field_definition_id = 1;
+  string configuration_node_id = 2;
+  string configuration_occurrence_id = 3;
+  FieldInitializationExpression expression = 4;
+  PreviousFieldInitializationExpression previous_expression = 5;
+  repeated string observed_value_fact_ids = 6;
+}
+
+message PreviousFieldInitializationExpression {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    FieldInitializationExpression set = 2;
+  }
 }
 
 message ContributionMutation {
@@ -148,15 +203,15 @@ message ContributionMutation {
     OccurrenceMoveMutation occurrence_move = 7;
     NodeOwnerSetMutation node_owner_set = 8;
     NodeTypeDeclareMutation node_type_declare = 9;
-    SchemaApplyMutation schema_apply = 10;
-    SchemaRemoveMutation schema_remove = 11;
-    SchemaFieldAddMutation schema_field_add = 12;
-    SchemaFieldRemoveMutation schema_field_remove = 13;
-    ContributionSchemaFieldConfigureMutation schema_field_configure = 14;
-    SchemaExtensionAddMutation schema_extension_add = 15;
-    SchemaExtensionRemoveMutation schema_extension_remove = 16;
-    SchemaTemplateNodeAddMutation schema_template_node_add = 17;
-    SchemaTemplateNodeRemoveMutation schema_template_node_remove = 18;
+    SupertagApplyMutation supertag_apply = 10;
+    SupertagRemoveMutation supertag_remove = 11;
+    SupertagFieldAddMutation supertag_field_add = 12;
+    SupertagFieldRemoveMutation supertag_field_remove = 13;
+    ContributionSupertagFieldConfigureMutation supertag_field_configure = 14;
+    SupertagExtensionAddMutation supertag_extension_add = 15;
+    SupertagExtensionRemoveMutation supertag_extension_remove = 16;
+    SupertagTemplateNodeAddMutation supertag_template_node_add = 17;
+    SupertagTemplateNodeRemoveMutation supertag_template_node_remove = 18;
     TemplateNodeDetachMutation template_node_detach = 19;
     FieldMaterializeMutation field_materialize = 20;
     FieldValueDeleteMutation field_value_delete = 21;
@@ -164,7 +219,17 @@ message ContributionMutation {
     FieldInitializeMutation field_initialize = 23;
     ContributionTextSpliceMutation text_splice = 24;
     ContributionTextMarkMutation text_mark = 25;
-    ContributionValueSetMutation value_set = 26;
-    ContributionValueUnsetMutation value_unset = 27;
+    MetanodeAttachMutation metanode_attach = 26;
+    InlineReferenceCreateMutation inline_reference_create = 27;
+    ContributionInlineReferenceDeleteMutation inline_reference_delete = 28;
+    InlineReferenceAliasAttachMutation inline_reference_alias_attach = 29;
+    InlineReferenceAliasDetachMutation inline_reference_alias_detach = 30;
+    SearchSupertagClauseAttachMutation search_supertag_clause_attach = 31;
+    SearchFieldClauseAttachMutation search_field_clause_attach = 32;
+    SharedDefaultViewDefinitionAttachMutation shared_default_view_definition_attach = 33;
+    SharedDefaultViewDefinitionModeSetMutation shared_default_view_definition_mode_set = 34;
+    ContributionFieldDatatypeConfigureMutation field_datatype_configure = 35;
+    ContributionFieldCardinalityConfigureMutation field_cardinality_configure = 36;
+    ContributionFieldInitializationExpressionConfigureMutation field_initialization_expression_configure = 37;
   }
 }

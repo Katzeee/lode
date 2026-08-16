@@ -38,28 +38,92 @@
       ]
     },
     {
-      "id": "schema.applications-and-fields",
-      "contract": "A Node applies multiple Schemas; ordered Field Contributions merge by stable Field Definition identity.",
+      "id": "model.inline-reference",
+      "contract": "An Inline Reference is an identity-bearing item in ordered Node content; its target, host-owned Alias, lifecycle, and perspective-specific Backlinks remain typed domain relations.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > writes, queries, and restarts multiple Schema applications with shared effective Fields"
+          "test": "src/runtime/workspace/inline-reference.acceptance.test.ts > Inline Reference product model > INLINE-1 keeps one ordered identity and an owned Alias through public Undo and Redo"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > keeps multiple Schema applications and deduplicates a shared Field Definition by source"
+          "test": "src/runtime/workspace/inline-reference.acceptance.test.ts > Inline Reference product model > INLINE-2 derives target availability from Trash ownership and preserves the reference on restore"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > uses observed-remove for concurrent Schema Application and Field Contribution intent"
+          "test": "src/runtime/workspace/inline-reference.acceptance.test.ts > Inline Reference product model > INLINE-3 derives block and inline Backlinks independently for Origin and Review"
+        }
+      ]
+    },
+    {
+      "id": "model.search-node",
+      "contract": "A Search Node owns an ordered identity-bearing clause graph, while SearchResultReferences are derived from the selected Projection through one reusable query evaluator.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-1 composes Supertag and defined-Field clauses across Origin, Review, and Trash"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Schema Application observed-remove intent across 32 four-replica topologies"
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-2 keeps clause identity and hidden ownership through public Undo and Redo"
+        }
+      ]
+    },
+    {
+      "id": "model.view-definition",
+      "contract": "A host has at most one shared default View Definition as ordinary Configuration Graph identity; implicit Outline and derived View rows preserve their ordinary Occurrence or SearchResultReference source.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-1 applies one shared default to ordinary and Search child sources across Review and Trash"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
+          "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-2 changes mode through public Proposal and History while preserving View Definition identity"
+        }
+      ]
+    },
+    {
+      "id": "workspace.system-node-role",
+      "contract": "A Workspace System Role is a canonical relation to an ordinary Node; the relation, rather than caller metadata or a deterministic target identity, drives discovery and protection.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/reconcile.acceptance.test.ts > production Reconcile > derives the Workspace Trash target from its canonical role Occurrence"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/mutation-evidence/mutation-evidence.test.ts > Mutation evidence > protects the Workspace Trash role target rather than a deterministic Node identity"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/proposal-workspace.acceptance.test.ts > Proposal Workspace coordinator > creates the Workspace through the common Node lifecycle and uses it as the ownership root"
+        }
+      ]
+    },
+    {
+      "id": "supertag.applications-and-fields",
+      "contract": "A Node applies multiple Supertags; ordered Field Contributions merge by stable Field Definition identity.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > writes, queries, and restarts multiple Supertag applications with shared effective Fields"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > keeps multiple Supertag applications and deduplicates a shared Field Definition by source"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > uses observed-remove for concurrent Supertag Application and Field Contribution intent"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Supertag Application observed-remove intent across 32 four-replica topologies"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
         }
       ]
     },
@@ -69,41 +133,37 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > binds a Materialized Field to real Node and Occurrence identities with ordered values"
+          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > binds a Materialized Field to real Node and Occurrence identities with ordered values"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > materializes a Field as real structure and preserves authored values after Schema removal"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > materializes a Field as real structure and preserves authored values after Supertag removal"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > presents polymorphic Schema members and Field identities through Origin, Review, and restart"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
         }
       ]
     },
     {
-      "id": "field.optional-default-initializer",
-      "contract": "Optional Fields, static defaults, and one-shot initializers preserve instance-owned values and expose conflicts.",
+      "id": "field.optional-default-initialization-expression",
+      "contract": "Optional Fields, static defaults, and ancestor initialization expressions preserve instance-owned values and expose conflicts.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > materializes a static default once and preserves its Node identity after source removal"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > materializes a static default once and preserves its Node identity after source removal"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > evaluates an initializer at Schema application once and never recomputes it"
+          "test": "src/runtime/workspace/field-definition-configuration.acceptance.test.ts > Field Definition configuration > keeps typed configuration identities across Proposal, History, values, and ancestor initialization"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
         },
         {
           "workspace": "engine",
@@ -111,7 +171,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
         }
       ]
     },
@@ -121,11 +181,11 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Schema Template Nodes > follows the definition until detach, then preserves instance identity and content"
+          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Supertag Template Nodes > follows the definition until detach, then preserves instance identity and content"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Schema Template Nodes > keeps Proposal detachment out of Origin and accepts its edit through support closure"
+          "test": "src/runtime/workspace/template-node.acceptance.test.ts > ordinary Supertag Template Nodes > keeps Proposal detachment out of Origin and accepts its edit through support closure"
         },
         {
           "workspace": "engine",
@@ -134,42 +194,42 @@
       ]
     },
     {
-      "id": "schema.extension-search-cycle",
-      "contract": "Multiple Schema Extension paths build a polymorphic search closure while cycles remain explicit conflicts.",
+      "id": "supertag.extension-search-cycle",
+      "contract": "Multiple Supertag Extension paths build a polymorphic search closure while cycles remain explicit conflicts.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > inherits Fields through multi-base and diamond Extensions and builds polymorphic search"
+          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > inherits Fields through multi-base and diamond Extensions and builds polymorphic search"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/schema-relations.acceptance.test.ts > Schema applications and effective Fields > keeps concurrent Extension edges but suspends inheritance and search inside a cycle"
+          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > keeps concurrent Extension edges but suspends inheritance and search inside a cycle"
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > Schema Extension cycle and search projections converge across seeded arrival and checkpoints"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > Supertag Extension cycle and search projections converge across seeded arrival and checkpoints"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
         }
       ]
     },
     {
       "id": "definition.lifecycle",
-      "contract": "Definition tombstone, restore, and gated Hard Delete retain identities and enforce replica-safe anti-resurrection.",
+      "contract": "Trash is an Owner-tree placement that retains Node identity, restoration reverses the structural deletion, and gated Hard Delete prevents replica-unsafe resurrection or orphaned owned descendants.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > shows deleted Definitions, blocks new use, permits cleanup, and restores the same identity"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > shows deleted Definitions, blocks new use, permits cleanup, and restores the same identity"
         },
         {
           "workspace": "engine",
-          "test": "tests/definition-lifecycle.property.test.ts > Definition lifecycle convergence > preserves concurrent offline config through tombstone and restores it for every arrival order"
+          "test": "tests/definition-lifecycle.property.test.ts > Definition lifecycle convergence > preserves concurrent offline config while the Definition is in Trash and restores it for every arrival order"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires every known Replica to causally acknowledge the tombstone"
+          "test": "src/runtime/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires every known Replica to causally acknowledge the Trash placement"
         },
         {
           "workspace": "engine",
@@ -177,11 +237,15 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > makes a Definition tombstone selection stale when a newly related instance appears"
+          "test": "src/runtime/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > blocks root-only purge while Trash contains owned descendants"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/schema-workspace.acceptance.test.ts > Schema product model > makes Schema tombstone and Extension selections stale when affected Fields materialize"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > makes a Definition deletion selection stale when a newly related instance appears"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > makes Supertag deletion and Extension selections stale when affected Fields materialize"
         }
       ]
     },
@@ -200,24 +264,6 @@
         {
           "workspace": "engine",
           "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > restores the full Field subtree including a concurrently authored value"
-        }
-      ]
-    },
-    {
-      "id": "view.persistent-bounded",
-      "contract": "Persistent View Nodes present the same graph identities through bounded Schema-polymorphic pages.",
-      "tests": [
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > presents polymorphic Schema members and Field identities through Origin, Review, and restart"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/view.acceptance.test.ts > persistent View Nodes > paginates View rows and excludes unrelated entities"
-        },
-        {
-          "workspace": "cli",
-          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
         }
       ]
     },
@@ -287,7 +333,7 @@
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Schema Application initializer Resolution and History compensation after lost acknowledgements"
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements"
         }
       ]
     },
@@ -313,7 +359,7 @@
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Schema Application initializer Resolution and History compensation after lost acknowledgements"
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements"
         }
       ]
     },
@@ -359,23 +405,23 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Schema Application observed-remove intent across 32 four-replica topologies"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Supertag Application observed-remove intent across 32 four-replica topologies"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
         },
         {
           "workspace": "engine",
-          "test": "tests/schema-domain-convergence.property.test.ts > Schema domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
         }
       ]
     }

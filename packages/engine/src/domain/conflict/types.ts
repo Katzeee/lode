@@ -1,6 +1,6 @@
 import type {
   FactFrontier,
-  FieldTemplateConfig,
+  SupertagFieldConfig,
   FieldValueSeed,
   ResolutionDecision,
   SequenceAnchor,
@@ -62,19 +62,19 @@ export type ConflictIssue =
       }>[];
     }>
   | Readonly<{
-      kind: "schema-extension-cycle";
+      kind: "supertag-extension-cycle";
       identity: string;
-      schemaIds: readonly string[];
+      supertagIds: readonly string[];
     }>
   | Readonly<{
       kind: "field-config-conflict";
       identity: string;
       ownerNodeId: string | null;
       fieldDefinitionId: string;
-      schemaIds: readonly string[];
+      supertagIds: readonly string[];
       templateOccurrenceIds: readonly string[];
       candidates: readonly Readonly<{
-        config: FieldTemplateConfig;
+        config: SupertagFieldConfig;
         contributionIds: readonly string[];
       }>[];
     }>
@@ -85,7 +85,7 @@ export type ConflictIssue =
       fieldDefinitionId: string;
       candidates: readonly Readonly<{
         initializationId: string;
-        schemaId: string;
+        supertagId: string;
         source: "static-default" | "auto-initialize";
         values: readonly FieldValueSeed[];
       }>[];

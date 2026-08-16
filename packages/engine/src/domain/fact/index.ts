@@ -11,6 +11,7 @@ export type {
   FactFrontier,
   FactSnapshot,
   HistoryChannelId,
+  InlineReferenceId,
   InvocationId,
   JsonValue,
   Mutation,
@@ -22,40 +23,49 @@ export type {
   ResolutionFact,
   SequenceAnchor,
   TextAtomId,
-  ValueTarget,
-  ViewMode,
+  ProjectionPerspective,
   WorkspaceId,
 } from "./types.js";
 export type { AuthorityReceipt, ReceiptLineage } from "./authority-types.js";
 export type { FieldContentDeletionMutation } from "./field-content-types.js";
 export type {
-  FieldTemplateConfig,
-  FieldValueSeed,
-  FieldVisibility,
-  InitializedFieldValue,
-} from "./field-template-types.js";
-export { DEFAULT_FIELD_TEMPLATE_CONFIG } from "./field-template-types.js";
+  FieldCardinality,
+  FieldDatatype,
+  FieldDefinitionConfigMutation,
+  FieldInitializationExpression,
+} from "./field-definition-config-types.js";
+export type { SearchClauseMutation } from "./search-clause-types.js";
+export type {
+  SharedDefaultViewDefinitionAttachMutation,
+  SharedDefaultViewDefinitionModeSetMutation,
+  ViewType,
+} from "./view-definition-types.js";
+export type { FieldValueSeed, InitializedFieldValue } from "./field-value-types.js";
+export type { FieldVisibility, SupertagFieldConfig } from "./supertag-field-config-types.js";
+export { DEFAULT_SUPERTAG_FIELD_CONFIG } from "./supertag-field-config-types.js";
 export type { NodeSeed } from "./node-create-types.js";
 export type { DefinitionNodeType, NodeType } from "./node-type-types.js";
 export {
   COMMAND_NODE_TYPE,
   FIELD_DEFINITION_NODE_TYPE,
   FIELD_NODE_TYPE,
-  SCHEMA_NODE_TYPE,
+  SUPERTAG_DEFINITION_NODE_TYPE,
   SEARCH_NODE_TYPE,
-  VIEW_NODE_TYPE,
   WORKSPACE_NODE_TYPE,
   isNodeType,
 } from "./node-type-types.js";
 export type {
   ContributionFactOf,
   FieldMutation,
+  InlineReferenceMutation,
+  SearchClauseMutation as SearchMutation,
+  ViewMutation,
   NodeMutation,
+  MetanodeMutation,
   OccurrenceMutation,
-  SchemaMutation,
+  SupertagMutation,
   TemplateMutation,
   TextMutation,
-  ValueMutation,
 } from "./mutation-family.js";
 export {
   contributionFactsOfKind,
@@ -63,12 +73,16 @@ export {
   fieldContentDeletionOccurrenceId,
   isFieldContentDeletionMutation,
   isFieldMutation,
+  isFieldDefinitionConfigMutation,
+  isInlineReferenceMutation,
+  isSearchMutation,
+  isViewMutation,
   isNodeMutation,
+  isMetanodeMutation,
   isOccurrenceMutation,
-  isSchemaMutation,
+  isSupertagMutation,
   isTemplateMutation,
   isTextMutation,
-  isValueMutation,
   occurrenceRestoreDeletionId,
 } from "./mutation-family.js";
 export { mutationRelations } from "./mutation-relations.js";
@@ -91,6 +105,8 @@ export {
   initializedValueOccurrenceId,
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
 } from "./identity.js";
 export { admitAuthorityRecordShapes, admitPlannedAuthorityAppend } from "./admission.js";
 export { isMutationKind, parseAuthorityRecords, parseMutation } from "./shape-validation.js";
@@ -101,4 +117,4 @@ export {
   parseSequenceAnchor,
   parseTextAtomId,
 } from "./serialized-shape.js";
-export { parseFieldTemplateConfig, parseFieldValueSeeds } from "./field-template-shape.js";
+export { parseSupertagFieldConfig, parseFieldValueSeeds } from "./supertag-field-config-shape.js";

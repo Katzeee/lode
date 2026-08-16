@@ -1,10 +1,10 @@
-import type { ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 
 export async function readOwnerClosure(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   initialNodeIds: ReadonlySet<string>,
 ): Promise<Record<string, string | null>> {
   const owners: Record<string, string | null> = {};
@@ -20,7 +20,7 @@ export async function readOwnerClosure(
       break;
     }
     wanted.forEach((nodeId) => visited.add(nodeId));
-    const batch = await store.read(generationId, view, "nodeOwners", wanted);
+    const batch = await store.read(generationId, perspective, "nodeOwners", wanted);
     const current = Object.fromEntries(batch.entries.map((entry) => [entry.identity, entry.value]));
     Object.assign(owners, current);
     frontier = Object.values(current).filter((ownerNodeId) => ownerNodeId !== null);
@@ -31,7 +31,7 @@ export async function readOwnerClosure(
 export async function readOwnedNodeClosure(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   rootNodeIds: ReadonlySet<string>,
 ): Promise<Record<string, string>> {
   const owners: Record<string, string> = {};
@@ -47,7 +47,7 @@ export async function readOwnedNodeClosure(
       break;
     }
     parentNodeIds.forEach((nodeId) => visited.add(nodeId));
-    const batch = await store.read(generationId, view, "nodeIdsByOwner", parentNodeIds);
+    const batch = await store.read(generationId, perspective, "nodeIdsByOwner", parentNodeIds);
     frontier = [];
     for (const entry of batch.entries) {
       for (const ownedNodeId of entry.value) {

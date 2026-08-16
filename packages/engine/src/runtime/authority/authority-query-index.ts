@@ -168,6 +168,7 @@ function scopeKeys(fact: Fact): readonly string[] {
     relations.nodeIds.forEach((id) => keys.add(nodeKey(id)));
     relations.occurrenceIds.forEach((id) => keys.add(occurrenceKey(id)));
     relations.factIds.forEach((id) => keys.add(factKey(id)));
+    relations.inlineReferenceIds.forEach((id) => keys.add(inlineReferenceKey(id)));
   }
   return [...keys];
 }
@@ -182,4 +183,8 @@ function nodeKey(id: string): string {
 
 function occurrenceKey(id: string): string {
   return `occurrence/${id}`;
+}
+
+function inlineReferenceKey(id: string): string {
+  return `inline-reference/${id}`;
 }

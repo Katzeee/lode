@@ -13,7 +13,7 @@ export function prepareMutation(
     projections: () => ({ previous, available }),
   });
   if (prepared.kind === "node-type-declare") {
-    const current = available.nodeStatuses[prepared.nodeId]?.nodeType ?? null;
+    const current = available.nodes[prepared.nodeId]?.nodeType ?? null;
     if (current === prepared.nodeType) {
       throw new Error("Node already has the requested type");
     }

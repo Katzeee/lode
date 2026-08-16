@@ -2,7 +2,7 @@ import {
   isNodeType,
   isMutationKind,
   parseFactFrontier as frontier,
-  parseFieldTemplateConfig,
+  parseSupertagFieldConfig,
   parseFieldValueSeeds,
   parseSequenceAnchor as sequenceAnchor,
 } from "../fact/index.js";
@@ -55,12 +55,12 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
   if (kind === "node-type-conflict") {
     return parseNodeTypeConflict(issue);
   }
-  if (kind === "schema-extension-cycle") {
-    exact(issue, ["kind", "identity", "schemaIds"], "Schema Extension conflict");
+  if (kind === "supertag-extension-cycle") {
+    exact(issue, ["kind", "identity", "supertagIds"], "Supertag Extension conflict");
     return {
       kind,
       identity: string(issue.identity, "Conflict identity"),
-      schemaIds: strings(issue.schemaIds, "conflicting Schemas"),
+      supertagIds: strings(issue.supertagIds, "conflicting Supertags"),
     };
   }
   if (kind === "field-config-conflict") {
@@ -163,7 +163,7 @@ function parsePlacementConflict(issue: Record<string, unknown>): ConflictIssue {
 function parseFieldConfigConflict(issue: Record<string, unknown>): ConflictIssue {
   exact(
     issue,
-    ["kind", "identity", "ownerNodeId", "fieldDefinitionId", "schemaIds", "templateOccurrenceIds", "candidates"],
+    ["kind", "identity", "ownerNodeId", "fieldDefinitionId", "supertagIds", "templateOccurrenceIds", "candidates"],
     "Field config conflict",
   );
   if (!Array.isArray(issue.candidates)) {
@@ -174,13 +174,13 @@ function parseFieldConfigConflict(issue: Record<string, unknown>): ConflictIssue
     identity: string(issue.identity, "Conflict identity"),
     ownerNodeId: issue.ownerNodeId === null ? null : string(issue.ownerNodeId, "Field owner identity"),
     fieldDefinitionId: string(issue.fieldDefinitionId, "Field Definition identity"),
-    schemaIds: strings(issue.schemaIds, "conflicting Schemas"),
+    supertagIds: strings(issue.supertagIds, "conflicting Supertags"),
     templateOccurrenceIds: strings(issue.templateOccurrenceIds, "conflicting Template Fields"),
     candidates: issue.candidates.map((value) => {
       const candidate = record(value, "Field config candidate");
       exact(candidate, ["config", "contributionIds"], "Field config candidate");
       return {
-        config: parseFieldTemplateConfig(candidate.config),
+        config: parseSupertagFieldConfig(candidate.config),
         contributionIds: strings(candidate.contributionIds, "config Contributions"),
       };
     }),
@@ -205,13 +205,13 @@ function parseInitializationCandidate(
   value: unknown,
 ): Extract<ConflictIssue, { kind: "field-initialization-conflict" }>["candidates"][number] {
   const candidate = record(value, "Field initialization candidate");
-  exact(candidate, ["initializationId", "schemaId", "source", "values"], "Field initialization candidate");
+  exact(candidate, ["initializationId", "supertagId", "source", "values"], "Field initialization candidate");
   if (candidate.source !== "static-default" && candidate.source !== "auto-initialize") {
     throw new Error("Field initialization source is invalid");
   }
   return {
     initializationId: string(candidate.initializationId, "Initialization identity"),
-    schemaId: string(candidate.schemaId, "Schema identity"),
+    supertagId: string(candidate.supertagId, "Supertag identity"),
     source: candidate.source,
     values: parseFieldValueSeeds(candidate.values),
   };

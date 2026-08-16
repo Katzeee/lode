@@ -30,7 +30,7 @@ describe("domain Edit write boundaries", () => {
     ).toThrow("Workspace identity is created only by Workspace genesis");
   });
 
-  it("declares Node creation and deletion atomic at their domain handlers", () => {
+  it("keeps Node creation placement atomic and deletion as one structural Fact", () => {
     const creationFacts = new Facts();
     const creationSnapshot = creationFacts.snapshot();
     const creationGeneration = rebuildGeneration("workspace", creationSnapshot, versions).generation;
@@ -73,7 +73,7 @@ describe("domain Edit write boundaries", () => {
         "direct",
         deletionSnapshot,
       ),
-    ).toEqual([{ kind: "atomic", mutations: [{ kind: "node-delete", nodeId: "node" }] }]);
+    ).toEqual([{ kind: "single", mutation: { kind: "node-delete", nodeId: "node" } }]);
   });
 
   it("keeps independent Edits as independent single writes", () => {
@@ -84,20 +84,8 @@ describe("domain Edit write boundaries", () => {
       "workspace",
       "actor",
       [
-        {
-          kind: "value-set",
-          target: { kind: "node", id: "node" },
-          namespace: "property",
-          key: "first",
-          value: true,
-        },
-        {
-          kind: "value-set",
-          target: { kind: "node", id: "node" },
-          namespace: "property",
-          key: "second",
-          value: true,
-        },
+        { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "first" },
+        { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "second" },
       ],
       generation,
       "direct",
@@ -107,10 +95,10 @@ describe("domain Edit write boundaries", () => {
     expect(writes.map((write) => write.kind)).toEqual(["single", "single"]);
   });
 
-  it("keeps generated Schema lifecycle members in the source Edit transaction", () => {
+  it("keeps generated Supertag lifecycle members in the source Edit transaction", () => {
     const facts = new Facts();
-    facts.addPlaced("schema");
-    facts.add({ kind: "node-type-declare", nodeId: "schema", nodeType: "schema" });
+    facts.addPlaced("supertag");
+    facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
     facts.addPlaced("field-definition");
     facts.add({
       kind: "node-type-declare",
@@ -125,8 +113,8 @@ describe("domain Edit write boundaries", () => {
       "actor",
       [
         {
-          kind: "schema-field-add",
-          schemaId: "schema",
+          kind: "supertag-field-add",
+          supertagId: "supertag",
           fieldDefinitionId: "field-definition",
           fieldNodeId: "template-field",
           fieldOccurrenceId: "template-field-occurrence",
@@ -148,11 +136,11 @@ describe("domain Edit write boundaries", () => {
             kind: "occurrence-create",
             occurrenceId: "template-field-occurrence",
             nodeId: "template-field",
-            parentNodeId: "schema",
+            parentNodeId: "supertag",
           },
           {
-            kind: "schema-field-add",
-            schemaId: "schema",
+            kind: "supertag-field-add",
+            supertagId: "supertag",
             fieldDefinitionId: "field-definition",
           },
         ],

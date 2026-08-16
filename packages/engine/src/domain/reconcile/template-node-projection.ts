@@ -6,52 +6,43 @@ import {
   type ContributionFact,
 } from "../fact/index.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
-import { schemaExtensionGraph } from "./schema-extension-graph.js";
+import { supertagExtensionGraph } from "./supertag-extension-graph.js";
 import type { TemplateNodeInstance, TemplateNodeSource } from "./projection-types.js";
 import { listFor } from "./sequence.js";
 
 export type TemplateStructureProjection = Readonly<{
   occurrences: Map<string, MutableOccurrence>;
-  children: Map<string, string[]>;
+  childOccurrences: Map<string, string[]>;
   instances: readonly TemplateNodeInstance[];
 }>;
 
 export function projectTemplateStructure(
   active: readonly ContributionFact[],
-  schemaApplications: Readonly<Record<string, readonly string[]>>,
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>,
-  schemaExtensions: Readonly<Record<string, readonly string[]>>,
+  supertagApplications: Readonly<Record<string, readonly string[]>>,
+  supertagTemplateNodes: Readonly<Record<string, readonly string[]>>,
+  supertagExtensions: Readonly<Record<string, readonly string[]>>,
   nodes: Map<string, MutableNode>,
   authoredOccurrences: ReadonlyMap<string, MutableOccurrence>,
   authoredChildren: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
 ): TemplateStructureProjection {
-  const occurrences = new Map(
-    [...authoredOccurrences].map(([id, occurrence]) => [
-      id,
-      {
-        ...occurrence,
-        properties: { ...occurrence.properties },
-        metadata: { ...occurrence.metadata },
-      },
-    ]),
-  );
-  const children = new Map(
+  const occurrences = new Map([...authoredOccurrences].map(([id, occurrence]) => [id, { ...occurrence }]));
+  const childOccurrences = new Map(
     [...authoredChildren].map(([parentNodeId, occurrenceIds]) => [parentNodeId, [...occurrenceIds]]),
   );
-  const extensionGraph = schemaExtensionGraph(schemaExtensions);
+  const extensionGraph = supertagExtensionGraph(supertagExtensions);
   const currentSources = new Map<string, TemplateNodeSource[]>();
-  for (const [ownerNodeId, appliedSchemaIds] of Object.entries(schemaApplications)) {
-    for (const appliedSchemaId of appliedSchemaIds) {
-      for (const schemaId of extensionGraph.lineage(appliedSchemaId)) {
-        for (const templateNodeId of schemaTemplateNodes[schemaId] ?? []) {
-          const templateOccurrenceId = activeTemplateOccurrenceId(active, schemaId, templateNodeId);
+  for (const [ownerNodeId, appliedSupertagIds] of Object.entries(supertagApplications)) {
+    for (const appliedSupertagId of appliedSupertagIds) {
+      for (const supertagId of extensionGraph.lineage(appliedSupertagId)) {
+        for (const templateNodeId of supertagTemplateNodes[supertagId] ?? []) {
+          const templateOccurrenceId = activeTemplateOccurrenceId(active, supertagId, templateNodeId);
           if (templateOccurrenceId === null) {
             continue;
           }
           appendSource(currentSources, ownerNodeId, templateNodeId, {
-            schemaId,
-            appliedSchemaId,
+            supertagId,
+            appliedSupertagId,
             templateOccurrenceId,
           });
         }
@@ -75,7 +66,6 @@ export function projectTemplateStructure(
     if (detached) {
       const occurrence = occurrences.get(occurrenceId);
       if (occurrence) {
-        occurrence.metadata = { templateState: "detached" };
         occurrence.derived = false;
       }
     } else {
@@ -83,11 +73,9 @@ export function projectTemplateStructure(
         occurrenceId,
         nodeId,
         parentNodeId: ownerNodeId,
-        properties: {},
-        metadata: { templateState: "linked" },
         derived: true,
       });
-      appendUnique(listFor(children, ownerNodeId), occurrenceId);
+      appendUnique(listFor(childOccurrences, ownerNodeId), occurrenceId);
     }
     const sources = current.length > 0 ? current : sourcesFromDetachments(detachFacts);
     instances.push({
@@ -100,7 +88,7 @@ export function projectTemplateStructure(
       detachmentContributionIds: detachFacts.map((fact) => fact.id).sort(stableStringCompare),
     });
   }
-  return { occurrences, children, instances };
+  return { occurrences, childOccurrences, instances };
 }
 
 function detachmentMutation(
@@ -116,16 +104,16 @@ function detachmentMutation(
 
 function activeTemplateOccurrenceId(
   active: readonly ContributionFact[],
-  schemaId: string,
+  supertagId: string,
   templateNodeId: string,
 ): string | null {
-  const removals = contributionFactsOfKind(active, "schema-template-node-remove");
+  const removals = contributionFactsOfKind(active, "supertag-template-node-remove");
   let result: string | null = null;
   for (const fact of active) {
     const mutation = fact.body.mutation;
     if (
-      mutation.kind !== "schema-template-node-add" ||
-      mutation.schemaId !== schemaId ||
+      mutation.kind !== "supertag-template-node-add" ||
+      mutation.supertagId !== supertagId ||
       mutation.templateNodeId !== templateNodeId
     ) {
       continue;
@@ -133,7 +121,7 @@ function activeTemplateOccurrenceId(
     const removed = removals.some((candidate) => {
       const removal = candidate.body.mutation;
       return (
-        removal.schemaId === mutation.schemaId &&
+        removal.supertagId === mutation.supertagId &&
         removal.templateNodeId === mutation.templateNodeId &&
         removal.templateOccurrenceId === mutation.templateOccurrenceId &&
         factObserves(candidate, fact)
@@ -152,19 +140,10 @@ export function authoredStructureWithoutProjectedTemplates(
   effectiveChildren: ReadonlyMap<string, readonly string[]>,
 ): Readonly<{
   occurrences: Map<string, MutableOccurrence>;
-  children: Map<string, string[]>;
+  childOccurrences: Map<string, string[]>;
 }> {
-  const occurrences = new Map(
-    [...effectiveOccurrences].map(([id, occurrence]) => [
-      id,
-      {
-        ...occurrence,
-        properties: { ...occurrence.properties },
-        metadata: { ...occurrence.metadata },
-      },
-    ]),
-  );
-  const children = new Map(
+  const occurrences = new Map([...effectiveOccurrences].map(([id, occurrence]) => [id, { ...occurrence }]));
+  const childOccurrences = new Map(
     [...effectiveChildren].map(([parentNodeId, occurrenceIds]) => [parentNodeId, [...occurrenceIds]]),
   );
   const occurrenceIds = new Set<string>();
@@ -176,13 +155,13 @@ export function authoredStructureWithoutProjectedTemplates(
       occurrences.delete(instance.instanceOccurrenceId);
     }
   }
-  for (const [parent, childIds] of children) {
-    children.set(
+  for (const [parent, childIds] of childOccurrences) {
+    childOccurrences.set(
       parent,
       childIds.filter((occurrenceId) => !occurrenceIds.has(occurrenceId)),
     );
   }
-  return { occurrences, children };
+  return { occurrences, childOccurrences };
 }
 
 function detachments(active: readonly ContributionFact[]): ReadonlyMap<string, readonly ContributionFact[]> {
@@ -207,16 +186,16 @@ function sourcesFromDetachments(facts: readonly ContributionFact[]): TemplateNod
     if (mutation.kind !== "template-node-detach") {
       continue;
     }
-    const schemaIds = mutation.sourceSchemaIds ?? [];
-    const applicationSchemaIds = mutation.sourceApplicationSchemaIds ?? [];
+    const supertagIds = mutation.sourceSupertagIds ?? [];
+    const applicationSupertagIds = mutation.sourceApplicationSupertagIds ?? [];
     const itemIds = mutation.sourceTemplateOccurrenceIds ?? [];
     itemIds.forEach((templateOccurrenceId, index) => {
-      const schemaId = schemaIds[index];
-      const appliedSchemaId = applicationSchemaIds[index];
-      if (schemaId && appliedSchemaId) {
-        sources.set(`${appliedSchemaId}/${templateOccurrenceId}`, {
-          schemaId,
-          appliedSchemaId,
+      const supertagId = supertagIds[index];
+      const appliedSupertagId = applicationSupertagIds[index];
+      if (supertagId && appliedSupertagId) {
+        sources.set(`${appliedSupertagId}/${templateOccurrenceId}`, {
+          supertagId,
+          appliedSupertagId,
           templateOccurrenceId,
         });
       }
@@ -238,7 +217,7 @@ function appendSource(
   if (
     !values.some(
       (candidate) =>
-        candidate.appliedSchemaId === source.appliedSchemaId &&
+        candidate.appliedSupertagId === source.appliedSupertagId &&
         candidate.templateOccurrenceId === source.templateOccurrenceId,
     )
   ) {

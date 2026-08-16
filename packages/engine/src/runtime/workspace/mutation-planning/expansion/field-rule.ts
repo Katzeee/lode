@@ -17,7 +17,18 @@ export function expandFieldMutation(mutation: FieldMutation, available: ScopedPr
     case "field-initialize":
       return atomicExpansion(expandFieldInitialization(mutation, available));
     case "field-materialize":
-      return atomicExpansion([...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available), mutation]);
+      return atomicExpansion([
+        ...createNodeUnlessPresent(mutation.fieldNodeId, available),
+        ...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available),
+        ...createOccurrenceUnlessPresent(
+          mutation.fieldOccurrenceId,
+          mutation.fieldNodeId,
+          mutation.ownerNodeId,
+          END,
+          available,
+        ),
+        mutation,
+      ]);
     case "field-value-delete":
       return atomicExpansion([mutation, ...deletePlacement(mutation.valueOccurrenceId, available)]);
     case "materialized-field-delete":
@@ -30,11 +41,7 @@ function expandFieldInitialization(
   available: ScopedProjection,
 ): readonly Mutation[] {
   const result: Mutation[] = [
-    ...createNodeUnlessPresent(
-      mutation.fieldNodeId,
-      available,
-      nodeSeed({}, { initializedBy: mutation.source }, { fieldDefinitionId: mutation.fieldDefinitionId }),
-    ),
+    ...createNodeUnlessPresent(mutation.fieldNodeId, available),
     ...declareFieldNodeUnlessPresent(mutation.fieldNodeId, available),
     ...createOccurrenceUnlessPresent(
       mutation.fieldOccurrenceId,
@@ -50,12 +57,7 @@ function expandFieldInitialization(
         ...createNodeUnlessPresent(
           value.nodeId,
           available,
-          nodeSeed(
-            {},
-            { initializedBy: mutation.source },
-            {},
-            [...value.value].map((character) => ({ value: character, attributes: {} })),
-          ),
+          nodeSeed([...value.value].map((character) => ({ value: character, attributes: {} }))),
         ),
       );
     }

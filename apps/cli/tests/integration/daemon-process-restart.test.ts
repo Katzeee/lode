@@ -21,41 +21,40 @@ afterEach(async () => {
 });
 
 describe("real daemon child-process restart", () => {
-  it("deduplicates Schema Application initializer Resolution and History compensation after lost acknowledgements", async () => {
+  it("deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements", async () => {
     const processRoot = await temporaryDirectory();
     daemon = await startDaemonProcess(processRoot, accessToken);
     await mutate(daemon.address, "setup", "setup", [
       nodeAt("task", workspaceId, "task-occurrence"),
-      nodeAt("schema", workspaceId, "schema-occurrence", "schema"),
+      nodeAt("supertag", workspaceId, "supertag-occurrence", "supertag-definition"),
       nodeAt("field", workspaceId, "field-occurrence", "field-definition"),
       {
-        kind: "schema-field-add",
-        schemaId: "schema",
+        kind: "supertag-field-add",
+        supertagId: "supertag",
         fieldDefinitionId: "field",
-        fieldNodeId: "schema-field-template-field",
-        fieldOccurrenceId: "schema-field-template-field-occurrence",
+        fieldNodeId: "supertag-field-template-field",
+        fieldOccurrenceId: "supertag-field-template-field-occurrence",
         anchor: end,
       },
       {
-        kind: "schema-field-configure",
-        schemaId: "schema",
+        kind: "supertag-field-configure",
+        supertagId: "supertag",
         fieldDefinitionId: "field",
-        fieldNodeId: "schema-field-template-field",
+        fieldNodeId: "supertag-field-template-field",
         config: {
           visibility: "normal",
           staticDefault: [{ kind: "text", value: "Default" }],
-          initializer: null,
         },
       },
     ]);
 
-    const apply = mutateCommand("apply-once", "schema", "direct", [
-      { kind: "schema-apply", nodeId: "task", schemaId: "schema", anchor: end },
+    const apply = mutateCommand("apply-once", "supertag", "direct", [
+      { kind: "supertag-apply", nodeId: "task", supertagId: "supertag", anchor: end },
     ]);
     await loseAcknowledgement(daemon.address, apply);
     daemon = await restart(processRoot, daemon);
     await expectRetryMatchesDurableOutcome(daemon.address, "apply-once", apply);
-    expect((await projectionSection(daemon.address, "schemaApplications")).task).toEqual(["schema"]);
+    expect((await projectionSection(daemon.address, "supertagApplications")).task).toEqual(["supertag"]);
     const fields = array((await projectionSection(daemon.address, "materializedFields")).task, "Task Fields");
     expect(fields).toHaveLength(1);
     const valueOccurrenceIds = array(record(fields[0], "Task Field").valueOccurrenceIds, "Field values");
@@ -70,7 +69,7 @@ describe("real daemon child-process restart", () => {
       "Initialized value Node",
     );
     expect(
-      array(valueNode.text, "Initialized text")
+      textItems(valueNode)
         .map((atom) => record(atom, "Atom").value)
         .join(""),
     ).toBe("Default");
@@ -81,11 +80,11 @@ describe("real daemon child-process restart", () => {
       "review",
       [
         {
-          kind: "value-set",
-          target: { kind: "node", id: "task" },
-          namespace: "property",
-          key: "reviewed",
-          value: true,
+          kind: "text-splice",
+          nodeId: "task",
+          deleteAtomIds: [],
+          anchor: end,
+          insert: "reviewed",
         },
       ],
       "proposal",
@@ -103,18 +102,16 @@ describe("real daemon child-process restart", () => {
     await loseAcknowledgement(daemon.address, resolution);
     daemon = await restart(processRoot, daemon);
     await expectRetryMatchesDurableOutcome(daemon.address, "resolve-once", resolution);
-    expect(record((await projectionSection(daemon.address, "nodes")).task, "Task")).toMatchObject({
-      properties: { reviewed: true },
-    });
+    expect(nodeText(record((await projectionSection(daemon.address, "nodes")).task, "Task"))).toBe("reviewed");
     expect(array((await query(daemon.address, { kind: "review", workspaceId })).hunks, "Hunks")).toEqual([]);
 
     await mutate(daemon.address, "history-edit", "history", [
       {
-        kind: "value-set",
-        target: { kind: "node", id: "task" },
-        namespace: "property",
-        key: "temporary",
-        value: "remove me",
+        kind: "text-splice",
+        nodeId: "task",
+        deleteAtomIds: [],
+        anchor: end,
+        insert: " temporary",
       },
     ]);
     const history = await query(daemon.address, {
@@ -133,12 +130,24 @@ describe("real daemon child-process restart", () => {
     daemon = await restart(processRoot, daemon);
     await expectRetryMatchesDurableOutcome(daemon.address, "undo-once", undo);
     const task = record((await projectionSection(daemon.address, "nodes")).task, "Task");
-    expect(record(task.properties, "Task properties").temporary).toBeUndefined();
+    expect(nodeText(task)).toBe("reviewed");
   });
 });
 
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string, nodeType?: "schema" | "field-definition") {
-  return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end, nodeType };
+function nodeAt(
+  nodeId: string,
+  parentNodeId: string,
+  occurrenceId: string,
+  nodeType?: "supertag-definition" | "field-definition",
+) {
+  return {
+    kind: "node-create",
+    nodeId,
+    parentNodeId,
+    occurrenceId,
+    anchor: end,
+    ...(nodeType === undefined ? {} : { nodeType }),
+  };
 }
 
 async function mutate(
@@ -148,7 +157,8 @@ async function mutate(
   mutations: readonly unknown[],
   intent: "direct" | "proposal" = "direct",
 ): Promise<void> {
-  expect(await execute(endpoint, mutateCommand(invocationId, channelId, intent, mutations))).toMatchObject({
+  const result = await execute(endpoint, mutateCommand(invocationId, channelId, intent, mutations));
+  expect(result, JSON.stringify(result)).toMatchObject({
     status: "published",
   });
 }
@@ -200,7 +210,7 @@ async function projectionSection(endpoint: string, section: string): Promise<Rec
   const value = await query(endpoint, {
     kind: "projection",
     workspaceId,
-    view: "origin",
+    perspective: "origin",
     section,
   });
   return record(value[section], `${section} Projection`);
@@ -214,6 +224,16 @@ async function query(endpoint: string, request: unknown): Promise<Record<string,
   const response = await cliRequest("query", endpoint, accessToken, request);
   expect(response.status).toBe("ok");
   return record(response.value, "Query value");
+}
+
+function nodeText(node: Record<string, unknown>): string {
+  return textItems(node)
+    .map((atom) => String(record(atom, "Atom").value))
+    .join("");
+}
+
+function textItems(node: Record<string, unknown>): unknown[] {
+  return array(node.content, "Node content").filter((item) => record(item, "Node content item").kind === "text");
 }
 
 async function temporaryDirectory(): Promise<string> {

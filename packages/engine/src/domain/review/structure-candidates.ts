@@ -64,8 +64,8 @@ function structureRegion(
   generation: ScopedProjectionGeneration,
 ): number {
   const parent = childSequenceParent(candidate.diffSpace.identity);
-  const origin = generation.origin.children[parent] ?? [];
-  const review = generation.review.children[parent] ?? [];
+  const origin = generation.origin.childOccurrences[parent] ?? [];
+  const review = generation.review.childOccurrences[parent] ?? [];
   const stable = new Set(origin.filter((id) => review.includes(id) && !affected.has(id)));
   const occurrenceId = targetOccurrence(candidate, pending);
   if (!occurrenceId) {

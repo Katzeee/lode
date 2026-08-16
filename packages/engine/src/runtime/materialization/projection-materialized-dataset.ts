@@ -1,11 +1,11 @@
-import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../domain/reconcile/index.js";
 import type { MaterializedDataset, MaterializedDatasetEntry } from "./materialized-dataset.js";
 import { defineMaterializedDataset, materializedDatasetEntry } from "./materialized-dataset.js";
 import {
-  isProjectionIndexSection,
-  isProjectionIndexValue,
-  projectionIndexEntries,
+  isProjectionLookupIndexSection,
+  isProjectionLookupIndexValue,
+  projectionLookupIndexEntries,
 } from "./materialized-projection-index.js";
 import {
   isMaterializedProjectionValue,
@@ -19,8 +19,8 @@ const PLAN_CACHE_PARTITION = "generation";
 const PLAN_CACHE_SECTION = "planCaches";
 const PLAN_CACHE_IDENTITY = "value";
 
-export const PROJECTION_MATERIALIZED_DATASETS = (["origin", "review"] as const).flatMap((view) =>
-  PROJECTION_SLICE_NAMES.map((section) => projectionMaterializedDataset(view, section)),
+export const PROJECTION_MATERIALIZED_DATASETS = (["origin", "review"] as const).flatMap((perspective) =>
+  PROJECTION_SLICE_NAMES.map((section) => projectionMaterializedDataset(perspective, section)),
 );
 
 export const planCacheMaterializedDataset = defineMaterializedDataset<ProjectionGeneration["planCaches"]>(
@@ -35,8 +35,8 @@ export const planCacheMaterializedDataset = defineMaterializedDataset<Projection
 
 export function projectionMaterializedEntries(generation: ProjectionGeneration): readonly MaterializedDatasetEntry[] {
   const entries = [generation.origin, generation.review].flatMap((projection) =>
-    [...materializedProjectionEntries(projection), ...projectionIndexEntries(projection)].map((entry) => ({
-      ...projectionMaterializedDataset(projection.view, entry.section).root,
+    [...materializedProjectionEntries(projection), ...projectionLookupIndexEntries(projection)].map((entry) => ({
+      ...projectionMaterializedDataset(projection.perspective, entry.section).root,
       identity: entry.identity,
       value: entry.value,
     })),
@@ -48,14 +48,14 @@ export function projectionMaterializedEntries(generation: ProjectionGeneration):
 }
 
 export function projectionMaterializedDataset<Section extends ProjectionSliceName>(
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   section: Section,
 ): MaterializedDataset<ProjectionSliceValue<Section>> {
   return defineMaterializedDataset(
-    { dataset: PROJECTION_DATASET, partition: view, section },
+    { dataset: PROJECTION_DATASET, partition: perspective, section },
     (identity, value): value is ProjectionSliceValue<Section> =>
-      isProjectionIndexSection(section)
-        ? isProjectionIndexValue(section, value)
+      isProjectionLookupIndexSection(section)
+        ? isProjectionLookupIndexValue(section, value)
         : isMaterializedProjectionValue(section, identity, value),
   );
 }

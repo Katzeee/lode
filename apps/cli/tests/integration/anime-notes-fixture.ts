@@ -2,10 +2,6 @@ import type { EngineCommand } from "@lode/sdk";
 
 type Mutation = Extract<EngineCommand, { kind: "mutate" }>["mutations"][number];
 
-const VIEW_SCHEMA_PROPERTY = "view.schemaId";
-const VIEW_LAYOUT_PROPERTY = "view.layout";
-const VIEW_FIELDS_PROPERTY = "view.fieldDefinitionIds";
-
 const end = {
   after: null,
   before: null,
@@ -16,9 +12,6 @@ const end = {
 export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mutation[] {
   return [
     ...outline(workspaceNodeId),
-    viewProperty(VIEW_SCHEMA_PROPERTY, "review"),
-    viewProperty(VIEW_LAYOUT_PROPERTY, "table"),
-    viewProperty(VIEW_FIELDS_PROPERTY, ["work-field", "rating-field"]),
     ...(
       [
         ["root", "Root"],
@@ -37,16 +30,16 @@ export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mut
       anchor: end,
       insert,
     })),
-    ...schemaFields("anime-work", ["title-field"]),
-    ...schemaFields("character", ["work-field"]),
-    ...schemaFields("anime-context", ["context-field"]),
-    ...schemaFields("quick-impression", ["work-field", "impression-field"]),
-    ...schemaFields("review", ["work-field", "rating-field"]),
-    schemaApplication("frieren", "anime-work"),
-    schemaApplication("fern", "character"),
-    schemaApplication("quick-note", "quick-impression"),
-    schemaApplication("quick-note", "anime-context"),
-    schemaApplication("review-note", "review"),
+    ...supertagFields("anime-work", ["title-field"]),
+    ...supertagFields("character", ["work-field"]),
+    ...supertagFields("anime-context", ["context-field"]),
+    ...supertagFields("quick-impression", ["work-field", "impression-field"]),
+    ...supertagFields("review", ["work-field", "rating-field"]),
+    supertagApplication("frieren", "anime-work"),
+    supertagApplication("fern", "character"),
+    supertagApplication("quick-note", "quick-impression"),
+    supertagApplication("quick-note", "anime-context"),
+    supertagApplication("review-note", "review"),
     ...materializedField("quick-note", "work-field", "quick-work", "quick-work-reference", "frieren"),
     ...materializedField(
       "quick-note",
@@ -67,17 +60,16 @@ function outline(workspaceNodeId: string): readonly Mutation[] {
     ["definition-library", "definition-library-occurrence", "root"],
     ["library", "library-occurrence", "root"],
     ["notes", "notes-occurrence", "root"],
-    ["anime-work", "anime-work-occurrence", "definition-library", "schema"],
-    ["character", "character-occurrence", "definition-library", "schema"],
-    ["anime-context", "anime-context-occurrence", "definition-library", "schema"],
-    ["quick-impression", "quick-impression-occurrence", "definition-library", "schema"],
-    ["review", "review-occurrence", "definition-library", "schema"],
+    ["anime-work", "anime-work-occurrence", "definition-library", "supertag-definition"],
+    ["character", "character-occurrence", "definition-library", "supertag-definition"],
+    ["anime-context", "anime-context-occurrence", "definition-library", "supertag-definition"],
+    ["quick-impression", "quick-impression-occurrence", "definition-library", "supertag-definition"],
+    ["review", "review-occurrence", "definition-library", "supertag-definition"],
     ["title-field", "title-field-occurrence", "definition-library", "field-definition"],
     ["work-field", "work-field-occurrence", "definition-library", "field-definition"],
     ["context-field", "context-field-occurrence", "definition-library", "field-definition"],
     ["impression-field", "impression-field-occurrence", "definition-library", "field-definition"],
     ["rating-field", "rating-field-occurrence", "definition-library", "field-definition"],
-    ["review-view", "review-view-occurrence", "definition-library", "view"],
     ["frieren", "frieren-occurrence", "library"],
     ["fern", "fern-occurrence", "library"],
     ["quick-note", "quick-note-occurrence", "notes"],
@@ -88,22 +80,12 @@ function outline(workspaceNodeId: string): readonly Mutation[] {
   );
 }
 
-function viewProperty(key: string, value: string | string[]): Mutation {
-  return {
-    kind: "value-set",
-    target: { kind: "node", id: "review-view" },
-    namespace: "property",
-    key,
-    value,
-  };
-}
-
 export function moodProposal(): readonly Mutation[] {
   return [
     nodeAt("mood-field", "definition-library", "mood-field-original", undefined, "field-definition"),
     {
-      kind: "schema-field-add",
-      schemaId: "quick-impression",
+      kind: "supertag-field-add",
+      supertagId: "quick-impression",
       fieldDefinitionId: "mood-field",
       fieldNodeId: "quick-impression-mood-field-template-field",
       fieldOccurrenceId: "quick-impression-mood-field-template-field-occurrence",
@@ -134,22 +116,22 @@ export function pendingMoodEdit(): readonly Mutation[] {
 }
 
 export function reviewApplicationProposal(): readonly Mutation[] {
-  return [schemaApplication("quick-note", "review")];
+  return [supertagApplication("quick-note", "review")];
 }
 
-function schemaFields(schemaId: string, fieldDefinitionIds: readonly string[]): Mutation[] {
+function supertagFields(supertagId: string, fieldDefinitionIds: readonly string[]): Mutation[] {
   return fieldDefinitionIds.map((fieldDefinitionId) => ({
-    kind: "schema-field-add",
-    schemaId,
+    kind: "supertag-field-add",
+    supertagId,
     fieldDefinitionId,
-    fieldNodeId: `${schemaId}-${fieldDefinitionId}-template-field`,
-    fieldOccurrenceId: `${schemaId}-${fieldDefinitionId}-template-field-occurrence`,
+    fieldNodeId: `${supertagId}-${fieldDefinitionId}-template-field`,
+    fieldOccurrenceId: `${supertagId}-${fieldDefinitionId}-template-field-occurrence`,
     anchor: end,
   }));
 }
 
-function schemaApplication(nodeId: string, schemaId: string): Mutation {
-  return { kind: "schema-apply", nodeId, schemaId, anchor: end };
+function supertagApplication(nodeId: string, supertagId: string): Mutation {
+  return { kind: "supertag-apply", nodeId, supertagId, anchor: end };
 }
 
 function materializedField(
@@ -181,7 +163,7 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   text?: string,
-  nodeType?: "schema" | "field-definition" | "view",
+  nodeType?: "supertag-definition" | "field-definition",
 ): Mutation {
   return {
     kind: "node-create",
@@ -195,8 +177,6 @@ function nodeAt(
       : {
           seed: {
             text: [...text].map((value) => ({ value, attributes: {} })),
-            properties: {},
-            metadata: {},
           },
         }),
   };

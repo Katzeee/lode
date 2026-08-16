@@ -1,11 +1,19 @@
-import { stableStringCompare, type ContributionFact, type JsonValue } from "../fact/index.js";
+import type { ContributionFact } from "../fact/index.js";
+import { compareFacts } from "../fact/index.js";
 import type { TextAtom } from "./projection-types.js";
-import type { MutableNode } from "./projection-state.js";
+import type { MutableInlineReference, MutableNode } from "./projection-state.js";
 import { insertManyAtAnchor } from "./sequence.js";
-import { valueTargetAddress } from "./value-address.js";
 
-export function applyText(active: readonly ContributionFact[], nodes: ReadonlyMap<string, MutableNode>): void {
-  for (const fact of active) {
+export function applyContent(active: readonly ContributionFact[], nodes: ReadonlyMap<string, MutableNode>): void {
+  const inlineReferenceIds = new Set<string>();
+  for (const node of nodes.values()) {
+    node.content.forEach((item) => {
+      if (item.kind === "inline-reference") {
+        inlineReferenceIds.add(item.id);
+      }
+    });
+  }
+  for (const fact of [...active].sort(compareFacts)) {
     const mutation = fact.body.mutation;
     if (mutation.kind === "text-splice") {
       const node = nodes.get(mutation.nodeId);
@@ -13,53 +21,53 @@ export function applyText(active: readonly ContributionFact[], nodes: ReadonlyMa
         continue;
       }
       const deleted = new Set(mutation.deleteAtomIds);
-      node.text = node.text.filter((atom) => !deleted.has(atom.id));
+      node.content = node.content.filter((item) => item.kind !== "text" || !deleted.has(item.id));
       const inserted = [...mutation.insert].map((value, index): TextAtom => ({
+        kind: "text",
         id: `${fact.id}#${index}`,
         value,
         attributes: mutation.attributes ?? {},
         contributionId: fact.id,
       }));
-      insertManyAtAnchor(node.text, inserted, mutation.anchor, (atom) => atom.id);
+      insertManyAtAnchor(node.content, inserted, mutation.anchor, (item) => item.id);
     } else if (mutation.kind === "text-mark") {
       const node = nodes.get(mutation.nodeId);
       if (!node) {
         continue;
       }
       const targets = new Set(mutation.atomIds);
-      node.text = node.text.map((atom) => {
-        if (!targets.has(atom.id)) {
-          return atom;
+      node.content = node.content.map((item) => {
+        if (item.kind !== "text" || !targets.has(item.id)) {
+          return item;
         }
-        const attributes = { ...atom.attributes };
+        const attributes = { ...item.attributes };
         if (mutation.value.kind === "unset") {
           delete attributes[mutation.key];
         } else {
           attributes[mutation.key] = mutation.value.value;
         }
-        return { ...atom, attributes };
+        return { ...item, attributes };
       });
+    } else if (mutation.kind === "inline-reference-create") {
+      const node = nodes.get(mutation.hostNodeId);
+      if (!node || inlineReferenceIds.has(mutation.inlineReferenceId)) {
+        continue;
+      }
+      const reference: MutableInlineReference = {
+        kind: "inline-reference",
+        id: mutation.inlineReferenceId,
+        targetNodeId: mutation.targetNodeId,
+        contributionId: fact.id,
+      };
+      insertManyAtAnchor(node.content, [reference], mutation.anchor, (item) => item.id);
+      inlineReferenceIds.add(reference.id);
+    } else if (mutation.kind === "inline-reference-delete") {
+      for (const node of nodes.values()) {
+        node.content = node.content.filter(
+          (item) => item.kind !== "inline-reference" || item.id !== mutation.inlineReferenceId,
+        );
+      }
+      inlineReferenceIds.delete(mutation.inlineReferenceId);
     }
   }
-}
-export function applyValues(
-  active: readonly ContributionFact[],
-  initial: Readonly<Record<string, Readonly<Record<string, JsonValue>>>> = {},
-): Readonly<Record<string, Readonly<Record<string, JsonValue>>>> {
-  const standalone = new Map(Object.entries(initial).map(([address, values]) => [address, { ...values }]));
-  for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "value-set" && mutation.kind !== "value-unset") {
-      continue;
-    }
-    const address = valueTargetAddress(mutation.target, mutation.namespace);
-    const namespace = standalone.get(address) ?? {};
-    standalone.set(address, namespace);
-    if (mutation.kind === "value-set") {
-      namespace[mutation.key] = mutation.value;
-    } else {
-      delete namespace[mutation.key];
-    }
-  }
-  return Object.fromEntries([...standalone].sort(([left], [right]) => stableStringCompare(left, right)));
 }

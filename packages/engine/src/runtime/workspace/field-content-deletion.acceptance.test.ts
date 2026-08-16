@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 import type { ProjectionPage } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
-import type { ViewMode } from "../../domain/fact/index.js";
+import { workspaceTrashNodeId, type ProjectionPerspective } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
+import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("instance Field content deletion", () => {
@@ -55,7 +55,10 @@ describe("instance Field content deletion", () => {
       "published",
     );
     expect(await fieldValues(opened, "origin")).toEqual(["value-b-occurrence"]);
-    expect((await section(opened, "origin", "nodes")).nodes["value-a"]).toBeUndefined();
+    expect((await section(opened, "origin", "nodes")).nodes["value-a"]).toBeDefined();
+    expect((await section(opened, "origin", "nodeOwners")).nodeOwners["value-a"]).toBe(
+      workspaceTrashNodeId("workspace"),
+    );
 
     const history = await opened.workspace.query({
       kind: "history",
@@ -148,11 +151,14 @@ describe("instance Field content deletion", () => {
     const restarted = await open(documents, "702");
     await expectDeletedFieldState(restarted);
     expect(
-      (await mutate(restarted, "remove-field-source", [{ kind: "schema-remove", nodeId: "owner", schemaId: "schema" }]))
-        .status,
+      (
+        await mutate(restarted, "remove-field-source", [
+          { kind: "supertag-remove", nodeId: "owner", supertagId: "supertag" },
+        ])
+      ).status,
     ).toBe("published");
     expect((await section(restarted, "origin", "effectiveFields")).effectiveFields.owner).toBeUndefined();
-    expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeUndefined();
+    expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeDefined();
   });
 
   it("does not regenerate deleted initialized values or initialized Fields", async () => {
@@ -192,7 +198,7 @@ describe("instance Field content deletion", () => {
     ).toBe("published");
     expect(await materializedField(opened, "origin")).toBeUndefined();
     const nodes = (await section(opened, "origin", "nodes")).nodes;
-    expect(nodes[field.fieldNodeId]).toBeUndefined();
+    expect(nodes[field.fieldNodeId]).toBeDefined();
 
     const history = await opened.workspace.query({
       kind: "history",
@@ -223,30 +229,30 @@ describe("instance Field content deletion", () => {
 function explicitFieldProgram(): readonly EditMutation[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("schema", "workspace", "schema-original"),
+    nodeAt("supertag", "workspace", "supertag-original"),
     nodeAt("field-definition", "workspace", "field-definition-original"),
-    { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
     { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
     nodeAt("field-node", "owner", "field-occurrence"),
     nodeAt("value-a", "field-node", "value-a-occurrence"),
     nodeAt("value-b", "field-node", "value-b-occurrence"),
     {
-      kind: "schema-field-add",
-      schemaId: "schema",
+      kind: "supertag-field-add",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
-      fieldNodeId: "schema-field-definition-template-field",
-      fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
+      fieldNodeId: "supertag-field-definition-template-field",
+      fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
       anchor: end,
     },
     {
-      kind: "schema-field-configure",
-      schemaId: "schema",
+      kind: "supertag-field-configure",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
-      fieldNodeId: "schema-field-definition-template-field",
+      fieldNodeId: "supertag-field-definition-template-field",
 
-      config: { visibility: "normal", staticDefault: null, initializer: null },
+      config: { visibility: "normal", staticDefault: null },
     },
-    { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
+    { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
     {
       kind: "field-materialize",
       ownerNodeId: "owner",
@@ -260,31 +266,30 @@ function explicitFieldProgram(): readonly EditMutation[] {
 function initializedFieldProgram(): readonly EditMutation[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("schema", "workspace", "schema-original"),
+    nodeAt("supertag", "workspace", "supertag-original"),
     nodeAt("field-definition", "workspace", "field-definition-original"),
-    { kind: "node-type-declare", nodeId: "schema", nodeType: "schema" },
+    { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
     { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
     {
-      kind: "schema-field-add",
-      schemaId: "schema",
+      kind: "supertag-field-add",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
-      fieldNodeId: "schema-field-definition-template-field",
-      fieldOccurrenceId: "schema-field-definition-template-field-occurrence",
+      fieldNodeId: "supertag-field-definition-template-field",
+      fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
       anchor: end,
     },
     {
-      kind: "schema-field-configure",
-      schemaId: "schema",
+      kind: "supertag-field-configure",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
-      fieldNodeId: "schema-field-definition-template-field",
+      fieldNodeId: "supertag-field-definition-template-field",
 
       config: {
         visibility: "normal",
         staticDefault: [{ kind: "text", value: "Default" }],
-        initializer: null,
       },
     },
-    { kind: "schema-apply", nodeId: "owner", schemaId: "schema", anchor: end },
+    { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
   ];
 }
 
@@ -324,17 +329,21 @@ async function expectDeletedFieldState(opened: Opened): Promise<void> {
     materializedFieldNodeId: null,
   });
   const nodes = (await section(opened, "origin", "nodes")).nodes;
-  expect(nodes["field-node"]).toBeUndefined();
-  expect(nodes["value-a"]).toBeUndefined();
-  expect(nodes["value-b"]).toBeUndefined();
+  expect(nodes["field-node"]).toBeDefined();
+  expect(nodes["value-a"]).toBeDefined();
+  expect(nodes["value-b"]).toBeDefined();
+  const owners = (await section(opened, "origin", "nodeOwners")).nodeOwners;
+  expect(owners["field-node"]).toBe(workspaceTrashNodeId("workspace"));
+  expect(owners["value-a"]).toBe("field-node");
+  expect(owners["value-b"]).toBe("field-node");
 }
 
-async function fieldValues(opened: Opened, view: ViewMode): Promise<readonly string[]> {
-  return (await materializedField(opened, view))?.valueOccurrenceIds ?? [];
+async function fieldValues(opened: Opened, perspective: ProjectionPerspective): Promise<readonly string[]> {
+  return (await materializedField(opened, perspective))?.valueOccurrenceIds ?? [];
 }
 
-async function materializedField(opened: Opened, view: ViewMode) {
-  return (await section(opened, view, "materializedFields")).materializedFields.owner?.[0];
+async function materializedField(opened: Opened, perspective: ProjectionPerspective) {
+  return (await section(opened, perspective, "materializedFields")).materializedFields.owner?.[0];
 }
 
 async function mutate(
@@ -372,13 +381,13 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
 
 async function section<S extends ProjectionPage["section"]>(
   opened: Opened,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   requested: S,
 ): Promise<ProjectionPage & Readonly<{ section: S }>> {
   const result = await opened.workspace.query({
     kind: "projection",
     workspaceId: "workspace",
-    view,
+    perspective,
     section: requested,
   });
   if (!("section" in result) || result.section !== requested) {

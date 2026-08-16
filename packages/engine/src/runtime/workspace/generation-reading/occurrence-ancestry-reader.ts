@@ -1,11 +1,11 @@
-import type { ViewMode } from "../../../domain/fact/index.js";
+import type { ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ProjectedOccurrence } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 
 export async function includeOccurrenceAncestors(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   initial: Record<string, ProjectedOccurrence>,
 ): Promise<Record<string, ProjectedOccurrence>> {
   const occurrences = { ...initial };
@@ -21,7 +21,7 @@ export async function includeOccurrenceAncestors(
       break;
     }
     wanted.forEach((identity) => visited.add(identity));
-    const batch = await store.read(generationId, view, "occurrences", wanted);
+    const batch = await store.read(generationId, perspective, "occurrences", wanted);
     const parents = Object.fromEntries(batch.entries.map((entry) => [entry.identity, entry.value]));
     Object.assign(occurrences, parents);
     frontier = parentIds(Object.values(parents));

@@ -10,21 +10,28 @@ export type HardDeleteSelection = Readonly<{
 }>;
 
 export type HardDeleteBlocker =
-  "already-purged" | "not-tombstoned" | "pending-proposal" | "replica-unconfirmed" | "outcome-unknown";
+  | "already-purged"
+  | "not-in-trash"
+  | "owned-descendants"
+  | "pending-proposal"
+  | "replica-unconfirmed"
+  | "outcome-unknown";
 
 export type HardDeleteEvidence = Readonly<{
   workspaceId: WorkspaceId;
   nodeId: string;
   snapshot: FactSnapshot;
   localReplicaId: ReplicaId;
+  ownedDescendantNodeIds: readonly string[];
   outcomeUnknownInvocationIds: readonly InvocationId[];
 }>;
 
 export type HardDeleteAssessment = Readonly<{
   selection: HardDeleteSelection;
   referenceOccurrenceIds: readonly string[];
-  schemaApplicationNodeIds: readonly string[];
+  supertagApplicationNodeIds: readonly string[];
   materializedFieldNodeIds: readonly string[];
+  ownedDescendantNodeIds: readonly string[];
   pendingProposalContributionIds: readonly string[];
   knownReplicaIds: readonly string[];
   acknowledgedReplicaIds: readonly string[];

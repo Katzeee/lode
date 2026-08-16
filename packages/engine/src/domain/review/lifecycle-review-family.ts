@@ -1,9 +1,10 @@
 import { compareFacts, templateInstanceNodeId, type ContributionFact } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import { nodeLocation } from "../reconcile/node-graph.js";
 import { nodeCreationPlacements } from "./node-creation-placement.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewEffectEntry, ReviewFamilyRule } from "./review-family.js";
-import { addDefinitionLifecycleImpacts } from "./schema-definition-impact.js";
+import { addDefinitionLifecycleImpacts } from "./supertag-definition-impact.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import {
   isStructuralOccurrenceMutation,
@@ -158,10 +159,8 @@ function lifecycleEffect(fact: ContributionFact, generation: ScopedProjectionGen
         };
   }
   if (mutation.kind === "node-type-declare") {
-    const origin =
-      generation.origin.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
-    const review =
-      generation.review.nodeStatuses[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
+    const origin = generation.origin.nodes[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
+    const review = generation.review.nodes[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
     return origin === review
       ? null
       : {
@@ -170,14 +169,18 @@ function lifecycleEffect(fact: ContributionFact, generation: ScopedProjectionGen
         };
   }
   const identity = mutationIdentity(fact);
-  const origin = generation.origin.nodes[identity] !== undefined;
-  const review = generation.review.nodes[identity] !== undefined;
+  const origin = lifecyclePresence(generation.origin, identity);
+  const review = lifecyclePresence(generation.review, identity);
   return origin === review
     ? null
     : {
         identity: `lifecycle/${identity}`,
         effect: { kind: "lifecycle", identity, origin, review },
       };
+}
+
+function lifecyclePresence(projection: ScopedProjectionGeneration["origin"], nodeId: string): boolean {
+  return nodeLocation(projection.identity.workspaceNodeId, projection, nodeId) === "active";
 }
 
 function candidateHasEffect(facts: readonly ContributionFact[], generation: ScopedProjectionGeneration): boolean {

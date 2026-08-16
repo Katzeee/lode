@@ -1,4 +1,9 @@
-import { WORKSPACE_NODE_TYPE, type Fact } from "../../../domain/fact/index.js";
+import {
+  WORKSPACE_NODE_TYPE,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
+  type Fact,
+} from "../../../domain/fact/index.js";
 import type { FactAuthority } from "../../authority/fact-authority.js";
 
 type WorkspaceGenesisAuthority = Pick<FactAuthority, "admission" | "commit" | "receipts" | "replicaId">;
@@ -35,6 +40,30 @@ export async function ensureWorkspaceGenesis(workspaceId: string, facts: Workspa
               nodeType: WORKSPACE_NODE_TYPE,
             },
           },
+          {
+            kind: "contribution",
+            actorId: "workspace-genesis",
+            intent: "direct",
+            mutation: {
+              kind: "node-create",
+              nodeId: workspaceTrashNodeId(workspaceId),
+              seed: {
+                text: [{ value: "Trash", attributes: {} }],
+              },
+            },
+          },
+          {
+            kind: "contribution",
+            actorId: "workspace-genesis",
+            intent: "direct",
+            mutation: {
+              kind: "occurrence-create",
+              occurrenceId: workspaceTrashOccurrenceId(workspaceId),
+              nodeId: workspaceTrashNodeId(workspaceId),
+              parentNodeId: workspaceId,
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            },
+          },
         ],
       },
     ],
@@ -46,6 +75,8 @@ export async function ensureWorkspaceGenesis(workspaceId: string, facts: Workspa
 function hasWorkspaceGenesis(facts: readonly Fact[], workspaceId: string): boolean {
   let hasNode = false;
   let hasNodeType = false;
+  let trashRoleNodeId: string | null = null;
+  const trashOccurrenceId = workspaceTrashOccurrenceId(workspaceId);
   for (const fact of facts) {
     if (fact.body.kind !== "contribution") {
       continue;
@@ -56,6 +87,21 @@ function hasWorkspaceGenesis(facts: readonly Fact[], workspaceId: string): boole
       mutation.kind === "node-type-declare" &&
       mutation.nodeId === workspaceId &&
       mutation.nodeType === WORKSPACE_NODE_TYPE;
+    if (
+      mutation.kind === "occurrence-create" &&
+      mutation.occurrenceId === trashOccurrenceId &&
+      mutation.parentNodeId === workspaceId
+    ) {
+      trashRoleNodeId = mutation.nodeId;
+    }
   }
-  return hasNode && hasNodeType;
+  const hasTrashNode =
+    trashRoleNodeId !== null &&
+    facts.some(
+      (fact) =>
+        fact.body.kind === "contribution" &&
+        fact.body.mutation.kind === "node-create" &&
+        fact.body.mutation.nodeId === trashRoleNodeId,
+    );
+  return hasNode && hasNodeType && hasTrashNode;
 }

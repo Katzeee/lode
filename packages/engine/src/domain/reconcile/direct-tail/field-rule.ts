@@ -17,7 +17,7 @@ export function canApplyFieldDirectTail(projection: Projection, mutation: FieldM
       );
     case "field-initialize":
       return (
-        hasNodes(projection, mutation.ownerNodeId, mutation.schemaId, mutation.fieldDefinitionId) &&
+        hasNodes(projection, mutation.ownerNodeId, mutation.supertagId, mutation.fieldDefinitionId) &&
         mutation.values.every((value) => value.kind !== "reference" || projection.nodes[value.nodeId] !== undefined)
       );
   }

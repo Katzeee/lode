@@ -7,8 +7,8 @@ import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority
 import { FactSyncComposite } from "../sync/fact-sync.js";
 import { syncPair } from "../../../tests/support/sync.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
+import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Hard Delete maintenance", () => {
@@ -16,24 +16,24 @@ describe("Hard Delete maintenance", () => {
     const documents = new InMemoryDocumentStore();
     const opened = await open(documents, "101");
     expect((await opened.workspace.execute(setupCommand())).status).toBe("published");
-    const deletion = await opened.workspace.execute(deleteSchemaCommand("delete-schema"));
+    const deletion = await opened.workspace.execute(deleteSupertagCommand("delete-supertag"));
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
-      throw new Error("Expected durable Schema tombstone");
+      throw new Error("Expected durable Supertag deletion");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
     let preview = await previewHardDelete(opened.workspace);
     expect(preview).toMatchObject({
       canExecute: false,
       blockers: ["replica-unconfirmed"],
-      referenceOccurrenceIds: ["schema-reference"],
-      schemaApplicationNodeIds: ["task"],
+      referenceOccurrenceIds: ["supertag-reference"],
+      supertagApplicationNodeIds: ["task"],
     });
     expect(preview.historyImpact).toMatchObject({
       affectedChannelIds: ["maintenance-test"],
       truncated: false,
     });
     expect(preview.historyImpact.affectedInvocationIds).toEqual(
-      expect.arrayContaining(["hard-delete-setup", "delete-schema"]),
+      expect.arrayContaining(["hard-delete-setup", "delete-supertag"]),
     );
 
     expect(
@@ -41,9 +41,9 @@ describe("Hard Delete maintenance", () => {
         await opened.workspace.execute({
           kind: "acknowledge-deletion",
           workspaceId: "workspace",
-          invocationId: "acknowledge-schema-deletion",
+          invocationId: "acknowledge-supertag-deletion",
           actorId: "maintainer",
-          nodeId: "task-schema",
+          nodeId: "task-supertag",
           deletionFactIds,
         })
       ).status,
@@ -73,7 +73,7 @@ describe("Hard Delete maintenance", () => {
     const purged = await opened.workspace.execute({
       kind: "hard-delete",
       workspaceId: "workspace",
-      invocationId: "purge-task-schema",
+      invocationId: "purge-task-supertag",
       actorId: "maintainer",
       selection: preview.selection,
     });
@@ -82,22 +82,22 @@ describe("Hard Delete maintenance", () => {
       await opened.workspace.execute({
         kind: "hard-delete",
         workspaceId: "workspace",
-        invocationId: "purge-task-schema",
+        invocationId: "purge-task-supertag",
         actorId: "maintainer",
         selection: preview.selection,
       }),
     ).toEqual(purged);
-    expect(await projectionMap(opened.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
-    expect(await projectionMap(opened.workspace, "schemaApplications")).not.toHaveProperty("task");
+    expect(await projectionMap(opened.workspace, "nodes")).not.toHaveProperty("task-supertag");
+    expect(await projectionMap(opened.workspace, "supertagApplications")).not.toHaveProperty("task");
 
     await opened.workspace.close();
     const restarted = await open(documents, "202", opened.facts.replicaId);
-    expect(await projectionMap(restarted.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
+    expect(await projectionMap(restarted.workspace, "nodes")).not.toHaveProperty("task-supertag");
     const restartedPreview = await previewHardDelete(restarted.workspace);
     expect(restartedPreview.canExecute).toBe(false);
     expect(restartedPreview.blockers).toContain("already-purged");
     expect(restartedPreview.historyImpact.affectedInvocationIds).toEqual(
-      expect.arrayContaining(["hard-delete-setup", "delete-schema"]),
+      expect.arrayContaining(["hard-delete-setup", "delete-supertag"]),
     );
   });
 
@@ -107,32 +107,96 @@ describe("Hard Delete maintenance", () => {
     expect(
       (
         await opened.workspace.execute({
-          ...command("pending-schema-edit", "proposal"),
+          ...command("pending-supertag-edit", "proposal"),
           mutations: [
             {
-              kind: "value-set",
-              target: { kind: "node", id: "task-schema" },
-              namespace: "metadata",
-              key: "color",
-              value: "red",
+              kind: "text-splice",
+              nodeId: "task-supertag",
+              deleteAtomIds: [],
+              anchor: end,
+              insert: "pending",
             },
           ],
         })
       ).status,
     ).toBe("published");
-    expect((await opened.workspace.execute(deleteSchemaCommand("delete-with-pending"))).status).toBe("published");
+    expect((await opened.workspace.execute(deleteSupertagCommand("delete-with-pending"))).status).toBe("published");
     const preview = await previewHardDelete(opened.workspace);
     expect(preview.blockers).toEqual(expect.arrayContaining(["pending-proposal", "replica-unconfirmed"]));
     expect(preview.pendingProposalContributionIds).toHaveLength(1);
   });
 
-  it("requires every known Replica to causally acknowledge the tombstone", async () => {
+  it("blocks root-only purge while Trash contains owned descendants", async () => {
+    const opened = await open(new InMemoryDocumentStore(), "313");
+    expect(
+      (
+        await opened.workspace.execute({
+          ...command("subtree-setup"),
+          mutations: [
+            ...nodeAtWorkspace("parent"),
+            {
+              kind: "node-create",
+              occurrenceId: "child-original",
+              nodeId: "child",
+              parentNodeId: "parent",
+              anchor: end,
+            },
+            {
+              kind: "node-create",
+              occurrenceId: "grandchild-original",
+              nodeId: "grandchild",
+              parentNodeId: "child",
+              anchor: end,
+            },
+          ],
+        })
+      ).status,
+    ).toBe("published");
+    const deletion = await opened.workspace.execute({
+      ...command("delete-subtree"),
+      mutations: [{ kind: "node-delete", nodeId: "parent" }],
+    });
+    if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
+      throw new Error("Expected subtree root deletion");
+    }
+    const deletionFactIds = [deletion.receipt.factIds[0]];
+    expect(
+      (
+        await opened.workspace.execute({
+          kind: "acknowledge-deletion",
+          workspaceId: "workspace",
+          invocationId: "acknowledge-subtree-deletion",
+          actorId: "maintainer",
+          nodeId: "parent",
+          deletionFactIds,
+        })
+      ).status,
+    ).toBe("published");
+
+    const preview = await previewHardDelete(opened.workspace, "parent");
+    expect(preview.ownedDescendantNodeIds).toEqual(["child", "grandchild"]);
+    expect(preview.blockers).toEqual(["owned-descendants"]);
+    expect(preview.canExecute).toBe(false);
+    const rejected = await opened.workspace.execute({
+      kind: "hard-delete",
+      workspaceId: "workspace",
+      invocationId: "reject-root-only-subtree-purge",
+      actorId: "maintainer",
+      selection: preview.selection,
+    });
+    expect(rejected, JSON.stringify(rejected)).toMatchObject({
+      status: "rejected",
+      error: { code: "maintenance-blocked" },
+    });
+  });
+
+  it("requires every known Replica to causally acknowledge the Trash placement", async () => {
     const left = await open(new InMemoryDocumentStore(), "404");
     const right = await open(new InMemoryDocumentStore(), "505");
     expect((await left.workspace.execute(setupCommand())).status).toBe("published");
-    const deletion = await left.workspace.execute(deleteSchemaCommand("multi-delete"));
+    const deletion = await left.workspace.execute(deleteSupertagCommand("multi-delete"));
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
-      throw new Error("Expected multi-Replica tombstone");
+      throw new Error("Expected multi-Replica deletion");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
     await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
@@ -174,16 +238,16 @@ describe("Hard Delete maintenance", () => {
     ).toBe("published");
     await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
-    expect(await projectionMap(right.workspace, "nodeStatuses")).not.toHaveProperty("task-schema");
+    expect(await projectionMap(right.workspace, "nodes")).not.toHaveProperty("task-supertag");
   });
 
   it("requires explicit retirement before an unavailable known Replica stops blocking purge", async () => {
     const left = await open(new InMemoryDocumentStore(), "606");
     const right = await open(new InMemoryDocumentStore(), "707");
     expect((await left.workspace.execute(setupCommand())).status).toBe("published");
-    const deletion = await left.workspace.execute(deleteSchemaCommand("retirement-delete"));
+    const deletion = await left.workspace.execute(deleteSupertagCommand("retirement-delete"));
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
-      throw new Error("Expected retirement fixture tombstone");
+      throw new Error("Expected retirement fixture deletion");
     }
     const deletionFactIds = [deletion.receipt.factIds[0]];
     await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
@@ -251,11 +315,11 @@ function setupCommand(): MutationCommand {
     mutations: [
       {
         kind: "node-create",
-        occurrenceId: "schema-reference",
-        nodeId: "task-schema",
+        occurrenceId: "supertag-reference",
+        nodeId: "task-supertag",
         parentNodeId: "workspace",
         anchor: end,
-        nodeType: "schema",
+        nodeType: "supertag-definition",
       },
       {
         kind: "node-create",
@@ -264,7 +328,7 @@ function setupCommand(): MutationCommand {
         parentNodeId: "workspace",
         anchor: end,
       },
-      { kind: "schema-apply", nodeId: "task", schemaId: "task-schema", anchor: end },
+      { kind: "supertag-apply", nodeId: "task", supertagId: "task-supertag", anchor: end },
     ],
   };
 }
@@ -281,15 +345,15 @@ function nodeAtWorkspace(nodeId: string) {
   ];
 }
 
-function deleteSchemaCommand(invocationId: string): MutationCommand {
-  return { ...command(invocationId), mutations: [{ kind: "node-delete", nodeId: "task-schema" }] };
+function deleteSupertagCommand(invocationId: string): MutationCommand {
+  return { ...command(invocationId), mutations: [{ kind: "node-delete", nodeId: "task-supertag" }] };
 }
 
-async function previewHardDelete(workspace: ProposalWorkspace): Promise<HardDeletePreview> {
+async function previewHardDelete(workspace: ProposalWorkspace, nodeId = "task-supertag"): Promise<HardDeletePreview> {
   const result = await workspace.query({
     kind: "hard-delete-preview",
     workspaceId: "workspace",
-    nodeId: "task-schema",
+    nodeId,
   });
   if (!("blockers" in result)) {
     throw new Error("Expected Hard Delete preview");
@@ -309,22 +373,22 @@ async function acknowledge(
         workspaceId: "workspace",
         invocationId,
         actorId: "maintainer",
-        nodeId: "task-schema",
+        nodeId: "task-supertag",
         deletionFactIds,
       })
     ).status,
   ).toBe("published");
 }
 
-async function projectionMap(workspace: ProposalWorkspace, section: "nodeStatuses" | "schemaApplications") {
+async function projectionMap(workspace: ProposalWorkspace, section: "nodes" | "supertagApplications") {
   const result = await workspace.query({
     kind: "projection",
     workspaceId: "workspace",
-    view: "origin",
+    perspective: "origin",
     section,
   });
   if (!("section" in result) || result.section !== section || !(section in result)) {
     throw new Error(`Expected ${section} Projection`);
   }
-  return result.section === "nodeStatuses" ? result.nodeStatuses : result.schemaApplications;
+  return result.section === "nodes" ? result.nodes : result.supertagApplications;
 }

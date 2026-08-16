@@ -1,13 +1,20 @@
 import {
   frontierOf,
+  factTransactionId,
   makeFact,
   type AuthorityReceipt,
   type EditIntent,
   type Fact,
   type FactSnapshot,
   type Mutation,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
 } from "../../../src/domain/fact/index.js";
-import { rebuildGeneration, type ProjectionGeneration } from "../../../src/domain/reconcile/index.js";
+import {
+  CURRENT_PROJECTION_VERSIONS,
+  rebuildGeneration,
+  type ProjectionGeneration,
+} from "../../../src/domain/reconcile/index.js";
 import { nextHistoryLineage } from "../../../src/domain/history/state.js";
 
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -17,10 +24,7 @@ export const end = {
   affinity: "after",
   fallback: "end",
 } as const;
-export const versions = {
-  rulesVersion: "proposal-rules-5",
-  schemaVersion: "lode-schema-19",
-} as const;
+export const versions = CURRENT_PROJECTION_VERSIONS;
 
 export class HistoryFixture {
   readonly facts: Fact[] = [];
@@ -28,6 +32,14 @@ export class HistoryFixture {
 
   constructor() {
     this.fact({ kind: "node-create", nodeId: "workspace" });
+    this.fact({ kind: "node-create", nodeId: workspaceTrashNodeId("workspace") });
+    this.fact({
+      kind: "occurrence-create",
+      occurrenceId: workspaceTrashOccurrenceId("workspace"),
+      nodeId: workspaceTrashNodeId("workspace"),
+      parentNodeId: "workspace",
+      anchor: end,
+    });
   }
 
   fact(mutation: Mutation, intent: EditIntent = "direct"): Fact {
@@ -72,7 +84,7 @@ export class HistoryFixture {
     operation?: "normal" | "undo" | "redo";
     targetStepId?: string | null;
   }): AuthorityReceipt {
-    const created = input.mutations.map((mutation) => this.fact(mutation, input.intent));
+    const created = this.transaction(input.mutations, input.intent);
     const channelId = input.channelId ?? "channel";
     const lineage = nextHistoryLineage(
       this.receipts,
@@ -91,6 +103,25 @@ export class HistoryFixture {
     };
     this.receipts.push(receipt);
     return receipt;
+  }
+
+  private transaction(mutations: readonly Mutation[], intent: EditIntent = "direct"): readonly Fact[] {
+    const firstSequence = this.facts.length + 1;
+    const transactionId = factTransactionId("workspace", REPLICA, firstSequence);
+    const created = mutations.map((mutation, index) => {
+      const sequence = firstSequence + index;
+      return makeFact({
+        workspaceId: "workspace",
+        replicaId: REPLICA,
+        sequence,
+        observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
+        lamport: sequence,
+        transaction: { transactionId, index, size: mutations.length },
+        body: { kind: "contribution", actorId: "actor", intent, mutation },
+      });
+    });
+    this.facts.push(...created);
+    return created;
   }
 
   snapshot(): FactSnapshot {

@@ -1,12 +1,16 @@
 import {
-  parseFieldTemplateConfig,
+  parseSupertagFieldConfig,
   parseJsonValue as json,
   parseSequenceAnchor as sequenceAnchor,
   parseTextAtomId,
   isNodeType,
   type PreviousValue,
 } from "../domain/fact/index.js";
-import type { DecisionEffect, PlacementRelation } from "../domain/review/index.js";
+import type {
+  DecisionEffect,
+  FieldDefinitionConfigurationDecisionState,
+  PlacementRelation,
+} from "../domain/review/index.js";
 import {
   array,
   booleanValue as boolean,
@@ -59,26 +63,23 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
       reviewRelation: effect.reviewRelation === null ? null : placementRelation(effect.reviewRelation),
     };
   }
-  if (kind === "value") {
-    exact(effect, ["kind", "targetKind", "targetId", "namespace", "key", "origin", "review"], "value Decision effect");
-    return {
-      kind,
-      targetKind: oneOf(effect.targetKind, ["node", "occurrence"] as const, "value target kind"),
-      targetId: nonempty(effect.targetId, "value target identity"),
-      namespace: oneOf(effect.namespace, ["property", "metadata", "schema"] as const, "value namespace"),
-      key: nonempty(effect.key, "value key"),
-      origin: previousValue(effect.origin),
-      review: previousValue(effect.review),
-    };
-  }
-  if (kind === "schema-relation") {
-    return schemaRelationEffect(effect);
+  if (kind === "supertag-relation") {
+    return supertagRelationEffect(effect);
   }
   if (kind === "field-materialization") {
     return fieldMaterializationEffect(effect);
   }
   if (kind === "field-configuration") {
     return fieldConfigurationEffect(effect);
+  }
+  if (kind === "inline-reference") {
+    return inlineReferenceEffect(effect);
+  }
+  if (kind === "view-definition") {
+    return viewDefinitionEffect(effect);
+  }
+  if (kind === "field-definition-configuration") {
+    return fieldDefinitionConfigurationEffect(effect);
   }
   if (kind === "lifecycle") {
     exact(effect, ["kind", "identity", "origin", "review"], `${kind} Decision effect`);
@@ -110,34 +111,122 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   throw new Error(`Unknown Decision effect kind: ${kind}`);
 }
 
-function fieldConfigurationEffect(effect: Record<string, unknown>): DecisionEffect {
-  exact(effect, ["kind", "schemaId", "fieldDefinitionId", "origin", "review"], "Field configuration Decision effect");
+function inlineReferenceEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(effect, ["kind", "inlineReferenceId", "origin", "review"], "Inline Reference Decision effect");
   return {
-    kind: "field-configuration",
-    schemaId: nonempty(effect.schemaId, "Field configuration Schema"),
-    fieldDefinitionId: nonempty(effect.fieldDefinitionId, "Field configuration Field Definition"),
-    origin: effect.origin === null ? null : parseFieldTemplateConfig(effect.origin),
-    review: effect.review === null ? null : parseFieldTemplateConfig(effect.review),
+    kind: "inline-reference",
+    inlineReferenceId: nonempty(effect.inlineReferenceId, "Inline Reference identity"),
+    origin: effect.origin === null ? null : inlineReferenceState(effect.origin),
+    review: effect.review === null ? null : inlineReferenceState(effect.review),
   };
 }
 
-function schemaRelationEffect(effect: Record<string, unknown>): DecisionEffect {
+function viewDefinitionEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(effect, ["kind", "viewDefinitionNodeId", "origin", "review"], "View Definition Decision effect");
+  return {
+    kind: "view-definition",
+    viewDefinitionNodeId: nonempty(effect.viewDefinitionNodeId, "View Definition Node identity"),
+    origin: effect.origin === null ? null : viewDefinitionState(effect.origin),
+    review: effect.review === null ? null : viewDefinitionState(effect.review),
+  };
+}
+
+function fieldDefinitionConfigurationEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(
+    effect,
+    ["kind", "fieldDefinitionId", "configurationNodeId", "origin", "review"],
+    "Field Definition configuration Decision effect",
+  );
+  return {
+    kind: "field-definition-configuration",
+    fieldDefinitionId: nonempty(effect.fieldDefinitionId, "Field Definition identity"),
+    configurationNodeId: nonempty(effect.configurationNodeId, "Field configuration Node identity"),
+    origin: effect.origin === null ? null : fieldDefinitionConfigurationState(effect.origin),
+    review: effect.review === null ? null : fieldDefinitionConfigurationState(effect.review),
+  };
+}
+
+function fieldDefinitionConfigurationState(value: unknown): FieldDefinitionConfigurationDecisionState {
+  const state = object(value, "Field Definition configuration state");
+  const kind = nonempty(state.kind, "Field Definition configuration kind");
+  if (kind === "datatype") {
+    exact(state, ["kind", "datatype"], "Field datatype state");
+    return { kind: "datatype", datatype: oneOf(state.datatype, ["plain", "options"] as const, "Field datatype") };
+  }
+  if (kind === "cardinality") {
+    exact(state, ["kind", "cardinality"], "Field cardinality state");
+    return {
+      kind: "cardinality",
+      cardinality: oneOf(state.cardinality, ["single", "list"] as const, "Field cardinality"),
+    };
+  }
+  if (kind === "initialization-expression") {
+    exact(state, ["kind", "expression"], "Field initialization expression state");
+    const expression = object(state.expression, "Field initialization expression");
+    exact(expression, ["kind", "sourceFieldDefinitionId"], "Field initialization expression");
+    if (expression.kind !== "ancestor-field-values") {
+      throw new Error("Field initialization expression kind is invalid");
+    }
+    return {
+      kind: "initialization-expression",
+      expression: {
+        kind: "ancestor-field-values",
+        sourceFieldDefinitionId: nonempty(expression.sourceFieldDefinitionId, "source Field Definition identity"),
+      },
+    };
+  }
+  throw new Error(`Unknown Field Definition configuration kind: ${kind}`);
+}
+
+function viewDefinitionState(value: unknown) {
+  const state = object(value, "View Definition state");
+  exact(state, ["hostNodeId", "viewType"], "View Definition state");
+  return {
+    hostNodeId: nonempty(state.hostNodeId, "View host Node identity"),
+    viewType: oneOf(state.viewType, ["outline", "table"] as const, "View type"),
+  };
+}
+
+function inlineReferenceState(value: unknown) {
+  const state = object(value, "Inline Reference state");
+  exact(state, ["hostNodeId", "targetNodeId", "aliasNodeId", "targetStatus", "anchor"], "Inline Reference state");
+  return {
+    hostNodeId: nonempty(state.hostNodeId, "Inline Reference host Node"),
+    targetNodeId: nonempty(state.targetNodeId, "Inline Reference target Node"),
+    aliasNodeId: nullableString(state.aliasNodeId, "Inline Alias Node"),
+    targetStatus: oneOf(state.targetStatus, ["active", "trash", "unavailable"] as const, "target status"),
+    anchor: sequenceAnchor(state.anchor),
+  };
+}
+
+function fieldConfigurationEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(effect, ["kind", "supertagId", "fieldDefinitionId", "origin", "review"], "Field configuration Decision effect");
+  return {
+    kind: "field-configuration",
+    supertagId: nonempty(effect.supertagId, "Field configuration Supertag"),
+    fieldDefinitionId: nonempty(effect.fieldDefinitionId, "Field configuration Field Definition"),
+    origin: effect.origin === null ? null : parseSupertagFieldConfig(effect.origin),
+    review: effect.review === null ? null : parseSupertagFieldConfig(effect.review),
+  };
+}
+
+function supertagRelationEffect(effect: Record<string, unknown>): DecisionEffect {
   exact(
     effect,
     ["kind", "relation", "ownerId", "targetId", "originIndex", "reviewIndex"],
-    "Schema relation Decision effect",
+    "Supertag relation Decision effect",
   );
   return {
-    kind: "schema-relation",
+    kind: "supertag-relation",
     relation: oneOf(
       effect.relation,
       ["application", "field", "extension", "template-node"] as const,
-      "Schema relation kind",
+      "Supertag relation kind",
     ),
-    ownerId: nonempty(effect.ownerId, "Schema relation owner"),
-    targetId: nonempty(effect.targetId, "Schema relation target"),
-    originIndex: nullableIndex(effect.originIndex, "origin Schema relation index"),
-    reviewIndex: nullableIndex(effect.reviewIndex, "review Schema relation index"),
+    ownerId: nonempty(effect.ownerId, "Supertag relation owner"),
+    targetId: nonempty(effect.targetId, "Supertag relation target"),
+    originIndex: nullableIndex(effect.originIndex, "origin Supertag relation index"),
+    reviewIndex: nullableIndex(effect.reviewIndex, "review Supertag relation index"),
   };
 }
 

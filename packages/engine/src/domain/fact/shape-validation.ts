@@ -2,12 +2,19 @@ import type { AuthorityReceipt, AuthorityRecord, Fact, Mutation, SequenceAnchor 
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
 import { assertOptionalNodeSeed } from "./node-create-shape.js";
 import { isNodeType } from "./node-type-types.js";
-import { assertSchemaMutationShape } from "./schema-mutation-shape.js";
+import { assertSupertagMutationShape } from "./supertag-mutation-shape.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
 import { assertTemplateDetachmentShape } from "./template-node-validation.js";
 import { assertFieldContentDeletionShape } from "./field-content-validation.js";
+import { assertSearchClauseMutationShape } from "./search-clause-validation.js";
+import { assertInlineReferenceMutationShape } from "./inline-reference-validation.js";
 import {
-  assertJsonValue,
+  assertSharedDefaultViewDefinitionModeShape,
+  assertSharedDefaultViewDefinitionMutationShape,
+} from "./view-definition-validation.js";
+import { assertFieldDefinitionConfigMutationShape } from "./field-definition-config-shape.js";
+import { assertTextMutationShape } from "./text-mutation-shape.js";
+import {
   assertFrontier,
   assertKeys,
   assertNullableString,
@@ -17,7 +24,6 @@ import {
   requireNumber,
   requireSafeInteger,
   requireString,
-  requireStringAllowEmpty,
 } from "../../shape-validation/index.js";
 
 export function parseAuthorityRecords(records: readonly unknown[]): AuthorityRecord[] {
@@ -108,6 +114,18 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
     throw new Error(`Unknown Mutation kind: ${value.kind}`);
   }
   assertKeys(value, keys, `${value.kind} Mutation`);
+  if (
+    value.kind === "field-datatype-configure" ||
+    value.kind === "field-cardinality-configure" ||
+    value.kind === "field-initialization-expression-configure"
+  ) {
+    assertFieldDefinitionConfigMutationShape(value);
+    return;
+  }
+  if (value.kind === "text-splice" || value.kind === "text-mark") {
+    assertTextMutationShape(value, assertAnchor);
+    return;
+  }
   switch (value.kind) {
     case "node-create":
       requireString(value.nodeId, value.kind);
@@ -133,24 +151,28 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
         requireString(value.previousOwnerNodeId, "previous owner Node");
       }
       return;
+    case "metanode-attach":
+      requireString(value.hostNodeId, "configuration host Node");
+      requireString(value.metanodeId, "metanode Node");
+      return;
     case "node-type-declare":
       requireString(value.nodeId, value.kind);
       if (!isNodeType(value.nodeType)) {
         throw new Error("Node type is invalid");
       }
       return;
-    case "schema-apply":
-    case "schema-remove":
-    case "schema-field-add":
-    case "schema-field-remove":
-    case "schema-field-configure":
-    case "schema-extension-add":
-    case "schema-extension-remove":
-    case "schema-template-node-add":
-    case "schema-template-node-remove":
+    case "supertag-apply":
+    case "supertag-remove":
+    case "supertag-field-add":
+    case "supertag-field-remove":
+    case "supertag-field-configure":
+    case "supertag-extension-add":
+    case "supertag-extension-remove":
+    case "supertag-template-node-add":
+    case "supertag-template-node-remove":
     case "field-materialize":
     case "field-initialize":
-      assertSchemaMutationShape(value);
+      assertSupertagMutationShape(value);
       return;
     case "field-value-delete":
     case "materialized-field-delete":
@@ -159,30 +181,21 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
     case "template-node-detach":
       assertTemplateDetachmentShape(value);
       return;
-    case "text-splice":
-      requireString(value.nodeId, value.kind);
-      assertStringArray(value.deleteAtomIds, "deleted Text Atom identities");
-      assertAnchor(value.anchor);
-      requireStringAllowEmpty(value.insert, "inserted text");
-      assertOptionalAttributes(value.attributes);
-      assertDeletedAtoms(value.deletedAtoms);
+    case "inline-reference-create":
+    case "inline-reference-delete":
+    case "inline-reference-alias-attach":
+    case "inline-reference-alias-detach":
+      assertInlineReferenceMutationShape(value);
       return;
-    case "text-mark":
-      requireString(value.nodeId, value.kind);
-      assertStringArray(value.atomIds, "marked Text Atom identities");
-      requireString(value.key, "mark key");
-      assertPrevious(value.value, "mark value");
-      assertOptionalPrevious(value.previous);
+    case "search-supertag-clause-attach":
+    case "search-field-clause-attach":
+      assertSearchClauseMutationShape(value);
       return;
-    case "value-set":
-    case "value-unset":
-      assertValueTarget(value.target);
-      assertOneOf(value.namespace, ["property", "metadata", "schema"], "value namespace");
-      requireString(value.key, "value key");
-      if (value.kind === "value-set") {
-        assertJsonValue(value.value, "value");
-      }
-      assertOptionalPrevious(value.previous);
+    case "shared-default-view-definition-attach":
+      assertSharedDefaultViewDefinitionMutationShape(value);
+      return;
+    case "shared-default-view-definition-mode-set":
+      assertSharedDefaultViewDefinitionModeShape(value);
       return;
     default:
       throw new Error(`Unknown Mutation kind: ${value.kind}`);
@@ -225,13 +238,6 @@ export function isMutationKind(value: unknown): value is Mutation["kind"] {
   return typeof value === "string" && value in MUTATION_SHAPE_KEYS;
 }
 
-function assertValueTarget(value: unknown): void {
-  assertObject(value, "value target");
-  assertKeys(value, ["kind", "id"], "value target");
-  assertOneOf(value.kind, ["node", "occurrence"], "value target kind");
-  requireString(value.id, "value target identity");
-}
-
 function assertAnchor(value: unknown): asserts value is SequenceAnchor {
   assertObject(value, "Sequence anchor");
   assertKeys(value, ["after", "before", "affinity", "fallback"], "Sequence anchor");
@@ -245,53 +251,4 @@ function assertOptionalAnchor(value: unknown): void {
   if (value !== undefined) {
     assertAnchor(value);
   }
-}
-
-function assertDeletedAtoms(value: unknown): void {
-  if (value === undefined) {
-    return;
-  }
-  if (!Array.isArray(value)) {
-    throw new Error("Deleted Text Atom evidence must be an array");
-  }
-  for (const atom of value) {
-    assertObject(atom, "deleted Text Atom");
-    assertKeys(atom, ["id", "value", "attributes"], "deleted Text Atom");
-    requireString(atom.id, "deleted Text Atom identity");
-    requireStringAllowEmpty(atom.value, "deleted Text Atom value");
-    assertAttributes(atom.attributes);
-  }
-}
-
-function assertOptionalAttributes(value: unknown): void {
-  if (value !== undefined) {
-    assertAttributes(value);
-  }
-}
-
-function assertAttributes(value: unknown): void {
-  assertObject(value, "Text attributes");
-  for (const attribute of Object.values(value)) {
-    assertJsonValue(attribute, "Text attribute");
-  }
-}
-
-function assertOptionalPrevious(value: unknown): void {
-  if (value === undefined) {
-    return;
-  }
-  assertPrevious(value, "previous value");
-}
-
-function assertPrevious(value: unknown, label: string): void {
-  assertObject(value, label);
-  assertKeys(value, value.kind === "set" ? ["kind", "value"] : ["kind"], label);
-  if (value.kind === "unset") {
-    return;
-  }
-  if (value.kind === "set") {
-    assertJsonValue(value.value, label);
-    return;
-  }
-  throw new Error(`Unknown ${label} kind`);
 }

@@ -3,7 +3,7 @@ import { factObserves } from "./frontier.js";
 import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
 import { occurrenceRestoreDeletionId } from "./mutation-family.js";
 import { type Fact, type ResolutionFact } from "./types.js";
-import { DEFAULT_FIELD_TEMPLATE_CONFIG, type FieldTemplateConfig } from "./field-template-types.js";
+import { DEFAULT_SUPERTAG_FIELD_CONFIG, type SupertagFieldConfig } from "./supertag-field-config-types.js";
 
 export function validateAdmissibleFact(
   fact: Fact,
@@ -23,9 +23,52 @@ export function validateAdmissibleFact(
   }
   validateResolution(fact, admitted);
   validateFieldConfiguration(fact, admitted);
+  validateViewMode(fact, admitted);
   validateFieldInitialization(fact, admitted);
   validateRestore(fact, admitted);
   validateMaintenanceFact(fact, admitted);
+}
+
+function validateViewMode(fact: Fact, admitted: readonly Fact[]): void {
+  if (fact.body.kind !== "contribution" || fact.body.mutation.kind !== "shared-default-view-definition-mode-set") {
+    return;
+  }
+  const mutation = fact.body.mutation;
+  const observed = admitted.filter(
+    (candidate) =>
+      candidate.body.kind === "contribution" &&
+      candidate.body.mutation.kind === "shared-default-view-definition-mode-set" &&
+      candidate.body.mutation.viewDefinitionNodeId === mutation.viewDefinitionNodeId &&
+      factObserves(fact, candidate),
+  );
+  const superseded = new Set(
+    observed.flatMap((candidate) =>
+      candidate.body.kind === "contribution" &&
+      candidate.body.mutation.kind === "shared-default-view-definition-mode-set"
+        ? (candidate.body.mutation.observedModeFactIds ?? [])
+        : [],
+    ),
+  );
+  const maximal = observed.filter((candidate) => !superseded.has(candidate.id));
+  const expectedIds = maximal.map((candidate) => candidate.id).sort();
+  if (
+    mutation.observedModeFactIds === undefined ||
+    canonicalJson([...mutation.observedModeFactIds].sort()) !== canonicalJson(expectedIds)
+  ) {
+    throw new Error(`View mode evidence does not cover observed candidates: ${fact.id}`);
+  }
+  const previousModes = new Set(
+    maximal.flatMap((candidate) =>
+      candidate.body.kind === "contribution" &&
+      candidate.body.mutation.kind === "shared-default-view-definition-mode-set"
+        ? [candidate.body.mutation.viewType]
+        : [],
+    ),
+  );
+  const expectedPrevious = previousModes.size === 1 ? ([...previousModes][0] ?? null) : null;
+  if (mutation.previousViewType !== expectedPrevious) {
+    throw new Error(`View previous mode evidence is stale: ${fact.id}`);
+  }
 }
 
 function validateFieldInitialization(fact: Fact, admitted: readonly Fact[]): void {
@@ -61,21 +104,21 @@ function validateFieldInitialization(fact: Fact, admitted: readonly Fact[]): voi
 }
 
 function validateFieldConfiguration(fact: Fact, admitted: readonly Fact[]): void {
-  if (fact.body.kind !== "contribution" || fact.body.mutation.kind !== "schema-field-configure") {
+  if (fact.body.kind !== "contribution" || fact.body.mutation.kind !== "supertag-field-configure") {
     return;
   }
   const mutation = fact.body.mutation;
   const observed = admitted.filter(
     (candidate) =>
       candidate.body.kind === "contribution" &&
-      candidate.body.mutation.kind === "schema-field-configure" &&
-      candidate.body.mutation.schemaId === mutation.schemaId &&
+      candidate.body.mutation.kind === "supertag-field-configure" &&
+      candidate.body.mutation.supertagId === mutation.supertagId &&
       candidate.body.mutation.fieldDefinitionId === mutation.fieldDefinitionId &&
       factObserves(fact, candidate),
   );
   const superseded = new Set(
     observed.flatMap((candidate) =>
-      candidate.body.kind === "contribution" && candidate.body.mutation.kind === "schema-field-configure"
+      candidate.body.kind === "contribution" && candidate.body.mutation.kind === "supertag-field-configure"
         ? (candidate.body.mutation.observedConfigFactIds ?? [])
         : [],
     ),
@@ -88,18 +131,18 @@ function validateFieldConfiguration(fact: Fact, admitted: readonly Fact[]): void
   ) {
     throw new Error(`Field config evidence does not cover observed candidates: ${fact.id}`);
   }
-  const previousCandidates = new Map<string, FieldTemplateConfig>();
+  const previousCandidates = new Map<string, SupertagFieldConfig>();
   for (const candidate of maximal) {
     if (candidate.body.kind === "contribution") {
       const candidateMutation = candidate.body.mutation;
-      if (candidateMutation.kind === "schema-field-configure") {
+      if (candidateMutation.kind === "supertag-field-configure") {
         previousCandidates.set(canonicalJson(candidateMutation.config), candidateMutation.config);
       }
     }
   }
   const expectedPrevious =
     previousCandidates.size === 0
-      ? DEFAULT_FIELD_TEMPLATE_CONFIG
+      ? DEFAULT_SUPERTAG_FIELD_CONFIG
       : previousCandidates.size === 1
         ? ([...previousCandidates.values()][0] ?? null)
         : null;

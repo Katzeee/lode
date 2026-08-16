@@ -7,14 +7,18 @@ import {
   type FactSnapshot,
   type TextAtomId,
 } from "../src/domain/fact/index.js";
-import { advanceGeneration, rebuildGeneration, type ProjectionGeneration } from "../src/domain/reconcile/index.js";
+import {
+  advanceGeneration,
+  rebuildGeneration,
+  CURRENT_PROJECTION_VERSIONS as versions,
+  type ProjectionGeneration,
+} from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
@@ -54,33 +58,33 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     ownerNodeId: "container-a",
     previousOwnerNodeId: "root",
   });
-  for (const nodeId of ["generated-schema", "first", "second"]) {
+  for (const nodeId of ["generated-supertag", "first", "second"]) {
     facts.addPlaced(nodeId);
   }
   facts.add({
     kind: "node-type-declare",
-    nodeId: "generated-schema",
-    nodeType: "schema",
+    nodeId: "generated-supertag",
+    nodeType: "supertag-definition",
   });
   facts.add({ kind: "node-type-declare", nodeId: "first", nodeType: "field-definition" });
   facts.add({ kind: "node-type-declare", nodeId: "second", nodeType: "field-definition" });
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "generated-schema",
+    kind: "supertag-field-add",
+    supertagId: "generated-supertag",
     fieldDefinitionId: "first",
-    fieldNodeId: "generated-schema-first-template-field",
-    fieldOccurrenceId: "generated-schema-first-template-field-occurrence",
+    fieldNodeId: "generated-supertag-first-template-field",
+    fieldOccurrenceId: "generated-supertag-first-template-field-occurrence",
     anchor: end,
   });
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "generated-schema",
+    kind: "supertag-field-add",
+    supertagId: "generated-supertag",
     fieldDefinitionId: "second",
-    fieldNodeId: "generated-schema-second-template-field",
-    fieldOccurrenceId: "generated-schema-second-template-field-occurrence",
+    fieldNodeId: "generated-supertag-second-template-field",
+    fieldOccurrenceId: "generated-supertag-second-template-field-occurrence",
     anchor: { ...end, after: "first" },
   });
-  facts.add({ kind: "schema-apply", nodeId: "shared", schemaId: "generated-schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "shared", supertagId: "generated-supertag", anchor: end });
   const text = facts.add({
     kind: "text-splice",
     nodeId: "shared",
@@ -101,14 +105,13 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     value: { kind: "set", value: seed % 2 === 0 },
     previous: { kind: "unset" },
   });
-  const propertyProposal = facts.add(
+  const contentProposal = facts.add(
     {
-      kind: "value-set",
-      target: { kind: "node", id: "shared" },
-      namespace: "metadata",
-      key: "proposal-seed",
-      value: seed,
-      previous: { kind: "unset" },
+      kind: "text-splice",
+      nodeId: "shared",
+      deleteAtomIds: [],
+      anchor: end,
+      insert: String(seed),
     },
     "proposal",
   );
@@ -134,8 +137,8 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   );
   facts.resolve(
     seed % 2 === 0
-      ? [propertyProposal.id, ...createProposal.map((fact) => fact.id)]
-      : [...createProposal.map((fact) => fact.id), propertyProposal.id],
+      ? [contentProposal.id, ...createProposal.map((fact) => fact.id)]
+      : [...createProposal.map((fact) => fact.id), contentProposal.id],
     seed % 3 === 0 ? "reject" : "accept",
   );
   return facts.values;

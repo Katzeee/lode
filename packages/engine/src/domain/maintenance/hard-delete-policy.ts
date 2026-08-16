@@ -28,12 +28,16 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
     .filter((fact) => mutationReferencesNode(fact.body.mutation, nodeId))
     .map((fact) => fact.id)
     .sort(stableStringCompare);
+  const ownedDescendantNodeIds = [...evidence.ownedDescendantNodeIds].sort(stableStringCompare);
   const blockers: HardDeleteBlocker[] = [];
   if (purgedNodeIds(snapshot.facts).has(nodeId)) {
     blockers.push("already-purged");
   }
   if (deletionFactIds.length === 0) {
-    blockers.push("not-tombstoned");
+    blockers.push("not-in-trash");
+  }
+  if (ownedDescendantNodeIds.length > 0) {
+    blockers.push("owned-descendants");
   }
   if (pendingProposalContributionIds.length > 0) {
     blockers.push("pending-proposal");
@@ -54,7 +58,7 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
       retiredReplicaIds,
     },
     referenceOccurrenceIds: currentOccurrenceReferences(active, nodeId),
-    schemaApplicationNodeIds: currentSchemaApplicationOwners(active, nodeId),
+    supertagApplicationNodeIds: currentSupertagApplicationOwners(active, nodeId),
     materializedFieldNodeIds: active
       .flatMap((fact) =>
         fact.body.mutation.kind === "field-materialize" && fact.body.mutation.fieldDefinitionId === nodeId
@@ -63,6 +67,7 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
       )
       .filter(unique)
       .sort(stableStringCompare),
+    ownedDescendantNodeIds,
     pendingProposalContributionIds,
     knownReplicaIds,
     acknowledgedReplicaIds,
@@ -125,12 +130,12 @@ function currentOccurrenceReferences(active: readonly ContributionFact[], nodeId
     .sort(stableStringCompare);
 }
 
-function currentSchemaApplicationOwners(active: readonly ContributionFact[], schemaId: string): string[] {
-  const additions = contributionFactsOfKind(active, "schema-apply").filter(
-    (fact) => fact.body.mutation.schemaId === schemaId,
+function currentSupertagApplicationOwners(active: readonly ContributionFact[], supertagId: string): string[] {
+  const additions = contributionFactsOfKind(active, "supertag-apply").filter(
+    (fact) => fact.body.mutation.supertagId === supertagId,
   );
-  const removals = contributionFactsOfKind(active, "schema-remove").filter(
-    (fact) => fact.body.mutation.schemaId === schemaId,
+  const removals = contributionFactsOfKind(active, "supertag-remove").filter(
+    (fact) => fact.body.mutation.supertagId === supertagId,
   );
   return additions
     .flatMap((addition) => {

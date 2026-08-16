@@ -1,19 +1,14 @@
-import type { SequenceAnchor, ValueTarget } from "./types.js";
-
-export type MutationValueRelation = Readonly<{
-  target: ValueTarget;
-  namespace: "property" | "metadata" | "schema";
-}>;
+import type { SequenceAnchor } from "./types.js";
 
 export type MutationRelations = Readonly<{
   nodeIds: readonly string[];
   occurrenceIds: readonly string[];
   factIds: readonly string[];
   childrenOfNodeIds: readonly string[];
-  schemaIds: readonly string[];
-  instanceSchemaIds: readonly string[];
+  supertagIds: readonly string[];
+  instanceSupertagIds: readonly string[];
   fieldDefinitionIds: readonly string[];
-  values: readonly MutationValueRelation[];
+  inlineReferenceIds: readonly string[];
 }>;
 
 export type MutableMutationRelations = {
@@ -21,10 +16,10 @@ export type MutableMutationRelations = {
   occurrenceIds: Set<string>;
   factIds: Set<string>;
   childrenOfNodeIds: Set<string>;
-  schemaIds: Set<string>;
-  instanceSchemaIds: Set<string>;
+  supertagIds: Set<string>;
+  instanceSupertagIds: Set<string>;
   fieldDefinitionIds: Set<string>;
-  values: MutationValueRelation[];
+  inlineReferenceIds: Set<string>;
 };
 
 export function createMutationRelationCollection(): MutableMutationRelations {
@@ -33,10 +28,10 @@ export function createMutationRelationCollection(): MutableMutationRelations {
     occurrenceIds: new Set(),
     factIds: new Set(),
     childrenOfNodeIds: new Set(),
-    schemaIds: new Set(),
-    instanceSchemaIds: new Set(),
+    supertagIds: new Set(),
+    instanceSupertagIds: new Set(),
     fieldDefinitionIds: new Set(),
-    values: [],
+    inlineReferenceIds: new Set(),
   };
 }
 
@@ -46,16 +41,16 @@ export function finishMutationRelationCollection(relations: MutableMutationRelat
     occurrenceIds: [...relations.occurrenceIds],
     factIds: [...relations.factIds],
     childrenOfNodeIds: [...relations.childrenOfNodeIds],
-    schemaIds: [...relations.schemaIds],
-    instanceSchemaIds: [...relations.instanceSchemaIds],
+    supertagIds: [...relations.supertagIds],
+    instanceSupertagIds: [...relations.instanceSupertagIds],
     fieldDefinitionIds: [...relations.fieldDefinitionIds],
-    values: relations.values,
+    inlineReferenceIds: [...relations.inlineReferenceIds],
   };
 }
 
-export function addSchemaRelation(relations: MutableMutationRelations, schemaId: string): void {
-  relations.nodeIds.add(schemaId);
-  relations.schemaIds.add(schemaId);
+export function addSupertagRelation(relations: MutableMutationRelations, supertagId: string): void {
+  relations.nodeIds.add(supertagId);
+  relations.supertagIds.add(supertagId);
 }
 
 export function addChildrenRelation(relations: MutableMutationRelations, nodeId: string): void {

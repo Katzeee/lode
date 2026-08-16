@@ -475,7 +475,7 @@ describe("production Fact authority store", () => {
       lamport: 1,
       body,
     });
-    const unsigned = { ...unsignedFact(valid), schemaVersion: 9 };
+    const unsigned = { ...unsignedFact(valid), schemaVersion: valid.schemaVersion + 1 };
     const unsupported = {
       ...unsigned,
       contentDigest: canonicalDigest(unsigned),

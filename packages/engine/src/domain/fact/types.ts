@@ -1,12 +1,20 @@
 import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-types.js";
 import type { FieldContentDeletionMutation } from "./field-content-types.js";
-import type { FieldTemplateConfig, InitializedFieldValue } from "./field-template-types.js";
+import type { FieldDefinitionConfigMutation } from "./field-definition-config-types.js";
+import type { InitializedFieldValue } from "./field-value-types.js";
+import type { SupertagFieldConfig } from "./supertag-field-config-types.js";
 import type { NodeSeed } from "./node-create-types.js";
 import type { NodeType } from "./node-type-types.js";
 import type { FactTransactionId, FactTransactionPosition } from "./transaction-types.js";
+import type { InlineReferenceMutation } from "./inline-reference-types.js";
+import type { SearchClauseMutation } from "./search-clause-types.js";
+import type {
+  SharedDefaultViewDefinitionAttachMutation,
+  SharedDefaultViewDefinitionModeSetMutation,
+} from "./view-definition-types.js";
 
 export const FORMAT_GENERATION = 1 as const;
-export const FACT_SCHEMA_VERSION = 8 as const;
+export const FACT_SCHEMA_VERSION = 1 as const;
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
@@ -19,7 +27,7 @@ export type HistoryChannelId = string;
 
 export type EditIntent = "direct" | "proposal";
 export type ResolutionDecision = "accept" | "reject";
-export type ViewMode = "origin" | "review";
+export type ProjectionPerspective = "origin" | "review";
 
 export type JsonValue =
   null | boolean | number | string | readonly JsonValue[] | Readonly<{ [key: string]: JsonValue }>;
@@ -44,11 +52,6 @@ export type SequenceAnchor = Readonly<{
   before: string | null;
   affinity: "after" | "before";
   fallback: "start" | "end";
-}>;
-
-export type ValueTarget = Readonly<{
-  kind: "node" | "occurrence";
-  id: string;
 }>;
 
 export type PreviousValue = Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
@@ -91,66 +94,71 @@ export type Mutation =
       ownerNodeId: string;
       previousOwnerNodeId?: string;
     }>
+  | Readonly<{
+      kind: "metanode-attach";
+      hostNodeId: string;
+      metanodeId: string;
+    }>
   | Readonly<{ kind: "node-type-declare"; nodeId: string; nodeType: NodeType }>
   | Readonly<{
-      kind: "schema-apply";
+      kind: "supertag-apply";
       nodeId: string;
-      schemaId: string;
+      supertagId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-remove";
+      kind: "supertag-remove";
       nodeId: string;
-      schemaId: string;
+      supertagId: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-field-add";
-      schemaId: string;
+      kind: "supertag-field-add";
+      supertagId: string;
       fieldDefinitionId: string;
       fieldNodeId: string;
       fieldOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-field-remove";
-      schemaId: string;
+      kind: "supertag-field-remove";
+      supertagId: string;
       fieldDefinitionId: string;
       fieldNodeId: string;
       fieldOccurrenceId: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-field-configure";
-      schemaId: string;
+      kind: "supertag-field-configure";
+      supertagId: string;
       fieldDefinitionId: string;
       fieldNodeId: string;
-      config: FieldTemplateConfig;
-      previousConfig?: FieldTemplateConfig | null;
+      config: SupertagFieldConfig;
+      previousConfig?: SupertagFieldConfig | null;
       observedConfigFactIds?: readonly FactId[];
     }>
   | Readonly<{
-      kind: "schema-extension-add";
-      schemaId: string;
-      baseSchemaId: string;
+      kind: "supertag-extension-add";
+      supertagId: string;
+      baseSupertagId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-extension-remove";
-      schemaId: string;
-      baseSchemaId: string;
+      kind: "supertag-extension-remove";
+      supertagId: string;
+      baseSupertagId: string;
       previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-template-node-add";
-      schemaId: string;
+      kind: "supertag-template-node-add";
+      supertagId: string;
       templateNodeId: string;
       templateOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "schema-template-node-remove";
-      schemaId: string;
+      kind: "supertag-template-node-remove";
+      supertagId: string;
       templateNodeId: string;
       templateOccurrenceId: string;
       previousAnchor?: SequenceAnchor;
@@ -162,8 +170,8 @@ export type Mutation =
       instanceNodeId: string;
       instanceOccurrenceId: string;
       anchor: SequenceAnchor;
-      sourceSchemaIds?: readonly string[];
-      sourceApplicationSchemaIds?: readonly string[];
+      sourceSupertagIds?: readonly string[];
+      sourceApplicationSupertagIds?: readonly string[];
       sourceTemplateOccurrenceIds?: readonly string[];
     }>
   | Readonly<{
@@ -177,7 +185,7 @@ export type Mutation =
   | Readonly<{
       kind: "field-initialize";
       ownerNodeId: string;
-      schemaId: string;
+      supertagId: string;
       fieldDefinitionId: string;
       fieldNodeId: string;
       fieldOccurrenceId: string;
@@ -185,6 +193,7 @@ export type Mutation =
       values: readonly InitializedFieldValue[];
       observedInitializationFactIds?: readonly FactId[];
     }>
+  | FieldDefinitionConfigMutation
   | Readonly<{
       kind: "text-splice";
       nodeId: string;
@@ -206,21 +215,10 @@ export type Mutation =
       value: PreviousValue;
       previous?: PreviousValue;
     }>
-  | Readonly<{
-      kind: "value-set";
-      target: ValueTarget;
-      namespace: "property" | "metadata" | "schema";
-      key: string;
-      value: JsonValue;
-      previous?: PreviousValue;
-    }>
-  | Readonly<{
-      kind: "value-unset";
-      target: ValueTarget;
-      namespace: "property" | "metadata" | "schema";
-      key: string;
-      previous?: PreviousValue;
-    }>;
+  | InlineReferenceMutation
+  | SearchClauseMutation
+  | SharedDefaultViewDefinitionAttachMutation
+  | SharedDefaultViewDefinitionModeSetMutation;
 
 export type ContributionBody = Readonly<{
   kind: "contribution";
@@ -288,6 +286,7 @@ export type Admission = Readonly<{
 
 export type { AuthorityReceipt, HistoryOperation, ReceiptLineage } from "./authority-types.js";
 export type { FieldContentDeletionMutation } from "./field-content-types.js";
+export type { InlineReferenceId, InlineReferenceMutation } from "./inline-reference-types.js";
 export type {
   FactTransaction,
   FactTransactionId,

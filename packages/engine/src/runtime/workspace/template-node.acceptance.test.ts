@@ -3,15 +3,20 @@ import { describe, expect, it } from "vitest";
 import type { ProjectionPage } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import type { EditMutation } from "../../domain/edit/index.js";
-import { templateInstanceNodeId, templateInstanceOccurrenceId, type ViewMode } from "../../domain/fact/index.js";
+import {
+  templateInstanceNodeId,
+  templateInstanceOccurrenceId,
+  workspaceTrashNodeId,
+  type ProjectionPerspective,
+} from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
+import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-describe("ordinary Schema Template Nodes", () => {
+describe("ordinary Supertag Template Nodes", () => {
   it("projects Template content onto the Workspace Node", async () => {
     const opened = await open(new InMemoryDocumentStore(), "299");
     expect(
@@ -19,30 +24,30 @@ describe("ordinary Schema Template Nodes", () => {
         await mutate(opened, "workspace-template", [
           {
             kind: "node-create",
-            occurrenceId: "workspace-schema-original",
-            nodeId: "workspace-schema",
+            occurrenceId: "workspace-supertag-original",
+            nodeId: "workspace-supertag",
             parentNodeId: "workspace",
             anchor: end,
-            nodeType: "schema",
+            nodeType: "supertag-definition",
           },
           {
             kind: "node-create",
             nodeId: "workspace-guidance",
             occurrenceId: "workspace-guidance-template-occurrence",
-            parentNodeId: "workspace-schema",
+            parentNodeId: "workspace-supertag",
             anchor: end,
           },
           {
-            kind: "schema-template-node-add",
-            schemaId: "workspace-schema",
+            kind: "supertag-template-node-add",
+            supertagId: "workspace-supertag",
             templateNodeId: "workspace-guidance",
             templateOccurrenceId: "workspace-guidance-template-occurrence",
             anchor: end,
           },
           {
-            kind: "schema-apply",
+            kind: "supertag-apply",
             nodeId: "workspace",
-            schemaId: "workspace-schema",
+            supertagId: "workspace-supertag",
             anchor: end,
           },
         ])
@@ -90,8 +95,8 @@ describe("ordinary Schema Template Nodes", () => {
     if (!deletionFactId) {
       throw new Error("Expected detached Node deletion Fact");
     }
-    expect(await occurrenceNode(opened, instanceOccurrenceId)).toBeUndefined();
-    expect(await nodeText(opened, instanceNodeId)).toBe("");
+    expect(await occurrenceParent(opened, instanceOccurrenceId)).toBe(workspaceTrashNodeId("workspace"));
+    expect(await nodeText(opened, instanceNodeId)).toBe("Guidance");
     expect(
       (
         await mutate(opened, "restore-detached-node", [
@@ -112,16 +117,18 @@ describe("ordinary Schema Template Nodes", () => {
     const first = await open(documents, "301");
     expect((await mutate(first, "setup", setupProgram())).status).toBe("published");
 
-    const templateOccurrenceId = "note-schema-guidance-template-occurrence";
+    const templateOccurrenceId = "note-supertag-guidance-template-occurrence";
     const templateOccurrence = (await section(first, "origin", "occurrences")).occurrences[templateOccurrenceId];
     expect(templateOccurrence).toMatchObject({
       occurrenceId: templateOccurrenceId,
       nodeId: "guidance",
-      parentNodeId: "note-schema",
+      parentNodeId: "note-supertag",
       derived: false,
     });
-    expect((await section(first, "origin", "children")).children["note-schema"]).toContain(templateOccurrenceId);
-    expect((await section(first, "origin", "nodeOwners")).nodeOwners.guidance).toBe("note-schema");
+    expect((await section(first, "origin", "childOccurrences")).childOccurrences["note-supertag"]).toContain(
+      templateOccurrenceId,
+    );
+    expect((await section(first, "origin", "nodeOwners")).nodeOwners.guidance).toBe("note-supertag");
 
     const linked = await templateInstance(first, "origin");
     expect(linked).toMatchObject({
@@ -132,9 +139,9 @@ describe("ordinary Schema Template Nodes", () => {
       state: "linked",
       sources: [
         {
-          schemaId: "note-schema",
-          appliedSchemaId: "note-schema",
-          templateOccurrenceId: "note-schema-guidance-template-occurrence",
+          supertagId: "note-supertag",
+          appliedSupertagId: "note-supertag",
+          templateOccurrenceId: "note-supertag-guidance-template-occurrence",
         },
       ],
     });
@@ -196,7 +203,7 @@ describe("ordinary Schema Template Nodes", () => {
             anchor: end,
             insert: " upstream",
           },
-          { kind: "schema-remove", nodeId: "note", schemaId: "note-schema" },
+          { kind: "supertag-remove", nodeId: "note", supertagId: "note-supertag" },
         ])
       ).status,
     ).toBe("published");
@@ -206,8 +213,8 @@ describe("ordinary Schema Template Nodes", () => {
       state: "detached",
       sources: [
         {
-          schemaId: "note-schema",
-          appliedSchemaId: "note-schema",
+          supertagId: "note-supertag",
+          appliedSupertagId: "note-supertag",
         },
       ],
     });
@@ -237,9 +244,9 @@ describe("ordinary Schema Template Nodes", () => {
 
     const occurrences = (await section(opened, "origin", "occurrences")).occurrences;
     expect(occurrences["guidance-original-occurrence"]?.nodeId).toBe("guidance");
-    expect(occurrences["note-schema-guidance-template-occurrence"]).toMatchObject({
+    expect(occurrences["note-supertag-guidance-template-occurrence"]).toMatchObject({
       nodeId: "guidance",
-      parentNodeId: "note-schema",
+      parentNodeId: "note-supertag",
     });
     expect((await section(opened, "origin", "nodeOwners")).nodeOwners.guidance).toBe("workspace");
   });
@@ -318,19 +325,19 @@ describe("ordinary Schema Template Nodes", () => {
           ...setupProgram(),
           {
             kind: "node-create",
-            occurrenceId: "derived-schema-original",
-            nodeId: "derived-schema",
+            occurrenceId: "derived-supertag-original",
+            nodeId: "derived-supertag",
             parentNodeId: "workspace",
             anchor: end,
-            nodeType: "schema",
+            nodeType: "supertag-definition",
           },
           {
-            kind: "schema-extension-add",
-            schemaId: "derived-schema",
-            baseSchemaId: "note-schema",
+            kind: "supertag-extension-add",
+            supertagId: "derived-supertag",
+            baseSupertagId: "note-supertag",
             anchor: end,
           },
-          { kind: "schema-apply", nodeId: "note", schemaId: "derived-schema", anchor: end },
+          { kind: "supertag-apply", nodeId: "note", supertagId: "derived-supertag", anchor: end },
         ])
       ).status,
     ).toBe("published");
@@ -338,20 +345,20 @@ describe("ordinary Schema Template Nodes", () => {
     expect(instances).toHaveLength(1);
     expect(instances[0]?.sources).toEqual([
       {
-        schemaId: "note-schema",
-        appliedSchemaId: "note-schema",
-        templateOccurrenceId: "note-schema-guidance-template-occurrence",
+        supertagId: "note-supertag",
+        appliedSupertagId: "note-supertag",
+        templateOccurrenceId: "note-supertag-guidance-template-occurrence",
       },
       {
-        schemaId: "note-schema",
-        appliedSchemaId: "derived-schema",
-        templateOccurrenceId: "note-schema-guidance-template-occurrence",
+        supertagId: "note-supertag",
+        appliedSupertagId: "derived-supertag",
+        templateOccurrenceId: "note-supertag-guidance-template-occurrence",
       },
     ]);
     const occurrenceId = templateInstanceOccurrenceId("note", "guidance");
-    const children = await section(opened, "origin", "children");
+    const childOccurrences = await section(opened, "origin", "childOccurrences");
     expect(
-      Object.values(children.children)
+      Object.values(childOccurrences.childOccurrences)
         .flat()
         .filter((candidate) => candidate === occurrenceId),
     ).toEqual([occurrenceId]);
@@ -362,17 +369,17 @@ function setupProgram(): readonly EditMutation[] {
   return [
     {
       kind: "node-create",
-      occurrenceId: "note-schema-original",
-      nodeId: "note-schema",
+      occurrenceId: "note-supertag-original",
+      nodeId: "note-supertag",
       parentNodeId: "workspace",
       anchor: end,
-      nodeType: "schema",
+      nodeType: "supertag-definition",
     },
     {
       kind: "node-create",
       nodeId: "guidance",
-      occurrenceId: "note-schema-guidance-template-occurrence",
-      parentNodeId: "note-schema",
+      occurrenceId: "note-supertag-guidance-template-occurrence",
+      parentNodeId: "note-supertag",
       anchor: end,
     },
     {
@@ -390,13 +397,13 @@ function setupProgram(): readonly EditMutation[] {
       insert: "Guidance",
     },
     {
-      kind: "schema-template-node-add",
-      schemaId: "note-schema",
+      kind: "supertag-template-node-add",
+      supertagId: "note-supertag",
       templateNodeId: "guidance",
-      templateOccurrenceId: "note-schema-guidance-template-occurrence",
+      templateOccurrenceId: "note-supertag-guidance-template-occurrence",
       anchor: end,
     },
-    { kind: "schema-apply", nodeId: "note", schemaId: "note-schema", anchor: end },
+    { kind: "supertag-apply", nodeId: "note", supertagId: "note-supertag", anchor: end },
   ];
 }
 
@@ -431,27 +438,32 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   };
 }
 
-async function templateInstance(opened: Awaited<ReturnType<typeof open>>, view: ViewMode) {
-  const instances = await templateInstances(opened, view);
+async function templateInstance(opened: Awaited<ReturnType<typeof open>>, perspective: ProjectionPerspective) {
+  const instances = await templateInstances(opened, perspective);
   const instance = instances[0];
   if (!instance) {
-    throw new Error(`Expected a ${view} Template Node instance`);
+    throw new Error(`Expected a ${perspective} Template Node instance`);
   }
   return instance;
 }
 
-async function templateInstances(opened: Awaited<ReturnType<typeof open>>, view: ViewMode) {
-  const page = await section(opened, view, "templateNodeInstances");
+async function templateInstances(opened: Awaited<ReturnType<typeof open>>, perspective: ProjectionPerspective) {
+  const page = await section(opened, perspective, "templateNodeInstances");
   return page.templateNodeInstances;
 }
 
 async function nodeText(
   opened: Awaited<ReturnType<typeof open>>,
   nodeId: string,
-  view: ViewMode = "origin",
+  perspective: ProjectionPerspective = "origin",
 ): Promise<string> {
-  const page = await section(opened, view, "nodes");
-  return page.nodes[nodeId]?.text.map((atom) => atom.value).join("") ?? "";
+  const page = await section(opened, perspective, "nodes");
+  return (
+    page.nodes[nodeId]?.content
+      .filter((item) => item.kind === "text")
+      .map((atom) => atom.value)
+      .join("") ?? ""
+  );
 }
 
 async function occurrenceNode(
@@ -462,15 +474,23 @@ async function occurrenceNode(
   return page.occurrences[occurrenceId]?.nodeId;
 }
 
+async function occurrenceParent(
+  opened: Awaited<ReturnType<typeof open>>,
+  occurrenceId: string,
+): Promise<string | undefined> {
+  const page = await section(opened, "origin", "occurrences");
+  return page.occurrences[occurrenceId]?.parentNodeId;
+}
+
 async function section<S extends ProjectionPage["section"]>(
   opened: Awaited<ReturnType<typeof open>>,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   requested: S,
 ): Promise<ProjectionPage & Readonly<{ section: S }>> {
   const result = await opened.workspace.query({
     kind: "projection",
     workspaceId: "workspace",
-    view,
+    perspective,
     section: requested,
   });
   if (!("section" in result) || result.section !== requested) {

@@ -13,7 +13,7 @@ import {
   type ProjectionIdentityReader,
   type ProjectionSectionPageReader,
   type ProjectionPublisher,
-  type ProjectionSchemaSearchReader,
+  type ProjectionSupertagInstancesReader,
   type ProjectionSnapshotReader,
   type ReviewReadModelReader,
 } from "../../materialization/index.js";
@@ -25,7 +25,7 @@ export type WorkspaceProjectionAccess = ProjectionPublisher &
   ProjectionSnapshotReader &
   ProjectionSectionPageReader &
   ReviewReadModelReader &
-  ProjectionSchemaSearchReader;
+  ProjectionSupertagInstancesReader;
 
 export type ProjectionLifecycleOptions = Readonly<{
   projections?: WorkspaceProjectionAccess;

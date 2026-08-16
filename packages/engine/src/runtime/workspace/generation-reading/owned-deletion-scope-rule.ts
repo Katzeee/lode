@@ -1,4 +1,4 @@
-import type { Mutation, ViewMode } from "../../../domain/fact/index.js";
+import type { Mutation, ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ProjectedOccurrence } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../../materialization/index.js";
 import { readIndex } from "./index-reader.js";
@@ -9,7 +9,7 @@ import type { GenerationReadScope } from "./read-plan.js";
 export async function includeOwnedDeletionScope(
   store: ProjectionSnapshotReader,
   generationId: string,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
   mutations: readonly Mutation[],
   initialOccurrences: Record<string, ProjectedOccurrence>,
   nodeOwners: Record<string, string | null>,
@@ -18,7 +18,7 @@ export async function includeOwnedDeletionScope(
   const ownedNodeOwners = await readOwnedNodeClosure(
     store,
     generationId,
-    view,
+    perspective,
     deletionOwnershipRoots(mutations, initialOccurrences, nodeOwners),
   );
   Object.assign(nodeOwners, ownedNodeOwners);
@@ -27,9 +27,9 @@ export async function includeOwnedDeletionScope(
   if (ownedNodeIds.length === 0) {
     return initialOccurrences;
   }
-  const occurrenceIds = await readIndex(store, generationId, view, "occurrenceIdsByNode", ownedNodeIds);
-  const batch = await store.read(generationId, view, "occurrences", occurrenceIds);
-  const occurrences = await includeOccurrenceAncestors(store, generationId, view, {
+  const occurrenceIds = await readIndex(store, generationId, perspective, "occurrenceIdsByNode", ownedNodeIds);
+  const batch = await store.read(generationId, perspective, "occurrences", occurrenceIds);
+  const occurrences = await includeOccurrenceAncestors(store, generationId, perspective, {
     ...initialOccurrences,
     ...Object.fromEntries(batch.entries.map((entry) => [entry.identity, entry.value])),
   });
@@ -61,10 +61,10 @@ function deletedOccurrenceId(mutation: Mutation): string | null {
   if (mutation.kind === "occurrence-delete") {
     return mutation.occurrenceId;
   }
-  if (mutation.kind === "schema-field-remove" || mutation.kind === "materialized-field-delete") {
+  if (mutation.kind === "supertag-field-remove" || mutation.kind === "materialized-field-delete") {
     return mutation.fieldOccurrenceId;
   }
-  if (mutation.kind === "schema-template-node-remove") {
+  if (mutation.kind === "supertag-template-node-remove") {
     return mutation.templateOccurrenceId;
   }
   return mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : null;
@@ -74,6 +74,6 @@ function includeOccurrenceScope(scope: GenerationReadScope, occurrences: Record<
   for (const occurrence of Object.values(occurrences)) {
     scope.nodes.add(occurrence.nodeId);
     scope.nodes.add(occurrence.parentNodeId);
-    scope.children.add(occurrence.parentNodeId);
+    scope.childOccurrences.add(occurrence.parentNodeId);
   }
 }

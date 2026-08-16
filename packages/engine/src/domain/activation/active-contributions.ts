@@ -1,4 +1,4 @@
-import { compareFacts, type ContributionFact, type Fact, type ViewMode } from "../fact/index.js";
+import { compareFacts, type ContributionFact, type Fact, type ProjectionPerspective } from "../fact/index.js";
 import { deriveActivation, type Activation } from "./support.js";
 
 export type ActiveContributions = Readonly<{
@@ -6,8 +6,11 @@ export type ActiveContributions = Readonly<{
   activation: Activation;
 }>;
 
-export function deriveActiveContributions(facts: readonly Fact[], view: ViewMode): ActiveContributions {
-  const activation = deriveActivation(facts, view);
+export function deriveActiveContributions(
+  facts: readonly Fact[],
+  perspective: ProjectionPerspective,
+): ActiveContributions {
+  const activation = deriveActivation(facts, perspective);
   return {
     facts: facts
       .filter(

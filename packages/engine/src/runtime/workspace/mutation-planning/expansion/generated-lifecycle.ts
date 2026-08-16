@@ -1,10 +1,4 @@
-import {
-  FIELD_NODE_TYPE,
-  type JsonValue,
-  type Mutation,
-  type NodeSeed,
-  type SequenceAnchor,
-} from "../../../../domain/fact/index.js";
+import { FIELD_NODE_TYPE, type Mutation, type NodeSeed, type SequenceAnchor } from "../../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 
 export function createNodeUnlessPresent(
@@ -16,7 +10,7 @@ export function createNodeUnlessPresent(
 }
 
 export function declareFieldNodeUnlessPresent(nodeId: string, available: ScopedProjection): readonly Mutation[] {
-  return available.nodeStatuses[nodeId]?.nodeType === FIELD_NODE_TYPE
+  return available.nodes[nodeId]?.nodeType === FIELD_NODE_TYPE
     ? []
     : [{ kind: "node-type-declare", nodeId, nodeType: FIELD_NODE_TYPE }];
 }
@@ -33,11 +27,6 @@ export function createOccurrenceUnlessPresent(
     : [{ kind: "occurrence-create", occurrenceId, nodeId, parentNodeId, anchor }];
 }
 
-export function nodeSeed(
-  properties: Readonly<Record<string, JsonValue>>,
-  metadata: Readonly<Record<string, JsonValue>>,
-  additions: Readonly<Record<string, JsonValue>> = {},
-  text: NodeSeed["text"] = [],
-): NodeSeed {
-  return { text, properties: { ...properties, ...additions }, metadata: { ...metadata } };
+export function nodeSeed(text: NodeSeed["text"] = []): NodeSeed {
+  return { text };
 }

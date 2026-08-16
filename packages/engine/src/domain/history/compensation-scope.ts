@@ -1,13 +1,13 @@
 import { mutationRelations, type ContributionFact, type Fact, type Mutation } from "../fact/index.js";
-import { valueTargetAddress, type ScopedProjection } from "../reconcile/index.js";
+import type { ScopedProjection } from "../reconcile/index.js";
 
 type HistoryScope = {
   nodes: Set<string>;
   occurrences: Set<string>;
-  schemas: Set<string>;
+  supertags: Set<string>;
   fields: Set<string>;
-  valueTargets: Set<string>;
   factIds: Set<string>;
+  inlineReferences: Set<string>;
 };
 
 export function scopedHistoryFacts(
@@ -51,10 +51,10 @@ function emptyScope(): HistoryScope {
   return {
     nodes: new Set(),
     occurrences: new Set(),
-    schemas: new Set(),
+    supertags: new Set(),
     fields: new Set(),
-    valueTargets: new Set(),
     factIds: new Set(),
+    inlineReferences: new Set(),
   };
 }
 
@@ -65,7 +65,7 @@ function addTemplateScope(scope: HistoryScope, projection: ScopedProjection): vo
       scope.nodes.has(instance.templateNodeId) ||
       (instance.instanceNodeId !== null && scope.nodes.has(instance.instanceNodeId)) ||
       scope.occurrences.has(instance.instanceOccurrenceId) ||
-      instance.sources.some((source) => scope.schemas.has(source.schemaId))
+      instance.sources.some((source) => scope.supertags.has(source.supertagId))
     ) {
       scope.nodes.add(instance.ownerNodeId);
       scope.nodes.add(instance.templateNodeId);
@@ -73,7 +73,7 @@ function addTemplateScope(scope: HistoryScope, projection: ScopedProjection): vo
         scope.nodes.add(instance.instanceNodeId);
       }
       scope.occurrences.add(instance.instanceOccurrenceId);
-      instance.sources.forEach((source) => scope.schemas.add(source.schemaId));
+      instance.sources.forEach((source) => scope.supertags.add(source.supertagId));
     }
   }
 }
@@ -82,12 +82,10 @@ function addMutation(scope: HistoryScope, mutation: Mutation): void {
   const relations = mutationRelations(mutation);
   relations.nodeIds.forEach((id) => scope.nodes.add(id));
   relations.occurrenceIds.forEach((id) => scope.occurrences.add(id));
-  relations.schemaIds.forEach((id) => scope.schemas.add(id));
+  relations.supertagIds.forEach((id) => scope.supertags.add(id));
   relations.fieldDefinitionIds.forEach((id) => scope.fields.add(id));
   relations.factIds.forEach((id) => scope.factIds.add(id));
-  for (const value of relations.values) {
-    scope.valueTargets.add(valueTargetAddress(value.target, value.namespace));
-  }
+  relations.inlineReferenceIds.forEach((id) => scope.inlineReferences.add(id));
 }
 
 function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
@@ -95,9 +93,9 @@ function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
   return (
     relations.nodeIds.some((id) => scope.nodes.has(id)) ||
     relations.occurrenceIds.some((id) => scope.occurrences.has(id)) ||
-    relations.schemaIds.some((id) => scope.schemas.has(id)) ||
+    relations.supertagIds.some((id) => scope.supertags.has(id)) ||
     relations.fieldDefinitionIds.some((id) => scope.fields.has(id)) ||
     relations.factIds.some((id) => scope.factIds.has(id)) ||
-    relations.values.some((value) => scope.valueTargets.has(valueTargetAddress(value.target, value.namespace)))
+    relations.inlineReferenceIds.some((id) => scope.inlineReferences.has(id))
   );
 }

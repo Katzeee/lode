@@ -1,60 +1,49 @@
 import {
-  NodeState as ProtocolNodeState,
   ProjectionSection as ProtocolProjectionSection,
   TemplateNodeState as ProtocolTemplateNodeState,
-  ViewFieldState as ProtocolViewFieldState,
-  ViewLayout as ProtocolViewLayout,
-  ViewMode as ProtocolViewMode,
+  ProjectionPerspective as ProtocolProjectionPerspective,
 } from "@lode/protocol/dto/projection";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
-export const viewMode = defineProtocolEnum<ProtocolViewMode>()(
+export const projectionPerspective = defineProtocolEnum<ProtocolProjectionPerspective>()(
   {
-    [ProtocolViewMode.VIEW_MODE_UNSPECIFIED]: null,
-    [ProtocolViewMode.VIEW_MODE_ORIGIN]: "origin",
-    [ProtocolViewMode.VIEW_MODE_REVIEW]: "review",
-    [ProtocolViewMode.UNRECOGNIZED]: null,
+    [ProtocolProjectionPerspective.PROJECTION_PERSPECTIVE_UNSPECIFIED]: null,
+    [ProtocolProjectionPerspective.PROJECTION_PERSPECTIVE_ORIGIN]: "origin",
+    [ProtocolProjectionPerspective.PROJECTION_PERSPECTIVE_REVIEW]: "review",
+    [ProtocolProjectionPerspective.UNRECOGNIZED]: null,
   },
-  "View mode",
+  "Projection perspective",
 );
-export type ViewMode = DomainEnum<typeof viewMode>;
+export type ProjectionPerspective = DomainEnum<typeof projectionPerspective>;
 
 export const projectionSection = defineProtocolEnum<ProtocolProjectionSection>()(
   {
     [ProtocolProjectionSection.PROJECTION_SECTION_UNSPECIFIED]: null,
     [ProtocolProjectionSection.PROJECTION_SECTION_NODES]: "nodes",
     [ProtocolProjectionSection.PROJECTION_SECTION_OCCURRENCES]: "occurrences",
-    [ProtocolProjectionSection.PROJECTION_SECTION_CHILDREN]: "children",
+    [ProtocolProjectionSection.PROJECTION_SECTION_CHILD_OCCURRENCES]: "childOccurrences",
     [ProtocolProjectionSection.PROJECTION_SECTION_NODE_OWNERS]: "nodeOwners",
-    [ProtocolProjectionSection.PROJECTION_SECTION_ADDRESSED_VALUES]: "addressedValues",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_APPLICATIONS]: "schemaApplications",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_FIELDS]: "schemaFields",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_APPLICATIONS]: "supertagApplications",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_FIELDS]: "supertagFields",
     [ProtocolProjectionSection.PROJECTION_SECTION_TEMPLATE_FIELDS]: "templateFields",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_TEMPLATE_NODES]: "schemaTemplateNodes",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_TEMPLATE_NODES]: "supertagTemplateNodes",
     [ProtocolProjectionSection.PROJECTION_SECTION_TEMPLATE_NODE_INSTANCES]: "templateNodeInstances",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_EXTENSIONS]: "schemaExtensions",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_SEARCH_MEMBERS]: "schemaSearchMembers",
-    [ProtocolProjectionSection.PROJECTION_SECTION_SCHEMA_EXTENSION_CONFLICTS]: "schemaExtensionConflicts",
-    [ProtocolProjectionSection.PROJECTION_SECTION_NODE_STATUSES]: "nodeStatuses",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_EXTENSIONS]: "supertagExtensions",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_INSTANCE_SUPERTAGS]: "supertagInstanceSupertags",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SUPERTAG_EXTENSION_CONFLICTS]: "supertagExtensionConflicts",
     [ProtocolProjectionSection.PROJECTION_SECTION_CONFLICT_ISSUES]: "conflictIssues",
     [ProtocolProjectionSection.PROJECTION_SECTION_EFFECTIVE_FIELDS]: "effectiveFields",
     [ProtocolProjectionSection.PROJECTION_SECTION_MATERIALIZED_FIELDS]: "materializedFields",
+    [ProtocolProjectionSection.PROJECTION_SECTION_WORKSPACE_SYSTEM_NODES]: "workspaceSystemNodes",
+    [ProtocolProjectionSection.PROJECTION_SECTION_METANODES]: "metanodes",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SEARCH_CLAUSES]: "searchClauses",
+    [ProtocolProjectionSection.PROJECTION_SECTION_SHARED_DEFAULT_VIEW_DEFINITIONS]: "sharedDefaultViewDefinitions",
+    [ProtocolProjectionSection.PROJECTION_SECTION_FIELD_DEFINITION_CONFIGURATIONS]: "fieldDefinitionConfigurations",
     [ProtocolProjectionSection.UNRECOGNIZED]: null,
   },
   "Projection section",
 );
 export type ProjectionSection = DomainEnum<typeof projectionSection>;
-
-export const nodeState = defineProtocolEnum<ProtocolNodeState>()(
-  {
-    [ProtocolNodeState.NODE_STATE_UNSPECIFIED]: null,
-    [ProtocolNodeState.NODE_STATE_ACTIVE]: "active",
-    [ProtocolNodeState.NODE_STATE_DELETED]: "deleted",
-    [ProtocolNodeState.UNRECOGNIZED]: null,
-  },
-  "Node state",
-);
-export type NodeState = DomainEnum<typeof nodeState>;
 
 export const templateNodeState = defineProtocolEnum<ProtocolTemplateNodeState>()(
   {
@@ -66,27 +55,3 @@ export const templateNodeState = defineProtocolEnum<ProtocolTemplateNodeState>()
   "Template Node state",
 );
 export type TemplateNodeState = DomainEnum<typeof templateNodeState>;
-
-export const viewLayout = defineProtocolEnum<ProtocolViewLayout>()(
-  {
-    [ProtocolViewLayout.VIEW_LAYOUT_UNSPECIFIED]: null,
-    [ProtocolViewLayout.VIEW_LAYOUT_TABLE]: "table",
-    [ProtocolViewLayout.VIEW_LAYOUT_CARDS]: "cards",
-    [ProtocolViewLayout.VIEW_LAYOUT_CALENDAR]: "calendar",
-    [ProtocolViewLayout.UNRECOGNIZED]: null,
-  },
-  "View layout",
-);
-export type ViewLayout = DomainEnum<typeof viewLayout>;
-
-export const viewFieldState = defineProtocolEnum<ProtocolViewFieldState>()(
-  {
-    [ProtocolViewFieldState.VIEW_FIELD_STATE_UNSPECIFIED]: null,
-    [ProtocolViewFieldState.VIEW_FIELD_STATE_ABSENT]: "absent",
-    [ProtocolViewFieldState.VIEW_FIELD_STATE_PLACEHOLDER]: "placeholder",
-    [ProtocolViewFieldState.VIEW_FIELD_STATE_MATERIALIZED]: "materialized",
-    [ProtocolViewFieldState.UNRECOGNIZED]: null,
-  },
-  "View field state",
-);
-export type ViewFieldState = DomainEnum<typeof viewFieldState>;

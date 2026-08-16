@@ -55,12 +55,12 @@ describe("edit input validation", () => {
         occurrenceId: "tag-original",
         parentNodeId: "workspace",
         anchor: end,
-        nodeType: "schema",
+        nodeType: "supertag-definition",
       }),
     ).toMatchObject({
       kind: "node-create",
       nodeId: "tag",
-      nodeType: "schema",
+      nodeType: "supertag-definition",
     });
   });
 });

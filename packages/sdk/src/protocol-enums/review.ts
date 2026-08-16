@@ -3,7 +3,7 @@ import {
   PlacementEndpoint as ProtocolPlacementEndpoint,
   RecoveryAction as ProtocolRecoveryAction,
   ResolutionDecision as ProtocolResolutionDecision,
-  SchemaRelationKind as ProtocolSchemaRelationKind,
+  SupertagRelationKind as ProtocolSupertagRelationKind,
 } from "@lode/protocol/dto/review";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
@@ -18,31 +18,33 @@ export const resolutionDecision = defineProtocolEnum<ProtocolResolutionDecision>
 );
 export type ResolutionDecision = DomainEnum<typeof resolutionDecision>;
 
-export const schemaRelationKind = defineProtocolEnum<ProtocolSchemaRelationKind>()(
+export const supertagRelationKind = defineProtocolEnum<ProtocolSupertagRelationKind>()(
   {
-    [ProtocolSchemaRelationKind.SCHEMA_RELATION_KIND_UNSPECIFIED]: null,
-    [ProtocolSchemaRelationKind.SCHEMA_RELATION_KIND_APPLICATION]: "application",
-    [ProtocolSchemaRelationKind.SCHEMA_RELATION_KIND_FIELD]: "field",
-    [ProtocolSchemaRelationKind.SCHEMA_RELATION_KIND_EXTENSION]: "extension",
-    [ProtocolSchemaRelationKind.SCHEMA_RELATION_KIND_TEMPLATE_NODE]: "template-node",
-    [ProtocolSchemaRelationKind.UNRECOGNIZED]: null,
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_UNSPECIFIED]: null,
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_APPLICATION]: "application",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_FIELD]: "field",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_EXTENSION]: "extension",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_NODE]: "template-node",
+    [ProtocolSupertagRelationKind.UNRECOGNIZED]: null,
   },
-  "Schema relation kind",
+  "Supertag relation kind",
 );
-export type SchemaRelationKind = DomainEnum<typeof schemaRelationKind>;
+export type SupertagRelationKind = DomainEnum<typeof supertagRelationKind>;
 
 export const diffSpaceKind = defineProtocolEnum<ProtocolDiffSpaceKind>()(
   {
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_UNSPECIFIED]: null,
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_NODE_CONTENT]: "node-content",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_CHILD_SEQUENCE]: "child-sequence",
-    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_VALUE]: "value",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_LIFECYCLE]: "lifecycle",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_OWNER]: "owner",
-    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SCHEMA_APPLICATION]: "schema-application",
-    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SCHEMA_TEMPLATE]: "schema-template",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SUPERTAG_APPLICATION]: "supertag-application",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SUPERTAG_TEMPLATE]: "supertag-template",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_FIELD_CONFIGURATION]: "field-configuration",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_MATERIALIZED_FIELD]: "materialized-field",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_INLINE_REFERENCE]: "inline-reference",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_VIEW_DEFINITION]: "view-definition",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_FIELD_DEFINITION_CONFIGURATION]: "field-definition-configuration",
     [ProtocolDiffSpaceKind.UNRECOGNIZED]: null,
   },
   "Diff space kind",

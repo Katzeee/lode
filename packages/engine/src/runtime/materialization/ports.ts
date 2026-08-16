@@ -1,4 +1,4 @@
-import type { FactSnapshot, ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { FactSnapshot, ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import type { ReviewReadModel } from "../../domain/review/index.js";
 import {
   type ProjectionGeneration,
@@ -32,7 +32,7 @@ export type ProjectionIdentityReader = Readonly<{
 export type ProjectionSnapshotReader = Readonly<{
   read<Section extends ProjectionSliceName>(
     generationId: string,
-    view: ViewMode,
+    perspective: ProjectionPerspective,
     section: Section,
     identities: readonly string[],
   ): Promise<ProjectionShardBatch<Section>>;
@@ -42,7 +42,7 @@ export type ProjectionSnapshotReader = Readonly<{
 export type ProjectionSectionPageReader = Readonly<{
   page<Section extends ProjectionSectionName>(
     generationId: string,
-    view: ViewMode,
+    perspective: ProjectionPerspective,
     section: Section,
     after: string | null,
     limit: number,
@@ -72,11 +72,11 @@ export type ReviewReadModelReader = Readonly<{
   >;
 }>;
 
-export type ProjectionSchemaSearchReader = Readonly<{
-  schemaSearch(
+export type ProjectionSupertagInstancesReader = Readonly<{
+  supertagInstances(
     generationId: string,
-    view: ViewMode,
-    schemaId: string,
+    perspective: ProjectionPerspective,
+    supertagId: string,
     after: string | null,
     limit: number,
   ): Promise<Readonly<{ identity: ProjectionIdentity; nodeIds: readonly string[]; next: string | null }>>;

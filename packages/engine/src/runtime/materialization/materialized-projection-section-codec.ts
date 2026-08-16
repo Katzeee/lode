@@ -1,4 +1,4 @@
-import type { ProjectionIdentity, ViewMode } from "../../domain/fact/index.js";
+import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import {
   isProjectionSectionEntry,
   isProjectionSectionValue,
@@ -24,28 +24,34 @@ type SectionCodec = Readonly<{
 const SECTION_CODECS = {
   nodes: indexedSection("nodes"),
   occurrences: indexedSection("occurrences"),
-  children: indexedSection("children"),
+  childOccurrences: indexedSection("childOccurrences"),
   nodeOwners: indexedSection("nodeOwners"),
-  addressedValues: indexedSection("addressedValues"),
-  schemaApplications: indexedSection("schemaApplications"),
-  schemaFields: indexedSection("schemaFields"),
+  metanodes: indexedSection("metanodes"),
+  workspaceSystemNodes: indexedSection("workspaceSystemNodes"),
+  supertagApplications: indexedSection("supertagApplications"),
+  supertagFields: indexedSection("supertagFields"),
   templateFields: indexedSection("templateFields"),
-  schemaTemplateNodes: indexedSection("schemaTemplateNodes"),
+  supertagTemplateNodes: indexedSection("supertagTemplateNodes"),
   templateNodeInstances: sequence((value) => isProjectionSectionValue("templateNodeInstances", value)),
-  schemaExtensions: indexedSection("schemaExtensions"),
-  schemaSearchMembers: indexedSection("schemaSearchMembers"),
-  schemaExtensionConflicts: indexedSection("schemaExtensionConflicts"),
-  nodeStatuses: indexedSection("nodeStatuses"),
+  supertagExtensions: indexedSection("supertagExtensions"),
+  supertagInstanceSupertags: indexedSection("supertagInstanceSupertags"),
+  supertagExtensionConflicts: indexedSection("supertagExtensionConflicts"),
   conflictIssues: indexedSection("conflictIssues"),
   effectiveFields: indexedSection("effectiveFields"),
   materializedFields: indexedSection("materializedFields"),
+  searchClauses: indexedSection("searchClauses"),
+  sharedDefaultViewDefinitions: indexedSection("sharedDefaultViewDefinitions"),
+  fieldDefinitionConfigurations: indexedSection("fieldDefinitionConfigurations"),
 } satisfies Readonly<Record<ProjectionSectionName, SectionCodec>>;
 
-export function emptyMaterializedProjection(view: ViewMode, identity: ProjectionIdentity): Projection {
+export function emptyMaterializedProjection(
+  perspective: ProjectionPerspective,
+  identity: ProjectionIdentity,
+): Projection {
   const sections = Object.fromEntries(
     PROJECTION_SECTION_NAMES.map((section) => [section, SECTION_CODECS[section].empty()]),
   ) as ProjectionSections;
-  return { view, identity, ...sections };
+  return { perspective, identity, ...sections };
 }
 
 export function materializedProjectionEntries(projection: Projection): readonly MaterializedProjectionEntry[] {

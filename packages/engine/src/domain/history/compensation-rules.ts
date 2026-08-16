@@ -1,11 +1,15 @@
 import type { ContributionFact, Mutation } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 import { compensateContentMutation } from "./compensation-content.js";
-import { compensateSchemaMutation } from "./compensation-schema.js";
+import { compensateSupertagMutation } from "./compensation-supertag.js";
+import { compensateInlineReferenceMutation } from "./compensation-inline-reference.js";
 import { compensateStructureMutation } from "./compensation-structure.js";
+import { compensateViewMutation } from "./compensation-view.js";
+import { compensateFieldDefinitionConfiguration } from "./compensation-field-definition.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
-type CompensationPolicy = "content" | "structure" | "schema" | "none";
+type CompensationPolicy =
+  "content" | "structure" | "supertag" | "inline-reference" | "field-definition" | "view" | "none";
 
 const COMPENSATION_POLICY_BY_MUTATION = {
   "node-create": "structure",
@@ -13,28 +17,38 @@ const COMPENSATION_POLICY_BY_MUTATION = {
   "node-restore": "structure",
   "node-owner-set": "structure",
   "node-type-declare": "structure",
+  "metanode-attach": "none",
   "occurrence-create": "structure",
   "occurrence-delete": "structure",
   "occurrence-restore": "structure",
   "occurrence-move": "structure",
-  "schema-apply": "schema",
-  "schema-remove": "schema",
-  "schema-field-add": "schema",
-  "schema-field-remove": "schema",
-  "schema-field-configure": "schema",
-  "schema-extension-add": "schema",
-  "schema-extension-remove": "schema",
-  "schema-template-node-add": "schema",
-  "schema-template-node-remove": "schema",
+  "supertag-apply": "supertag",
+  "supertag-remove": "supertag",
+  "supertag-field-add": "supertag",
+  "supertag-field-remove": "supertag",
+  "supertag-field-configure": "supertag",
+  "supertag-extension-add": "supertag",
+  "supertag-extension-remove": "supertag",
+  "supertag-template-node-add": "supertag",
+  "supertag-template-node-remove": "supertag",
   "template-node-detach": "none",
   "field-materialize": "none",
   "field-value-delete": "structure",
   "materialized-field-delete": "structure",
   "field-initialize": "none",
+  "field-datatype-configure": "field-definition",
+  "field-cardinality-configure": "field-definition",
+  "field-initialization-expression-configure": "field-definition",
   "text-splice": "content",
   "text-mark": "content",
-  "value-set": "content",
-  "value-unset": "content",
+  "inline-reference-create": "inline-reference",
+  "inline-reference-delete": "inline-reference",
+  "inline-reference-alias-attach": "inline-reference",
+  "inline-reference-alias-detach": "inline-reference",
+  "search-supertag-clause-attach": "none",
+  "search-field-clause-attach": "none",
+  "shared-default-view-definition-attach": "none",
+  "shared-default-view-definition-mode-set": "view",
 } as const satisfies Readonly<Record<Mutation["kind"], CompensationPolicy>>;
 
 export function compensateMutation(
@@ -52,7 +66,13 @@ export function compensateMutation(
       ? compensateContentMutation(target, targetIds, activeFacts, projection)
       : policy === "structure"
         ? compensateStructureMutation(target, targetIds, activeFacts, projection)
-        : compensateSchemaMutation(target, activeFacts, projection);
+        : policy === "supertag"
+          ? compensateSupertagMutation(target, activeFacts, projection)
+          : policy === "inline-reference"
+            ? compensateInlineReferenceMutation(target, projection)
+            : policy === "field-definition"
+              ? compensateFieldDefinitionConfiguration(target, activeFacts)
+              : compensateViewMutation(target, activeFacts);
   if (step === null) {
     throw new Error(`Compensation policy ${policy} did not handle ${target.body.mutation.kind}`);
   }

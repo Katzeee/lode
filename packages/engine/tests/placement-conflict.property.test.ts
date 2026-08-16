@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 import { canonicalJson, makeFact, type Fact, type FactFrontier, type Mutation } from "../src/domain/fact/index.js";
-import { advanceGeneration, rebuildGeneration } from "../src/domain/reconcile/index.js";
+import {
+  advanceGeneration,
+  rebuildGeneration,
+  CURRENT_PROJECTION_VERSIONS as versions,
+} from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const moveReplicaB = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const moveReplicaC = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";

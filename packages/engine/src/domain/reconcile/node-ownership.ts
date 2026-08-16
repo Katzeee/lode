@@ -11,9 +11,17 @@ export function projectNodeOwners(
   active: readonly ContributionFact[],
   nodes: ReadonlyMap<string, MutableNode>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
+  metanodes: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string | null>> {
   const ownerPlacements = replayOwnerPlacements(active);
-  const owners = selectRootedOwners(workspaceNodeId, nodes.keys(), occurrences.values(), ownerPlacements);
+  const attachedOwners = new Map(Object.entries(metanodes).map(([hostNodeId, rootNodeId]) => [rootNodeId, hostNodeId]));
+  const owners = selectRootedOwners(
+    workspaceNodeId,
+    nodes.keys(),
+    occurrences.values(),
+    ownerPlacements,
+    attachedOwners,
+  );
   return Object.fromEntries([...owners].sort(([left], [right]) => stableStringCompare(left, right)));
 }
 
@@ -22,6 +30,7 @@ export function selectRootedOwners(
   nodeIds: Iterable<string>,
   occurrences: Iterable<Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>>,
   originalOccurrenceIds: ReadonlyMap<string, string>,
+  attachedOwners: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyMap<string, string | null> {
   const known = new Set(nodeIds);
   if (!known.has(workspaceNodeId)) {
@@ -51,6 +60,17 @@ export function selectRootedOwners(
       return false;
     }
     resolving.add(nodeId);
+    const attachedOwner = attachedOwners.get(nodeId);
+    if (attachedOwner !== undefined) {
+      if (attachedOwner !== nodeId && resolve(attachedOwner)) {
+        owners.set(nodeId, attachedOwner);
+        resolving.delete(nodeId);
+        return true;
+      }
+      resolving.delete(nodeId);
+      failed.add(nodeId);
+      return false;
+    }
     const originalOccurrenceId = originalOccurrenceIds.get(nodeId);
     if (
       originalOccurrenceId !== undefined &&

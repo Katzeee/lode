@@ -39,17 +39,17 @@ describe("materialized datasets", () => {
 
     expect(
       conflicts.isValue("conflict", {
-        kind: "schema-extension-cycle",
+        kind: "supertag-extension-cycle",
         identity: "conflict",
-        schemaIds: ["schema-a", "schema-b"],
+        supertagIds: ["supertag-a", "supertag-b"],
       }),
     ).toBe(true);
-    expect(conflicts.isValue("conflict", { kind: "schema-extension-cycle", identity: "conflict" })).toBe(false);
+    expect(conflicts.isValue("conflict", { kind: "supertag-extension-cycle", identity: "conflict" })).toBe(false);
     expect(
       conflicts.isValue("another-conflict", {
-        kind: "schema-extension-cycle",
+        kind: "supertag-extension-cycle",
         identity: "conflict",
-        schemaIds: ["schema-a", "schema-b"],
+        supertagIds: ["supertag-a", "supertag-b"],
       }),
     ).toBe(false);
   });

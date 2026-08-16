@@ -67,7 +67,7 @@ describe("generated daemon service adapters", () => {
         await client.query({
           kind: "projection",
           workspaceId: "workspace",
-          view: "origin",
+          perspective: "origin",
         }),
       ).toMatchObject({ status: "ok", value: { nodes: { node: { nodeId: "node" } } } });
 
@@ -82,7 +82,7 @@ describe("generated daemon service adapters", () => {
         await client.query({
           kind: "projection",
           workspaceId: "workspace",
-          view: "origin",
+          perspective: "origin",
         }),
       ).toMatchObject({ status: "ok", value: { nodes: { node: { nodeId: "node" } } } });
       expect(await client.closeWorkspace("workspace")).toBe(true);
@@ -133,7 +133,7 @@ describe("generated daemon service adapters", () => {
         await right.query({
           kind: "projection",
           workspaceId: "workspace",
-          view: "origin",
+          perspective: "origin",
         }),
       ).toMatchObject({
         status: "ok",

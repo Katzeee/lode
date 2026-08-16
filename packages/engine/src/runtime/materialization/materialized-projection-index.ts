@@ -2,47 +2,47 @@ import { stableStringCompare } from "../../domain/fact/index.js";
 import type { Projection } from "../../domain/reconcile/index.js";
 import { isStringArray } from "../../shape-validation/index.js";
 
-export type ProjectionIndexEntry = Readonly<{
+export type ProjectionLookupIndexEntry = Readonly<{
   section:
     | "occurrenceIdsByNode"
     | "nodeIdsByOwner"
-    | "nodeIdsBySchema"
+    | "nodeIdsBySupertag"
     | "nodeIdsByFieldDefinition"
-    | "schemaInstanceMemberships"
+    | "supertagInstanceMemberships"
     | "templateNodeInstancesByOwner"
     | "templateNodeInstancesByTemplate"
     | "templateNodeInstancesByNode"
     | "templateNodeInstancesByOccurrence"
-    | "templateNodeInstancesBySchema";
+    | "templateNodeInstancesBySupertag";
   identity: string;
   value: readonly string[] | string;
 }>;
 
-export function isProjectionIndexSection(section: string): section is ProjectionIndexEntry["section"] {
+export function isProjectionLookupIndexSection(section: string): section is ProjectionLookupIndexEntry["section"] {
   return (
     section === "occurrenceIdsByNode" ||
     section === "nodeIdsByOwner" ||
-    section === "nodeIdsBySchema" ||
+    section === "nodeIdsBySupertag" ||
     section === "nodeIdsByFieldDefinition" ||
-    section === "schemaInstanceMemberships" ||
+    section === "supertagInstanceMemberships" ||
     section.startsWith("templateNodeInstancesBy")
   );
 }
 
-export function isProjectionIndexValue(section: ProjectionIndexEntry["section"], value: unknown): boolean {
-  return section === "schemaInstanceMemberships" ? typeof value === "string" : isStringArray(value);
+export function isProjectionLookupIndexValue(section: ProjectionLookupIndexEntry["section"], value: unknown): boolean {
+  return section === "supertagInstanceMemberships" ? typeof value === "string" : isStringArray(value);
 }
 
-export function projectionIndexEntries(projection: Projection): readonly ProjectionIndexEntry[] {
+export function projectionLookupIndexEntries(projection: Projection): readonly ProjectionLookupIndexEntry[] {
   const indexes = new Map<
     string,
     {
-      section: ProjectionIndexEntry["section"];
+      section: ProjectionLookupIndexEntry["section"];
       identity: string;
       values: string[];
     }
   >();
-  const add = (section: ProjectionIndexEntry["section"], identity: string, value: string) => {
+  const add = (section: ProjectionLookupIndexEntry["section"], identity: string, value: string) => {
     const key = JSON.stringify([section, identity]);
     const index = indexes.get(key) ?? { section, identity, values: [] };
     index.values.push(value);
@@ -56,16 +56,18 @@ export function projectionIndexEntries(projection: Projection): readonly Project
       add("nodeIdsByOwner", ownerNodeId, nodeId);
     }
   }
-  for (const [nodeId, schemaIds] of Object.entries(projection.schemaApplications)) {
-    for (const [searchSchemaId, memberSchemaIds] of Object.entries(projection.schemaSearchMembers)) {
-      if (schemaIds.some((schemaId) => memberSchemaIds.includes(schemaId))) {
-        add("nodeIdsBySchema", searchSchemaId, nodeId);
-        addMembership(indexes, searchSchemaId, nodeId);
+  for (const [nodeId, supertagIds] of Object.entries(projection.supertagApplications)) {
+    for (const [requestedSupertagId, instanceSupertagIds] of Object.entries(projection.supertagInstanceSupertags)) {
+      if (supertagIds.some((supertagId) => instanceSupertagIds.includes(supertagId))) {
+        add("nodeIdsBySupertag", requestedSupertagId, nodeId);
+        addMembership(indexes, requestedSupertagId, nodeId);
       }
     }
-    for (const schemaId of schemaIds.filter((schemaId) => projection.schemaSearchMembers[schemaId] === undefined)) {
-      add("nodeIdsBySchema", schemaId, nodeId);
-      addMembership(indexes, schemaId, nodeId);
+    for (const supertagId of supertagIds.filter(
+      (supertagId) => projection.supertagInstanceSupertags[supertagId] === undefined,
+    )) {
+      add("nodeIdsBySupertag", supertagId, nodeId);
+      addMembership(indexes, supertagId, nodeId);
     }
   }
   for (const [nodeId, fields] of Object.entries(projection.effectiveFields)) {
@@ -87,26 +89,28 @@ export function projectionIndexEntries(projection: Projection): readonly Project
       add("templateNodeInstancesByNode", instance.instanceNodeId, identity);
     }
     for (const source of instance.sources) {
-      add("templateNodeInstancesBySchema", source.schemaId, identity);
-      add("templateNodeInstancesBySchema", source.appliedSchemaId, identity);
+      add("templateNodeInstancesBySupertag", source.supertagId, identity);
+      add("templateNodeInstancesBySupertag", source.appliedSupertagId, identity);
     }
   });
   return [...indexes.values()].map((index) => ({
     section: index.section,
     identity: index.identity,
     value:
-      index.section === "schemaInstanceMemberships" ? (index.values[0] ?? "") : index.values.sort(stableStringCompare),
+      index.section === "supertagInstanceMemberships"
+        ? (index.values[0] ?? "")
+        : index.values.sort(stableStringCompare),
   }));
 }
 
 function addMembership(
-  indexes: Map<string, { section: ProjectionIndexEntry["section"]; identity: string; values: string[] }>,
-  schemaId: string,
+  indexes: Map<string, { section: ProjectionLookupIndexEntry["section"]; identity: string; values: string[] }>,
+  supertagId: string,
   nodeId: string,
 ): void {
-  const identity = `${encodeURIComponent(schemaId)}/${encodeURIComponent(nodeId)}`;
-  indexes.set(JSON.stringify(["schemaInstanceMemberships", identity]), {
-    section: "schemaInstanceMemberships",
+  const identity = `${encodeURIComponent(supertagId)}/${encodeURIComponent(nodeId)}`;
+  indexes.set(JSON.stringify(["supertagInstanceMemberships", identity]), {
+    section: "supertagInstanceMemberships",
     identity,
     values: [nodeId],
   });

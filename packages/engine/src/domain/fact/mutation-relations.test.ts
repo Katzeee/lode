@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mutationRelations, templateInstanceNodeId, type Mutation } from "./index.js";
 
 describe("mutation relations", () => {
-  it("captures template instance identities and the schema sources they derive from", () => {
+  it("captures template instance identities and the supertag sources they derive from", () => {
     const mutation: Mutation = {
       kind: "template-node-detach",
       ownerNodeId: "owner",
@@ -16,8 +16,8 @@ describe("mutation relations", () => {
         affinity: "after",
         fallback: "end",
       },
-      sourceSchemaIds: ["source-schema"],
-      sourceApplicationSchemaIds: ["application-schema"],
+      sourceSupertagIds: ["source-supertag"],
+      sourceApplicationSupertagIds: ["application-supertag"],
       sourceTemplateOccurrenceIds: ["source-template-occurrence"],
     };
 
@@ -28,22 +28,22 @@ describe("mutation relations", () => {
         "owner",
         "template",
         templateInstanceNodeId("owner", "template"),
-        "source-schema",
-        "application-schema",
+        "source-supertag",
+        "application-supertag",
       ]),
     );
     expect(new Set(relations.occurrenceIds)).toEqual(
       new Set(["instance-occurrence", "after", "before", "source-template-occurrence"]),
     );
-    expect(new Set(relations.schemaIds)).toEqual(new Set(["source-schema", "application-schema"]));
-    expect(relations.instanceSchemaIds).toEqual(["application-schema"]);
+    expect(new Set(relations.supertagIds)).toEqual(new Set(["source-supertag", "application-supertag"]));
+    expect(relations.instanceSupertagIds).toEqual(["application-supertag"]);
   });
 
   it("captures initialized field identities and their causal observations", () => {
     const mutation: Mutation = {
       kind: "field-initialize",
       ownerNodeId: "owner",
-      schemaId: "schema",
+      supertagId: "supertag",
       fieldDefinitionId: "field-definition",
       fieldNodeId: "field-node",
       fieldOccurrenceId: "field-occurrence",
@@ -58,24 +58,17 @@ describe("mutation relations", () => {
     const relations = mutationRelations(mutation);
 
     expect(new Set(relations.nodeIds)).toEqual(
-      new Set(["owner", "schema", "field-definition", "field-node", "text-node", "reference-node"]),
+      new Set(["owner", "supertag", "field-definition", "field-node", "text-node", "reference-node"]),
     );
     expect(new Set(relations.occurrenceIds)).toEqual(
       new Set(["field-occurrence", "text-occurrence", "reference-occurrence"]),
     );
     expect(relations.factIds).toEqual(["observed-fact"]);
-    expect(relations.instanceSchemaIds).toEqual(["schema"]);
+    expect(relations.instanceSupertagIds).toEqual(["supertag"]);
     expect(relations.fieldDefinitionIds).toEqual(["field-definition"]);
   });
 
-  it("keeps value addresses and text atom contributions as typed relations", () => {
-    const valueRelations = mutationRelations({
-      kind: "value-set",
-      target: { kind: "occurrence", id: "occurrence" },
-      namespace: "metadata",
-      key: "key",
-      value: true,
-    });
+  it("keeps text atom contributions as typed relations", () => {
     const textRelations = mutationRelations({
       kind: "text-mark",
       nodeId: "text",
@@ -84,10 +77,6 @@ describe("mutation relations", () => {
       value: { kind: "set", value: true },
     });
 
-    expect(valueRelations.values).toEqual([
-      { target: { kind: "occurrence", id: "occurrence" }, namespace: "metadata" },
-    ]);
-    expect(valueRelations.occurrenceIds).toContain("occurrence");
     expect(textRelations.factIds).toEqual(["contribution-a", "contribution-b"]);
   });
 });

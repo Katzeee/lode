@@ -19,8 +19,8 @@ export const templateMutationEvidence = {
   validate(mutation, context) {
     const expected = templateMutationEvidence.complete(mutation, context);
     if (
-      canonicalJson(expected.sourceSchemaIds) !== canonicalJson(mutation.sourceSchemaIds) ||
-      canonicalJson(expected.sourceApplicationSchemaIds) !== canonicalJson(mutation.sourceApplicationSchemaIds) ||
+      canonicalJson(expected.sourceSupertagIds) !== canonicalJson(mutation.sourceSupertagIds) ||
+      canonicalJson(expected.sourceApplicationSupertagIds) !== canonicalJson(mutation.sourceApplicationSupertagIds) ||
       canonicalJson(expected.sourceTemplateOccurrenceIds) !== canonicalJson(mutation.sourceTemplateOccurrenceIds)
     ) {
       throw new Error("Template detachment source evidence does not match the observed Projection");
@@ -46,8 +46,8 @@ export function completeTemplateDetachmentEvidence(
     instanceNodeId: templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId),
     instanceOccurrenceId: templateInstanceOccurrenceId(mutation.ownerNodeId, mutation.templateNodeId),
     anchor: occurrenceAnchor(available, instance.instanceOccurrenceId),
-    sourceSchemaIds: instance.sources.map((source) => source.schemaId),
-    sourceApplicationSchemaIds: instance.sources.map((source) => source.appliedSchemaId),
+    sourceSupertagIds: instance.sources.map((source) => source.supertagId),
+    sourceApplicationSupertagIds: instance.sources.map((source) => source.appliedSupertagId),
     sourceTemplateOccurrenceIds: instance.sources.map((source) => source.templateOccurrenceId),
   };
 }

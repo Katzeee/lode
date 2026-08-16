@@ -7,17 +7,17 @@ import {
   admitAuthorityRecordShapes,
   canonicalJson,
   makeFact,
+  workspaceTrashNodeId,
+  workspaceTrashOccurrenceId,
   type EditIntent,
   type FactTransactionPlan,
 } from "../../domain/fact/index.js";
-import { rebuildGeneration } from "../../domain/reconcile/index.js";
+import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration } from "../../domain/reconcile/index.js";
 import { queryReview } from "../../domain/review/index.js";
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { FactSyncComposite } from "./fact-sync.js";
 import { SyncExchange } from "./sync-exchange.js";
 import { InMemoryReplicaPeer, syncPair } from "../../../tests/support/sync.js";
-
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 
 async function replica(peerId: `${number}`, replicaId = createReplicaId()) {
   return FactAuthorityStore.open({
@@ -226,9 +226,15 @@ describe("Fact-only production sync", () => {
       [1, 2],
       [2, 0],
     ]);
-    expect(result.factIds).toHaveLength(9);
-    expect(result.originNodeIds).toEqual(["direct-b", "direct-c", "workspace"]);
-    expect(result.reviewNodeIds).toEqual(["direct-b", "direct-c", "proposal", "workspace"]);
+    expect(result.factIds).toHaveLength(11);
+    expect(result.originNodeIds).toEqual(["direct-b", "direct-c", "workspace", workspaceTrashNodeId("workspace")]);
+    expect(result.reviewNodeIds).toEqual([
+      "direct-b",
+      "direct-c",
+      "proposal",
+      "workspace",
+      workspaceTrashNodeId("workspace"),
+    ]);
     expect(result.reviewHunkCount).toBe(1);
   });
 
@@ -341,10 +347,33 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     request: { command: "workspace-genesis" },
     writes: [
       {
-        kind: "contribution",
-        actorId: "workspace-genesis",
-        intent: "direct",
-        mutation: { kind: "node-create", nodeId: "workspace" },
+        kind: "transaction",
+        bodies: [
+          {
+            kind: "contribution",
+            actorId: "workspace-genesis",
+            intent: "direct",
+            mutation: { kind: "node-create", nodeId: "workspace" },
+          },
+          {
+            kind: "contribution",
+            actorId: "workspace-genesis",
+            intent: "direct",
+            mutation: { kind: "node-create", nodeId: workspaceTrashNodeId("workspace") },
+          },
+          {
+            kind: "contribution",
+            actorId: "workspace-genesis",
+            intent: "direct",
+            mutation: {
+              kind: "occurrence-create",
+              occurrenceId: workspaceTrashOccurrenceId("workspace"),
+              nodeId: workspaceTrashNodeId("workspace"),
+              parentNodeId: "workspace",
+              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            },
+          },
+        ],
       },
     ],
     lineage: null,

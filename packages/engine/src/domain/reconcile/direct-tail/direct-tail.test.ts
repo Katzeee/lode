@@ -19,11 +19,11 @@ describe("Direct Projection tail policy", () => {
     const eligible = [
       { kind: "node-delete", nodeId: "node" },
       { kind: "occurrence-delete", occurrenceId: "occurrence" },
-      { kind: "schema-remove", nodeId: "node", schemaId: "schema" },
+      { kind: "supertag-remove", nodeId: "node", supertagId: "supertag" },
       {
         kind: "field-initialize",
         ownerNodeId: "node",
-        schemaId: "schema",
+        supertagId: "supertag",
         fieldDefinitionId: "field",
         fieldNodeId: "new-field-node",
         fieldOccurrenceId: "new-field-occurrence",
@@ -31,13 +31,6 @@ describe("Direct Projection tail policy", () => {
         values: [],
       },
       { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "x" },
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "green",
-      },
     ] as const satisfies readonly Mutation[];
 
     expect(eligible.map((mutation) => isEligible(projection, mutation))).toEqual(eligible.map(() => true));
@@ -45,14 +38,14 @@ describe("Direct Projection tail policy", () => {
       isEligible(projection, {
         kind: "node-type-declare",
         nodeId: "node",
-        nodeType: "view",
+        nodeType: "calendar",
       }),
     ).toBe(false);
     expect(
       isEligible(projection, {
-        kind: "schema-apply",
+        kind: "supertag-apply",
         nodeId: "node",
-        schemaId: "missing-schema",
+        supertagId: "missing-supertag",
         anchor: end,
       }),
     ).toBe(false);
@@ -105,11 +98,11 @@ describe("Direct Projection tail policy", () => {
 
     const proposal = facts.add(
       {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "green",
+        kind: "text-splice",
+        nodeId: "node",
+        deleteAtomIds: [],
+        anchor: end,
+        insert: "proposal",
       },
       "proposal",
     );

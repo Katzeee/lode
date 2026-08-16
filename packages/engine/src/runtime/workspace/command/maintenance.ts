@@ -17,8 +17,15 @@ type MaintenanceCommand = Extract<EngineCommand, { kind: "acknowledge-deletion" 
 type MaintenanceAuthority = Pick<FactAuthority, "replicaId" | "uncertainInvocations">;
 
 export function bindMaintenanceCommand(command: MaintenanceCommand): BoundWorkspaceCommand {
+  const nodeId =
+    command.kind === "hard-delete"
+      ? command.selection.nodeId
+      : command.kind === "acknowledge-deletion"
+        ? command.nodeId
+        : null;
+  const mutations = nodeId ? [{ kind: "node-delete" as const, nodeId }] : [];
   return {
-    readPlan: { kind: "mutations", mutations: [], historyChannelId: null },
+    readPlan: { kind: "mutations", mutations, historyChannelId: null },
     plan({ workspaceId, snapshot, generation, maintenanceAuthority }) {
       return planMaintenanceCommand(workspaceId, command, snapshot, generation, maintenanceAuthority);
     },
@@ -33,12 +40,12 @@ function planMaintenanceCommand(
   authority: MaintenanceAuthority,
 ): MaintenancePlan {
   if (command.kind === "acknowledge-deletion") {
-    const assessment = assessWorkspaceHardDelete(workspaceId, command.nodeId, snapshot, authority);
+    const assessment = assessWorkspaceHardDelete(workspaceId, command.nodeId, snapshot, authority, generation.origin);
     if (
       assessment.selection.deletionFactIds.length === 0 ||
       JSON.stringify(command.deletionFactIds) !== JSON.stringify(assessment.selection.deletionFactIds)
     ) {
-      return blocked("Deletion acknowledgement does not match the current tombstone", generation);
+      return blocked("Deletion acknowledgement does not match the current Trash placement", generation);
     }
     return {
       writes: [
@@ -72,7 +79,13 @@ function planMaintenanceCommand(
   if (command.kind !== "hard-delete") {
     throw new Error("Unknown Maintenance command");
   }
-  const assessment = assessWorkspaceHardDelete(workspaceId, command.selection.nodeId, snapshot, authority);
+  const assessment = assessWorkspaceHardDelete(
+    workspaceId,
+    command.selection.nodeId,
+    snapshot,
+    authority,
+    generation.origin,
+  );
   if (!assessment.canExecute || !sameHardDeleteSelection(command.selection, assessment.selection)) {
     return blocked(
       `Hard Delete is blocked or stale: ${assessment.blockers.join(", ") || "selection changed"}`,

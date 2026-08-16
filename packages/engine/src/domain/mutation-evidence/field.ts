@@ -1,6 +1,6 @@
 import {
   FIELD_DEFINITION_NODE_TYPE,
-  SCHEMA_NODE_TYPE,
+  SUPERTAG_DEFINITION_NODE_TYPE,
   canonicalJson,
   fieldContentDeletionOccurrenceId,
   type FieldContentDeletionMutation,
@@ -10,6 +10,7 @@ import {
 import {
   assertMaterializedField,
   definitionNodeState,
+  isPresentNodeOutsideTrash,
   occurrenceAnchor,
   type ScopedProjection,
 } from "../reconcile/index.js";
@@ -96,14 +97,14 @@ export function completeFieldInitializationEvidence(
   mutation: Extract<Mutation, { kind: "field-initialize" }>,
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "field-initialize" }> {
-  if (definitionNodeState(available, mutation.schemaId, SCHEMA_NODE_TYPE) === "absent") {
-    throw new Error("Field initialization Schema type is absent");
+  if (definitionNodeState(available, mutation.supertagId, SUPERTAG_DEFINITION_NODE_TYPE) === "absent") {
+    throw new Error("Field initialization Supertag type is absent");
   }
   if (definitionNodeState(available, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) === "absent") {
     throw new Error("Field initialization Field Definition type is absent");
   }
-  for (const nodeId of [mutation.ownerNodeId, mutation.schemaId, mutation.fieldDefinitionId]) {
-    if (!available.nodes[nodeId]) {
+  for (const nodeId of [mutation.ownerNodeId, mutation.supertagId, mutation.fieldDefinitionId]) {
+    if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, nodeId)) {
       throw new Error(`Field initialization dependency is absent: ${nodeId}`);
     }
   }
@@ -111,7 +112,7 @@ export function completeFieldInitializationEvidence(
     (candidate) => candidate.fieldDefinitionId === mutation.fieldDefinitionId,
   );
   if (!field) {
-    throw new Error("Field initialization has no effective Schema source");
+    throw new Error("Field initialization has no effective Supertag source");
   }
   if (field.materializedFieldNodeId !== null) {
     throw new Error("Field is already materialized");

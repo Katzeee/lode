@@ -2,8 +2,8 @@ import { factObserves, type ContributionFact, type Mutation } from "../fact/inde
 import {
   addFieldInitializationSupport,
   addTemplateDetachmentSupport,
-  type SchemaSupportContext,
-} from "./schema-support.js";
+  type SupertagSupportContext,
+} from "./supertag-support.js";
 import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
 
 type ExistenceSupport = Readonly<{
@@ -18,10 +18,10 @@ export function addInitializationSupport(
   support: Set<string>,
   mutation: Extract<Mutation, { kind: "field-initialize" }>,
   fact: ContributionFact,
-  schemaSupport: SchemaSupportContext,
+  supertagSupport: SupertagSupportContext,
   existence: ExistenceSupport,
 ): void {
-  addFieldInitializationSupport(support, mutation, fact, schemaSupport);
+  addFieldInitializationSupport(support, mutation, fact, supertagSupport);
   for (const nodeId of [
     mutation.fieldNodeId,
     ...mutation.values.flatMap((value) => (value.kind === "text" ? [value.nodeId] : [])),
@@ -37,10 +37,10 @@ export function addTemplateNodeSupport(
   support: Set<string>,
   mutation: Extract<Mutation, { kind: "template-node-detach" }>,
   fact: ContributionFact,
-  schemaSupport: SchemaSupportContext,
+  supertagSupport: SupertagSupportContext,
   existence: ExistenceSupport,
 ): void {
-  addTemplateDetachmentSupport(support, mutation, fact, schemaSupport);
+  addTemplateDetachmentSupport(support, mutation, fact, supertagSupport);
   addIfPresent(support, effectiveCandidate(existence.nodes, mutation.instanceNodeId, existence.viable));
 }
 
@@ -65,10 +65,10 @@ export function addGeneratedOccurrenceSupport(
 function generatedOccurrenceEffect(
   mutation: Mutation,
 ): Readonly<{ kind: "occurrence-create" | "occurrence-delete"; occurrenceId: string }> | null {
-  if (mutation.kind === "schema-field-remove") {
+  if (mutation.kind === "supertag-field-remove") {
     return { kind: "occurrence-delete", occurrenceId: mutation.fieldOccurrenceId };
   }
-  if (mutation.kind === "schema-template-node-remove") {
+  if (mutation.kind === "supertag-template-node-remove") {
     return { kind: "occurrence-delete", occurrenceId: mutation.templateOccurrenceId };
   }
   if (mutation.kind === "field-value-delete") {

@@ -2,17 +2,17 @@ import type { MaterializedField } from "./projection-types.js";
 
 export function filterTemplateFields<T extends Readonly<{ fieldDefinitionId: string; fieldNodeId: string }>>(
   values: Readonly<Record<string, readonly T[]>>,
-  schemaIds: ReadonlySet<string>,
+  supertagIds: ReadonlySet<string>,
   fieldDefinitionIds: ReadonlySet<string>,
   activeFieldNodeIds: ReadonlySet<string>,
 ): Readonly<Record<string, readonly T[]>> {
   return Object.fromEntries(
     Object.entries(values)
-      .filter(([schemaId]) => schemaIds.has(schemaId))
+      .filter(([supertagId]) => supertagIds.has(supertagId))
       .map(
-        ([schemaId, fields]) =>
+        ([supertagId, fields]) =>
           [
-            schemaId,
+            supertagId,
             fields.filter(
               (field) => fieldDefinitionIds.has(field.fieldDefinitionId) && activeFieldNodeIds.has(field.fieldNodeId),
             ),

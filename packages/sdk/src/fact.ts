@@ -9,40 +9,55 @@ import type {
   OccurrenceDeleteMutation as ProtocolOccurrenceDeleteMutation,
   OccurrenceMoveMutation as ProtocolOccurrenceMoveMutation,
   OccurrenceRestoreMutation as ProtocolOccurrenceRestoreMutation,
-  SchemaApplyMutation as ProtocolSchemaApplyMutation,
-  SchemaExtensionAddMutation as ProtocolSchemaExtensionAddMutation,
-  SchemaExtensionRemoveMutation as ProtocolSchemaExtensionRemoveMutation,
-  SchemaFieldAddMutation as ProtocolSchemaFieldAddMutation,
-  SchemaFieldRemoveMutation as ProtocolSchemaFieldRemoveMutation,
-  SchemaRemoveMutation as ProtocolSchemaRemoveMutation,
-  SchemaTemplateNodeAddMutation as ProtocolSchemaTemplateNodeAddMutation,
-  SchemaTemplateNodeRemoveMutation as ProtocolSchemaTemplateNodeRemoveMutation,
+  SupertagApplyMutation as ProtocolSupertagApplyMutation,
+  SupertagExtensionAddMutation as ProtocolSupertagExtensionAddMutation,
+  SupertagExtensionRemoveMutation as ProtocolSupertagExtensionRemoveMutation,
+  SupertagFieldAddMutation as ProtocolSupertagFieldAddMutation,
+  SupertagFieldRemoveMutation as ProtocolSupertagFieldRemoveMutation,
+  SupertagRemoveMutation as ProtocolSupertagRemoveMutation,
+  SupertagTemplateNodeAddMutation as ProtocolSupertagTemplateNodeAddMutation,
+  SupertagTemplateNodeRemoveMutation as ProtocolSupertagTemplateNodeRemoveMutation,
   TemplateNodeDetachMutation as ProtocolTemplateNodeDetachMutation,
+  SearchSupertagClauseAttachMutation as ProtocolSearchSupertagClauseAttachMutation,
+  SearchFieldClauseAttachMutation as ProtocolSearchFieldClauseAttachMutation,
+  SharedDefaultViewDefinitionAttachMutation as ProtocolSharedDefaultViewDefinitionAttachMutation,
+  SharedDefaultViewDefinitionModeSetMutation as ProtocolSharedDefaultViewDefinitionModeSetMutation,
 } from "@lode/protocol/dto/edit";
 import type {
   ContributionNodeCreateMutation as ProtocolContributionNodeCreateMutation,
-  ContributionSchemaFieldConfigureMutation as ProtocolContributionSchemaFieldConfigureMutation,
+  ContributionSupertagFieldConfigureMutation as ProtocolContributionSupertagFieldConfigureMutation,
   ContributionTextMarkMutation as ProtocolContributionTextMarkMutation,
   ContributionTextSpliceMutation as ProtocolContributionTextSpliceMutation,
-  ContributionValueSetMutation as ProtocolContributionValueSetMutation,
-  ContributionValueUnsetMutation as ProtocolContributionValueUnsetMutation,
   FieldInitializeMutation as ProtocolFieldInitializeMutation,
   InitializedReferenceFieldValue as ProtocolInitializedReferenceFieldValue,
   InitializedTextFieldValue as ProtocolInitializedTextFieldValue,
   NodeOwnerSetMutation as ProtocolNodeOwnerSetMutation,
+  MetanodeAttachMutation as ProtocolMetanodeAttachMutation,
+  ContributionInlineReferenceDeleteMutation as ProtocolContributionInlineReferenceDeleteMutation,
+  ContributionFieldDatatypeConfigureMutation as ProtocolContributionFieldDatatypeConfigureMutation,
+  ContributionFieldCardinalityConfigureMutation as ProtocolContributionFieldCardinalityConfigureMutation,
+  ContributionFieldInitializationExpressionConfigureMutation as ProtocolContributionFieldInitializationExpressionConfigureMutation,
 } from "@lode/protocol/dto/fact";
 import type {
-  FieldTemplateConfig,
+  InlineReferenceAliasAttachMutation as ProtocolInlineReferenceAliasAttachMutation,
+  InlineReferenceAliasDetachMutation as ProtocolInlineReferenceAliasDetachMutation,
+  InlineReferenceCreateMutation as ProtocolInlineReferenceCreateMutation,
+} from "@lode/protocol/dto/edit";
+import type {
+  SupertagFieldConfig,
   JsonValue,
   NodeSeed,
   NodeType,
+  ViewType,
+  FieldDatatype,
+  FieldCardinality,
+  FieldInitializationExpression,
   PreviousValue,
   ProtocolDto,
   SequenceAnchor,
   TextAtomId,
-  ValueTarget,
 } from "./model.js";
-import type { FieldInitializationSource, ValueNamespace } from "./protocol-enums/model.js";
+import type { FieldInitializationSource } from "./protocol-enums/model.js";
 
 type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 
@@ -50,13 +65,13 @@ type NodeCreateMutation = Omit<WithKind<ProtocolContributionNodeCreateMutation, 
   Readonly<{ seed?: NodeSeed }>;
 type NodeOwnerSetMutation = Omit<WithKind<ProtocolNodeOwnerSetMutation, "node-owner-set">, "previousOwnerNodeId"> &
   Readonly<{ previousOwnerNodeId?: string }>;
-type SchemaFieldConfigureMutation = Omit<
-  WithKind<ProtocolContributionSchemaFieldConfigureMutation, "schema-field-configure">,
+type SupertagFieldConfigureMutation = Omit<
+  WithKind<ProtocolContributionSupertagFieldConfigureMutation, "supertag-field-configure">,
   "config" | "previousConfig" | "observedConfigFactIds"
 > &
   Readonly<{
-    config: FieldTemplateConfig;
-    previousConfig?: FieldTemplateConfig | null;
+    config: SupertagFieldConfig;
+    previousConfig?: SupertagFieldConfig | null;
     observedConfigFactIds?: readonly string[];
   }>;
 
@@ -91,30 +106,55 @@ type TextMarkMutation = Omit<
   "atomIds" | "value" | "previous"
 > &
   Readonly<{ atomIds: readonly TextAtomId[]; value: PreviousValue; previous?: PreviousValue }>;
-type ValueSetMutation = Omit<
-  WithKind<ProtocolContributionValueSetMutation, "value-set">,
-  "target" | "namespace" | "value" | "previous"
-> &
-  Readonly<{
-    target: ValueTarget;
-    namespace: ValueNamespace;
-    value: JsonValue;
-    previous?: PreviousValue;
-  }>;
-type ValueUnsetMutation = Omit<
-  WithKind<ProtocolContributionValueUnsetMutation, "value-unset">,
-  "target" | "namespace" | "previous"
-> &
-  Readonly<{ target: ValueTarget; namespace: ValueNamespace; previous?: PreviousValue }>;
 type TemplateNodeDetachMutation = Omit<
   WithKind<ProtocolTemplateNodeDetachMutation, "template-node-detach">,
-  "anchor" | "sourceSchemaIds" | "sourceApplicationSchemaIds" | "sourceTemplateOccurrenceIds"
+  "anchor" | "sourceSupertagIds" | "sourceApplicationSupertagIds" | "sourceTemplateOccurrenceIds"
 > &
   Readonly<{
     anchor: SequenceAnchor;
-    sourceSchemaIds?: readonly string[];
-    sourceApplicationSchemaIds?: readonly string[];
+    sourceSupertagIds?: readonly string[];
+    sourceApplicationSupertagIds?: readonly string[];
     sourceTemplateOccurrenceIds?: readonly string[];
+  }>;
+type InlineReferenceCreateMutation = Omit<
+  WithKind<ProtocolInlineReferenceCreateMutation, "inline-reference-create">,
+  "anchor"
+> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type InlineReferenceDeleteMutation = Omit<
+  WithKind<ProtocolContributionInlineReferenceDeleteMutation, "inline-reference-delete">,
+  "previousAnchor"
+> &
+  Readonly<{ previousAnchor?: SequenceAnchor }>;
+type FieldDatatypeConfigureMutation = Omit<
+  WithKind<ProtocolContributionFieldDatatypeConfigureMutation, "field-datatype-configure">,
+  "datatype" | "previousDatatype" | "observedValueFactIds"
+> &
+  Readonly<{
+    datatype: FieldDatatype;
+    previousDatatype?: FieldDatatype | null;
+    observedValueFactIds?: readonly string[];
+  }>;
+type FieldCardinalityConfigureMutation = Omit<
+  WithKind<ProtocolContributionFieldCardinalityConfigureMutation, "field-cardinality-configure">,
+  "cardinality" | "previousCardinality" | "observedValueFactIds"
+> &
+  Readonly<{
+    cardinality: FieldCardinality;
+    previousCardinality?: FieldCardinality | null;
+    observedValueFactIds?: readonly string[];
+  }>;
+type FieldInitializationExpressionConfigureMutation = Omit<
+  WithKind<
+    ProtocolContributionFieldInitializationExpressionConfigureMutation,
+    "field-initialization-expression-configure"
+  >,
+  "expression" | "previousExpression" | "observedValueFactIds"
+> &
+  Readonly<{
+    expression: FieldInitializationExpression;
+    previousExpression?: FieldInitializationExpression | null;
+    observedValueFactIds?: readonly string[];
   }>;
 
 export type ContributionMutation =
@@ -130,23 +170,24 @@ export type ContributionMutation =
   | (Omit<WithKind<ProtocolOccurrenceMoveMutation, "occurrence-move">, "anchor" | "previousAnchor"> &
       Readonly<{ anchor: SequenceAnchor; previousAnchor?: SequenceAnchor }>)
   | NodeOwnerSetMutation
+  | WithKind<ProtocolMetanodeAttachMutation, "metanode-attach">
   | (Omit<WithKind<ProtocolNodeTypeDeclareMutation, "node-type-declare">, "nodeType"> &
       Readonly<{ nodeType: NodeType }>)
-  | (Omit<WithKind<ProtocolSchemaApplyMutation, "schema-apply">, "anchor"> & Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaRemoveMutation, "schema-remove">, "previousAnchor"> &
+  | (Omit<WithKind<ProtocolSupertagApplyMutation, "supertag-apply">, "anchor"> & Readonly<{ anchor: SequenceAnchor }>)
+  | (Omit<WithKind<ProtocolSupertagRemoveMutation, "supertag-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaFieldAddMutation, "schema-field-add">, "anchor"> &
+  | (Omit<WithKind<ProtocolSupertagFieldAddMutation, "supertag-field-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaFieldRemoveMutation, "schema-field-remove">, "previousAnchor"> &
+  | (Omit<WithKind<ProtocolSupertagFieldRemoveMutation, "supertag-field-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | SchemaFieldConfigureMutation
-  | (Omit<WithKind<ProtocolSchemaExtensionAddMutation, "schema-extension-add">, "anchor"> &
+  | SupertagFieldConfigureMutation
+  | (Omit<WithKind<ProtocolSupertagExtensionAddMutation, "supertag-extension-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaExtensionRemoveMutation, "schema-extension-remove">, "previousAnchor"> &
+  | (Omit<WithKind<ProtocolSupertagExtensionRemoveMutation, "supertag-extension-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaTemplateNodeAddMutation, "schema-template-node-add">, "anchor"> &
+  | (Omit<WithKind<ProtocolSupertagTemplateNodeAddMutation, "supertag-template-node-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSchemaTemplateNodeRemoveMutation, "schema-template-node-remove">, "previousAnchor"> &
+  | (Omit<WithKind<ProtocolSupertagTemplateNodeRemoveMutation, "supertag-template-node-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
   | TemplateNodeDetachMutation
   | WithKind<ProtocolFieldMaterializeMutation, "field-materialize">
@@ -157,5 +198,18 @@ export type ContributionMutation =
   | FieldInitializeMutation
   | TextSpliceMutation
   | TextMarkMutation
-  | ValueSetMutation
-  | ValueUnsetMutation;
+  | InlineReferenceCreateMutation
+  | InlineReferenceDeleteMutation
+  | WithKind<ProtocolInlineReferenceAliasAttachMutation, "inline-reference-alias-attach">
+  | WithKind<ProtocolInlineReferenceAliasDetachMutation, "inline-reference-alias-detach">
+  | WithKind<ProtocolSearchSupertagClauseAttachMutation, "search-supertag-clause-attach">
+  | WithKind<ProtocolSearchFieldClauseAttachMutation, "search-field-clause-attach">
+  | WithKind<ProtocolSharedDefaultViewDefinitionAttachMutation, "shared-default-view-definition-attach">
+  | (Omit<
+      WithKind<ProtocolSharedDefaultViewDefinitionModeSetMutation, "shared-default-view-definition-mode-set">,
+      "viewType" | "previousViewType" | "observedModeFactIds"
+    > &
+      Readonly<{ viewType: ViewType; previousViewType?: ViewType | null; observedModeFactIds?: readonly string[] }>)
+  | FieldDatatypeConfigureMutation
+  | FieldCardinalityConfigureMutation
+  | FieldInitializationExpressionConfigureMutation;

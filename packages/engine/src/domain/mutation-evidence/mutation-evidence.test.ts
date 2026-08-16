@@ -1,42 +1,26 @@
 import { describe, expect, it } from "vitest";
 
+import { workspaceTrashNodeId } from "../fact/index.js";
 import { rebuildGeneration } from "../reconcile/index.js";
 import { end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { completeMutationEvidence } from "./policy.js";
 
 describe("Mutation evidence", () => {
-  it("derives Direct Value evidence from Origin while Review contains a Proposal", () => {
-    const facts = new Facts();
-    facts.addPlaced("node");
-    facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "blue",
-        previous: { kind: "unset" },
-      },
-      "proposal",
-    );
-    const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
+  it("protects the Workspace Trash role target rather than a deterministic Node identity", () => {
+    const facts = new Facts("custom-trash-node");
+    facts.addPlaced(workspaceTrashNodeId("workspace"));
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.review;
+    const context = {
+      snapshot: facts.snapshot(),
+      projections: () => ({ previous: projection, available: projection }),
+    };
 
-    const completed = completeMutationEvidence(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "red",
-      },
-      {
-        snapshot: facts.snapshot(),
-        projections: () => ({ previous: generation.origin, available: generation.review }),
-      },
+    expect(() => completeMutationEvidence({ kind: "node-delete", nodeId: "custom-trash-node" }, context)).toThrow(
+      "Workspace Trash cannot be deleted",
     );
-
-    expect(generation.review.nodes.node?.properties.color).toBe("blue");
-    expect(completed).toMatchObject({ previous: { kind: "unset" } });
+    expect(
+      completeMutationEvidence({ kind: "node-delete", nodeId: workspaceTrashNodeId("workspace") }, context),
+    ).toEqual({ kind: "node-delete", nodeId: workspaceTrashNodeId("workspace") });
   });
 
   it("compares Text mark states by canonical value", () => {
@@ -62,14 +46,14 @@ describe("Mutation evidence", () => {
         ...projection.nodes,
         node: {
           ...node,
-          text: node.text.map((atom) => ({
+          content: node.content.map((atom) => ({
             ...atom,
             attributes: { style: { weight: 700 } },
           })),
         },
       },
     };
-    const atomIds = observed.nodes.node.text.map((atom) => atom.id);
+    const atomIds = observed.nodes.node.content.filter((item) => item.kind === "text").map((atom) => atom.id);
 
     const completed = completeMutationEvidence(
       {
@@ -103,26 +87,30 @@ describe("Mutation evidence", () => {
 
     expect(completed).toMatchObject({
       previousParentNodeId: "workspace",
-      previousAnchor: { after: null, before: null, fallback: "start" },
+      previousAnchor: {
+        after: "workspace-trash-occ:v1:workspace",
+        before: null,
+        fallback: "end",
+      },
     });
   });
 
-  it("derives Direct Schema removal evidence from Origin ordering", () => {
+  it("derives Direct Supertag removal evidence from Origin ordering", () => {
     const facts = new Facts();
-    facts.addPlaced("schema-a");
-    facts.addPlaced("schema-b");
+    facts.addPlaced("supertag-a");
+    facts.addPlaced("supertag-b");
     facts.addPlaced("target");
-    facts.add({ kind: "node-type-declare", nodeId: "schema-a", nodeType: "schema" });
-    facts.add({ kind: "node-type-declare", nodeId: "schema-b", nodeType: "schema" });
-    facts.add({ kind: "schema-apply", nodeId: "target", schemaId: "schema-a", anchor: end });
+    facts.add({ kind: "node-type-declare", nodeId: "supertag-a", nodeType: "supertag-definition" });
+    facts.add({ kind: "node-type-declare", nodeId: "supertag-b", nodeType: "supertag-definition" });
+    facts.add({ kind: "supertag-apply", nodeId: "target", supertagId: "supertag-a", anchor: end });
     facts.add(
       {
-        kind: "schema-apply",
+        kind: "supertag-apply",
         nodeId: "target",
-        schemaId: "schema-b",
+        supertagId: "supertag-b",
         anchor: {
           after: null,
-          before: "schema-a",
+          before: "supertag-a",
           affinity: "before",
           fallback: "start",
         },
@@ -132,14 +120,14 @@ describe("Mutation evidence", () => {
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
 
     const completed = completeMutationEvidence(
-      { kind: "schema-remove", nodeId: "target", schemaId: "schema-a" },
+      { kind: "supertag-remove", nodeId: "target", supertagId: "supertag-a" },
       {
         snapshot: facts.snapshot(),
         projections: () => ({ previous: generation.origin, available: generation.review }),
       },
     );
 
-    expect(generation.review.schemaApplications.target).toEqual(["schema-b", "schema-a"]);
+    expect(generation.review.supertagApplications.target).toEqual(["supertag-b", "supertag-a"]);
     expect(completed).toMatchObject({
       previousAnchor: {
         after: null,

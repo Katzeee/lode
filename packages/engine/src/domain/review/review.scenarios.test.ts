@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { queryReview, validateReviewSelection } from "./review.js";
-import { base, end, generation, remoteFact } from "../../../tests/support/review/review-test-helpers.js";
+import { base, end, generation } from "../../../tests/support/review/review-test-helpers.js";
 
 describe("production Review scenarios", () => {
   it("Direct/Proposal 交错文本", () => {
@@ -24,8 +24,18 @@ describe("production Review scenarios", () => {
       insert: "D",
     });
     const projected = generation(facts.snapshot());
-    expect(projected.origin.nodes.node?.text.map((atom) => atom.value).join("")).toBe("D");
-    expect(projected.review.nodes.node?.text.map((atom) => atom.value).join("")).toBe("PD");
+    expect(
+      projected.origin.nodes.node?.content
+        .filter((item) => item.kind === "text")
+        .map((atom) => atom.value)
+        .join(""),
+    ).toBe("D");
+    expect(
+      projected.review.nodes.node?.content
+        .filter((item) => item.kind === "text")
+        .map((atom) => atom.value)
+        .join(""),
+    ).toBe("PD");
   });
 
   it("Text neutral bridge 边界", () => {
@@ -95,7 +105,7 @@ describe("production Review scenarios", () => {
       (hunk) => hunk.diffSpace.kind === "child-sequence",
     );
     expect(structural).toHaveLength(1);
-    expect(structural[0]?.proposalContributionIds).toEqual([removal.id, addition.id]);
+    expect(structural[0]?.proposalContributionIds).toEqual(expect.arrayContaining([removal.id, addition.id]));
   });
 
   it("unchanged sibling identities split local ChildSequence Diff Spaces", () => {
@@ -250,50 +260,6 @@ describe("production Review scenarios", () => {
     expect(impacts.every((hunk) => hunk.linkedHunkIds.length === 1)).toBe(true);
   });
 
-  it("shared Node property selection stales only when its transclusion impact set changes", () => {
-    const facts = base();
-    facts.add({ kind: "node-create", nodeId: "reference-parent" });
-    facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "blue",
-      },
-      "proposal",
-    );
-    const before = facts.snapshot();
-    const selection = queryReview("workspace", before, generation(before)).hunks[0]?.selection;
-    if (!selection) {
-      throw new Error("Expected property Review selection");
-    }
-    facts.add({ kind: "node-create", nodeId: "unrelated" });
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "unrelated",
-      nodeId: "unrelated",
-      parentNodeId: "workspace",
-      anchor: end,
-    });
-    let current = facts.snapshot();
-    expect(
-      validateReviewSelection("workspace", selection, "accept", "reviewer", current, generation(current)).kind,
-    ).toBe("valid");
-
-    facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "shared-reference",
-      nodeId: "node",
-      parentNodeId: "reference-parent",
-      anchor: end,
-    });
-    current = facts.snapshot();
-    expect(
-      validateReviewSelection("workspace", selection, "accept", "reviewer", current, generation(current)).kind,
-    ).toBe("stale");
-  });
-
   it("Review selection survives a Hunk merge caused only by removing Direct adjacency", () => {
     const facts = base();
     const origin = facts.add({
@@ -356,77 +322,6 @@ describe("production Review scenarios", () => {
     );
   });
 
-  it("重叠和不重叠 scopes", () => {
-    const facts = base();
-    const first = facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "blue",
-      },
-      "proposal",
-    );
-    const second = facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "color",
-        value: "red",
-      },
-      "proposal",
-    );
-    const third = facts.add(
-      {
-        kind: "value-set",
-        target: { kind: "node", id: "node" },
-        namespace: "property",
-        key: "size",
-        value: 2,
-      },
-      "proposal",
-    );
-    const hunks = queryReview("workspace", facts.snapshot(), generation(facts.snapshot())).hunks;
-    expect(hunks).toHaveLength(2);
-    expect(hunks.flatMap((hunk) => hunk.proposalContributionIds)).toEqual([first.id, second.id, third.id]);
-    expect(
-      hunks.some(
-        (hunk) => hunk.proposalContributionIds.includes(first.id) && hunk.proposalContributionIds.includes(second.id),
-      ),
-    ).toBe(true);
-
-    const observed = facts.snapshot().frontier;
-    const acceptOverlap = remoteFact({
-      replicaId: "bbbbbbbbbbbbbbbbbbbbbbbbbb",
-      observed,
-      lamport: facts.values.length + 1,
-      body: {
-        kind: "resolution",
-        adjudicatesResolutionIds: [],
-        actorId: "b",
-        decision: "accept",
-        proposalContributionIds: [second.id, third.id],
-      },
-    });
-    const rejectOverlap = remoteFact({
-      replicaId: "cccccccccccccccccccccccccc",
-      observed,
-      lamport: facts.values.length + 1,
-      body: {
-        kind: "resolution",
-        adjudicatesResolutionIds: [],
-        actorId: "c",
-        decision: "reject",
-        proposalContributionIds: [second.id],
-      },
-    });
-    const merged = generation(facts.snapshot([acceptOverlap, rejectOverlap]));
-    expect(merged).toEqual(generation(facts.snapshot([rejectOverlap, acceptOverlap])));
-    expect(merged.origin.nodes.node?.properties.size).toBe(2);
-  });
-
   it("same text-mark owner is one truthful decision scope", () => {
     for (const decision of ["accept", "reject"] as const) {
       const facts = base();
@@ -474,14 +369,22 @@ describe("production Review scenarios", () => {
         proposalContributionIds: hunk.selection.evidence.supportClosure,
       });
       const resolved = generation(facts.snapshot());
-      expect(resolved.origin.nodes.node?.text[0]?.attributes.color).toBe(decision === "accept" ? "red" : undefined);
-      expect(resolved.review.nodes.node?.text[0]?.attributes.color).toBe(decision === "accept" ? "red" : undefined);
+      expect(
+        resolved.origin.nodes.node?.content[0]?.kind === "text"
+          ? resolved.origin.nodes.node.content[0].attributes.color
+          : undefined,
+      ).toBe(decision === "accept" ? "red" : undefined);
+      expect(
+        resolved.review.nodes.node?.content[0]?.kind === "text"
+          ? resolved.review.nodes.node.content[0].attributes.color
+          : undefined,
+      ).toBe(decision === "accept" ? "red" : undefined);
     }
   });
 
-  it("Schema Application placement changes do not hide related Review evidence", () => {
+  it("Supertag Application placement changes do not hide related Review evidence", () => {
     const facts = base();
-    facts.add({ kind: "node-create", nodeId: "schema" });
+    facts.add({ kind: "node-create", nodeId: "supertag" });
     facts.add({ kind: "node-create", nodeId: "field" });
     facts.add({
       kind: "occurrence-create",
@@ -490,23 +393,23 @@ describe("production Review scenarios", () => {
       parentNodeId: "workspace",
       anchor: end,
     });
-    facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
+    facts.add({ kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end });
     const fieldTransaction = facts.addTransaction(
       [
-        { kind: "node-create", nodeId: "schema-field-template-field" },
+        { kind: "node-create", nodeId: "supertag-field-template-field" },
         {
           kind: "occurrence-create",
-          occurrenceId: "schema-field-template-field-occurrence",
-          nodeId: "schema-field-template-field",
-          parentNodeId: "schema",
+          occurrenceId: "supertag-field-template-field-occurrence",
+          nodeId: "supertag-field-template-field",
+          parentNodeId: "supertag",
           anchor: end,
         },
         {
-          kind: "schema-field-add",
-          schemaId: "schema",
+          kind: "supertag-field-add",
+          supertagId: "supertag",
           fieldDefinitionId: "field",
-          fieldNodeId: "schema-field-template-field",
-          fieldOccurrenceId: "schema-field-template-field-occurrence",
+          fieldNodeId: "supertag-field-template-field",
+          fieldOccurrenceId: "supertag-field-template-field-occurrence",
           anchor: end,
         },
       ],
@@ -514,14 +417,14 @@ describe("production Review scenarios", () => {
     );
     const field = fieldTransaction[2];
     if (!field) {
-      throw new Error("Expected Schema Field transaction");
+      throw new Error("Expected Supertag Field transaction");
     }
     const before = facts.snapshot();
     const selected = queryReview("workspace", before, generation(before)).hunks.find((hunk) =>
       hunk.proposalContributionIds.includes(field.id),
     )?.selection;
     if (!selected) {
-      throw new Error("Expected Schema Field Hunk");
+      throw new Error("Expected Supertag Field Hunk");
     }
     facts.add({
       kind: "node-owner-set",

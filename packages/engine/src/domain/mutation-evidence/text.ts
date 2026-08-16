@@ -1,5 +1,5 @@
 import { canonicalJson, type JsonValue, type Mutation, type PreviousValue, type TextMutation } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
 import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
 import { assertEvidenceEqual } from "./evidence-validation.js";
 
@@ -39,13 +39,17 @@ export function completeTextSpliceEvidence(
   mutation: TextSpliceMutation,
   available: ScopedProjection,
 ): TextSpliceMutation {
-  const atoms = available.nodes[mutation.nodeId]?.text;
-  if (!atoms) {
+  if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId)) {
     throw new Error("Text target Node is absent from the observed projection");
   }
+  const node = available.nodes[mutation.nodeId];
+  if (!node) {
+    throw new Error("Text target Node is absent from the observed projection");
+  }
+  const atoms = textAtoms(node);
   assertTextAnchor(
     mutation,
-    atoms.map((atom) => atom.id),
+    node.content.map((item) => item.id),
   );
   const byId = new Map(atoms.map((atom) => [atom.id, atom]));
   const deletedAtoms = mutation.deleteAtomIds.map((id) => {
@@ -63,11 +67,15 @@ function completeTextMarkEvidence(
   previous: ScopedProjection,
   available: ScopedProjection,
 ): TextMarkMutation {
-  const availableAtoms = available.nodes[mutation.nodeId]?.text;
-  if (!availableAtoms || mutation.atomIds.some((id) => !availableAtoms.some((atom) => atom.id === id))) {
+  if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId)) {
+    throw new Error("Text mark target Node is absent from the observed projection");
+  }
+  const availableNode = available.nodes[mutation.nodeId];
+  const availableAtoms = textAtoms(availableNode);
+  if (!availableNode || mutation.atomIds.some((id) => !availableAtoms.some((atom) => atom.id === id))) {
     throw new Error("Text mark targets an Atom outside the observed projection");
   }
-  const previousAtoms = previous.nodes[mutation.nodeId]?.text ?? [];
+  const previousAtoms = textAtoms(previous.nodes[mutation.nodeId]);
   const states = mutation.atomIds.map((id) =>
     previousValue(previousAtoms.find((atom) => atom.id === id)?.attributes[mutation.key]),
   );

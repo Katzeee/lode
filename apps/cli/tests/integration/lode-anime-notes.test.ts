@@ -11,6 +11,8 @@ import { animeNotesProgram, moodProposal, pendingMoodEdit, reviewApplicationProp
 
 const workspaceId = "anime-notes";
 const outlineWorkspaceId = "outline-product";
+const workspaceTrashNodeId = (id: string) => `workspace-trash:v1:${id}`;
+const workspaceTrashOccurrenceId = (id: string) => `workspace-trash-occ:v1:${id}`;
 const accessToken = "anime-notes-transport-access-token";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const temporaryDirectories: string[] = [];
@@ -52,13 +54,13 @@ describe("Anime Notes through the public CLI and daemon", () => {
       await execute(left.address, "edit-pending-mood-field", "direct", pendingMoodEdit());
       expect(await materializedFieldDefinitions(left.address, "origin", "quick-note")).not.toContain("mood-field");
       expect(await materializedFieldDefinitions(left.address, "review", "quick-note")).toContain("mood-field");
-      const templateHunk = await reviewHunk(left.address, "schema-template");
+      const templateHunk = await reviewHunk(left.address, "supertag-template");
       const templateEvidence = evidence(templateHunk);
       expect(templateEvidence.supportClosure).toHaveLength(7);
       expect(array(templateEvidence.effects, "Template effects")).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            kind: "schema-relation",
+            kind: "supertag-relation",
             relation: "field",
             ownerId: "quick-impression",
             targetId: "mood-field",
@@ -66,10 +68,10 @@ describe("Anime Notes through the public CLI and daemon", () => {
         ]),
       );
       const templateImpacts = array(templateEvidence.associatedImpactIds, "Template impacts");
-      expect(templateImpacts).toContain("sschema-field/squick-impression/smood-field");
+      expect(templateImpacts).toContain("supertag-field/quick-impression/mood-field");
       expect(
         templateImpacts.some(
-          (impact) => typeof impact === "string" && impact.startsWith("seffective-field/squick-note/smood-field/"),
+          (impact) => typeof impact === "string" && impact.startsWith("effective-field/quick-note/mood-field/"),
         ),
       ).toBe(true);
       await resolve(left.address, "accept-mood-field", "accept", templateHunk.selection);
@@ -77,25 +79,23 @@ describe("Anime Notes through the public CLI and daemon", () => {
       expect(await nodeText(left.address, "origin", "mood-text")).toBe("Reflective");
 
       await execute(left.address, "propose-review-application", "proposal", reviewApplicationProposal());
-      expect(await schemaSearchResult(left.address, "review", "origin")).toEqual(["review-note"]);
-      expect(await schemaSearchResult(left.address, "review", "review")).toEqual(["quick-note", "review-note"]);
-      expect(await viewNodeIds(left.address, "review-view", "origin")).toEqual(["review-note"]);
-      expect(await viewNodeIds(left.address, "review-view", "review")).toEqual(["quick-note", "review-note"]);
-      const applicationHunk = await reviewHunk(left.address, "schema-application");
+      expect(await supertagInstancesResult(left.address, "review", "origin")).toEqual(["review-note"]);
+      expect(await supertagInstancesResult(left.address, "review", "review")).toEqual(["quick-note", "review-note"]);
+      const applicationHunk = await reviewHunk(left.address, "supertag-application");
       const applicationEvidence = evidence(applicationHunk);
       expect(array(applicationEvidence.effects, "Application effects")).toEqual([
         expect.objectContaining({
-          kind: "schema-relation",
+          kind: "supertag-relation",
           relation: "application",
           ownerId: "quick-note",
           targetId: "review",
         }),
       ]);
       expect(array(applicationEvidence.associatedImpactIds, "Application impacts")).toContain(
-        "sschema-application/squick-note/sreview",
+        "supertag-application/quick-note/review",
       );
       await resolve(left.address, "reject-review-application", "reject", applicationHunk.selection);
-      expect(await schemaApplications(left.address, "origin", "quick-note")).toEqual([
+      expect(await supertagApplications(left.address, "origin", "quick-note")).toEqual([
         "quick-impression",
         "anime-context",
       ]);
@@ -154,7 +154,10 @@ describe("Anime Notes through the public CLI and daemon", () => {
         nodeAt("discarded", "outline-root", "discarded-occurrence"),
       ]);
 
-      expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual(["outline-root-occurrence"]);
+      expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual([
+        workspaceTrashOccurrenceId(outlineWorkspaceId),
+        "outline-root-occurrence",
+      ]);
       const extraRoot = await cliRequest("execute", left.address, {
         kind: "mutate",
         workspaceId: outlineWorkspaceId,
@@ -166,6 +169,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       });
       expect(extraRoot).toMatchObject({ status: "published" });
       expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual([
+        workspaceTrashOccurrenceId(outlineWorkspaceId),
         "outline-root-occurrence",
         "extra-root-occurrence",
       ]);
@@ -219,6 +223,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         "extra-root",
         outlineWorkspaceId,
         "outline-root",
+        workspaceTrashNodeId(outlineWorkspaceId),
       ]);
       const restartedOccurrences = await outlineProjection(left.address, "occurrences");
       expect(restartedOccurrences).toMatchObject({
@@ -262,16 +267,19 @@ describe("Anime Notes through the public CLI and daemon", () => {
           occurrenceId: "discarded-occurrence",
         },
       ]);
-      expect((await outlineProjection(left.address, "occurrences"))["discarded-occurrence"]).toBeUndefined();
+      expect((await outlineProjection(left.address, "occurrences"))["discarded-occurrence"]).toMatchObject({
+        nodeId: "discarded",
+        parentNodeId: workspaceTrashNodeId(outlineWorkspaceId),
+      });
 
       const isolated = await query(left.address, {
         kind: "projection",
         workspaceId: "isolated-workspace",
-        view: "origin",
+        perspective: "origin",
         section: "nodes",
       });
       const isolatedNodes = record(isolated.nodes, "Isolated workspace Nodes");
-      expect(Object.keys(isolatedNodes)).toEqual(["isolated-workspace"]);
+      expect(Object.keys(isolatedNodes)).toEqual(["isolated-workspace", workspaceTrashNodeId("isolated-workspace")]);
       expect(record(isolatedNodes["isolated-workspace"], "Isolated Workspace Node").nodeId).toBe("isolated-workspace");
     } finally {
       await left.stop();
@@ -313,7 +321,7 @@ async function outlineProjection(endpoint: string, section: string): Promise<Rec
     const value = await query(endpoint, {
       kind: "projection",
       workspaceId: outlineWorkspaceId,
-      view: "origin",
+      perspective: "origin",
       section,
       after,
       limit: 100,
@@ -325,12 +333,15 @@ async function outlineProjection(endpoint: string, section: string): Promise<Rec
 }
 
 async function outlineChildren(endpoint: string, parentNodeId: string): Promise<unknown[]> {
-  const children = await outlineProjection(endpoint, "children");
-  return array(children[parentNodeId], `Children for ${parentNodeId} in ${JSON.stringify(children)}`);
+  const childOccurrences = await outlineProjection(endpoint, "childOccurrences");
+  return array(
+    childOccurrences[parentNodeId],
+    `Child Occurrences for ${parentNodeId} in ${JSON.stringify(childOccurrences)}`,
+  );
 }
 
 async function nodeAtomsInWorkspace(endpoint: string, nodeId: string): Promise<unknown[]> {
-  return array(record((await outlineProjection(endpoint, "nodes"))[nodeId], `Node ${nodeId}`).text, "Node text");
+  return textItems(record((await outlineProjection(endpoint, "nodes"))[nodeId], `Node ${nodeId}`));
 }
 
 async function nodeTextInWorkspace(endpoint: string, nodeId: string): Promise<string> {
@@ -342,7 +353,7 @@ async function occurrenceNodeInWorkspace(endpoint: string, occurrenceId: string)
 }
 
 async function expectAnimeNotes(endpoint: string, stage: string, includesMoodField = false): Promise<void> {
-  expect(await outlineNodeIds(endpoint, workspaceId)).toEqual(["root"]);
+  expect(await outlineNodeIds(endpoint, workspaceId)).toEqual([workspaceTrashNodeId(workspaceId), "root"]);
   expect(await outlineNodeIds(endpoint, "root")).toEqual(["definition-library", "library", "notes"]);
   expect(await outlineNodeIds(endpoint, "definition-library")).toEqual([
     "anime-work",
@@ -355,7 +366,6 @@ async function expectAnimeNotes(endpoint: string, stage: string, includesMoodFie
     "context-field",
     "impression-field",
     "rating-field",
-    "review-view",
     ...(includesMoodField ? ["mood-field"] : []),
   ]);
   expect(await outlineNodeIds(endpoint, "library")).toEqual(["frieren", "fern"]);
@@ -368,35 +378,27 @@ async function expectAnimeNotes(endpoint: string, stage: string, includesMoodFie
     "review-note": "notes",
   });
   const frierenNodes = await projectionMap(endpoint, "origin", "nodes");
-  const frierenAtoms = array(record(frierenNodes.frieren, "Frieren Node").text, "Frieren text");
+  const frierenAtoms = textItems(record(frierenNodes.frieren, "Frieren Node"));
   expect(
     frierenAtoms.map((atom) => record(atom, "Frieren atom").id),
     `${stage} atom identities`,
   ).toEqual([...new Set(frierenAtoms.map((atom) => record(atom, "Frieren atom").id))]);
   expect(await nodeText(endpoint, "origin", "frieren"), stage).toBe("Frieren: Beyond Journey's End");
   expect(await nodeText(endpoint, "origin", "impression-text")).toBe("Quiet, patient, and humane");
-  expect(await schemaApplications(endpoint, "origin", "quick-note")).toEqual(["quick-impression", "anime-context"]);
-  expect(await schemaSearchResult(endpoint, "quick-impression")).toEqual(["quick-note"]);
-  expect(await schemaSearchResult(endpoint, "anime-context")).toEqual(["quick-note"]);
-  expect(await schemaSearchResult(endpoint, "anime-work")).toEqual(["frieren"]);
+  expect(await supertagApplications(endpoint, "origin", "quick-note")).toEqual(["quick-impression", "anime-context"]);
+  expect(await supertagInstancesResult(endpoint, "quick-impression")).toEqual(["quick-note"]);
+  expect(await supertagInstancesResult(endpoint, "anime-context")).toEqual(["quick-note"]);
+  expect(await supertagInstancesResult(endpoint, "anime-work")).toEqual(["frieren"]);
   expect(await materializedFieldDefinitions(endpoint, "origin", "quick-note")).toEqual(
     expect.arrayContaining(["work-field", "impression-field"]),
   );
   expect(await occurrenceNode(endpoint, "quick-work-reference")).toBe("frieren");
-  const reviewView = await viewResult(endpoint, "review-view");
-  expect(reviewView.layout).toBe("table");
-  expect(array(reviewView.fieldDefinitionIds, "View columns")).toEqual(["work-field", "rating-field"]);
-  const reviewRow = record(array(reviewView.rows, "View rows")[0], "Review View row");
-  expect(reviewRow.nodeId).toBe("review-note");
-  const cells = array(reviewRow.fields, "View cells").map((cell) => record(cell, "View cell"));
-  expect(record(cells[0], "Work cell").valueNodeIds).toEqual(["frieren"]);
-  expect(record(cells[1], "Rating cell").valueNodeIds).toEqual(["rating-text"]);
 }
 
 async function outlineNodeIds(endpoint: string, parentNodeId: string): Promise<unknown[]> {
-  const children = await projectionMap(endpoint, "origin", "children");
+  const childOccurrences = await projectionMap(endpoint, "origin", "childOccurrences");
   const occurrences = await projectionMap(endpoint, "origin", "occurrences");
-  return array(children[parentNodeId], `Children of ${parentNodeId}`).map(
+  return array(childOccurrences[parentNodeId], `Child Occurrences of ${parentNodeId}`).map(
     (occurrenceId) => record(occurrences[String(occurrenceId)], `Occurrence ${String(occurrenceId)}`).nodeId,
   );
 }
@@ -469,12 +471,16 @@ function evidence(hunk: Record<string, unknown>): Record<string, unknown> {
   return record(record(hunk.selection, "Review selection").evidence, "Review evidence");
 }
 
-async function nodeText(endpoint: string, view: string, nodeId: string): Promise<string> {
-  const nodes = await projectionMap(endpoint, view, "nodes");
+async function nodeText(endpoint: string, perspective: string, nodeId: string): Promise<string> {
+  const nodes = await projectionMap(endpoint, perspective, "nodes");
   const node = record(nodes[nodeId], `Node ${nodeId}`);
-  return array(node.text, "Node text")
+  return textItems(node)
     .map((atom) => record(atom, "Text atom").value)
     .join("");
+}
+
+function textItems(node: Record<string, unknown>): unknown[] {
+  return array(node.content, "Node content").filter((item) => record(item, "Node content item").kind === "text");
 }
 
 async function occurrenceNode(endpoint: string, occurrenceId: string): Promise<unknown> {
@@ -482,47 +488,35 @@ async function occurrenceNode(endpoint: string, occurrenceId: string): Promise<u
   return record(occurrences[occurrenceId], `Occurrence ${occurrenceId}`).nodeId;
 }
 
-async function schemaApplications(endpoint: string, view: string, nodeId: string): Promise<unknown[]> {
-  return array((await projectionMap(endpoint, view, "schemaApplications"))[nodeId], "Schemas");
+async function supertagApplications(endpoint: string, perspective: string, nodeId: string): Promise<unknown[]> {
+  return array((await projectionMap(endpoint, perspective, "supertagApplications"))[nodeId], "Supertags");
 }
 
-async function schemaSearchResult(endpoint: string, schemaId: string, view = "origin"): Promise<unknown[]> {
+async function supertagInstancesResult(
+  endpoint: string,
+  supertagId: string,
+  perspective = "origin",
+): Promise<unknown[]> {
   const value = await query(endpoint, {
-    kind: "schema-search",
+    kind: "supertag-instances",
     workspaceId,
-    view,
-    schemaId,
+    perspective,
+    supertagId,
     limit: 10,
   });
   expect(value.next).toBeNull();
-  return array(value.nodeIds, "Schema search result");
+  return array(value.nodeIds, "Supertag search result");
 }
 
-async function viewNodeIds(endpoint: string, viewNodeId: string, view = "origin"): Promise<unknown[]> {
-  return array((await viewResult(endpoint, viewNodeId, view)).rows, "View rows").map(
-    (row) => record(row, "View row").nodeId,
-  );
-}
-
-async function viewResult(endpoint: string, viewNodeId: string, view = "origin"): Promise<Record<string, unknown>> {
-  return query(endpoint, {
-    kind: "view",
-    workspaceId,
-    view,
-    viewNodeId,
-    limit: 10,
-  });
-}
-
-async function materializedFieldDefinitions(endpoint: string, view: string, nodeId: string): Promise<unknown[]> {
-  const values = await projectionMap(endpoint, view, "materializedFields");
+async function materializedFieldDefinitions(endpoint: string, perspective: string, nodeId: string): Promise<unknown[]> {
+  const values = await projectionMap(endpoint, perspective, "materializedFields");
   return array(values[nodeId] ?? [], "Materialized Fields").map(
     (field) => record(field, "Materialized Field").fieldDefinitionId,
   );
 }
 
-async function projectionMap(endpoint: string, view: string, section: string): Promise<Record<string, unknown>> {
-  const value = await query(endpoint, { kind: "projection", workspaceId, view, section });
+async function projectionMap(endpoint: string, perspective: string, section: string): Promise<Record<string, unknown>> {
+  const value = await query(endpoint, { kind: "projection", workspaceId, perspective, section });
   return record(value[section], `${section} Projection`);
 }
 

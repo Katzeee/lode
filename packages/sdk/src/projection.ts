@@ -3,33 +3,44 @@ import type {
   FieldConfigCandidate as ProtocolFieldConfigCandidate,
   FieldInitializationCandidate as ProtocolFieldInitializationCandidate,
   MaterializedField as ProtocolMaterializedField,
-  NodeStatus as ProtocolNodeStatus,
   ProjectedNode as ProtocolProjectedNode,
   ProjectedOccurrence as ProtocolProjectedOccurrence,
   TemplateField as ProtocolTemplateField,
   TemplateNodeInstance as ProtocolTemplateNodeInstance,
   TextAtom as ProtocolTextAtom,
+  ProjectedInlineReference as ProtocolProjectedInlineReference,
+  SharedDefaultViewDefinition as ProtocolSharedDefaultViewDefinition,
+  FieldDefinitionConfiguration as ProtocolFieldDefinitionConfiguration,
 } from "@lode/protocol/dto/projection";
 import { ProjectionPageSchema } from "@lode/protocol/proto";
 import type {
-  FieldTemplateConfig,
+  SupertagFieldConfig,
   FieldValueSeed,
   FieldVisibility,
-  JsonValue,
   NodeType,
   ProjectionIdentity,
   ProtocolDto,
-  ViewMode,
+  ProjectionPerspective,
+  TextAtomId,
+  ViewType,
+  FieldDatatype,
+  FieldCardinality,
+  FieldInitializationExpression,
 } from "./model.js";
 import type { ConflictIssue } from "./review.js";
 import type { FieldInitializationSource } from "./protocol-enums/model.js";
-import type { NodeState, ProjectionSection, TemplateNodeState } from "./protocol-enums/projection.js";
+import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
+import type { ProjectionSection, TemplateNodeState } from "./protocol-enums/projection.js";
 
-export type TextAtom = ProtocolDto<ProtocolTextAtom>;
-export type ProjectedNode = ProtocolDto<ProtocolProjectedNode>;
+export type TextAtom = Omit<ProtocolDto<ProtocolTextAtom>, "id"> & Readonly<{ kind: "text"; id: TextAtomId }>;
+export type ProjectedInlineReference = Omit<ProtocolDto<ProtocolProjectedInlineReference>, "targetStatus"> &
+  Readonly<{ kind: "inline-reference"; targetStatus: InlineReferenceTargetStatus }>;
+export type NodeContentItem = TextAtom | ProjectedInlineReference;
+export type ProjectedNode = Omit<ProtocolDto<ProtocolProjectedNode>, "nodeType" | "content"> &
+  Readonly<{ nodeType: NodeType | null; content: readonly NodeContentItem[] }>;
 export type ProjectedOccurrence = ProtocolDto<ProtocolProjectedOccurrence>;
 export type FieldConfigCandidate = Omit<ProtocolDto<ProtocolFieldConfigCandidate>, "config"> &
-  Readonly<{ config: FieldTemplateConfig }>;
+  Readonly<{ config: SupertagFieldConfig }>;
 export type FieldInitializationCandidate = Omit<
   ProtocolDto<ProtocolFieldInitializationCandidate>,
   "source" | "values"
@@ -38,7 +49,7 @@ export type FieldInitializationCandidate = Omit<
 export type TemplateField = Omit<ProtocolDto<ProtocolTemplateField>, "configCandidates" | "effectiveConfig"> &
   Readonly<{
     configCandidates: readonly FieldConfigCandidate[];
-    effectiveConfig: FieldTemplateConfig | null;
+    effectiveConfig: SupertagFieldConfig | null;
   }>;
 export type EffectiveField = Omit<
   ProtocolDto<ProtocolEffectiveField>,
@@ -47,35 +58,85 @@ export type EffectiveField = Omit<
   Readonly<{
     visibility: FieldVisibility;
     configCandidates: readonly FieldConfigCandidate[];
-    effectiveConfig: FieldTemplateConfig | null;
+    effectiveConfig: SupertagFieldConfig | null;
     initializationCandidates: readonly FieldInitializationCandidate[];
     initializedValues: readonly FieldValueSeed[] | null;
   }>;
 export type MaterializedField = ProtocolDto<ProtocolMaterializedField>;
-export type NodeStatus = Omit<ProtocolDto<ProtocolNodeStatus>, "nodeType" | "state"> &
-  Readonly<{ nodeType: NodeType | null; state: NodeState }>;
+type FieldDefinitionConfigurationBase = Omit<ProtocolDto<ProtocolFieldDefinitionConfiguration>, "configuration">;
+export type FieldDefinitionConfiguration =
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "datatype"; datatype: FieldDatatype }>)
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>)
+  | (FieldDefinitionConfigurationBase &
+      Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>);
 export type TemplateNodeInstance = Omit<ProtocolDto<ProtocolTemplateNodeInstance>, "state"> &
   Readonly<{ state: TemplateNodeState }>;
 
-export type ProjectionSections = Readonly<{
+export type NodeGraph = Readonly<{
   nodes: Readonly<Record<string, ProjectedNode>>;
   occurrences: Readonly<Record<string, ProjectedOccurrence>>;
-  children: Readonly<Record<string, readonly string[]>>;
+  childOccurrences: Readonly<Record<string, readonly string[]>>;
   nodeOwners: Readonly<Record<string, string | null>>;
-  addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  schemaApplications: Readonly<Record<string, readonly string[]>>;
-  schemaFields: Readonly<Record<string, readonly string[]>>;
+  metanodes: Readonly<Record<string, string>>;
+}>;
+
+export type WorkspaceSystemNodeRole = "trash";
+export type WorkspaceSystemNodeProjection = Readonly<{
+  workspaceSystemNodes: Readonly<Partial<Record<WorkspaceSystemNodeRole, string>>>;
+}>;
+
+export type SupertagProjection = Readonly<{
+  supertagApplications: Readonly<Record<string, readonly string[]>>;
+  supertagFields: Readonly<Record<string, readonly string[]>>;
   templateFields: Readonly<Record<string, readonly TemplateField[]>>;
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  supertagTemplateNodes: Readonly<Record<string, readonly string[]>>;
   templateNodeInstances: readonly TemplateNodeInstance[];
-  schemaExtensions: Readonly<Record<string, readonly string[]>>;
-  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  nodeStatuses: Readonly<Record<string, NodeStatus>>;
+  supertagExtensions: Readonly<Record<string, readonly string[]>>;
+  supertagInstanceSupertags: Readonly<Record<string, readonly string[]>>;
+  supertagExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+}>;
+
+export type ConflictProjection = Readonly<{
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
+}>;
+
+export type FieldProjection = Readonly<{
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  fieldDefinitionConfigurations: Readonly<Record<string, readonly FieldDefinitionConfiguration[]>>;
 }>;
+
+export type SearchClause =
+  | Readonly<{
+      kind: "supertag-instance-of";
+      clauseNodeId: string;
+      clauseOccurrenceId: string;
+      supertagId: string;
+    }>
+  | Readonly<{
+      kind: "field-defined";
+      clauseNodeId: string;
+      clauseOccurrenceId: string;
+      fieldDefinitionId: string;
+    }>;
+
+export type SearchProjection = Readonly<{
+  searchClauses: Readonly<Record<string, readonly SearchClause[]>>;
+}>;
+
+export type SharedDefaultViewDefinition = Omit<ProtocolDto<ProtocolSharedDefaultViewDefinition>, "viewType"> &
+  Readonly<{ viewType: ViewType; modeContributionIds: readonly string[] }>;
+export type ViewProjection = Readonly<{
+  sharedDefaultViewDefinitions: Readonly<Record<string, readonly SharedDefaultViewDefinition[]>>;
+}>;
+
+export type ProjectionSections = NodeGraph &
+  WorkspaceSystemNodeProjection &
+  SupertagProjection &
+  ConflictProjection &
+  FieldProjection &
+  SearchProjection &
+  ViewProjection;
 
 export type ProjectionPageSection = ProjectionSection;
 export const PROJECTION_PAGE_SECTIONS = (ProjectionPageSchema.oneofs[0]?.fields.map(
@@ -93,7 +154,7 @@ export type ProjectionPage<Section extends ProjectionPageSection = ProjectionPag
   Section extends ProjectionPageSection
     ? Readonly<{
         identity: ProjectionIdentity;
-        view: ViewMode;
+        perspective: ProjectionPerspective;
         section: Section;
         next: string | null;
       }> &

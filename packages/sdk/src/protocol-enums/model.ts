@@ -3,9 +3,12 @@ import {
   AnchorFallback as ProtocolAnchorFallback,
   FieldInitializationSource as ProtocolFieldInitializationSource,
   FieldVisibility as ProtocolFieldVisibility,
+  FieldDatatype as ProtocolFieldDatatype,
+  FieldCardinality as ProtocolFieldCardinality,
   HistoryOperation as ProtocolHistoryOperation,
   NodeType as ProtocolNodeType,
-  ValueNamespace as ProtocolValueNamespace,
+  InlineReferenceTargetStatus as ProtocolInlineReferenceTargetStatus,
+  ViewType as ProtocolViewType,
 } from "@lode/protocol/dto/model";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
@@ -34,14 +37,13 @@ export type AnchorFallback = DomainEnum<typeof anchorFallback>;
 export const nodeType = defineProtocolEnum<ProtocolNodeType>()(
   {
     [ProtocolNodeType.NODE_TYPE_UNSPECIFIED]: null,
-    [ProtocolNodeType.NODE_TYPE_SCHEMA]: "schema",
+    [ProtocolNodeType.NODE_TYPE_SUPERTAG_DEFINITION]: "supertag-definition",
     [ProtocolNodeType.NODE_TYPE_FIELD_DEFINITION]: "field-definition",
     [ProtocolNodeType.NODE_TYPE_FIELD]: "field",
     [ProtocolNodeType.NODE_TYPE_SEARCH]: "search",
     [ProtocolNodeType.NODE_TYPE_COMMAND]: "command",
     [ProtocolNodeType.NODE_TYPE_WORKSPACE]: "workspace",
     [ProtocolNodeType.NODE_TYPE_CALENDAR]: "calendar",
-    [ProtocolNodeType.NODE_TYPE_VIEW]: "view",
     [ProtocolNodeType.UNRECOGNIZED]: null,
   },
   "Node type",
@@ -60,6 +62,28 @@ export const fieldVisibility = defineProtocolEnum<ProtocolFieldVisibility>()(
 );
 export type FieldVisibility = DomainEnum<typeof fieldVisibility>;
 
+export const fieldDatatype = defineProtocolEnum<ProtocolFieldDatatype>()(
+  {
+    [ProtocolFieldDatatype.FIELD_DATATYPE_UNSPECIFIED]: null,
+    [ProtocolFieldDatatype.FIELD_DATATYPE_PLAIN]: "plain",
+    [ProtocolFieldDatatype.FIELD_DATATYPE_OPTIONS]: "options",
+    [ProtocolFieldDatatype.UNRECOGNIZED]: null,
+  },
+  "Field datatype",
+);
+export type FieldDatatype = DomainEnum<typeof fieldDatatype>;
+
+export const fieldCardinality = defineProtocolEnum<ProtocolFieldCardinality>()(
+  {
+    [ProtocolFieldCardinality.FIELD_CARDINALITY_UNSPECIFIED]: null,
+    [ProtocolFieldCardinality.FIELD_CARDINALITY_SINGLE]: "single",
+    [ProtocolFieldCardinality.FIELD_CARDINALITY_LIST]: "list",
+    [ProtocolFieldCardinality.UNRECOGNIZED]: null,
+  },
+  "Field cardinality",
+);
+export type FieldCardinality = DomainEnum<typeof fieldCardinality>;
+
 export const historyOperation = defineProtocolEnum<ProtocolHistoryOperation>()(
   {
     [ProtocolHistoryOperation.HISTORY_OPERATION_UNSPECIFIED]: null,
@@ -72,18 +96,6 @@ export const historyOperation = defineProtocolEnum<ProtocolHistoryOperation>()(
 );
 export type HistoryOperation = DomainEnum<typeof historyOperation>;
 
-export const valueNamespace = defineProtocolEnum<ProtocolValueNamespace>()(
-  {
-    [ProtocolValueNamespace.VALUE_NAMESPACE_UNSPECIFIED]: null,
-    [ProtocolValueNamespace.VALUE_NAMESPACE_PROPERTY]: "property",
-    [ProtocolValueNamespace.VALUE_NAMESPACE_METADATA]: "metadata",
-    [ProtocolValueNamespace.VALUE_NAMESPACE_SCHEMA]: "schema",
-    [ProtocolValueNamespace.UNRECOGNIZED]: null,
-  },
-  "Value namespace",
-);
-export type ValueNamespace = DomainEnum<typeof valueNamespace>;
-
 export const fieldInitializationSource = defineProtocolEnum<ProtocolFieldInitializationSource>()(
   {
     [ProtocolFieldInitializationSource.FIELD_INITIALIZATION_SOURCE_UNSPECIFIED]: null,
@@ -94,3 +106,26 @@ export const fieldInitializationSource = defineProtocolEnum<ProtocolFieldInitial
   "Field initialization source",
 );
 export type FieldInitializationSource = DomainEnum<typeof fieldInitializationSource>;
+
+export const inlineReferenceTargetStatus = defineProtocolEnum<ProtocolInlineReferenceTargetStatus>()(
+  {
+    [ProtocolInlineReferenceTargetStatus.INLINE_REFERENCE_TARGET_STATUS_UNSPECIFIED]: null,
+    [ProtocolInlineReferenceTargetStatus.INLINE_REFERENCE_TARGET_STATUS_ACTIVE]: "active",
+    [ProtocolInlineReferenceTargetStatus.INLINE_REFERENCE_TARGET_STATUS_TRASH]: "trash",
+    [ProtocolInlineReferenceTargetStatus.INLINE_REFERENCE_TARGET_STATUS_UNAVAILABLE]: "unavailable",
+    [ProtocolInlineReferenceTargetStatus.UNRECOGNIZED]: null,
+  },
+  "Inline Reference target status",
+);
+export type InlineReferenceTargetStatus = DomainEnum<typeof inlineReferenceTargetStatus>;
+
+export const viewType = defineProtocolEnum<ProtocolViewType>()(
+  {
+    [ProtocolViewType.VIEW_TYPE_UNSPECIFIED]: null,
+    [ProtocolViewType.VIEW_TYPE_OUTLINE]: "outline",
+    [ProtocolViewType.VIEW_TYPE_TABLE]: "table",
+    [ProtocolViewType.UNRECOGNIZED]: null,
+  },
+  "View type",
+);
+export type ViewType = DomainEnum<typeof viewType>;

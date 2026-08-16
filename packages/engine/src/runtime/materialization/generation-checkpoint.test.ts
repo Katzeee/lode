@@ -3,11 +3,10 @@ import { describe, expect, it } from "vitest";
 import { canonicalDigest, frontierOf, makeFact } from "../../domain/fact/index.js";
 import { createGenerationCheckpoint, reconcileFromCheckpoint } from "./generation-checkpoint.js";
 import type { FactSnapshot } from "../../domain/fact/index.js";
-import type { ProjectionVersions } from "../../domain/reconcile/index.js";
+import { CURRENT_PROJECTION_VERSIONS as versions, type ProjectionVersions } from "../../domain/reconcile/index.js";
 import { rebuildGeneration } from "../../domain/reconcile/reconcile.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const versions = { rulesVersion: "proposal-rules-5", schemaVersion: "lode-schema-19" } as const;
 const INTEGRITY_KEY = "checkpoint-test-key";
 
 describe("generation checkpoints", () => {
@@ -97,7 +96,7 @@ describe("generation checkpoints", () => {
 
     const wrongGeneration = {
       ...checkpoint.generation,
-      origin: { ...checkpoint.generation.origin, view: "review" },
+      origin: { ...checkpoint.generation.origin, perspective: "review" },
     };
     const wrongView = {
       ...checkpoint,

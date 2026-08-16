@@ -1,4 +1,8 @@
-import { FIELD_DEFINITION_NODE_TYPE, SCHEMA_NODE_TYPE, type Mutation } from "../../../src/domain/fact/index.js";
+import {
+  FIELD_DEFINITION_NODE_TYPE,
+  SUPERTAG_DEFINITION_NODE_TYPE,
+  type Mutation,
+} from "../../../src/domain/fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 import { base, end } from "./reconcile-test-helpers.js";
 import { addDefinitionNode } from "./placed-node-test-helpers.js";
@@ -9,7 +13,82 @@ export const fieldProposalLifecycleCases = {
   "field-value-delete": fieldValueDeleteCase,
   "materialized-field-delete": materializedFieldDeleteCase,
   "field-initialize": fieldInitializeCase,
+  "field-datatype-configure": fieldDatatypeConfigureCase,
+  "field-cardinality-configure": fieldCardinalityConfigureCase,
+  "field-initialization-expression-configure": fieldInitializationExpressionConfigureCase,
 } as const;
+
+function fieldDatatypeConfigureCase(): ProposalLifecycleCase {
+  const facts = fieldDefinitionConfigurationFacts("datatype-configuration");
+  const previous = facts.add({
+    kind: "field-datatype-configure",
+    fieldDefinitionId: "field",
+    configurationNodeId: "datatype-configuration",
+    configurationOccurrenceId: "datatype-configuration-occurrence",
+    datatype: "options",
+    previousDatatype: null,
+    observedValueFactIds: [],
+  });
+  return lifecycle(facts, {
+    kind: "field-datatype-configure",
+    fieldDefinitionId: "field",
+    configurationNodeId: "datatype-configuration",
+    configurationOccurrenceId: "datatype-configuration-occurrence",
+    datatype: "plain",
+    previousDatatype: "options",
+    observedValueFactIds: [previous.id],
+  });
+}
+
+function fieldCardinalityConfigureCase(): ProposalLifecycleCase {
+  const facts = fieldDefinitionConfigurationFacts("cardinality-configuration");
+  const previous = facts.add({
+    kind: "field-cardinality-configure",
+    fieldDefinitionId: "field",
+    configurationNodeId: "cardinality-configuration",
+    configurationOccurrenceId: "cardinality-configuration-occurrence",
+    cardinality: "list",
+    previousCardinality: null,
+    observedValueFactIds: [],
+  });
+  return lifecycle(facts, {
+    kind: "field-cardinality-configure",
+    fieldDefinitionId: "field",
+    configurationNodeId: "cardinality-configuration",
+    configurationOccurrenceId: "cardinality-configuration-occurrence",
+    cardinality: "single",
+    previousCardinality: "list",
+    observedValueFactIds: [previous.id],
+  });
+}
+
+function fieldInitializationExpressionConfigureCase(): ProposalLifecycleCase {
+  const facts = fieldDefinitionConfigurationFacts("initialization-configuration");
+  return lifecycle(facts, {
+    kind: "field-initialization-expression-configure",
+    fieldDefinitionId: "field",
+    configurationNodeId: "initialization-configuration",
+    configurationOccurrenceId: "initialization-configuration-occurrence",
+    expression: { kind: "ancestor-field-values", sourceFieldDefinitionId: "field" },
+    previousExpression: null,
+    observedValueFactIds: [],
+  });
+}
+
+function fieldDefinitionConfigurationFacts(configurationNodeId: string): Facts {
+  const facts = supertagAndFieldFacts();
+  facts.add({ kind: "node-create", nodeId: "field-metanode" });
+  facts.add({ kind: "metanode-attach", hostNodeId: "field", metanodeId: "field-metanode" });
+  facts.add({ kind: "node-create", nodeId: configurationNodeId });
+  facts.add({
+    kind: "occurrence-create",
+    occurrenceId: `${configurationNodeId}-occurrence`,
+    nodeId: configurationNodeId,
+    parentNodeId: "field-metanode",
+    anchor: end,
+  });
+  return facts;
+}
 
 function fieldMaterializeCase(): ProposalLifecycleCase {
   const facts = materializedFieldFacts(false, false);
@@ -48,34 +127,33 @@ function materializedFieldDeleteCase(): ProposalLifecycleCase {
 }
 
 function fieldInitializeCase(): ProposalLifecycleCase {
-  const facts = schemaAndFieldFacts();
+  const facts = supertagAndFieldFacts();
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "schema",
+    kind: "supertag-field-add",
+    supertagId: "supertag",
     fieldDefinitionId: "field",
-    fieldNodeId: "schema-field-template-field",
-    fieldOccurrenceId: "schema-field-template-field-occurrence",
+    fieldNodeId: "supertag-field-template-field",
+    fieldOccurrenceId: "supertag-field-template-field-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end });
   facts.add({
-    kind: "schema-field-configure",
-    schemaId: "schema",
+    kind: "supertag-field-configure",
+    supertagId: "supertag",
     fieldDefinitionId: "field",
-    fieldNodeId: "schema-field-template-field",
+    fieldNodeId: "supertag-field-template-field",
 
     config: {
       visibility: "normal",
       staticDefault: [{ kind: "text", value: "default" }],
-      initializer: null,
     },
-    previousConfig: { visibility: "normal", staticDefault: null, initializer: null },
+    previousConfig: { visibility: "normal", staticDefault: null },
     observedConfigFactIds: [],
   });
   return lifecycle(facts, {
     kind: "field-initialize",
     ownerNodeId: "node",
-    schemaId: "schema",
+    supertagId: "supertag",
     fieldDefinitionId: "field",
     fieldNodeId: "initialized-field:v1:node:field",
     fieldOccurrenceId: "initialized-field-occ:v1:node:field",
@@ -93,7 +171,7 @@ function fieldInitializeCase(): ProposalLifecycleCase {
 }
 
 function materializedFieldFacts(withValue: boolean, withMaterialization = true): Facts {
-  const facts = schemaAndFieldFacts();
+  const facts = supertagAndFieldFacts();
   facts.add({ kind: "node-create", nodeId: "field-node" });
   facts.add({
     kind: "occurrence-create",
@@ -103,14 +181,14 @@ function materializedFieldFacts(withValue: boolean, withMaterialization = true):
     anchor: end,
   });
   facts.add({
-    kind: "schema-field-add",
-    schemaId: "schema",
+    kind: "supertag-field-add",
+    supertagId: "supertag",
     fieldDefinitionId: "field",
-    fieldNodeId: "schema-field-template-field",
-    fieldOccurrenceId: "schema-field-template-field-occurrence",
+    fieldNodeId: "supertag-field-template-field",
+    fieldOccurrenceId: "supertag-field-template-field-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "schema-apply", nodeId: "node", schemaId: "schema", anchor: end });
+  facts.add({ kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end });
   if (withMaterialization) {
     facts.add({
       kind: "field-materialize",
@@ -133,9 +211,9 @@ function materializedFieldFacts(withValue: boolean, withMaterialization = true):
   return facts;
 }
 
-function schemaAndFieldFacts(): Facts {
+function supertagAndFieldFacts(): Facts {
   const facts = base();
-  addDefinitionNode(facts, "schema", SCHEMA_NODE_TYPE);
+  addDefinitionNode(facts, "supertag", SUPERTAG_DEFINITION_NODE_TYPE);
   addDefinitionNode(facts, "field", FIELD_DEFINITION_NODE_TYPE);
   return facts;
 }

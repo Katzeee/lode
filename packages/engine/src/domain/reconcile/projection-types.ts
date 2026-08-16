@@ -1,48 +1,38 @@
 import type {
-  FieldTemplateConfig,
+  SupertagFieldConfig,
   FieldValueSeed,
   FieldVisibility,
-  JsonValue,
-  NodeType,
+  FieldCardinality,
+  FieldDatatype,
+  FieldInitializationExpression,
   ProjectionIdentity,
-  TextAtomId,
-  ViewMode,
+  ProjectionPerspective,
+  ViewType,
 } from "../fact/index.js";
 import type { ConflictIssue } from "../conflict/types.js";
+import type { NodeGraph } from "./node-graph.js";
+import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
 
-export type TextAtom = Readonly<{
-  id: TextAtomId;
-  value: string;
-  attributes: Readonly<Record<string, JsonValue>>;
-  contributionId: string;
-}>;
-
-export type ProjectedNode = Readonly<{
-  nodeId: string;
-  text: readonly TextAtom[];
-  properties: Readonly<Record<string, JsonValue>>;
-  metadata: Readonly<Record<string, JsonValue>>;
-}>;
-
-export type ProjectedOccurrence = Readonly<{
-  occurrenceId: string;
-  nodeId: string;
-  parentNodeId: string;
-  properties: Readonly<Record<string, JsonValue>>;
-  metadata: Readonly<Record<string, JsonValue>>;
-  derived: boolean;
-}>;
+export type {
+  InlineReferenceTargetStatus,
+  NodeContentItem,
+  NodeGraph,
+  ProjectedInlineReference,
+  ProjectedNode,
+  ProjectedOccurrence,
+  TextAtom,
+} from "./node-graph.js";
 
 export type FieldConfigCandidate = Readonly<{
-  config: FieldTemplateConfig;
-  sourceSchemaIds: readonly string[];
+  config: SupertagFieldConfig;
+  sourceSupertagIds: readonly string[];
   sourceFieldNodeIds: readonly string[];
   contributionIds: readonly string[];
 }>;
 
 export type FieldInitializationCandidate = Readonly<{
   initializationId: string;
-  schemaId: string;
+  supertagId: string;
   source: "static-default" | "auto-initialize";
   values: readonly FieldValueSeed[];
 }>;
@@ -50,19 +40,19 @@ export type FieldInitializationCandidate = Readonly<{
 export type TemplateField = Readonly<{
   fieldNodeId: string;
   fieldOccurrenceId: string;
-  schemaId: string;
+  supertagId: string;
   fieldDefinitionId: string;
   configCandidates: readonly FieldConfigCandidate[];
-  effectiveConfig: FieldTemplateConfig | null;
+  effectiveConfig: SupertagFieldConfig | null;
 }>;
 
 export type EffectiveField = Readonly<{
   fieldDefinitionId: string;
-  sourceSchemaIds: readonly string[];
+  sourceSupertagIds: readonly string[];
   sourceFieldNodeIds: readonly string[];
   visibility: FieldVisibility;
   configCandidates: readonly FieldConfigCandidate[];
-  effectiveConfig: FieldTemplateConfig | null;
+  effectiveConfig: SupertagFieldConfig | null;
   initializationCandidates: readonly FieldInitializationCandidate[];
   initializedValues: readonly FieldValueSeed[] | null;
   materializedFieldNodeId: string | null;
@@ -76,16 +66,9 @@ export type MaterializedField = Readonly<{
   valueOccurrenceIds: readonly string[];
 }>;
 
-export type NodeStatus = Readonly<{
-  nodeId: string;
-  nodeType: NodeType | null;
-  state: "active" | "deleted";
-  deletionFactIds: readonly string[];
-}>;
-
 export type TemplateNodeSource = Readonly<{
-  schemaId: string;
-  appliedSchemaId: string;
+  supertagId: string;
+  appliedSupertagId: string;
   templateOccurrenceId: string;
 }>;
 
@@ -99,44 +82,102 @@ export type TemplateNodeInstance = Readonly<{
   detachmentContributionIds: readonly string[];
 }>;
 
-export type ProjectionSections = Readonly<{
-  nodes: Readonly<Record<string, ProjectedNode>>;
-  occurrences: Readonly<Record<string, ProjectedOccurrence>>;
-  children: Readonly<Record<string, readonly string[]>>;
-  nodeOwners: Readonly<Record<string, string | null>>;
-  addressedValues: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
-  schemaApplications: Readonly<Record<string, readonly string[]>>;
-  schemaFields: Readonly<Record<string, readonly string[]>>;
+export type WorkspaceSystemNodeProjection = Readonly<{
+  workspaceSystemNodes: WorkspaceSystemNodes;
+}>;
+
+export type SupertagProjection = Readonly<{
+  supertagApplications: Readonly<Record<string, readonly string[]>>;
+  supertagFields: Readonly<Record<string, readonly string[]>>;
   templateFields: Readonly<Record<string, readonly TemplateField[]>>;
-  schemaTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  supertagTemplateNodes: Readonly<Record<string, readonly string[]>>;
   templateNodeInstances: readonly TemplateNodeInstance[];
-  schemaExtensions: Readonly<Record<string, readonly string[]>>;
-  schemaSearchMembers: Readonly<Record<string, readonly string[]>>;
-  schemaExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  nodeStatuses: Readonly<Record<string, NodeStatus>>;
+  supertagExtensions: Readonly<Record<string, readonly string[]>>;
+  supertagInstanceSupertags: Readonly<Record<string, readonly string[]>>;
+  supertagExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+}>;
+
+export type ConflictProjection = Readonly<{
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
+}>;
+
+export type FieldProjection = Readonly<{
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  fieldDefinitionConfigurations: Readonly<Record<string, readonly FieldDefinitionConfiguration[]>>;
 }>;
+
+type FieldDefinitionConfigurationBase = Readonly<{
+  configurationNodeId: string;
+  configurationOccurrenceId: string;
+  contributionId: string;
+}>;
+
+export type FieldDefinitionConfiguration =
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "datatype"; datatype: FieldDatatype }>)
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>)
+  | (FieldDefinitionConfigurationBase &
+      Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>);
+
+export type SearchClause =
+  | Readonly<{
+      kind: "supertag-instance-of";
+      clauseNodeId: string;
+      clauseOccurrenceId: string;
+      supertagId: string;
+    }>
+  | Readonly<{
+      kind: "field-defined";
+      clauseNodeId: string;
+      clauseOccurrenceId: string;
+      fieldDefinitionId: string;
+    }>;
+
+export type SearchProjection = Readonly<{
+  searchClauses: Readonly<Record<string, readonly SearchClause[]>>;
+}>;
+
+export type SharedDefaultViewDefinition = Readonly<{
+  hostNodeId: string;
+  viewDefinitionNodeId: string;
+  viewDefinitionOccurrenceId: string;
+  viewType: ViewType;
+  modeContributionIds: readonly string[];
+}>;
+
+export type ViewProjection = Readonly<{
+  sharedDefaultViewDefinitions: Readonly<Record<string, readonly SharedDefaultViewDefinition[]>>;
+}>;
+
+export type ProjectionSections = NodeGraph &
+  WorkspaceSystemNodeProjection &
+  SupertagProjection &
+  ConflictProjection &
+  FieldProjection &
+  SearchProjection &
+  ViewProjection;
 
 export const PROJECTION_SECTION_NAMES = [
   "nodes",
   "occurrences",
-  "children",
+  "childOccurrences",
   "nodeOwners",
-  "addressedValues",
-  "schemaApplications",
-  "schemaFields",
+  "metanodes",
+  "workspaceSystemNodes",
+  "supertagApplications",
+  "supertagFields",
   "templateFields",
-  "schemaTemplateNodes",
+  "supertagTemplateNodes",
   "templateNodeInstances",
-  "schemaExtensions",
-  "schemaSearchMembers",
-  "schemaExtensionConflicts",
-  "nodeStatuses",
+  "supertagExtensions",
+  "supertagInstanceSupertags",
+  "supertagExtensionConflicts",
   "conflictIssues",
   "effectiveFields",
   "materializedFields",
+  "fieldDefinitionConfigurations",
+  "searchClauses",
+  "sharedDefaultViewDefinitions",
 ] as const satisfies readonly (keyof ProjectionSections)[];
 
 type AssertNever<Value extends never> = Value;
@@ -156,7 +197,7 @@ export type ProjectionSectionValue<Section extends ProjectionSectionName = Proje
     : never;
 
 export type Projection = Readonly<{
-  view: ViewMode;
+  perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
 }> &
   ProjectionSections;
@@ -174,7 +215,7 @@ export type ProjectionGeneration = Readonly<{
 export type ScopedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
 
 export type ScopedProjection = Readonly<{
-  view: ViewMode;
+  perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
 }> &
   Pick<ProjectionSections, ScopedProjectionSectionName>;
@@ -197,8 +238,8 @@ export type ProjectionVersions = Readonly<{
 }>;
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
-  rulesVersion: "proposal-rules-5",
-  schemaVersion: "lode-schema-19",
+  rulesVersion: "proposal-rules-1",
+  schemaVersion: "lode-schema-1",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

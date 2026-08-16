@@ -1,12 +1,12 @@
-import { compareFacts, type ContributionFact, type FactSnapshot, type ViewMode } from "../fact/index.js";
+import { compareFacts, type ContributionFact, type FactSnapshot, type ProjectionPerspective } from "../fact/index.js";
 import { deriveActiveContributions, deriveSupport } from "../activation/index.js";
 import type { ProjectionPlanCache } from "./projection-types.js";
 
 export function activeContributions(
   snapshot: FactSnapshot,
-  view: ViewMode,
+  perspective: ProjectionPerspective,
 ): Readonly<{ facts: readonly ContributionFact[]; cache: ProjectionPlanCache }> {
-  const { facts, activation } = deriveActiveContributions(snapshot.facts, view);
+  const { facts, activation } = deriveActiveContributions(snapshot.facts, perspective);
   return {
     facts,
     cache: {

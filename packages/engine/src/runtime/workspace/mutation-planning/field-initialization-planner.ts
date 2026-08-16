@@ -14,18 +14,18 @@ export function fieldInitializationFollowUps(
   before: ScopedProjection,
   after: ScopedProjection,
 ): readonly Mutation[] {
-  if (mutation.kind !== "schema-apply") {
+  if (mutation.kind !== "supertag-apply") {
     return [];
   }
-  const alreadyApplied = (before.schemaApplications[mutation.nodeId] ?? []).includes(mutation.schemaId);
-  return alreadyApplied ? [] : schemaApplicationInitializations(mutation, after);
+  const alreadyApplied = (before.supertagApplications[mutation.nodeId] ?? []).includes(mutation.supertagId);
+  return alreadyApplied ? [] : supertagApplicationInitializations(mutation, after);
 }
 
-export function schemaApplicationInitializations(
-  mutation: Extract<Mutation, { kind: "schema-apply" }>,
+export function supertagApplicationInitializations(
+  mutation: Extract<Mutation, { kind: "supertag-apply" }>,
   projection: ScopedProjection,
 ): readonly Mutation[] {
-  if (!(projection.schemaApplications[mutation.nodeId] ?? []).includes(mutation.schemaId)) {
+  if (!(projection.supertagApplications[mutation.nodeId] ?? []).includes(mutation.supertagId)) {
     return [];
   }
   const fields = projection.effectiveFields[mutation.nodeId] ?? [];
@@ -33,7 +33,12 @@ export function schemaApplicationInitializations(
     if (field.materializedFieldNodeId !== null || field.visibility === "optional" || field.effectiveConfig === null) {
       return [];
     }
-    const initialized = initializationValues(field.effectiveConfig, mutation.nodeId, projection);
+    const initialized = initializationValues(
+      mutation.nodeId,
+      field.fieldDefinitionId,
+      field.effectiveConfig,
+      projection,
+    );
     const fieldNodeId = initializedFieldNodeId(mutation.nodeId, field.fieldDefinitionId);
     const fieldOccurrenceId = initializedFieldOccurrenceId(mutation.nodeId, field.fieldDefinitionId);
     return initialized === null
@@ -42,7 +47,7 @@ export function schemaApplicationInitializations(
           {
             kind: "field-initialize",
             ownerNodeId: mutation.nodeId,
-            schemaId: mutation.schemaId,
+            supertagId: mutation.supertagId,
             fieldDefinitionId: field.fieldDefinitionId,
             fieldNodeId,
             fieldOccurrenceId,
@@ -66,26 +71,72 @@ function initializeValues(
 }
 
 function initializationValues(
+  ownerNodeId: string,
+  fieldDefinitionId: string,
   config: NonNullable<ScopedProjection["effectiveFields"][string][number]["effectiveConfig"]>,
-  nodeId: string,
   projection: ScopedProjection,
 ) {
   if (config.staticDefault !== null) {
     return { source: "static-default" as const, values: config.staticDefault };
   }
-  if (config.initializer?.kind === "literal") {
-    return { source: "auto-initialize" as const, values: config.initializer.values };
+  const expressions = projection.fieldDefinitionConfigurations[fieldDefinitionId]?.filter(
+    (configuration) => configuration.kind === "initialization-expression",
+  );
+  if (expressions?.length !== 1) {
+    return null;
   }
-  if (config.initializer?.kind === "application-node-text") {
-    return {
-      source: "auto-initialize" as const,
-      values: [
-        {
-          kind: "text" as const,
-          value: projection.nodes[nodeId]?.text.map((atom) => atom.value).join("") ?? "",
-        },
-      ],
-    };
+  const expression = expressions[0];
+  if (
+    expression?.kind !== "initialization-expression" ||
+    expression.expression.kind !== "ancestor-field-values" ||
+    expression.expression.sourceFieldDefinitionId !== fieldDefinitionId
+  ) {
+    return null;
   }
-  return null;
+  const values = ancestorFieldValues(ownerNodeId, fieldDefinitionId, projection);
+  if (values === null) {
+    return null;
+  }
+  return { source: "auto-initialize" as const, values };
+}
+
+function ancestorFieldValues(
+  ownerNodeId: string,
+  fieldDefinitionId: string,
+  projection: ScopedProjection,
+): readonly FieldValueSeed[] | null {
+  const matches: FieldValueSeed[][] = [];
+  const visited = new Set<string>();
+  let ancestorId = projection.nodeOwners[ownerNodeId] ?? null;
+  while (ancestorId !== null && !visited.has(ancestorId)) {
+    visited.add(ancestorId);
+    const fields = (projection.materializedFields[ancestorId] ?? []).filter(
+      (field) => field.fieldDefinitionId === fieldDefinitionId,
+    );
+    for (const field of fields) {
+      const values = field.valueOccurrenceIds.flatMap((occurrenceId): readonly FieldValueSeed[] => {
+        const occurrence = projection.occurrences[occurrenceId];
+        if (!occurrence) {
+          return [];
+        }
+        if (projection.nodeOwners[occurrence.nodeId] !== field.fieldNodeId) {
+          return [{ kind: "reference", nodeId: occurrence.nodeId }];
+        }
+        const node = projection.nodes[occurrence.nodeId];
+        return node
+          ? [
+              {
+                kind: "text",
+                value: node.content.flatMap((item) => (item.kind === "text" ? [item.value] : [])).join(""),
+              },
+            ]
+          : [];
+      });
+      if (values.length > 0) {
+        matches.push(values);
+      }
+    }
+    ancestorId = projection.nodeOwners[ancestorId] ?? null;
+  }
+  return matches.length === 1 ? (matches[0] ?? null) : null;
 }

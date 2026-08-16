@@ -5,7 +5,7 @@ export type SemanticTreeNode = Readonly<{
   nodeId: string;
   text: string;
   reference: boolean;
-  children: readonly SemanticTreeNode[];
+  childOccurrences: readonly SemanticTreeNode[];
 }>;
 
 /** Traverses storage occurrences while terminating semantic self-reference by stable Node identity. */
@@ -26,16 +26,19 @@ function renderOccurrence(
   const reference = ancestors.has(node.nodeId);
   const next = new Set(ancestors);
   next.add(node.nodeId);
-  const children = reference
+  const childOccurrences = reference
     ? []
-    : (projection.children[node.nodeId] ?? [])
+    : (projection.childOccurrences[node.nodeId] ?? [])
         .map((childId) => renderOccurrence(projection, childId, next))
         .filter((child): child is SemanticTreeNode => child !== null);
   return {
     occurrenceId,
     nodeId: node.nodeId,
-    text: node.text.map((atom) => atom.value).join(""),
+    text: node.content
+      .filter((item) => item.kind === "text")
+      .map((atom) => atom.value)
+      .join(""),
     reference,
-    children,
+    childOccurrences,
   };
 }
