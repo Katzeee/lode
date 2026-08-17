@@ -1,19 +1,23 @@
 import type { AuthorityReceipt, AuthorityRecord, Fact, Mutation, SequenceAnchor } from "./types.js";
 import { MUTATION_SHAPE_KEYS } from "./mutation-shape-keys.js";
 import { assertOptionalNodeSeed } from "./node-create-shape.js";
-import { isNodeType } from "./node-type-types.js";
+import { isIntrinsicNodeType } from "./intrinsic-node-type-types.js";
 import { assertSupertagMutationShape } from "./supertag-mutation-shape.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
 import { assertTemplateDetachmentShape } from "./template-node-validation.js";
 import { assertFieldContentDeletionShape } from "./field-content-validation.js";
-import { assertSearchClauseMutationShape } from "./search-clause-validation.js";
+import { assertSearchExpressionMutationShape } from "./search-expression-validation.js";
 import { assertInlineReferenceMutationShape } from "./inline-reference-validation.js";
 import {
   assertSharedDefaultViewDefinitionModeShape,
+  assertSharedDefaultViewDefinitionDetachShape,
   assertSharedDefaultViewDefinitionMutationShape,
+  assertSharedDefaultViewDefinitionOptionsShape,
+  assertSharedDefaultViewDefinitionSortByNameShape,
 } from "./view-definition-validation.js";
 import { assertFieldDefinitionConfigMutationShape } from "./field-definition-config-shape.js";
 import { assertTextMutationShape } from "./text-mutation-shape.js";
+import { isSupertagMutation } from "./mutation-family.js";
 import {
   assertFrontier,
   assertKeys,
@@ -117,6 +121,7 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
   if (
     value.kind === "field-datatype-configure" ||
     value.kind === "field-cardinality-configure" ||
+    value.kind === "field-optionality-configure" ||
     value.kind === "field-initialization-expression-configure"
   ) {
     assertFieldDefinitionConfigMutationShape(value);
@@ -124,6 +129,13 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
   }
   if (value.kind === "text-splice" || value.kind === "text-mark") {
     assertTextMutationShape(value, assertAnchor);
+    return;
+  }
+  if (isSupertagMutation(value as Mutation)) {
+    assertSupertagMutationShape(value);
+    return;
+  }
+  if (assertViewMutationShape(value)) {
     return;
   }
   switch (value.kind) {
@@ -146,8 +158,8 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       return;
     case "node-owner-set":
       requireString(value.nodeId, value.kind);
-      requireString(value.ownerNodeId, value.kind);
-      if (value.previousOwnerNodeId !== undefined) {
+      assertNullableString(value.ownerNodeId, "owner Node");
+      if (value.previousOwnerNodeId !== undefined && value.previousOwnerNodeId !== null) {
         requireString(value.previousOwnerNodeId, "previous owner Node");
       }
       return;
@@ -155,24 +167,17 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
       requireString(value.hostNodeId, "configuration host Node");
       requireString(value.metanodeId, "metanode Node");
       return;
-    case "node-type-declare":
+    case "intrinsic-node-type-declare":
       requireString(value.nodeId, value.kind);
-      if (!isNodeType(value.nodeType)) {
-        throw new Error("Node type is invalid");
+      if (!isIntrinsicNodeType(value.intrinsicNodeType)) {
+        throw new Error("Intrinsic Node Type is invalid");
       }
       return;
-    case "supertag-apply":
-    case "supertag-remove":
-    case "supertag-field-add":
-    case "supertag-field-remove":
-    case "supertag-field-configure":
-    case "supertag-extension-add":
-    case "supertag-extension-remove":
-    case "supertag-template-node-add":
-    case "supertag-template-node-remove":
     case "field-materialize":
-    case "field-initialize":
-      assertSupertagMutationShape(value);
+      requireString(value.ownerNodeId, "Field owner Node identity");
+      requireString(value.fieldDefinitionId, "Field Definition identity");
+      requireString(value.fieldNodeId, "Field Node identity");
+      requireString(value.fieldOccurrenceId, "Field Occurrence identity");
       return;
     case "field-value-delete":
     case "materialized-field-delete":
@@ -187,19 +192,30 @@ export function assertMutationShape(value: unknown): asserts value is Mutation {
     case "inline-reference-alias-detach":
       assertInlineReferenceMutationShape(value);
       return;
-    case "search-supertag-clause-attach":
-    case "search-field-clause-attach":
-      assertSearchClauseMutationShape(value);
-      return;
-    case "shared-default-view-definition-attach":
-      assertSharedDefaultViewDefinitionMutationShape(value);
-      return;
-    case "shared-default-view-definition-mode-set":
-      assertSharedDefaultViewDefinitionModeShape(value);
+    case "search-expression-attach":
+    case "search-expression-detach":
+      assertSearchExpressionMutationShape(value);
       return;
     default:
       throw new Error(`Unknown Mutation kind: ${value.kind}`);
   }
+}
+
+function assertViewMutationShape(value: Record<string, unknown>): boolean {
+  if (value.kind === "shared-default-view-definition-attach") {
+    assertSharedDefaultViewDefinitionMutationShape(value);
+  } else if (value.kind === "shared-default-view-definition-detach") {
+    assertSharedDefaultViewDefinitionDetachShape(value);
+  } else if (value.kind === "shared-default-view-definition-mode-set") {
+    assertSharedDefaultViewDefinitionModeShape(value);
+  } else if (value.kind === "shared-default-view-definition-sort-by-name-set") {
+    assertSharedDefaultViewDefinitionSortByNameShape(value);
+  } else if (value.kind === "shared-default-view-definition-options-set") {
+    assertSharedDefaultViewDefinitionOptionsShape(value);
+  } else {
+    return false;
+  }
+  return true;
 }
 
 function assertOccurrenceMutationShape(value: Record<string, unknown>): void {

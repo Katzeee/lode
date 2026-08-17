@@ -10,8 +10,9 @@ import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import type { SupertagRelations } from "./supertag-relations.js";
 import type { TemplateStructureProjection } from "./template-node-projection.js";
 import { validateNodeGraph } from "./node-graph.js";
-import type { NodeGraphStructure } from "./trash-structure.js";
+import type { NodeGraphStructure } from "./node-graph-structure.js";
 import { nodeLocation, type ProjectedNode } from "./node-graph.js";
+import { projectTypedFieldValues } from "./typed-field-values.js";
 
 type ProjectionAssemblyInput = Readonly<{
   perspective: ProjectionPerspective;
@@ -30,7 +31,7 @@ type ProjectionArtifactAssemblyInput = Readonly<{
   templateStructure: TemplateStructureProjection;
   nodeGraphStructure: NodeGraphStructure;
   supertagRelations: SupertagRelations;
-  searchClauses: ProjectionSections["searchClauses"];
+  searchExpressions: ProjectionSections["searchExpressions"];
   sharedDefaultViewDefinitions: ProjectionSections["sharedDefaultViewDefinitions"];
   fieldDefinitionConfigurations: ProjectionSections["fieldDefinitionConfigurations"];
   conflictIssues: ProjectionSections["conflictIssues"];
@@ -45,19 +46,36 @@ export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInp
     nodeOwners: input.nodeGraphStructure.nodeOwners,
     metanodes: input.nodeGraphStructure.metanodes,
   });
+  const nodes = projectNodes(
+    input.contentNodes,
+    input.active,
+    input.nodeGraphStructure,
+    input.identity.workspaceNodeId,
+  );
+  const nodeRecord = Object.fromEntries(nodes);
+  const occurrenceRecord = Object.fromEntries(input.templateStructure.occurrences);
   return assembleProjection({
     perspective: input.perspective,
     identity: input.identity,
-    nodes: projectNodes(input.contentNodes, input.active, input.nodeGraphStructure, input.identity.workspaceNodeId),
+    nodes,
     occurrences: input.templateStructure.occurrences,
     childOccurrences: input.templateStructure.childOccurrences,
     nodeOwners: input.nodeGraphStructure.nodeOwners,
     metanodes: input.nodeGraphStructure.metanodes,
     workspaceSystemNodes: input.nodeGraphStructure.workspaceSystemNodes,
     ...input.supertagRelations,
-    searchClauses: input.searchClauses,
+    searchExpressions: input.searchExpressions,
     sharedDefaultViewDefinitions: input.sharedDefaultViewDefinitions,
     fieldDefinitionConfigurations: input.fieldDefinitionConfigurations,
+    typedFieldValues: projectTypedFieldValues({
+      materializedFields: input.supertagRelations.materializedFields,
+      fieldDefinitionConfigurations: input.fieldDefinitionConfigurations,
+      nodes: nodeRecord,
+      occurrences: occurrenceRecord,
+      nodeOwners: input.nodeGraphStructure.nodeOwners,
+      supertagApplications: input.supertagRelations.supertagApplications,
+      supertagInstanceSupertags: input.supertagRelations.supertagInstanceSupertags,
+    }),
     templateNodeInstances: input.templateStructure.instances,
     conflictIssues: input.conflictIssues,
   });
@@ -76,7 +94,7 @@ function projectNodes(
       nodeId,
       {
         nodeId,
-        nodeType: node.nodeType,
+        intrinsicNodeType: node.intrinsicNodeType,
         content: node.content.map((item) => {
           if (item.kind === "text") {
             return item;
@@ -134,19 +152,21 @@ export function assembleProjection(input: ProjectionAssemblyInput): Projection {
     metanodes: input.metanodes,
     workspaceSystemNodes: input.workspaceSystemNodes,
     supertagApplications: input.supertagApplications,
-    supertagFields: input.supertagFields,
-    templateFields: input.templateFields,
     supertagTemplateNodes: input.supertagTemplateNodes,
+    templateFields: input.templateFields,
+    optionalFieldContributions: input.optionalFieldContributions,
     templateNodeInstances: input.templateNodeInstances,
     supertagExtensions: input.supertagExtensions,
     supertagInstanceSupertags: input.supertagInstanceSupertags,
     supertagExtensionConflicts: input.supertagExtensionConflicts,
     conflictIssues: input.conflictIssues,
-    effectiveFields: input.effectiveFields,
     materializedFields: input.materializedFields,
-    searchClauses: input.searchClauses,
+    effectiveFields: input.effectiveFields,
+    optionalFieldSuggestions: input.optionalFieldSuggestions,
+    searchExpressions: input.searchExpressions,
     sharedDefaultViewDefinitions: input.sharedDefaultViewDefinitions,
     fieldDefinitionConfigurations: input.fieldDefinitionConfigurations,
+    typedFieldValues: input.typedFieldValues,
   };
 }
 

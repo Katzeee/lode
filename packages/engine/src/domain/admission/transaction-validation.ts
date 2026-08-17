@@ -1,18 +1,58 @@
-import { FIELD_NODE_TYPE, workspaceTrashOccurrenceId, type FactSnapshot, type FactTransaction } from "../fact/index.js";
+import {
+  NODE_SUPERTAGS_DEFINITION_NODE_ID,
+  SYSTEM_DEFINITION_CATALOG_NODE_ID,
+  workspaceTrashOccurrenceId,
+  workspaceSchemaNodeId,
+  type FactSnapshot,
+  type FactTransaction,
+} from "../fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS, rebuildGeneration, type Projection } from "../reconcile/index.js";
 import { nodeLocation, validateRootedNodeGraph } from "../reconcile/node-graph.js";
 import { deriveActivation } from "../activation/index.js";
 import { nodeDeletionFactIds } from "../maintenance/index.js";
 import type { ContributionFact } from "../fact/index.js";
+import { validateStructuralRoleChanges } from "./structural-role-validation.js";
+import { validateRemovedTemplateFields } from "./template-field-transaction-validation.js";
+import { validateFieldBindings } from "./field-binding-validation.js";
 
 export function validateDomainTransaction(
   transaction: FactTransaction,
-  _before: FactSnapshot,
+  before: FactSnapshot,
   after: FactSnapshot,
 ): void {
   validateTransactionIntent(transaction);
+  validateInitialOwnerAttachments(transaction, before);
   validateNodeCreations(transaction);
+  validateStructuralRoleChanges(transaction, before, after);
   validateCommittedDomainState(after);
+}
+
+function validateInitialOwnerAttachments(transaction: FactTransaction, before: FactSnapshot): void {
+  const createdNodeIds = new Set(
+    transaction.facts.flatMap((fact) =>
+      fact.body.kind === "contribution" && fact.body.mutation.kind === "node-create" ? [fact.body.mutation.nodeId] : [],
+    ),
+  );
+  const workspaceId = transaction.facts[0]?.workspaceId ?? "";
+  const beforeGeneration = rebuildGeneration(workspaceId, before, CURRENT_PROJECTION_VERSIONS).generation;
+  const detachedBefore = new Set(
+    [beforeGeneration.origin, beforeGeneration.review].flatMap((projection) =>
+      Object.entries(projection.nodeOwners).flatMap(([nodeId, ownerNodeId]) =>
+        nodeId !== workspaceId && ownerNodeId === null ? [nodeId] : [],
+      ),
+    ),
+  );
+  const invalid = transaction.facts.find(
+    (fact) =>
+      fact.body.kind === "contribution" &&
+      fact.body.mutation.kind === "node-owner-set" &&
+      fact.body.mutation.previousOwnerNodeId === null &&
+      !createdNodeIds.has(fact.body.mutation.nodeId) &&
+      !detachedBefore.has(fact.body.mutation.nodeId),
+  );
+  if (invalid) {
+    throw new Error("An initial Owner relation must accompany Node creation");
+  }
 }
 
 function validateTransactionIntent(transaction: FactTransaction): void {
@@ -51,10 +91,31 @@ function validateNodeCreations(transaction: FactTransaction): void {
         fact.body.mutation.kind === "metanode-attach" &&
         fact.body.mutation.metanodeId === nodeId,
     );
-    const isOutlineNode = placements.length === 1 && configurationAttachments.length === 0;
-    const isMetanode = placements.length === 0 && configurationAttachments.length === 1;
-    if (!isOutlineNode && !isMetanode) {
-      throw new Error("Node creation transaction requires exactly one Original Occurrence");
+    const ownerAttachments = transaction.facts.filter(
+      (fact) =>
+        fact.body.kind === "contribution" &&
+        fact.body.mutation.kind === "node-owner-set" &&
+        fact.body.mutation.nodeId === nodeId &&
+        fact.body.mutation.ownerNodeId !== null &&
+        fact.body.mutation.previousOwnerNodeId === null,
+    );
+    if (ownerAttachments.length !== 1) {
+      throw new Error("Node creation transaction requires exactly one initial Owner relation");
+    }
+    const initialOwner = ownerAttachments[0]?.body;
+    if (initialOwner?.kind !== "contribution" || initialOwner.mutation.kind !== "node-owner-set") {
+      throw new Error("Node creation transaction has no initial Owner relation");
+    }
+    if (configurationAttachments.length > 1 || placements.length > 1) {
+      throw new Error("Node creation transaction repeats a structural relation");
+    }
+    if (
+      configurationAttachments.length === 1 &&
+      configurationAttachments[0]?.body.kind === "contribution" &&
+      configurationAttachments[0].body.mutation.kind === "metanode-attach" &&
+      configurationAttachments[0].body.mutation.hostNodeId !== initialOwner.mutation.ownerNodeId
+    ) {
+      throw new Error("Metanode attachment and initial Owner relation disagree");
     }
   }
 }
@@ -66,10 +127,41 @@ function validateCommittedDomainState(snapshot: FactSnapshot): void {
     CURRENT_PROJECTION_VERSIONS,
   ).generation;
   for (const projection of [generation.origin, generation.review]) {
-    validateOwnershipCompleteness(projection);
-    validateWorkspaceSystemNodes(projection);
-    validateFieldBindings(projection);
     validateMetanodeLifecycle(snapshot, projection);
+    validateTrashLifecycle(snapshot, projection);
+    validateOwnershipCompleteness(snapshot, projection);
+    validateWorkspaceSystemNodes(projection);
+    validateFieldBindings(snapshot, projection);
+  }
+}
+
+function validateTrashLifecycle(snapshot: FactSnapshot, projection: Projection): void {
+  const activation = deriveActivation(snapshot.facts, projection.perspective);
+  const active = snapshot.facts.filter(
+    (fact): fact is ContributionFact =>
+      fact.body.kind === "contribution" && activation.activeContributionIds.has(fact.id),
+  );
+  const deleted = nodeDeletionFactIds(active);
+  for (const nodeId of deleted.keys()) {
+    if (projection.nodes[nodeId] === undefined) {
+      continue;
+    }
+    if (nodeLocation(projection.identity.workspaceNodeId, projection, nodeId) !== "trash") {
+      throw new Error(
+        `Node deletion must place its root under Workspace Trash: ${nodeId} is owned by ${String(projection.nodeOwners[nodeId])}`,
+      );
+    }
+  }
+  const trashNodeId = projection.workspaceSystemNodes.trash;
+  if (!trashNodeId) {
+    return;
+  }
+  const unmarkedTrashRoot = Object.entries(projection.nodeOwners).find(
+    ([nodeId, ownerNodeId]) =>
+      projection.nodes[nodeId] !== undefined && ownerNodeId === trashNodeId && !deleted.has(nodeId),
+  );
+  if (unmarkedTrashRoot) {
+    throw new Error("Workspace Trash root requires an active Node deletion");
   }
 }
 
@@ -101,31 +193,81 @@ function validateWorkspaceSystemNodes(projection: Projection): void {
   ) {
     throw new Error("Workspace Trash System Role is invalid");
   }
+  const catalogNodeId = projection.workspaceSystemNodes.systemDefinitionCatalog;
+  if (catalogNodeId !== SYSTEM_DEFINITION_CATALOG_NODE_ID || projection.nodeOwners[catalogNodeId] !== workspaceNodeId) {
+    throw new Error("Workspace System Definition Catalog Role is invalid");
+  }
+  const schemaNodeId = projection.workspaceSystemNodes.schema;
+  if (
+    schemaNodeId !== workspaceSchemaNodeId(workspaceNodeId) ||
+    projection.nodeOwners[schemaNodeId] !== workspaceNodeId
+  ) {
+    throw new Error("Workspace Schema System Role is invalid");
+  }
 }
 
-function validateOwnershipCompleteness(projection: Projection): void {
-  validateRootedNodeGraph(projection.identity.workspaceNodeId, {
-    nodes: new Map(Object.entries(projection.nodes)),
-    occurrences: new Map(Object.entries(projection.occurrences)),
-    childOccurrences: new Map(Object.entries(projection.childOccurrences)),
-    nodeOwners: projection.nodeOwners,
-    metanodes: projection.metanodes,
-  });
-}
-
-function validateFieldBindings(projection: Projection): void {
-  const activeFieldNodeIds = Object.values(projection.nodes).flatMap((node) =>
-    node.nodeType === FIELD_NODE_TYPE &&
-    nodeLocation(projection.identity.workspaceNodeId, projection, node.nodeId) === "active"
-      ? [node.nodeId]
+function validateOwnershipCompleteness(snapshot: FactSnapshot, projection: Projection): void {
+  const activation = deriveActivation(snapshot.facts, projection.perspective);
+  const activeRemovals = snapshot.facts.flatMap((fact) =>
+    fact.body.kind === "contribution" &&
+    activation.activeContributionIds.has(fact.id) &&
+    fact.body.mutation.kind === "supertag-remove"
+      ? [fact.body.mutation]
       : [],
   );
-  const boundFieldNodeIds = new Set([
-    ...Object.values(projection.templateFields).flatMap((fields) => fields.map((field) => field.fieldNodeId)),
-    ...Object.values(projection.materializedFields).flatMap((fields) => fields.map((field) => field.fieldNodeId)),
-  ]);
-  const unboundFieldNodeId = activeFieldNodeIds.find((nodeId) => !boundFieldNodeIds.has(nodeId));
-  if (unboundFieldNodeId) {
-    throw new Error(`Field Node has no Field Definition binding: ${unboundFieldNodeId}`);
+  const detachedApplicationNodeIds = new Set(activeRemovals.map((mutation) => mutation.applicationNodeId));
+  const activeTemplateFieldDetaches = snapshot.facts.flatMap((fact) =>
+    fact.body.kind === "contribution" &&
+    activation.activeContributionIds.has(fact.id) &&
+    fact.body.mutation.kind === "supertag-template-field-detach"
+      ? [fact.body.mutation]
+      : [],
+  );
+  validateDetachedSupertagApplications(activeRemovals, projection);
+  validateRemovedTemplateFields(activeTemplateFieldDetaches, projection);
+  validateRootedNodeGraph(
+    projection.identity.workspaceNodeId,
+    {
+      nodes: new Map(Object.entries(projection.nodes)),
+      occurrences: new Map(Object.entries(projection.occurrences)),
+      childOccurrences: new Map(Object.entries(projection.childOccurrences)),
+      nodeOwners: projection.nodeOwners,
+      metanodes: projection.metanodes,
+    },
+    detachedApplicationNodeIds,
+  );
+}
+
+function validateDetachedSupertagApplications(
+  removals: readonly Extract<ContributionFact["body"]["mutation"], { kind: "supertag-remove" }>[],
+  projection: Projection,
+): void {
+  for (const mutation of removals) {
+    const restored = Object.values(projection.supertagApplications).some((applications) =>
+      applications.some((application) => application.applicationNodeId === mutation.applicationNodeId),
+    );
+    if (restored) {
+      continue;
+    }
+    if (projection.nodeOwners[mutation.applicationNodeId] !== null) {
+      throw new Error(`Detached Supertag Application has an Owner: ${mutation.applicationNodeId}`);
+    }
+    const endpoints = projection.childOccurrences[mutation.applicationNodeId] ?? [];
+    const relationDefinition = projection.occurrences[mutation.relationDefinitionOccurrenceId];
+    const detachedValue = projection.occurrences[mutation.detachedValueOccurrenceId];
+    if (
+      projection.occurrences[mutation.applicationOccurrenceId] !== undefined ||
+      projection.occurrences[mutation.definitionOccurrenceId] !== undefined ||
+      relationDefinition?.nodeId !== NODE_SUPERTAGS_DEFINITION_NODE_ID ||
+      relationDefinition.parentNodeId !== mutation.applicationNodeId ||
+      detachedValue?.nodeId !== mutation.detachedValueNodeId ||
+      detachedValue.parentNodeId !== mutation.applicationNodeId ||
+      projection.nodeOwners[mutation.detachedValueNodeId] !== mutation.applicationNodeId ||
+      endpoints.length !== 2 ||
+      endpoints[0] !== mutation.relationDefinitionOccurrenceId ||
+      endpoints[1] !== mutation.detachedValueOccurrenceId
+    ) {
+      throw new Error(`Detached Supertag Application structure is invalid: ${mutation.applicationNodeId}`);
+    }
   }
 }

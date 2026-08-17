@@ -1,16 +1,67 @@
-import { isWellFormedUnicode } from "./text-validation.js";
-import {
-  initializedFieldNodeId,
-  initializedFieldOccurrenceId,
-  initializedValueNodeId,
-  initializedValueOccurrenceId,
-} from "./identity.js";
 import type { Mutation, SequenceAnchor } from "./types.js";
 import type { SupertagMutation } from "./mutation-family.js";
-import type { FieldValueSeed } from "./field-value-types.js";
 
 export function validateSupertagMutation(mutation: SupertagMutation, factIdentity: string): void {
   requireIdentity(mutation.supertagId, "Supertag", factIdentity);
+  if (
+    mutation.kind === "supertag-template-field-discoverability-set" ||
+    mutation.kind === "supertag-template-field-visibility-configure"
+  ) {
+    validateTemplateFieldConfiguration(mutation, factIdentity);
+    return;
+  }
+  if (
+    mutation.kind === "supertag-template-field-attach" ||
+    mutation.kind === "supertag-template-field-existing-attach" ||
+    mutation.kind === "supertag-template-field-detach"
+  ) {
+    for (const [identity, label] of [
+      [mutation.templateFieldNodeId, "Template Field Node"],
+      [mutation.templateFieldOccurrenceId, "Template Field Occurrence"],
+      [mutation.fieldDefinitionId, "Field Definition"],
+      [mutation.definitionOccurrenceId, "Template Field Definition endpoint Occurrence"],
+      [mutation.staticDefaultValueNodeId, "Static Default value Node"],
+      [mutation.staticDefaultValueOccurrenceId, "Static Default value Occurrence"],
+    ] as const) {
+      requireIdentity(identity, label, factIdentity);
+    }
+    const anchor =
+      mutation.kind === "supertag-template-field-attach" || mutation.kind === "supertag-template-field-existing-attach"
+        ? mutation.anchor
+        : mutation.previousAnchor;
+    if (anchor === undefined) {
+      throw new Error(`Template Field detachment lacks semantic evidence: ${factIdentity}`);
+    }
+    validateNodeAnchor(anchor, factIdentity);
+    return;
+  }
+  if (
+    mutation.kind === "supertag-optional-field-contribution-attach" ||
+    mutation.kind === "supertag-optional-field-contribution-detach"
+  ) {
+    for (const [identity, label] of [
+      [mutation.fieldNurseryNodeId, "Field Nursery Node"],
+      [mutation.fieldNurseryOccurrenceId, "Field Nursery Occurrence"],
+      [mutation.nurseryDefinitionOccurrenceId, "Field Nursery Definition endpoint Occurrence"],
+      [mutation.nurseryValueNodeId, "Field Nursery value Node"],
+      [mutation.nurseryValueOccurrenceId, "Field Nursery value Occurrence"],
+      [mutation.contributionNodeId, "Optional Field Contribution Node"],
+      [mutation.contributionOccurrenceId, "Optional Field Contribution Occurrence"],
+      [mutation.fieldDefinitionId, "Field Definition"],
+      [mutation.definitionOccurrenceId, "Optional Field Definition endpoint Occurrence"],
+      [mutation.valueNodeId, "Optional Field value Node"],
+      [mutation.valueOccurrenceId, "Optional Field value Occurrence"],
+    ] as const) {
+      requireIdentity(identity, label, factIdentity);
+    }
+    const anchor =
+      mutation.kind === "supertag-optional-field-contribution-attach" ? mutation.anchor : mutation.previousAnchor;
+    if (anchor === undefined) {
+      throw new Error(`Optional Field Contribution detachment lacks semantic evidence: ${factIdentity}`);
+    }
+    validateNodeAnchor(anchor, factIdentity);
+    return;
+  }
   if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
     requireIdentity(mutation.templateNodeId, "Template Node", factIdentity);
     requireIdentity(mutation.templateOccurrenceId, "Template Node Occurrence", factIdentity);
@@ -21,28 +72,24 @@ export function validateSupertagMutation(mutation: SupertagMutation, factIdentit
     validateNodeAnchor(anchor, factIdentity);
     return;
   }
-  if (mutation.kind === "supertag-field-configure") {
-    validateFieldConfiguration(mutation, factIdentity);
-    return;
-  }
   if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
     validateExtension(mutation, factIdentity);
     return;
   }
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    requireIdentity(mutation.nodeId, "Supertag application Node", factIdentity);
-  } else {
-    requireIdentity(mutation.fieldDefinitionId, "Field Definition", factIdentity);
-  }
-  if (mutation.kind === "supertag-field-add" || mutation.kind === "supertag-field-remove") {
-    requireIdentity(mutation.fieldNodeId, "Template Field Node", factIdentity);
-    requireIdentity(mutation.fieldOccurrenceId, "Template Field Occurrence", factIdentity);
-    const anchor = mutation.kind === "supertag-field-add" ? mutation.anchor : mutation.previousAnchor;
-    if (anchor === undefined) {
-      throw new Error(`Template Field removal lacks semantic evidence: ${factIdentity}`);
+    requireIdentity(mutation.hostNodeId, "Supertag Application host Node", factIdentity);
+    requireIdentity(mutation.applicationNodeId, "Supertag Application relation Node", factIdentity);
+    requireIdentity(mutation.applicationOccurrenceId, "Supertag Application relation Occurrence", factIdentity);
+    requireIdentity(
+      mutation.relationDefinitionOccurrenceId,
+      "Node supertags relation Definition endpoint Occurrence",
+      factIdentity,
+    );
+    requireIdentity(mutation.definitionOccurrenceId, "Supertag Definition endpoint Occurrence", factIdentity);
+    if (mutation.kind === "supertag-remove") {
+      requireIdentity(mutation.detachedValueNodeId, "detached Supertag value Node", factIdentity);
+      requireIdentity(mutation.detachedValueOccurrenceId, "detached Supertag value Occurrence", factIdentity);
     }
-    validateNodeAnchor(anchor, factIdentity);
-    return;
   }
   const anchor = mutation.kind === "supertag-apply" ? mutation.anchor : mutation.previousAnchor;
   if (anchor === undefined) {
@@ -51,75 +98,30 @@ export function validateSupertagMutation(mutation: SupertagMutation, factIdentit
   validateNodeAnchor(anchor, factIdentity);
 }
 
-export function validateFieldInitialization(
-  mutation: Extract<Mutation, { kind: "field-initialize" }>,
+function validateTemplateFieldConfiguration(
+  mutation: Extract<
+    SupertagMutation,
+    { kind: "supertag-template-field-discoverability-set" | "supertag-template-field-visibility-configure" }
+  >,
   factIdentity: string,
 ): void {
-  requireIdentity(mutation.ownerNodeId, "Field owner Node", factIdentity);
-  requireIdentity(mutation.supertagId, "Supertag", factIdentity);
+  requireIdentity(mutation.templateFieldNodeId, "Template Field Node", factIdentity);
   requireIdentity(mutation.fieldDefinitionId, "Field Definition", factIdentity);
-  requireIdentity(mutation.fieldNodeId, "Initialized Field Node", factIdentity);
-  requireIdentity(mutation.fieldOccurrenceId, "Initialized Field Occurrence", factIdentity);
-  if (
-    mutation.fieldNodeId !== initializedFieldNodeId(mutation.ownerNodeId, mutation.fieldDefinitionId) ||
-    mutation.fieldOccurrenceId !== initializedFieldOccurrenceId(mutation.ownerNodeId, mutation.fieldDefinitionId)
-  ) {
-    throw new Error(`Field initialization identity is not canonical: ${factIdentity}`);
-  }
-  if (mutation.observedInitializationFactIds === undefined) {
-    throw new Error(`Field initialization lacks semantic evidence: ${factIdentity}`);
-  }
-  if (new Set(mutation.observedInitializationFactIds).size !== mutation.observedInitializationFactIds.length) {
-    throw new Error(`Field initialization evidence contains duplicate Facts: ${factIdentity}`);
-  }
-  validateInitializedFieldValues(mutation, factIdentity);
-}
-
-function validateInitializedFieldValues(
-  mutation: Extract<Mutation, { kind: "field-initialize" }>,
-  factIdentity: string,
-): void {
-  const identities = new Set<string>();
-  mutation.values.forEach((value, index) => {
-    requireIdentity(value.nodeId, "Initialized Field Value Node", factIdentity);
-    requireIdentity(value.occurrenceId, "Initialized Field Value Occurrence", factIdentity);
-    if (identities.has(value.occurrenceId)) {
-      throw new Error(`Field initialization repeats a Value Occurrence: ${factIdentity}`);
+  if (mutation.kind === "supertag-template-field-discoverability-set") {
+    if (mutation.previousDiscoverable === undefined) {
+      throw new Error(`Template Field discoverability lacks semantic evidence: ${factIdentity}`);
     }
-    const expectedNodeId =
-      value.kind === "reference" ? value.nodeId : initializedValueNodeId(mutation.fieldNodeId, index);
-    if (
-      value.nodeId !== expectedNodeId ||
-      value.occurrenceId !== initializedValueOccurrenceId(mutation.fieldOccurrenceId, index)
-    ) {
-      throw new Error(`Field initialization Value identity is not canonical: ${factIdentity}`);
-    }
-    identities.add(value.occurrenceId);
-    if (value.kind === "text" && !isWellFormedUnicode(value.value)) {
-      throw new Error(`Initialized Field Value contains an unpaired surrogate: ${factIdentity}`);
-    }
-  });
-}
-
-function validateFieldConfiguration(
-  mutation: Extract<Mutation, { kind: "supertag-field-configure" }>,
-  factIdentity: string,
-): void {
-  requireIdentity(mutation.fieldDefinitionId, "Field Definition", factIdentity);
-  requireIdentity(mutation.fieldNodeId, "Template Field Node", factIdentity);
-  if (mutation.observedConfigFactIds === undefined || mutation.previousConfig === undefined) {
-    throw new Error(`Field config lacks semantic evidence: ${factIdentity}`);
+    return;
   }
-  if (new Set(mutation.observedConfigFactIds).size !== mutation.observedConfigFactIds.length) {
-    throw new Error(`Field config evidence contains duplicate Facts: ${factIdentity}`);
+  if (mutation.previousVisibility === undefined || mutation.observedVisibilityFactIds === undefined) {
+    throw new Error(`Template Field visibility lacks semantic evidence: ${factIdentity}`);
   }
-  mutation.observedConfigFactIds.forEach((identity) =>
-    requireIdentity(identity, "observed Field config Fact", factIdentity),
+  if (new Set(mutation.observedVisibilityFactIds).size !== mutation.observedVisibilityFactIds.length) {
+    throw new Error(`Template Field visibility repeats observed evidence: ${factIdentity}`);
+  }
+  mutation.observedVisibilityFactIds.forEach((id) =>
+    requireIdentity(id, "observed Template Field visibility Fact", factIdentity),
   );
-  validateSupertagFieldConfig(mutation.config, factIdentity);
-  if (mutation.previousConfig !== null) {
-    validateSupertagFieldConfig(mutation.previousConfig, factIdentity);
-  }
 }
 
 function validateExtension(
@@ -135,23 +137,6 @@ function validateExtension(
     throw new Error(`Supertag Extension removal lacks semantic evidence: ${factIdentity}`);
   }
   validateNodeAnchor(anchor, factIdentity);
-}
-
-function validateSupertagFieldConfig(
-  config: Extract<Mutation, { kind: "supertag-field-configure" }>["config"],
-  factIdentity: string,
-): void {
-  validateFieldSeeds(config.staticDefault ?? [], factIdentity);
-}
-
-function validateFieldSeeds(seeds: readonly FieldValueSeed[], factIdentity: string): void {
-  for (const seed of seeds) {
-    if (seed.kind === "reference") {
-      requireIdentity(seed.nodeId, "Field seed Reference", factIdentity);
-    } else if (!isWellFormedUnicode(seed.value)) {
-      throw new Error(`Field seed contains an unpaired surrogate: ${factIdentity}`);
-    }
-  }
 }
 
 function validateNodeAnchor(anchor: SequenceAnchor, factIdentity: string): void {

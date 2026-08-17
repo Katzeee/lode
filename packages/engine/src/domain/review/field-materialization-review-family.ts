@@ -4,11 +4,7 @@ import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import type { FieldMaterializationDecisionEffect } from "./types.js";
 import { associatedNodeScope, fieldContentDeletionScopes, reviewScope } from "./review-scope.js";
 
-const FIELD_MATERIALIZATION_MUTATION_KINDS = [
-  "field-materialize",
-  "materialized-field-delete",
-  "field-initialize",
-] as const;
+const FIELD_MATERIALIZATION_MUTATION_KINDS = ["field-materialize", "materialized-field-delete"] as const;
 
 export const fieldMaterializationReviewFamily = {
   key: "field-materialization",
@@ -24,15 +20,8 @@ export const fieldMaterializationReviewFamily = {
     return [
       reviewScope("materialized-field", mutation.ownerNodeId, mutation.fieldDefinitionId),
       associatedNodeScope(mutation.ownerNodeId),
-      ...(mutation.kind === "field-initialize"
-        ? [
-            associatedNodeScope(mutation.supertagId),
-            associatedNodeScope(mutation.fieldDefinitionId),
-            ...mutation.values.flatMap((value) =>
-              value.kind === "reference" ? [associatedNodeScope(value.nodeId)] : [],
-            ),
-          ]
-        : [associatedNodeScope(mutation.fieldDefinitionId), associatedNodeScope(mutation.fieldNodeId)]),
+      associatedNodeScope(mutation.fieldDefinitionId),
+      associatedNodeScope(mutation.fieldNodeId),
     ];
   },
   candidates: ({ generation, pending }) => materializedFieldCandidates(generation, pending),
@@ -52,12 +41,10 @@ export const fieldMaterializationReviewFamily = {
   addImpacts(impacts, targets) {
     for (const fact of targets) {
       const mutation = fact.body.mutation;
-      if (mutation.kind === "field-materialize" || mutation.kind === "field-initialize") {
+      if (mutation.kind === "field-materialize") {
         impacts.add(materializedFieldAddress(mutation.ownerNodeId, mutation.fieldDefinitionId));
-        if (mutation.kind === "field-materialize") {
-          impacts.add(mutation.fieldNodeId);
-          impacts.add(mutation.fieldOccurrenceId);
-        }
+        impacts.add(mutation.fieldNodeId);
+        impacts.add(mutation.fieldOccurrenceId);
       }
     }
   },

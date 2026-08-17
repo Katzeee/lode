@@ -1,6 +1,5 @@
 import { compareFacts, contributionFactsOfKind, factObserves, type ContributionFact } from "../fact/index.js";
 import type { MutableOccurrence } from "./projection-state.js";
-import type { TemplateField } from "./projection-types.js";
 
 export function boundSupertagTemplateNodes(
   active: readonly ContributionFact[],
@@ -53,80 +52,6 @@ export function boundSupertagTemplateNodes(
       ];
     }),
   );
-}
-
-export function boundSupertagFields(
-  active: readonly ContributionFact[],
-  knownNodeIds: ReadonlySet<string>,
-  occurrences: ReadonlyMap<string, MutableOccurrence>,
-  childOccurrences: ReadonlyMap<string, readonly string[]>,
-): Readonly<Record<string, readonly TemplateField[]>> {
-  const additions = contributionFactsOfKind(active, "supertag-field-add");
-  const removals = contributionFactsOfKind(active, "supertag-field-remove");
-  const bySupertag = new Map<string, TemplateField[]>();
-  for (const fact of [...additions].sort(compareFacts)) {
-    const mutation = fact.body.mutation;
-    const removed = removals.some((candidate) => {
-      const removal = candidate.body.mutation;
-      return (
-        removal.supertagId === mutation.supertagId &&
-        removal.fieldNodeId === mutation.fieldNodeId &&
-        removal.fieldOccurrenceId === mutation.fieldOccurrenceId &&
-        factObserves(candidate, fact)
-      );
-    });
-    const occurrence = occurrences.get(mutation.fieldOccurrenceId);
-    const creation = occurrenceCreation(active, mutation.fieldOccurrenceId);
-    if (
-      removed ||
-      !knownNodeIds.has(mutation.supertagId) ||
-      !knownNodeIds.has(mutation.fieldDefinitionId) ||
-      !knownNodeIds.has(mutation.fieldNodeId) ||
-      creation?.nodeId !== mutation.fieldNodeId ||
-      creation?.parentNodeId !== mutation.supertagId ||
-      (occurrence !== undefined &&
-        (occurrence.nodeId !== mutation.fieldNodeId || occurrence.parentNodeId !== mutation.supertagId))
-    ) {
-      continue;
-    }
-    const fields = bySupertag.get(mutation.supertagId) ?? [];
-    fields.push({
-      fieldNodeId: mutation.fieldNodeId,
-      fieldOccurrenceId: mutation.fieldOccurrenceId,
-      supertagId: mutation.supertagId,
-      fieldDefinitionId: mutation.fieldDefinitionId,
-      configCandidates: [],
-      effectiveConfig: null,
-    });
-    bySupertag.set(mutation.supertagId, fields);
-  }
-  const entries: (readonly [string, readonly TemplateField[]])[] = [...bySupertag.entries()]
-    .map(
-      ([supertagId, candidates]) =>
-        [supertagId, uniqueFieldsInOccurrenceOrder(candidates, childOccurrences.get(supertagId) ?? [])] as const,
-    )
-    .filter((entry) => entry[1].length > 0);
-  return Object.fromEntries(entries);
-}
-
-function uniqueFieldsInOccurrenceOrder(
-  candidates: readonly TemplateField[],
-  occurrenceIds: readonly string[],
-): readonly TemplateField[] {
-  const seenDefinitions = new Set<string>();
-  return [...candidates]
-    .sort(
-      (left, right) =>
-        occurrenceIndex(occurrenceIds, left.fieldOccurrenceId) -
-        occurrenceIndex(occurrenceIds, right.fieldOccurrenceId),
-    )
-    .filter((field) => {
-      if (seenDefinitions.has(field.fieldDefinitionId)) {
-        return false;
-      }
-      seenDefinitions.add(field.fieldDefinitionId);
-      return true;
-    });
 }
 
 function compareBindings(

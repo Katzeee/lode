@@ -1,290 +1,91 @@
-import { parseMutation } from "../fact/index.js";
-import { isFactMutationEdit, PREPARED_MUTATION_EVIDENCE_KEYS, type EditMutation } from "./types.js";
+import {
+  parseFieldDefinitionConfigurationCreate,
+  parseFieldDefinitionEndpointConfigure,
+} from "./field-definition-configuration-input-validation.js";
+import { inputObject } from "./input-validation-primitives.js";
+import {
+  parseSearchExpressionCreate,
+  parseSearchExpressionUpdate,
+  parseSharedDefaultViewDefinitionCreate,
+  parseSharedDefaultViewDefinitionRemove,
+  parseSharedDefaultViewDefinitionOptionsUpdate,
+  parseSupertagApplicationCreate,
+} from "./relation-input-validation.js";
+import { parseStructuralEdit } from "./structural-input-validation.js";
+import type { EditMutation } from "./types.js";
+import {
+  parseCodeNodeConfigure,
+  parseDebugNodeOpen,
+  parseFieldValueCreate,
+  parseSharedDefaultViewDefinitionSortByNameCreate,
+  parseUrlNodeCreate,
+} from "./breadth-input-validation.js";
+import {
+  parseSupertagOptionalFieldContributionAdd,
+  parseSupertagTemplateFieldAddExisting,
+  parseSupertagTemplateFieldCreate,
+  parseSupertagTemplateFieldMakeDiscoverable,
+  parseSupertagTemplateFieldRemove,
+  parseSupertagTemplateFieldStaticDefaultSet,
+  parseSupertagTemplateFieldVisibilitySet,
+} from "./template-field-input-validation.js";
+import { parseTypedFieldValueEdit } from "./typed-field-value-input-validation.js";
 
 export function parseEditMutation(value: unknown): EditMutation {
-  const edit = object(value);
-  if (edit.kind === "reference-promote") {
-    exactKeys(edit, ["kind", "occurrenceId"]);
-    if (typeof edit.occurrenceId !== "string" || edit.occurrenceId.length === 0) {
-      throw new Error("Reference Occurrence identity is invalid");
-    }
-    return { kind: "reference-promote", occurrenceId: edit.occurrenceId };
+  const edit = inputObject(value);
+  switch (edit.kind) {
+    case "debug-node-open":
+      return parseDebugNodeOpen(edit);
+    case "field-value-create":
+      return parseFieldValueCreate(edit);
+    case "field-number-value-set":
+    case "field-date-value-set":
+    case "field-checkbox-value-set":
+    case "field-options-from-supertag-value-set":
+    case "typed-field-value-clear":
+      return parseTypedFieldValueEdit(edit);
+    case "url-node-create":
+      return parseUrlNodeCreate(edit);
+    case "code-node-configure":
+      return parseCodeNodeConfigure(edit);
+    case "shared-default-view-definition-sort-by-name-create":
+      return parseSharedDefaultViewDefinitionSortByNameCreate(edit);
+    case "supertag-application-create":
+      return parseSupertagApplicationCreate(edit);
+    case "supertag-template-field-create":
+      return parseSupertagTemplateFieldCreate(edit);
+    case "supertag-template-field-add-existing":
+      return parseSupertagTemplateFieldAddExisting(edit);
+    case "supertag-template-field-make-discoverable":
+      return parseSupertagTemplateFieldMakeDiscoverable(edit);
+    case "supertag-template-field-remove":
+      return parseSupertagTemplateFieldRemove(edit);
+    case "supertag-template-field-static-default-set":
+      return parseSupertagTemplateFieldStaticDefaultSet(edit);
+    case "supertag-template-field-visibility-set":
+      return parseSupertagTemplateFieldVisibilitySet(edit);
+    case "supertag-optional-field-contribution-add":
+      return parseSupertagOptionalFieldContributionAdd(edit);
+    case "search-expression-create":
+      return parseSearchExpressionCreate(edit);
+    case "search-expression-update":
+      return parseSearchExpressionUpdate(edit);
+    case "shared-default-view-definition-create":
+      return parseSharedDefaultViewDefinitionCreate(edit);
+    case "shared-default-view-definition-remove":
+      return parseSharedDefaultViewDefinitionRemove(edit);
+    case "shared-default-view-definition-options-update":
+      return parseSharedDefaultViewDefinitionOptionsUpdate(edit);
+    case "field-datatype-configuration-create":
+    case "field-cardinality-configuration-create":
+    case "field-optionality-configuration-create":
+    case "field-initialization-expression-configuration-create":
+      return parseFieldDefinitionConfigurationCreate(edit);
+    case "field-datatype-configure":
+    case "field-cardinality-configure":
+    case "field-optionality-configure":
+      return parseFieldDefinitionEndpointConfigure(edit);
+    default:
+      return parseStructuralEdit(edit);
   }
-  if (edit.kind === "inline-reference-alias-create") {
-    exactKeys(edit, [
-      "kind",
-      "inlineReferenceId",
-      "hostNodeId",
-      "metanodeId",
-      "aliasNodeId",
-      "aliasOccurrenceId",
-      "seed",
-    ]);
-    const inlineReferenceId = nonemptyString(edit.inlineReferenceId, "Inline Reference identity");
-    const hostNodeId = nonemptyString(edit.hostNodeId, "Inline Reference host Node identity");
-    const metanodeId = nonemptyString(edit.metanodeId, "Metanode Node identity");
-    const aliasNodeId = nonemptyString(edit.aliasNodeId, "Inline Alias Node identity");
-    const aliasOccurrenceId = nonemptyString(edit.aliasOccurrenceId, "Inline Alias Occurrence identity");
-    const aliasNode = parseMutation({
-      kind: "node-create",
-      nodeId: aliasNodeId,
-      ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-    });
-    return {
-      kind: "inline-reference-alias-create",
-      inlineReferenceId,
-      hostNodeId,
-      metanodeId,
-      aliasNodeId,
-      aliasOccurrenceId,
-      ...(aliasNode.seed === undefined ? {} : { seed: aliasNode.seed }),
-    };
-  }
-  if (edit.kind === "search-supertag-clause-create" || edit.kind === "search-field-clause-create") {
-    return parseSearchClauseCreate(edit);
-  }
-  if (edit.kind === "shared-default-view-definition-create") {
-    return parseSharedDefaultViewDefinitionCreate(edit);
-  }
-  if (
-    edit.kind === "field-datatype-configuration-create" ||
-    edit.kind === "field-cardinality-configuration-create" ||
-    edit.kind === "field-initialization-expression-configuration-create"
-  ) {
-    return parseFieldDefinitionConfigurationCreate(edit);
-  }
-  if (edit.kind !== "node-create") {
-    rejectPreparedEvidence(edit);
-    const parsed = parseMutation(value);
-    if (!isFactMutationEdit(parsed)) {
-      throw new Error(`${parsed.kind} is not a public edit operation`);
-    }
-    return parsed;
-  }
-  exactKeys(edit, ["kind", "nodeId", "occurrenceId", "parentNodeId", "anchor", "seed", "nodeType"]);
-  const identity = parseMutation({
-    kind: "node-create",
-    nodeId: edit.nodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: edit.occurrenceId,
-    nodeId: edit.nodeId,
-    parentNodeId: edit.parentNodeId,
-    anchor: edit.anchor,
-  });
-  const nodeType =
-    edit.nodeType === undefined
-      ? undefined
-      : parseMutation({
-          kind: "node-type-declare",
-          nodeId: edit.nodeId,
-          nodeType: edit.nodeType,
-        });
-  return {
-    ...identity,
-    occurrenceId: placement.occurrenceId,
-    parentNodeId: placement.parentNodeId,
-    anchor: placement.anchor,
-    ...(nodeType === undefined ? {} : { nodeType: nodeType.nodeType }),
-  };
-}
-
-function parseFieldDefinitionConfigurationCreate(edit: Record<string, unknown>): EditMutation {
-  const valueKey =
-    edit.kind === "field-datatype-configuration-create"
-      ? "datatype"
-      : edit.kind === "field-cardinality-configuration-create"
-        ? "cardinality"
-        : "expression";
-  exactKeys(edit, [
-    "kind",
-    "fieldDefinitionId",
-    "metanodeId",
-    "configurationNodeId",
-    "configurationOccurrenceId",
-    "anchor",
-    "seed",
-    valueKey,
-  ]);
-  const fieldDefinitionId = nonemptyString(edit.fieldDefinitionId, "Field Definition identity");
-  const metanodeId = nonemptyString(edit.metanodeId, "Metanode Node identity");
-  const configurationNodeId = nonemptyString(edit.configurationNodeId, "Field configuration Node identity");
-  const configurationOccurrenceId = nonemptyString(
-    edit.configurationOccurrenceId,
-    "Field configuration Occurrence identity",
-  );
-  const node = parseMutation({
-    kind: "node-create",
-    nodeId: configurationNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: configurationOccurrenceId,
-    nodeId: configurationNodeId,
-    parentNodeId: metanodeId,
-    anchor: edit.anchor,
-  });
-  const common = {
-    fieldDefinitionId,
-    metanodeId,
-    configurationNodeId,
-    configurationOccurrenceId,
-    anchor: placement.anchor,
-    ...(node.seed === undefined ? {} : { seed: node.seed }),
-  };
-  if (edit.kind === "field-datatype-configuration-create") {
-    const config = parseMutation({
-      kind: "field-datatype-configure",
-      fieldDefinitionId,
-      configurationNodeId,
-      configurationOccurrenceId,
-      datatype: edit.datatype,
-    });
-    return { kind: edit.kind, ...common, datatype: config.datatype };
-  }
-  if (edit.kind === "field-cardinality-configuration-create") {
-    const config = parseMutation({
-      kind: "field-cardinality-configure",
-      fieldDefinitionId,
-      configurationNodeId,
-      configurationOccurrenceId,
-      cardinality: edit.cardinality,
-    });
-    return { kind: edit.kind, ...common, cardinality: config.cardinality };
-  }
-  const config = parseMutation({
-    kind: "field-initialization-expression-configure",
-    fieldDefinitionId,
-    configurationNodeId,
-    configurationOccurrenceId,
-    expression: edit.expression,
-  });
-  return { kind: "field-initialization-expression-configuration-create", ...common, expression: config.expression };
-}
-
-function parseSharedDefaultViewDefinitionCreate(edit: Record<string, unknown>): EditMutation {
-  exactKeys(edit, [
-    "kind",
-    "hostNodeId",
-    "metanodeId",
-    "viewDefinitionNodeId",
-    "viewDefinitionOccurrenceId",
-    "viewType",
-    "anchor",
-    "seed",
-  ]);
-  const hostNodeId = nonemptyString(edit.hostNodeId, "View host Node identity");
-  const metanodeId = nonemptyString(edit.metanodeId, "Metanode Node identity");
-  const viewDefinitionNodeId = nonemptyString(edit.viewDefinitionNodeId, "View Definition Node identity");
-  const viewDefinitionOccurrenceId = nonemptyString(
-    edit.viewDefinitionOccurrenceId,
-    "View Definition Occurrence identity",
-  );
-  const viewDefinition = parseMutation({
-    kind: "node-create",
-    nodeId: viewDefinitionNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: viewDefinitionOccurrenceId,
-    nodeId: viewDefinitionNodeId,
-    parentNodeId: metanodeId,
-    anchor: edit.anchor,
-  });
-  const mode = parseMutation({
-    kind: "shared-default-view-definition-mode-set",
-    viewDefinitionNodeId,
-    viewType: edit.viewType,
-  });
-  return {
-    kind: "shared-default-view-definition-create",
-    hostNodeId,
-    metanodeId,
-    viewDefinitionNodeId,
-    viewDefinitionOccurrenceId,
-    viewType: mode.viewType,
-    anchor: placement.anchor,
-    ...(viewDefinition.seed === undefined ? {} : { seed: viewDefinition.seed }),
-  };
-}
-
-function parseSearchClauseCreate(edit: Record<string, unknown>): EditMutation {
-  const supertagClause = edit.kind === "search-supertag-clause-create";
-  exactKeys(edit, [
-    "kind",
-    "searchNodeId",
-    "metanodeId",
-    "clauseNodeId",
-    "clauseOccurrenceId",
-    "anchor",
-    "seed",
-    supertagClause ? "supertagId" : "fieldDefinitionId",
-  ]);
-  const searchNodeId = nonemptyString(edit.searchNodeId, "Search Node identity");
-  const metanodeId = nonemptyString(edit.metanodeId, "Metanode Node identity");
-  const clauseNodeId = nonemptyString(edit.clauseNodeId, "Search clause Node identity");
-  const clauseOccurrenceId = nonemptyString(edit.clauseOccurrenceId, "Search clause Occurrence identity");
-  const clauseNode = parseMutation({
-    kind: "node-create",
-    nodeId: clauseNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: clauseOccurrenceId,
-    nodeId: clauseNodeId,
-    parentNodeId: metanodeId,
-    anchor: edit.anchor,
-  });
-  const common = {
-    searchNodeId,
-    metanodeId,
-    clauseNodeId,
-    clauseOccurrenceId,
-    anchor: placement.anchor,
-    ...(clauseNode.seed === undefined ? {} : { seed: clauseNode.seed }),
-  };
-  return supertagClause
-    ? {
-        kind: "search-supertag-clause-create",
-        ...common,
-        supertagId: nonemptyString(edit.supertagId, "Search clause Supertag identity"),
-      }
-    : {
-        kind: "search-field-clause-create",
-        ...common,
-        fieldDefinitionId: nonemptyString(edit.fieldDefinitionId, "Search clause Field Definition identity"),
-      };
-}
-
-function rejectPreparedEvidence(edit: Record<string, unknown>): void {
-  const evidence = PREPARED_MUTATION_EVIDENCE_KEYS.find((key) => key in edit);
-  if (evidence) {
-    throw new Error(`Prepared Fact evidence is not accepted by the edit interface: ${evidence}`);
-  }
-}
-
-function object(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Edit mutation must be an object");
-  }
-  return value as Record<string, unknown>;
-}
-
-function exactKeys(value: Record<string, unknown>, allowed: readonly string[]): void {
-  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
-  if (unknown) {
-    throw new Error(`Unknown input field: ${unknown}`);
-  }
-}
-
-function nonemptyString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value;
 }

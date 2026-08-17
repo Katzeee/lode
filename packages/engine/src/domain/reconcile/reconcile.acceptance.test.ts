@@ -1,13 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { frontierOf, makeFact, workspaceTrashNodeId } from "../fact/index.js";
+import {
+  FIELD_DATATYPE_CATALOG_NODE_ID,
+  FIELD_DATATYPE_NODE_IDS,
+  frontierOf,
+  makeFact,
+  workspaceTrashNodeId,
+} from "../fact/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../../runtime/materialization/generation-checkpoint.js";
 import { advanceGeneration, rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
-import { base, end, Facts, fullSurface, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { fullSurface } from "../../../tests/support/reconcile/full-surface-test-fixture.js";
+import { base, end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 
 const CHECKPOINT_KEY = "reconcile-acceptance-key";
 
@@ -74,7 +81,7 @@ describe("production Reconcile", () => {
     expect(incremental.generation).toEqual(rebuildGeneration("workspace", after, versions).generation);
     expect(checkpointTail).toEqual(incremental);
     expect(incremental.stats).toEqual({
-      evaluatedStages: ["activation", "content", "assembly"],
+      evaluatedStages: ["activation", "content", "supertag-relations", "conflict", "template", "view", "assembly"],
       supportPasses: 0,
     });
   });
@@ -377,8 +384,31 @@ describe("production Reconcile", () => {
     facts.add({ kind: "node-delete", nodeId: "node" });
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.workspaceSystemNodes).toEqual({ trash: "custom-trash-node" });
+    expect(projection.workspaceSystemNodes).toEqual({
+      trash: "custom-trash-node",
+      schema: "workspace-schema:v1:workspace",
+      systemDefinitionCatalog: "system-definition-catalog:v1",
+    });
     expect(projection.nodeOwners.node).toBe("custom-trash-node");
     expect(projection.nodes["custom-trash-node"]).toBeDefined();
+  });
+
+  it("keeps hidden System Definition ownership when a relation references its Node", () => {
+    const facts = new Facts();
+    facts.addPlaced("relation");
+    facts.add({
+      kind: "occurrence-create",
+      occurrenceId: "datatype-reference",
+      nodeId: FIELD_DATATYPE_NODE_IDS.plain,
+      parentNodeId: "relation",
+      anchor: end,
+    });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.nodeOwners[FIELD_DATATYPE_NODE_IDS.plain]).toBe(FIELD_DATATYPE_CATALOG_NODE_ID);
+    expect(projection.occurrences["datatype-reference"]).toMatchObject({
+      nodeId: FIELD_DATATYPE_NODE_IDS.plain,
+      parentNodeId: "relation",
+    });
   });
 });

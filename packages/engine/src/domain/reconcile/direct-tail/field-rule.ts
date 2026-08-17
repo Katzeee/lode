@@ -9,18 +9,10 @@ export function canApplyFieldDirectTail(projection: Projection, mutation: FieldM
   if (isFieldContentDeletionMutation(mutation)) {
     return projection.occurrences[fieldContentDeletionOccurrenceId(mutation)] !== undefined;
   }
-  switch (mutation.kind) {
-    case "field-materialize":
-      return (
-        hasNodes(projection, mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId) &&
-        projection.occurrences[mutation.fieldOccurrenceId]?.nodeId === mutation.fieldNodeId
-      );
-    case "field-initialize":
-      return (
-        hasNodes(projection, mutation.ownerNodeId, mutation.supertagId, mutation.fieldDefinitionId) &&
-        mutation.values.every((value) => value.kind !== "reference" || projection.nodes[value.nodeId] !== undefined)
-      );
-  }
+  return (
+    hasNodes(projection, mutation.ownerNodeId, mutation.fieldDefinitionId, mutation.fieldNodeId) &&
+    projection.occurrences[mutation.fieldOccurrenceId]?.nodeId === mutation.fieldNodeId
+  );
 }
 
 function hasNodes(projection: Projection, ...nodeIds: readonly string[]): boolean {

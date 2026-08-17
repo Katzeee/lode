@@ -1,4 +1,4 @@
-import { FIELD_DEFINITION_NODE_TYPE, SUPERTAG_DEFINITION_NODE_TYPE } from "../fact/index.js";
+import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE, SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE } from "../fact/index.js";
 import { impactAddress, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import { addAffectedFieldImpacts } from "./field-impacts.js";
 
@@ -7,24 +7,25 @@ export function addDefinitionLifecycleImpacts(
   definitionId: string,
   generation: ScopedProjectionGeneration,
 ): void {
-  const originNodeType = generation.origin.nodes[definitionId]?.nodeType;
-  const reviewNodeType = generation.review.nodes[definitionId]?.nodeType;
+  const originIntrinsicNodeType = generation.origin.nodes[definitionId]?.intrinsicNodeType;
+  const reviewIntrinsicNodeType = generation.review.nodes[definitionId]?.intrinsicNodeType;
   const isField =
-    originNodeType === FIELD_DEFINITION_NODE_TYPE ||
-    reviewNodeType === FIELD_DEFINITION_NODE_TYPE ||
+    originIntrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE ||
+    reviewIntrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE ||
     [generation.origin, generation.review].some((projection) =>
-      Object.values(projection.effectiveFields).some((fields) =>
+      Object.values(projection.materializedFields).some((fields) =>
         fields.some((field) => field.fieldDefinitionId === definitionId),
       ),
     );
   const isSupertag =
-    originNodeType === SUPERTAG_DEFINITION_NODE_TYPE ||
-    reviewNodeType === SUPERTAG_DEFINITION_NODE_TYPE ||
+    originIntrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE ||
+    reviewIntrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE ||
     [generation.origin, generation.review].some(
       (projection) =>
-        projection.supertagFields[definitionId] !== undefined ||
         projection.supertagInstanceSupertags[definitionId] !== undefined ||
-        Object.values(projection.supertagApplications).some((supertags) => supertags.includes(definitionId)),
+        Object.values(projection.supertagApplications).some((applications) =>
+          applications.some((application) => application.supertagId === definitionId),
+        ),
     );
   if (isField) {
     for (const ownerNodeId of projectionNodeIds(generation)) {
@@ -34,13 +35,6 @@ export function addDefinitionLifecycleImpacts(
   if (isSupertag) {
     for (const ownerNodeId of supertagInstanceNodeIds(generation, definitionId)) {
       impacts.add(impactAddress("supertag-membership", definitionId, ownerNodeId));
-      const fieldDefinitionIds = new Set([
-        ...(generation.origin.effectiveFields[ownerNodeId] ?? []).map((field) => field.fieldDefinitionId),
-        ...(generation.review.effectiveFields[ownerNodeId] ?? []).map((field) => field.fieldDefinitionId),
-      ]);
-      for (const fieldDefinitionId of fieldDefinitionIds) {
-        addAffectedFieldImpacts(impacts, ownerNodeId, fieldDefinitionId, generation);
-      }
     }
   }
 }
@@ -53,8 +47,8 @@ function supertagInstanceNodeIds(generation: ScopedProjectionGeneration, superta
   return new Set(
     [generation.origin, generation.review].flatMap((projection) => {
       const instanceSupertags = new Set([supertagId, ...(projection.supertagInstanceSupertags[supertagId] ?? [])]);
-      return Object.entries(projection.supertagApplications).flatMap(([nodeId, supertagIds]) =>
-        supertagIds.some((applied) => instanceSupertags.has(applied)) ? [nodeId] : [],
+      return Object.entries(projection.supertagApplications).flatMap(([nodeId, applications]) =>
+        applications.some((application) => instanceSupertags.has(application.supertagId)) ? [nodeId] : [],
       );
     }),
   );

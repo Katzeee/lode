@@ -58,23 +58,19 @@ describe("Inline Reference product model", () => {
     const renamed = await nodes(workspace, "origin");
     expect(textValue(renamed.nodes.target?.content ?? [])).toBe("Renamed");
     expect(inlineReference(await projection(workspace, "origin"), "host", "inline-1").targetNodeId).toBe("target");
-    expect(
-      (
-        await workspace.execute(
-          command("create-alias", "alias", [
-            {
-              kind: "inline-reference-alias-create",
-              inlineReferenceId: "inline-1",
-              hostNodeId: "host",
-              metanodeId: "host-configuration",
-              aliasNodeId: "alias",
-              aliasOccurrenceId: "alias-occurrence",
-              seed: { text: [..."Alias"].map((value) => ({ value, attributes: {} })) },
-            },
-          ]),
-        )
-      ).status,
-    ).toBe("published");
+    const aliasCreation = await workspace.execute(
+      command("create-alias", "alias", [
+        {
+          kind: "inline-reference-alias-create",
+          inlineReferenceId: "inline-1",
+          hostNodeId: "host",
+          aliasNodeId: "alias",
+          seed: { text: [..."Alias"].map((value) => ({ value, attributes: {} })) },
+        },
+      ]),
+    );
+    expect("error" in aliasCreation ? aliasCreation.error : undefined).toBeUndefined();
+    expect(aliasCreation).toMatchObject({ status: "published" });
 
     const attached = await projection(workspace, "origin");
     expect(attached.nodes.host?.content).toMatchObject([
@@ -88,15 +84,9 @@ describe("Inline Reference product model", () => {
       },
       { kind: "text", value: "B" },
     ]);
-    expect(attached.metanodes).toEqual({ host: "host-configuration" });
-    expect(attached.nodeOwners.alias).toBe("host-configuration");
-    expect(attached.occurrences["alias-occurrence"]).toMatchObject({
-      nodeId: "alias",
-      parentNodeId: "host-configuration",
-    });
-    expect(Object.values(attached.occurrences).some((occurrence) => occurrence.nodeId === "host-configuration")).toBe(
-      false,
-    );
+    expect(attached.metanodes).toEqual({});
+    expect(attached.nodeOwners.alias).toBe("host");
+    expect(Object.values(attached.occurrences).some((occurrence) => occurrence.nodeId === "alias")).toBe(false);
 
     const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "alias" });
     if (!("undo" in history) || !history.undo) {
@@ -109,10 +99,13 @@ describe("Inline Reference product model", () => {
       actorId: "actor",
       selection: history.undo,
     });
+    if (undoResult.status === "rejected") {
+      throw new Error(JSON.stringify(undoResult.error));
+    }
     expect(undoResult.status).toBe("published");
     const undone = await projection(workspace, "origin");
     expect(inlineReference(undone, "host", "inline-1").aliasNodeId).toBeNull();
-    expect(undone.metanodes).toEqual({ host: "host-configuration" });
+    expect(undone.metanodes).toEqual({});
 
     const redo = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "alias" });
     if (!("redo" in redo) || !redo.redo) {
@@ -168,7 +161,7 @@ describe("Inline Reference product model", () => {
       command("trash-target", "target", [{ kind: "node-delete", nodeId: "target" }]),
     );
     if (deletion.status !== "published") {
-      throw new Error("Expected target deletion to publish");
+      throw new Error(`Expected target deletion to publish: ${JSON.stringify(deletion)}`);
     }
     expect(inlineReference(await projection(workspace, "origin"), "host", "inline-1")).toMatchObject({
       targetNodeId: "target",
@@ -183,6 +176,10 @@ describe("Inline Reference product model", () => {
               kind: "node-restore",
               nodeId: "target",
               deletionFactId: required(deletion.receipt.factIds[0], "target deletion Fact"),
+              occurrenceId: "target-original",
+              ownerNodeId: "workspace",
+              parentNodeId: "workspace",
+              anchor: end,
             },
           ]),
         )

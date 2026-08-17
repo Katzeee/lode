@@ -22,9 +22,9 @@ export const supertagRelationKind = defineProtocolEnum<ProtocolSupertagRelationK
   {
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_UNSPECIFIED]: null,
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_APPLICATION]: "application",
-    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_FIELD]: "field",
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_EXTENSION]: "extension",
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_NODE]: "template-node",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_VISIBILITY]: "template-field-visibility",
     [ProtocolSupertagRelationKind.UNRECOGNIZED]: null,
   },
   "Supertag relation kind",
@@ -40,7 +40,6 @@ export const diffSpaceKind = defineProtocolEnum<ProtocolDiffSpaceKind>()(
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_OWNER]: "owner",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SUPERTAG_APPLICATION]: "supertag-application",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SUPERTAG_TEMPLATE]: "supertag-template",
-    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_FIELD_CONFIGURATION]: "field-configuration",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_MATERIALIZED_FIELD]: "materialized-field",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_INLINE_REFERENCE]: "inline-reference",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_VIEW_DEFINITION]: "view-definition",

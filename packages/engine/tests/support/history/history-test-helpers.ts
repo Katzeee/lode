@@ -7,15 +7,17 @@ import {
   type Fact,
   type FactSnapshot,
   type Mutation,
+  workspaceGenesisMutations,
   workspaceTrashNodeId,
-  workspaceTrashOccurrenceId,
 } from "../../../src/domain/fact/index.js";
 import {
   CURRENT_PROJECTION_VERSIONS,
+  occurrenceAnchor,
   rebuildGeneration,
   type ProjectionGeneration,
 } from "../../../src/domain/reconcile/index.js";
 import { nextHistoryLineage } from "../../../src/domain/history/state.js";
+import { withInitialOwnerRelations } from "../reconcile/placed-node-test-helpers.js";
 
 export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 export const end = {
@@ -31,15 +33,7 @@ export class HistoryFixture {
   readonly receipts: AuthorityReceipt[] = [];
 
   constructor() {
-    this.fact({ kind: "node-create", nodeId: "workspace" });
-    this.fact({ kind: "node-create", nodeId: workspaceTrashNodeId("workspace") });
-    this.fact({
-      kind: "occurrence-create",
-      occurrenceId: workspaceTrashOccurrenceId("workspace"),
-      nodeId: workspaceTrashNodeId("workspace"),
-      parentNodeId: "workspace",
-      anchor: end,
-    });
+    this.transaction(workspaceGenesisMutations("workspace"));
   }
 
   fact(mutation: Mutation, intent: EditIntent = "direct"): Fact {
@@ -105,10 +99,15 @@ export class HistoryFixture {
     return receipt;
   }
 
+  addTransaction(mutations: readonly Mutation[], intent: EditIntent = "direct"): readonly Fact[] {
+    return this.transaction(mutations, intent);
+  }
+
   private transaction(mutations: readonly Mutation[], intent: EditIntent = "direct"): readonly Fact[] {
+    const ownedMutations = this.withTrashLifecycleRelations(withInitialOwnerRelations(mutations));
     const firstSequence = this.facts.length + 1;
     const transactionId = factTransactionId("workspace", REPLICA, firstSequence);
-    const created = mutations.map((mutation, index) => {
+    const created = ownedMutations.map((mutation, index) => {
       const sequence = firstSequence + index;
       return makeFact({
         workspaceId: "workspace",
@@ -116,12 +115,96 @@ export class HistoryFixture {
         sequence,
         observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
         lamport: sequence,
-        transaction: { transactionId, index, size: mutations.length },
+        transaction: { transactionId, index, size: ownedMutations.length },
         body: { kind: "contribution", actorId: "actor", intent, mutation },
       });
     });
     this.facts.push(...created);
     return created;
+  }
+
+  private withTrashLifecycleRelations(mutations: readonly Mutation[]): readonly Mutation[] {
+    if (!mutations.some((mutation) => mutation.kind === "node-delete")) {
+      return mutations;
+    }
+    const projection = this.facts.length === 0 ? null : this.generation().review;
+    const owners = new Map<string, string | null>(Object.entries(projection?.nodeOwners ?? {}));
+    const placements = new Map(
+      Object.values(projection?.occurrences ?? {}).map((occurrence) => [
+        occurrence.occurrenceId,
+        {
+          nodeId: occurrence.nodeId,
+          parentNodeId: occurrence.parentNodeId,
+          anchor: projection ? occurrenceAnchor(projection, occurrence.occurrenceId) : end,
+        },
+      ]),
+    );
+    const trashNodeId = workspaceTrashNodeId("workspace");
+    const result: Mutation[] = [];
+    for (const mutation of mutations) {
+      result.push(mutation);
+      if (mutation.kind === "node-owner-set") {
+        owners.set(mutation.nodeId, mutation.ownerNodeId);
+        continue;
+      }
+      if (mutation.kind === "occurrence-create") {
+        placements.set(mutation.occurrenceId, {
+          nodeId: mutation.nodeId,
+          parentNodeId: mutation.parentNodeId,
+          anchor: mutation.anchor,
+        });
+        continue;
+      }
+      if (mutation.kind === "occurrence-move") {
+        const placement = placements.get(mutation.occurrenceId);
+        if (placement) {
+          placements.set(mutation.occurrenceId, {
+            ...placement,
+            parentNodeId: mutation.parentNodeId,
+            anchor: mutation.anchor,
+          });
+        }
+        continue;
+      }
+      if (mutation.kind !== "node-delete") {
+        continue;
+      }
+      const hasExplicitTrashMove = mutations.some(
+        (candidate) =>
+          candidate.kind === "node-owner-set" &&
+          candidate.nodeId === mutation.nodeId &&
+          candidate.ownerNodeId === trashNodeId &&
+          candidate.previousOwnerNodeId !== null,
+      );
+      if (hasExplicitTrashMove) {
+        continue;
+      }
+      const ownerNodeId = owners.get(mutation.nodeId);
+      const candidates = [...placements].filter(([, placement]) => placement.nodeId === mutation.nodeId);
+      const selected = candidates.find(([, placement]) => placement.parentNodeId === ownerNodeId) ?? candidates[0];
+      if (!ownerNodeId || !selected) {
+        continue;
+      }
+      const [occurrenceId, placement] = selected;
+      const ownerChange: Mutation = {
+        kind: "node-owner-set",
+        nodeId: mutation.nodeId,
+        ownerNodeId: trashNodeId,
+        previousOwnerNodeId: ownerNodeId,
+      };
+      const placementChange: Mutation = {
+        kind: "occurrence-move",
+        occurrenceId,
+        parentNodeId: trashNodeId,
+        anchor: end,
+        previousParentNodeId: placement.parentNodeId,
+        previousAnchor: placement.anchor,
+      };
+      result.push(ownerChange, placementChange);
+      owners.set(mutation.nodeId, trashNodeId);
+      placements.set(occurrenceId, { ...placement, parentNodeId: trashNodeId, anchor: end });
+    }
+    return result;
   }
 
   snapshot(): FactSnapshot {
@@ -135,13 +218,21 @@ export class HistoryFixture {
 
 export function baseFixture(): HistoryFixture {
   const fixture = new HistoryFixture();
-  fixture.fact({ kind: "node-create", nodeId: "node" });
-  fixture.fact({
-    kind: "occurrence-create",
-    occurrenceId: "occurrence",
-    nodeId: "node",
-    parentNodeId: "workspace",
-    anchor: end,
-  });
+  fixture.addTransaction([
+    { kind: "node-create", nodeId: "node" },
+    {
+      kind: "node-owner-set",
+      nodeId: "node",
+      ownerNodeId: "workspace",
+      previousOwnerNodeId: null,
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "occurrence",
+      nodeId: "node",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+  ]);
   return fixture;
 }

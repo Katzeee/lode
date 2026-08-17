@@ -206,6 +206,21 @@ message ViewRowsQueryRequest {
   optional uint32 limit = 6;
 }
 
+message OutlineQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string root_node_id = 3;
+  uint32 max_depth = 4;
+  optional string after = 5;
+  optional uint32 limit = 6;
+}
+
+message DebugNodeQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string node_id = 3;
+}
+
 message EngineQuery {
   oneof query {
     ProjectionQuery projection = 1;
@@ -218,6 +233,8 @@ message EngineQuery {
     BacklinksQueryRequest backlinks = 8;
     SearchResultsQueryRequest search_results = 9;
     ViewRowsQueryRequest view_rows = 10;
+    OutlineQueryRequest outline = 11;
+    DebugNodeQueryRequest debug_node = 12;
   }
 }
 
@@ -278,6 +295,22 @@ message ViewRowReference {
   string target_node_id = 2;
   SourceKind source_kind = 3;
   string source_identity = 4;
+  repeated ViewCell cells = 5;
+  optional ViewGroupKey group = 6;
+}
+
+message ViewCell {
+  string column_node_id = 1;
+  string field_definition_id = 2;
+  google.protobuf.StringValue field_node_id = 3;
+  repeated string value_node_ids = 4;
+}
+
+message ViewGroupKey {
+  string group_node_id = 1;
+  string field_definition_id = 2;
+  string key = 3;
+  repeated string value_node_ids = 4;
 }
 
 message ViewRowsResult {
@@ -290,6 +323,42 @@ message ViewRowsResult {
   repeated ViewRowReference rows = 7;
   google.protobuf.StringValue next = 8;
   bool available = 9;
+  ViewOptionsSpec options = 10;
+  bool options_conflicted = 11;
+}
+
+message OutlineRow {
+  string row_key = 1;
+  string occurrence_id = 2;
+  string node_id = 3;
+  string parent_node_id = 4;
+  uint32 depth = 5;
+}
+
+message OutlineResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string root_node_id = 4;
+  repeated OutlineRow rows = 5;
+  google.protobuf.StringValue next = 6;
+  bool available = 7;
+}
+
+message DebugNodeResult {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string node_id = 4;
+  bool available = 5;
+  ProjectedNode node = 6;
+  google.protobuf.StringValue owner_node_id = 7;
+  google.protobuf.StringValue metanode_id = 8;
+  repeated string child_occurrence_ids = 9;
+  repeated string metanode_child_occurrence_ids = 10;
+  repeated MaterializedField materialized_fields = 11;
+  google.protobuf.StringValue url = 12;
+  google.protobuf.StringValue code_language = 13;
 }
 
 message AbsentInvocationOutcome {}
@@ -315,6 +384,8 @@ message QueryResult {
     BacklinksResult backlinks = 9;
     SearchResultsResult search_results = 10;
     ViewRowsResult view_rows = 11;
+    OutlineResult outline = 12;
+    DebugNodeResult debug_node = 13;
   }
 }
 

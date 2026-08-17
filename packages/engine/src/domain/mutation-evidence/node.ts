@@ -9,7 +9,7 @@ const NODE_MUTATION_KINDS = [
   "node-delete",
   "node-restore",
   "node-owner-set",
-  "node-type-declare",
+  "intrinsic-node-type-declare",
 ] as const satisfies readonly NodeMutation["kind"][];
 
 export const nodeMutationEvidence = {
@@ -18,6 +18,9 @@ export const nodeMutationEvidence = {
   complete: completeNodeMutationEvidence,
   validate(mutation, context) {
     if (mutation.kind !== "node-owner-set") {
+      return;
+    }
+    if (mutation.previousOwnerNodeId === null) {
       return;
     }
     const { previous, available } = context.projections();
@@ -39,11 +42,14 @@ function completeNodeMutationEvidence(mutation: NodeMutation, context: MutationE
       assertObservedDeletion(context.snapshot, mutation.deletionFactId, "node-delete", mutation.nodeId);
       return mutation;
     case "node-owner-set": {
+      if (mutation.previousOwnerNodeId === null) {
+        return mutation;
+      }
       const { previous, available } = context.projections();
       return completeNodeOwnerEvidence(mutation, previous, available);
     }
-    case "node-type-declare":
-      assertNodeTypeCompatible(mutation, context.projections().available);
+    case "intrinsic-node-type-declare":
+      assertIntrinsicNodeTypeCompatible(mutation, context.projections().available);
       return mutation;
   }
 }
@@ -53,32 +59,34 @@ export function completeNodeOwnerEvidence(
   previous: ScopedProjection,
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "node-owner-set" }> {
+  const previousOwnerNodeId = previous.nodeOwners[mutation.nodeId];
+  if (available.nodes[mutation.nodeId] === undefined) {
+    throw new Error("Owner subject is absent from the observed projection");
+  }
   if (
-    !isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId) ||
-    !isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.ownerNodeId) ||
-    !Object.values(available.occurrences).some(
-      (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
-    )
+    mutation.ownerNodeId !== null &&
+    !isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.ownerNodeId)
   ) {
     throw new Error("Owner target is absent from the observed projection");
   }
-  assertOwnerAcyclic(mutation.nodeId, mutation.ownerNodeId, previous);
-  const previousOwnerNodeId = previous.nodeOwners[mutation.nodeId];
-  if (!previousOwnerNodeId) {
+  if (mutation.ownerNodeId !== null) {
+    assertOwnerAcyclic(mutation.nodeId, mutation.ownerNodeId, previous);
+  }
+  if (previousOwnerNodeId === undefined) {
     throw new Error("Workspace Node ownership cannot change");
   }
   return { ...mutation, previousOwnerNodeId };
 }
 
-export function assertNodeTypeCompatible(
-  mutation: Extract<Mutation, { kind: "node-type-declare" }>,
+export function assertIntrinsicNodeTypeCompatible(
+  mutation: Extract<Mutation, { kind: "intrinsic-node-type-declare" }>,
   available: ScopedProjection,
 ): void {
   if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, mutation.nodeId)) {
-    throw new Error(`Node type target is absent from the observed projection: ${mutation.nodeId}`);
+    throw new Error(`Intrinsic Node Type target is absent from the observed projection: ${mutation.nodeId}`);
   }
-  const current = available.nodes[mutation.nodeId]?.nodeType ?? null;
-  if (current !== null && current !== mutation.nodeType) {
+  const current = available.nodes[mutation.nodeId]?.intrinsicNodeType ?? null;
+  if (current !== null && current !== mutation.intrinsicNodeType) {
     throw new Error("A Node cannot declare another type");
   }
 }
@@ -87,8 +95,8 @@ export function assertNodeDeletionTarget(
   mutation: Extract<Mutation, { kind: "node-delete" }>,
   available: ScopedProjection,
 ): void {
-  if (mutation.nodeId === available.workspaceSystemNodes.trash) {
-    throw new Error("Workspace Trash cannot be deleted");
+  if (belongsToSystemRole(mutation.nodeId, available)) {
+    throw new Error("Workspace System Node cannot be deleted");
   }
   if (Object.values(available.metanodes).includes(mutation.nodeId)) {
     throw new Error("Metanode cannot be deleted independently of its host");
@@ -96,6 +104,20 @@ export function assertNodeDeletionTarget(
   if (nodeLocation(available.identity.workspaceNodeId, available, mutation.nodeId) !== "active") {
     throw new Error(`Delete target Node does not exist: ${mutation.nodeId}`);
   }
+}
+
+function belongsToSystemRole(nodeId: string, projection: ScopedProjection): boolean {
+  const protectedRoots = new Set(Object.values(projection.workspaceSystemNodes));
+  let cursor: string | null | undefined = nodeId;
+  const seen = new Set<string>();
+  while (cursor !== null && cursor !== undefined && !seen.has(cursor)) {
+    if (protectedRoots.has(cursor)) {
+      return true;
+    }
+    seen.add(cursor);
+    cursor = projection.nodeOwners[cursor];
+  }
+  return false;
 }
 
 function assertOwnerAcyclic(nodeId: string, ownerNodeId: string, projection: ScopedProjection): void {

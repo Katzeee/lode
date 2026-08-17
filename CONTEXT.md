@@ -35,18 +35,22 @@ The Engine capability through which two Workspace Replicas compare versions and 
 _Avoid_: Remote sync connection, transport authority
 
 **Node**:
-A persistent knowledge object with stable identity. Anything the domain names, nests, reuses, queries, or governs independently is a Node, including Workspaces, Supertag Definitions, Field Definitions, Fields, Search Nodes, Command Nodes, Metanodes, and ordinary outline content. A Node Type selects specialized behavior without creating a parallel identity system. Every non-Workspace Node has exactly one Owner Node; the Workspace Node is the ownership root and has no Owner.
+A persistent knowledge object with stable identity. Anything the domain names, nests, reuses, queries, or governs independently is a Node, including Workspaces, Supertag Definitions, Field Definitions, Fields, Search Nodes, Command Nodes, Metanodes, and ordinary outline content. A Node can present several compatible Node Types without creating a parallel identity system. Every attached non-Workspace Node has exactly one Owner Node; a typed relation lifecycle may retain a detached Node without an Owner or active placement, while the Workspace Node is the ownership root and has no Owner.
 
 **Node Type**:
-The optional, immutable specialization of a Node: Supertag Definition, Field Definition, Field, Search, Command, Workspace, or Calendar. An ordinary Node has no Node Type. Node Type selects a closed set of invariants that cannot be expressed safely by adding ordinary Fields, while Reference appearance, View Definition, Workspace System Role, URL or Code content, Entity classification, and access state remain independent axes. Concurrent incompatible type declarations suspend the effective type and expose a conflict.
-_Avoid_: Facet, role, block kind, Reference type
+A Tana-aligned product category describing how a Node behaves or appears. Plain, Reference, Search, Entity, contextual content, Supertag Definition, Field Definition, Field, Command, URL, Code, Workspace, media, access placeholders, Views, and system or configuration Nodes all belong to this vocabulary. Node Type is not one persistent discriminator: it can arise from an Intrinsic Node Type, an Occurrence, typed content or attachments, a typed relation or configuration graph, derived classification, or an access Projection. Compatible Node Types can apply to the same Node at once.
+_Avoid_: NodeType enum, universal role bag, single discriminator
+
+**Intrinsic Node Type**:
+The optional, immutable intrinsic specialization currently supported by Lode: Supertag Definition, Field Definition, Field, Search, Command, Workspace, or Calendar. An ordinary Node has no Intrinsic Node Type. Only a type whose closed invariants require this exclusive axis enters it; Reference appearance, View Definition, Workspace System Role, URL or Code content, Entity classification, and access state remain independent. Concurrent incompatible declarations suspend the effective Intrinsic Node Type and expose a conflict.
+_Avoid_: Declared Node Type, unqualified Node Type, Facet, role, block kind, Reference type
 
 **Occurrence**:
 A Node's ordered placement in a parent Node's children list. An Occurrence has its own stable identity because order, contextual presentation, deletion, movement, and review target the placement rather than the shared Node. A parent is always a Node, never another Occurrence or a synthetic root. The same Node can occur under several parent Nodes but cannot occur twice in one parent Node's children list.
 _Avoid_: Copy, block instance
 
 **Node Graph**:
-The current Nodes, their ordered Occurrences, Metanode attachments, and the Owner relation. Outline-placed Nodes have one rooted Original; a Metanode is owned through its typed host attachment without appearing in the host's outline children. Reference edges may make the graph cyclic even though its Owner edges form a tree.
+The current Nodes, their ordered Occurrences, Metanode attachments, and the Owner relation. Attached Nodes form an Owner tree rooted at the Workspace; outline-placed Nodes have one rooted Original, while a Metanode and protected system-definition Nodes use explicit hidden Owner relations without ordinary outline placements. Typed relation lifecycles may retain detached relation Nodes outside that tree. Reference edges may make the graph cyclic even though attached Owner edges remain acyclic.
 _Avoid_: Node tree, Projection index, recursive Node document
 
 **Outline**:
@@ -62,7 +66,7 @@ The choice between accepted authority (`origin`) and accepted authority plus pen
 _Avoid_: View Mode, View, renderer state
 
 **Workspace**:
-The Node of type Workspace that forms one ownership, authorization, and replication boundary. Workspace genesis atomically creates the Node and declares its type through the common Fact transaction path; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
+The Node of type Workspace that forms one ownership, authorization, and replication boundary. Workspace genesis atomically creates the Node, declares its Intrinsic Node Type, and installs its protected Trash and System Definition Catalog through the common Fact transaction path; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
 _Avoid_: Workspace Root, synthetic root Occurrence, graph-external Workspace identity
 
 **Reference**:
@@ -74,7 +78,7 @@ An identity-bearing item in one host Node's ordered content that targets another
 _Avoid_: Reference Occurrence, copied text, URL token, embedded Node
 
 **Inline Alias**:
-An ordinary Node owned beneath the host Node's Metanode and attached to one Inline Reference as its contextual display content. The attachment is typed and independently reviewable; the Alias does not rename, own, or replace the target Node.
+An ordinary Node owned by the host Node and associated with an Inline Reference target as contextual display content. The association is typed and independently reviewable; the Alias does not rename, own, or replace the target Node, and whether several Inline References to the same target share one Alias remains outside the current contract.
 _Avoid_: Alias string, target title override, Inline Reference metadata
 
 **Backlink**:
@@ -82,8 +86,12 @@ A perspective-specific derived read of block Reference Occurrences and Inline Re
 _Avoid_: Stored reverse relation, global Reference count, index row
 
 **Owner**:
-The single structural and access parent of another Node. For outline content, the Owner is the parent of its Original Occurrence; for a Metanode, the typed host attachment establishes the Owner without adding a visible Occurrence. Every non-Workspace Node has one acyclic Owner chain that reaches the Workspace, including Nodes whose path passes through Trash.
+The single structural and access parent of an attached Node. For outline content, the Owner is the parent of its Original Occurrence; for a Metanode, the typed host attachment establishes the Owner without adding a visible Occurrence. Every attached non-Workspace Node has one acyclic Owner chain that reaches the Workspace, including Nodes whose path passes through Trash. Absence of an Owner is admitted only by a typed detached-relation lifecycle and never means that arbitrary content can float outside the Workspace tree.
 _Avoid_: Canonical occurrence, owner type union, owning Occurrence
+
+**Detached Relation**:
+An identity-bearing relation Node retained after its typed removal operation clears both its Owner and owning Occurrence. It is absent from the active Workspace tree and is not in Trash; the relation family authorizes this state and defines whether later operations restore the old identity or create a new one.
+_Avoid_: Deleted Node, Trash item, orphan Node
 
 **Original**:
 The unique outline Occurrence of an outline-placed Node whose parent is that Node's Owner. Moving the Original moves ownership, while promoting an existing Reference makes that Occurrence the new Original without changing Node identity. A Metanode is not outline-placed and therefore has no Original.
@@ -106,20 +114,20 @@ A Node of type Supertag Definition that defines an “is a” classification who
 _Avoid_: Class, tag, Supertag Node
 
 **Supertag Application**:
-An independent typed relation stating that a Node is an instance of one Supertag Definition. A Node can have multiple Supertag Applications.
-_Avoid_: supertagId, assigned supertag
+An identity-bearing relation Node owned beneath the host Node's Metanode. Its ordered definition endpoint is a Reference to one Supertag Definition, while the typed application relation states that the host is an instance of that definition. A host can own multiple independently ordered Supertag Applications; removal makes the relation a Detached Relation rather than placing it in Trash, and reapplication creates a new relation identity.
+_Avoid_: supertagId array, assigned supertag flag, anonymous relation
 
 **Supertag Instances Query**:
 A bounded read of Nodes whose Supertag Applications match one Supertag Definition directly or through Supertag Extension. It reads derived membership and is not a persistent Search Node or query definition.
 _Avoid_: Supertag Search, Search Node, saved query
 
 **Search Node**:
-A Node of type Search whose Configuration Graph owns an ordered query expression. Search identity, query clauses, Proposal, History, and Trash lifecycle are persistent domain state, while matching results are evaluated from the selected Projection perspective and remain derived reads.
+A Node of type Search whose Configuration Graph owns one Search Expression. Search identity, expression, Proposal, History, and Trash lifecycle are persistent domain state, while matching results are evaluated from the selected Projection perspective and remain derived reads.
 _Avoid_: Saved result list, query blob, Supertag Instances Query
 
-**Search Clause**:
-An identity-bearing Node beneath a Search Node's Metanode that contributes one typed predicate to the Search expression. Clause Occurrences provide ordering, ordinary Node lifecycle provides removal and restoration, and the first supported expression is an implicit conjunction of Supertag-instance and materialized-Field predicates.
-_Avoid_: Query JSON, filter callback, anonymous predicate
+**Search Expression**:
+An identity-bearing relation Node owned beneath a Search Node's Metanode whose ordered endpoints define the persistent query. The current contract supports only one Supertag-instance expression with a non-owning Search Expression definition endpoint followed by a non-owning Supertag Definition endpoint; Field predicates, sibling conjunction, boolean nesting, reordering, and clearing remain absent until paired evidence defines their graph and lifecycle.
+_Avoid_: Search Clause, Query JSON, filter callback, anonymous predicate
 
 **Search Result Reference**:
 A perspective-specific derived row that points from one Search Node to one matching target Node. It has a deterministic row identity for pagination and rendering, but it is not a Fact, an Occurrence, an Owner edge, or stored authority.
@@ -133,20 +141,32 @@ _Avoid_: Copied supertag, implicit multi-supertag
 A Node of type Field Definition that names and configures a “has a” attribute. It exists before any use, and multiple Supertag Definitions and ordinary Nodes can reuse the same identity.
 _Avoid_: Field key, property name
 
+**Field Optionality**:
+An identity-bearing configuration relation Node directly owned and ordered beneath a Field Definition whose protected value endpoint states Yes or No. Tana presents No as `Required`; changing that toggle updates the same Definition-owned relation rather than a Template Field relation.
+_Avoid_: Template Field Required, required flag
+
 **Field Datatype**:
-An identity-bearing configuration relation beneath a Field Definition's Metanode that selects the supported value interpretation, initially Plain or Options. Changing it does not replace the Field Definition, Field Nodes, or existing Field Values.
+An identity-bearing configuration relation Node directly owned and ordered beneath a Field Definition. Its definition endpoint is the built-in Datatype Field Definition and its value endpoint is a protected System Definition Node, initially Plain or Options. Endpoint identity is the semantic value; changing it does not replace the relation, Field Definition, Field Nodes, or existing Field Values.
 _Avoid_: Field Node Type, value conversion job, scalar schema column
 
+**Date Value**:
+A Field Value that expresses a point or range in time with explicit granularity. Its comparison and Search semantics come from time rather than rendered text; it does not imply a Calendar View or Calendar Node.
+_Avoid_: Date string, Calendar item, Day Node
+
+**Date Field**:
+A Field Definition whose Datatype accepts Date Values for structured entry, validation, Search, sorting, and grouping. Date Field is ordinary Field authority and remains independent of any View Type or Workspace calendar hierarchy.
+_Avoid_: Calendar Field, Daily Note Field, Calendar View
+
 **Field Cardinality**:
-An identity-bearing configuration relation beneath a Field Definition's Metanode that declares Single or List presentation and validation semantics. Changing it never truncates or deletes stored Field Value Nodes; policies for excess values remain separate domain rules.
+An identity-bearing configuration relation Node directly owned and ordered beneath a Field Definition. Its definition endpoint is the built-in Cardinality Field Definition and its value endpoint is a protected System Definition Node declaring Single or List presentation and validation semantics. Changing the endpoint never replaces the relation or truncates stored Field Value Nodes; policies for excess values remain separate domain rules.
 _Avoid_: Array flag, destructive migration, value count
 
 **Field Initialization Expression**:
-An identity-bearing expression Node beneath a Field Definition's Metanode that is evaluated once when a new Supertag Application makes that Field effective. The supported expression reads the same Field from an Outline ancestor; it produces ordinary instance-owned Field Values and does not recompute when the ancestor later changes.
+An identity-bearing `findFieldValues` expression Node used as the value endpoint of an Initialize expression relation directly owned beneath a Field Definition. Its ordered operands are a Reference to the same Field Definition followed by an expression-owned `ABOVE` context Node. It is evaluated once when a new Supertag Application makes that Field effective, produces ordinary instance-owned Field Values, and does not recompute when the ancestor later changes.
 _Avoid_: Template Field initializer, live formula, metadata callback
 
 **Field**:
-A Node of type Field that is placed beneath an owner and bound to one Field Definition. A Field owns ordered value Occurrences and may be a Template Field under a Supertag Definition or a Materialized Field under an instance. An unmaterialized placeholder is Projection state, not a Field Node.
+A Node of type Field that is placed beneath an owner and bound to one Field Definition. A Field owns ordered value Occurrences and represents authored content such as a Materialized Field; Template Field and Optional Field Contribution are distinct Supertag Definition relations, not Field Nodes. An unmaterialized placeholder is Projection state, not a Field Node.
 _Avoid_: Field occurrence, tuple object, scalar property, placeholder Node
 
 **Trash**:
@@ -154,8 +174,12 @@ A persistent Node assigned the Workspace's Trash System Role. A Node is in Trash
 _Avoid_: Node Tombstone, Deleted-Node store, Hard Delete queue, Trash Node Type
 
 **Workspace System Role**:
-A Workspace-scoped canonical relation assigning a built-in structural purpose, such as Trash, to one Node. The relation drives discovery and protection; the target's title, Node Type, or caller-editable metadata never establishes the role.
+A Workspace-scoped canonical relation assigning a built-in structural purpose, such as Trash or System Definition Catalog, to one Node. The relation drives discovery and protects the target's entire Owner subtree; title, Intrinsic Node Type, stable identity, or caller-editable metadata alone never establishes the role.
 _Avoid_: System Node Type, system-role metadata, reserved title
+
+**System Definition Catalog**:
+A protected hidden Owner subtree assigned the Workspace's System Definition Catalog role. It has ordinary Node identities but no ordinary Outline Occurrences. Its stable Definition Nodes are reusable endpoints for built-in typed relations, initially Field configuration definitions, Datatypes, and Cardinalities, so configuration authority remains inside the Node graph instead of becoming an enum column or raw property map. Lode owns the catalog's Workspace lifecycle without claiming that its IDs or ownership root duplicate Tana's private storage.
+_Avoid_: Enum registry, metadata schema, global magic IDs, System Node Type
 
 **System Field Definition**:
 A built-in Field Definition whose identity, value shape, and policy are owned by Lode. It lets Nodes carry typed configuration and relations through the ordinary Field and Node graph without exposing an untyped metadata key or a parallel configuration store.
@@ -166,23 +190,39 @@ A read-only Field value derived for a Node from current semantic state under a S
 _Avoid_: Stored metadata, generated child, cached authority
 
 **Configuration Graph**:
-A hidden Node, Field, and Reference subgraph reached from a host through its Metanode. System Field Definitions type the relations inside the graph; Search expressions, View Definitions, commands, defaults, and other structured capabilities use it when their parts need identity, ordering, grouping, reuse, or composition. Ordinary Outline traversal does not expose this subgraph merely because its Nodes have Owners.
+A Node, Field, and Reference subgraph whose typed relations carry structured capability. Host-scoped capabilities such as Search expressions and View Definitions live beneath the host's Metanode, while Definition-owned configuration such as Datatype, Cardinality, and Initialize expression is ordered directly beneath its Field Definition. The graph is hidden only where its owning relation is hidden; Metanode is not a universal container for every configuration relation.
 _Avoid_: Metadata blob, opaque JSON configuration, parallel document
 
+**Tuple**:
+An internal identity-bearing relation container Node whose Owner, when attached, is independent of its ordered endpoint Occurrences. A typed relation lifecycle may retain the Tuple as a Detached Relation without an Owner. Endpoint ownership and arity belong to the typed relation family: a Tuple may have zero or many endpoints, and any endpoint may be owning or non-owning according to the target Node's Owner. Tuple is an Engine substrate, not a public generic write API.
+_Avoid_: Binary relation, anonymous tuple object, universal Field shape
+
 **Metanode**:
-The single persistent Node attached to a host by the canonical `metanode-attach` relation. Its Owner is the host, but it has no Outline Occurrence and does not appear in the host's ordered child Occurrences. Configuration descendants use ordinary Node, Field, Reference, Occurrence, Owner, Trash, Proposal, and History semantics beneath the Metanode. It cannot be deleted independently and follows the host through the Owner lifecycle. Metanode is a structural role established by the attachment, not a public Node Type or an intrinsic property bag.
+The single persistent Node attached to a host by the canonical `metanode-attach` relation. Its Owner is the host, but it has no Outline Occurrence and does not appear in the host's ordered child Occurrences. Configuration descendants use ordinary Node, Field, Reference, Occurrence, Owner, Trash, Proposal, and History semantics beneath the Metanode. It cannot be deleted independently and follows the host through the Owner lifecycle. Metanode is a structural role established by the attachment, not an Intrinsic Node Type or an intrinsic property bag.
 _Avoid_: Hidden child Occurrence, metadata object, deterministic Metanode lookup
+
+**Debug node**:
+A Tana-aligned diagnostic operation and read model for one existing Node. Opening it ensures that the target has its persistent Metanode; reading it returns the selected Projection's Node, Owner, Metanode, child Occurrences, materialized Fields, URL, and Code language without creating a persistent Debug Node or a second diagnostic authority.
+_Avoid_: Debug Node, mutating query, debug JSON property bag
+
+**URL Node**:
+A Node whose URL capability is carried by a Materialized Field using the protected URL System Definition and one owned text Value Node. Direct creation establishes a new Node identity and the typed URL relation atomically. Automatic plain-text-to-URL replacement is a separate lifecycle operation and is not implied by this Node Type.
+_Avoid_: URL Intrinsic Node Type, raw URL property, identity-preserving auto-conversion
+
+**Code Node**:
+A Node whose Code capability is carried by a Materialized Field using the protected Code block language System Definition and one owned language Value Node. Configuring Code preserves the host Node identity and remains independent of CRDT text editing and syntax highlighting.
+_Avoid_: Code Intrinsic Node Type, language enum column, code text replacement
 
 **Hard Delete**:
 An independently gated maintenance operation that permanently prevents a Node already placed in Trash from re-entering Projection. Its preview includes bounded Reference, Supertag, Field, Proposal, and History impacts. Every known Replica must causally acknowledge the deletion or be explicitly retired, and pending Proposals, unknown Invocation outcomes, or owned descendants block execution; root-only purge never leaves an Owner subtree orphaned.
 _Avoid_: Delete mutation, garbage collection, best-effort purge
 
 **Effective Field**:
-A Field made available to a Node by its Supertag Applications and Supertag Extensions, whether or not the Node has stored a local value yet.
+A Field made available to a Node by at least one normal or pinned Template Field reached through its Supertag Applications and Supertag Extensions, whether or not the Node has stored local content yet. Sources merge by Field Definition identity while retaining each Template Field and Application or Extension provenance; pinned outranks normal presentation without becoming Definition-global configuration.
 _Avoid_: Managed child, generated field
 
 **Materialized Field**:
-An Effective Field that binds one owner Node and one Field Definition to a stable Field Node and Field Occurrence because it has a default, initialization result, authored value, or other persistent local state. Default-generated and authored Materialized Fields remain owned by the instance when their final Supertag source disappears.
+A persistent binding of one owner Node and one Field Definition to a stable Field Node and Field Occurrence because it has a default, initialization result, explicitly authored empty state, authored value, or other local content. It can materialize from an Effective Field or by explicitly selecting an Optional Field Suggestion; default-generated and authored Materialized Fields remain owned by the instance when their final Supertag source disappears.
 _Avoid_: Field placeholder, scalar property
 
 **Field Value**:
@@ -194,16 +234,28 @@ An instance action that either removes one selected Field Value occurrence or cl
 _Avoid_: Node deletion, scalar clear, cascading content loss
 
 **View Definition**:
-A persistent ordinary Node beneath a host's Metanode that names one reusable set of child-projection configuration. It does not change the host's Node Type, own the projected children, or persist a result set.
+A persistent ordinary Node owned by a typed View attachment relation beneath a host's Metanode. It names one child-projection configuration without changing the host's Intrinsic Node Type, owning the projected children, or persisting a result set.
 _Avoid_: View Node Type, saved result set, renderer state, view blob
 
 **Shared Default View**:
-The Workspace-shared relation from one host Node to its default View Definition. A host has at most one effective Shared Default View; its relation remains separate from View Type and from any future personal presentation choice.
+The Workspace-shared typed attachment represented by an identity-bearing relation Node beneath the host's Metanode. The attachment owns the selected View Definition through an ordered Occurrence, while View Type remains configuration of that View Definition. Removing it replaces the selected View endpoint with an attachment-owned blank and moves both the attachment and View Definition to Trash; reapplication creates new identities. A host has at most one effective Shared Default View, and this authority remains separate from any future personal presentation choice.
 _Avoid_: Shared View, current renderer, personal View
 
 **View Type**:
 The projection mode selected by a View Definition, initially Outline or Table. View Type is independent of the identity-bearing option graph and does not determine child authority or ordering.
 _Avoid_: View Definition, layout blob, Projection Perspective
+
+**Calendar View**:
+A future View Type that projects a host's existing child source by selected Date Fields. It owns presentation configuration, not Date Values, child Nodes, or Workspace time hierarchy, and it is outside the current MVP.
+_Avoid_: Calendar Node, Daily Notes, date authority
+
+**Calendar Node**:
+A future Workspace time-identity Node representing a day, week, month, or year and hosting time-based outline content. It is distinct from Date Values and Calendar View and is outside the current MVP.
+_Avoid_: Calendar View, Date Value, Today renderer
+
+**View Sort by Node Name**:
+The first bounded View option: a View Definition-owned Sort order Field whose single owned value is a nested Sort field Field with ordered Node name and ASC System Definition endpoints. Applying it also records the current case-folded, text-ordered child sequence through ordinary Occurrence moves; the option graph never owns rows or hides reorder authority inside the View Projection.
+_Avoid_: Sort enum, comparator blob, derived-only child order
 
 **Implicit Outline**:
 The derived Outline presentation used when a host has no Shared Default View. It has no persistent View Definition identity and does not create configuration Facts merely because a client reads it.
@@ -218,16 +270,24 @@ The ordered Fields, Nodes, References, and searches that a Supertag Definition c
 _Avoid_: Field list, copied children
 
 **Template Field**:
-A Field Node whose Owner is a Supertag Definition and whose Field Occurrence occupies an ordered place in that definition's template. It points to a reusable Field Definition while owning the Supertag-specific visibility and Static Default used by that template relationship.
-_Avoid_: Supertag Field Contribution, Field Template Item, anonymous field entry
+An identity-bearing Field relation occupying an ordered place in a Supertag Template and carrying configuration specific to that direct use. `Add new field` creates it with an owned Field Definition; making that definition discoverable moves the same definition to Schema while the Template Field keeps a non-owning endpoint. `Insert existing field` in the template reuses a discoverable Field Definition but creates a new Template Field identity and default slot. Removing the use moves that relation and its owned slot to Trash without deleting the Field Definition; adding the definition again does not revive the removed relation.
+_Avoid_: Supertag Field Contribution, Field Template Item, anonymous field entry, Template Field Node
+
+**Pinned Template Field**:
+A Template Field marked as a primary dimension of one Supertag Definition, so instances and View controls present it prominently. Pinned is configuration of that Template Field use, not global configuration of the shared Field Definition.
+_Avoid_: Pinned Field Definition, required Field, global Field priority
 
 **Static Default**:
-Template Field configuration whose values are captured into a Materialized Field when a new Supertag Application first makes the Field effective. Conflicting incomparable defaults pause materialization and remain visible with provenance.
+The stable text slot owned by one Template Field use. Setting, modifying, or clearing it preserves the slot identity. A non-empty current value is copied into an instance-owned Materialized Field when a new Supertag Application first makes the Field effective; later changes never overwrite that copy, while an empty slot leaves only an Effective placeholder. Concurrent edits preserve CRDT text authorship, and conflicting incomparable defaults from different sources pause materialization and remain visible with provenance.
 _Avoid_: Live default, fallback scalar
 
 **Optional Field Contribution**:
-A Supertag Template relationship that offers a Field Definition as an instance suggestion without creating an Effective Field. Selecting it explicitly creates a Materialized Field, including when its value remains empty.
+A Supertag Definition relationship that offers an existing Field Definition to instances without placing a direct Template Field in the Supertag Template or creating an Effective Field. It is authored through the Optional fields section's existing-field branch and materializes only when an instance explicitly supplies content.
 _Avoid_: Hidden field, optional placeholder
+
+**Optional Field Suggestion**:
+A derived Add fields choice produced when an instance reaches one or more Optional Field Contributions for a Field Definition, has no normal or pinned Template Field source for that Definition, and has not already materialized it. The suggestion preserves every contribution and Application or Extension provenance but has no persistent Field identity of its own.
+_Avoid_: Optional Effective Field, generated Field, persisted suggestion
 
 **Detached Template Content**:
 An instance-owned Node snapshot of ordinary Template content. Detachment gives the snapshot and its placement explicit identities under the common Node and Occurrence lifecycle, while later definition changes no longer rewrite it.

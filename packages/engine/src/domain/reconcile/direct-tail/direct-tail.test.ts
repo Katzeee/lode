@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { makeFact, type Mutation } from "../../fact/index.js";
-import {
-  base,
-  end,
-  fullSurface,
-  REPLICA,
-  versions,
-} from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { base, end, REPLICA, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { fullSurface } from "../../../../tests/support/reconcile/full-surface-test-fixture.js";
+import { supertagApplicationIdentity } from "../../../../tests/support/reconcile/supertag-application-test-helpers.js";
 import { rebuildGeneration } from "../reconcile.js";
 import type { Projection } from "../projection-types.js";
 import { selectEligibleDirectTail } from "./index.js";
@@ -16,19 +12,20 @@ describe("Direct Projection tail policy", () => {
   it("delegates Projection prerequisites to each Mutation family", () => {
     const facts = fullSurface("direct");
     const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.origin;
+    const application = supertagApplicationIdentity("node", "supertag");
     const eligible = [
       { kind: "node-delete", nodeId: "node" },
       { kind: "occurrence-delete", occurrenceId: "occurrence" },
-      { kind: "supertag-remove", nodeId: "node", supertagId: "supertag" },
       {
-        kind: "field-initialize",
-        ownerNodeId: "node",
+        kind: "supertag-remove",
+        hostNodeId: "node",
         supertagId: "supertag",
-        fieldDefinitionId: "field",
-        fieldNodeId: "new-field-node",
-        fieldOccurrenceId: "new-field-occurrence",
-        source: "static-default",
-        values: [],
+        applicationNodeId: application.applicationNodeId,
+        applicationOccurrenceId: application.applicationOccurrenceId,
+        relationDefinitionOccurrenceId: application.relationDefinitionOccurrenceId,
+        definitionOccurrenceId: application.definitionOccurrenceId,
+        detachedValueNodeId: `${application.applicationNodeId}-detached-value`,
+        detachedValueOccurrenceId: `${application.applicationNodeId}-detached-value-occurrence`,
       },
       { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "x" },
     ] as const satisfies readonly Mutation[];
@@ -36,16 +33,20 @@ describe("Direct Projection tail policy", () => {
     expect(eligible.map((mutation) => isEligible(projection, mutation))).toEqual(eligible.map(() => true));
     expect(
       isEligible(projection, {
-        kind: "node-type-declare",
+        kind: "intrinsic-node-type-declare",
         nodeId: "node",
-        nodeType: "calendar",
+        intrinsicNodeType: "calendar",
       }),
     ).toBe(false);
     expect(
       isEligible(projection, {
         kind: "supertag-apply",
-        nodeId: "node",
+        hostNodeId: "node",
         supertagId: "missing-supertag",
+        applicationNodeId: "missing-application",
+        applicationOccurrenceId: "missing-application-occurrence",
+        relationDefinitionOccurrenceId: "missing-relation-definition-occurrence",
+        definitionOccurrenceId: "missing-definition-occurrence",
         anchor: end,
       }),
     ).toBe(false);

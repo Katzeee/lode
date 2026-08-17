@@ -30,11 +30,6 @@ export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mut
       anchor: end,
       insert,
     })),
-    ...supertagFields("anime-work", ["title-field"]),
-    ...supertagFields("character", ["work-field"]),
-    ...supertagFields("anime-context", ["context-field"]),
-    ...supertagFields("quick-impression", ["work-field", "impression-field"]),
-    ...supertagFields("review", ["work-field", "rating-field"]),
     supertagApplication("frieren", "anime-work"),
     supertagApplication("fern", "character"),
     supertagApplication("quick-note", "quick-impression"),
@@ -75,63 +70,28 @@ function outline(workspaceNodeId: string): readonly Mutation[] {
     ["quick-note", "quick-note-occurrence", "notes"],
     ["review-note", "review-note-occurrence", "notes"],
   ] as const;
-  return placements.map(([nodeId, occurrenceId, parentNodeId, nodeType]) =>
-    nodeAt(nodeId, parentNodeId, occurrenceId, undefined, nodeType),
+  return placements.map(([nodeId, occurrenceId, parentNodeId, intrinsicNodeType]) =>
+    nodeAt(nodeId, parentNodeId, occurrenceId, undefined, intrinsicNodeType),
   );
-}
-
-export function moodProposal(): readonly Mutation[] {
-  return [
-    nodeAt("mood-field", "definition-library", "mood-field-original", undefined, "field-definition"),
-    {
-      kind: "supertag-field-add",
-      supertagId: "quick-impression",
-      fieldDefinitionId: "mood-field",
-      fieldNodeId: "quick-impression-mood-field-template-field",
-      fieldOccurrenceId: "quick-impression-mood-field-template-field-occurrence",
-      anchor: end,
-    },
-  ];
-}
-
-export function pendingMoodEdit(): readonly Mutation[] {
-  return [
-    nodeAt("mood-on-quick-note", "quick-note", "mood-on-quick-note-occurrence"),
-    nodeAt("mood-text", "mood-on-quick-note", "mood-text-occurrence"),
-    {
-      kind: "text-splice",
-      nodeId: "mood-text",
-      deleteAtomIds: [],
-      anchor: end,
-      insert: "Reflective",
-    },
-    {
-      kind: "field-materialize",
-      ownerNodeId: "quick-note",
-      fieldDefinitionId: "mood-field",
-      fieldNodeId: "mood-on-quick-note",
-      fieldOccurrenceId: "mood-on-quick-note-occurrence",
-    },
-  ];
 }
 
 export function reviewApplicationProposal(): readonly Mutation[] {
   return [supertagApplication("quick-note", "review")];
 }
 
-function supertagFields(supertagId: string, fieldDefinitionIds: readonly string[]): Mutation[] {
-  return fieldDefinitionIds.map((fieldDefinitionId) => ({
-    kind: "supertag-field-add",
-    supertagId,
-    fieldDefinitionId,
-    fieldNodeId: `${supertagId}-${fieldDefinitionId}-template-field`,
-    fieldOccurrenceId: `${supertagId}-${fieldDefinitionId}-template-field-occurrence`,
-    anchor: end,
-  }));
-}
-
 function supertagApplication(nodeId: string, supertagId: string): Mutation {
-  return { kind: "supertag-apply", nodeId, supertagId, anchor: end };
+  const applicationNodeId = `${nodeId}-${supertagId}-application`;
+  return {
+    kind: "supertag-application-create",
+    hostNodeId: nodeId,
+    supertagId,
+    metanodeId: `${nodeId}-metanode`,
+    applicationNodeId,
+    applicationOccurrenceId: `${applicationNodeId}-occurrence`,
+    definitionOccurrenceId: `${applicationNodeId}-definition-occurrence`,
+    relationDefinitionOccurrenceId: `${applicationNodeId}-relation-definition-occurrence`,
+    anchor: end,
+  };
 }
 
 function materializedField(
@@ -163,7 +123,7 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   text?: string,
-  nodeType?: "supertag-definition" | "field-definition",
+  intrinsicNodeType?: "supertag-definition" | "field-definition",
 ): Mutation {
   return {
     kind: "node-create",
@@ -171,7 +131,7 @@ function nodeAt(
     occurrenceId,
     parentNodeId,
     anchor: end,
-    ...(nodeType === undefined ? {} : { nodeType }),
+    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
     ...(text === undefined
       ? {}
       : {

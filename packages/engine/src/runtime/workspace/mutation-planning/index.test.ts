@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { workspaceTrashNodeId, workspaceTrashOccurrenceId } from "../../../domain/fact/index.js";
 import { rebuildGeneration } from "../../../domain/reconcile/index.js";
 import { base, end, Facts, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { prepareEdits } from "./index.js";
@@ -30,7 +31,7 @@ describe("domain Edit write boundaries", () => {
     ).toThrow("Workspace identity is created only by Workspace genesis");
   });
 
-  it("keeps Node creation placement atomic and deletion as one structural Fact", () => {
+  it("keeps Node creation and Trash placement atomic", () => {
     const creationFacts = new Facts();
     const creationSnapshot = creationFacts.snapshot();
     const creationGeneration = rebuildGeneration("workspace", creationSnapshot, versions).generation;
@@ -56,6 +57,7 @@ describe("domain Edit write boundaries", () => {
         kind: "atomic",
         mutations: [
           { kind: "node-create", nodeId: "node" },
+          { kind: "node-owner-set", nodeId: "node", ownerNodeId: "workspace", previousOwnerNodeId: null },
           { kind: "occurrence-create", occurrenceId: "node-original" },
         ],
       },
@@ -73,7 +75,33 @@ describe("domain Edit write boundaries", () => {
         "direct",
         deletionSnapshot,
       ),
-    ).toEqual([{ kind: "single", mutation: { kind: "node-delete", nodeId: "node" } }]);
+    ).toEqual([
+      {
+        kind: "atomic",
+        mutations: [
+          { kind: "node-delete", nodeId: "node" },
+          {
+            kind: "node-owner-set",
+            nodeId: "node",
+            ownerNodeId: workspaceTrashNodeId("workspace"),
+            previousOwnerNodeId: "workspace",
+          },
+          {
+            kind: "occurrence-move",
+            occurrenceId: "occurrence",
+            parentNodeId: workspaceTrashNodeId("workspace"),
+            anchor: end,
+            previousParentNodeId: "workspace",
+            previousAnchor: {
+              after: workspaceTrashOccurrenceId("workspace"),
+              before: null,
+              affinity: "after",
+              fallback: "end",
+            },
+          },
+        ],
+      },
+    ]);
   });
 
   it("keeps independent Edits as independent single writes", () => {
@@ -93,58 +121,5 @@ describe("domain Edit write boundaries", () => {
     );
 
     expect(writes.map((write) => write.kind)).toEqual(["single", "single"]);
-  });
-
-  it("keeps generated Supertag lifecycle members in the source Edit transaction", () => {
-    const facts = new Facts();
-    facts.addPlaced("supertag");
-    facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
-    facts.addPlaced("field-definition");
-    facts.add({
-      kind: "node-type-declare",
-      nodeId: "field-definition",
-      nodeType: "field-definition",
-    });
-    const snapshot = facts.snapshot();
-    const generation = rebuildGeneration("workspace", snapshot, versions).generation;
-
-    const writes = prepareEdits(
-      "workspace",
-      "actor",
-      [
-        {
-          kind: "supertag-field-add",
-          supertagId: "supertag",
-          fieldDefinitionId: "field-definition",
-          fieldNodeId: "template-field",
-          fieldOccurrenceId: "template-field-occurrence",
-          anchor: end,
-        },
-      ],
-      generation,
-      "proposal",
-      snapshot,
-    );
-
-    expect(writes).toMatchObject([
-      {
-        kind: "atomic",
-        mutations: [
-          { kind: "node-create", nodeId: "template-field" },
-          { kind: "node-type-declare", nodeId: "template-field", nodeType: "field" },
-          {
-            kind: "occurrence-create",
-            occurrenceId: "template-field-occurrence",
-            nodeId: "template-field",
-            parentNodeId: "supertag",
-          },
-          {
-            kind: "supertag-field-add",
-            supertagId: "supertag",
-            fieldDefinitionId: "field-definition",
-          },
-        ],
-      },
-    ]);
   });
 });

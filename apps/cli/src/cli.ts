@@ -1,12 +1,30 @@
 import { createDesktopClient } from "@lode/desktop-client";
 import { parseEngineCommand, parseEngineQuery } from "@lode/sdk";
+import { runDomainCommand } from "./domain-cli.js";
 
 export async function runCli(
   argv: readonly string[],
   write: (text: string) => void = (text) => process.stdout.write(text),
 ): Promise<void> {
   if (argv[0] === "sync") {
-    await syncWorkspace(argv);
+    const result = await syncWorkspace(argv);
+    write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (argv[0] === "domain") {
+    const endpoint = argv[1];
+    const workspaceId = argv[2];
+    if (!endpoint || !workspaceId || !argv[3]) {
+      throw new Error("Usage: lode domain <endpoint> <workspace-id> <action> [arguments] --access-token <token>");
+    }
+    const client = createDesktopClient(endpoint, requiredAccessToken(argv));
+    try {
+      await client.openWorkspace(workspaceId);
+      const result = await runDomainCommand(client, workspaceId, argv.slice(3));
+      write(`${JSON.stringify(result)}\n`);
+    } finally {
+      client.close();
+    }
     return;
   }
   const operation = argv[0];
@@ -14,7 +32,7 @@ export async function runCli(
   const payload = argv[2];
   if ((operation !== "execute" && operation !== "query") || !endpoint || !payload) {
     throw new Error(
-      "Usage: lode execute <endpoint> <command-json> --access-token <token> | lode query <endpoint> <query-json> --access-token <token> | lode sync <endpoint> <workspace-id> <remote-endpoint> --access-token <token>",
+      "Usage: lode domain <endpoint> <workspace-id> <action> [arguments] --access-token <token> | lode execute <endpoint> <command-json> --access-token <token> | lode query <endpoint> <query-json> --access-token <token> | lode sync <endpoint> <workspace-id> <remote-endpoint> --access-token <token>",
     );
   }
   const value: unknown = JSON.parse(payload);
@@ -45,7 +63,7 @@ async function query(endpoint: string, argv: readonly string[], request: ReturnT
   }
 }
 
-async function syncWorkspace(argv: readonly string[]): Promise<void> {
+async function syncWorkspace(argv: readonly string[]): Promise<Readonly<Record<string, unknown>>> {
   const endpoint = argv[1];
   const workspaceId = argv[2];
   const remoteEndpoint = argv[3];
@@ -56,6 +74,7 @@ async function syncWorkspace(argv: readonly string[]): Promise<void> {
   try {
     await client.openWorkspace(workspaceId);
     await client.syncWorkspace(workspaceId, remoteEndpoint);
+    return { status: "ok", value: { workspaceId, endpoint, remoteEndpoint } };
   } finally {
     client.close();
   }

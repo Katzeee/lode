@@ -12,24 +12,36 @@ export async function readResolvedProjection(
 ): Promise<ScopedProjection> {
   const { scope } = resolved;
   const nodesBatch = await store.read(generationId, perspective, "nodes", [...scope.nodes]);
-  const nodes = Object.fromEntries(nodesBatch.entries.map((entry) => [entry.identity, entry.value]));
   const [
     childOccurrences,
     metanodes,
     workspaceSystemNodes,
     fieldDefinitionConfigurations,
-    searchClauses,
+    typedFieldValues,
+    searchExpressions,
     sharedDefaultViewDefinitions,
     supertag,
   ] = await Promise.all([
     readSection(store, generationId, perspective, "childOccurrences", [...scope.childOccurrences]),
     readSection(store, generationId, perspective, "metanodes", [...scope.nodes]),
-    readSection(store, generationId, perspective, "workspaceSystemNodes", ["trash"]),
+    readSection(store, generationId, perspective, "workspaceSystemNodes", [
+      "trash",
+      "schema",
+      "systemDefinitionCatalog",
+    ]),
     readSection(store, generationId, perspective, "fieldDefinitionConfigurations", [...scope.nodes]),
-    readSection(store, generationId, perspective, "searchClauses", [...scope.nodes]),
+    readSection(store, generationId, perspective, "typedFieldValues", [...scope.nodes]),
+    readSection(store, generationId, perspective, "searchExpressions", [...scope.nodes]),
     readSection(store, generationId, perspective, "sharedDefaultViewDefinitions", [...scope.nodes]),
     readSupertagProjection(store, generationId, perspective, scope.nodes, scope.supertags),
   ]);
+  const relationNodeIds = Object.values(supertag.templateFields)
+    .flat()
+    .flatMap((field) => [field.templateFieldNodeId, field.fieldDefinitionId, field.staticDefaultValueNodeId]);
+  const relationNodes = await store.read(generationId, perspective, "nodes", relationNodeIds);
+  const nodes = Object.fromEntries(
+    [...nodesBatch.entries, ...relationNodes.entries].map((entry) => [entry.identity, entry.value]),
+  );
   return {
     perspective,
     identity: nodesBatch.identity,
@@ -40,7 +52,8 @@ export async function readResolvedProjection(
     metanodes,
     workspaceSystemNodes,
     fieldDefinitionConfigurations,
-    searchClauses,
+    typedFieldValues,
+    searchExpressions,
     sharedDefaultViewDefinitions,
     templateNodeInstances: Object.values(resolved.templateNodeInstances),
     ...supertag,
@@ -57,14 +70,15 @@ async function readSupertagProjection(
   Pick<
     ScopedProjection,
     | "supertagApplications"
-    | "supertagFields"
-    | "templateFields"
     | "supertagTemplateNodes"
+    | "templateFields"
+    | "optionalFieldContributions"
     | "supertagExtensions"
     | "supertagInstanceSupertags"
     | "supertagExtensionConflicts"
-    | "effectiveFields"
     | "materializedFields"
+    | "effectiveFields"
+    | "optionalFieldSuggestions"
   >
 > {
   const read = <Section extends ProjectionSliceName>(section: Section, ids: readonly string[]) =>
@@ -73,34 +87,37 @@ async function readSupertagProjection(
   const supertags = [...supertagIds];
   const [
     applications,
-    fields,
-    fieldItems,
     templateNodes,
+    templateFields,
+    optionalFieldContributions,
     extensions,
     instanceSupertags,
     conflicts,
-    effective,
     materialized,
+    effectiveFields,
+    optionalFieldSuggestions,
   ] = await Promise.all([
     read("supertagApplications", nodes),
-    read("supertagFields", supertags),
-    read("templateFields", supertags),
     read("supertagTemplateNodes", supertags),
+    read("templateFields", supertags),
+    read("optionalFieldContributions", supertags),
     read("supertagExtensions", supertags),
     read("supertagInstanceSupertags", supertags),
     read("supertagExtensionConflicts", supertags),
-    read("effectiveFields", nodes),
     read("materializedFields", nodes),
+    read("effectiveFields", nodes),
+    read("optionalFieldSuggestions", nodes),
   ]);
   return {
     supertagApplications: applications,
-    supertagFields: fields,
-    templateFields: fieldItems,
     supertagTemplateNodes: templateNodes,
+    templateFields,
+    optionalFieldContributions,
     supertagExtensions: extensions,
     supertagInstanceSupertags: instanceSupertags,
     supertagExtensionConflicts: conflicts,
-    effectiveFields: effective,
     materializedFields: materialized,
+    effectiveFields,
+    optionalFieldSuggestions,
   };
 }

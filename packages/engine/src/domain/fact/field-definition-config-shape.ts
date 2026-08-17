@@ -14,16 +14,23 @@ export function assertFieldDefinitionConfigMutationShape(value: Record<string, u
     assertStringArray(value.observedValueFactIds, "observed Field configuration Facts");
   }
   if (value.kind === "field-datatype-configure") {
-    assertOneOf(value.datatype, ["plain", "options"], "Field Datatype");
-    if (value.previousDatatype !== undefined && value.previousDatatype !== null) {
-      assertOneOf(value.previousDatatype, ["plain", "options"], "previous Field Datatype");
+    requireString(value.datatypeNodeId, "Field Datatype endpoint Node identity");
+    if (value.previousDatatypeNodeId !== undefined && value.previousDatatypeNodeId !== null) {
+      requireString(value.previousDatatypeNodeId, "previous Field Datatype endpoint Node identity");
     }
     return;
   }
   if (value.kind === "field-cardinality-configure") {
-    assertOneOf(value.cardinality, ["single", "list"], "Field Cardinality");
-    if (value.previousCardinality !== undefined && value.previousCardinality !== null) {
-      assertOneOf(value.previousCardinality, ["single", "list"], "previous Field Cardinality");
+    requireString(value.cardinalityNodeId, "Field Cardinality endpoint Node identity");
+    if (value.previousCardinalityNodeId !== undefined && value.previousCardinalityNodeId !== null) {
+      requireString(value.previousCardinalityNodeId, "previous Field Cardinality endpoint Node identity");
+    }
+    return;
+  }
+  if (value.kind === "field-optionality-configure") {
+    requireString(value.optionalityNodeId, "Field Optionality endpoint Node identity");
+    if (value.previousOptionalityNodeId !== undefined && value.previousOptionalityNodeId !== null) {
+      requireString(value.previousOptionalityNodeId, "previous Field Optionality endpoint Node identity");
     }
     return;
   }
@@ -35,7 +42,24 @@ export function assertFieldDefinitionConfigMutationShape(value: Record<string, u
 
 function assertFieldInitializationExpression(value: unknown, label: string): void {
   assertObject(value, label);
-  assertKeys(value, ["kind", "sourceFieldDefinitionId"], label);
-  assertOneOf(value.kind, ["ancestor-field-values"], `${label} kind`);
+  assertKeys(
+    value,
+    [
+      "kind",
+      "expressionNodeId",
+      "expressionOccurrenceId",
+      "sourceFieldDefinitionId",
+      "sourceFieldDefinitionOccurrenceId",
+      "contextNodeId",
+      "contextOccurrenceId",
+    ],
+    label,
+  );
+  assertOneOf(value.kind, ["find-field-values"], `${label} kind`);
+  requireString(value.expressionNodeId, `${label} Node identity`);
+  requireString(value.expressionOccurrenceId, `${label} Occurrence identity`);
   requireString(value.sourceFieldDefinitionId, `${label} source Field Definition`);
+  requireString(value.sourceFieldDefinitionOccurrenceId, `${label} source Field Definition Occurrence`);
+  requireString(value.contextNodeId, `${label} context Node identity`);
+  requireString(value.contextOccurrenceId, `${label} context Occurrence identity`);
 }

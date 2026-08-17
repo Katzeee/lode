@@ -61,7 +61,7 @@ function deletedOccurrenceId(mutation: Mutation): string | null {
   if (mutation.kind === "occurrence-delete") {
     return mutation.occurrenceId;
   }
-  if (mutation.kind === "supertag-field-remove" || mutation.kind === "materialized-field-delete") {
+  if (mutation.kind === "materialized-field-delete") {
     return mutation.fieldOccurrenceId;
   }
   if (mutation.kind === "supertag-template-node-remove") {

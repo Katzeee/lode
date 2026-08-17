@@ -62,34 +62,20 @@ hosts it)?
 
 ## Testing
 
-A test is a **red contract**: it protects a production-reachable behavior or invariant and has a
-plausible defect that makes it fail for the intended reason. A past bug earns a regression test only
-while its failure mechanism remains live. Focus tests on observable behavior, domain policy, core
-storage invariants, and architecture boundaries; keep test code direct when that improves clarity.
+Tests describe expected production behavior. Each test should have a clear requirement, use a
+representative input or state transition, exercise the production entry point that owns the
+behavior, and assert an observable result or invariant. Prefer domain rules, storage guarantees,
+and architecture boundaries over incidental implementation details.
 
-Give each failure mechanism one strongest owning test. Before adding or retaining a regression test,
-compare overlapping unit, scenario, acceptance, property, and end-to-end coverage together with the
-compiler, generated schemas, and lint rules. A narrower test earns a separate place only through a
-distinct input class, state transition, failure mode, or materially better diagnostic. Different
-fixtures, mutation kinds, arrival orders, or test layers do not distinguish tests that traverse the
-same production path and go red for the same defect.
+Place each guarantee at the most appropriate level. Before adding coverage, consider what the type
+system, generated schemas, lint rules, and existing unit, acceptance, or end-to-end tests already
+establish. Add another test when it covers a distinct input class, state transition, or outcome, or
+when it provides materially clearer feedback.
 
-Tests follow production ownership. Exercise behavior through a production-reachable entry point;
-production exports, adapters, and seams exist for production callers rather than test access. Test a
-wrapper when it transforms input, owns error behavior, or exposes a stable user-facing contract that
-stronger integration coverage or the type system does not already protect. Remove a test-only
-parallel implementation or production surface together with the tests that depend on it.
-
-Every assertion identifies a plausible production defect. Assert results and invariants rather than
-fixture inputs, incidental collection sizes, private call patterns, generated descriptor layouts, or
-setup already guaranteed by a helper. Use an explicit guard only to prevent a vacuous test from
-passing.
-
-During refactors, update tests to the current structure and delete coverage for unshipped names,
-locations, compatibility paths, and temporary scaffolding. Before finishing, trace every affected
-test, helper, fixture, and export in both directions. Completion requires each retained regression to
-own a distinct live failure mechanism, reach production code, and go red for its intended defect;
-remove unreachable scaffolding once those conditions are satisfied.
+Keep tests with their production owner and keep production surfaces for production callers. Test
+setup should establish context rather than repeat the assertion, and helpers should not duplicate
+the behavior being tested. During refactors, update or remove tests, helpers, fixtures, exports, and
+temporary scaffolding together with the behavior they serve.
 
 ## Documentation
 

@@ -1,11 +1,13 @@
 import type { FactId } from "./types.js";
 
-export type FieldDatatype = "plain" | "options";
-export type FieldCardinality = "single" | "list";
-
 export type FieldInitializationExpression = Readonly<{
-  kind: "ancestor-field-values";
+  kind: "find-field-values";
+  expressionNodeId: string;
+  expressionOccurrenceId: string;
   sourceFieldDefinitionId: string;
+  sourceFieldDefinitionOccurrenceId: string;
+  contextNodeId: string;
+  contextOccurrenceId: string;
 }>;
 
 type FieldDefinitionConfigMutationBase = Readonly<{
@@ -19,14 +21,20 @@ export type FieldDefinitionConfigMutation =
   | (FieldDefinitionConfigMutationBase &
       Readonly<{
         kind: "field-datatype-configure";
-        datatype: FieldDatatype;
-        previousDatatype?: FieldDatatype | null;
+        datatypeNodeId: string;
+        previousDatatypeNodeId?: string | null;
       }>)
   | (FieldDefinitionConfigMutationBase &
       Readonly<{
         kind: "field-cardinality-configure";
-        cardinality: FieldCardinality;
-        previousCardinality?: FieldCardinality | null;
+        cardinalityNodeId: string;
+        previousCardinalityNodeId?: string | null;
+      }>)
+  | (FieldDefinitionConfigMutationBase &
+      Readonly<{
+        kind: "field-optionality-configure";
+        optionalityNodeId: string;
+        previousOptionalityNodeId?: string | null;
       }>)
   | (FieldDefinitionConfigMutationBase &
       Readonly<{

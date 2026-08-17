@@ -4,30 +4,39 @@ import { admitAuthorityRecords } from "../src/domain/admission/index.js";
 import {
   frontierOf,
   admitAuthorityRecordShapes,
-  factTransactionId,
   makeFact,
-  workspaceTrashNodeId,
-  workspaceTrashOccurrenceId,
+  SEARCH_EXPRESSION_DEFINITION_NODE_ID,
+  NODE_VIEWS_DEFINITION_NODE_ID,
+  workspaceGenesisMutations,
   type AuthorityRecord,
   type AuthorityReceipt,
   type Fact,
   type FactSnapshot,
   type Mutation,
 } from "../src/domain/fact/index.js";
-import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration } from "../src/domain/reconcile/index.js";
+import {
+  advanceGeneration,
+  CURRENT_PROJECTION_VERSIONS as versions,
+  rebuildGeneration,
+} from "../src/domain/reconcile/index.js";
 import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
 import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
+import {
+  supertagApplicationIdentity,
+  supertagApplicationMutations,
+} from "./support/reconcile/supertag-application-test-helpers.js";
 import { queryHistory, validateHistorySelection } from "../src/domain/history/history.js";
 import { base, end, generation } from "./support/review/review-test-helpers.js";
 import { queryReview, validateReviewSelection } from "../src/domain/review/review.js";
 import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-dag.js";
 import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
-import { fullSurface } from "./support/reconcile/reconcile-test-helpers.js";
+import { fullSurface } from "./support/reconcile/full-surface-test-fixture.js";
 import { historyLifecycleCases, proposalLifecycleCases } from "./support/reconcile/proposal-lifecycle-test-helpers.js";
 import { assertGeneratedPathEquivalence, generatedDomainGraph } from "./proposal-mode-property-fixtures.js";
+import { withInitialOwnerRelations } from "./support/reconcile/placed-node-test-helpers.js";
 
 const CHECKPOINT_KEY = "property-test-key";
 
@@ -85,7 +94,6 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
       "supertag-a": ["supertag-a", "supertag-b"],
       "supertag-b": ["supertag-a", "supertag-b"],
     });
-    expect(expected.origin.effectiveFields.task?.map((field) => field.fieldDefinitionId)).toEqual(["field-a"]);
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
       expect(rebuildGeneration("workspace", snapshot, versions).generation).toEqual(expected);
@@ -95,38 +103,51 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("three replicas converge without choosing divergent Field initialization results", () => {
+  it("concurrent Search Expression reorder and update converge across three replicas and all Reconcile paths", () => {
+    const { prefix, facts } = concurrentSearchExpressionFixture();
+    const before = { facts: prefix, frontier: frontierOf(prefix) };
+    const finalSnapshot = { facts, frontier: frontierOf(facts) };
+    const beforeGeneration = rebuildGeneration("workspace", before, versions).generation;
+    const expected = rebuildGeneration("workspace", finalSnapshot, versions).generation;
+    const checkpoint = createGenerationCheckpoint("workspace", before, beforeGeneration, CHECKPOINT_KEY);
+    expect(expected.origin.searchExpressions.search).toBeUndefined();
+    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration).generation).toEqual(
+      expected,
+    );
+    expect(
+      reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, CHECKPOINT_KEY)?.generation,
+    ).toEqual(expected);
     for (let seed = 1; seed <= 32; seed += 1) {
-      const { prefix, concurrent, resolved } = initializationFixture(seed);
-      const concurrentSnapshot = { facts: concurrent, frontier: frontierOf(concurrent) };
-      const concurrentGeneration = rebuildGeneration("workspace", concurrentSnapshot, versions).generation;
-      const divergent = seed % 2 === 0;
-      expect(
-        Object.values(concurrentGeneration.origin.conflictIssues).some(
-          (issue) => issue.kind === "field-initialization-conflict",
-        ),
-      ).toBe(divergent);
-      expect(concurrentGeneration.origin.materializedFields.task ?? []).toHaveLength(divergent ? 0 : 1);
-      expect(admitAuthorityRecords("workspace", records(concurrent)).kind).toBe("ready");
-
-      const snapshot = { facts: resolved, frontier: frontierOf(resolved) };
-      const expected = rebuildGeneration("workspace", snapshot, versions).generation;
-      expect(expected.origin.conflictIssues).toEqual({});
-      expect(expected.origin.materializedFields.task ?? []).toHaveLength(1);
-      const checkpointSnapshot = { facts: prefix, frontier: frontierOf(prefix) };
-      const checkpoint = createGenerationCheckpoint(
-        "workspace",
-        checkpointSnapshot,
-        rebuildGeneration("workspace", checkpointSnapshot, versions).generation,
-        CHECKPOINT_KEY,
+      const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
+      expect(rebuildGeneration("workspace", shuffled, versions).generation).toEqual(expected);
+      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
+        expected,
       );
-      for (const topology of [seed, seed + 101, seed + 997]) {
-        const delivered = { facts: shuffle(resolved, topology), frontier: snapshot.frontier };
-        expect(rebuildGeneration("workspace", delivered, versions).generation).toEqual(expected);
-        expect(
-          reconcileFromCheckpoint(checkpoint, "workspace", delivered, versions, CHECKPOINT_KEY)?.generation,
-        ).toEqual(expected);
-      }
+    }
+  });
+
+  it("concurrent View column reorder and Filter update converge across three replicas and all Reconcile paths", () => {
+    const { prefix, facts } = concurrentViewOptionsFixture();
+    const before = { facts: prefix, frontier: frontierOf(prefix) };
+    const finalSnapshot = { facts, frontier: frontierOf(facts) };
+    const beforeGeneration = rebuildGeneration("workspace", before, versions).generation;
+    const expected = rebuildGeneration("workspace", finalSnapshot, versions).generation;
+    const checkpoint = createGenerationCheckpoint("workspace", before, beforeGeneration, CHECKPOINT_KEY);
+    const definition = expected.origin.sharedDefaultViewDefinitions.host?.[0];
+    expect(definition?.optionsConflicted).toBe(true);
+    expect(definition?.optionsContributionIds).toHaveLength(2);
+    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration).generation).toEqual(
+      expected,
+    );
+    expect(
+      reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, CHECKPOINT_KEY)?.generation,
+    ).toEqual(expected);
+    for (let seed = 1; seed <= 32; seed += 1) {
+      const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
+      expect(rebuildGeneration("workspace", shuffled, versions).generation).toEqual(expected);
+      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
+        expected,
+      );
     }
   });
 
@@ -462,33 +483,24 @@ function causalFixture(): Fact[] {
 
 function extensionCycleFixture(): Fact[] {
   const mutations: readonly Mutation[] = [
-    { kind: "node-create", nodeId: "workspace" },
-    { kind: "node-create", nodeId: "base" },
-    { kind: "node-create", nodeId: "supertag-a" },
-    { kind: "node-create", nodeId: "supertag-b" },
-    { kind: "node-type-declare", nodeId: "supertag-a", nodeType: "supertag-definition" },
-    { kind: "node-type-declare", nodeId: "supertag-b", nodeType: "supertag-definition" },
-    { kind: "node-create", nodeId: "task" },
-    { kind: "node-create", nodeId: "field-a" },
-    { kind: "node-type-declare", nodeId: "field-a", nodeType: "field-definition" },
-    { kind: "node-create", nodeId: "supertag-a-field-a-template-field" },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "supertag-a-field-a-template-field-occurrence",
-      nodeId: "supertag-a-field-a-template-field",
-      parentNodeId: "supertag-a",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
-    {
-      kind: "supertag-field-add",
-      supertagId: "supertag-a",
-      fieldDefinitionId: "field-a",
-      fieldNodeId: "supertag-a-field-a-template-field",
-      fieldOccurrenceId: "supertag-a-field-a-template-field-occurrence",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
+    ...workspaceGenesisMutations("workspace"),
+    ...["base", "supertag-a", "supertag-b", "task", "field-a"].flatMap((nodeId): readonly Mutation[] => [
+      { kind: "node-create", nodeId },
+      {
+        kind: "occurrence-create",
+        occurrenceId: `${nodeId}-original`,
+        nodeId,
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+    ]),
+    { kind: "intrinsic-node-type-declare", nodeId: "supertag-a", intrinsicNodeType: "supertag-definition" },
+    { kind: "intrinsic-node-type-declare", nodeId: "supertag-b", intrinsicNodeType: "supertag-definition" },
+    { kind: "intrinsic-node-type-declare", nodeId: "field-a", intrinsicNodeType: "field-definition" },
+    ...supertagApplicationMutations(supertagApplicationIdentity("task", "supertag-a"), end),
   ];
-  const prefix = mutations.map((mutation, index) =>
+  const ownedMutations = withInitialOwnerRelations(mutations);
+  const prefix = ownedMutations.map((mutation, index) =>
     mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
   );
   const observed = { [A]: prefix.length };
@@ -506,195 +518,253 @@ function extensionCycleFixture(): Fact[] {
       baseSupertagId: "supertag-a",
       anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     }),
-    mutationFact(A, prefix.length + 1, observed, prefix.length + 1, {
-      kind: "supertag-apply",
-      nodeId: "task",
-      supertagId: "supertag-a",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    }),
   ];
 }
 
-function initializationFixture(seed: number): Readonly<{
-  prefix: readonly Fact[];
-  concurrent: readonly Fact[];
-  resolved: readonly Fact[];
-}> {
+function concurrentSearchExpressionFixture(): Readonly<{ prefix: readonly Fact[]; facts: readonly Fact[] }> {
   const mutations: readonly Mutation[] = [
-    { kind: "node-create", nodeId: "workspace" },
-    { kind: "node-create", nodeId: workspaceTrashNodeId("workspace") },
+    ...workspaceGenesisMutations("workspace"),
+    { kind: "node-create", nodeId: "search" },
     {
       kind: "occurrence-create",
-      occurrenceId: workspaceTrashOccurrenceId("workspace"),
-      nodeId: workspaceTrashNodeId("workspace"),
+      occurrenceId: "search-original",
+      nodeId: "search",
       parentNodeId: "workspace",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      anchor: end,
     },
-    { kind: "node-create", nodeId: "task" },
+    { kind: "node-owner-set", nodeId: "search", ownerNodeId: "workspace", previousOwnerNodeId: null },
+    { kind: "intrinsic-node-type-declare", nodeId: "search", intrinsicNodeType: "search" },
+    { kind: "node-create", nodeId: "tag" },
     {
       kind: "occurrence-create",
-      occurrenceId: "task-occurrence",
-      nodeId: "task",
+      occurrenceId: "tag-original",
+      nodeId: "tag",
       parentNodeId: "workspace",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      anchor: end,
     },
-    { kind: "node-create", nodeId: "task-supertag" },
-    { kind: "node-type-declare", nodeId: "task-supertag", nodeType: "supertag-definition" },
+    { kind: "node-owner-set", nodeId: "tag", ownerNodeId: "workspace", previousOwnerNodeId: null },
+    { kind: "intrinsic-node-type-declare", nodeId: "tag", intrinsicNodeType: "supertag-definition" },
+    { kind: "node-create", nodeId: "search-configuration" },
+    {
+      kind: "node-owner-set",
+      nodeId: "search-configuration",
+      ownerNodeId: "search",
+      previousOwnerNodeId: null,
+    },
+    { kind: "metanode-attach", hostNodeId: "search", metanodeId: "search-configuration" },
+    { kind: "node-create", nodeId: "search-expression" },
+    {
+      kind: "node-owner-set",
+      nodeId: "search-expression",
+      ownerNodeId: "search-configuration",
+      previousOwnerNodeId: null,
+    },
     {
       kind: "occurrence-create",
-      occurrenceId: "task-supertag-original",
-      nodeId: "task-supertag",
-      parentNodeId: "workspace",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      occurrenceId: "search-expression-occurrence",
+      nodeId: "search-expression",
+      parentNodeId: "search-configuration",
+      anchor: end,
     },
-    { kind: "node-create", nodeId: "status-field" },
-    { kind: "node-type-declare", nodeId: "status-field", nodeType: "field-definition" },
     {
       kind: "occurrence-create",
-      occurrenceId: "status-field-original",
-      nodeId: "status-field",
-      parentNodeId: "workspace",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
-    { kind: "node-create", nodeId: "task-supertag-status-field-template-field" },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "task-supertag-status-field-template-field-occurrence",
-      nodeId: "task-supertag-status-field-template-field",
-      parentNodeId: "task-supertag",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      occurrenceId: "search-expression-definition",
+      nodeId: SEARCH_EXPRESSION_DEFINITION_NODE_ID,
+      parentNodeId: "search-expression",
+      anchor: end,
     },
     {
-      kind: "supertag-field-add",
-      supertagId: "task-supertag",
-      fieldDefinitionId: "status-field",
-      fieldNodeId: "task-supertag-status-field-template-field",
-      fieldOccurrenceId: "task-supertag-status-field-template-field-occurrence",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
-    {
-      kind: "supertag-field-configure",
-      supertagId: "task-supertag",
-      fieldDefinitionId: "status-field",
-      fieldNodeId: "task-supertag-status-field-template-field",
-
-      config: {
-        visibility: "normal",
-        staticDefault: null,
+      kind: "search-expression-attach",
+      searchNodeId: "search",
+      expressionNodeId: "search-expression",
+      expressionOccurrenceId: "search-expression-occurrence",
+      definitionOccurrenceId: "search-expression-definition",
+      expression: {
+        expressionNodeId: "search-expression",
+        kind: "and",
+        operands: [
+          { expressionNodeId: "tag-clause", kind: "supertag", supertagId: "tag" },
+          { expressionNodeId: "text-clause", kind: "text", text: "current" },
+        ],
       },
-      previousConfig: { visibility: "normal", staticDefault: null },
-      observedConfigFactIds: [],
-    },
-    {
-      kind: "supertag-apply",
-      nodeId: "task",
-      supertagId: "task-supertag",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
     },
   ];
-  const prefix = transactionFacts(A, {}, 1, mutations);
+  const prefix = mutations.map((mutation, index) =>
+    mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
+  );
   const observed = { [A]: prefix.length };
-  const firstBundle = initializationFacts(B, observed, prefix.length + 1, "Alpha");
-  const first = firstBundle.at(-1)!;
-  const secondValue = seed % 2 === 0 ? "Beta" : "Alpha";
-  const secondBundle = initializationFacts(C, observed, prefix.length + 1, secondValue);
-  const second = secondBundle.at(-1)!;
-  const concurrent = [...prefix, ...firstBundle, ...secondBundle];
-  const choice = mutationFact(
-    A,
-    prefix.length + 1,
-    { [A]: prefix.length, [B]: firstBundle.length, [C]: secondBundle.length },
-    prefix.length + firstBundle.length + 1,
-    {
-      ...initialization("Alpha"),
-      observedInitializationFactIds: [first.id, second.id],
+  const common = {
+    searchNodeId: "search",
+    expressionNodeId: "search-expression",
+    expressionOccurrenceId: "search-expression-occurrence",
+    definitionOccurrenceId: "search-expression-definition",
+    previousExpression: {
+      expressionNodeId: "search-expression",
+      kind: "and" as const,
+      operands: [
+        { expressionNodeId: "tag-clause", kind: "supertag" as const, supertagId: "tag" },
+        { expressionNodeId: "text-clause", kind: "text" as const, text: "current" },
+      ],
     },
-  );
-  return { prefix, concurrent, resolved: [...concurrent, choice] };
-}
-
-function initializationFacts(
-  replicaId: string,
-  observed: Readonly<Record<string, number>>,
-  lamport: number,
-  value: string,
-): readonly Fact[] {
-  const mutations: readonly Mutation[] = [
-    {
-      kind: "node-create",
-      nodeId: "initialized-field:v1:task:status-field",
-      seed: {
-        text: [],
-      },
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "initialized-field-occ:v1:task:status-field",
-      nodeId: "initialized-field:v1:task:status-field",
-      parentNodeId: "task",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
-    {
-      kind: "node-create",
-      nodeId: "initialized-field:v1:task:status-field:value:0",
-      seed: {
-        text: [...value].map((character) => ({ value: character, attributes: {} })),
-      },
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
-      nodeId: "initialized-field:v1:task:status-field:value:0",
-      parentNodeId: "initialized-field:v1:task:status-field",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    },
-    initialization(value),
-  ];
-  return transactionFacts(replicaId, observed, lamport, mutations);
-}
-
-function transactionFacts(
-  replicaId: string,
-  observed: Readonly<Record<string, number>>,
-  lamport: number,
-  mutations: readonly Mutation[],
-): readonly Fact[] {
-  const firstSequence = (observed[replicaId] ?? 0) + 1;
-  const transactionId = factTransactionId("workspace", replicaId, firstSequence);
-  return mutations.map((mutation, index) =>
-    makeFact({
-      workspaceId: "workspace",
-      replicaId,
-      sequence: firstSequence + index,
-      observed: {
-        ...observed,
-        ...(index > 0 ? { [replicaId]: firstSequence + index - 1 } : {}),
-      },
-      lamport: lamport + index,
-      transaction: { transactionId, index, size: mutations.length },
-      body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
-    }),
-  );
-}
-
-function initialization(value: string): Extract<Mutation, { kind: "field-initialize" }> {
+  };
   return {
-    kind: "field-initialize",
-    ownerNodeId: "task",
-    supertagId: "task-supertag",
-    fieldDefinitionId: "status-field",
-    fieldNodeId: "initialized-field:v1:task:status-field",
-    fieldOccurrenceId: "initialized-field-occ:v1:task:status-field",
-    source: "auto-initialize",
-    values: [
-      {
-        kind: "text",
-        nodeId: "initialized-field:v1:task:status-field:value:0",
-        occurrenceId: "initialized-field-occ:v1:task:status-field:value:0",
-        value,
-      },
+    prefix,
+    facts: [
+      ...prefix,
+      mutationFact(B, 1, observed, prefix.length + 1, {
+        kind: "search-expression-attach",
+        ...common,
+        expression: {
+          expressionNodeId: "search-expression",
+          kind: "and",
+          operands: [
+            { expressionNodeId: "text-clause", kind: "text", text: "current" },
+            { expressionNodeId: "tag-clause", kind: "supertag", supertagId: "tag" },
+          ],
+        },
+      }),
+      mutationFact(C, 1, observed, prefix.length + 1, {
+        kind: "search-expression-attach",
+        ...common,
+        expression: {
+          expressionNodeId: "search-expression",
+          kind: "and",
+          operands: [
+            { expressionNodeId: "tag-clause", kind: "supertag", supertagId: "tag" },
+            {
+              expressionNodeId: "not-clause",
+              kind: "not",
+              operand: { expressionNodeId: "old", kind: "text", text: "old" },
+            },
+          ],
+        },
+      }),
     ],
-    observedInitializationFactIds: [],
+  };
+}
+
+function concurrentViewOptionsFixture(): Readonly<{ prefix: readonly Fact[]; facts: readonly Fact[] }> {
+  const mutations: readonly Mutation[] = [
+    ...workspaceGenesisMutations("workspace"),
+    { kind: "node-create", nodeId: "host" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "host-original",
+      nodeId: "host",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+    { kind: "node-owner-set", nodeId: "host", ownerNodeId: "workspace", previousOwnerNodeId: null },
+    { kind: "node-create", nodeId: "field-a" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "field-a-original",
+      nodeId: "field-a",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+    { kind: "node-owner-set", nodeId: "field-a", ownerNodeId: "workspace", previousOwnerNodeId: null },
+    { kind: "intrinsic-node-type-declare", nodeId: "field-a", intrinsicNodeType: "field-definition" },
+    { kind: "node-create", nodeId: "field-b" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "field-b-original",
+      nodeId: "field-b",
+      parentNodeId: "workspace",
+      anchor: end,
+    },
+    { kind: "node-owner-set", nodeId: "field-b", ownerNodeId: "workspace", previousOwnerNodeId: null },
+    { kind: "intrinsic-node-type-declare", nodeId: "field-b", intrinsicNodeType: "field-definition" },
+    { kind: "node-create", nodeId: "host-metanode" },
+    { kind: "node-owner-set", nodeId: "host-metanode", ownerNodeId: "host", previousOwnerNodeId: null },
+    { kind: "metanode-attach", hostNodeId: "host", metanodeId: "host-metanode" },
+    { kind: "node-create", nodeId: "view-attachment" },
+    { kind: "node-owner-set", nodeId: "view-attachment", ownerNodeId: "host-metanode", previousOwnerNodeId: null },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "view-attachment-occurrence",
+      nodeId: "view-attachment",
+      parentNodeId: "host-metanode",
+      anchor: end,
+    },
+    { kind: "node-create", nodeId: "view" },
+    { kind: "node-owner-set", nodeId: "view", ownerNodeId: "view-attachment", previousOwnerNodeId: null },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "view-definition-endpoint",
+      nodeId: NODE_VIEWS_DEFINITION_NODE_ID,
+      parentNodeId: "view-attachment",
+      anchor: end,
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "view-occurrence",
+      nodeId: "view",
+      parentNodeId: "view-attachment",
+      anchor: end,
+    },
+    {
+      kind: "shared-default-view-definition-attach",
+      hostNodeId: "host",
+      attachmentNodeId: "view-attachment",
+      attachmentOccurrenceId: "view-attachment-occurrence",
+      relationDefinitionOccurrenceId: "view-definition-endpoint",
+      viewDefinitionNodeId: "view",
+      viewDefinitionOccurrenceId: "view-occurrence",
+    },
+    {
+      kind: "shared-default-view-definition-mode-set",
+      viewDefinitionNodeId: "view",
+      viewType: "table",
+      previousViewType: null,
+      observedModeFactIds: [],
+    },
+  ];
+  const prefix = mutations.map((mutation, index) =>
+    mutationFact(A, index + 1, index === 0 ? {} : { [A]: index }, index + 1, mutation),
+  );
+  const observed = { [A]: prefix.length };
+  const previousOptions = { columns: [], filter: null, sort: null, group: null } as const;
+  return {
+    prefix,
+    facts: [
+      ...prefix,
+      mutationFact(B, 1, observed, prefix.length + 1, {
+        kind: "shared-default-view-definition-options-set",
+        hostNodeId: "host",
+        viewDefinitionNodeId: "view",
+        options: {
+          columns: [
+            { columnNodeId: "column-b", fieldDefinitionId: "field-b" },
+            { columnNodeId: "column-a", fieldDefinitionId: "field-a" },
+          ],
+          filter: null,
+          sort: { sortNodeId: "sort-a", fieldDefinitionId: "field-a", direction: "ascending" },
+          group: null,
+        },
+        previousOptions,
+        observedOptionsFactIds: [],
+      }),
+      mutationFact(C, 1, observed, prefix.length + 1, {
+        kind: "shared-default-view-definition-options-set",
+        hostNodeId: "host",
+        viewDefinitionNodeId: "view",
+        options: {
+          columns: [
+            { columnNodeId: "column-a", fieldDefinitionId: "field-a" },
+            { columnNodeId: "column-b", fieldDefinitionId: "field-b" },
+          ],
+          filter: {
+            filterNodeId: "filter",
+            expression: { expressionNodeId: "filter-text", kind: "text", text: "current" },
+          },
+          sort: null,
+          group: { groupNodeId: "group-b", fieldDefinitionId: "field-b" },
+        },
+        previousOptions,
+        observedOptionsFactIds: [],
+      }),
+    ],
   };
 }
 

@@ -15,9 +15,9 @@ enum ResolutionDecision {
 enum SupertagRelationKind {
   SUPERTAG_RELATION_KIND_UNSPECIFIED = 0;
   SUPERTAG_RELATION_KIND_APPLICATION = 1;
-  SUPERTAG_RELATION_KIND_FIELD = 2;
   SUPERTAG_RELATION_KIND_EXTENSION = 3;
   SUPERTAG_RELATION_KIND_TEMPLATE_NODE = 4;
+  SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_VISIBILITY = 5;
 }
 
 enum DiffSpaceKind {
@@ -28,7 +28,6 @@ enum DiffSpaceKind {
   DIFF_SPACE_KIND_OWNER = 4;
   DIFF_SPACE_KIND_SUPERTAG_APPLICATION = 5;
   DIFF_SPACE_KIND_SUPERTAG_TEMPLATE = 6;
-  DIFF_SPACE_KIND_FIELD_CONFIGURATION = 7;
   DIFF_SPACE_KIND_MATERIALIZED_FIELD = 8;
   DIFF_SPACE_KIND_INLINE_REFERENCE = 9;
   DIFF_SPACE_KIND_VIEW_DEFINITION = 10;
@@ -90,10 +89,10 @@ message OwnerDecisionEffect {
   google.protobuf.StringValue review = 3;
 }
 
-message NodeTypeDecisionEffect {
+message IntrinsicNodeTypeDecisionEffect {
   string identity = 1;
-  optional NodeType origin = 2;
-  optional NodeType review = 3;
+  optional IntrinsicNodeType origin = 2;
+  optional IntrinsicNodeType review = 3;
 }
 
 message SupertagRelationDecisionEffect {
@@ -102,13 +101,6 @@ message SupertagRelationDecisionEffect {
   string target_id = 3;
   google.protobuf.Int32Value origin_index = 4;
   google.protobuf.Int32Value review_index = 5;
-}
-
-message FieldConfigurationDecisionEffect {
-  string supertag_id = 1;
-  string field_definition_id = 2;
-  SupertagFieldConfig origin = 3;
-  SupertagFieldConfig review = 4;
 }
 
 message FieldMaterializationDecisionEffect {
@@ -136,7 +128,12 @@ message InlineReferenceDecisionEffect {
 
 message ViewDefinitionDecisionState {
   string host_node_id = 1;
-  ViewType view_type = 2;
+  string attachment_node_id = 2;
+  string attachment_occurrence_id = 3;
+  ViewType view_type = 4;
+  bool sort_by_name_ascending = 5;
+  ViewOptionsSpec options = 6;
+  bool options_conflicted = 7;
 }
 
 message ViewDefinitionDecisionEffect {
@@ -147,9 +144,10 @@ message ViewDefinitionDecisionEffect {
 
 message FieldDefinitionConfigurationDecisionState {
   oneof configuration {
-    FieldDatatype datatype = 1;
-    FieldCardinality cardinality = 2;
+    string datatype_node_id = 1;
+    string cardinality_node_id = 2;
     FieldInitializationExpression initialization_expression = 3;
+    string optionality_node_id = 4;
   }
 }
 
@@ -166,9 +164,8 @@ message DecisionEffect {
     StructureDecisionEffect structure = 2;
     LifecycleDecisionEffect lifecycle = 3;
     OwnerDecisionEffect owner = 4;
-    NodeTypeDecisionEffect node_type = 5;
+    IntrinsicNodeTypeDecisionEffect intrinsic_node_type = 5;
     SupertagRelationDecisionEffect supertag_relation = 6;
-    FieldConfigurationDecisionEffect field_configuration = 7;
     FieldMaterializationDecisionEffect field_materialization = 8;
     InlineReferenceDecisionEffect inline_reference = 9;
     ViewDefinitionDecisionEffect view_definition = 10;
@@ -234,18 +231,18 @@ message UnsupportedDirectIntentConflict {
   repeated RecoveryAction recovery_actions = 9;
 }
 
-message NodeTypeConflictCandidate {
+message IntrinsicNodeTypeConflictCandidate {
   string contribution_id = 1;
-  NodeType node_type = 2;
+  IntrinsicNodeType intrinsic_node_type = 2;
   string actor_id = 3;
   string replica_id = 4;
   map<string, uint64> observed_frontier = 5;
 }
 
-message NodeTypeConflict {
+message IntrinsicNodeTypeConflict {
   string identity = 1;
   string node_id = 2;
-  repeated NodeTypeConflictCandidate candidates = 3;
+  repeated IntrinsicNodeTypeConflictCandidate candidates = 3;
 }
 
 message ResolutionConflict {
@@ -275,43 +272,13 @@ message SupertagExtensionCycleConflict {
   repeated string supertag_ids = 2;
 }
 
-message FieldConfigConflictCandidate {
-  SupertagFieldConfig config = 1;
-  repeated string contribution_ids = 2;
-}
-
-message FieldConfigConflict {
-  string identity = 1;
-  google.protobuf.StringValue owner_node_id = 2;
-  string field_definition_id = 3;
-  repeated string supertag_ids = 4;
-  repeated string template_occurrence_ids = 5;
-  repeated FieldConfigConflictCandidate candidates = 6;
-}
-
-message FieldInitializationConflictCandidate {
-  string initialization_id = 1;
-  string supertag_id = 2;
-  FieldInitializationSource source = 3;
-  repeated FieldValueSeed values = 4;
-}
-
-message FieldInitializationConflict {
-  string identity = 1;
-  string owner_node_id = 2;
-  string field_definition_id = 3;
-  repeated FieldInitializationConflictCandidate candidates = 4;
-}
-
 message ConflictIssue {
   oneof issue {
     UnsupportedDirectIntentConflict unsupported_direct_intent = 1;
-    NodeTypeConflict node_type_conflict = 2;
+    IntrinsicNodeTypeConflict intrinsic_node_type_conflict = 2;
     ResolutionConflict resolution_conflict = 3;
     PlacementConflict placement_conflict = 4;
     SupertagExtensionCycleConflict supertag_extension_cycle = 5;
-    FieldConfigConflict field_config_conflict = 6;
-    FieldInitializationConflict field_initialization_conflict = 7;
   }
 }
 

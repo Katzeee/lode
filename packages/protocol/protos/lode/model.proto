@@ -18,34 +18,15 @@ enum AnchorFallback {
   ANCHOR_FALLBACK_END = 2;
 }
 
-enum NodeType {
-  NODE_TYPE_UNSPECIFIED = 0;
-  NODE_TYPE_SUPERTAG_DEFINITION = 1;
-  NODE_TYPE_FIELD_DEFINITION = 2;
-  NODE_TYPE_FIELD = 3;
-  NODE_TYPE_SEARCH = 4;
-  NODE_TYPE_COMMAND = 5;
-  NODE_TYPE_WORKSPACE = 6;
-  NODE_TYPE_CALENDAR = 7;
-}
-
-enum FieldVisibility {
-  FIELD_VISIBILITY_UNSPECIFIED = 0;
-  FIELD_VISIBILITY_PINNED = 1;
-  FIELD_VISIBILITY_NORMAL = 2;
-  FIELD_VISIBILITY_OPTIONAL = 3;
-}
-
-enum FieldDatatype {
-  FIELD_DATATYPE_UNSPECIFIED = 0;
-  FIELD_DATATYPE_PLAIN = 1;
-  FIELD_DATATYPE_OPTIONS = 2;
-}
-
-enum FieldCardinality {
-  FIELD_CARDINALITY_UNSPECIFIED = 0;
-  FIELD_CARDINALITY_SINGLE = 1;
-  FIELD_CARDINALITY_LIST = 2;
+enum IntrinsicNodeType {
+  INTRINSIC_NODE_TYPE_UNSPECIFIED = 0;
+  INTRINSIC_NODE_TYPE_SUPERTAG_DEFINITION = 1;
+  INTRINSIC_NODE_TYPE_FIELD_DEFINITION = 2;
+  INTRINSIC_NODE_TYPE_FIELD = 3;
+  INTRINSIC_NODE_TYPE_SEARCH = 4;
+  INTRINSIC_NODE_TYPE_COMMAND = 5;
+  INTRINSIC_NODE_TYPE_WORKSPACE = 6;
+  INTRINSIC_NODE_TYPE_CALENDAR = 7;
 }
 
 enum HistoryOperation {
@@ -53,12 +34,6 @@ enum HistoryOperation {
   HISTORY_OPERATION_NORMAL = 1;
   HISTORY_OPERATION_UNDO = 2;
   HISTORY_OPERATION_REDO = 3;
-}
-
-enum FieldInitializationSource {
-  FIELD_INITIALIZATION_SOURCE_UNSPECIFIED = 0;
-  FIELD_INITIALIZATION_SOURCE_STATIC_DEFAULT = 1;
-  FIELD_INITIALIZATION_SOURCE_AUTO_INITIALIZE = 2;
 }
 
 enum InlineReferenceTargetStatus {
@@ -72,6 +47,12 @@ enum ViewType {
   VIEW_TYPE_UNSPECIFIED = 0;
   VIEW_TYPE_OUTLINE = 1;
   VIEW_TYPE_TABLE = 2;
+}
+
+enum TemplateFieldVisibility {
+  TEMPLATE_FIELD_VISIBILITY_UNSPECIFIED = 0;
+  TEMPLATE_FIELD_VISIBILITY_NORMAL = 1;
+  TEMPLATE_FIELD_VISIBILITY_PINNED = 2;
 }
 
 message SequenceAnchor {
@@ -97,24 +78,106 @@ message NodeSeed {
   repeated TextSegmentSeed text = 1;
 }
 
-message FieldValueSeed {
-  oneof seed {
-    string text = 1;
-    string reference = 2;
+message FieldInitializationExpression {
+  string expression_node_id = 1;
+  string expression_occurrence_id = 2;
+  string source_field_definition_id = 3;
+  string source_field_definition_occurrence_id = 4;
+  string context_node_id = 5;
+  string context_occurrence_id = 6;
+}
+
+enum SearchDateComparisonOperator {
+  SEARCH_DATE_COMPARISON_OPERATOR_UNSPECIFIED = 0;
+  SEARCH_DATE_COMPARISON_OPERATOR_LT = 1;
+  SEARCH_DATE_COMPARISON_OPERATOR_GT = 2;
+}
+
+message SearchExpressionList { repeated SearchExpressionSpec values = 1; }
+message SearchNegatedExpression { SearchExpressionSpec operand = 1; }
+message SearchSupertagExpression { string supertag_id = 1; }
+message SearchTextExpression { string text = 1; }
+message SearchFieldDefinedExpression {
+  string field_definition_id = 1;
+  bool defined = 2;
+}
+message SearchFieldValue {
+  oneof value {
+    string node_id = 1;
+    string text = 2;
+    double number = 3;
+    bool checkbox = 4;
+    string date = 5;
+  }
+}
+message SearchFieldValueExpression {
+  string field_definition_id = 1;
+  SearchFieldValue value = 2;
+}
+message SearchDateCompareExpression {
+  string field_definition_id = 1;
+  SearchDateComparisonOperator operator = 2;
+  string date = 3;
+}
+message SearchScopeTarget {
+  oneof target {
+    string node_id = 1;
+    google.protobuf.Empty parent = 2;
+    google.protobuf.Empty grandparent = 3;
+  }
+}
+message SearchScopeExpression { SearchScopeTarget target = 1; }
+message SearchLinksToExpression { string target_node_id = 1; }
+
+message SearchExpressionSpec {
+  string expression_node_id = 1;
+  oneof expression {
+    SearchExpressionList all = 2;
+    SearchExpressionList any = 3;
+    SearchNegatedExpression negated = 4;
+    SearchSupertagExpression supertag = 5;
+    SearchTextExpression text = 6;
+    SearchFieldDefinedExpression field_defined = 7;
+    SearchFieldValueExpression field_value = 8;
+    SearchDateCompareExpression date_compare = 9;
+    SearchScopeExpression descendant_of = 10;
+    SearchScopeExpression child_of = 11;
+    SearchLinksToExpression links_to = 12;
   }
 }
 
-message SupertagFieldConfig {
-  FieldVisibility visibility = 1;
-  FieldValueSeedList static_default = 2;
+message ViewColumnSpec {
+  string column_node_id = 1;
+  string field_definition_id = 2;
 }
 
-message FieldInitializationExpression {
-  string source_field_definition_id = 1;
+message ViewFilterSpec {
+  string filter_node_id = 1;
+  SearchExpressionSpec expression = 2;
 }
 
-message FieldValueSeedList {
-  repeated FieldValueSeed values = 1;
+enum ViewSortDirection {
+  VIEW_SORT_DIRECTION_UNSPECIFIED = 0;
+  VIEW_SORT_DIRECTION_ASCENDING = 1;
+  VIEW_SORT_DIRECTION_DESCENDING = 2;
+}
+
+message ViewSortSpec {
+  string sort_node_id = 1;
+  string field_definition_id = 2;
+  ViewSortDirection direction = 3;
+}
+
+message ViewGroupSpec {
+  string group_node_id = 1;
+  string field_definition_id = 2;
+}
+
+message ViewOptionsSpec {
+  repeated ViewColumnSpec columns = 1;
+  optional ViewFilterSpec filter = 2;
+  optional ViewSortSpec sort = 3;
+  optional ViewGroupSpec group = 4;
 }
 
 message ReceiptLineage {

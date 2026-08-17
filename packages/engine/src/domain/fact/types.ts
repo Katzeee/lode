@@ -1,16 +1,18 @@
 import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-types.js";
 import type { FieldContentDeletionMutation } from "./field-content-types.js";
 import type { FieldDefinitionConfigMutation } from "./field-definition-config-types.js";
-import type { InitializedFieldValue } from "./field-value-types.js";
-import type { SupertagFieldConfig } from "./supertag-field-config-types.js";
 import type { NodeSeed } from "./node-create-types.js";
-import type { NodeType } from "./node-type-types.js";
+import type { IntrinsicNodeType } from "./intrinsic-node-type-types.js";
 import type { FactTransactionId, FactTransactionPosition } from "./transaction-types.js";
 import type { InlineReferenceMutation } from "./inline-reference-types.js";
-import type { SearchClauseMutation } from "./search-clause-types.js";
+import type { SearchExpressionMutation } from "./search-expression-types.js";
+import type { SupertagMutation } from "./supertag-types.js";
 import type {
   SharedDefaultViewDefinitionAttachMutation,
+  SharedDefaultViewDefinitionDetachMutation,
   SharedDefaultViewDefinitionModeSetMutation,
+  SharedDefaultViewDefinitionOptionsSetMutation,
+  SharedDefaultViewDefinitionSortByNameSetMutation,
 } from "./view-definition-types.js";
 
 export const FORMAT_GENERATION = 1 as const;
@@ -91,78 +93,16 @@ export type Mutation =
   | Readonly<{
       kind: "node-owner-set";
       nodeId: string;
-      ownerNodeId: string;
-      previousOwnerNodeId?: string;
+      ownerNodeId: string | null;
+      previousOwnerNodeId?: string | null;
     }>
   | Readonly<{
       kind: "metanode-attach";
       hostNodeId: string;
       metanodeId: string;
     }>
-  | Readonly<{ kind: "node-type-declare"; nodeId: string; nodeType: NodeType }>
-  | Readonly<{
-      kind: "supertag-apply";
-      nodeId: string;
-      supertagId: string;
-      anchor: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-remove";
-      nodeId: string;
-      supertagId: string;
-      previousAnchor?: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-field-add";
-      supertagId: string;
-      fieldDefinitionId: string;
-      fieldNodeId: string;
-      fieldOccurrenceId: string;
-      anchor: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-field-remove";
-      supertagId: string;
-      fieldDefinitionId: string;
-      fieldNodeId: string;
-      fieldOccurrenceId: string;
-      previousAnchor?: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-field-configure";
-      supertagId: string;
-      fieldDefinitionId: string;
-      fieldNodeId: string;
-      config: SupertagFieldConfig;
-      previousConfig?: SupertagFieldConfig | null;
-      observedConfigFactIds?: readonly FactId[];
-    }>
-  | Readonly<{
-      kind: "supertag-extension-add";
-      supertagId: string;
-      baseSupertagId: string;
-      anchor: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-extension-remove";
-      supertagId: string;
-      baseSupertagId: string;
-      previousAnchor?: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-template-node-add";
-      supertagId: string;
-      templateNodeId: string;
-      templateOccurrenceId: string;
-      anchor: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "supertag-template-node-remove";
-      supertagId: string;
-      templateNodeId: string;
-      templateOccurrenceId: string;
-      previousAnchor?: SequenceAnchor;
-    }>
+  | Readonly<{ kind: "intrinsic-node-type-declare"; nodeId: string; intrinsicNodeType: IntrinsicNodeType }>
+  | SupertagMutation
   | Readonly<{
       kind: "template-node-detach";
       ownerNodeId: string;
@@ -182,17 +122,6 @@ export type Mutation =
       fieldOccurrenceId: string;
     }>
   | FieldContentDeletionMutation
-  | Readonly<{
-      kind: "field-initialize";
-      ownerNodeId: string;
-      supertagId: string;
-      fieldDefinitionId: string;
-      fieldNodeId: string;
-      fieldOccurrenceId: string;
-      source: "static-default" | "auto-initialize";
-      values: readonly InitializedFieldValue[];
-      observedInitializationFactIds?: readonly FactId[];
-    }>
   | FieldDefinitionConfigMutation
   | Readonly<{
       kind: "text-splice";
@@ -216,9 +145,12 @@ export type Mutation =
       previous?: PreviousValue;
     }>
   | InlineReferenceMutation
-  | SearchClauseMutation
+  | SearchExpressionMutation
   | SharedDefaultViewDefinitionAttachMutation
-  | SharedDefaultViewDefinitionModeSetMutation;
+  | SharedDefaultViewDefinitionDetachMutation
+  | SharedDefaultViewDefinitionModeSetMutation
+  | SharedDefaultViewDefinitionOptionsSetMutation
+  | SharedDefaultViewDefinitionSortByNameSetMutation;
 
 export type ContributionBody = Readonly<{
   kind: "contribution";
@@ -298,11 +230,7 @@ export type {
 export type AuthorityRecord =
   | Readonly<{ recordKind: "fact"; fact: Fact }>
   | Readonly<{ recordKind: "receipt"; receipt: AuthorityReceiptValue }>
-  | Readonly<{
-      recordKind: "quarantine";
-      reason: string;
-      updateDigest: string;
-    }>;
+  | Readonly<{ recordKind: "quarantine"; reason: string; updateDigest: string }>;
 
 export type RulesVersion = string;
 export type SchemaVersion = string;

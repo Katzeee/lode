@@ -2,25 +2,30 @@ import type { FieldContentDeletionMutation } from "./field-content-types.js";
 import type { ContributionFact, Mutation } from "./types.js";
 
 const MUTATION_KINDS_BY_FAMILY = {
-  node: ["node-create", "node-delete", "node-restore", "node-owner-set", "node-type-declare"],
+  node: ["node-create", "node-delete", "node-restore", "node-owner-set", "intrinsic-node-type-declare"],
   configuration: ["metanode-attach"],
   occurrence: ["occurrence-create", "occurrence-delete", "occurrence-restore", "occurrence-move"],
   supertag: [
     "supertag-apply",
     "supertag-remove",
-    "supertag-field-add",
-    "supertag-field-remove",
-    "supertag-field-configure",
     "supertag-extension-add",
     "supertag-extension-remove",
     "supertag-template-node-add",
     "supertag-template-node-remove",
+    "supertag-template-field-attach",
+    "supertag-template-field-existing-attach",
+    "supertag-template-field-detach",
+    "supertag-template-field-discoverability-set",
+    "supertag-template-field-visibility-configure",
+    "supertag-optional-field-contribution-attach",
+    "supertag-optional-field-contribution-detach",
   ],
   template: ["template-node-detach"],
-  field: ["field-materialize", "field-value-delete", "materialized-field-delete", "field-initialize"],
+  field: ["field-materialize", "field-value-delete", "materialized-field-delete"],
   fieldDefinition: [
     "field-datatype-configure",
     "field-cardinality-configure",
+    "field-optionality-configure",
     "field-initialization-expression-configure",
   ],
   text: ["text-splice", "text-mark"],
@@ -30,8 +35,14 @@ const MUTATION_KINDS_BY_FAMILY = {
     "inline-reference-alias-attach",
     "inline-reference-alias-detach",
   ],
-  search: ["search-supertag-clause-attach", "search-field-clause-attach"],
-  view: ["shared-default-view-definition-attach", "shared-default-view-definition-mode-set"],
+  search: ["search-expression-attach", "search-expression-detach"],
+  view: [
+    "shared-default-view-definition-attach",
+    "shared-default-view-definition-detach",
+    "shared-default-view-definition-mode-set",
+    "shared-default-view-definition-options-set",
+    "shared-default-view-definition-sort-by-name-set",
+  ],
 } as const satisfies Readonly<Record<string, readonly Mutation["kind"][]>>;
 
 export type MutationFamily = keyof typeof MUTATION_KINDS_BY_FAMILY;
@@ -55,7 +66,7 @@ export type FieldMutation = MutationInFamily<"field">;
 export type FieldDefinitionConfigMutation = MutationInFamily<"fieldDefinition">;
 export type TextMutation = MutationInFamily<"text">;
 export type InlineReferenceMutation = MutationInFamily<"inlineReference">;
-export type SearchClauseMutation = MutationInFamily<"search">;
+export type SearchExpressionMutation = MutationInFamily<"search">;
 export type ViewMutation = MutationInFamily<"view">;
 
 export function isNodeMutation(mutation: Mutation): mutation is NodeMutation {
@@ -94,7 +105,7 @@ export function isInlineReferenceMutation(mutation: Mutation): mutation is Inlin
   return mutationBelongsTo(mutation, "inlineReference");
 }
 
-export function isSearchMutation(mutation: Mutation): mutation is SearchClauseMutation {
+export function isSearchMutation(mutation: Mutation): mutation is SearchExpressionMutation {
   return mutationBelongsTo(mutation, "search");
 }
 

@@ -58,33 +58,13 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     ownerNodeId: "container-a",
     previousOwnerNodeId: "root",
   });
-  for (const nodeId of ["generated-supertag", "first", "second"]) {
-    facts.addPlaced(nodeId);
-  }
+  facts.addPlaced("generated-supertag");
   facts.add({
-    kind: "node-type-declare",
+    kind: "intrinsic-node-type-declare",
     nodeId: "generated-supertag",
-    nodeType: "supertag-definition",
+    intrinsicNodeType: "supertag-definition",
   });
-  facts.add({ kind: "node-type-declare", nodeId: "first", nodeType: "field-definition" });
-  facts.add({ kind: "node-type-declare", nodeId: "second", nodeType: "field-definition" });
-  facts.add({
-    kind: "supertag-field-add",
-    supertagId: "generated-supertag",
-    fieldDefinitionId: "first",
-    fieldNodeId: "generated-supertag-first-template-field",
-    fieldOccurrenceId: "generated-supertag-first-template-field-occurrence",
-    anchor: end,
-  });
-  facts.add({
-    kind: "supertag-field-add",
-    supertagId: "generated-supertag",
-    fieldDefinitionId: "second",
-    fieldNodeId: "generated-supertag-second-template-field",
-    fieldOccurrenceId: "generated-supertag-second-template-field-occurrence",
-    anchor: { ...end, after: "first" },
-  });
-  facts.add({ kind: "supertag-apply", nodeId: "shared", supertagId: "generated-supertag", anchor: end });
+  facts.applySupertag("shared", "generated-supertag");
   const text = facts.add({
     kind: "text-splice",
     nodeId: "shared",

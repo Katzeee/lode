@@ -8,11 +8,6 @@ type RelationEvent = Readonly<{
   anchor?: SequenceAnchor;
 }>;
 
-export const supertagApplicationEvent = relationEvent("supertag-apply", "supertag-remove", (mutation) => [
-  mutation.nodeId,
-  mutation.supertagId,
-]);
-
 export const supertagExtensionEvent = relationEvent(
   "supertag-extension-add",
   "supertag-extension-remove",
@@ -49,8 +44,8 @@ export function observedRelations(
 }
 
 function relationEvent<
-  AddKind extends "supertag-apply" | "supertag-extension-add" | "supertag-template-node-add",
-  RemoveKind extends "supertag-remove" | "supertag-extension-remove" | "supertag-template-node-remove",
+  AddKind extends "supertag-extension-add" | "supertag-template-node-add",
+  RemoveKind extends "supertag-extension-remove" | "supertag-template-node-remove",
 >(
   addKind: AddKind,
   removeKind: RemoveKind,

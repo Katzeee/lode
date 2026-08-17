@@ -1,4 +1,4 @@
-import type { DefinitionNodeType } from "../fact/index.js";
+import type { DefinitionIntrinsicNodeType } from "../fact/index.js";
 import type { Projection } from "./projection-types.js";
 import { nodeLocation } from "./node-graph.js";
 
@@ -10,9 +10,9 @@ export function definitionNodeState(
     "identity" | "nodes" | "occurrences" | "childOccurrences" | "nodeOwners" | "workspaceSystemNodes"
   >,
   definitionId: string,
-  nodeType: DefinitionNodeType,
+  intrinsicNodeType: DefinitionIntrinsicNodeType,
 ): DefinitionNodeState {
-  if (projection.nodes[definitionId]?.nodeType !== nodeType) {
+  if (projection.nodes[definitionId]?.intrinsicNodeType !== intrinsicNodeType) {
     return "absent";
   }
   const location = nodeLocation(projection.identity.workspaceNodeId, projection, definitionId);

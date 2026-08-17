@@ -1,15 +1,13 @@
 import type {
   ContributionId,
   FactFrontier,
-  SupertagFieldConfig,
   PreviousValue,
-  NodeType,
+  IntrinsicNodeType,
   ResolutionBody,
   SequenceAnchor,
   TextAtomId,
+  ViewOptionsSpec,
   ViewType,
-  FieldCardinality,
-  FieldDatatype,
   FieldInitializationExpression,
 } from "../fact/index.js";
 import type { InlineReferenceTargetStatus } from "../reconcile/index.js";
@@ -59,16 +57,16 @@ export type OwnerDecisionEffect = Readonly<{
   review: string | null;
 }>;
 
-export type NodeTypeDecisionEffect = Readonly<{
-  kind: "node-type";
+export type IntrinsicNodeTypeDecisionEffect = Readonly<{
+  kind: "intrinsic-node-type";
   identity: string;
-  origin: NodeType | null;
-  review: NodeType | null;
+  origin: IntrinsicNodeType | null;
+  review: IntrinsicNodeType | null;
 }>;
 
 export type SupertagRelationDecisionEffect = Readonly<{
   kind: "supertag-relation";
-  relation: "application" | "field" | "extension" | "template-node";
+  relation: "application" | "extension" | "template-node" | "template-field-visibility";
   ownerId: string;
   targetId: string;
   originIndex: number | null;
@@ -83,14 +81,6 @@ export type FieldMaterializationDecisionEffect = Readonly<{
   reviewFieldNodeId: string | null;
   originFieldOccurrenceId: string | null;
   reviewFieldOccurrenceId: string | null;
-}>;
-
-export type FieldConfigurationDecisionEffect = Readonly<{
-  kind: "field-configuration";
-  supertagId: string;
-  fieldDefinitionId: string;
-  origin: SupertagFieldConfig | null;
-  review: SupertagFieldConfig | null;
 }>;
 
 export type InlineReferenceDecisionState = Readonly<{
@@ -110,7 +100,12 @@ export type InlineReferenceDecisionEffect = Readonly<{
 
 export type ViewDefinitionDecisionState = Readonly<{
   hostNodeId: string;
+  attachmentNodeId: string;
+  attachmentOccurrenceId: string;
   viewType: ViewType;
+  sortByNameAscending: boolean;
+  options: ViewOptionsSpec;
+  optionsConflicted: boolean;
 }>;
 
 export type ViewDefinitionDecisionEffect = Readonly<{
@@ -121,8 +116,9 @@ export type ViewDefinitionDecisionEffect = Readonly<{
 }>;
 
 export type FieldDefinitionConfigurationDecisionState =
-  | Readonly<{ kind: "datatype"; datatype: FieldDatatype }>
-  | Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>
+  | Readonly<{ kind: "datatype"; datatypeNodeId: string }>
+  | Readonly<{ kind: "cardinality"; cardinalityNodeId: string }>
+  | Readonly<{ kind: "optionality"; optionalityNodeId: string }>
   | Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>;
 
 export type FieldDefinitionConfigurationDecisionEffect = Readonly<{
@@ -138,9 +134,8 @@ export type DecisionEffect =
   | StructureDecisionEffect
   | LifecycleDecisionEffect
   | OwnerDecisionEffect
-  | NodeTypeDecisionEffect
+  | IntrinsicNodeTypeDecisionEffect
   | SupertagRelationDecisionEffect
-  | FieldConfigurationDecisionEffect
   | FieldMaterializationDecisionEffect
   | InlineReferenceDecisionEffect
   | ViewDefinitionDecisionEffect
@@ -173,7 +168,6 @@ export type ReviewHunk = Readonly<{
       | "owner"
       | "supertag-application"
       | "supertag-template"
-      | "field-configuration"
       | "materialized-field"
       | "inline-reference"
       | "view-definition"

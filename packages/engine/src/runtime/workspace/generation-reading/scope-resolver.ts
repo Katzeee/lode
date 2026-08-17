@@ -29,6 +29,7 @@ export async function resolveGenerationRead(
   await includeLifecycleScope(store, generationId, perspective, plan.mutations, scope);
   await includeSupertagAndFieldInstances(store, generationId, perspective, scope);
   const templateNodeInstances = await includeTemplateInstanceScope(store, generationId, perspective, scope);
+  await includeChildOccurrenceIds(store, generationId, perspective, scope);
   let occurrences = await readOccurrenceClosure(store, generationId, perspective, scope);
   const nodeOwners = await readNodeOwners(store, generationId, perspective, scope, plan.readsOwnerGraph);
   occurrences = await includeOwnedDeletionScope(
@@ -41,6 +42,18 @@ export async function resolveGenerationRead(
     scope,
   );
   return { scope, occurrences, nodeOwners, templateNodeInstances };
+}
+
+async function includeChildOccurrenceIds(
+  store: ProjectionSnapshotReader,
+  generationId: string,
+  perspective: ProjectionPerspective,
+  scope: GenerationReadScope,
+): Promise<void> {
+  const children = await readSection(store, generationId, perspective, "childOccurrences", [...scope.childOccurrences]);
+  Object.values(children).forEach((occurrenceIds) =>
+    occurrenceIds.forEach((occurrenceId) => scope.occurrences.add(occurrenceId)),
+  );
 }
 
 async function includeSupertagAndFieldInstances(

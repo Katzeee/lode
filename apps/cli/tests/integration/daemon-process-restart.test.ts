@@ -21,59 +21,44 @@ afterEach(async () => {
 });
 
 describe("real daemon child-process restart", () => {
-  it("deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements", async () => {
+  it("deduplicates Supertag Application, Resolution, and History after lost acknowledgements", async () => {
     const processRoot = await temporaryDirectory();
     daemon = await startDaemonProcess(processRoot, accessToken);
     await mutate(daemon.address, "setup", "setup", [
       nodeAt("task", workspaceId, "task-occurrence"),
       nodeAt("supertag", workspaceId, "supertag-occurrence", "supertag-definition"),
-      nodeAt("field", workspaceId, "field-occurrence", "field-definition"),
-      {
-        kind: "supertag-field-add",
-        supertagId: "supertag",
-        fieldDefinitionId: "field",
-        fieldNodeId: "supertag-field-template-field",
-        fieldOccurrenceId: "supertag-field-template-field-occurrence",
-        anchor: end,
-      },
-      {
-        kind: "supertag-field-configure",
-        supertagId: "supertag",
-        fieldDefinitionId: "field",
-        fieldNodeId: "supertag-field-template-field",
-        config: {
-          visibility: "normal",
-          staticDefault: [{ kind: "text", value: "Default" }],
-        },
-      },
     ]);
 
     const apply = mutateCommand("apply-once", "supertag", "direct", [
-      { kind: "supertag-apply", nodeId: "task", supertagId: "supertag", anchor: end },
+      {
+        kind: "supertag-application-create",
+        hostNodeId: "task",
+        metanodeId: "task-metanode",
+        supertagId: "supertag",
+        applicationNodeId: "task-supertag-application",
+        applicationOccurrenceId: "task-supertag-application-occurrence",
+        definitionOccurrenceId: "task-supertag-application-definition-occurrence",
+        relationDefinitionOccurrenceId: "task-supertag-application-relation-definition-occurrence",
+        anchor: end,
+      },
     ]);
     await loseAcknowledgement(daemon.address, apply);
     daemon = await restart(processRoot, daemon);
     await expectRetryMatchesDurableOutcome(daemon.address, "apply-once", apply);
-    expect((await projectionSection(daemon.address, "supertagApplications")).task).toEqual(["supertag"]);
-    const fields = array((await projectionSection(daemon.address, "materializedFields")).task, "Task Fields");
-    expect(fields).toHaveLength(1);
-    const valueOccurrenceIds = array(record(fields[0], "Task Field").valueOccurrenceIds, "Field values");
-    expect(valueOccurrenceIds).toHaveLength(1);
-    const valueOccurrenceId = valueOccurrenceIds[0];
-    const occurrence = record(
-      (await projectionSection(daemon.address, "occurrences"))[String(valueOccurrenceId)],
-      "Initialized value Occurrence",
+    const applications = array(
+      (await projectionSection(daemon.address, "supertagApplications")).task,
+      "Task Supertag Applications",
     );
-    const valueNode = record(
-      (await projectionSection(daemon.address, "nodes"))[String(occurrence.nodeId)],
-      "Initialized value Node",
-    );
-    expect(
-      textItems(valueNode)
-        .map((atom) => record(atom, "Atom").value)
-        .join(""),
-    ).toBe("Default");
-
+    expect(applications).toHaveLength(1);
+    const application = record(applications[0], "Task Supertag Application");
+    expect(application).toMatchObject({
+      hostNodeId: "task",
+      supertagId: "supertag",
+      applicationNodeId: "task-supertag-application",
+      applicationOccurrenceId: "task-supertag-application-occurrence",
+      definitionOccurrenceId: "task-supertag-application-definition-occurrence",
+    });
+    expect(typeof application.contributionId).toBe("string");
     await mutate(
       daemon.address,
       "proposal-once",
@@ -138,7 +123,7 @@ function nodeAt(
   nodeId: string,
   parentNodeId: string,
   occurrenceId: string,
-  nodeType?: "supertag-definition" | "field-definition",
+  intrinsicNodeType?: "supertag-definition" | "field-definition",
 ) {
   return {
     kind: "node-create",
@@ -146,7 +131,7 @@ function nodeAt(
     parentNodeId,
     occurrenceId,
     anchor: end,
-    ...(nodeType === undefined ? {} : { nodeType }),
+    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
   };
 }
 
@@ -182,7 +167,7 @@ function mutateCommand(
 
 async function loseAcknowledgement(endpoint: string, command: unknown): Promise<void> {
   const durable = await execute(endpoint, command);
-  expect(durable.status).toBe("published");
+  expect(durable.status, JSON.stringify(durable)).toBe("published");
   await expect(Promise.reject(new Error("simulated acknowledgement loss"))).rejects.toThrow(
     "simulated acknowledgement loss",
   );

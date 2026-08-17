@@ -1,17 +1,17 @@
 import { parseConflictIssue } from "../conflict/index.js";
-import { isNodeType, parseJsonRecord, parseTextAtomId } from "../fact/index.js";
+import { isIntrinsicNodeType, parseJsonRecord, parseTextAtomId, parseViewOptionsSpec } from "../fact/index.js";
 import { array, exact, nonempty, object, stringArray, stringValue } from "../../shape-validation/index.js";
 import type {
   ProjectedNode,
-  ProjectedOccurrence,
   ProjectionSectionName,
   ProjectionSectionValue,
-  SearchClause,
+  SearchExpression,
   SharedDefaultViewDefinition,
-  TemplateNodeInstance,
 } from "./projection-types.js";
+import { parseSearchExpressionSpec } from "../fact/index.js";
 import { parseSupertagProjectionSectionValue } from "./supertag-projection-shape.js";
 import { parseFieldDefinitionConfiguration } from "./field-definition-configuration-shape.js";
+import { projectedOccurrence, templateNodeInstance } from "./projection-node-shape.js";
 
 export function parseProjectionSectionValue(section: ProjectionSectionName, value: unknown): ProjectionSectionValue {
   switch (section) {
@@ -20,8 +20,6 @@ export function parseProjectionSectionValue(section: ProjectionSectionName, valu
     case "occurrences":
       return projectedOccurrence(value);
     case "childOccurrences":
-    case "supertagApplications":
-    case "supertagFields":
     case "supertagTemplateNodes":
     case "supertagExtensions":
     case "supertagInstanceSupertags":
@@ -32,12 +30,16 @@ export function parseProjectionSectionValue(section: ProjectionSectionName, valu
     case "workspaceSystemNodes":
     case "metanodes":
       return nonempty(value, "Workspace System Node identity");
+    case "supertagApplications":
     case "templateFields":
+    case "optionalFieldContributions":
     case "effectiveFields":
+    case "optionalFieldSuggestions":
     case "materializedFields":
+    case "typedFieldValues":
       return parseSupertagProjectionSectionValue(section, value);
-    case "searchClauses":
-      return array(value, "Search clauses", searchClause);
+    case "searchExpressions":
+      return searchExpression(value);
     case "sharedDefaultViewDefinitions":
       return array(value, "Shared View Definitions", sharedDefaultViewDefinition);
     case "fieldDefinitionConfigurations":
@@ -71,20 +73,22 @@ export function parseProjectionSectionEntry(
     case "nodeOwners":
     case "metanodes":
     case "supertagApplications":
-    case "supertagFields":
     case "templateFields":
+    case "optionalFieldContributions":
+    case "effectiveFields":
+    case "optionalFieldSuggestions":
     case "supertagTemplateNodes":
     case "supertagExtensions":
     case "supertagInstanceSupertags":
     case "supertagExtensionConflicts":
-    case "effectiveFields":
     case "materializedFields":
-    case "searchClauses":
+    case "typedFieldValues":
+    case "searchExpressions":
     case "sharedDefaultViewDefinitions":
     case "fieldDefinitionConfigurations":
       return parseProjectionSectionValue(section, value);
     case "workspaceSystemNodes":
-      if (identity !== "trash") {
+      if (identity !== "trash" && identity !== "schema" && identity !== "systemDefinitionCatalog") {
         throw new Error(`Unknown Workspace System Node role: ${identity}`);
       }
       return parseProjectionSectionValue(section, value);
@@ -95,7 +99,20 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
   const item = object(value, "Shared View Definition");
   exact(
     item,
-    ["hostNodeId", "viewDefinitionNodeId", "viewDefinitionOccurrenceId", "viewType", "modeContributionIds"],
+    [
+      "hostNodeId",
+      "attachmentNodeId",
+      "attachmentOccurrenceId",
+      "relationDefinitionOccurrenceId",
+      "viewDefinitionNodeId",
+      "viewDefinitionOccurrenceId",
+      "viewType",
+      "modeContributionIds",
+      "options",
+      "optionsContributionIds",
+      "optionsConflicted",
+      "sortByNameAscending",
+    ],
     "Shared View Definition",
   );
   if (item.viewType !== "outline" && item.viewType !== "table") {
@@ -103,34 +120,70 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
   }
   return {
     hostNodeId: nonempty(item.hostNodeId, "View host Node identity"),
+    attachmentNodeId: nonempty(item.attachmentNodeId, "View attachment Node identity"),
+    attachmentOccurrenceId: nonempty(item.attachmentOccurrenceId, "View attachment Occurrence identity"),
+    relationDefinitionOccurrenceId: nonempty(
+      item.relationDefinitionOccurrenceId,
+      "Views for node Definition endpoint Occurrence identity",
+    ),
     viewDefinitionNodeId: nonempty(item.viewDefinitionNodeId, "View Definition Node identity"),
     viewDefinitionOccurrenceId: nonempty(item.viewDefinitionOccurrenceId, "View Definition Occurrence identity"),
     viewType: item.viewType,
     modeContributionIds: stringArray(item.modeContributionIds, "View mode contribution identities"),
+    options: parseViewOptionsSpec(item.options),
+    optionsContributionIds: stringArray(item.optionsContributionIds, "View options contribution identities"),
+    optionsConflicted: booleanValue(item.optionsConflicted, "View options conflict state"),
+    sortByNameAscending: viewSortByNameAscending(item.sortByNameAscending),
   };
 }
 
-function searchClause(value: unknown): SearchClause {
-  const item = object(value, "Search clause");
-  if (item.kind === "supertag-instance-of") {
-    exact(item, ["kind", "clauseNodeId", "clauseOccurrenceId", "supertagId"], "Supertag Search clause");
-    return {
-      kind: "supertag-instance-of",
-      clauseNodeId: nonempty(item.clauseNodeId, "Search clause Node identity"),
-      clauseOccurrenceId: nonempty(item.clauseOccurrenceId, "Search clause Occurrence identity"),
-      supertagId: nonempty(item.supertagId, "Search clause Supertag identity"),
-    };
+function booleanValue(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be boolean`);
   }
-  if (item.kind === "field-defined") {
-    exact(item, ["kind", "clauseNodeId", "clauseOccurrenceId", "fieldDefinitionId"], "Field Search clause");
-    return {
-      kind: "field-defined",
-      clauseNodeId: nonempty(item.clauseNodeId, "Search clause Node identity"),
-      clauseOccurrenceId: nonempty(item.clauseOccurrenceId, "Search clause Occurrence identity"),
-      fieldDefinitionId: nonempty(item.fieldDefinitionId, "Search clause Field Definition identity"),
-    };
+  return value;
+}
+
+function viewSortByNameAscending(value: unknown): SharedDefaultViewDefinition["sortByNameAscending"] {
+  if (value === null) {
+    return null;
   }
-  throw new Error("Search clause kind is invalid");
+  const item = object(value, "View name sort");
+  exact(
+    item,
+    [
+      "sortOrderFieldNodeId",
+      "sortOrderFieldOccurrenceId",
+      "sortFieldNodeId",
+      "sortFieldOccurrenceId",
+      "nodeNameOccurrenceId",
+      "ascendingOccurrenceId",
+    ],
+    "View name sort",
+  );
+  return {
+    sortOrderFieldNodeId: nonempty(item.sortOrderFieldNodeId, "Sort order Field Node identity"),
+    sortOrderFieldOccurrenceId: nonempty(item.sortOrderFieldOccurrenceId, "Sort order Field Occurrence identity"),
+    sortFieldNodeId: nonempty(item.sortFieldNodeId, "Sort field Node identity"),
+    sortFieldOccurrenceId: nonempty(item.sortFieldOccurrenceId, "Sort field Occurrence identity"),
+    nodeNameOccurrenceId: nonempty(item.nodeNameOccurrenceId, "Node name Occurrence identity"),
+    ascendingOccurrenceId: nonempty(item.ascendingOccurrenceId, "ASC Occurrence identity"),
+  };
+}
+
+function searchExpression(value: unknown): SearchExpression {
+  const item = object(value, "Search Expression");
+  exact(
+    item,
+    ["expressionNodeId", "expressionOccurrenceId", "definitionOccurrenceId", "expression"],
+    "Search Expression",
+  );
+  return {
+    expressionNodeId: nonempty(item.expressionNodeId, "Search Expression Node identity"),
+    expressionOccurrenceId: nonempty(item.expressionOccurrenceId, "Search Expression Occurrence identity"),
+    definitionOccurrenceId: nonempty(item.definitionOccurrenceId, "Search definition endpoint Occurrence identity"),
+    expression: parseSearchExpressionSpec(item.expression),
+  };
 }
 
 export function isProjectionSectionValue(section: ProjectionSectionName, value: unknown): boolean {
@@ -169,13 +222,13 @@ function matchingIdentity<Value extends ProjectionSectionValue>(
 
 function projectedNode(value: unknown): ProjectedNode {
   const item = object(value, "Projected Node");
-  exact(item, ["nodeId", "nodeType", "content"], "Projected Node");
-  if (item.nodeType !== null && !isNodeType(item.nodeType)) {
-    throw new Error("Projected Node type is invalid");
+  exact(item, ["nodeId", "intrinsicNodeType", "content"], "Projected Node");
+  if (item.intrinsicNodeType !== null && !isIntrinsicNodeType(item.intrinsicNodeType)) {
+    throw new Error("Projected Intrinsic Node Type is invalid");
   }
   return {
     nodeId: nonempty(item.nodeId, "Node identity"),
-    nodeType: item.nodeType,
+    intrinsicNodeType: item.intrinsicNodeType,
     content: array(item.content, "Node content", (contentValue) => {
       const content = object(contentValue, "Node content item");
       if (content.kind === "text") {
@@ -213,56 +266,5 @@ function projectedNode(value: unknown): ProjectedNode {
       }
       throw new Error("Node content item kind is invalid");
     }),
-  };
-}
-
-function projectedOccurrence(value: unknown): ProjectedOccurrence {
-  const item = object(value, "Projected Occurrence");
-  exact(item, ["occurrenceId", "nodeId", "parentNodeId", "derived"], "Projected Occurrence");
-  if (typeof item.derived !== "boolean") {
-    throw new Error("Occurrence derived flag is invalid");
-  }
-  return {
-    occurrenceId: nonempty(item.occurrenceId, "Occurrence identity"),
-    nodeId: nonempty(item.nodeId, "Node identity"),
-    parentNodeId: nonempty(item.parentNodeId, "Parent Node identity"),
-    derived: item.derived,
-  };
-}
-
-function templateNodeInstance(value: unknown): TemplateNodeInstance {
-  const item = object(value, "Template Node instance");
-  exact(
-    item,
-    [
-      "ownerNodeId",
-      "templateNodeId",
-      "instanceNodeId",
-      "instanceOccurrenceId",
-      "state",
-      "sources",
-      "detachmentContributionIds",
-    ],
-    "Template Node instance",
-  );
-  if (item.state !== "linked" && item.state !== "detached") {
-    throw new Error("Template Node state is invalid");
-  }
-  return {
-    ownerNodeId: nonempty(item.ownerNodeId, "Template owner"),
-    templateNodeId: nonempty(item.templateNodeId, "Template Node"),
-    instanceNodeId: item.instanceNodeId === null ? null : nonempty(item.instanceNodeId, "instance Node"),
-    instanceOccurrenceId: nonempty(item.instanceOccurrenceId, "instance Occurrence"),
-    state: item.state,
-    sources: array(item.sources, "Template Node sources", (sourceValue) => {
-      const source = object(sourceValue, "Template Node source");
-      exact(source, ["supertagId", "appliedSupertagId", "templateOccurrenceId"], "Template Node source");
-      return {
-        supertagId: nonempty(source.supertagId, "source Supertag"),
-        appliedSupertagId: nonempty(source.appliedSupertagId, "applied Supertag"),
-        templateOccurrenceId: nonempty(source.templateOccurrenceId, "Template Occurrence"),
-      };
-    }),
-    detachmentContributionIds: stringArray(item.detachmentContributionIds),
   };
 }

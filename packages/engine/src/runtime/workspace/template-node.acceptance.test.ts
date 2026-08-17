@@ -13,6 +13,10 @@ import { InMemoryDocumentStore } from "../../persistence/in-memory-document-stor
 import { createReplicaId, FactAuthorityStore } from "../authority/fact-authority-store.js";
 import { ProposalWorkspace } from "./proposal-workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
+import {
+  createSupertagApplication,
+  removeSupertagApplication,
+} from "../../../tests/support/workspace/edit-test-mutations.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
@@ -28,7 +32,7 @@ describe("ordinary Supertag Template Nodes", () => {
             nodeId: "workspace-supertag",
             parentNodeId: "workspace",
             anchor: end,
-            nodeType: "supertag-definition",
+            intrinsicNodeType: "supertag-definition",
           },
           {
             kind: "node-create",
@@ -44,12 +48,7 @@ describe("ordinary Supertag Template Nodes", () => {
             templateOccurrenceId: "workspace-guidance-template-occurrence",
             anchor: end,
           },
-          {
-            kind: "supertag-apply",
-            nodeId: "workspace",
-            supertagId: "workspace-supertag",
-            anchor: end,
-          },
+          createSupertagApplication("workspace", "workspace-supertag"),
         ])
       ).status,
     ).toBe("published");
@@ -104,6 +103,10 @@ describe("ordinary Supertag Template Nodes", () => {
             kind: "node-restore",
             nodeId: instanceNodeId,
             deletionFactId,
+            occurrenceId: instanceOccurrenceId,
+            ownerNodeId: "note",
+            parentNodeId: "note",
+            anchor: end,
           },
         ])
       ).status,
@@ -203,7 +206,7 @@ describe("ordinary Supertag Template Nodes", () => {
             anchor: end,
             insert: " upstream",
           },
-          { kind: "supertag-remove", nodeId: "note", supertagId: "note-supertag" },
+          removeSupertagApplication("note", "note-supertag"),
         ])
       ).status,
     ).toBe("published");
@@ -329,7 +332,7 @@ describe("ordinary Supertag Template Nodes", () => {
             nodeId: "derived-supertag",
             parentNodeId: "workspace",
             anchor: end,
-            nodeType: "supertag-definition",
+            intrinsicNodeType: "supertag-definition",
           },
           {
             kind: "supertag-extension-add",
@@ -337,7 +340,7 @@ describe("ordinary Supertag Template Nodes", () => {
             baseSupertagId: "note-supertag",
             anchor: end,
           },
-          { kind: "supertag-apply", nodeId: "note", supertagId: "derived-supertag", anchor: end },
+          createSupertagApplication("note", "derived-supertag"),
         ])
       ).status,
     ).toBe("published");
@@ -373,7 +376,7 @@ function setupProgram(): readonly EditMutation[] {
       nodeId: "note-supertag",
       parentNodeId: "workspace",
       anchor: end,
-      nodeType: "supertag-definition",
+      intrinsicNodeType: "supertag-definition",
     },
     {
       kind: "node-create",
@@ -403,7 +406,7 @@ function setupProgram(): readonly EditMutation[] {
       templateOccurrenceId: "note-supertag-guidance-template-occurrence",
       anchor: end,
     },
-    { kind: "supertag-apply", nodeId: "note", supertagId: "note-supertag", anchor: end },
+    createSupertagApplication("note", "note-supertag"),
   ];
 }
 

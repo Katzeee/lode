@@ -2,8 +2,8 @@ import type { SearchMutation } from "../fact/index.js";
 import type { MutationEvidenceFamily } from "./policy.js";
 
 const SEARCH_MUTATION_KINDS = [
-  "search-supertag-clause-attach",
-  "search-field-clause-attach",
+  "search-expression-attach",
+  "search-expression-detach",
 ] as const satisfies readonly SearchMutation["kind"][];
 
 export const searchMutationEvidence = {

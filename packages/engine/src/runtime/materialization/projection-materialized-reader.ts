@@ -1,5 +1,6 @@
 import type { ProjectionIdentity, ProjectionPerspective } from "../../domain/fact/index.js";
 import type { ProjectionGeneration, ProjectionSectionName } from "../../domain/reconcile/index.js";
+import { evaluateSearchExpressionSpec } from "../../domain/query/index.js";
 import type { MaterializedGenerationRead } from "./bounded-materialized-store.js";
 import { loadMaterializedProjection } from "./materialized-projection-loader.js";
 import type { ProjectionShardBatch, ProjectionSliceName, ProjectionSlicePage } from "./projection-slices.js";
@@ -70,18 +71,18 @@ export async function readProjectionSupertagInstances(
   after: string | null,
   limit: number,
 ) {
-  const prefix = `${encodeURIComponent(supertagId)}/`;
-  const page = await generation.page(
-    projectionMaterializedDataset(perspective, "supertagInstanceMemberships"),
-    after === null ? prefix : `${prefix}${encodeURIComponent(after)}`,
-    limit + 1,
+  const projectionGeneration = await loadProjectionGeneration(generation);
+  const projection = projectionGeneration[perspective];
+  const matches = evaluateSearchExpressionSpec(
+    { expressionNodeId: `supertag-page:${supertagId}`, kind: "supertag", supertagId },
+    projection,
   );
-  const matches = page.entries.filter((entry) => entry.descriptor.identity.startsWith(prefix));
-  const selected = matches.slice(0, limit);
-  const nodeIds = selected.map((entry) => entry.value);
+  const nextIndex = after === null ? 0 : matches.findIndex((nodeId) => nodeId > after);
+  const start = nextIndex < 0 ? matches.length : nextIndex;
+  const nodeIds = matches.slice(start, start + limit);
   return {
     identity: generation.identity,
     nodeIds,
-    next: matches.length > selected.length ? (nodeIds.at(-1) ?? null) : null,
+    next: start + limit < matches.length ? (nodeIds.at(-1) ?? null) : null,
   };
 }

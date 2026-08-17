@@ -7,12 +7,47 @@ import { createEngine } from "@lode/engine/host";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "../../src/cli.js";
-import { animeNotesProgram, moodProposal, pendingMoodEdit, reviewApplicationProposal } from "./anime-notes-fixture.js";
+import { animeNotesProgram, reviewApplicationProposal } from "./anime-notes-fixture.js";
 
 const workspaceId = "anime-notes";
 const outlineWorkspaceId = "outline-product";
 const workspaceTrashNodeId = (id: string) => `workspace-trash:v1:${id}`;
 const workspaceTrashOccurrenceId = (id: string) => `workspace-trash-occ:v1:${id}`;
+const workspaceSchemaNodeId = (id: string) => `workspace-schema:v1:${id}`;
+const systemDefinitionCatalogNodeId = "system-definition-catalog:v1";
+const systemDefinitionNodeIds = [
+  systemDefinitionCatalogNodeId,
+  "system-field-datatypes:v1",
+  "system-field-datatype:v1:plain",
+  "system-field-datatype:v1:options",
+  "system-field-datatype:v1:options-from-supertag",
+  "system-field-datatype:v1:number",
+  "system-field-datatype:v1:checkbox",
+  "system-field-datatype:v1:date",
+  "system-checkbox-value:v1:yes",
+  "system-checkbox-value:v1:no",
+  "system-field-cardinalities:v1",
+  "system-field-cardinality:v1:single",
+  "system-field-cardinality:v1:list",
+  "system-field-optionalities:v1",
+  "system-field-optionality:v1:yes",
+  "system-field-optionality:v1:no",
+  "system-field-configuration-definitions:v1",
+  "system-field-configuration-definition:v1:datatype",
+  "system-field-configuration-definition:v1:cardinality",
+  "system-field-configuration-definition:v1:optionality",
+  "system-field-configuration-definition:v1:initialization-expression",
+  "system-field-definition:v1:node-supertags",
+  "system-field-definition:v1:node-views",
+  "system-field-definition:v1:optional-fields",
+  "system-field-definition:v1:search-expression",
+  "system-field-definition:v1:url",
+  "system-field-definition:v1:code-block-language",
+  "system-field-definition:v1:view-sort-order",
+  "system-field-definition:v1:view-sort-field",
+  "system-view-sort-value:v1:node-name",
+  "system-view-sort-value:v1:ascending",
+] as const;
 const accessToken = "anime-notes-transport-access-token";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const temporaryDirectories: string[] = [];
@@ -29,7 +64,7 @@ afterEach(async () => {
 });
 
 describe("Anime Notes through the public CLI and daemon", () => {
-  it("persists, reviews, restarts, and synchronizes one connected knowledge graph", async () => {
+  it("preserves the legacy structured transport for one connected knowledge graph", async () => {
     const leftRoot = await temporaryDirectory("left");
     const rightRoot = await temporaryDirectory("right");
     let left = await startTestDaemon({
@@ -50,49 +85,22 @@ describe("Anime Notes through the public CLI and daemon", () => {
       });
       await expectAnimeNotes(left.address, "daemon restart");
 
-      await execute(left.address, "propose-mood-field", "proposal", moodProposal());
-      await execute(left.address, "edit-pending-mood-field", "direct", pendingMoodEdit());
-      expect(await materializedFieldDefinitions(left.address, "origin", "quick-note")).not.toContain("mood-field");
-      expect(await materializedFieldDefinitions(left.address, "review", "quick-note")).toContain("mood-field");
-      const templateHunk = await reviewHunk(left.address, "supertag-template");
-      const templateEvidence = evidence(templateHunk);
-      expect(templateEvidence.supportClosure).toHaveLength(7);
-      expect(array(templateEvidence.effects, "Template effects")).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            kind: "supertag-relation",
-            relation: "field",
-            ownerId: "quick-impression",
-            targetId: "mood-field",
-          }),
-        ]),
-      );
-      const templateImpacts = array(templateEvidence.associatedImpactIds, "Template impacts");
-      expect(templateImpacts).toContain("supertag-field/quick-impression/mood-field");
-      expect(
-        templateImpacts.some(
-          (impact) => typeof impact === "string" && impact.startsWith("effective-field/quick-note/mood-field/"),
-        ),
-      ).toBe(true);
-      await resolve(left.address, "accept-mood-field", "accept", templateHunk.selection);
-      expect(await materializedFieldDefinitions(left.address, "origin", "quick-note")).toContain("mood-field");
-      expect(await nodeText(left.address, "origin", "mood-text")).toBe("Reflective");
-
       await execute(left.address, "propose-review-application", "proposal", reviewApplicationProposal());
       expect(await supertagInstancesResult(left.address, "review", "origin")).toEqual(["review-note"]);
       expect(await supertagInstancesResult(left.address, "review", "review")).toEqual(["quick-note", "review-note"]);
       const applicationHunk = await reviewHunk(left.address, "supertag-application");
       const applicationEvidence = evidence(applicationHunk);
-      expect(array(applicationEvidence.effects, "Application effects")).toEqual([
-        expect.objectContaining({
-          kind: "supertag-relation",
-          relation: "application",
-          ownerId: "quick-note",
-          targetId: "review",
-        }),
-      ]);
+      const relationEffect = array(applicationEvidence.effects, "Application effects")
+        .map((effect) => record(effect, "Application effect"))
+        .find((effect) => effect.kind === "supertag-relation");
+      expect(relationEffect).toMatchObject({
+        kind: "supertag-relation",
+        relation: "application",
+        ownerId: "quick-note",
+        targetId: "quick-note-review-application",
+      });
       expect(array(applicationEvidence.associatedImpactIds, "Application impacts")).toContain(
-        "supertag-application/quick-note/review",
+        "supertag-application/quick-note/quick-note-review-application",
       );
       await resolve(left.address, "reject-review-application", "reject", applicationHunk.selection);
       expect(await supertagApplications(left.address, "origin", "quick-note")).toEqual([
@@ -106,10 +114,8 @@ describe("Anime Notes through the public CLI and daemon", () => {
         accessToken,
       });
       await projectionMap(right.address, "origin", "nodes");
-      await runCli(["sync", left.address, workspaceId, right.address, "--access-token", accessToken]);
-      await expectAnimeNotes(right.address, "peer synchronization", true);
-      expect(await materializedFieldDefinitions(right.address, "origin", "quick-note")).toContain("mood-field");
-      expect(await nodeText(right.address, "origin", "mood-text")).toBe("Reflective");
+      await sync(left.address, right.address, workspaceId);
+      await expectAnimeNotes(right.address, "peer synchronization");
     } finally {
       await left.stop();
       await right?.stop();
@@ -216,15 +222,19 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: leftRoot,
         accessToken,
       });
-      expect(Object.keys(await outlineProjection(left.address, "nodes"))).toEqual([
-        "alpha",
-        "beta",
-        "discarded",
-        "extra-root",
-        outlineWorkspaceId,
-        "outline-root",
-        workspaceTrashNodeId(outlineWorkspaceId),
-      ]);
+      expect(new Set(Object.keys(await outlineProjection(left.address, "nodes")))).toEqual(
+        new Set([
+          "alpha",
+          "beta",
+          "discarded",
+          "extra-root",
+          outlineWorkspaceId,
+          "outline-root",
+          workspaceTrashNodeId(outlineWorkspaceId),
+          workspaceSchemaNodeId(outlineWorkspaceId),
+          ...systemDefinitionNodeIds,
+        ]),
+      );
       const restartedOccurrences = await outlineProjection(left.address, "occurrences");
       expect(restartedOccurrences).toMatchObject({
         "alpha-occurrence": { nodeId: "alpha" },
@@ -279,7 +289,14 @@ describe("Anime Notes through the public CLI and daemon", () => {
         section: "nodes",
       });
       const isolatedNodes = record(isolated.nodes, "Isolated workspace Nodes");
-      expect(Object.keys(isolatedNodes)).toEqual(["isolated-workspace", workspaceTrashNodeId("isolated-workspace")]);
+      expect(new Set(Object.keys(isolatedNodes))).toEqual(
+        new Set([
+          "isolated-workspace",
+          workspaceTrashNodeId("isolated-workspace"),
+          workspaceSchemaNodeId("isolated-workspace"),
+          ...systemDefinitionNodeIds,
+        ]),
+      );
       expect(record(isolatedNodes["isolated-workspace"], "Isolated Workspace Node").nodeId).toBe("isolated-workspace");
     } finally {
       await left.stop();
@@ -311,7 +328,7 @@ async function executeOutline(endpoint: string, invocationId: string, mutations:
 }
 
 async function sync(endpoint: string, remoteEndpoint: string, targetWorkspaceId: string): Promise<void> {
-  await runCli(["sync", endpoint, targetWorkspaceId, remoteEndpoint, "--access-token", accessToken]);
+  await runCli(["sync", endpoint, targetWorkspaceId, remoteEndpoint, "--access-token", accessToken], () => undefined);
 }
 
 async function outlineProjection(endpoint: string, section: string): Promise<Record<string, unknown>> {
@@ -352,7 +369,7 @@ async function occurrenceNodeInWorkspace(endpoint: string, occurrenceId: string)
   return record((await outlineProjection(endpoint, "occurrences"))[occurrenceId], `Occurrence ${occurrenceId}`).nodeId;
 }
 
-async function expectAnimeNotes(endpoint: string, stage: string, includesMoodField = false): Promise<void> {
+async function expectAnimeNotes(endpoint: string, stage: string): Promise<void> {
   expect(await outlineNodeIds(endpoint, workspaceId)).toEqual([workspaceTrashNodeId(workspaceId), "root"]);
   expect(await outlineNodeIds(endpoint, "root")).toEqual(["definition-library", "library", "notes"]);
   expect(await outlineNodeIds(endpoint, "definition-library")).toEqual([
@@ -366,7 +383,6 @@ async function expectAnimeNotes(endpoint: string, stage: string, includesMoodFie
     "context-field",
     "impression-field",
     "rating-field",
-    ...(includesMoodField ? ["mood-field"] : []),
   ]);
   expect(await outlineNodeIds(endpoint, "library")).toEqual(["frieren", "fern"]);
   expect(await outlineNodeIds(endpoint, "notes")).toEqual(["quick-note", "review-note"]);
@@ -489,7 +505,9 @@ async function occurrenceNode(endpoint: string, occurrenceId: string): Promise<u
 }
 
 async function supertagApplications(endpoint: string, perspective: string, nodeId: string): Promise<unknown[]> {
-  return array((await projectionMap(endpoint, perspective, "supertagApplications"))[nodeId], "Supertags");
+  return array((await projectionMap(endpoint, perspective, "supertagApplications"))[nodeId], "Supertags").map(
+    (application) => record(application, "Supertag Application").supertagId,
+  );
 }
 
 async function supertagInstancesResult(

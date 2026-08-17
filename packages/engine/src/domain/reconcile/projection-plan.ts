@@ -7,16 +7,15 @@ import { createOccurrences } from "./projection-state.js";
 import { cloneNodes, createNodes } from "./node-state.js";
 import { projectNodeOwners } from "./node-ownership.js";
 import { assembleProjectionArtifacts } from "./projection-value-assembly.js";
-import { deriveSupertagRelations } from "./supertag-relations.js";
+import { deriveSupertagRelations, supertagApplicationTargets } from "./supertag-relations.js";
 import { projectConflictIssues } from "./projection-conflicts.js";
-import { projectInitializedFields } from "./initialized-field.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
 import { excludePurgedContributions, purgedNodeIds } from "../maintenance/index.js";
 import { projectTemplateStructure } from "./template-node-projection.js";
-import { placeDeletedNodesInTrash } from "./trash-structure.js";
+import { projectNodeGraphStructure } from "./node-graph-structure.js";
 import { isPresentNodeOutsideTrash } from "./node-graph.js";
 import { projectMetanodes } from "./metanodes.js";
-import { projectSearchClauses } from "./search-clauses.js";
+import { projectSearchExpressions } from "./search-expressions.js";
 import { viewProjectionRule } from "./projection-view-rule.js";
 import { fieldDefinitionProjectionRule } from "./projection-field-definition-rule.js";
 
@@ -53,14 +52,7 @@ const PROJECTION_RULES = [
     key: "node",
     dependencies: ["activation"],
     factScope: "rebuild",
-    invalidatedBy: [
-      "node-create",
-      "node-delete",
-      "node-restore",
-      "supertag-field-add",
-      "template-node-detach",
-      "field-initialize",
-    ],
+    invalidatedBy: ["node-create", "node-delete", "node-restore", "template-node-detach"],
     evaluate: (context) => ({
       storedNodes: createNodes(context.replayAllActive ? context.activation.allActive : context.activation.active),
     }),
@@ -85,7 +77,6 @@ const PROJECTION_RULES = [
       "occurrence-move",
       "field-value-delete",
       "materialized-field-delete",
-      "supertag-field-remove",
       "supertag-template-node-add",
       "supertag-template-node-remove",
     ],
@@ -120,17 +111,11 @@ const PROJECTION_RULES = [
   }),
   projectionRule({
     key: "owner",
-    dependencies: ["activation", "node", "occurrence", "configuration"],
+    dependencies: ["activation", "node"],
     factScope: "history",
     invalidatedBy: ["node-owner-set"],
     evaluate: (context) => ({
-      nodeOwners: projectNodeOwners(
-        context.workspaceNodeId,
-        context.activation.allActive,
-        context.storedNodes,
-        context.authoredStructure.occurrences,
-        context.metanodes,
-      ),
+      nodeOwners: projectNodeOwners(context.workspaceNodeId, context.activation.allActive, context.storedNodes),
     }),
   }),
   projectionRule({
@@ -139,9 +124,8 @@ const PROJECTION_RULES = [
     factScope: "history",
     invalidatedBy: [],
     evaluate: (context) => ({
-      nodeGraphStructure: placeDeletedNodesInTrash(
+      nodeGraphStructure: projectNodeGraphStructure(
         context.workspaceNodeId,
-        context.activation.allActive,
         context.authoredStructure.occurrences,
         context.authoredStructure.childOccurrences,
         context.nodeOwners,
@@ -151,19 +135,26 @@ const PROJECTION_RULES = [
   }),
   projectionRule({
     key: "supertag-relations",
-    dependencies: ["activation", "node", "node-graph"],
+    dependencies: ["activation", "node", "content", "node-graph"],
     factScope: "history",
     invalidatedBy: [
-      "node-type-declare",
+      "intrinsic-node-type-declare",
       "supertag-apply",
       "supertag-remove",
-      "supertag-field-configure",
       "supertag-extension-add",
       "supertag-extension-remove",
+      "supertag-template-field-attach",
+      "supertag-template-field-existing-attach",
+      "supertag-template-field-detach",
+      "supertag-template-field-discoverability-set",
+      "supertag-template-field-visibility-configure",
+      "supertag-optional-field-contribution-attach",
+      "supertag-optional-field-contribution-detach",
       "field-materialize",
+      "text-splice",
     ],
     evaluate(context) {
-      const effectiveNodes = Object.fromEntries(context.storedNodes);
+      const effectiveNodes = Object.fromEntries(context.contentNodes);
       const activeNodeIds = new Set(
         [...context.storedNodes.keys()].filter((nodeId) =>
           isPresentNodeOutsideTrash(
@@ -177,20 +168,17 @@ const PROJECTION_RULES = [
           ),
         ),
       );
-      const initializedFields = projectInitializedFields(
-        context.activation.allActive,
-        context.storedNodes,
-        context.nodeGraphStructure.occurrences,
-        context.nodeGraphStructure.nodeOwners,
-      );
       return {
         supertagRelations: deriveSupertagRelations(
           context.activation.allActive,
+          context.workspaceNodeId,
+          effectiveNodes,
           activeNodeIds,
           knownNodeIds(context.activation.allActive),
           context.nodeGraphStructure.occurrences,
           context.nodeGraphStructure.childOccurrences,
-          initializedFields,
+          context.nodeGraphStructure.metanodes,
+          context.nodeGraphStructure.nodeOwners,
         ),
       };
     },
@@ -200,9 +188,9 @@ const PROJECTION_RULES = [
     key: "search",
     dependencies: ["activation", "node", "node-graph"],
     factScope: "history",
-    invalidatedBy: ["search-supertag-clause-attach", "search-field-clause-attach"],
+    invalidatedBy: ["search-expression-attach", "search-expression-detach"],
     evaluate: (context) => ({
-      searchClauses: projectSearchClauses(
+      searchExpressions: projectSearchExpressions(
         context.workspaceNodeId,
         context.activation.allActive,
         context.storedNodes,
@@ -224,8 +212,6 @@ const PROJECTION_RULES = [
       conflictIssues: projectConflictIssues(
         context.snapshot,
         context.supertagRelations.supertagExtensionConflicts,
-        context.supertagRelations.templateFields,
-        context.supertagRelations.effectiveFields,
         context.activation.allActive,
         context.nodeGraphStructure.occurrences,
       ),
@@ -240,7 +226,10 @@ const PROJECTION_RULES = [
       return {
         templateStructure: projectTemplateStructure(
           context.activation.allActive,
-          context.supertagRelations.supertagApplications,
+          supertagApplicationTargets(
+            context.supertagRelations.supertagApplications,
+            new Set(context.storedNodes.keys()),
+          ),
           context.supertagRelations.supertagTemplateNodes,
           context.supertagRelations.supertagExtensions,
           context.storedNodes,

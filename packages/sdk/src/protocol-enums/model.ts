@@ -1,14 +1,13 @@
 import {
   AnchorAffinity as ProtocolAnchorAffinity,
   AnchorFallback as ProtocolAnchorFallback,
-  FieldInitializationSource as ProtocolFieldInitializationSource,
-  FieldVisibility as ProtocolFieldVisibility,
-  FieldDatatype as ProtocolFieldDatatype,
-  FieldCardinality as ProtocolFieldCardinality,
   HistoryOperation as ProtocolHistoryOperation,
-  NodeType as ProtocolNodeType,
+  IntrinsicNodeType as ProtocolIntrinsicNodeType,
   InlineReferenceTargetStatus as ProtocolInlineReferenceTargetStatus,
   ViewType as ProtocolViewType,
+  TemplateFieldVisibility as ProtocolTemplateFieldVisibility,
+  ViewSortDirection as ProtocolViewSortDirection,
+  SearchDateComparisonOperator as ProtocolSearchDateComparisonOperator,
 } from "@lode/protocol/dto/model";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
@@ -34,55 +33,21 @@ export const anchorFallback = defineProtocolEnum<ProtocolAnchorFallback>()(
 );
 export type AnchorFallback = DomainEnum<typeof anchorFallback>;
 
-export const nodeType = defineProtocolEnum<ProtocolNodeType>()(
+export const intrinsicNodeType = defineProtocolEnum<ProtocolIntrinsicNodeType>()(
   {
-    [ProtocolNodeType.NODE_TYPE_UNSPECIFIED]: null,
-    [ProtocolNodeType.NODE_TYPE_SUPERTAG_DEFINITION]: "supertag-definition",
-    [ProtocolNodeType.NODE_TYPE_FIELD_DEFINITION]: "field-definition",
-    [ProtocolNodeType.NODE_TYPE_FIELD]: "field",
-    [ProtocolNodeType.NODE_TYPE_SEARCH]: "search",
-    [ProtocolNodeType.NODE_TYPE_COMMAND]: "command",
-    [ProtocolNodeType.NODE_TYPE_WORKSPACE]: "workspace",
-    [ProtocolNodeType.NODE_TYPE_CALENDAR]: "calendar",
-    [ProtocolNodeType.UNRECOGNIZED]: null,
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_UNSPECIFIED]: null,
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_SUPERTAG_DEFINITION]: "supertag-definition",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_FIELD_DEFINITION]: "field-definition",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_FIELD]: "field",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_SEARCH]: "search",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_COMMAND]: "command",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_WORKSPACE]: "workspace",
+    [ProtocolIntrinsicNodeType.INTRINSIC_NODE_TYPE_CALENDAR]: "calendar",
+    [ProtocolIntrinsicNodeType.UNRECOGNIZED]: null,
   },
-  "Node type",
+  "Intrinsic Node Type",
 );
-export type NodeType = DomainEnum<typeof nodeType>;
-
-export const fieldVisibility = defineProtocolEnum<ProtocolFieldVisibility>()(
-  {
-    [ProtocolFieldVisibility.FIELD_VISIBILITY_UNSPECIFIED]: null,
-    [ProtocolFieldVisibility.FIELD_VISIBILITY_PINNED]: "pinned",
-    [ProtocolFieldVisibility.FIELD_VISIBILITY_NORMAL]: "normal",
-    [ProtocolFieldVisibility.FIELD_VISIBILITY_OPTIONAL]: "optional",
-    [ProtocolFieldVisibility.UNRECOGNIZED]: null,
-  },
-  "Field visibility",
-);
-export type FieldVisibility = DomainEnum<typeof fieldVisibility>;
-
-export const fieldDatatype = defineProtocolEnum<ProtocolFieldDatatype>()(
-  {
-    [ProtocolFieldDatatype.FIELD_DATATYPE_UNSPECIFIED]: null,
-    [ProtocolFieldDatatype.FIELD_DATATYPE_PLAIN]: "plain",
-    [ProtocolFieldDatatype.FIELD_DATATYPE_OPTIONS]: "options",
-    [ProtocolFieldDatatype.UNRECOGNIZED]: null,
-  },
-  "Field datatype",
-);
-export type FieldDatatype = DomainEnum<typeof fieldDatatype>;
-
-export const fieldCardinality = defineProtocolEnum<ProtocolFieldCardinality>()(
-  {
-    [ProtocolFieldCardinality.FIELD_CARDINALITY_UNSPECIFIED]: null,
-    [ProtocolFieldCardinality.FIELD_CARDINALITY_SINGLE]: "single",
-    [ProtocolFieldCardinality.FIELD_CARDINALITY_LIST]: "list",
-    [ProtocolFieldCardinality.UNRECOGNIZED]: null,
-  },
-  "Field cardinality",
-);
-export type FieldCardinality = DomainEnum<typeof fieldCardinality>;
+export type IntrinsicNodeType = DomainEnum<typeof intrinsicNodeType>;
 
 export const historyOperation = defineProtocolEnum<ProtocolHistoryOperation>()(
   {
@@ -95,17 +60,6 @@ export const historyOperation = defineProtocolEnum<ProtocolHistoryOperation>()(
   "History operation",
 );
 export type HistoryOperation = DomainEnum<typeof historyOperation>;
-
-export const fieldInitializationSource = defineProtocolEnum<ProtocolFieldInitializationSource>()(
-  {
-    [ProtocolFieldInitializationSource.FIELD_INITIALIZATION_SOURCE_UNSPECIFIED]: null,
-    [ProtocolFieldInitializationSource.FIELD_INITIALIZATION_SOURCE_STATIC_DEFAULT]: "static-default",
-    [ProtocolFieldInitializationSource.FIELD_INITIALIZATION_SOURCE_AUTO_INITIALIZE]: "auto-initialize",
-    [ProtocolFieldInitializationSource.UNRECOGNIZED]: null,
-  },
-  "Field initialization source",
-);
-export type FieldInitializationSource = DomainEnum<typeof fieldInitializationSource>;
 
 export const inlineReferenceTargetStatus = defineProtocolEnum<ProtocolInlineReferenceTargetStatus>()(
   {
@@ -129,3 +83,35 @@ export const viewType = defineProtocolEnum<ProtocolViewType>()(
   "View type",
 );
 export type ViewType = DomainEnum<typeof viewType>;
+
+export const viewSortDirection = defineProtocolEnum<ProtocolViewSortDirection>()(
+  {
+    [ProtocolViewSortDirection.VIEW_SORT_DIRECTION_UNSPECIFIED]: null,
+    [ProtocolViewSortDirection.VIEW_SORT_DIRECTION_ASCENDING]: "ascending",
+    [ProtocolViewSortDirection.VIEW_SORT_DIRECTION_DESCENDING]: "descending",
+    [ProtocolViewSortDirection.UNRECOGNIZED]: null,
+  },
+  "View sort direction",
+);
+export type ViewSortDirection = DomainEnum<typeof viewSortDirection>;
+
+export const searchDateComparisonOperator = defineProtocolEnum<ProtocolSearchDateComparisonOperator>()(
+  {
+    [ProtocolSearchDateComparisonOperator.SEARCH_DATE_COMPARISON_OPERATOR_UNSPECIFIED]: null,
+    [ProtocolSearchDateComparisonOperator.SEARCH_DATE_COMPARISON_OPERATOR_LT]: "lt",
+    [ProtocolSearchDateComparisonOperator.SEARCH_DATE_COMPARISON_OPERATOR_GT]: "gt",
+    [ProtocolSearchDateComparisonOperator.UNRECOGNIZED]: null,
+  },
+  "Search Date comparison operator",
+);
+
+export const templateFieldVisibility = defineProtocolEnum<ProtocolTemplateFieldVisibility>()(
+  {
+    [ProtocolTemplateFieldVisibility.TEMPLATE_FIELD_VISIBILITY_UNSPECIFIED]: null,
+    [ProtocolTemplateFieldVisibility.TEMPLATE_FIELD_VISIBILITY_NORMAL]: "normal",
+    [ProtocolTemplateFieldVisibility.TEMPLATE_FIELD_VISIBILITY_PINNED]: "pinned",
+    [ProtocolTemplateFieldVisibility.UNRECOGNIZED]: null,
+  },
+  "Template Field visibility",
+);
+export type TemplateFieldVisibility = DomainEnum<typeof templateFieldVisibility>;

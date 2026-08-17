@@ -9,7 +9,7 @@ import {
   type TemplateStructureProjection,
 } from "./template-node-projection.js";
 import type { SupertagRelations } from "./supertag-relations.js";
-import type { NodeGraphStructure } from "./trash-structure.js";
+import type { NodeGraphStructure } from "./node-graph-structure.js";
 
 export type ProjectionActivation = Readonly<{
   active: readonly ContributionFact[];
@@ -36,7 +36,7 @@ export type ProjectionPlanContext = {
   nodeOwners: ProjectionSections["nodeOwners"];
   nodeGraphStructure: NodeGraphStructure;
   supertagRelations: SupertagRelations;
-  searchClauses: ProjectionSections["searchClauses"];
+  searchExpressions: ProjectionSections["searchExpressions"];
   sharedDefaultViewDefinitions: ProjectionSections["sharedDefaultViewDefinitions"];
   fieldDefinitionConfigurations: ProjectionSections["fieldDefinitionConfigurations"];
   conflictIssues: ProjectionSections["conflictIssues"];
@@ -77,7 +77,7 @@ export function emptyProjectionPlanContext(
       metanodes: {},
     },
     supertagRelations: emptySupertagRelations(),
-    searchClauses: {},
+    searchExpressions: {},
     sharedDefaultViewDefinitions: {},
     fieldDefinitionConfigurations: {},
     conflictIssues: {},
@@ -137,16 +137,17 @@ export function incrementalProjectionPlanContext(
     },
     supertagRelations: {
       supertagApplications: previous.supertagApplications,
-      supertagFields: previous.supertagFields,
-      templateFields: previous.templateFields,
       supertagTemplateNodes: previous.supertagTemplateNodes,
       supertagExtensions: previous.supertagExtensions,
+      templateFields: previous.templateFields,
+      optionalFieldContributions: previous.optionalFieldContributions,
       supertagInstanceSupertags: previous.supertagInstanceSupertags,
       supertagExtensionConflicts: previous.supertagExtensionConflicts,
-      effectiveFields: previous.effectiveFields,
       materializedFields: previous.materializedFields,
+      effectiveFields: previous.effectiveFields,
+      optionalFieldSuggestions: previous.optionalFieldSuggestions,
     },
-    searchClauses: previous.searchClauses,
+    searchExpressions: previous.searchExpressions,
     sharedDefaultViewDefinitions: previous.sharedDefaultViewDefinitions,
     fieldDefinitionConfigurations: previous.fieldDefinitionConfigurations,
     conflictIssues: previous.conflictIssues,
@@ -158,13 +159,14 @@ export function incrementalProjectionPlanContext(
 function emptySupertagRelations(): SupertagRelations {
   return {
     supertagApplications: {},
-    supertagFields: {},
-    templateFields: {},
     supertagTemplateNodes: {},
+    templateFields: {},
+    optionalFieldContributions: {},
     supertagExtensions: {},
     supertagInstanceSupertags: {},
     supertagExtensionConflicts: {},
-    effectiveFields: {},
     materializedFields: {},
+    effectiveFields: {},
+    optionalFieldSuggestions: {},
   };
 }

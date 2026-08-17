@@ -19,6 +19,12 @@ describe("Node creation edits", () => {
       mutations: [
         { kind: "node-create", nodeId: "child" },
         {
+          kind: "node-owner-set",
+          nodeId: "child",
+          ownerNodeId: "parent",
+          previousOwnerNodeId: null,
+        },
+        {
           kind: "occurrence-create",
           occurrenceId: "child-original",
           nodeId: "child",

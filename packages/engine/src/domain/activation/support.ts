@@ -69,7 +69,7 @@ export function deriveSupport(
   const occurrenceExistenceSupport = new Map<string, string[]>();
   const supertagApplicationSupport = new Map<string, ContributionFact[]>();
   const supertagTemplateOccurrenceSupport = new Map<string, ContributionFact[]>();
-  const nodeTypeSupport = new Map<string, string[]>();
+  const intrinsicNodeTypeSupport = new Map<string, string[]>();
   const occurrenceLifecycleFacts = indexOccurrenceLifecycleFacts(ordered);
   const inlineReferenceSupport = new Map<string, string[]>();
   const inlineAliasSupport = new Map<string, string[]>();
@@ -80,7 +80,7 @@ export function deriveSupport(
     viable,
     supertagApplicationSupport,
     supertagTemplateOccurrenceSupport,
-    nodeTypeSupport,
+    intrinsicNodeTypeSupport,
   );
   const result = new Map<string, readonly string[]>();
   const context = {
@@ -118,18 +118,11 @@ function contributionSupport(
     inlineAliasSupport: Map<string, string[]>;
   }>,
 ): Set<string> {
-  const { nodeExistenceSupport, occurrenceExistenceSupport, existence, supertagSupport } = context;
+  const { occurrenceExistenceSupport, existence, supertagSupport } = context;
   const mutation = fact.body.mutation;
   const support = new Set<string>();
   if (isSupertagMutation(mutation)) {
-    addSupertagContributionSupport(
-      support,
-      mutation,
-      fact,
-      supertagSupport,
-      nodeExistenceSupport,
-      occurrenceExistenceSupport,
-    );
+    addSupertagContributionSupport(support, mutation, fact, supertagSupport, occurrenceExistenceSupport);
   } else if (isTemplateMutation(mutation)) {
     addTemplateNodeSupport(support, mutation, fact, supertagSupport, existence);
   } else if (isFieldContentDeletionMutation(mutation)) {
@@ -163,14 +156,10 @@ function addSupertagContributionSupport(
   mutation: SupertagMutation,
   fact: ContributionFact,
   supertagSupport: SupertagSupportContext,
-  nodeExistence: Map<string, string[]>,
   occurrenceExistence: Map<string, string[]>,
 ): void {
   addSupertagMutationSupport(support, mutation, fact, supertagSupport);
-  if (mutation.kind === "supertag-field-add") {
-    addIfPresent(support, effectiveCandidate(nodeExistence, mutation.fieldNodeId, supertagSupport.viable));
-    addIfPresent(support, effectiveCandidate(occurrenceExistence, mutation.fieldOccurrenceId, supertagSupport.viable));
-  } else if (mutation.kind === "supertag-template-node-add") {
+  if (mutation.kind === "supertag-template-node-add") {
     addIfPresent(
       support,
       effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, supertagSupport.viable),
@@ -187,9 +176,9 @@ function createSupertagSupport(
   viable: Set<string>,
   applications: Map<string, ContributionFact[]>,
   templateOccurrences: Map<string, ContributionFact[]>,
-  nodeTypeDeclarations: Map<string, string[]>,
+  intrinsicNodeTypeDeclarations: Map<string, string[]>,
 ): SupertagSupportContext {
-  return { nodes, viable, applications, templateOccurrences, nodeTypeDeclarations };
+  return { nodes, viable, applications, templateOccurrences, intrinsicNodeTypeDeclarations };
 }
 
 function markViable(

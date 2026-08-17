@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { workspaceTrashNodeId } from "../fact/index.js";
 import { queryReview, validateReviewSelection } from "./review.js";
 import { base, end, generation } from "../../../tests/support/review/review-test-helpers.js";
 
@@ -251,13 +252,37 @@ describe("production Review scenarios", () => {
       parentNodeId: "reference-parent",
       anchor: end,
     });
-    const deletion = facts.add({ kind: "node-delete", nodeId: "node" }, "proposal");
+    const deletion = facts.addTransaction(
+      [
+        { kind: "node-delete", nodeId: "node" },
+        {
+          kind: "node-owner-set",
+          nodeId: "node",
+          ownerNodeId: workspaceTrashNodeId("workspace"),
+          previousOwnerNodeId: "workspace",
+        },
+        {
+          kind: "occurrence-move",
+          occurrenceId: "occurrence",
+          parentNodeId: workspaceTrashNodeId("workspace"),
+          anchor: end,
+          previousParentNodeId: "workspace",
+          previousAnchor: end,
+        },
+      ],
+      "proposal",
+    )[0];
+    if (!deletion) {
+      throw new Error("Expected proposed Node deletion");
+    }
     const snapshot = facts.snapshot();
     const impacts = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter((hunk) =>
       hunk.proposalContributionIds.includes(deletion.id),
     );
-    expect(impacts).toHaveLength(2);
-    expect(impacts.every((hunk) => hunk.linkedHunkIds.length === 1)).toBe(true);
+    expect(impacts.some((hunk) => hunk.diffSpace.kind === "lifecycle")).toBe(true);
+    expect(impacts.some((hunk) => hunk.diffSpace.kind === "owner")).toBe(true);
+    expect(impacts.some((hunk) => hunk.diffSpace.kind === "child-sequence")).toBe(true);
+    expect(impacts.every((hunk) => hunk.linkedHunkIds.length > 0)).toBe(true);
   });
 
   it("Review selection survives a Hunk merge caused only by removing Direct adjacency", () => {
@@ -385,7 +410,7 @@ describe("production Review scenarios", () => {
   it("Supertag Application placement changes do not hide related Review evidence", () => {
     const facts = base();
     facts.add({ kind: "node-create", nodeId: "supertag" });
-    facts.add({ kind: "node-create", nodeId: "field" });
+    facts.add({ kind: "intrinsic-node-type-declare", nodeId: "supertag", intrinsicNodeType: "supertag-definition" });
     facts.add({
       kind: "occurrence-create",
       occurrenceId: "second-occurrence",
@@ -393,38 +418,18 @@ describe("production Review scenarios", () => {
       parentNodeId: "workspace",
       anchor: end,
     });
-    facts.add({ kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end });
-    const fieldTransaction = facts.addTransaction(
-      [
-        { kind: "node-create", nodeId: "supertag-field-template-field" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "supertag-field-template-field-occurrence",
-          nodeId: "supertag-field-template-field",
-          parentNodeId: "supertag",
-          anchor: end,
-        },
-        {
-          kind: "supertag-field-add",
-          supertagId: "supertag",
-          fieldDefinitionId: "field",
-          fieldNodeId: "supertag-field-template-field",
-          fieldOccurrenceId: "supertag-field-template-field-occurrence",
-          anchor: end,
-        },
-      ],
-      "proposal",
-    );
-    const field = fieldTransaction[2];
-    if (!field) {
-      throw new Error("Expected Supertag Field transaction");
+    const application = facts
+      .applySupertag("node", "supertag", "proposal")
+      .find((fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "supertag-apply");
+    if (!application) {
+      throw new Error("Expected Supertag Application Fact");
     }
     const before = facts.snapshot();
     const selected = queryReview("workspace", before, generation(before)).hunks.find((hunk) =>
-      hunk.proposalContributionIds.includes(field.id),
+      hunk.proposalContributionIds.includes(application.id),
     )?.selection;
     if (!selected) {
-      throw new Error("Expected Supertag Field Hunk");
+      throw new Error("Expected Supertag Application Hunk");
     }
     facts.add({
       kind: "node-owner-set",

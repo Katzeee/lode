@@ -14,14 +14,16 @@ import {
   WriteResultSchema,
 } from "@lode/protocol/proto";
 import type { EditMutation } from "./edit.js";
-import type { HistoryQuery, HistorySelection } from "./history.js";
+import type { HistoryQuery } from "./history.js";
 import type {
   EngineCommand,
   EngineError,
   EngineEvent,
   EngineQuery,
   EngineQueryResult,
+  DebugNodeResult,
   InvocationOutcome,
+  ViewRowsResult,
   WriteResult,
 } from "./contract.js";
 import type { ProjectionPage } from "./projection.js";
@@ -39,21 +41,27 @@ import {
   type ProtocolMutationCase,
 } from "./protocol-cases.js";
 import {
-  fromSupertagFieldConfig,
   fromInvocationOutcome,
   fromProtocolValue,
   fromReviewQuery,
   fromReviewSelection,
   required,
   toConflictIssue,
-  toSupertagFieldConfig,
   toInvocationOutcome,
   toProtocolValue,
   toReviewQuery,
   toReviewSelection,
 } from "./protocol-shape-codec.js";
 import { fromProtocolMessage, toProtocolMessage } from "./protocol-message-codec.js";
-import { fromContributionMutation, toContributionMutation } from "./protocol-fact-codec.js";
+import {
+  fromHistoryQuery,
+  fromHistorySelection,
+  toHistoryQuery,
+  toHistorySelection,
+} from "./protocol-history-codec.js";
+import { fromDebugNodeResult, toDebugNodeResult } from "./protocol-debug-node-codec.js";
+import { fromSearchExpressionSpec, toSearchExpressionSpec } from "./protocol-search-expression-codec.js";
+import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 
 export function encodeEngineCommand(command: EngineCommand): Uint8Array {
   const value = toProtocolMessage(EngineCommandSchema, { command: commandValue(command) });
@@ -159,7 +167,11 @@ export function decodeEngineQueryResult<Query extends EngineQuery>(
           ? fromReviewQuery(selected.value)
           : selected.$case === "history"
             ? fromHistoryQuery(selected.value)
-            : fromProtocolValue(selected.value);
+            : selected.$case === "debugNode"
+              ? fromDebugNodeResult(selected.value)
+              : selected.$case === "viewRows"
+                ? fromViewRowsResult(selected.value)
+                : fromProtocolValue(selected.value);
   return { status: "ok", value } as EngineQueryResult<Query>;
 }
 
@@ -190,13 +202,13 @@ function commandValue(
 function toEditMutation(mutation: EditMutation): Record<string, unknown> {
   assertMutationFields(mutation);
   const value = toProtocolValue(mutation) as Record<string, unknown>;
-  if (mutation.kind === "supertag-field-configure") {
-    value.config = toSupertagFieldConfig(mutation.config);
-  } else if (
-    mutation.kind === "field-initialization-expression-configure" ||
-    mutation.kind === "field-initialization-expression-configuration-create"
-  ) {
-    value.expression = { sourceFieldDefinitionId: mutation.expression.sourceFieldDefinitionId };
+  if (mutation.kind === "field-initialization-expression-configuration-create") {
+    const { kind: _kind, ...expression } = mutation.expression;
+    value.expression = expression;
+  } else if (mutation.kind === "search-expression-create" || mutation.kind === "search-expression-update") {
+    value.expression = toSearchExpressionSpec(mutation.expression);
+  } else if (mutation.kind === "shared-default-view-definition-options-update") {
+    value.options = toViewOptionsSpec(mutation.options);
   }
   return { mutation: { $case: protocolMutationCase(mutation.kind), value } };
 }
@@ -207,22 +219,28 @@ function fromEditMutation(value: unknown): EditMutation {
     "Edit mutation",
   );
   const decoded = fromProtocolValue(mutation.value) as Record<string, unknown>;
-  if (mutation.$case === "supertagFieldConfigure") {
-    decoded.config = fromSupertagFieldConfig(decoded.config);
-  } else if (
-    mutation.$case === "fieldInitializationExpressionConfigure" ||
-    mutation.$case === "fieldInitializationExpressionConfigurationCreate"
-  ) {
+  if (mutation.$case === "fieldInitializationExpressionConfigurationCreate") {
     const expression = required(
       decoded.expression as Record<string, unknown> | null,
       "Field initialization expression",
     );
-    decoded.expression = {
-      kind: "ancestor-field-values",
-      sourceFieldDefinitionId: expression.sourceFieldDefinitionId,
-    };
+    decoded.expression = { kind: "find-field-values", ...expression };
+  } else if (mutation.$case === "searchExpressionCreate" || mutation.$case === "searchExpressionUpdate") {
+    decoded.expression = fromSearchExpressionSpec(decoded.expression);
+  } else if (mutation.$case === "sharedDefaultViewDefinitionOptionsUpdate") {
+    decoded.options = fromViewOptionsSpec(decoded.options);
   }
-  for (const key of ["seed", "nodeType", "previousParentNodeId", "previousAnchor"] as const) {
+  for (const key of [
+    "seed",
+    "fieldDefinitionSeed",
+    "intrinsicNodeType",
+    "previousParentNodeId",
+    "previousAnchor",
+    "optionsSupertagId",
+    "optionsSupertagOccurrenceId",
+    "emptyValueNodeId",
+    "emptyValueOccurrenceId",
+  ] as const) {
     if (decoded[key] === null) {
       delete decoded[key];
     }
@@ -269,39 +287,18 @@ function toQueryValue(query: EngineQuery, value: unknown): unknown {
       issues: result.issues.map(toConflictIssue),
     };
   }
+  if (query.kind === "debug-node") {
+    return toDebugNodeResult(value as DebugNodeResult);
+  }
+  if (query.kind === "view-rows") {
+    const result = value as ViewRowsResult;
+    return { ...(toProtocolValue(result) as Record<string, unknown>), options: toViewOptionsSpec(result.options) };
+  }
   return toProtocolValue(value);
 }
 
-function toHistorySelection(selection: HistorySelection): Record<string, unknown> {
-  const value = toProtocolValue(selection) as Record<string, unknown>;
-  value.evidence = {
-    ...(toProtocolValue(selection.evidence) as Record<string, unknown>),
-    compensations: selection.evidence.compensations.map(toContributionMutation),
-  };
-  return value;
-}
-
-function fromHistorySelection(value: unknown): HistorySelection {
-  const selection = fromProtocolValue(value) as Record<string, unknown>;
-  const evidence = required(selection.evidence as Record<string, unknown> | null, "History evidence");
-  selection.evidence = {
-    ...evidence,
-    compensations: (evidence.compensations as readonly unknown[]).map(fromContributionMutation),
-  };
-  return selection as HistorySelection;
-}
-
-function toHistoryQuery(value: HistoryQuery): Record<string, unknown> {
-  return {
-    ...(toProtocolValue(value) as Record<string, unknown>),
-    undo: value.undo === null ? null : toHistorySelection(value.undo),
-    redo: value.redo === null ? null : toHistorySelection(value.redo),
-  };
-}
-
-function fromHistoryQuery(value: unknown): HistoryQuery {
+function fromViewRowsResult(value: unknown): unknown {
   const result = fromProtocolValue(value) as Record<string, unknown>;
-  result.undo = result.undo === null ? null : fromHistorySelection(result.undo);
-  result.redo = result.redo === null ? null : fromHistorySelection(result.redo);
-  return result as HistoryQuery;
+  result.options = fromViewOptionsSpec(result.options);
+  return result;
 }

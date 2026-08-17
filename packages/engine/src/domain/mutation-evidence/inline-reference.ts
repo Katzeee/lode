@@ -53,9 +53,8 @@ export const inlineReferenceMutationEvidence = {
     if (available.nodes[mutation.aliasNodeId] === undefined) {
       throw new Error("Inline Alias Node is absent from the current Projection");
     }
-    const rootNodeId = available.metanodes[location.hostNodeId];
-    if (rootNodeId === undefined || !isOwnedWithin(available.nodeOwners, mutation.aliasNodeId, rootNodeId)) {
-      throw new Error("Inline Alias Node must belong to the host Configuration Graph");
+    if (available.nodeOwners[mutation.aliasNodeId] !== location.hostNodeId) {
+      throw new Error("Inline Alias Node must be owned by the host Node");
     }
     if (mutation.kind === "inline-reference-alias-attach" && location.reference.aliasNodeId !== null) {
       throw new Error("Inline Reference already has an Alias");
@@ -65,20 +64,3 @@ export const inlineReferenceMutationEvidence = {
     }
   },
 } satisfies MutationEvidenceFamily<(typeof INLINE_REFERENCE_MUTATION_KINDS)[number]>;
-
-function isOwnedWithin(
-  nodeOwners: Readonly<Record<string, string | null>>,
-  nodeId: string,
-  ancestorNodeId: string,
-): boolean {
-  const visited = new Set<string>();
-  let cursor: string | null | undefined = nodeId;
-  while (cursor !== null && cursor !== undefined && !visited.has(cursor)) {
-    if (cursor === ancestorNodeId) {
-      return true;
-    }
-    visited.add(cursor);
-    cursor = nodeOwners[cursor];
-  }
-  return false;
-}

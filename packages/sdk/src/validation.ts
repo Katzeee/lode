@@ -117,6 +117,18 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       nonempty(query.viewDefinitionNodeId, "View Definition Node identity");
     }
     paginationValues(query, 100, "View Rows");
+  } else if (kind === "outline") {
+    exact(query, [...pagination, "perspective", "rootNodeId", "maxDepth"]);
+    enumString(query.perspective, projectionPerspective.values, "Outline perspective");
+    nonempty(query.rootNodeId, "Outline root Node identity");
+    if (!Number.isSafeInteger(query.maxDepth) || (query.maxDepth as number) < 0) {
+      throw new Error("Outline maximum depth must be a non-negative integer");
+    }
+    paginationValues(query, 100, "Outline");
+  } else if (kind === "debug-node") {
+    exact(query, ["kind", "workspaceId", "perspective", "nodeId"]);
+    enumString(query.perspective, projectionPerspective.values, "Debug Node perspective");
+    nonempty(query.nodeId, "Debug Node identity");
   } else if (kind === "review" || kind === "conflicts") {
     exact(query, pagination);
     paginationValues(query, 100, kind === "review" ? "Review" : "Conflict");

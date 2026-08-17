@@ -4,12 +4,13 @@ export {
   assertSupportedProjectionVersions,
 } from "./projection-types.js";
 export type {
-  EffectiveField,
   ConflictProjection,
   FieldProjection,
   FieldDefinitionConfiguration,
   InlineReferenceTargetStatus,
   MaterializedField,
+  TypedFieldValue,
+  TypedFieldSemanticValue,
   NodeGraph,
   ProjectedNode,
   ProjectedInlineReference,
@@ -21,7 +22,7 @@ export type {
   ProjectionSections,
   ProjectionVersions,
   SupertagProjection,
-  SearchClause,
+  SearchExpression,
   SearchProjection,
   ScopedProjection,
   ScopedProjectionGeneration,
@@ -37,6 +38,7 @@ export { advanceGeneration, rebuildGeneration, snapshotAtFrontier } from "./reco
 export type { ReconcileResult } from "./reconcile.js";
 export { impactAddress } from "./impact-address.js";
 export { assertMaterializedField } from "./materialized-field.js";
+export { projectFieldAvailability } from "./field-availability.js";
 export { definitionNodeState } from "./definition-node.js";
 export { occurrenceAnchor, sequenceAnchorAt } from "./sequence.js";
 export {

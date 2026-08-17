@@ -17,6 +17,8 @@ import { queryWorkspaceReview } from "./review.js";
 import { queryBacklinks } from "./backlinks.js";
 import { querySearchResults } from "./search-results.js";
 import { queryViewRows } from "./view-rows.js";
+import { queryOutline } from "./outline.js";
+import { queryDebugNode } from "./debug-node.js";
 
 type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
   ProjectionGenerationReader &
@@ -64,6 +66,10 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
       return querySearchResults(query, context.generationId, context.projections);
     case "view-rows":
       return queryViewRows(query, context.generationId, context.projections);
+    case "outline":
+      return queryOutline(query, context.generationId, context.projections);
+    case "debug-node":
+      return queryDebugNode(query, context.generationId, context.projections);
     case "hard-delete-preview":
       return hardDeletePreview(
         context.workspaceId,

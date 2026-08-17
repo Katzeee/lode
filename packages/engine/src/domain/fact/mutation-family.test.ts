@@ -9,7 +9,16 @@ describe("Mutation family", () => {
     const mutations = {
       node: { kind: "node-delete", nodeId: "node" },
       occurrence: { kind: "occurrence-delete", occurrenceId: "occurrence" },
-      supertag: { kind: "supertag-apply", nodeId: "node", supertagId: "supertag", anchor: end },
+      supertag: {
+        kind: "supertag-apply",
+        hostNodeId: "node",
+        supertagId: "supertag",
+        applicationNodeId: "application",
+        applicationOccurrenceId: "application-occurrence",
+        relationDefinitionOccurrenceId: "relation-definition-occurrence",
+        definitionOccurrenceId: "definition-occurrence",
+        anchor: end,
+      },
       text: {
         kind: "text-mark",
         nodeId: "node",

@@ -1,37 +1,46 @@
-import { parseSupertagFieldConfig, parseFieldValueSeeds } from "../fact/index.js";
-import { array, enumValue, exact, nonempty, object } from "../../shape-validation/index.js";
+import { array, exact, nonempty, object } from "../../shape-validation/index.js";
 import type {
-  EffectiveField,
-  FieldConfigCandidate,
   MaterializedField,
+  OptionalFieldContribution,
   ProjectionSectionValue,
+  SupertagApplication,
   TemplateField,
 } from "./projection-types.js";
+import { parseTypedFieldValue } from "./typed-field-value-shape.js";
+import { parseEffectiveField, parseOptionalFieldSuggestion } from "./effective-field-shape.js";
 
 type SupertagProjectionSection =
   | "supertagApplications"
-  | "supertagFields"
-  | "templateFields"
   | "supertagTemplateNodes"
   | "supertagExtensions"
   | "supertagInstanceSupertags"
   | "supertagExtensionConflicts"
+  | "templateFields"
+  | "optionalFieldContributions"
   | "effectiveFields"
-  | "materializedFields";
+  | "optionalFieldSuggestions"
+  | "materializedFields"
+  | "typedFieldValues";
 
 export function parseSupertagProjectionSectionValue(
   section: SupertagProjectionSection,
   value: unknown,
 ): ProjectionSectionValue<SupertagProjectionSection> {
   switch (section) {
-    case "effectiveFields":
-      return array(value, "Effective Fields", effectiveField);
-    case "templateFields":
-      return array(value, "Template Fields", templateField);
     case "materializedFields":
       return array(value, "Materialized Fields", materializedField);
+    case "typedFieldValues":
+      return array(value, "Typed Field Values", parseTypedFieldValue);
     case "supertagApplications":
-    case "supertagFields":
+      return array(value, "Supertag Applications", supertagApplication);
+    case "templateFields":
+      return array(value, "Template Fields", templateField);
+    case "optionalFieldContributions":
+      return array(value, "Optional Field Contributions", optionalFieldContribution);
+    case "effectiveFields":
+      return array(value, "Effective Fields", parseEffectiveField);
+    case "optionalFieldSuggestions":
+      return array(value, "Optional Field Suggestions", parseOptionalFieldSuggestion);
     case "supertagTemplateNodes":
     case "supertagExtensions":
     case "supertagInstanceSupertags":
@@ -40,11 +49,134 @@ export function parseSupertagProjectionSectionValue(
   }
 }
 
+function templateField(value: unknown): TemplateField {
+  const item = object(value, "Template Field");
+  exact(
+    item,
+    [
+      "supertagId",
+      "templateFieldNodeId",
+      "templateFieldOccurrenceId",
+      "fieldDefinitionId",
+      "definitionOccurrenceId",
+      "staticDefaultValueNodeId",
+      "staticDefaultValueOccurrenceId",
+      "fieldDefinitionOwner",
+      "contributionId",
+      "visibility",
+      "visibilityCandidates",
+      "visibilityConflicted",
+    ],
+    "Template Field",
+  );
+  if (item.fieldDefinitionOwner !== "template-field" && item.fieldDefinitionOwner !== "workspace-schema") {
+    throw new Error("Template Field Definition owner is invalid");
+  }
+  if (item.visibility !== "normal" && item.visibility !== "pinned") {
+    throw new Error("Template Field visibility is invalid");
+  }
+  if (typeof item.visibilityConflicted !== "boolean") {
+    throw new Error("Template Field visibility conflict flag is invalid");
+  }
+  return {
+    supertagId: identity(item.supertagId),
+    templateFieldNodeId: identity(item.templateFieldNodeId),
+    templateFieldOccurrenceId: identity(item.templateFieldOccurrenceId),
+    fieldDefinitionId: identity(item.fieldDefinitionId),
+    definitionOccurrenceId: identity(item.definitionOccurrenceId),
+    staticDefaultValueNodeId: identity(item.staticDefaultValueNodeId),
+    staticDefaultValueOccurrenceId: identity(item.staticDefaultValueOccurrenceId),
+    fieldDefinitionOwner: item.fieldDefinitionOwner,
+    contributionId: identity(item.contributionId),
+    visibility: item.visibility,
+    visibilityCandidates: array(item.visibilityCandidates, "Template Field visibility candidates", (candidateValue) => {
+      const candidate = object(candidateValue, "Template Field visibility candidate");
+      exact(candidate, ["visibility", "contributionId"], "Template Field visibility candidate");
+      if (candidate.visibility !== "normal" && candidate.visibility !== "pinned") {
+        throw new Error("Template Field visibility candidate is invalid");
+      }
+      return { visibility: candidate.visibility, contributionId: identity(candidate.contributionId) };
+    }),
+    visibilityConflicted: item.visibilityConflicted,
+  };
+}
+
+function optionalFieldContribution(value: unknown): OptionalFieldContribution {
+  const item = object(value, "Optional Field Contribution");
+  exact(
+    item,
+    [
+      "supertagId",
+      "fieldNurseryNodeId",
+      "fieldNurseryOccurrenceId",
+      "nurseryDefinitionOccurrenceId",
+      "nurseryValueNodeId",
+      "nurseryValueOccurrenceId",
+      "contributionNodeId",
+      "contributionOccurrenceId",
+      "fieldDefinitionId",
+      "definitionOccurrenceId",
+      "valueNodeId",
+      "valueOccurrenceId",
+      "contributionId",
+    ],
+    "Optional Field Contribution",
+  );
+  return {
+    supertagId: identity(item.supertagId),
+    fieldNurseryNodeId: identity(item.fieldNurseryNodeId),
+    fieldNurseryOccurrenceId: identity(item.fieldNurseryOccurrenceId),
+    nurseryDefinitionOccurrenceId: identity(item.nurseryDefinitionOccurrenceId),
+    nurseryValueNodeId: identity(item.nurseryValueNodeId),
+    nurseryValueOccurrenceId: identity(item.nurseryValueOccurrenceId),
+    contributionNodeId: identity(item.contributionNodeId),
+    contributionOccurrenceId: identity(item.contributionOccurrenceId),
+    fieldDefinitionId: identity(item.fieldDefinitionId),
+    definitionOccurrenceId: identity(item.definitionOccurrenceId),
+    valueNodeId: identity(item.valueNodeId),
+    valueOccurrenceId: identity(item.valueOccurrenceId),
+    contributionId: identity(item.contributionId),
+  };
+}
+
+function supertagApplication(value: unknown): SupertagApplication {
+  const item = object(value, "Supertag Application");
+  exact(
+    item,
+    [
+      "hostNodeId",
+      "supertagId",
+      "applicationNodeId",
+      "applicationOccurrenceId",
+      "relationDefinitionOccurrenceId",
+      "definitionOccurrenceId",
+      "contributionId",
+    ],
+    "Supertag Application",
+  );
+  return {
+    hostNodeId: identity(item.hostNodeId),
+    supertagId: identity(item.supertagId),
+    applicationNodeId: identity(item.applicationNodeId),
+    applicationOccurrenceId: identity(item.applicationOccurrenceId),
+    relationDefinitionOccurrenceId: identity(item.relationDefinitionOccurrenceId),
+    definitionOccurrenceId: identity(item.definitionOccurrenceId),
+    contributionId: identity(item.contributionId),
+  };
+}
+
 function materializedField(value: unknown): MaterializedField {
   const item = object(value, "Materialized Field");
   exact(
     item,
-    ["ownerNodeId", "fieldDefinitionId", "fieldNodeId", "fieldOccurrenceId", "valueOccurrenceIds"],
+    [
+      "ownerNodeId",
+      "fieldDefinitionId",
+      "fieldNodeId",
+      "fieldOccurrenceId",
+      "definitionOccurrenceId",
+      "valueOccurrenceIds",
+    ],
     "Materialized Field",
   );
   return {
@@ -52,83 +184,8 @@ function materializedField(value: unknown): MaterializedField {
     fieldDefinitionId: identity(item.fieldDefinitionId),
     fieldNodeId: identity(item.fieldNodeId),
     fieldOccurrenceId: identity(item.fieldOccurrenceId),
+    definitionOccurrenceId: identity(item.definitionOccurrenceId),
     valueOccurrenceIds: identities(item.valueOccurrenceIds),
-  };
-}
-
-function effectiveField(value: unknown): EffectiveField {
-  const item = object(value, "Effective Field");
-  exact(
-    item,
-    [
-      "fieldDefinitionId",
-      "sourceSupertagIds",
-      "sourceFieldNodeIds",
-      "visibility",
-      "configCandidates",
-      "effectiveConfig",
-      "initializationCandidates",
-      "initializedValues",
-      "materializedFieldNodeId",
-    ],
-    "Effective Field",
-  );
-  return {
-    fieldDefinitionId: identity(item.fieldDefinitionId),
-    sourceSupertagIds: identities(item.sourceSupertagIds),
-    sourceFieldNodeIds: identities(item.sourceFieldNodeIds),
-    visibility: enumValue(item.visibility, ["pinned", "normal", "optional"] as const, "Field visibility"),
-    configCandidates: array(item.configCandidates, "Field config candidates", fieldConfigCandidate),
-    effectiveConfig: item.effectiveConfig === null ? null : parseSupertagFieldConfig(item.effectiveConfig),
-    initializationCandidates: array(
-      item.initializationCandidates,
-      "Field initialization candidates",
-      fieldInitializationCandidate,
-    ),
-    initializedValues: item.initializedValues === null ? null : parseFieldValueSeeds(item.initializedValues),
-    materializedFieldNodeId: item.materializedFieldNodeId === null ? null : identity(item.materializedFieldNodeId),
-  };
-}
-
-function fieldInitializationCandidate(value: unknown): EffectiveField["initializationCandidates"][number] {
-  const candidate = object(value, "Field initialization candidate");
-  exact(candidate, ["initializationId", "supertagId", "source", "values"], "Field initialization candidate");
-  if (candidate.source !== "static-default" && candidate.source !== "auto-initialize") {
-    throw new Error("Field initialization source is invalid");
-  }
-  return {
-    initializationId: identity(candidate.initializationId),
-    supertagId: identity(candidate.supertagId),
-    source: candidate.source,
-    values: parseFieldValueSeeds(candidate.values),
-  };
-}
-
-function templateField(value: unknown): TemplateField {
-  const item = object(value, "Template Field");
-  exact(
-    item,
-    ["fieldNodeId", "fieldOccurrenceId", "supertagId", "fieldDefinitionId", "configCandidates", "effectiveConfig"],
-    "Template Field",
-  );
-  return {
-    fieldNodeId: identity(item.fieldNodeId),
-    fieldOccurrenceId: identity(item.fieldOccurrenceId),
-    supertagId: identity(item.supertagId),
-    fieldDefinitionId: identity(item.fieldDefinitionId),
-    configCandidates: array(item.configCandidates, "Field config candidates", fieldConfigCandidate),
-    effectiveConfig: item.effectiveConfig === null ? null : parseSupertagFieldConfig(item.effectiveConfig),
-  };
-}
-
-function fieldConfigCandidate(value: unknown): FieldConfigCandidate {
-  const candidate = object(value, "Field config candidate");
-  exact(candidate, ["config", "sourceSupertagIds", "sourceFieldNodeIds", "contributionIds"], "Field config candidate");
-  return {
-    config: parseSupertagFieldConfig(candidate.config),
-    sourceSupertagIds: identities(candidate.sourceSupertagIds),
-    sourceFieldNodeIds: identities(candidate.sourceFieldNodeIds),
-    contributionIds: identities(candidate.contributionIds),
   };
 }
 

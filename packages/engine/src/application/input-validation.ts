@@ -63,6 +63,10 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
     case "view-rows":
       return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
+    case "outline":
+      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
+    case "debug-node":
+      return query;
     case "history":
     case "invocation":
     case "hard-delete-preview":

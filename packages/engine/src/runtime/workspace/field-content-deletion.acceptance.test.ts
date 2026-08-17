@@ -104,7 +104,7 @@ describe("instance Field content deletion", () => {
     expect(await fieldValues(opened, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
   });
 
-  it("accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder", async () => {
+  it("accepts Materialized Field deletion by trashing its owned subtree", async () => {
     const documents = new InMemoryDocumentStore();
     const opened = await open(documents, "701");
     expect((await mutate(opened, "setup-field", explicitFieldProgram())).status).toBe("published");
@@ -150,109 +150,18 @@ describe("instance Field content deletion", () => {
     await opened.workspace.close();
     const restarted = await open(documents, "702");
     await expectDeletedFieldState(restarted);
-    expect(
-      (
-        await mutate(restarted, "remove-field-source", [
-          { kind: "supertag-remove", nodeId: "owner", supertagId: "supertag" },
-        ])
-      ).status,
-    ).toBe("published");
-    expect((await section(restarted, "origin", "effectiveFields")).effectiveFields.owner).toBeUndefined();
     expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeDefined();
-  });
-
-  it("does not regenerate deleted initialized values or initialized Fields", async () => {
-    const opened = await open(new InMemoryDocumentStore(), "801");
-    expect((await mutate(opened, "setup-default", initializedFieldProgram())).status).toBe("published");
-    const field = await materializedField(opened, "origin");
-    const valueOccurrenceId = field?.valueOccurrenceIds[0];
-    if (!field || !valueOccurrenceId) {
-      throw new Error("Expected initialized Field and value");
-    }
-    expect(
-      (
-        await mutate(opened, "delete-default-value", [
-          {
-            kind: "field-value-delete",
-            ownerNodeId: "owner",
-            fieldDefinitionId: "field-definition",
-            valueOccurrenceId,
-          },
-        ])
-      ).status,
-    ).toBe("published");
-    expect((await materializedField(opened, "origin"))?.valueOccurrenceIds).toEqual([]);
-
-    expect(
-      (
-        await mutate(opened, "delete-initialized-field", [
-          {
-            kind: "materialized-field-delete",
-            ownerNodeId: "owner",
-            fieldDefinitionId: "field-definition",
-            fieldNodeId: field.fieldNodeId,
-            fieldOccurrenceId: field.fieldOccurrenceId,
-          },
-        ])
-      ).status,
-    ).toBe("published");
-    expect(await materializedField(opened, "origin")).toBeUndefined();
-    const nodes = (await section(opened, "origin", "nodes")).nodes;
-    expect(nodes[field.fieldNodeId]).toBeDefined();
-
-    const history = await opened.workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "desktop",
-    });
-    if (!("undo" in history) || !history.undo) {
-      throw new Error("Expected initialized Field deletion Undo");
-    }
-    const undone = await opened.workspace.execute({
-      kind: "undo",
-      workspaceId: "workspace",
-      invocationId: "undo-initialized-field-delete",
-      actorId: "actor",
-      selection: history.undo,
-    });
-    if (undone.status !== "published") {
-      throw new Error(JSON.stringify(undone));
-    }
-    expect(await materializedField(opened, "origin")).toMatchObject({
-      fieldNodeId: field.fieldNodeId,
-      fieldOccurrenceId: field.fieldOccurrenceId,
-      valueOccurrenceIds: [],
-    });
   });
 });
 
 function explicitFieldProgram(): readonly EditMutation[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("supertag", "workspace", "supertag-original"),
     nodeAt("field-definition", "workspace", "field-definition-original"),
-    { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
-    { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
+    { kind: "intrinsic-node-type-declare", nodeId: "field-definition", intrinsicNodeType: "field-definition" },
     nodeAt("field-node", "owner", "field-occurrence"),
     nodeAt("value-a", "field-node", "value-a-occurrence"),
     nodeAt("value-b", "field-node", "value-b-occurrence"),
-    {
-      kind: "supertag-field-add",
-      supertagId: "supertag",
-      fieldDefinitionId: "field-definition",
-      fieldNodeId: "supertag-field-definition-template-field",
-      fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
-      anchor: end,
-    },
-    {
-      kind: "supertag-field-configure",
-      supertagId: "supertag",
-      fieldDefinitionId: "field-definition",
-      fieldNodeId: "supertag-field-definition-template-field",
-
-      config: { visibility: "normal", staticDefault: null },
-    },
-    { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
     {
       kind: "field-materialize",
       ownerNodeId: "owner",
@@ -260,36 +169,6 @@ function explicitFieldProgram(): readonly EditMutation[] {
       fieldNodeId: "field-node",
       fieldOccurrenceId: "field-occurrence",
     },
-  ];
-}
-
-function initializedFieldProgram(): readonly EditMutation[] {
-  return [
-    nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("supertag", "workspace", "supertag-original"),
-    nodeAt("field-definition", "workspace", "field-definition-original"),
-    { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
-    { kind: "node-type-declare", nodeId: "field-definition", nodeType: "field-definition" },
-    {
-      kind: "supertag-field-add",
-      supertagId: "supertag",
-      fieldDefinitionId: "field-definition",
-      fieldNodeId: "supertag-field-definition-template-field",
-      fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
-      anchor: end,
-    },
-    {
-      kind: "supertag-field-configure",
-      supertagId: "supertag",
-      fieldDefinitionId: "field-definition",
-      fieldNodeId: "supertag-field-definition-template-field",
-
-      config: {
-        visibility: "normal",
-        staticDefault: [{ kind: "text", value: "Default" }],
-      },
-    },
-    { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
   ];
 }
 
@@ -324,10 +203,6 @@ function materializedFieldDeletion(): EditMutation {
 
 async function expectDeletedFieldState(opened: Opened): Promise<void> {
   expect(await materializedField(opened, "origin")).toBeUndefined();
-  expect((await section(opened, "origin", "effectiveFields")).effectiveFields.owner?.[0]).toMatchObject({
-    fieldDefinitionId: "field-definition",
-    materializedFieldNodeId: null,
-  });
   const nodes = (await section(opened, "origin", "nodes")).nodes;
   expect(nodes["field-node"]).toBeDefined();
   expect(nodes["value-a"]).toBeDefined();

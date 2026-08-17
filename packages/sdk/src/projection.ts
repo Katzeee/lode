@@ -1,76 +1,138 @@
 import type {
-  EffectiveField as ProtocolEffectiveField,
-  FieldConfigCandidate as ProtocolFieldConfigCandidate,
-  FieldInitializationCandidate as ProtocolFieldInitializationCandidate,
   MaterializedField as ProtocolMaterializedField,
   ProjectedNode as ProtocolProjectedNode,
   ProjectedOccurrence as ProtocolProjectedOccurrence,
-  TemplateField as ProtocolTemplateField,
   TemplateNodeInstance as ProtocolTemplateNodeInstance,
   TextAtom as ProtocolTextAtom,
   ProjectedInlineReference as ProtocolProjectedInlineReference,
   SharedDefaultViewDefinition as ProtocolSharedDefaultViewDefinition,
   FieldDefinitionConfiguration as ProtocolFieldDefinitionConfiguration,
+  TemplateField as ProtocolTemplateField,
+  TemplateFieldVisibilityCandidate as ProtocolTemplateFieldVisibilityCandidate,
+  OptionalFieldContribution as ProtocolOptionalFieldContribution,
 } from "@lode/protocol/dto/projection";
 import { ProjectionPageSchema } from "@lode/protocol/proto";
 import type {
-  SupertagFieldConfig,
-  FieldValueSeed,
-  FieldVisibility,
-  NodeType,
+  IntrinsicNodeType,
   ProjectionIdentity,
   ProtocolDto,
   ProjectionPerspective,
   TextAtomId,
   ViewType,
-  FieldDatatype,
-  FieldCardinality,
   FieldInitializationExpression,
+  TemplateFieldVisibility,
+  SearchExpressionSpec,
+  ViewOptionsSpec,
 } from "./model.js";
 import type { ConflictIssue } from "./review.js";
-import type { FieldInitializationSource } from "./protocol-enums/model.js";
 import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
-import type { ProjectionSection, TemplateNodeState } from "./protocol-enums/projection.js";
+import type {
+  ProjectionSection,
+  TemplateFieldDefinitionOwner,
+  TemplateNodeState,
+} from "./protocol-enums/projection.js";
 
 export type TextAtom = Omit<ProtocolDto<ProtocolTextAtom>, "id"> & Readonly<{ kind: "text"; id: TextAtomId }>;
 export type ProjectedInlineReference = Omit<ProtocolDto<ProtocolProjectedInlineReference>, "targetStatus"> &
   Readonly<{ kind: "inline-reference"; targetStatus: InlineReferenceTargetStatus }>;
 export type NodeContentItem = TextAtom | ProjectedInlineReference;
-export type ProjectedNode = Omit<ProtocolDto<ProtocolProjectedNode>, "nodeType" | "content"> &
-  Readonly<{ nodeType: NodeType | null; content: readonly NodeContentItem[] }>;
+export type ProjectedNode = Omit<ProtocolDto<ProtocolProjectedNode>, "intrinsicNodeType" | "content"> &
+  Readonly<{ intrinsicNodeType: IntrinsicNodeType | null; content: readonly NodeContentItem[] }>;
 export type ProjectedOccurrence = ProtocolDto<ProtocolProjectedOccurrence>;
-export type FieldConfigCandidate = Omit<ProtocolDto<ProtocolFieldConfigCandidate>, "config"> &
-  Readonly<{ config: SupertagFieldConfig }>;
-export type FieldInitializationCandidate = Omit<
-  ProtocolDto<ProtocolFieldInitializationCandidate>,
-  "source" | "values"
-> &
-  Readonly<{ source: FieldInitializationSource; values: readonly FieldValueSeed[] }>;
-export type TemplateField = Omit<ProtocolDto<ProtocolTemplateField>, "configCandidates" | "effectiveConfig"> &
-  Readonly<{
-    configCandidates: readonly FieldConfigCandidate[];
-    effectiveConfig: SupertagFieldConfig | null;
-  }>;
-export type EffectiveField = Omit<
-  ProtocolDto<ProtocolEffectiveField>,
-  "visibility" | "configCandidates" | "effectiveConfig" | "initializationCandidates" | "initializedValues"
-> &
-  Readonly<{
-    visibility: FieldVisibility;
-    configCandidates: readonly FieldConfigCandidate[];
-    effectiveConfig: SupertagFieldConfig | null;
-    initializationCandidates: readonly FieldInitializationCandidate[];
-    initializedValues: readonly FieldValueSeed[] | null;
-  }>;
 export type MaterializedField = ProtocolDto<ProtocolMaterializedField>;
+type TypedFieldValueBase = Readonly<{
+  ownerNodeId: string;
+  fieldDefinitionId: string;
+  fieldNodeId: string;
+  fieldOccurrenceId: string;
+  datatypeNodeId: string;
+  valueOccurrenceIds: readonly string[];
+}>;
+export type TypedFieldSemanticValue =
+  | Readonly<{ kind: "number"; valueNodeId: string; valueOccurrenceId: string; value: number }>
+  | Readonly<{ kind: "date"; valueNodeId: string; valueOccurrenceId: string; value: string }>
+  | Readonly<{ kind: "checkbox"; valueNodeId: string; valueOccurrenceId: string; value: boolean }>
+  | Readonly<{
+      kind: "options-from-supertag";
+      valueNodeId: string;
+      valueOccurrenceId: string;
+      targetNodeId: string;
+    }>;
+export type TypedFieldValue = TypedFieldValueBase &
+  (
+    Readonly<{ state: "empty" | "invalid"; value: null }> | Readonly<{ state: "value"; value: TypedFieldSemanticValue }>
+  );
 type FieldDefinitionConfigurationBase = Omit<ProtocolDto<ProtocolFieldDefinitionConfiguration>, "configuration">;
 export type FieldDefinitionConfiguration =
-  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "datatype"; datatype: FieldDatatype }>)
-  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>)
+  | (FieldDefinitionConfigurationBase &
+      Readonly<{ kind: "datatype"; datatypeNodeId: string; optionsSupertagId: string | null }>)
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinalityNodeId: string }>)
+  | (FieldDefinitionConfigurationBase & Readonly<{ kind: "optionality"; optionalityNodeId: string }>)
   | (FieldDefinitionConfigurationBase &
       Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>);
 export type TemplateNodeInstance = Omit<ProtocolDto<ProtocolTemplateNodeInstance>, "state"> &
   Readonly<{ state: TemplateNodeState }>;
+export type TemplateFieldVisibilityCandidate = Omit<
+  ProtocolDto<ProtocolTemplateFieldVisibilityCandidate>,
+  "visibility"
+> &
+  Readonly<{ visibility: TemplateFieldVisibility }>;
+export type TemplateField = Omit<
+  ProtocolDto<ProtocolTemplateField>,
+  "fieldDefinitionOwner" | "visibility" | "visibilityCandidates"
+> &
+  Readonly<{
+    fieldDefinitionOwner: TemplateFieldDefinitionOwner;
+    visibility: TemplateFieldVisibility;
+    visibilityCandidates: readonly TemplateFieldVisibilityCandidate[];
+  }>;
+export type OptionalFieldContribution = ProtocolDto<ProtocolOptionalFieldContribution>;
+export type EffectiveTemplateFieldSource = Readonly<{
+  kind: "template";
+  applicationNodeId: string;
+  appliedSupertagId: string;
+  sourceSupertagId: string;
+  extensionPath: readonly string[];
+  templateFieldNodeId: string;
+  staticDefaultValueNodeId: string;
+  visibility: TemplateFieldVisibility;
+}>;
+export type EffectiveOptionalFieldSource = Readonly<{
+  kind: "optional";
+  applicationNodeId: string;
+  appliedSupertagId: string;
+  sourceSupertagId: string;
+  extensionPath: readonly string[];
+  optionalContributionNodeId: string;
+}>;
+export type EffectiveFieldSource = EffectiveTemplateFieldSource | EffectiveOptionalFieldSource;
+export type StaticDefaultCandidate = Readonly<{
+  value: string;
+  sourceTemplateFieldNodeIds: readonly string[];
+}>;
+export type EffectiveStaticDefault =
+  | Readonly<{ state: "none"; candidates: readonly [] }>
+  | Readonly<{
+      state: "value";
+      value: string;
+      sourceTemplateFieldNodeId: string;
+      candidates: readonly StaticDefaultCandidate[];
+    }>
+  | Readonly<{ state: "conflict"; candidates: readonly StaticDefaultCandidate[] }>;
+export type EffectiveField = Readonly<{
+  ownerNodeId: string;
+  fieldDefinitionId: string;
+  sources: readonly EffectiveFieldSource[];
+  staticDefault: EffectiveStaticDefault;
+  visibility: TemplateFieldVisibility;
+  materializedFieldNodeId: string | null;
+  visibilityConflicted: boolean;
+}>;
+export type OptionalFieldSuggestion = Readonly<{
+  ownerNodeId: string;
+  fieldDefinitionId: string;
+  sources: readonly EffectiveOptionalFieldSource[];
+}>;
 
 export type NodeGraph = Readonly<{
   nodes: Readonly<Record<string, ProjectedNode>>;
@@ -80,20 +142,30 @@ export type NodeGraph = Readonly<{
   metanodes: Readonly<Record<string, string>>;
 }>;
 
-export type WorkspaceSystemNodeRole = "trash";
+export type WorkspaceSystemNodeRole = "trash" | "schema" | "systemDefinitionCatalog";
 export type WorkspaceSystemNodeProjection = Readonly<{
   workspaceSystemNodes: Readonly<Partial<Record<WorkspaceSystemNodeRole, string>>>;
 }>;
 
 export type SupertagProjection = Readonly<{
-  supertagApplications: Readonly<Record<string, readonly string[]>>;
-  supertagFields: Readonly<Record<string, readonly string[]>>;
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
+  supertagApplications: Readonly<Record<string, readonly SupertagApplication[]>>;
   supertagTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
+  optionalFieldContributions: Readonly<Record<string, readonly OptionalFieldContribution[]>>;
   templateNodeInstances: readonly TemplateNodeInstance[];
   supertagExtensions: Readonly<Record<string, readonly string[]>>;
   supertagInstanceSupertags: Readonly<Record<string, readonly string[]>>;
   supertagExtensionConflicts: Readonly<Record<string, readonly string[]>>;
+}>;
+
+export type SupertagApplication = Readonly<{
+  hostNodeId: string;
+  supertagId: string;
+  applicationNodeId: string;
+  applicationOccurrenceId: string;
+  relationDefinitionOccurrenceId: string;
+  definitionOccurrenceId: string;
+  contributionId: string;
 }>;
 
 export type ConflictProjection = Readonly<{
@@ -101,31 +173,41 @@ export type ConflictProjection = Readonly<{
 }>;
 
 export type FieldProjection = Readonly<{
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+  optionalFieldSuggestions: Readonly<Record<string, readonly OptionalFieldSuggestion[]>>;
   fieldDefinitionConfigurations: Readonly<Record<string, readonly FieldDefinitionConfiguration[]>>;
+  typedFieldValues: Readonly<Record<string, readonly TypedFieldValue[]>>;
 }>;
 
-export type SearchClause =
-  | Readonly<{
-      kind: "supertag-instance-of";
-      clauseNodeId: string;
-      clauseOccurrenceId: string;
-      supertagId: string;
-    }>
-  | Readonly<{
-      kind: "field-defined";
-      clauseNodeId: string;
-      clauseOccurrenceId: string;
-      fieldDefinitionId: string;
-    }>;
+export type SearchExpression = Readonly<{
+  expressionNodeId: string;
+  expressionOccurrenceId: string;
+  definitionOccurrenceId: string;
+  expression: SearchExpressionSpec;
+}>;
 
 export type SearchProjection = Readonly<{
-  searchClauses: Readonly<Record<string, readonly SearchClause[]>>;
+  searchExpressions: Readonly<Record<string, SearchExpression>>;
 }>;
 
-export type SharedDefaultViewDefinition = Omit<ProtocolDto<ProtocolSharedDefaultViewDefinition>, "viewType"> &
-  Readonly<{ viewType: ViewType; modeContributionIds: readonly string[] }>;
+export type SharedDefaultViewDefinition = Omit<
+  ProtocolDto<ProtocolSharedDefaultViewDefinition>,
+  "viewType" | "sortByNameAscending" | "options"
+> &
+  Readonly<{
+    viewType: ViewType;
+    options: ViewOptionsSpec;
+    modeContributionIds: readonly string[];
+    sortByNameAscending: null | Readonly<{
+      sortOrderFieldNodeId: string;
+      sortOrderFieldOccurrenceId: string;
+      sortFieldNodeId: string;
+      sortFieldOccurrenceId: string;
+      nodeNameOccurrenceId: string;
+      ascendingOccurrenceId: string;
+    }>;
+  }>;
 export type ViewProjection = Readonly<{
   sharedDefaultViewDefinitions: Readonly<Record<string, readonly SharedDefaultViewDefinition[]>>;
 }>;

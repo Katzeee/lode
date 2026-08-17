@@ -1,4 +1,4 @@
-import { FIELD_DEFINITION_NODE_TYPE, type Mutation } from "../fact/index.js";
+import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE, type Mutation } from "../fact/index.js";
 import { definitionNodeState } from "./definition-node.js";
 import { isActiveNode } from "./node-graph.js";
 import type { Projection } from "./projection-types.js";
@@ -18,7 +18,7 @@ export function materializedFieldProblem(
   mutation: Extract<Mutation, { kind: "field-materialize" }>,
   projection: MaterializedFieldProjection,
 ): string | null {
-  if (definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) !== "active") {
+  if (definitionNodeState(projection, mutation.fieldDefinitionId, FIELD_DEFINITION_INTRINSIC_NODE_TYPE) !== "active") {
     return `Field Definition type is absent: ${mutation.fieldDefinitionId}`;
   }
   for (const [nodeId, label] of [

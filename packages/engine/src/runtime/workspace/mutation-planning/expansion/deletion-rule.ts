@@ -1,12 +1,46 @@
 import type { Mutation } from "../../../../domain/fact/index.js";
-import { singleMutationWrite, type MutationWrite } from "../../../../domain/edit/index.js";
-import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
+import {
+  atomicMutationWrite,
+  mutationWriteMembers,
+  singleMutationWrite,
+  type MutationWrite,
+} from "../../../../domain/edit/index.js";
+import { nodeLocation, occurrenceAnchor, type ScopedProjection } from "../../../../domain/reconcile/index.js";
 
 export function expandNodeDeletion(
   mutation: Extract<Mutation, { kind: "node-delete" }>,
-  _available: ScopedProjection,
+  available: ScopedProjection,
 ): MutationWrite {
-  return singleMutationWrite(mutation);
+  const trashNodeId = available.workspaceSystemNodes.trash;
+  const ownerNodeId = available.nodeOwners[mutation.nodeId];
+  const candidates = Object.values(available.occurrences).filter((candidate) => candidate.nodeId === mutation.nodeId);
+  const occurrence = candidates.find((candidate) => candidate.parentNodeId === ownerNodeId) ?? candidates[0];
+  if (
+    trashNodeId === undefined ||
+    nodeLocation(available.identity.workspaceNodeId, available, mutation.nodeId) !== "active" ||
+    ownerNodeId === undefined ||
+    ownerNodeId === null ||
+    occurrence === undefined
+  ) {
+    throw new Error("Delete target has no active owning Occurrence");
+  }
+  return atomicMutationWrite([
+    mutation,
+    {
+      kind: "node-owner-set",
+      nodeId: mutation.nodeId,
+      ownerNodeId: trashNodeId,
+      previousOwnerNodeId: ownerNodeId,
+    },
+    {
+      kind: "occurrence-move",
+      occurrenceId: occurrence.occurrenceId,
+      parentNodeId: trashNodeId,
+      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+      previousParentNodeId: occurrence.parentNodeId,
+      previousAnchor: occurrenceAnchor(available, occurrence.occurrenceId),
+    },
+  ]);
 }
 
 export function expandOccurrenceDeletion(
@@ -15,7 +49,7 @@ export function expandOccurrenceDeletion(
 ): MutationWrite {
   const occurrence = available.occurrences[mutation.occurrenceId];
   return occurrence && available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId
-    ? singleMutationWrite({ kind: "node-delete", nodeId: occurrence.nodeId })
+    ? expandNodeDeletion({ kind: "node-delete", nodeId: occurrence.nodeId }, available)
     : singleMutationWrite(mutation);
 }
 
@@ -25,6 +59,6 @@ export function deletePlacement(occurrenceId: string, available: ScopedProjectio
     return [];
   }
   return available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId
-    ? [{ kind: "node-delete", nodeId: occurrence.nodeId }]
+    ? mutationWriteMembers(expandNodeDeletion({ kind: "node-delete", nodeId: occurrence.nodeId }, available))
     : [{ kind: "occurrence-delete", occurrenceId }];
 }

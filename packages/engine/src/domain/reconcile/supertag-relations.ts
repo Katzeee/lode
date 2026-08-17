@@ -1,247 +1,204 @@
 import {
   compareFacts,
-  FIELD_DEFINITION_NODE_TYPE,
+  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  NODE_SUPERTAGS_DEFINITION_NODE_ID,
   stableStringCompare,
-  SUPERTAG_DEFINITION_NODE_TYPE,
+  SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   type ContributionFact,
 } from "../fact/index.js";
-import type { EffectiveField, MaterializedField, TemplateField } from "./projection-types.js";
+import type {
+  EffectiveField,
+  MaterializedField,
+  OptionalFieldSuggestion,
+  OptionalFieldContribution,
+  SupertagApplication,
+  TemplateField,
+} from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { supertagExtensionGraph } from "./supertag-extension-graph.js";
-import { configuredFieldItems, fieldInitializations, projectEffectiveFields } from "./supertag-field-config.js";
-import { observedRelations, supertagApplicationEvent, supertagExtensionEvent } from "./supertag-relation-events.js";
-import { boundSupertagFields, boundSupertagTemplateNodes } from "./supertag-template-bindings.js";
-import { activeNodeTypes } from "./node-type-declarations.js";
-import { filterMaterializedFields, filterRecordOwners, filterTemplateFields } from "./node-type-filters.js";
+import { observedRelations, supertagExtensionEvent } from "./supertag-relation-events.js";
+import { boundSupertagTemplateNodes } from "./supertag-template-bindings.js";
+import { activeIntrinsicNodeTypes } from "./intrinsic-node-type-declarations.js";
+import { filterMaterializedFields, filterRecordOwners } from "./intrinsic-node-type-filters.js";
+import { projectMaterializedFields } from "./materialized-fields.js";
+import { relationRecord } from "./supertag-relation-records.js";
+import { projectTuple } from "./tuple.js";
+import { projectFieldAvailability } from "./field-availability.js";
+import { projectTemplateFieldGraph } from "./template-fields.js";
 
 export type SupertagRelations = Readonly<{
-  supertagApplications: Readonly<Record<string, readonly string[]>>;
-  supertagFields: Readonly<Record<string, readonly string[]>>;
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
+  supertagApplications: Readonly<Record<string, readonly SupertagApplication[]>>;
   supertagTemplateNodes: Readonly<Record<string, readonly string[]>>;
+  templateFields: Readonly<Record<string, readonly TemplateField[]>>;
+  optionalFieldContributions: Readonly<Record<string, readonly OptionalFieldContribution[]>>;
   supertagExtensions: Readonly<Record<string, readonly string[]>>;
   supertagInstanceSupertags: Readonly<Record<string, readonly string[]>>;
   supertagExtensionConflicts: Readonly<Record<string, readonly string[]>>;
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
+  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
+  optionalFieldSuggestions: Readonly<Record<string, readonly OptionalFieldSuggestion[]>>;
 }>;
 
 export function deriveSupertagRelations(
   active: readonly ContributionFact[],
+  workspaceNodeId: string,
+  nodes: Readonly<
+    Record<
+      string,
+      Readonly<{
+        intrinsicNodeType: string | null;
+        content: readonly Readonly<{ kind: string; value?: string }>[];
+      }>
+    >
+  >,
   existingNodeIds: ReadonlySet<string>,
   knownNodeIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
-  initializedFields: Readonly<Record<string, readonly MaterializedField[]>> = {},
+  metanodes: Readonly<Record<string, string>>,
+  nodeOwners: Readonly<Record<string, string | null>>,
 ): SupertagRelations {
-  const nodeTypes = activeNodeTypes(active);
+  const intrinsicNodeTypes = activeIntrinsicNodeTypes(active);
   const supertagDefinitionIds = new Set(
-    [...nodeTypes].flatMap(([nodeId, nodeType]) => (nodeType === SUPERTAG_DEFINITION_NODE_TYPE ? [nodeId] : [])),
+    [...intrinsicNodeTypes].flatMap(([nodeId, intrinsicNodeType]) =>
+      intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
+    ),
   );
   const fieldDefinitionIds = new Set(
-    [...nodeTypes].flatMap(([nodeId, nodeType]) => (nodeType === FIELD_DEFINITION_NODE_TYPE ? [nodeId] : [])),
+    [...intrinsicNodeTypes].flatMap(([nodeId, intrinsicNodeType]) =>
+      intrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
+    ),
   );
-  const applications = observedRelations(active, supertagApplicationEvent, existingNodeIds, supertagDefinitionIds);
-  const extensions = observedRelations(active, supertagExtensionEvent, supertagDefinitionIds, supertagDefinitionIds);
-  const supertagApplications = record(applications);
-  const boundFields = filterTemplateFields(
-    boundSupertagFields(active, knownNodeIds, occurrences, childOccurrences),
-    supertagDefinitionIds,
-    fieldDefinitionIds,
+  const supertagApplications = projectSupertagApplications(
+    active,
     existingNodeIds,
+    supertagDefinitionIds,
+    occurrences,
+    childOccurrences,
+    metanodes,
+    nodeOwners,
   );
+  const extensions = observedRelations(active, supertagExtensionEvent, supertagDefinitionIds, supertagDefinitionIds);
   const supertagTemplateNodes = filterRecordOwners(
     boundSupertagTemplateNodes(active, knownNodeIds, occurrences, childOccurrences),
     supertagDefinitionIds,
   );
-  const templateFields = configuredFieldItems(active, boundFields);
-  const supertagFields = Object.fromEntries(
-    Object.entries(templateFields).map(([supertagId, fields]) => [
-      supertagId,
-      fields.map((field) => field.fieldDefinitionId),
-    ]),
-  );
-  const supertagExtensions = record(extensions);
+  const supertagExtensions = relationRecord(extensions);
   const extensionGraph = supertagExtensionGraph(supertagExtensions);
-  const materializedFields = mergeMaterializedFields(
-    materialized(active, existingNodeIds, fieldDefinitionIds, occurrences, childOccurrences),
-    filterMaterializedFields(initializedFields, fieldDefinitionIds),
+  const materializedFields = filterMaterializedFields(
+    projectMaterializedFields(active, existingNodeIds, fieldDefinitionIds, occurrences, childOccurrences, nodeOwners),
+    fieldDefinitionIds,
   );
-  const initializations = fieldInitializations(active);
-  const activeApplications = filterRelationTargets(supertagApplications, existingNodeIds);
-  const activeFieldItems = Object.fromEntries(
-    Object.entries(templateFields)
-      .filter(([supertagId]) => existingNodeIds.has(supertagId))
-      .map(([supertagId, items]) => [supertagId, items.filter((item) => existingNodeIds.has(item.fieldDefinitionId))]),
+  const { templateFields, optionalFieldContributions } = projectTemplateFieldGraph(
+    active,
+    workspaceNodeId,
+    nodes,
+    occurrences,
+    childOccurrences,
+    nodeOwners,
+    metanodes,
   );
-  const activeExtensions = Object.fromEntries(
-    Object.entries(supertagExtensions)
-      .filter(([supertagId]) => existingNodeIds.has(supertagId))
-      .map(([supertagId, baseIds]) => [supertagId, baseIds.filter((baseId) => existingNodeIds.has(baseId))]),
+  const fieldAvailability = projectFieldAvailability(
+    supertagApplications,
+    templateFields,
+    optionalFieldContributions,
+    supertagExtensions,
+    materializedFields,
+    nodes,
   );
   return {
     supertagApplications,
-    supertagFields,
-    templateFields,
     supertagTemplateNodes,
+    templateFields,
+    optionalFieldContributions,
     supertagExtensions,
     supertagInstanceSupertags: extensionGraph.instanceSupertags,
     supertagExtensionConflicts: extensionGraph.conflicts,
-    effectiveFields: projectEffectiveFields(
-      activeApplications,
-      activeFieldItems,
-      activeExtensions,
-      materializedFields,
-      initializations,
-    ),
     materializedFields,
+    ...fieldAvailability,
   };
 }
 
-function mergeMaterializedFields(
-  explicit: Readonly<Record<string, readonly MaterializedField[]>>,
-  initialized: Readonly<Record<string, readonly MaterializedField[]>>,
-): Readonly<Record<string, readonly MaterializedField[]>> {
-  const ownerIds = new Set([...Object.keys(explicit), ...Object.keys(initialized)]);
-  return Object.fromEntries(
-    [...ownerIds].map((ownerNodeId) => [
-      ownerNodeId,
-      [...(explicit[ownerNodeId] ?? []), ...(initialized[ownerNodeId] ?? [])].filter(
-        (field, index, fields) =>
-          fields.findIndex((candidate) => candidate.fieldDefinitionId === field.fieldDefinitionId) === index,
-      ),
-    ]),
-  );
-}
-
-function materialized(
+function projectSupertagApplications(
   active: readonly ContributionFact[],
   existingNodeIds: ReadonlySet<string>,
-  fieldDefinitionIds: ReadonlySet<string>,
+  supertagDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
-): Readonly<Record<string, readonly MaterializedField[]>> {
-  const candidates = new Map<string, MaterializationCandidate[]>();
-  const claimedNodes = new Set<string>();
-  const claimedOccurrences = new Set<string>();
-  for (const fact of active) {
+  metanodes: Readonly<Record<string, string>>,
+  nodeOwners: Readonly<Record<string, string | null>>,
+): Readonly<Record<string, readonly SupertagApplication[]>> {
+  const byHost = new Map<string, SupertagApplication[]>();
+  for (const fact of [...active].sort(compareFacts)) {
     const mutation = fact.body.mutation;
-    if (mutation.kind !== "field-materialize") {
+    if (mutation.kind !== "supertag-apply") {
       continue;
     }
-    const ownerKey = `${encodeURIComponent(mutation.ownerNodeId)}/${encodeURIComponent(mutation.fieldDefinitionId)}`;
-    const occurrence = occurrences.get(mutation.fieldOccurrenceId);
+    const metanodeId = metanodes[mutation.hostNodeId];
+    const applicationOccurrence = occurrences.get(mutation.applicationOccurrenceId);
+    const tuple = projectTuple(mutation.applicationNodeId, occurrences, childOccurrences, nodeOwners);
+    const relationDefinitionEndpoint = tuple.endpoints[0];
+    const supertagEndpoint = tuple.endpoints[1];
     if (
-      !existingNodeIds.has(mutation.ownerNodeId) ||
-      !existingNodeIds.has(mutation.fieldNodeId) ||
-      !fieldDefinitionIds.has(mutation.fieldDefinitionId) ||
-      occurrence?.nodeId !== mutation.fieldNodeId ||
-      occurrence.parentNodeId !== mutation.ownerNodeId
+      metanodeId === undefined ||
+      !existingNodeIds.has(mutation.hostNodeId) ||
+      !existingNodeIds.has(mutation.applicationNodeId) ||
+      !supertagDefinitionIds.has(mutation.supertagId) ||
+      applicationOccurrence?.nodeId !== mutation.applicationNodeId ||
+      applicationOccurrence.parentNodeId !== metanodeId ||
+      tuple.ownerNodeId !== metanodeId ||
+      tuple.endpoints.length !== 2 ||
+      relationDefinitionEndpoint?.occurrenceId !== mutation.relationDefinitionOccurrenceId ||
+      relationDefinitionEndpoint.nodeId !== NODE_SUPERTAGS_DEFINITION_NODE_ID ||
+      relationDefinitionEndpoint.isOwning ||
+      supertagEndpoint?.occurrenceId !== mutation.definitionOccurrenceId ||
+      supertagEndpoint.nodeId !== mutation.supertagId ||
+      supertagEndpoint.isOwning
     ) {
       continue;
     }
-    const values = candidates.get(ownerKey) ?? [];
-    values.push({ fact, ...mutation });
-    candidates.set(ownerKey, values);
-  }
-  const byOwner = new Map<string, MaterializedField[]>();
-  for (const ownerCandidates of [...candidates.values()].sort((left, right) =>
-    compareCandidateGroups(left, right, occurrences, childOccurrences),
-  )) {
-    const available = ownerCandidates
-      .sort((left, right) => compareFacts(left.fact, right.fact))
-      .filter(
-        (candidate) => !claimedNodes.has(candidate.fieldNodeId) && !claimedOccurrences.has(candidate.fieldOccurrenceId),
-      );
-    const canonical = available[0];
-    if (!canonical) {
-      continue;
+    const values = byHost.get(mutation.hostNodeId) ?? [];
+    const existingIndex = values.findIndex((value) => value.applicationNodeId === mutation.applicationNodeId);
+    if (existingIndex >= 0) {
+      values.splice(existingIndex, 1);
     }
-    const valueOccurrenceIds: string[] = [];
-    for (const candidate of available) {
-      claimedNodes.add(candidate.fieldNodeId);
-      claimedOccurrences.add(candidate.fieldOccurrenceId);
-      for (const occurrenceId of childOccurrences.get(candidate.fieldNodeId) ?? []) {
-        appendUnique(valueOccurrenceIds, occurrenceId);
-      }
-    }
-    const ownerFields = byOwner.get(canonical.ownerNodeId) ?? [];
-    ownerFields.push({
-      ownerNodeId: canonical.ownerNodeId,
-      fieldDefinitionId: canonical.fieldDefinitionId,
-      fieldNodeId: canonical.fieldNodeId,
-      fieldOccurrenceId: canonical.fieldOccurrenceId,
-      valueOccurrenceIds,
+    values.push({
+      hostNodeId: mutation.hostNodeId,
+      supertagId: mutation.supertagId,
+      applicationNodeId: mutation.applicationNodeId,
+      applicationOccurrenceId: mutation.applicationOccurrenceId,
+      relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
+      definitionOccurrenceId: mutation.definitionOccurrenceId,
+      contributionId: fact.id,
     });
-    byOwner.set(canonical.ownerNodeId, ownerFields);
+    byHost.set(mutation.hostNodeId, values);
   }
-  return recordFields(byOwner);
-}
-
-type MaterializationCandidate = Readonly<{
-  fact: ContributionFact;
-  ownerNodeId: string;
-  fieldDefinitionId: string;
-  fieldNodeId: string;
-  fieldOccurrenceId: string;
-}>;
-
-function compareCandidateGroups(
-  left: readonly MaterializationCandidate[],
-  right: readonly MaterializationCandidate[],
-  occurrences: ReadonlyMap<string, MutableOccurrence>,
-  childOccurrences: ReadonlyMap<string, readonly string[]>,
-): number {
-  const leftCandidate = left[0];
-  const rightCandidate = right[0];
-  if (!leftCandidate || !rightCandidate) {
-    return left.length - right.length;
-  }
-  const leftOccurrence = occurrences.get(leftCandidate.fieldOccurrenceId);
-  const rightOccurrence = occurrences.get(rightCandidate.fieldOccurrenceId);
-  const leftParent = leftOccurrence?.parentNodeId ?? null;
-  const rightParent = rightOccurrence?.parentNodeId ?? null;
-  const sharedParent = leftParent === rightParent ? leftParent : null;
-  const placementOrder =
-    sharedParent !== null
-      ? (childOccurrences.get(sharedParent)?.indexOf(leftCandidate.fieldOccurrenceId) ?? -1) -
-        (childOccurrences.get(sharedParent)?.indexOf(rightCandidate.fieldOccurrenceId) ?? -1)
-      : 0;
-  return (
-    placementOrder ||
-    stableStringCompare(leftCandidate.ownerNodeId, rightCandidate.ownerNodeId) ||
-    stableStringCompare(leftCandidate.fieldDefinitionId, rightCandidate.fieldDefinitionId)
+  return Object.fromEntries(
+    [...byHost]
+      .sort(([left], [right]) => stableStringCompare(left, right))
+      .map(([hostNodeId, values]) => {
+        const metanodeId = metanodes[hostNodeId];
+        const order = metanodeId === undefined ? [] : (childOccurrences.get(metanodeId) ?? []);
+        return [
+          hostNodeId,
+          values.sort(
+            (left, right) =>
+              order.indexOf(left.applicationOccurrenceId) - order.indexOf(right.applicationOccurrenceId) ||
+              stableStringCompare(left.applicationNodeId, right.applicationNodeId),
+          ),
+        ];
+      }),
   );
 }
 
-function filterRelationTargets(
-  relations: Readonly<Record<string, readonly string[]>>,
+export function supertagApplicationTargets(
+  applications: Readonly<Record<string, readonly SupertagApplication[]>>,
   ownerNodeIds: ReadonlySet<string>,
 ): Readonly<Record<string, readonly string[]>> {
   return Object.fromEntries(
-    Object.entries(relations).map(([ownerId, targetIds]) => [
-      ownerId,
-      targetIds.filter((targetId) => ownerNodeIds.has(targetId)),
+    Object.entries(applications).map(([hostNodeId, values]) => [
+      hostNodeId,
+      [...new Set(values.map((value) => value.supertagId).filter((supertagId) => ownerNodeIds.has(supertagId)))],
     ]),
-  );
-}
-
-function recordFields(
-  values: ReadonlyMap<string, readonly MaterializedField[]>,
-): Readonly<Record<string, readonly MaterializedField[]>> {
-  return Object.fromEntries(
-    [...values].filter(([, entries]) => entries.length > 0).sort(([left], [right]) => stableStringCompare(left, right)),
-  );
-}
-
-function appendUnique(values: string[], value: string): void {
-  if (!values.includes(value)) {
-    values.push(value);
-  }
-}
-
-function record(values: ReadonlyMap<string, readonly string[]>): Readonly<Record<string, readonly string[]>> {
-  return Object.fromEntries(
-    [...values].filter(([, entries]) => entries.length > 0).sort(([left], [right]) => stableStringCompare(left, right)),
   );
 }

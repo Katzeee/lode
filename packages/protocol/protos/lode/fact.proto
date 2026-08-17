@@ -17,12 +17,9 @@ enum ContributionMutationKind {
   CONTRIBUTION_MUTATION_KIND_OCCURRENCE_RESTORE = 6;
   CONTRIBUTION_MUTATION_KIND_OCCURRENCE_MOVE = 7;
   CONTRIBUTION_MUTATION_KIND_NODE_OWNER_SET = 8;
-  CONTRIBUTION_MUTATION_KIND_NODE_TYPE_DECLARE = 9;
+  CONTRIBUTION_MUTATION_KIND_DECLARE_INTRINSIC_NODE_TYPE = 9;
   CONTRIBUTION_MUTATION_KIND_SUPERTAG_APPLY = 10;
   CONTRIBUTION_MUTATION_KIND_SUPERTAG_REMOVE = 11;
-  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_ADD = 12;
-  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_REMOVE = 13;
-  CONTRIBUTION_MUTATION_KIND_SUPERTAG_FIELD_CONFIGURE = 14;
   CONTRIBUTION_MUTATION_KIND_SUPERTAG_EXTENSION_ADD = 15;
   CONTRIBUTION_MUTATION_KIND_SUPERTAG_EXTENSION_REMOVE = 16;
   CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_NODE_ADD = 17;
@@ -31,7 +28,6 @@ enum ContributionMutationKind {
   CONTRIBUTION_MUTATION_KIND_FIELD_MATERIALIZE = 20;
   CONTRIBUTION_MUTATION_KIND_FIELD_VALUE_DELETE = 21;
   CONTRIBUTION_MUTATION_KIND_MATERIALIZED_FIELD_DELETE = 22;
-  CONTRIBUTION_MUTATION_KIND_FIELD_INITIALIZE = 23;
   CONTRIBUTION_MUTATION_KIND_TEXT_SPLICE = 24;
   CONTRIBUTION_MUTATION_KIND_TEXT_MARK = 25;
   CONTRIBUTION_MUTATION_KIND_METANODE_ATTACH = 26;
@@ -39,13 +35,24 @@ enum ContributionMutationKind {
   CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_DELETE = 28;
   CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_ALIAS_ATTACH = 29;
   CONTRIBUTION_MUTATION_KIND_INLINE_REFERENCE_ALIAS_DETACH = 30;
-  CONTRIBUTION_MUTATION_KIND_SEARCH_SUPERTAG_CLAUSE_ATTACH = 31;
-  CONTRIBUTION_MUTATION_KIND_SEARCH_FIELD_CLAUSE_ATTACH = 32;
+  CONTRIBUTION_MUTATION_KIND_SEARCH_EXPRESSION_ATTACH = 31;
+  CONTRIBUTION_MUTATION_KIND_SEARCH_EXPRESSION_DETACH = 32;
   CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_ATTACH = 33;
   CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_MODE_SET = 34;
   CONTRIBUTION_MUTATION_KIND_FIELD_DATATYPE_CONFIGURE = 35;
   CONTRIBUTION_MUTATION_KIND_FIELD_CARDINALITY_CONFIGURE = 36;
   CONTRIBUTION_MUTATION_KIND_FIELD_INITIALIZATION_EXPRESSION_CONFIGURE = 37;
+  CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_DETACH = 38;
+  CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_SORT_BY_NAME_SET = 39;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_FIELD_ATTACH = 40;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_FIELD_DETACH = 41;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_FIELD_DISCOVERABILITY_SET = 42;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_OPTIONAL_FIELD_CONTRIBUTION_ATTACH = 43;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_OPTIONAL_FIELD_CONTRIBUTION_DETACH = 44;
+  CONTRIBUTION_MUTATION_KIND_FIELD_OPTIONALITY_CONFIGURE = 45;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_FIELD_EXISTING_ATTACH = 46;
+  CONTRIBUTION_MUTATION_KIND_SUPERTAG_TEMPLATE_FIELD_VISIBILITY_CONFIGURE = 47;
+  CONTRIBUTION_MUTATION_KIND_SHARED_DEFAULT_VIEW_DEFINITION_OPTIONS_SET = 48;
 }
 
 message ContributionNodeCreateMutation {
@@ -53,10 +60,29 @@ message ContributionNodeCreateMutation {
   NodeSeed seed = 2;
 }
 
+message ContributionNodeRestoreMutation {
+  string node_id = 1;
+  string deletion_fact_id = 2;
+}
+
 message NodeOwnerSetMutation {
   string node_id = 1;
-  string owner_node_id = 2;
-  optional string previous_owner_node_id = 3;
+  CurrentNodeOwner owner_node_id = 2;
+  PreviousNodeOwner previous_owner_node_id = 3;
+}
+
+message CurrentNodeOwner {
+  oneof state {
+    google.protobuf.Empty detached = 1;
+    string owned_by = 2;
+  }
+}
+
+message PreviousNodeOwner {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    string set = 2;
+  }
 }
 
 message MetanodeAttachMutation {
@@ -64,52 +90,7 @@ message MetanodeAttachMutation {
   string metanode_id = 2;
 }
 
-message PreviousSupertagFieldConfig {
-  oneof state {
-    google.protobuf.Empty unset = 1;
-    SupertagFieldConfig set = 2;
-  }
-}
-
 message StringValues { repeated string values = 1; }
-
-message ContributionSupertagFieldConfigureMutation {
-  string supertag_id = 1;
-  string field_definition_id = 2;
-  string field_node_id = 3;
-  SupertagFieldConfig config = 4;
-  PreviousSupertagFieldConfig previous_config = 5;
-  StringValues observed_config_fact_ids = 6;
-}
-
-message InitializedTextFieldValue {
-  string node_id = 1;
-  string occurrence_id = 2;
-  string value = 3;
-}
-
-message InitializedReferenceFieldValue {
-  string node_id = 1;
-  string occurrence_id = 2;
-}
-
-message InitializedFieldValue {
-  oneof value {
-    InitializedTextFieldValue text = 1;
-    InitializedReferenceFieldValue reference = 2;
-  }
-}
-
-message FieldInitializeMutation {
-  string owner_node_id = 1;
-  string supertag_id = 2;
-  string field_definition_id = 3;
-  string field_node_id = 4;
-  string field_occurrence_id = 5;
-  FieldInitializationSource source = 6;
-  repeated InitializedFieldValue values = 7;
-  StringValues observed_initialization_fact_ids = 8;
-}
 
 message DeletedTextAtom {
   string id = 1;
@@ -148,15 +129,15 @@ message ContributionFieldDatatypeConfigureMutation {
   string field_definition_id = 1;
   string configuration_node_id = 2;
   string configuration_occurrence_id = 3;
-  FieldDatatype datatype = 4;
-  PreviousFieldDatatype previous_datatype = 5;
+  string datatype_node_id = 4;
+  PreviousFieldDatatype previous_datatype_node_id = 5;
   repeated string observed_value_fact_ids = 6;
 }
 
 message PreviousFieldDatatype {
   oneof state {
     google.protobuf.Empty unset = 1;
-    FieldDatatype set = 2;
+    string set = 2;
   }
 }
 
@@ -164,15 +145,40 @@ message ContributionFieldCardinalityConfigureMutation {
   string field_definition_id = 1;
   string configuration_node_id = 2;
   string configuration_occurrence_id = 3;
-  FieldCardinality cardinality = 4;
-  PreviousFieldCardinality previous_cardinality = 5;
+  string cardinality_node_id = 4;
+  PreviousFieldCardinality previous_cardinality_node_id = 5;
   repeated string observed_value_fact_ids = 6;
 }
 
 message PreviousFieldCardinality {
   oneof state {
     google.protobuf.Empty unset = 1;
-    FieldCardinality set = 2;
+    string set = 2;
+  }
+}
+
+message ContributionFieldOptionalityConfigureMutation {
+  string field_definition_id = 1;
+  string configuration_node_id = 2;
+  string configuration_occurrence_id = 3;
+  string optionality_node_id = 4;
+  PreviousFieldOptionality previous_optionality_node_id = 5;
+  repeated string observed_value_fact_ids = 6;
+}
+
+message SupertagTemplateFieldVisibilityConfigureMutation {
+  string supertag_id = 1;
+  string template_field_node_id = 2;
+  string field_definition_id = 3;
+  TemplateFieldVisibility visibility = 4;
+  optional TemplateFieldVisibility previous_visibility = 5;
+  repeated string observed_visibility_fact_ids = 6;
+}
+
+message PreviousFieldOptionality {
+  oneof state {
+    google.protobuf.Empty unset = 1;
+    string set = 2;
   }
 }
 
@@ -183,6 +189,22 @@ message ContributionFieldInitializationExpressionConfigureMutation {
   FieldInitializationExpression expression = 4;
   PreviousFieldInitializationExpression previous_expression = 5;
   repeated string observed_value_fact_ids = 6;
+}
+
+message SearchExpressionDetachMutation {
+  string search_node_id = 1;
+  string expression_node_id = 2;
+  string expression_occurrence_id = 3;
+  string definition_occurrence_id = 4;
+  SearchExpressionSpec expression = 5;
+}
+
+message SharedDefaultViewDefinitionOptionsSetMutation {
+  string host_node_id = 1;
+  string view_definition_node_id = 2;
+  ViewOptionsSpec options = 3;
+  optional ViewOptionsSpec previous_options = 4;
+  repeated string observed_options_fact_ids = 5;
 }
 
 message PreviousFieldInitializationExpression {
@@ -196,18 +218,15 @@ message ContributionMutation {
   oneof mutation {
     ContributionNodeCreateMutation node_create = 1;
     NodeDeleteMutation node_delete = 2;
-    NodeRestoreMutation node_restore = 3;
+    ContributionNodeRestoreMutation node_restore = 3;
     OccurrenceCreateMutation occurrence_create = 4;
     OccurrenceDeleteMutation occurrence_delete = 5;
     OccurrenceRestoreMutation occurrence_restore = 6;
     OccurrenceMoveMutation occurrence_move = 7;
     NodeOwnerSetMutation node_owner_set = 8;
-    NodeTypeDeclareMutation node_type_declare = 9;
+    DeclareIntrinsicNodeTypeMutation declare_intrinsic_node_type = 9;
     SupertagApplyMutation supertag_apply = 10;
     SupertagRemoveMutation supertag_remove = 11;
-    SupertagFieldAddMutation supertag_field_add = 12;
-    SupertagFieldRemoveMutation supertag_field_remove = 13;
-    ContributionSupertagFieldConfigureMutation supertag_field_configure = 14;
     SupertagExtensionAddMutation supertag_extension_add = 15;
     SupertagExtensionRemoveMutation supertag_extension_remove = 16;
     SupertagTemplateNodeAddMutation supertag_template_node_add = 17;
@@ -216,7 +235,6 @@ message ContributionMutation {
     FieldMaterializeMutation field_materialize = 20;
     FieldValueDeleteMutation field_value_delete = 21;
     MaterializedFieldDeleteMutation materialized_field_delete = 22;
-    FieldInitializeMutation field_initialize = 23;
     ContributionTextSpliceMutation text_splice = 24;
     ContributionTextMarkMutation text_mark = 25;
     MetanodeAttachMutation metanode_attach = 26;
@@ -224,12 +242,23 @@ message ContributionMutation {
     ContributionInlineReferenceDeleteMutation inline_reference_delete = 28;
     InlineReferenceAliasAttachMutation inline_reference_alias_attach = 29;
     InlineReferenceAliasDetachMutation inline_reference_alias_detach = 30;
-    SearchSupertagClauseAttachMutation search_supertag_clause_attach = 31;
-    SearchFieldClauseAttachMutation search_field_clause_attach = 32;
+    SearchExpressionAttachMutation search_expression_attach = 31;
+    SearchExpressionDetachMutation search_expression_detach = 32;
     SharedDefaultViewDefinitionAttachMutation shared_default_view_definition_attach = 33;
     SharedDefaultViewDefinitionModeSetMutation shared_default_view_definition_mode_set = 34;
     ContributionFieldDatatypeConfigureMutation field_datatype_configure = 35;
     ContributionFieldCardinalityConfigureMutation field_cardinality_configure = 36;
     ContributionFieldInitializationExpressionConfigureMutation field_initialization_expression_configure = 37;
+    SharedDefaultViewDefinitionDetachMutation shared_default_view_definition_detach = 38;
+    SharedDefaultViewDefinitionSortByNameSetMutation shared_default_view_definition_sort_by_name_set = 39;
+    SupertagTemplateFieldAttachMutation supertag_template_field_attach = 40;
+    SupertagTemplateFieldDetachMutation supertag_template_field_detach = 41;
+    SupertagTemplateFieldDiscoverabilitySetMutation supertag_template_field_discoverability_set = 42;
+    SupertagOptionalFieldContributionAttachMutation supertag_optional_field_contribution_attach = 43;
+    SupertagOptionalFieldContributionDetachMutation supertag_optional_field_contribution_detach = 44;
+    ContributionFieldOptionalityConfigureMutation field_optionality_configure = 45;
+    SupertagTemplateFieldExistingAttachMutation supertag_template_field_existing_attach = 46;
+    SupertagTemplateFieldVisibilityConfigureMutation supertag_template_field_visibility_configure = 47;
+    SharedDefaultViewDefinitionOptionsSetMutation shared_default_view_definition_options_set = 48;
   }
 }

@@ -1,4 +1,4 @@
-import { isOccurrenceMutation, type ContributionFact, type NodeType } from "../fact/index.js";
+import { isOccurrenceMutation, type ContributionFact, type IntrinsicNodeType } from "../fact/index.js";
 import type { InlineReferenceId } from "../fact/index.js";
 import type { TextAtom } from "./projection-types.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
@@ -20,7 +20,7 @@ export type MutableOccurrence = {
 
 export type MutableNode = {
   nodeId: string;
-  nodeType: NodeType | null;
+  intrinsicNodeType: IntrinsicNodeType | null;
   content: MutableNodeContentItem[];
 };
 

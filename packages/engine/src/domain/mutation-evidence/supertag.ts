@@ -1,7 +1,7 @@
 import {
-  FIELD_DEFINITION_NODE_TYPE,
-  SUPERTAG_DEFINITION_NODE_TYPE,
-  type DefinitionNodeType,
+  NODE_SUPERTAGS_DEFINITION_NODE_ID,
+  SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
+  type DefinitionIntrinsicNodeType,
   type Mutation,
   type SupertagMutation,
   type SequenceAnchor,
@@ -12,15 +12,13 @@ import {
   sequenceAnchorAt,
   type ScopedProjection,
 } from "../reconcile/index.js";
+import { completeTemplateFieldEvidence } from "./supertag-template-field.js";
 
 export function completeSupertagMutationEvidence(
   mutation: SupertagMutation,
   previous: ScopedProjection,
   available: ScopedProjection,
 ): SupertagMutation {
-  if (mutation.kind === "supertag-field-configure") {
-    return completeSupertagFieldConfigurationEvidence(mutation, available);
-  }
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
     return completeApplication(mutation, previous, available);
   }
@@ -30,27 +28,7 @@ export function completeSupertagMutationEvidence(
   if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
     return completeTemplateNodeRelation(mutation, previous, available);
   }
-  return completeTemplateField(mutation, previous, available);
-}
-
-export function completeSupertagFieldConfigurationEvidence(
-  mutation: Extract<Mutation, { kind: "supertag-field-configure" }>,
-  available: ScopedProjection,
-): Extract<Mutation, { kind: "supertag-field-configure" }> {
-  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_NODE_TYPE, false);
-  assertDefinition(available, mutation.fieldDefinitionId, "Field", FIELD_DEFINITION_NODE_TYPE, false);
-  assertNode(available, mutation.fieldNodeId, "Template Field");
-  const field = available.templateFields[mutation.supertagId]?.find(
-    (candidate) => candidate.fieldNodeId === mutation.fieldNodeId,
-  );
-  if (!field || field.fieldDefinitionId !== mutation.fieldDefinitionId) {
-    throw new Error("Supertag Field is absent from the observed projection");
-  }
-  return {
-    ...mutation,
-    previousConfig: field.effectiveConfig,
-    observedConfigFactIds: field.configCandidates.flatMap((candidate) => candidate.contributionIds),
-  };
+  return completeTemplateFieldEvidence(mutation, previous, available);
 }
 
 function completeApplication(
@@ -59,22 +37,59 @@ function completeApplication(
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "supertag-apply" | "supertag-remove" }> {
   const removing = mutation.kind === "supertag-remove";
-  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_NODE_TYPE, removing);
-  assertNode(available, mutation.nodeId, "Supertag application target");
+  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
+  assertNode(available, mutation.hostNodeId, "Supertag Application host");
   if (!removing) {
-    assertRelationAnchor(
-      available.supertagApplications[mutation.nodeId] ?? [],
-      mutation.anchor,
-      "Supertag Application",
-    );
+    assertApplicationStructure(mutation, available);
+    const metanodeId = available.metanodes[mutation.hostNodeId];
+    if (metanodeId === undefined) {
+      throw new Error("Supertag Application host has no Metanode");
+    }
+    assertRelationAnchor(available.childOccurrences[metanodeId] ?? [], mutation.anchor, "Supertag Application");
     return mutation;
+  }
+  const application = (previous.supertagApplications[mutation.hostNodeId] ?? []).find(
+    (candidate) => candidate.applicationNodeId === mutation.applicationNodeId,
+  );
+  if (
+    application?.supertagId !== mutation.supertagId ||
+    application.applicationOccurrenceId !== mutation.applicationOccurrenceId ||
+    application.relationDefinitionOccurrenceId !== mutation.relationDefinitionOccurrenceId ||
+    application.definitionOccurrenceId !== mutation.definitionOccurrenceId
+  ) {
+    throw new Error("Supertag Application is absent from the observed projection");
+  }
+  const metanodeId = previous.metanodes[mutation.hostNodeId];
+  if (metanodeId === undefined) {
+    throw new Error("Supertag Application host has no Metanode");
   }
   return withPreviousAnchor(
     mutation,
-    previous.supertagApplications[mutation.nodeId] ?? [],
-    mutation.supertagId,
-    "Supertag Application",
+    previous.childOccurrences[metanodeId] ?? [],
+    mutation.applicationOccurrenceId,
+    "Supertag Application Occurrence",
   );
+}
+
+function assertApplicationStructure(
+  mutation: Extract<Mutation, { kind: "supertag-apply" }>,
+  projection: ScopedProjection,
+): void {
+  const metanodeId = projection.metanodes[mutation.hostNodeId];
+  const applicationOccurrence = projection.occurrences[mutation.applicationOccurrenceId];
+  const relationDefinitionOccurrence = projection.occurrences[mutation.relationDefinitionOccurrenceId];
+  const definitionOccurrence = projection.occurrences[mutation.definitionOccurrenceId];
+  if (
+    metanodeId === undefined ||
+    applicationOccurrence?.nodeId !== mutation.applicationNodeId ||
+    applicationOccurrence.parentNodeId !== metanodeId ||
+    relationDefinitionOccurrence?.nodeId !== NODE_SUPERTAGS_DEFINITION_NODE_ID ||
+    relationDefinitionOccurrence.parentNodeId !== mutation.applicationNodeId ||
+    definitionOccurrence?.nodeId !== mutation.supertagId ||
+    definitionOccurrence.parentNodeId !== mutation.applicationNodeId
+  ) {
+    throw new Error("Supertag Application relation structure is absent from the observed projection");
+  }
 }
 
 function completeExtension(
@@ -83,8 +98,14 @@ function completeExtension(
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "supertag-extension-add" | "supertag-extension-remove" }> {
   const removing = mutation.kind === "supertag-extension-remove";
-  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_NODE_TYPE, removing);
-  assertDefinition(available, mutation.baseSupertagId, "Base Supertag", SUPERTAG_DEFINITION_NODE_TYPE, removing);
+  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
+  assertDefinition(
+    available,
+    mutation.baseSupertagId,
+    "Base Supertag",
+    SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
+    removing,
+  );
   if (!removing) {
     assertRelationAnchor(
       available.supertagExtensions[mutation.supertagId] ?? [],
@@ -101,76 +122,13 @@ function completeExtension(
   );
 }
 
-function completeTemplateField(
-  mutation: Extract<Mutation, { kind: "supertag-field-add" | "supertag-field-remove" }>,
-  previous: ScopedProjection,
-  available: ScopedProjection,
-): Extract<Mutation, { kind: "supertag-field-add" | "supertag-field-remove" }> {
-  const removing = mutation.kind === "supertag-field-remove";
-  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_NODE_TYPE, removing);
-  assertDefinition(available, mutation.fieldDefinitionId, "Field", FIELD_DEFINITION_NODE_TYPE, removing);
-  if (!removing) {
-    assertTemplateFieldAddition(mutation, available);
-    return mutation;
-  }
-  const field = previous.templateFields[mutation.supertagId]?.find(
-    (candidate) => candidate.fieldNodeId === mutation.fieldNodeId,
-  );
-  if (
-    field?.fieldDefinitionId !== mutation.fieldDefinitionId ||
-    field.fieldOccurrenceId !== mutation.fieldOccurrenceId
-  ) {
-    throw new Error("Template Field binding is absent from the observed projection");
-  }
-  return withPreviousAnchor(
-    mutation,
-    previous.childOccurrences[mutation.supertagId] ?? [],
-    mutation.fieldOccurrenceId,
-    "Template Field Occurrence",
-  );
-}
-
-function assertTemplateFieldAddition(
-  mutation: Extract<Mutation, { kind: "supertag-field-add" }>,
-  available: ScopedProjection,
-): void {
-  const existing = available.templateFields[mutation.supertagId]?.find(
-    (field) => field.fieldNodeId === mutation.fieldNodeId,
-  );
-  const occurrence = available.occurrences[mutation.fieldOccurrenceId];
-  const matchingCreation =
-    available.nodes[mutation.fieldNodeId] !== undefined &&
-    occurrence?.nodeId === mutation.fieldNodeId &&
-    occurrence.parentNodeId === mutation.supertagId;
-  if (
-    (available.nodes[mutation.fieldNodeId] || available.occurrences[mutation.fieldOccurrenceId]) &&
-    !matchingCreation &&
-    (existing?.fieldDefinitionId !== mutation.fieldDefinitionId ||
-      existing.fieldOccurrenceId !== mutation.fieldOccurrenceId)
-  ) {
-    throw new Error("Template Field Node or Occurrence identity already exists");
-  }
-  if (
-    (available.templateFields[mutation.supertagId] ?? []).some(
-      (field) => field.fieldNodeId !== mutation.fieldNodeId && field.fieldDefinitionId === mutation.fieldDefinitionId,
-    )
-  ) {
-    throw new Error("Supertag already contains the Template Field or Field Definition");
-  }
-  assertRelationAnchor(
-    available.childOccurrences[mutation.supertagId] ?? [],
-    mutation.anchor,
-    "Template Field Occurrence",
-  );
-}
-
 function completeTemplateNodeRelation(
   mutation: Extract<Mutation, { kind: "supertag-template-node-add" | "supertag-template-node-remove" }>,
   previous: ScopedProjection,
   available: ScopedProjection,
 ): Extract<Mutation, { kind: "supertag-template-node-add" | "supertag-template-node-remove" }> {
   const removing = mutation.kind === "supertag-template-node-remove";
-  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_NODE_TYPE, removing);
+  assertDefinition(available, mutation.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
   if (!removing) {
     assertTemplateNodeAddition(mutation, available);
     return mutation;
@@ -233,10 +191,10 @@ function assertDefinition(
   projection: ScopedProjection,
   definitionId: string,
   label: string,
-  nodeType: DefinitionNodeType,
+  intrinsicNodeType: DefinitionIntrinsicNodeType,
   allowDeleted: boolean,
 ): void {
-  const state = definitionNodeState(projection, definitionId, nodeType);
+  const state = definitionNodeState(projection, definitionId, intrinsicNodeType);
   if (state === "active" || (allowDeleted && state === "deleted")) {
     return;
   }

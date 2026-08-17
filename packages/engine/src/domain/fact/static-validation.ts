@@ -1,6 +1,6 @@
 import { canonicalDigest } from "./canonical.js";
 import { factId, factTransactionId, isReplicaId, unsignedFact } from "./fact.js";
-import { validateFieldInitialization, validateSupertagMutation } from "./supertag-static-validation.js";
+import { validateSupertagMutation } from "./supertag-static-validation.js";
 import { isWellFormedUnicode, validateStaticTextSpliceEvidence } from "./text-validation.js";
 import { validateTemplateDetachment } from "./template-node-validation.js";
 import { validateWorkspaceRootPolicy } from "./workspace-root-policy.js";
@@ -15,11 +15,8 @@ import {
   type WorkspaceId,
 } from "./types.js";
 import type { OccurrenceMutation } from "./mutation-family.js";
-import { validateSearchClauseMutation } from "./search-clause-validation.js";
-import {
-  validateSharedDefaultViewDefinitionMode,
-  validateSharedDefaultViewDefinitionMutation,
-} from "./view-definition-validation.js";
+import { validateSearchExpressionMutation } from "./search-expression-validation.js";
+import { validateViewMutation } from "./view-static-validation.js";
 import { validateInlineReferenceMutation } from "./inline-reference-validation.js";
 import { requireIdentity, validateAnchor } from "./mutation-static-validation-primitives.js";
 import { validateFieldDefinitionConfigMutation } from "./field-definition-config-validation.js";
@@ -139,12 +136,7 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
       validateOccurrenceMutation(mutation, factIdentity);
       return;
     case "node-owner-set":
-      requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
-      requireIdentity(mutation.ownerNodeId, mutation.kind, factIdentity);
-      if (mutation.previousOwnerNodeId === undefined) {
-        throw new Error(`Node owner mutation lacks semantic evidence: ${factIdentity}`);
-      }
-      requireIdentity(mutation.previousOwnerNodeId, "previous owner Node", factIdentity);
+      validateNodeOwnerMutation(mutation, factIdentity);
       return;
     case "metanode-attach":
       requireIdentity(mutation.hostNodeId, "configuration host Node", factIdentity);
@@ -153,18 +145,22 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
         throw new Error(`Metanode cannot attach to itself: ${factIdentity}`);
       }
       return;
-    case "node-type-declare":
+    case "intrinsic-node-type-declare":
       requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
       return;
     case "supertag-apply":
     case "supertag-remove":
-    case "supertag-field-add":
-    case "supertag-field-remove":
-    case "supertag-field-configure":
     case "supertag-extension-add":
     case "supertag-extension-remove":
     case "supertag-template-node-add":
     case "supertag-template-node-remove":
+    case "supertag-template-field-attach":
+    case "supertag-template-field-existing-attach":
+    case "supertag-template-field-detach":
+    case "supertag-template-field-discoverability-set":
+    case "supertag-template-field-visibility-configure":
+    case "supertag-optional-field-contribution-attach":
+    case "supertag-optional-field-contribution-detach":
       validateSupertagMutation(mutation, factIdentity);
       return;
     case "template-node-detach":
@@ -177,11 +173,9 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
     case "materialized-field-delete":
       validateStaticFieldContentDeletion(mutation, factIdentity);
       return;
-    case "field-initialize":
-      validateFieldInitialization(mutation, factIdentity);
-      return;
     case "field-datatype-configure":
     case "field-cardinality-configure":
+    case "field-optionality-configure":
     case "field-initialization-expression-configure":
       validateFieldDefinitionConfigMutation(mutation, factIdentity);
       return;
@@ -204,18 +198,35 @@ function validateMutation(mutation: Mutation, factIdentity: string): void {
     case "inline-reference-alias-detach":
       validateInlineReferenceMutation(mutation, factIdentity);
       return;
-    case "search-supertag-clause-attach":
-    case "search-field-clause-attach":
-      validateSearchClauseMutation(mutation, factIdentity);
+    case "search-expression-attach":
+    case "search-expression-detach":
+      validateSearchExpressionMutation(mutation, factIdentity);
       return;
     case "shared-default-view-definition-attach":
-      validateSharedDefaultViewDefinitionMutation(mutation, factIdentity);
-      return;
+    case "shared-default-view-definition-detach":
     case "shared-default-view-definition-mode-set":
-      validateSharedDefaultViewDefinitionMode(mutation, factIdentity);
+    case "shared-default-view-definition-sort-by-name-set":
+    case "shared-default-view-definition-options-set":
+      validateViewMutation(mutation, factIdentity);
       return;
     default:
       assertNever(mutation);
+  }
+}
+
+function validateNodeOwnerMutation(
+  mutation: Extract<Mutation, { kind: "node-owner-set" }>,
+  factIdentity: string,
+): void {
+  requireIdentity(mutation.nodeId, mutation.kind, factIdentity);
+  if (mutation.ownerNodeId !== null) {
+    requireIdentity(mutation.ownerNodeId, mutation.kind, factIdentity);
+  }
+  if (mutation.previousOwnerNodeId === undefined) {
+    throw new Error(`Node owner mutation lacks semantic evidence: ${factIdentity}`);
+  }
+  if (mutation.previousOwnerNodeId !== null) {
+    requireIdentity(mutation.previousOwnerNodeId, "previous owner Node", factIdentity);
   }
 }
 

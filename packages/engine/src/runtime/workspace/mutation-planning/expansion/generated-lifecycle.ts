@@ -1,18 +1,29 @@
-import { FIELD_NODE_TYPE, type Mutation, type NodeSeed, type SequenceAnchor } from "../../../../domain/fact/index.js";
+import {
+  FIELD_INTRINSIC_NODE_TYPE,
+  type Mutation,
+  type NodeSeed,
+  type SequenceAnchor,
+} from "../../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 
 export function createNodeUnlessPresent(
   nodeId: string,
+  ownerNodeId: string,
   available: ScopedProjection,
   seed?: NodeSeed,
 ): readonly Mutation[] {
-  return available.nodes[nodeId] ? [] : [{ kind: "node-create", nodeId, ...(seed ? { seed } : {}) }];
+  return available.nodes[nodeId]
+    ? []
+    : [
+        { kind: "node-create", nodeId, ...(seed ? { seed } : {}) },
+        { kind: "node-owner-set", nodeId, ownerNodeId, previousOwnerNodeId: null },
+      ];
 }
 
 export function declareFieldNodeUnlessPresent(nodeId: string, available: ScopedProjection): readonly Mutation[] {
-  return available.nodes[nodeId]?.nodeType === FIELD_NODE_TYPE
+  return available.nodes[nodeId]?.intrinsicNodeType === FIELD_INTRINSIC_NODE_TYPE
     ? []
-    : [{ kind: "node-type-declare", nodeId, nodeType: FIELD_NODE_TYPE }];
+    : [{ kind: "intrinsic-node-type-declare", nodeId, intrinsicNodeType: FIELD_INTRINSIC_NODE_TYPE }];
 }
 
 export function createOccurrenceUnlessPresent(

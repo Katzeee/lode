@@ -1,26 +1,16 @@
 import {
-  FIELD_DEFINITION_NODE_TYPE,
-  SUPERTAG_DEFINITION_NODE_TYPE,
   canonicalJson,
   fieldContentDeletionOccurrenceId,
   type FieldContentDeletionMutation,
   type FieldMutation,
-  type Mutation,
 } from "../fact/index.js";
-import {
-  assertMaterializedField,
-  definitionNodeState,
-  isPresentNodeOutsideTrash,
-  occurrenceAnchor,
-  type ScopedProjection,
-} from "../reconcile/index.js";
+import { assertMaterializedField, occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
 import type { MutationEvidenceContext, MutationEvidenceFamily } from "./policy.js";
 
 const FIELD_MUTATION_KINDS = [
   "field-materialize",
   "field-value-delete",
   "materialized-field-delete",
-  "field-initialize",
 ] as const satisfies readonly FieldMutation["kind"][];
 
 export const fieldMutationEvidence = {
@@ -38,15 +28,6 @@ export const fieldMutationEvidence = {
         throw new Error("Field content deletion evidence does not match the observed Projection");
       }
     }
-    if (mutation.kind === "field-initialize") {
-      const expected = completeFieldInitializationEvidence(mutation, available);
-      if (
-        canonicalJson([...(expected.observedInitializationFactIds ?? [])].sort()) !==
-        canonicalJson([...(mutation.observedInitializationFactIds ?? [])].sort())
-      ) {
-        throw new Error("Field initialization evidence does not match current candidates");
-      }
-    }
   },
 } satisfies MutationEvidenceFamily<(typeof FIELD_MUTATION_KINDS)[number]>;
 
@@ -59,8 +40,6 @@ function completeFieldMutationEvidence(mutation: FieldMutation, context: Mutatio
     case "field-value-delete":
     case "materialized-field-delete":
       return completeFieldContentDeletionEvidence(mutation, previous, available);
-    case "field-initialize":
-      return completeFieldInitializationEvidence(mutation, available);
   }
 }
 
@@ -90,35 +69,5 @@ export function completeFieldContentDeletionEvidence(
     ...mutation,
     previousParentNodeId: occurrence.parentNodeId,
     previousAnchor: occurrenceAnchor(evidence, occurrenceId),
-  };
-}
-
-export function completeFieldInitializationEvidence(
-  mutation: Extract<Mutation, { kind: "field-initialize" }>,
-  available: ScopedProjection,
-): Extract<Mutation, { kind: "field-initialize" }> {
-  if (definitionNodeState(available, mutation.supertagId, SUPERTAG_DEFINITION_NODE_TYPE) === "absent") {
-    throw new Error("Field initialization Supertag type is absent");
-  }
-  if (definitionNodeState(available, mutation.fieldDefinitionId, FIELD_DEFINITION_NODE_TYPE) === "absent") {
-    throw new Error("Field initialization Field Definition type is absent");
-  }
-  for (const nodeId of [mutation.ownerNodeId, mutation.supertagId, mutation.fieldDefinitionId]) {
-    if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, nodeId)) {
-      throw new Error(`Field initialization dependency is absent: ${nodeId}`);
-    }
-  }
-  const field = available.effectiveFields[mutation.ownerNodeId]?.find(
-    (candidate) => candidate.fieldDefinitionId === mutation.fieldDefinitionId,
-  );
-  if (!field) {
-    throw new Error("Field initialization has no effective Supertag source");
-  }
-  if (field.materializedFieldNodeId !== null) {
-    throw new Error("Field is already materialized");
-  }
-  return {
-    ...mutation,
-    observedInitializationFactIds: field.initializationCandidates.map((candidate) => candidate.initializationId),
   };
 }

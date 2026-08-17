@@ -1,14 +1,20 @@
 import {
   compareFacts,
-  FIELD_DEFINITION_NODE_TYPE,
+  FIELD_CONFIGURATION_DEFINITION_NODE_IDS,
+  FIELD_DATATYPE_NODE_IDS,
+  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   isFieldDefinitionConfigMutation,
   stableStringCompare,
   type ContributionFact,
+  type FieldDefinitionConfigMutation,
+  type FieldInitializationExpression,
 } from "../fact/index.js";
 import { nodeLocation } from "./node-graph.js";
 import type { FieldDefinitionConfiguration } from "./projection-types.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
+import { projectTuple } from "./tuple.js";
 
 export function projectFieldDefinitionConfigurations(
   workspaceNodeId: string,
@@ -17,7 +23,6 @@ export function projectFieldDefinitionConfigurations(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
-  metanodes: Readonly<Record<string, string>>,
   workspaceSystemNodes: WorkspaceSystemNodes,
 ): Readonly<Record<string, readonly FieldDefinitionConfiguration[]>> {
   const graph = { nodes: Object.fromEntries(nodes), nodeOwners, workspaceSystemNodes };
@@ -34,49 +39,61 @@ export function projectFieldDefinitionConfigurations(
     if (!isFieldDefinitionConfigMutation(mutation) || superseded.has(fact.id)) {
       continue;
     }
-    const rootNodeId = metanodes[mutation.fieldDefinitionId];
     const occurrence = occurrences.get(mutation.configurationOccurrenceId);
+    const tuple = projectTuple(mutation.configurationNodeId, occurrences, childOccurrences, nodeOwners);
+    const definitionEndpoint = tuple.endpoints[0];
+    const valueEndpoint = tuple.endpoints[1];
+    const optionsSupertagEndpoint = tuple.endpoints[2];
+    const expectedDefinitionNodeId = configurationDefinitionNodeId(mutation.kind);
+    const valueNodeId =
+      mutation.kind === "field-datatype-configure"
+        ? mutation.datatypeNodeId
+        : mutation.kind === "field-cardinality-configure"
+          ? mutation.cardinalityNodeId
+          : mutation.kind === "field-optionality-configure"
+            ? mutation.optionalityNodeId
+            : mutation.expression.expressionNodeId;
     if (
-      rootNodeId === undefined ||
-      nodes.get(mutation.fieldDefinitionId)?.nodeType !== FIELD_DEFINITION_NODE_TYPE ||
+      nodes.get(mutation.fieldDefinitionId)?.intrinsicNodeType !== FIELD_DEFINITION_INTRINSIC_NODE_TYPE ||
       occurrence?.nodeId !== mutation.configurationNodeId ||
-      occurrence.parentNodeId !== rootNodeId ||
+      occurrence.parentNodeId !== mutation.fieldDefinitionId ||
+      tuple.ownerNodeId !== mutation.fieldDefinitionId ||
+      !hasExpectedEndpointCount(mutation, tuple.endpoints.length) ||
+      definitionEndpoint?.nodeId !== expectedDefinitionNodeId ||
+      definitionEndpoint.isOwning ||
+      valueEndpoint?.nodeId !== valueNodeId ||
+      valueEndpoint.isOwning !== (mutation.kind === "field-initialization-expression-configure") ||
+      nodeLocation(workspaceNodeId, graph, definitionEndpoint.nodeId) !== "active" ||
+      nodeLocation(workspaceNodeId, graph, valueNodeId) !== "active" ||
       nodeLocation(workspaceNodeId, graph, mutation.fieldDefinitionId) !== "active" ||
       nodeLocation(workspaceNodeId, graph, mutation.configurationNodeId) !== "active"
     ) {
       continue;
     }
+    if (!hasValidOptionsSource(workspaceNodeId, mutation, optionsSupertagEndpoint, nodes, graph)) {
+      continue;
+    }
     if (
       mutation.kind === "field-initialization-expression-configure" &&
-      (nodes.get(mutation.expression.sourceFieldDefinitionId)?.nodeType !== FIELD_DEFINITION_NODE_TYPE ||
-        nodeLocation(workspaceNodeId, graph, mutation.expression.sourceFieldDefinitionId) !== "active")
+      (nodes.get(mutation.expression.sourceFieldDefinitionId)?.intrinsicNodeType !==
+        FIELD_DEFINITION_INTRINSIC_NODE_TYPE ||
+        nodeLocation(workspaceNodeId, graph, mutation.expression.sourceFieldDefinitionId) !== "active" ||
+        !hasInitializationExpressionGraph(
+          mutation.configurationNodeId,
+          mutation.expression,
+          occurrences,
+          childOccurrences,
+          nodeOwners,
+        ))
     ) {
       continue;
     }
-    const configuration: FieldDefinitionConfiguration =
-      mutation.kind === "field-datatype-configure"
-        ? {
-            kind: "datatype",
-            configurationNodeId: mutation.configurationNodeId,
-            configurationOccurrenceId: mutation.configurationOccurrenceId,
-            datatype: mutation.datatype,
-            contributionId: fact.id,
-          }
-        : mutation.kind === "field-cardinality-configure"
-          ? {
-              kind: "cardinality",
-              configurationNodeId: mutation.configurationNodeId,
-              configurationOccurrenceId: mutation.configurationOccurrenceId,
-              cardinality: mutation.cardinality,
-              contributionId: fact.id,
-            }
-          : {
-              kind: "initialization-expression",
-              configurationNodeId: mutation.configurationNodeId,
-              configurationOccurrenceId: mutation.configurationOccurrenceId,
-              expression: mutation.expression,
-              contributionId: fact.id,
-            };
+    const configuration = toConfiguration(
+      mutation,
+      definitionEndpoint.nodeId,
+      fact.id,
+      optionsSupertagEndpoint?.nodeId ?? null,
+    );
     const values = byDefinition.get(mutation.fieldDefinitionId) ?? [];
     values.push(configuration);
     byDefinition.set(mutation.fieldDefinitionId, values);
@@ -85,8 +102,7 @@ export function projectFieldDefinitionConfigurations(
     [...byDefinition]
       .sort(([left], [right]) => stableStringCompare(left, right))
       .map(([fieldDefinitionId, configurations]) => {
-        const rootNodeId = metanodes[fieldDefinitionId];
-        const order = rootNodeId === undefined ? [] : (childOccurrences.get(rootNodeId) ?? []);
+        const order = childOccurrences.get(fieldDefinitionId) ?? [];
         return [
           fieldDefinitionId,
           configurations.sort(
@@ -98,5 +114,119 @@ export function projectFieldDefinitionConfigurations(
           ),
         ] as const;
       }),
+  );
+}
+
+function hasValidOptionsSource(
+  workspaceNodeId: string,
+  mutation: FieldDefinitionConfigMutation,
+  endpoint: ReturnType<typeof projectTuple>["endpoints"][number] | undefined,
+  nodes: ReadonlyMap<string, MutableNode>,
+  graph: Parameters<typeof nodeLocation>[1],
+): boolean {
+  if (
+    mutation.kind !== "field-datatype-configure" ||
+    mutation.datatypeNodeId !== FIELD_DATATYPE_NODE_IDS.optionsFromSupertag
+  ) {
+    return true;
+  }
+  return (
+    endpoint !== undefined &&
+    !endpoint.isOwning &&
+    nodes.get(endpoint.nodeId)?.intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE &&
+    nodeLocation(workspaceNodeId, graph, endpoint.nodeId) === "active"
+  );
+}
+
+function toConfiguration(
+  mutation: FieldDefinitionConfigMutation,
+  definitionNodeId: string,
+  contributionId: string,
+  optionsSupertagId: string | null,
+): FieldDefinitionConfiguration {
+  const identity = {
+    configurationNodeId: mutation.configurationNodeId,
+    configurationOccurrenceId: mutation.configurationOccurrenceId,
+    contributionId,
+  };
+  if (mutation.kind === "field-datatype-configure") {
+    return {
+      ...identity,
+      kind: "datatype",
+      definitionNodeId,
+      datatypeNodeId: mutation.datatypeNodeId,
+      optionsSupertagId,
+    };
+  }
+  if (mutation.kind === "field-cardinality-configure") {
+    return {
+      ...identity,
+      kind: "cardinality",
+      definitionNodeId,
+      cardinalityNodeId: mutation.cardinalityNodeId,
+    };
+  }
+  if (mutation.kind === "field-optionality-configure") {
+    return {
+      ...identity,
+      kind: "optionality",
+      definitionNodeId,
+      optionalityNodeId: mutation.optionalityNodeId,
+    };
+  }
+  return {
+    ...identity,
+    kind: "initialization-expression",
+    definitionNodeId,
+    expression: mutation.expression,
+  };
+}
+
+function hasExpectedEndpointCount(mutation: FieldDefinitionConfigMutation, count: number): boolean {
+  return mutation.kind === "field-datatype-configure" &&
+    mutation.datatypeNodeId === FIELD_DATATYPE_NODE_IDS.optionsFromSupertag
+    ? count === 3
+    : count === 2;
+}
+
+function configurationDefinitionNodeId(kind: FieldDefinitionConfigMutation["kind"]): string {
+  return kind === "field-datatype-configure"
+    ? FIELD_CONFIGURATION_DEFINITION_NODE_IDS.datatype
+    : kind === "field-cardinality-configure"
+      ? FIELD_CONFIGURATION_DEFINITION_NODE_IDS.cardinality
+      : kind === "field-optionality-configure"
+        ? FIELD_CONFIGURATION_DEFINITION_NODE_IDS.optionality
+        : FIELD_CONFIGURATION_DEFINITION_NODE_IDS.initializationExpression;
+}
+
+function hasInitializationExpressionGraph(
+  configurationNodeId: string,
+  expression: FieldInitializationExpression,
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
+  childOccurrences: ReadonlyMap<string, readonly string[]>,
+  nodeOwners: Readonly<Record<string, string | null>>,
+): boolean {
+  const expressionOccurrence = occurrences.get(expression.expressionOccurrenceId);
+  const sourceOccurrence = occurrences.get(expression.sourceFieldDefinitionOccurrenceId);
+  const contextOccurrence = occurrences.get(expression.contextOccurrenceId);
+  const operands = childOccurrences.get(expression.expressionNodeId) ?? [];
+  const tuple = projectTuple(expression.expressionNodeId, occurrences, childOccurrences, nodeOwners);
+  const sourceEndpoint = tuple.endpoints[0];
+  const contextEndpoint = tuple.endpoints[1];
+  return (
+    expressionOccurrence?.nodeId === expression.expressionNodeId &&
+    sourceOccurrence?.nodeId === expression.sourceFieldDefinitionId &&
+    contextOccurrence?.nodeId === expression.contextNodeId &&
+    expressionOccurrence.parentNodeId === configurationNodeId &&
+    sourceOccurrence.parentNodeId === expression.expressionNodeId &&
+    contextOccurrence.parentNodeId === expression.expressionNodeId &&
+    tuple.ownerNodeId === configurationNodeId &&
+    tuple.endpoints.length === 2 &&
+    sourceEndpoint?.occurrenceId === expression.sourceFieldDefinitionOccurrenceId &&
+    !sourceEndpoint.isOwning &&
+    contextEndpoint?.occurrenceId === expression.contextOccurrenceId &&
+    contextEndpoint.isOwning &&
+    operands.includes(expression.sourceFieldDefinitionOccurrenceId) &&
+    operands.indexOf(expression.sourceFieldDefinitionOccurrenceId) < operands.indexOf(expression.contextOccurrenceId)
   );
 }

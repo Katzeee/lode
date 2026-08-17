@@ -67,7 +67,15 @@ describe("Projection plan dataflow", () => {
       versions,
       rebuildGeneration("workspace", before, versions).generation,
     );
-    expect(result.stats.evaluatedStages).toEqual(["activation", "content", "assembly"]);
+    expect(result.stats.evaluatedStages).toEqual([
+      "activation",
+      "content",
+      "supertag-relations",
+      "conflict",
+      "template",
+      "view",
+      "assembly",
+    ]);
     expect(result.generation.planCaches.origin.activeContributionIds).toEqual(afterFacts.map((fact) => fact.id));
   });
 });

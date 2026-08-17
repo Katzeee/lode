@@ -1,4 +1,4 @@
-import type { Mutation } from "../fact/index.js";
+import { fieldDefinitionEndpointOccurrenceId, type Mutation } from "../fact/index.js";
 
 export type ExistenceSupport = Readonly<{
   nodes: ReadonlyMap<string, readonly string[]>;
@@ -28,6 +28,14 @@ export function addMaterializedFieldSupport(
     addIfPresent(support, effectiveCandidate(existence.nodes, nodeId, existence.viable));
   }
   addIfPresent(support, effectiveCandidate(existence.occurrences, mutation.fieldOccurrenceId, existence.viable));
+  addIfPresent(
+    support,
+    effectiveCandidate(
+      existence.occurrences,
+      fieldDefinitionEndpointOccurrenceId(mutation.fieldOccurrenceId),
+      existence.viable,
+    ),
+  );
 }
 
 function addIfPresent(target: Set<string>, value: string | undefined): void {

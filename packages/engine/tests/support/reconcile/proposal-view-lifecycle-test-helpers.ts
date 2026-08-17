@@ -1,4 +1,4 @@
-import type { Mutation } from "../../../src/domain/fact/index.js";
+import { NODE_VIEWS_DEFINITION_NODE_ID, type Mutation } from "../../../src/domain/fact/index.js";
 import { base, end, type Facts } from "./reconcile-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 
@@ -12,16 +12,34 @@ function viewDefinitionModeSetCase(): ProposalLifecycleCase {
     { kind: "node-create", nodeId: "node-configuration" },
     { kind: "metanode-attach", hostNodeId: "node", metanodeId: "node-configuration" },
     { kind: "node-create", nodeId: "view-definition" },
+    { kind: "node-create", nodeId: "view-attachment" },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "view-attachment-occurrence",
+      nodeId: "view-attachment",
+      parentNodeId: "node-configuration",
+      anchor: end,
+    },
+    {
+      kind: "occurrence-create",
+      occurrenceId: "view-attachment-definition-occurrence",
+      nodeId: NODE_VIEWS_DEFINITION_NODE_ID,
+      parentNodeId: "view-attachment",
+      anchor: end,
+    },
     {
       kind: "occurrence-create",
       occurrenceId: "view-definition-occurrence",
       nodeId: "view-definition",
-      parentNodeId: "node-configuration",
+      parentNodeId: "view-attachment",
       anchor: end,
     },
     {
       kind: "shared-default-view-definition-attach",
       hostNodeId: "node",
+      attachmentNodeId: "view-attachment",
+      attachmentOccurrenceId: "view-attachment-occurrence",
+      relationDefinitionOccurrenceId: "view-attachment-definition-occurrence",
       viewDefinitionNodeId: "view-definition",
       viewDefinitionOccurrenceId: "view-definition-occurrence",
     },

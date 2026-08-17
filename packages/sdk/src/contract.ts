@@ -29,12 +29,24 @@ import type {
   ViewRowsQueryRequest as ProtocolViewRowsQueryRequest,
   ViewRowsResult as ProtocolViewRowsResult,
   ViewRowReference as ProtocolViewRowReference,
+  OutlineQueryRequest as ProtocolOutlineQueryRequest,
+  OutlineResult as ProtocolOutlineResult,
+  OutlineRow as ProtocolOutlineRow,
+  DebugNodeQueryRequest as ProtocolDebugNodeQueryRequest,
+  DebugNodeResult as ProtocolDebugNodeResult,
 } from "@lode/protocol/dto/engine";
 import type { EditMutation } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
 import type { HardDeletePreview, HardDeleteSelection } from "./maintenance.js";
-import type { AuthorityReceipt, ProtocolDto, ResolutionDecision, ProjectionPerspective, ViewType } from "./model.js";
-import type { ProjectionPage, ProjectionPageSection } from "./projection.js";
+import type {
+  AuthorityReceipt,
+  ProtocolDto,
+  ResolutionDecision,
+  ProjectionPerspective,
+  ViewOptionsSpec,
+  ViewType,
+} from "./model.js";
+import type { MaterializedField, ProjectedNode, ProjectionPage, ProjectionPageSection } from "./projection.js";
 import type { ConflictQuery, ReviewQuery, ReviewSelection } from "./review.js";
 import type {
   BacklinkSourceKind,
@@ -122,13 +134,34 @@ export type ViewRowReference = Omit<ProtocolDto<ProtocolViewRowReference>, "sour
   Readonly<{ sourceKind: ViewRowSourceKind }>;
 export type ViewRowsResult = Omit<
   ProtocolDto<ProtocolViewRowsResult>,
-  "perspective" | "viewType" | "rows" | "viewDefinitionNodeId"
+  "perspective" | "viewType" | "rows" | "viewDefinitionNodeId" | "options"
 > &
   Readonly<{
     perspective: ProjectionPerspective;
     viewDefinitionNodeId: string | null;
     viewType: ViewType;
+    options: ViewOptionsSpec;
     rows: readonly ViewRowReference[];
+  }>;
+export type OutlineQueryRequest = Omit<WithKind<ProtocolOutlineQueryRequest, "outline">, "perspective"> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type OutlineRow = ProtocolDto<ProtocolOutlineRow>;
+export type OutlineResult = Omit<ProtocolDto<ProtocolOutlineResult>, "perspective" | "rows"> &
+  Readonly<{ perspective: ProjectionPerspective; rows: readonly OutlineRow[] }>;
+export type DebugNodeQueryRequest = Omit<WithKind<ProtocolDebugNodeQueryRequest, "debug-node">, "perspective"> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type DebugNodeResult = Omit<
+  ProtocolDto<ProtocolDebugNodeResult>,
+  "perspective" | "node" | "ownerNodeId" | "metanodeId" | "materializedFields" | "url" | "codeLanguage"
+> &
+  Readonly<{
+    perspective: ProjectionPerspective;
+    node: ProjectedNode | null;
+    ownerNodeId: string | null;
+    metanodeId: string | null;
+    materializedFields: readonly MaterializedField[];
+    url: string | null;
+    codeLanguage: string | null;
   }>;
 export type InvocationOutcome = Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
@@ -142,7 +175,9 @@ export type EngineQueryContract =
   | Readonly<{ query: HardDeletePreviewQuery; value: HardDeletePreview }>
   | Readonly<{ query: BacklinksQueryRequest; value: BacklinksResult }>
   | Readonly<{ query: SearchResultsQueryRequest; value: SearchResultsResult }>
-  | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>;
+  | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>
+  | Readonly<{ query: OutlineQueryRequest; value: OutlineResult }>
+  | Readonly<{ query: DebugNodeQueryRequest; value: DebugNodeResult }>;
 export type EngineQuery = EngineQueryContract["query"];
 export type EngineQueryKind = EngineQuery["kind"];
 export type EngineQueryForKind<Kind extends EngineQueryKind> = Extract<EngineQuery, Readonly<{ kind: Kind }>>;

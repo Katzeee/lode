@@ -18,12 +18,9 @@ export function canApplyNodeDirectTail(projection: Projection, mutation: NodeMut
     case "node-owner-set":
       return (
         projection.nodes[mutation.nodeId] !== undefined &&
-        projection.nodes[mutation.ownerNodeId] !== undefined &&
-        Object.values(projection.occurrences).some(
-          (occurrence) => occurrence.nodeId === mutation.nodeId && occurrence.parentNodeId === mutation.ownerNodeId,
-        )
+        (mutation.ownerNodeId === null || projection.nodes[mutation.ownerNodeId] !== undefined)
       );
-    case "node-type-declare":
+    case "intrinsic-node-type-declare":
       return false;
   }
 }

@@ -1,12 +1,9 @@
 import type {
   ConflictQueryResult as ProtocolConflictQuery,
-  FieldConfigConflict as ProtocolFieldConfigConflict,
-  FieldConfigurationDecisionEffect as ProtocolFieldConfigurationDecisionEffect,
-  FieldInitializationConflict as ProtocolFieldInitializationConflict,
   FieldMaterializationDecisionEffect as ProtocolFieldMaterializationDecisionEffect,
   LifecycleDecisionEffect as ProtocolLifecycleDecisionEffect,
-  NodeTypeConflict as ProtocolNodeTypeConflict,
-  NodeTypeDecisionEffect as ProtocolNodeTypeDecisionEffect,
+  IntrinsicNodeTypeConflict as ProtocolIntrinsicNodeTypeConflict,
+  IntrinsicNodeTypeDecisionEffect as ProtocolIntrinsicNodeTypeDecisionEffect,
   OwnerDecisionEffect as ProtocolOwnerDecisionEffect,
   PlacementConflict as ProtocolPlacementConflict,
   PlacementRelation as ProtocolPlacementRelation,
@@ -27,21 +24,18 @@ import type {
   FieldDefinitionConfigurationDecisionEffect as ProtocolFieldDefinitionConfigurationDecisionEffect,
 } from "@lode/protocol/dto/review";
 import type {
-  SupertagFieldConfig,
-  FieldValueSeed,
-  NodeType,
+  IntrinsicNodeType,
   PreviousValue,
   ProtocolDto,
   ResolutionDecision,
   SequenceAnchor,
   TextAtomId,
   ViewType,
-  FieldDatatype,
-  FieldCardinality,
   FieldInitializationExpression,
+  ViewOptionsSpec,
 } from "./model.js";
 import type { ContributionMutationKind } from "./protocol-enums/fact.js";
-import type { FieldInitializationSource, InlineReferenceTargetStatus } from "./protocol-enums/model.js";
+import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
 import type {
   DiffSpaceKind,
   PlacementEndpoint,
@@ -63,13 +57,11 @@ type TextDecisionEffect = Omit<
   }>;
 type LifecycleDecisionEffect = WithKind<ProtocolLifecycleDecisionEffect, "lifecycle">;
 type OwnerDecisionEffect = WithKind<ProtocolOwnerDecisionEffect, "owner">;
-type NodeTypeDecisionEffect = Omit<WithKind<ProtocolNodeTypeDecisionEffect, "node-type">, "origin" | "review"> &
-  Readonly<{ origin: NodeType | null; review: NodeType | null }>;
-type FieldConfigurationDecisionEffect = Omit<
-  WithKind<ProtocolFieldConfigurationDecisionEffect, "field-configuration">,
+type IntrinsicNodeTypeDecisionEffect = Omit<
+  WithKind<ProtocolIntrinsicNodeTypeDecisionEffect, "intrinsic-node-type">,
   "origin" | "review"
 > &
-  Readonly<{ origin: SupertagFieldConfig | null; review: SupertagFieldConfig | null }>;
+  Readonly<{ origin: IntrinsicNodeType | null; review: IntrinsicNodeType | null }>;
 type InlineReferenceDecisionState = Omit<ProtocolDto<ProtocolInlineReferenceDecisionState>, "targetStatus" | "anchor"> &
   Readonly<{ targetStatus: InlineReferenceTargetStatus; anchor: SequenceAnchor }>;
 type InlineReferenceDecisionEffect = Omit<
@@ -77,16 +69,17 @@ type InlineReferenceDecisionEffect = Omit<
   "origin" | "review"
 > &
   Readonly<{ origin: InlineReferenceDecisionState | null; review: InlineReferenceDecisionState | null }>;
-type ViewDefinitionDecisionState = Omit<ProtocolDto<ProtocolViewDefinitionDecisionState>, "viewType"> &
-  Readonly<{ viewType: ViewType }>;
+type ViewDefinitionDecisionState = Omit<ProtocolDto<ProtocolViewDefinitionDecisionState>, "viewType" | "options"> &
+  Readonly<{ viewType: ViewType; options: ViewOptionsSpec }>;
 type ViewDefinitionDecisionEffect = Omit<
   WithKind<ProtocolViewDefinitionDecisionEffect, "view-definition">,
   "origin" | "review"
 > &
   Readonly<{ origin: ViewDefinitionDecisionState | null; review: ViewDefinitionDecisionState | null }>;
 export type FieldDefinitionConfigurationDecisionState =
-  | Readonly<{ kind: "datatype"; datatype: FieldDatatype }>
-  | Readonly<{ kind: "cardinality"; cardinality: FieldCardinality }>
+  | Readonly<{ kind: "datatype"; datatypeNodeId: string }>
+  | Readonly<{ kind: "cardinality"; cardinalityNodeId: string }>
+  | Readonly<{ kind: "optionality"; optionalityNodeId: string }>
   | Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>;
 type FieldDefinitionConfigurationDecisionEffect = Omit<
   WithKind<ProtocolFieldDefinitionConfigurationDecisionEffect, "field-definition-configuration">,
@@ -107,10 +100,9 @@ export type DecisionEffect =
       }>)
   | LifecycleDecisionEffect
   | OwnerDecisionEffect
-  | NodeTypeDecisionEffect
+  | IntrinsicNodeTypeDecisionEffect
   | (Omit<WithKind<ProtocolSupertagRelationDecisionEffect, "supertag-relation">, "relation"> &
       Readonly<{ relation: SupertagRelationKind }>)
-  | FieldConfigurationDecisionEffect
   | WithKind<ProtocolFieldMaterializationDecisionEffect, "field-materialization">
   | InlineReferenceDecisionEffect
   | ViewDefinitionDecisionEffect
@@ -145,10 +137,16 @@ type UnsupportedDirectIntentConflict = Omit<
   "mutationKind" | "recoveryActions"
 > &
   Readonly<{ mutationKind: ContributionMutationKind; recoveryActions: readonly [RecoveryAction] }>;
-type NodeTypeConflict = Omit<WithKind<ProtocolNodeTypeConflict, "node-type-conflict">, "candidates"> &
+type IntrinsicNodeTypeConflict = Omit<
+  WithKind<ProtocolIntrinsicNodeTypeConflict, "intrinsic-node-type-conflict">,
+  "candidates"
+> &
   Readonly<{
-    candidates: readonly (Omit<ProtocolDto<ProtocolNodeTypeConflict["candidates"][number]>, "nodeType"> &
-      Readonly<{ nodeType: NodeType }>)[];
+    candidates: readonly (Omit<
+      ProtocolDto<ProtocolIntrinsicNodeTypeConflict["candidates"][number]>,
+      "intrinsicNodeType"
+    > &
+      Readonly<{ intrinsicNodeType: IntrinsicNodeType }>)[];
   }>;
 type ResolutionConflict = Omit<WithKind<ProtocolResolutionConflict, "resolution-conflict">, "candidates"> &
   Readonly<{ candidates: readonly ResolutionConflictCandidate[] }>;
@@ -157,30 +155,11 @@ type PlacementConflict = Omit<WithKind<ProtocolPlacementConflict, "placement-con
     candidates: readonly (Omit<ProtocolDto<ProtocolPlacementConflict["candidates"][number]>, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)[];
   }>;
-type FieldConfigConflict = Omit<WithKind<ProtocolFieldConfigConflict, "field-config-conflict">, "candidates"> &
-  Readonly<{
-    candidates: readonly Readonly<{ config: SupertagFieldConfig; contributionIds: readonly string[] }>[];
-  }>;
-type FieldInitializationConflict = Omit<
-  WithKind<ProtocolFieldInitializationConflict, "field-initialization-conflict">,
-  "candidates"
-> &
-  Readonly<{
-    candidates: readonly Readonly<{
-      initializationId: string;
-      supertagId: string;
-      source: FieldInitializationSource;
-      values: readonly FieldValueSeed[];
-    }>[];
-  }>;
-
 export type ConflictIssue =
   | UnsupportedDirectIntentConflict
-  | NodeTypeConflict
+  | IntrinsicNodeTypeConflict
   | ResolutionConflict
   | PlacementConflict
-  | WithKind<ProtocolSupertagExtensionCycleConflict, "supertag-extension-cycle">
-  | FieldConfigConflict
-  | FieldInitializationConflict;
+  | WithKind<ProtocolSupertagExtensionCycleConflict, "supertag-extension-cycle">;
 export type ConflictQuery = Omit<ProtocolDto<ProtocolConflictQuery>, "issues"> &
   Readonly<{ issues: readonly ConflictIssue[] }>;

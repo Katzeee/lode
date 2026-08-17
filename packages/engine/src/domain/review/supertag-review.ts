@@ -1,7 +1,6 @@
-import { canonicalJson, isSupertagMutation, type ContributionFact, type SupertagMutation } from "../fact/index.js";
+import { isSupertagMutation, type ContributionFact, type SupertagMutation } from "../fact/index.js";
 import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { SupertagRelationDecisionEffect } from "./types.js";
-import { addAffectedFieldImpacts } from "./field-impacts.js";
 
 export function supertagRelationEffect(
   fact: ContributionFact,
@@ -45,41 +44,27 @@ export function addSupertagRelationImpacts(
     }
     return;
   }
-  const nodeIds =
-    mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove"
-      ? [mutation.nodeId]
-      : nodesApplyingSupertag(generation, mutation.supertagId);
-  const fieldIds =
-    mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove"
-      ? fieldsOfSupertag(generation, mutation.supertagId)
-      : mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
-        ? [
-            ...fieldsOfSupertag(generation, mutation.supertagId),
-            ...fieldsOfSupertag(generation, mutation.baseSupertagId),
-          ]
-        : [mutation.fieldDefinitionId];
-  impacts.add(supertagRelationAddress(mutation));
-  for (const nodeId of nodeIds) {
-    for (const fieldDefinitionId of fieldIds) {
-      const origin = effectiveField(generation.origin, nodeId, fieldDefinitionId);
-      const review = effectiveField(generation.review, nodeId, fieldDefinitionId);
-      if (canonicalJson(origin) !== canonicalJson(review)) {
-        addAffectedFieldImpacts(impacts, nodeId, fieldDefinitionId, generation);
-      }
-    }
+  if (mutation.kind === "supertag-template-field-visibility-configure") {
+    impacts.add(impactAddress("supertag-template-field-visibility", mutation.supertagId, mutation.templateFieldNodeId));
+    return;
   }
+  impacts.add(supertagRelationAddress(mutation));
 }
 
 export function supertagRelationAddress(mutation: SupertagMutation): string {
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return impactAddress("supertag-application", mutation.nodeId, mutation.supertagId);
+    return impactAddress("supertag-application", mutation.hostNodeId, mutation.applicationNodeId);
   }
   if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
     return impactAddress("supertag-extension", mutation.supertagId, mutation.baseSupertagId);
   }
-  return mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove"
-    ? impactAddress("supertag-template-node", mutation.supertagId, mutation.templateNodeId)
-    : impactAddress("supertag-field", mutation.supertagId, mutation.fieldDefinitionId);
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    return impactAddress("supertag-template-node", mutation.supertagId, mutation.templateNodeId);
+  }
+  if (mutation.kind === "supertag-template-field-visibility-configure") {
+    return impactAddress("supertag-template-field-visibility", mutation.supertagId, mutation.templateFieldNodeId);
+  }
+  throw new Error("Template Field relations use their structural review effects");
 }
 
 function relationIndex(
@@ -88,15 +73,22 @@ function relationIndex(
   ownerId: string,
   targetId: string,
 ): number | null {
+  if (relation === "template-field-visibility") {
+    const field = projection.templateFields[ownerId]?.find((candidate) => candidate.templateFieldNodeId === targetId);
+    return field === undefined ? null : field.visibility === "pinned" ? 1 : 0;
+  }
   const values =
     relation === "application"
       ? projection.supertagApplications[ownerId]
       : relation === "extension"
         ? projection.supertagExtensions[ownerId]
-        : relation === "template-node"
-          ? projection.supertagTemplateNodes[ownerId]
-          : projection.supertagFields[ownerId];
-  const index = values?.indexOf(targetId);
+        : projection.supertagTemplateNodes[ownerId];
+  const index =
+    relation === "application"
+      ? (values as ScopedProjection["supertagApplications"][string] | undefined)?.findIndex(
+          (application) => application.applicationNodeId === targetId,
+        )
+      : (values as readonly string[] | undefined)?.indexOf(targetId);
   return index === undefined || index < 0 ? null : index;
 }
 
@@ -104,46 +96,30 @@ function supertagRelationKind(mutation: SupertagMutation): SupertagRelationDecis
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
     return "application";
   }
-  return mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
-    ? "extension"
-    : mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove"
-      ? "template-node"
-      : "field";
+  if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
+    return "extension";
+  }
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    return "template-node";
+  }
+  if (mutation.kind === "supertag-template-field-visibility-configure") {
+    return "template-field-visibility";
+  }
+  throw new Error("Template Field relations use their structural review effects");
 }
 
 function supertagRelationIdentities(mutation: SupertagMutation): readonly [ownerId: string, targetId: string] {
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return [mutation.nodeId, mutation.supertagId];
+    return [mutation.hostNodeId, mutation.applicationNodeId];
   }
-  return mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
-    ? [mutation.supertagId, mutation.baseSupertagId]
-    : mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove"
-      ? [mutation.supertagId, mutation.templateNodeId]
-      : [mutation.supertagId, mutation.fieldDefinitionId];
-}
-
-function fieldsOfSupertag(generation: ScopedProjectionGeneration, supertagId: string): readonly string[] {
-  return [
-    ...new Set([
-      ...(generation.origin.supertagFields[supertagId] ?? []),
-      ...(generation.review.supertagFields[supertagId] ?? []),
-    ]),
-  ];
-}
-
-function nodesApplyingSupertag(generation: ScopedProjectionGeneration, supertagId: string): readonly string[] {
-  return [
-    ...new Set(
-      [generation.origin, generation.review].flatMap((projection) => [
-        ...(projection.supertagInstanceSupertags[supertagId] ?? []),
-        ...Object.entries(projection.supertagApplications).flatMap(([nodeId, supertagIds]) =>
-          supertagIds.includes(supertagId) ? [nodeId] : [],
-        ),
-      ]),
-    ),
-  ];
-}
-
-function effectiveField(projection: ScopedProjection, nodeId: string, fieldDefinitionId: string) {
-  return projection.effectiveFields[nodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId) ?? null;
+  if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
+    return [mutation.supertagId, mutation.baseSupertagId];
+  }
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    return [mutation.supertagId, mutation.templateNodeId];
+  }
+  if (mutation.kind === "supertag-template-field-visibility-configure") {
+    return [mutation.supertagId, mutation.templateFieldNodeId];
+  }
+  throw new Error("Template Field relations use their structural review effects");
 }

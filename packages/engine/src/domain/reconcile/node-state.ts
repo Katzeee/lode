@@ -1,7 +1,7 @@
 import type { ContributionFact } from "../fact/index.js";
 import type { MutableNode } from "./projection-state.js";
 import type { TextAtom } from "./projection-types.js";
-import { activeNodeTypes } from "./node-type-declarations.js";
+import { activeIntrinsicNodeTypes } from "./intrinsic-node-type-declarations.js";
 
 export function createNodes(active: readonly ContributionFact[]): Map<string, MutableNode> {
   const created = new Map<string, MutableNode>();
@@ -14,10 +14,10 @@ export function createNodes(active: readonly ContributionFact[]): Map<string, Mu
       });
     }
   }
-  for (const [nodeId, nodeType] of activeNodeTypes(active)) {
+  for (const [nodeId, intrinsicNodeType] of activeIntrinsicNodeTypes(active)) {
     const node = created.get(nodeId);
     if (node) {
-      node.nodeType = nodeType;
+      node.intrinsicNodeType = intrinsicNodeType;
     }
   }
   return created;
@@ -45,7 +45,7 @@ function addNode(
   }
   created.set(nodeId, {
     nodeId,
-    nodeType: null,
+    intrinsicNodeType: null,
     content: content.content ?? [],
   });
 }

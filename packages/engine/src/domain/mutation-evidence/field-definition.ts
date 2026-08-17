@@ -1,7 +1,5 @@
 import {
   canonicalJson,
-  type FieldCardinality,
-  type FieldDatatype,
   type FieldDefinitionConfigMutation,
   type FieldInitializationExpression,
 } from "../fact/index.js";
@@ -12,6 +10,7 @@ import type { MutationEvidenceFamily } from "./policy.js";
 const MUTATION_KINDS = [
   "field-datatype-configure",
   "field-cardinality-configure",
+  "field-optionality-configure",
   "field-initialization-expression-configure",
 ] as const satisfies readonly FieldDefinitionConfigMutation["kind"][];
 
@@ -27,8 +26,8 @@ export const fieldDefinitionMutationEvidence = {
     if (mutation.kind === "field-datatype-configure") {
       return {
         ...mutation,
-        previousDatatype: uniqueValue<FieldDatatype>(current, (item) =>
-          item.kind === "datatype" ? item.datatype : undefined,
+        previousDatatypeNodeId: uniqueValue<string>(current, (item) =>
+          item.kind === "datatype" ? item.datatypeNodeId : undefined,
         ),
         observedValueFactIds,
       };
@@ -36,8 +35,17 @@ export const fieldDefinitionMutationEvidence = {
     if (mutation.kind === "field-cardinality-configure") {
       return {
         ...mutation,
-        previousCardinality: uniqueValue<FieldCardinality>(current, (item) =>
-          item.kind === "cardinality" ? item.cardinality : undefined,
+        previousCardinalityNodeId: uniqueValue<string>(current, (item) =>
+          item.kind === "cardinality" ? item.cardinalityNodeId : undefined,
+        ),
+        observedValueFactIds,
+      };
+    }
+    if (mutation.kind === "field-optionality-configure") {
+      return {
+        ...mutation,
+        previousOptionalityNodeId: uniqueValue<string>(current, (item) =>
+          item.kind === "optionality" ? item.optionalityNodeId : undefined,
         ),
         observedValueFactIds,
       };
@@ -73,7 +81,9 @@ function currentConfigurations(
       ? "datatype"
       : mutation.kind === "field-cardinality-configure"
         ? "cardinality"
-        : "initialization-expression";
+        : mutation.kind === "field-optionality-configure"
+          ? "optionality"
+          : "initialization-expression";
   return (projection.fieldDefinitionConfigurations[mutation.fieldDefinitionId] ?? []).filter(
     (item) => item.kind === kind && item.configurationNodeId === mutation.configurationNodeId,
   );
@@ -100,18 +110,23 @@ function hasEvidence(mutation: FieldDefinitionConfigMutation): boolean {
 
 function previousValue(mutation: FieldDefinitionConfigMutation): unknown {
   return mutation.kind === "field-datatype-configure"
-    ? mutation.previousDatatype
+    ? mutation.previousDatatypeNodeId
     : mutation.kind === "field-cardinality-configure"
-      ? mutation.previousCardinality
-      : mutation.previousExpression;
+      ? mutation.previousCardinalityNodeId
+      : mutation.kind === "field-optionality-configure"
+        ? mutation.previousOptionalityNodeId
+        : mutation.previousExpression;
 }
 
 function withoutEvidence(mutation: FieldDefinitionConfigMutation): FieldDefinitionConfigMutation {
   if (mutation.kind === "field-datatype-configure") {
-    return { ...mutation, previousDatatype: undefined, observedValueFactIds: undefined };
+    return { ...mutation, previousDatatypeNodeId: undefined, observedValueFactIds: undefined };
   }
   if (mutation.kind === "field-cardinality-configure") {
-    return { ...mutation, previousCardinality: undefined, observedValueFactIds: undefined };
+    return { ...mutation, previousCardinalityNodeId: undefined, observedValueFactIds: undefined };
+  }
+  if (mutation.kind === "field-optionality-configure") {
+    return { ...mutation, previousOptionalityNodeId: undefined, observedValueFactIds: undefined };
   }
   return { ...mutation, previousExpression: undefined, observedValueFactIds: undefined };
 }

@@ -1,6 +1,6 @@
 import {
-  FIELD_DEFINITION_NODE_TYPE,
-  SUPERTAG_DEFINITION_NODE_TYPE,
+  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   type Mutation,
   type ProjectionPerspective,
 } from "../../../domain/fact/index.js";
@@ -19,11 +19,11 @@ export async function includeLifecycleScope(
   );
   const batch = await store.read(generationId, perspective, "nodes", nodeIds);
   for (const entry of batch.entries) {
-    if (entry.value.nodeType === SUPERTAG_DEFINITION_NODE_TYPE) {
+    if (entry.value.intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE) {
       scope.supertags.add(entry.identity);
       scope.instanceSupertags.add(entry.identity);
     }
-    if (entry.value.nodeType === FIELD_DEFINITION_NODE_TYPE) {
+    if (entry.value.intrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE) {
       scope.fields.add(entry.identity);
     }
   }

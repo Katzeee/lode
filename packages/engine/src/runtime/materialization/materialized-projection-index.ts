@@ -56,7 +56,8 @@ export function projectionLookupIndexEntries(projection: Projection): readonly P
       add("nodeIdsByOwner", ownerNodeId, nodeId);
     }
   }
-  for (const [nodeId, supertagIds] of Object.entries(projection.supertagApplications)) {
+  for (const [nodeId, applications] of Object.entries(projection.supertagApplications)) {
+    const supertagIds = applications.map((application) => application.supertagId);
     for (const [requestedSupertagId, instanceSupertagIds] of Object.entries(projection.supertagInstanceSupertags)) {
       if (supertagIds.some((supertagId) => instanceSupertagIds.includes(supertagId))) {
         add("nodeIdsBySupertag", requestedSupertagId, nodeId);
@@ -70,7 +71,7 @@ export function projectionLookupIndexEntries(projection: Projection): readonly P
       addMembership(indexes, supertagId, nodeId);
     }
   }
-  for (const [nodeId, fields] of Object.entries(projection.effectiveFields)) {
+  for (const [nodeId, fields] of Object.entries(projection.materializedFields)) {
     for (const field of fields) {
       add("nodeIdsByFieldDefinition", field.fieldDefinitionId, nodeId);
     }

@@ -8,6 +8,7 @@ export const fieldDefinitionProjectionRule = projectionRule({
   invalidatedBy: [
     "field-datatype-configure",
     "field-cardinality-configure",
+    "field-optionality-configure",
     "field-initialization-expression-configure",
   ],
   evaluate: (context) => ({
@@ -18,7 +19,6 @@ export const fieldDefinitionProjectionRule = projectionRule({
       context.nodeGraphStructure.occurrences,
       context.nodeGraphStructure.childOccurrences,
       context.nodeGraphStructure.nodeOwners,
-      context.nodeGraphStructure.metanodes,
       context.nodeGraphStructure.workspaceSystemNodes,
     ),
   }),

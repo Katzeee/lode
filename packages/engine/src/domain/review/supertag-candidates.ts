@@ -1,14 +1,7 @@
-import {
-  canonicalJson,
-  compareFacts,
-  isSupertagMutation,
-  type ContributionFact,
-  type SupertagMutation,
-} from "../fact/index.js";
-import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import { compareFacts, isSupertagMutation, type ContributionFact, type SupertagMutation } from "../fact/index.js";
+import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { supertagRelationAddress, supertagRelationEffect } from "./supertag-review.js";
-import type { FieldConfigurationDecisionEffect } from "./types.js";
 
 export function supertagCandidates(
   generation: ScopedProjectionGeneration,
@@ -20,31 +13,22 @@ export function supertagCandidates(
     if (!isSupertagMutation(mutation)) {
       continue;
     }
+    if (
+      mutation.kind === "supertag-template-field-attach" ||
+      mutation.kind === "supertag-template-field-existing-attach" ||
+      mutation.kind === "supertag-template-field-detach" ||
+      mutation.kind === "supertag-template-field-discoverability-set" ||
+      mutation.kind === "supertag-optional-field-contribution-attach" ||
+      mutation.kind === "supertag-optional-field-contribution-detach"
+    ) {
+      continue;
+    }
     const address = supertagRelationAddress(mutation);
-    const groupAddress =
-      mutation.kind === "supertag-field-configure" ? `${address}/configuration` : `${address}/relation`;
-    const group = groups.get(groupAddress) ?? [];
+    const group = groups.get(address) ?? [];
     group.push(fact);
-    groups.set(groupAddress, group);
+    groups.set(address, group);
   }
   return [...groups.values()].flatMap((facts): readonly HunkCandidate[] => candidateForGroup(facts, generation));
-}
-
-export function fieldConfigurationEffect(
-  fact: ContributionFact,
-  generation: ScopedProjectionGeneration,
-): FieldConfigurationDecisionEffect {
-  const mutation = fact.body.mutation;
-  if (mutation.kind !== "supertag-field-configure") {
-    throw new Error("Field configuration effect requires a Field configuration Mutation");
-  }
-  return {
-    kind: "field-configuration",
-    supertagId: mutation.supertagId,
-    fieldDefinitionId: mutation.fieldDefinitionId,
-    origin: fieldConfiguration(generation.origin, mutation.supertagId, mutation.fieldDefinitionId),
-    review: fieldConfiguration(generation.review, mutation.supertagId, mutation.fieldDefinitionId),
-  };
 }
 
 function candidateForGroup(
@@ -52,22 +36,6 @@ function candidateForGroup(
   generation: ScopedProjectionGeneration,
 ): readonly HunkCandidate[] {
   const last = facts.at(-1)!;
-  const mutation = last.body.mutation;
-  if (mutation.kind === "supertag-field-configure") {
-    const effect = fieldConfigurationEffect(last, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? []
-      : [
-          {
-            diffSpace: {
-              kind: "field-configuration",
-              identity: supertagRelationAddress(mutation),
-            },
-            targets: [...facts].sort(compareFacts).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  }
   const supertagFact = supertagMutationFact(last);
   const effect = supertagRelationEffect(supertagFact, generation);
   return effect.originIndex === effect.reviewIndex
@@ -82,13 +50,6 @@ function candidateForGroup(
           bridges: [],
         },
       ];
-}
-
-function fieldConfiguration(projection: ScopedProjection, supertagId: string, fieldDefinitionId: string) {
-  return (
-    projection.templateFields[supertagId]?.find((item) => item.fieldDefinitionId === fieldDefinitionId)
-      ?.effectiveConfig ?? null
-  );
 }
 
 type SupertagMutationFact = ContributionFact & Readonly<{ body: Readonly<{ mutation: SupertagMutation }> }>;

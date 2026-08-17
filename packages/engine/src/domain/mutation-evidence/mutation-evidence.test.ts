@@ -16,7 +16,7 @@ describe("Mutation evidence", () => {
     };
 
     expect(() => completeMutationEvidence({ kind: "node-delete", nodeId: "custom-trash-node" }, context)).toThrow(
-      "Workspace Trash cannot be deleted",
+      "Workspace System Node cannot be deleted",
     );
     expect(
       completeMutationEvidence({ kind: "node-delete", nodeId: workspaceTrashNodeId("workspace") }, context),
@@ -100,34 +100,39 @@ describe("Mutation evidence", () => {
     facts.addPlaced("supertag-a");
     facts.addPlaced("supertag-b");
     facts.addPlaced("target");
-    facts.add({ kind: "node-type-declare", nodeId: "supertag-a", nodeType: "supertag-definition" });
-    facts.add({ kind: "node-type-declare", nodeId: "supertag-b", nodeType: "supertag-definition" });
-    facts.add({ kind: "supertag-apply", nodeId: "target", supertagId: "supertag-a", anchor: end });
-    facts.add(
-      {
-        kind: "supertag-apply",
-        nodeId: "target",
-        supertagId: "supertag-b",
-        anchor: {
-          after: null,
-          before: "supertag-a",
-          affinity: "before",
-          fallback: "start",
-        },
-      },
-      "proposal",
-    );
+    facts.add({ kind: "intrinsic-node-type-declare", nodeId: "supertag-a", intrinsicNodeType: "supertag-definition" });
+    facts.add({ kind: "intrinsic-node-type-declare", nodeId: "supertag-b", intrinsicNodeType: "supertag-definition" });
+    facts.applySupertag("target", "supertag-a");
+    facts.applySupertag("target", "supertag-b", "proposal", {
+      after: null,
+      before: "supertag-a",
+      affinity: "before",
+      fallback: "start",
+    });
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
 
     const completed = completeMutationEvidence(
-      { kind: "supertag-remove", nodeId: "target", supertagId: "supertag-a" },
+      {
+        kind: "supertag-remove",
+        hostNodeId: "target",
+        supertagId: "supertag-a",
+        applicationNodeId: "target-supertag-a-application-1",
+        applicationOccurrenceId: "target-supertag-a-application-1-occurrence",
+        relationDefinitionOccurrenceId: "target-supertag-a-application-1-relation-definition-occurrence",
+        definitionOccurrenceId: "target-supertag-a-application-1-definition-occurrence",
+        detachedValueNodeId: "target-supertag-a-application-1-detached-value",
+        detachedValueOccurrenceId: "target-supertag-a-application-1-detached-value-occurrence",
+      },
       {
         snapshot: facts.snapshot(),
         projections: () => ({ previous: generation.origin, available: generation.review }),
       },
     );
 
-    expect(generation.review.supertagApplications.target).toEqual(["supertag-b", "supertag-a"]);
+    expect(generation.review.supertagApplications.target?.map(({ supertagId }) => supertagId)).toEqual([
+      "supertag-b",
+      "supertag-a",
+    ]);
     expect(completed).toMatchObject({
       previousAnchor: {
         after: null,

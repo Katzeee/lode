@@ -2,7 +2,7 @@ import type { ReviewFamilyRule } from "./review-family.js";
 
 export const configurationReviewFamily = {
   key: "configuration",
-  mutationKinds: ["metanode-attach", "search-supertag-clause-attach", "search-field-clause-attach"],
+  mutationKinds: ["metanode-attach", "search-expression-attach", "search-expression-detach"],
   scopes() {
     return [];
   },

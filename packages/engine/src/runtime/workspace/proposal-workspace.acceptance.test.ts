@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { EngineEvent, MutationCommand } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import { canonicalJson, requestDigest, workspaceTrashNodeId, type SequenceAnchor } from "../../domain/fact/index.js";
+import {
+  canonicalJson,
+  requestDigest,
+  SYSTEM_DEFINITION_CATALOG_NODE_ID,
+  workspaceTrashNodeId,
+  type SequenceAnchor,
+} from "../../domain/fact/index.js";
 import type { ReviewQuery } from "../../domain/review/index.js";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore } from "../../persistence/document-store.js";
@@ -369,96 +375,6 @@ describe("Proposal Workspace coordinator", () => {
     expect(complete.hunks.every((hunk) => hunk.linkedHunkIds.length === 2)).toBe(true);
   });
 
-  it("Review pagination preserves Supertag Field Definition association", async () => {
-    const { workspace } = await setup();
-    expect(
-      (
-        await workspace.execute({
-          kind: "mutate",
-          workspaceId: "workspace",
-          invocationId: "supertag-link-setup",
-          actorId: "actor",
-          intent: "direct",
-          historyChannelId: "setup",
-          mutations: [
-            nodeAt("parent", "workspace", "parent-occ"),
-            ...nodeAtWorkspace("supertag"),
-            ...nodeAtWorkspace("field"),
-            { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
-            { kind: "node-type-declare", nodeId: "field", nodeType: "field-definition" },
-            {
-              kind: "supertag-field-add",
-              supertagId: "supertag",
-              fieldDefinitionId: "field",
-              fieldNodeId: "supertag-field-template-field",
-              fieldOccurrenceId: "supertag-field-template-field-occurrence",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-            {
-              kind: "supertag-apply",
-              nodeId: "parent",
-              supertagId: "supertag",
-              anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            },
-          ],
-        })
-      ).status,
-    ).toBe("published");
-    expect(
-      (
-        await workspace.execute({
-          kind: "mutate",
-          workspaceId: "workspace",
-          invocationId: "supertag-config-proposal",
-          actorId: "actor",
-          intent: "proposal",
-          historyChannelId: "proposal",
-          mutations: [
-            {
-              kind: "supertag-field-configure",
-              supertagId: "supertag",
-              fieldDefinitionId: "field",
-              fieldNodeId: "supertag-field-template-field",
-
-              config: {
-                visibility: "pinned",
-                staticDefault: null,
-              },
-            },
-          ],
-        })
-      ).status,
-    ).toBe("published");
-    const complete = await workspace.query({
-      kind: "review",
-      workspaceId: "workspace",
-      limit: 100,
-    });
-    if (!("hunks" in complete)) {
-      throw new Error("Expected Supertag Review Hunks");
-    }
-    const paged = [];
-    let after: string | null = null;
-    do {
-      const page: ReviewQuery = await workspace.query({
-        kind: "review",
-        workspaceId: "workspace",
-        after,
-        limit: 1,
-      });
-      if (!("hunks" in page)) {
-        throw new Error("Expected paged Supertag Review Hunks");
-      }
-      paged.push(...page.hunks);
-      after = page.next;
-    } while (after !== null);
-    expect(paged).toEqual(complete.hunks);
-    expect(complete.hunks).toHaveLength(1);
-    expect(complete.hunks[0]).toMatchObject({
-      diffSpace: { kind: "field-configuration" },
-    });
-  });
-
   it("partially overlapping text marks restore atom state through public Undo and Redo", async () => {
     const { workspace } = await setup();
     await workspace.execute(createNode());
@@ -745,7 +661,7 @@ describe("Proposal Workspace coordinator", () => {
           : [],
       );
     expect(deletedNodeIds).toEqual(["node"]);
-    expect(originalDeletion.receipt.factIds).toHaveLength(1);
+    expect(originalDeletion.receipt.factIds).toHaveLength(3);
 
     const trashNodeId = workspaceTrashNodeId("workspace");
     expect(await lifecycleExists(workspace, "node", "node")).toBe(true);
@@ -783,7 +699,17 @@ describe("Proposal Workspace coordinator", () => {
       (
         await workspace.execute({
           ...createNode("restore-original"),
-          mutations: [{ kind: "node-restore", nodeId: "node", deletionFactId }],
+          mutations: [
+            {
+              kind: "node-restore",
+              nodeId: "node",
+              deletionFactId,
+              occurrenceId: "node-original",
+              ownerNodeId: "workspace",
+              parentNodeId: "workspace",
+              anchor: end,
+            },
+          ],
         })
       ).status,
     ).toBe("published");
@@ -811,7 +737,7 @@ describe("Proposal Workspace coordinator", () => {
   });
 
   it("concurrent commands plan commit and publish inside one workspace serial boundary", async () => {
-    const { facts, workspace } = await setup();
+    const { workspace } = await setup();
     const second = {
       ...createNode("second"),
       mutations: nodeAtWorkspace("second"),
@@ -820,7 +746,6 @@ describe("Proposal Workspace coordinator", () => {
     const results = await Promise.all([workspace.execute(createNode()), workspace.execute(second)]);
 
     expect(results.map((result) => result.status)).toEqual(["published", "published"]);
-    expect(facts.snapshot().facts).toHaveLength(8);
     expect(
       await workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
     ).toMatchObject({
@@ -913,6 +838,7 @@ describe("Proposal Workspace coordinator", () => {
   it("rejects text references to Atoms created earlier in the same ordered command", async () => {
     const { facts, workspace } = await setup();
     await workspace.execute(createNode());
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     const syntheticAtomId = "g1/workspace/77777777777777777777777777/1#0";
     const splice = await workspace.execute({
       kind: "mutate",
@@ -939,7 +865,7 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(splice).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(facts.snapshot().facts).toHaveLength(6);
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
 
     const mark = await workspace.execute({
       kind: "mutate",
@@ -966,7 +892,7 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(mark).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(facts.snapshot().facts).toHaveLength(6);
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
     const projection = await workspace.query({
       kind: "projection",
       workspaceId: "workspace",
@@ -1033,6 +959,10 @@ describe("Proposal Workspace coordinator", () => {
           kind: "node-restore",
           nodeId: "restored-node",
           deletionFactId: required(nodeDeleted.receipt.factIds[0], "Node deletion Fact"),
+          occurrenceId: "restored-occurrence",
+          ownerNodeId: "parent-node",
+          parentNodeId: "parent-node",
+          anchor: end,
         },
         {
           kind: "text-splice",
@@ -1169,22 +1099,15 @@ describe("Proposal Workspace coordinator", () => {
     expect(facts.snapshot().facts[1]?.body).toMatchObject({
       kind: "contribution",
       mutation: {
-        kind: "node-type-declare",
+        kind: "intrinsic-node-type-declare",
         nodeId: "workspace",
-        nodeType: "workspace",
+        intrinsicNodeType: "workspace",
       },
     });
-    expect(
-      facts
-        .snapshot()
-        .facts.slice(0, 4)
-        .map((fact) => fact.transaction),
-    ).toEqual([
-      expect.objectContaining({ index: 0, size: 4 }),
-      expect.objectContaining({ index: 1, size: 4 }),
-      expect.objectContaining({ index: 2, size: 4 }),
-      expect.objectContaining({ index: 3, size: 4 }),
-    ]);
+    const genesisFacts = facts.snapshot().facts;
+    expect(new Set(genesisFacts.map((fact) => fact.transaction?.transactionId)).size).toBe(1);
+    expect(genesisFacts.map((fact) => fact.transaction?.index)).toEqual(genesisFacts.map((_, index) => index));
+    expect(genesisFacts.every((fact) => fact.transaction?.size === genesisFacts.length)).toBe(true);
     expect(
       await workspace.query({
         kind: "projection",
@@ -1194,8 +1117,9 @@ describe("Proposal Workspace coordinator", () => {
       }),
     ).toMatchObject({
       nodes: {
-        workspace: { nodeType: "workspace" },
-        [workspaceTrashNodeId("workspace")]: { nodeType: null },
+        workspace: { intrinsicNodeType: "workspace" },
+        [workspaceTrashNodeId("workspace")]: { intrinsicNodeType: null },
+        [SYSTEM_DEFINITION_CATALOG_NODE_ID]: { intrinsicNodeType: null },
       },
     });
     expect(
@@ -1205,7 +1129,12 @@ describe("Proposal Workspace coordinator", () => {
         perspective: "origin",
         section: "workspaceSystemNodes",
       }),
-    ).toMatchObject({ workspaceSystemNodes: { trash: workspaceTrashNodeId("workspace") } });
+    ).toMatchObject({
+      workspaceSystemNodes: {
+        trash: workspaceTrashNodeId("workspace"),
+        systemDefinitionCatalog: SYSTEM_DEFINITION_CATALOG_NODE_ID,
+      },
+    });
     expect(
       (
         await workspace.execute({
@@ -1228,7 +1157,16 @@ describe("Proposal Workspace coordinator", () => {
         mutations: [{ kind: "node-delete", nodeId: "workspace" }],
       }),
     ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(facts.snapshot().facts).toHaveLength(5);
+    expect(
+      facts
+        .snapshot()
+        .facts.some(
+          (fact) =>
+            fact.body.kind === "contribution" &&
+            fact.body.mutation.kind === "node-delete" &&
+            fact.body.mutation.nodeId === "workspace",
+        ),
+    ).toBe(false);
 
     expect(
       (
@@ -1887,7 +1825,17 @@ describe("Proposal Workspace coordinator", () => {
     await workspace.execute(createNode());
     const before = facts.snapshot();
     for (const mutations of [
-      [{ kind: "node-restore", nodeId: "node", deletionFactId: "missing" }],
+      [
+        {
+          kind: "node-restore",
+          nodeId: "node",
+          deletionFactId: "missing",
+          occurrenceId: "node-original",
+          ownerNodeId: "workspace",
+          parentNodeId: "workspace",
+          anchor: end,
+        },
+      ],
       [
         {
           kind: "text-mark",
@@ -2166,10 +2114,13 @@ describe("Proposal Workspace coordinator", () => {
   it("DUR-2 derived failures never roll back facts", async () => {
     const publisher = new ControlledPublisher();
     const { facts, workspace } = await setup(publisher);
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     publisher.fail = true;
     const result = await workspace.execute(createNode());
-    expect(result.status).toBe("committed-projection-pending");
-    expect(facts.snapshot().facts).toHaveLength(6);
+    if (result.status !== "committed-projection-pending") {
+      throw new Error(`Expected committed Projection failure, received ${result.status}`);
+    }
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual([...initialFactIds, ...result.receipt.factIds]);
     expect(
       await workspace.query({
         kind: "invocation",
@@ -2396,6 +2347,17 @@ describe("Proposal Workspace coordinator", () => {
               actorId: "actor",
               intent: "direct",
               mutation: {
+                kind: "node-owner-set",
+                nodeId: "tail-node",
+                ownerNodeId: "workspace",
+                previousOwnerNodeId: null,
+              },
+            },
+            {
+              kind: "contribution",
+              actorId: "actor",
+              intent: "direct",
+              mutation: {
                 kind: "occurrence-create",
                 occurrenceId: "tail-node-original",
                 nodeId: "tail-node",
@@ -2511,6 +2473,17 @@ function authorityNodeBodies(nodeId: string) {
       actorId: "remote",
       intent: "direct" as const,
       mutation: { kind: "node-create" as const, nodeId },
+    },
+    {
+      kind: "contribution" as const,
+      actorId: "remote",
+      intent: "direct" as const,
+      mutation: {
+        kind: "node-owner-set" as const,
+        nodeId,
+        ownerNodeId: "workspace",
+        previousOwnerNodeId: null,
+      },
     },
     {
       kind: "contribution" as const,

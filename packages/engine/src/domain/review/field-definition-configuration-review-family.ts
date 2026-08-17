@@ -7,6 +7,7 @@ import type { FieldDefinitionConfigurationDecisionEffect, FieldDefinitionConfigu
 const MUTATION_KINDS = [
   "field-datatype-configure",
   "field-cardinality-configure",
+  "field-optionality-configure",
   "field-initialization-expression-configure",
 ] as const;
 
@@ -109,10 +110,22 @@ function configurationState(
 
 function decisionState(configuration: FieldDefinitionConfiguration): FieldDefinitionConfigurationDecisionState {
   if (configuration.kind === "datatype") {
-    return { kind: configuration.kind, datatype: configuration.datatype };
+    return {
+      kind: configuration.kind,
+      datatypeNodeId: configuration.datatypeNodeId,
+    };
   }
   if (configuration.kind === "cardinality") {
-    return { kind: configuration.kind, cardinality: configuration.cardinality };
+    return {
+      kind: configuration.kind,
+      cardinalityNodeId: configuration.cardinalityNodeId,
+    };
+  }
+  if (configuration.kind === "optionality") {
+    return {
+      kind: configuration.kind,
+      optionalityNodeId: configuration.optionalityNodeId,
+    };
   }
   return { kind: configuration.kind, expression: configuration.expression };
 }

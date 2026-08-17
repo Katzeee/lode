@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { compareFacts, frontierOf, makeFact, workspaceTrashNodeId, type Mutation } from "../fact/index.js";
+import { workspaceTrashNodeId } from "../fact/index.js";
 import { queryReview } from "../review/index.js";
 import { nodeLocation, rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
 import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";
-import { base, end, Facts, fullSurface, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { fullSurface } from "../../../tests/support/reconcile/full-surface-test-fixture.js";
+import { base, end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { addPlacedNode } from "../../../tests/support/reconcile/placed-node-test-helpers.js";
 
 describe("production Reconcile scenarios", () => {
@@ -16,7 +17,7 @@ describe("production Reconcile scenarios", () => {
     expect(root.identity.workspaceNodeId).toBe("workspace");
     expect(root.nodes.workspace).toEqual({
       nodeId: "workspace",
-      nodeType: null,
+      intrinsicNodeType: "workspace",
       content: [],
     });
     expect(root.nodeOwners.workspace).toBeNull();
@@ -55,59 +56,18 @@ describe("production Reconcile scenarios", () => {
     expect(nodeLocation("workspace", deleted, "node-configuration")).toBe("trash");
   });
 
-  it("does not let a concurrent Reference steal the Original placement", () => {
-    const localReplica = "zzzzzzzzzzzzzzzzzzzzzzzzzz";
-    const remoteReplica = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-    const nodeOriginal = contribution(
-      localReplica,
-      5,
-      { [localReplica]: 4 },
-      {
-        kind: "occurrence-create",
-        occurrenceId: "node-original",
-        nodeId: "node",
-        parentNodeId: "workspace",
-        anchor: end,
-      },
-    );
-    const nodeReference = contribution(
-      remoteReplica,
-      1,
-      { [localReplica]: 4 },
-      {
-        kind: "occurrence-create",
-        occurrenceId: "node-reference",
-        nodeId: "node",
-        parentNodeId: "parent",
-        anchor: end,
-      },
-    );
-    const facts = [
-      contribution(localReplica, 1, {}, { kind: "node-create", nodeId: "workspace" }),
-      contribution(localReplica, 2, { [localReplica]: 1 }, { kind: "node-create", nodeId: "parent" }),
-      contribution(
-        localReplica,
-        3,
-        { [localReplica]: 2 },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "parent-original",
-          nodeId: "parent",
-          parentNodeId: "workspace",
-          anchor: end,
-        },
-      ),
-      contribution(localReplica, 4, { [localReplica]: 3 }, { kind: "node-create", nodeId: "node" }),
-      nodeOriginal,
-      nodeReference,
-    ];
-    const snapshot = { facts: [...facts].reverse(), frontier: frontierOf(facts) };
-    const ordered = [...facts].sort(compareFacts);
+  it("keeps Owner authority independent from a non-owning Reference edge", () => {
+    const facts = base();
+    addPlacedNode(facts, "parent");
+    facts.add({
+      kind: "occurrence-create",
+      occurrenceId: "node-reference",
+      nodeId: "node",
+      parentNodeId: "parent",
+      anchor: end,
+    });
 
-    expect(ordered.indexOf(nodeReference)).toBeLessThan(ordered.indexOf(nodeOriginal));
-
-    const projection = projectSnapshot("workspace", snapshot, "origin", versions);
-
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projection.nodeOwners.node).toBe("workspace");
     expect(projection.occurrences["node-reference"]?.parentNodeId).toBe("parent");
   });
@@ -129,8 +89,7 @@ describe("production Reconcile scenarios", () => {
     facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDeletion.id });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projectionText(projection, "node")).toBe("AB");
-    expect(projection.supertagApplications.node).toEqual(["supertag"]);
-    expect(projection.effectiveFields.node?.[0]?.fieldDefinitionId).toBe("field");
+    expect(projection.supertagApplications.node?.map(({ supertagId }) => supertagId)).toEqual(["supertag"]);
     expect(projection.nodeOwners.node).toBe("moved-parent");
     expect(projectSnapshot("workspace", facts.snapshot(), "review", versions)).toMatchObject({
       nodes: projection.nodes,
@@ -159,19 +118,19 @@ describe("production Reconcile scenarios", () => {
       "field-cardinality-configure",
       "field-datatype-configure",
       "field-initialization-expression-configure",
-      "field-initialize",
       "field-materialize",
+      "field-optionality-configure",
       "field-value-delete",
       "inline-reference-alias-attach",
       "inline-reference-alias-detach",
       "inline-reference-create",
       "inline-reference-delete",
+      "intrinsic-node-type-declare",
       "materialized-field-delete",
       "node-create",
       "node-delete",
       "node-owner-set",
       "node-restore",
-      "node-type-declare",
       "occurrence-create",
       "occurrence-delete",
       "occurrence-move",
@@ -180,9 +139,6 @@ describe("production Reconcile scenarios", () => {
       "supertag-apply",
       "supertag-extension-add",
       "supertag-extension-remove",
-      "supertag-field-add",
-      "supertag-field-configure",
-      "supertag-field-remove",
       "supertag-remove",
       "supertag-template-node-add",
       "supertag-template-node-remove",
@@ -209,13 +165,6 @@ describe("production Reconcile scenarios", () => {
           rebuildGeneration("workspace", pendingSnapshot, versions).generation,
         ).hunks.find((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id));
         expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
-        if (entry.kind === "supertag-field-configure") {
-          expect(pendingHunk?.diffSpace.kind).toBe("field-configuration");
-          expect(pendingHunk?.selection.evidence.effects).toEqual([
-            expect.objectContaining({ kind: "field-configuration" }),
-          ]);
-          expect(pendingHunk?.selection.evidence.associatedImpactIds.length).toBeGreaterThan(0);
-        }
         entry.facts.resolve(pendingHunk!.selection.evidence.supportClosure, decision);
         const terminalSnapshot = entry.facts.snapshot();
         const terminalOrigin = projectSnapshot("workspace", terminalSnapshot, "origin", versions);
@@ -270,7 +219,7 @@ describe("production Reconcile scenarios", () => {
     });
   });
 
-  it("moves ownership with the uniquely selected Original placement", () => {
+  it("moves a non-owning edge without changing Owner authority", () => {
     const facts = base();
     addPlacedNode(facts, "reference-parent");
     addPlacedNode(facts, "destination");
@@ -297,7 +246,7 @@ describe("production Reconcile scenarios", () => {
     });
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.nodeOwners.node).toBe("destination");
+    expect(projection.nodeOwners.node).toBe("reference-parent");
     expect(projection.occurrences.occurrence?.parentNodeId).toBe("workspace");
     expect(projection.occurrences.reference?.parentNodeId).toBe("destination");
   });
@@ -428,32 +377,13 @@ function projectionPayload(projection: ReturnType<typeof projectSnapshot>) {
     childOccurrences: projection.childOccurrences,
     nodeOwners: projection.nodeOwners,
     supertagApplications: projection.supertagApplications,
-    supertagFields: projection.supertagFields,
-    templateFields: projection.templateFields,
     supertagTemplateNodes: projection.supertagTemplateNodes,
     templateNodeInstances: projection.templateNodeInstances,
     supertagExtensions: projection.supertagExtensions,
     supertagInstanceSupertags: projection.supertagInstanceSupertags,
     conflictIssues: projection.conflictIssues,
-    effectiveFields: projection.effectiveFields,
     materializedFields: projection.materializedFields,
     sharedDefaultViewDefinitions: projection.sharedDefaultViewDefinitions,
     fieldDefinitionConfigurations: projection.fieldDefinitionConfigurations,
   };
-}
-
-function contribution(
-  replicaId: string,
-  sequence: number,
-  observed: Readonly<Record<string, number>>,
-  mutation: Mutation,
-) {
-  return makeFact({
-    workspaceId: "workspace",
-    replicaId,
-    sequence,
-    observed,
-    lamport: sequence,
-    body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
-  });
 }

@@ -139,9 +139,11 @@ function currentSupertagApplicationOwners(active: readonly ContributionFact[], s
   );
   return additions
     .flatMap((addition) => {
-      const ownerNodeId = addition.body.mutation.nodeId;
+      const ownerNodeId = addition.body.mutation.hostNodeId;
       const removed = removals.some(
-        (removal) => removal.body.mutation.nodeId === ownerNodeId && factObserves(removal, addition),
+        (removal) =>
+          removal.body.mutation.applicationNodeId === addition.body.mutation.applicationNodeId &&
+          factObserves(removal, addition),
       );
       return removed ? [] : [ownerNodeId];
     })

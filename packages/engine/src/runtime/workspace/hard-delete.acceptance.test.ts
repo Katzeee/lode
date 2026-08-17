@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-mutations.js";
 
 import type { HardDeletePreview, MutationCommand } from "@lode/sdk";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
@@ -25,9 +26,10 @@ describe("Hard Delete maintenance", () => {
     expect(preview).toMatchObject({
       canExecute: false,
       blockers: ["replica-unconfirmed"],
-      referenceOccurrenceIds: ["supertag-reference"],
       supertagApplicationNodeIds: ["task"],
     });
+    expect(preview.referenceOccurrenceIds).toContain("supertag-reference");
+    expect(preview.referenceOccurrenceIds).toContain("task-supertag-application-task-supertag-1-definition-occurrence");
     expect(preview.historyImpact).toMatchObject({
       affectedChannelIds: ["maintenance-test"],
       truncated: false,
@@ -77,7 +79,7 @@ describe("Hard Delete maintenance", () => {
       actorId: "maintainer",
       selection: preview.selection,
     });
-    expect(purged.status).toBe("published");
+    expect(purged, JSON.stringify(purged)).toMatchObject({ status: "published" });
     expect(
       await opened.workspace.execute({
         kind: "hard-delete",
@@ -225,17 +227,14 @@ describe("Hard Delete maintenance", () => {
       expect.arrayContaining([left.facts.replicaId, right.facts.replicaId]),
     );
     expect(preview.canExecute).toBe(true);
-    expect(
-      (
-        await left.workspace.execute({
-          kind: "hard-delete",
-          workspaceId: "workspace",
-          invocationId: "multi-replica-purge",
-          actorId: "maintainer",
-          selection: preview.selection,
-        })
-      ).status,
-    ).toBe("published");
+    const purged = await left.workspace.execute({
+      kind: "hard-delete",
+      workspaceId: "workspace",
+      invocationId: "multi-replica-purge",
+      actorId: "maintainer",
+      selection: preview.selection,
+    });
+    expect(purged, JSON.stringify(purged)).toMatchObject({ status: "published" });
     await syncPair(new FactSyncComposite(left.facts.replication), new FactSyncComposite(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(await projectionMap(right.workspace, "nodes")).not.toHaveProperty("task-supertag");
@@ -319,7 +318,7 @@ function setupCommand(): MutationCommand {
         nodeId: "task-supertag",
         parentNodeId: "workspace",
         anchor: end,
-        nodeType: "supertag-definition",
+        intrinsicNodeType: "supertag-definition",
       },
       {
         kind: "node-create",
@@ -328,7 +327,7 @@ function setupCommand(): MutationCommand {
         parentNodeId: "workspace",
         anchor: end,
       },
-      { kind: "supertag-apply", nodeId: "task", supertagId: "task-supertag", anchor: end },
+      createSupertagApplication("task", "task-supertag"),
     ],
   };
 }

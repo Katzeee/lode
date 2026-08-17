@@ -5,14 +5,34 @@ export function canApplySupertagDirectTail(projection: Projection, mutation: Sup
   switch (mutation.kind) {
     case "supertag-apply":
     case "supertag-remove":
-      return hasNodes(projection, mutation.nodeId, mutation.supertagId);
+      return hasNodes(projection, mutation.hostNodeId, mutation.supertagId, mutation.applicationNodeId);
     case "supertag-template-node-add":
     case "supertag-template-node-remove":
       return hasNodes(projection, mutation.supertagId, mutation.templateNodeId);
-    case "supertag-field-add":
-    case "supertag-field-remove":
-    case "supertag-field-configure":
-      return hasNodes(projection, mutation.supertagId, mutation.fieldDefinitionId);
+    case "supertag-template-field-discoverability-set":
+    case "supertag-template-field-visibility-configure":
+      return hasNodes(projection, mutation.supertagId, mutation.templateFieldNodeId, mutation.fieldDefinitionId);
+    case "supertag-template-field-attach":
+    case "supertag-template-field-existing-attach":
+    case "supertag-template-field-detach":
+      return hasNodes(
+        projection,
+        mutation.supertagId,
+        mutation.templateFieldNodeId,
+        mutation.fieldDefinitionId,
+        mutation.staticDefaultValueNodeId,
+      );
+    case "supertag-optional-field-contribution-attach":
+    case "supertag-optional-field-contribution-detach":
+      return hasNodes(
+        projection,
+        mutation.supertagId,
+        mutation.fieldNurseryNodeId,
+        mutation.nurseryValueNodeId,
+        mutation.contributionNodeId,
+        mutation.fieldDefinitionId,
+        mutation.valueNodeId,
+      );
     case "supertag-extension-add":
     case "supertag-extension-remove":
       return hasNodes(projection, mutation.supertagId, mutation.baseSupertagId);

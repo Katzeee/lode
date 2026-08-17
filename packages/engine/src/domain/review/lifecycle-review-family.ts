@@ -20,7 +20,7 @@ const LIFECYCLE_MUTATION_KINDS = [
   "node-delete",
   "node-restore",
   "node-owner-set",
-  "node-type-declare",
+  "intrinsic-node-type-declare",
   "template-node-detach",
 ] as const;
 
@@ -40,7 +40,11 @@ export const lifecycleReviewFamily = {
       ];
     }
     const category =
-      mutation.kind === "node-owner-set" ? "owner" : mutation.kind === "node-type-declare" ? "node-type" : "lifecycle";
+      mutation.kind === "node-owner-set"
+        ? "owner"
+        : mutation.kind === "intrinsic-node-type-declare"
+          ? "intrinsic-node-type"
+          : "lifecycle";
     return [reviewScope(category, mutation.nodeId), associatedNodeScope(mutation.nodeId)];
   },
   candidates: ({ generation, pending }) => lifecycleCandidates(generation, pending),
@@ -90,8 +94,8 @@ function lifecycleCandidates(
       continue;
     }
     if (
-      mutation.kind === "node-type-declare" &&
-      mutation.nodeType === "field" &&
+      mutation.kind === "intrinsic-node-type-declare" &&
+      mutation.intrinsicNodeType === "field" &&
       isBoundFieldNode(generation, mutation.nodeId)
     ) {
       continue;
@@ -158,14 +162,20 @@ function lifecycleEffect(fact: ContributionFact, generation: ScopedProjectionGen
           effect: { kind: "owner", identity: mutation.nodeId, origin, review },
         };
   }
-  if (mutation.kind === "node-type-declare") {
-    const origin = generation.origin.nodes[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
-    const review = generation.review.nodes[mutation.nodeId]?.nodeType === mutation.nodeType ? mutation.nodeType : null;
+  if (mutation.kind === "intrinsic-node-type-declare") {
+    const origin =
+      generation.origin.nodes[mutation.nodeId]?.intrinsicNodeType === mutation.intrinsicNodeType
+        ? mutation.intrinsicNodeType
+        : null;
+    const review =
+      generation.review.nodes[mutation.nodeId]?.intrinsicNodeType === mutation.intrinsicNodeType
+        ? mutation.intrinsicNodeType
+        : null;
     return origin === review
       ? null
       : {
-          identity: `nodeType/${mutation.nodeId}/${mutation.nodeType}`,
-          effect: { kind: "node-type", identity: mutation.nodeId, origin, review },
+          identity: `intrinsicNodeType/${mutation.nodeId}/${mutation.intrinsicNodeType}`,
+          effect: { kind: "intrinsic-node-type", identity: mutation.nodeId, origin, review },
         };
   }
   const identity = mutationIdentity(fact);
@@ -215,12 +225,8 @@ function attachCreationPlacements(
 }
 
 function isBoundFieldNode(generation: ScopedProjectionGeneration, nodeId: string): boolean {
-  return [generation.origin, generation.review].some(
-    (projection) =>
-      Object.values(projection.materializedFields).some((fields) =>
-        fields.some((field) => field.fieldNodeId === nodeId),
-      ) ||
-      Object.values(projection.templateFields).some((fields) => fields.some((field) => field.fieldNodeId === nodeId)),
+  return [generation.origin, generation.review].some((projection) =>
+    Object.values(projection.materializedFields).some((fields) => fields.some((field) => field.fieldNodeId === nodeId)),
   );
 }
 
@@ -252,7 +258,12 @@ function isLifecycleReviewMutation(mutation: ContributionFact["body"]["mutation"
   ContributionFact["body"]["mutation"],
   {
     kind:
-      "node-create" | "node-delete" | "node-restore" | "node-owner-set" | "node-type-declare" | "template-node-detach";
+      | "node-create"
+      | "node-delete"
+      | "node-restore"
+      | "node-owner-set"
+      | "intrinsic-node-type-declare"
+      | "template-node-detach";
   }
 > {
   return LIFECYCLE_MUTATION_KINDS.includes(mutation.kind as (typeof LIFECYCLE_MUTATION_KINDS)[number]);

@@ -1,32 +1,30 @@
 import type {
-  EffectiveField,
-  FieldConfigCandidate,
-  FieldInitializationCandidate,
   ProjectionPage,
   ProjectionPageSection,
-  TemplateField,
   ProjectedNode,
   NodeContentItem,
-  SearchClause,
   SharedDefaultViewDefinition,
   FieldDefinitionConfiguration,
+  SupertagApplication,
+  TypedFieldValue,
+  EffectiveField,
+  OptionalFieldSuggestion,
+  SearchExpression,
 } from "./projection.js";
 import type { ConflictIssue } from "./review.js";
-import {
-  fromConflictIssue,
-  fromSupertagFieldConfig,
-  fromFieldValueSeed,
-  fromProtocolValue,
-  required,
-  toConflictIssue,
-  toSupertagFieldConfig,
-  toFieldValueSeed,
-} from "./protocol-shape-codec.js";
-import type { FieldValueSeed } from "./model.js";
+import { fromConflictIssue, fromProtocolValue, required, toConflictIssue } from "./protocol-shape-codec.js";
 import {
   fromFieldDefinitionConfiguration,
   toFieldDefinitionConfiguration,
 } from "./protocol-field-definition-configuration-codec.js";
+import {
+  fromEffectiveField,
+  fromOptionalFieldSuggestion,
+  toEffectiveField,
+  toOptionalFieldSuggestion,
+} from "./protocol-effective-field-codec.js";
+import { fromSearchExpressionSpec, toSearchExpressionSpec } from "./protocol-search-expression-codec.js";
+import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 
 export function toProjectionPage(page: ProjectionPage): Record<string, unknown> {
   const section = page.section;
@@ -61,18 +59,34 @@ function projectionSectionToProtocol(section: ProjectionPageSection, value: unkn
   if (isStringListSection(section)) {
     return { values: mapValues(entries, (item) => ({ values: item })) };
   }
-  if (section === "templateFields") {
+  if (section === "supertagApplications") {
     return {
-      values: mapValues(entries, (item) => ({ values: (item as readonly TemplateField[]).map(toTemplateField) })),
+      values: mapValues(entries, (item) => ({ values: item as readonly SupertagApplication[] })),
+    };
+  }
+  if (section === "materializedFields" || section === "templateFields" || section === "optionalFieldContributions") {
+    return { values: mapValues(entries, (item) => ({ values: item })) };
+  }
+  if (section === "optionalFieldSuggestions") {
+    return {
+      values: mapValues(entries, (item) => ({
+        values: (item as readonly OptionalFieldSuggestion[]).map(toOptionalFieldSuggestion),
+      })),
     };
   }
   if (section === "effectiveFields") {
     return {
-      values: mapValues(entries, (item) => ({ values: (item as readonly EffectiveField[]).map(toEffectiveField) })),
+      values: mapValues(entries, (item) => ({
+        values: (item as readonly EffectiveField[]).map(toEffectiveField),
+      })),
     };
   }
-  if (section === "materializedFields") {
-    return { values: mapValues(entries, (item) => ({ values: item })) };
+  if (section === "typedFieldValues") {
+    return {
+      values: mapValues(entries, (item) => ({
+        values: (item as readonly TypedFieldValue[]).map(toTypedFieldValue),
+      })),
+    };
   }
   if (section === "fieldDefinitionConfigurations") {
     return {
@@ -81,11 +95,12 @@ function projectionSectionToProtocol(section: ProjectionPageSection, value: unkn
       })),
     };
   }
-  if (section === "searchClauses") {
+  if (section === "searchExpressions") {
     return {
-      values: mapValues(entries, (item) => ({
-        values: (item as readonly SearchClause[]).map(toSearchClause),
-      })),
+      values: mapValues(entries, (item) => {
+        const expression = item as SearchExpression;
+        return { ...expression, expression: toSearchExpressionSpec(expression.expression) };
+      }),
     };
   }
   if (section === "sharedDefaultViewDefinitions") {
@@ -93,6 +108,7 @@ function projectionSectionToProtocol(section: ProjectionPageSection, value: unkn
       values: mapValues(entries, (item) => ({
         values: (item as readonly SharedDefaultViewDefinition[]).map((definition) => ({
           ...definition,
+          options: toViewOptionsSpec(definition.options),
         })),
       })),
     };
@@ -112,29 +128,45 @@ function projectionSectionFromProtocol(section: ProjectionPageSection, value: un
     return wrapper.values;
   }
   const entries = wrapper.values as Readonly<Record<string, unknown>>;
-  if (isStringListSection(section) || section === "materializedFields") {
+  if (
+    isStringListSection(section) ||
+    section === "materializedFields" ||
+    section === "supertagApplications" ||
+    section === "templateFields" ||
+    section === "optionalFieldContributions" ||
+    section === "optionalFieldSuggestions"
+  ) {
+    if (section === "optionalFieldSuggestions") {
+      return mapValues(entries, (item) =>
+        (item as { values: readonly unknown[] }).values.map(fromOptionalFieldSuggestion),
+      );
+    }
     return mapValues(entries, (item) => (item as { values: unknown }).values);
+  }
+  if (section === "effectiveFields") {
+    return mapValues(entries, (item) => (item as { values: readonly unknown[] }).values.map(fromEffectiveField));
+  }
+  if (section === "typedFieldValues") {
+    return mapValues(entries, (item) => (item as { values: readonly unknown[] }).values.map(fromTypedFieldValue));
   }
   if (section === "fieldDefinitionConfigurations") {
     return mapValues(entries, (item) =>
       (item as { values: readonly unknown[] }).values.map(fromFieldDefinitionConfiguration),
     );
   }
-  if (section === "searchClauses") {
-    return mapValues(entries, (item) => (item as { values: readonly unknown[] }).values.map(fromSearchClause));
+  if (section === "searchExpressions") {
+    return mapValues(entries, (item) => {
+      const expression = item as Record<string, unknown>;
+      return { ...expression, expression: fromSearchExpressionSpec(expression.expression) };
+    });
   }
   if (section === "sharedDefaultViewDefinitions") {
     return mapValues(entries, (item) =>
       (item as { values: readonly Record<string, unknown>[] }).values.map((definition) => ({
         ...definition,
+        options: fromViewOptionsSpec(definition.options),
       })),
     );
-  }
-  if (section === "templateFields") {
-    return mapValues(entries, (item) => (item as { values: readonly unknown[] }).values.map(fromTemplateField));
-  }
-  if (section === "effectiveFields") {
-    return mapValues(entries, (item) => (item as { values: readonly unknown[] }).values.map(fromEffectiveField));
   }
   if (section === "conflictIssues") {
     return mapValues(entries, fromConflictIssue);
@@ -145,32 +177,52 @@ function projectionSectionFromProtocol(section: ProjectionPageSection, value: un
   return entries;
 }
 
-function toSearchClause(clause: SearchClause): Record<string, unknown> {
-  const { kind: _kind, ...value } = clause;
-  return {
-    clause: {
-      $case: clause.kind === "supertag-instance-of" ? "supertagInstanceOf" : "fieldDefined",
-      value,
-    },
-  };
+function toTypedFieldValue(value: TypedFieldValue): Record<string, unknown> {
+  const { value: semantic, ...base } = value;
+  if (semantic === null) {
+    return { ...base, semanticValue: undefined };
+  }
+  const { kind, ...fields } = semantic;
+  const $case =
+    kind === "number"
+      ? "numberValue"
+      : kind === "date"
+        ? "dateValue"
+        : kind === "checkbox"
+          ? "checkboxValue"
+          : "optionsFromSupertagValue";
+  return { ...base, semanticValue: { $case, value: fields } };
 }
 
-function fromSearchClause(value: unknown): SearchClause {
+function fromTypedFieldValue(value: unknown): TypedFieldValue {
+  const item = value as Record<string, unknown>;
+  const { semanticValue, ...base } = item;
+  if (base.state !== "value") {
+    return { ...base, value: null } as TypedFieldValue;
+  }
   const selected = required(
-    (
-      value as {
-        clause?: { $case: "supertagInstanceOf" | "fieldDefined"; value: Record<string, unknown> } | null;
-      }
-    ).clause,
-    "Search clause",
+    semanticValue as {
+      $case: "numberValue" | "dateValue" | "checkboxValue" | "optionsFromSupertagValue";
+      value: unknown;
+    } | null,
+    "Typed Field semantic value",
   );
+  const kind =
+    selected.$case === "numberValue"
+      ? "number"
+      : selected.$case === "dateValue"
+        ? "date"
+        : selected.$case === "checkboxValue"
+          ? "checkbox"
+          : "options-from-supertag";
   return {
-    ...selected.value,
-    kind: selected.$case === "supertagInstanceOf" ? "supertag-instance-of" : "field-defined",
-  } as SearchClause;
+    ...base,
+    state: "value",
+    value: { kind, ...(selected.value as Record<string, unknown>) },
+  } as TypedFieldValue;
 }
 
-function toProjectedNode(node: ProjectedNode): Record<string, unknown> {
+export function toProjectedNode(node: ProjectedNode): Record<string, unknown> {
   return {
     ...node,
     content: node.content.map((item) => ({
@@ -182,7 +234,7 @@ function toProjectedNode(node: ProjectedNode): Record<string, unknown> {
   };
 }
 
-function fromProjectedNode(value: unknown): ProjectedNode {
+export function fromProjectedNode(value: unknown): ProjectedNode {
   const node = value as Record<string, unknown>;
   return {
     ...node,
@@ -204,80 +256,11 @@ function withoutKind(value: NodeContentItem): Record<string, unknown> {
 function isStringListSection(section: ProjectionPageSection): boolean {
   return (
     section === "childOccurrences" ||
-    section === "supertagApplications" ||
-    section === "supertagFields" ||
     section === "supertagTemplateNodes" ||
     section === "supertagExtensions" ||
     section === "supertagInstanceSupertags" ||
     section === "supertagExtensionConflicts"
   );
-}
-
-function toTemplateField(field: TemplateField): Record<string, unknown> {
-  return {
-    ...field,
-    configCandidates: field.configCandidates.map(toFieldConfigCandidate),
-    effectiveConfig: field.effectiveConfig === null ? null : toSupertagFieldConfig(field.effectiveConfig),
-  };
-}
-
-function fromTemplateField(value: unknown): TemplateField {
-  const field = value as Record<string, unknown>;
-  return {
-    ...field,
-    configCandidates: (field.configCandidates as readonly unknown[]).map(fromFieldConfigCandidate),
-    effectiveConfig: field.effectiveConfig === null ? null : fromSupertagFieldConfig(field.effectiveConfig),
-  } as unknown as TemplateField;
-}
-
-function toEffectiveField(field: EffectiveField): Record<string, unknown> {
-  return {
-    ...field,
-    configCandidates: field.configCandidates.map(toFieldConfigCandidate),
-    effectiveConfig: field.effectiveConfig === null ? null : toSupertagFieldConfig(field.effectiveConfig),
-    initializationCandidates: field.initializationCandidates.map(toFieldInitializationCandidate),
-    initializedValues:
-      field.initializedValues === null ? null : { values: field.initializedValues.map(toFieldValueSeed) },
-  };
-}
-
-function fromEffectiveField(value: unknown): EffectiveField {
-  const field = value as Record<string, unknown>;
-  return {
-    ...field,
-    configCandidates: (field.configCandidates as readonly unknown[]).map(fromFieldConfigCandidate),
-    effectiveConfig: field.effectiveConfig === null ? null : fromSupertagFieldConfig(field.effectiveConfig),
-    initializationCandidates: (field.initializationCandidates as readonly unknown[]).map(
-      fromFieldInitializationCandidate,
-    ),
-    initializedValues:
-      field.initializedValues === null
-        ? null
-        : ((field.initializedValues as { values: readonly unknown[] }).values.map(
-            fromFieldValueSeed,
-          ) as readonly FieldValueSeed[]),
-  } as unknown as EffectiveField;
-}
-
-function toFieldConfigCandidate(candidate: FieldConfigCandidate): Record<string, unknown> {
-  return { ...candidate, config: toSupertagFieldConfig(candidate.config) };
-}
-
-function fromFieldConfigCandidate(value: unknown): FieldConfigCandidate {
-  const candidate = value as Record<string, unknown>;
-  return { ...candidate, config: fromSupertagFieldConfig(candidate.config) } as FieldConfigCandidate;
-}
-
-function toFieldInitializationCandidate(candidate: FieldInitializationCandidate): Record<string, unknown> {
-  return { ...candidate, values: candidate.values.map(toFieldValueSeed) };
-}
-
-function fromFieldInitializationCandidate(value: unknown): FieldInitializationCandidate {
-  const candidate = value as Record<string, unknown>;
-  return {
-    ...candidate,
-    values: (candidate.values as readonly unknown[]).map(fromFieldValueSeed),
-  } as unknown as FieldInitializationCandidate;
 }
 
 function mapValues(

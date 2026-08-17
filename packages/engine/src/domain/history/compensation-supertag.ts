@@ -1,5 +1,7 @@
 import {
   compareFacts,
+  detachedSupertagValueNodeId,
+  detachedSupertagValueOccurrenceId,
   isSupertagMutation,
   type ContributionFact,
   type Mutation,
@@ -20,65 +22,8 @@ export function compensateSupertagMutation(
   if (hasLaterRelationEdit(target, activeFacts)) {
     return noCompensation();
   }
-  if (mutation.kind === "supertag-apply") {
-    return contains(projection, mutation)
-      ? ready({
-          kind: "supertag-remove",
-          nodeId: mutation.nodeId,
-          supertagId: mutation.supertagId,
-          previousAnchor: currentAnchor(projection.supertagApplications[mutation.nodeId] ?? [], mutation.supertagId),
-        })
-      : noCompensation();
-  }
-  if (mutation.kind === "supertag-remove") {
-    return !contains(projection, mutation) && mutation.previousAnchor
-      ? ready({
-          kind: "supertag-apply",
-          nodeId: mutation.nodeId,
-          supertagId: mutation.supertagId,
-          anchor: mutation.previousAnchor,
-        })
-      : noCompensation();
-  }
-  if (mutation.kind === "supertag-field-add") {
-    return contains(projection, mutation)
-      ? ready({
-          kind: "supertag-field-remove",
-          supertagId: mutation.supertagId,
-          fieldDefinitionId: mutation.fieldDefinitionId,
-          fieldNodeId: mutation.fieldNodeId,
-          fieldOccurrenceId: mutation.fieldOccurrenceId,
-          previousAnchor: currentAnchor(
-            projection.childOccurrences[mutation.supertagId] ?? [],
-            mutation.fieldOccurrenceId,
-          ),
-        })
-      : noCompensation();
-  }
-  if (mutation.kind === "supertag-field-remove") {
-    return !contains(projection, mutation) && mutation.previousAnchor
-      ? ready({
-          kind: "supertag-field-add",
-          supertagId: mutation.supertagId,
-          fieldDefinitionId: mutation.fieldDefinitionId,
-          fieldNodeId: mutation.fieldNodeId,
-          fieldOccurrenceId: mutation.fieldOccurrenceId,
-          anchor: mutation.previousAnchor,
-        })
-      : noCompensation();
-  }
-  if (mutation.kind === "supertag-field-configure") {
-    return mutation.previousConfig == null
-      ? noCompensation()
-      : ready({
-          kind: "supertag-field-configure",
-          supertagId: mutation.supertagId,
-          fieldDefinitionId: mutation.fieldDefinitionId,
-          fieldNodeId: mutation.fieldNodeId,
-          config: mutation.previousConfig,
-          previousConfig: mutation.config,
-          observedConfigFactIds: [target.id],
-        });
+  if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
+    return compensateSupertagApplication(mutation, projection);
   }
   if (mutation.kind === "supertag-extension-add") {
     return contains(projection, mutation)
@@ -103,7 +48,150 @@ export function compensateSupertagMutation(
         })
       : noCompensation();
   }
-  return compensateTemplateNodeRelation(mutation, projection);
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    return compensateTemplateNodeRelation(mutation, projection);
+  }
+  if (
+    mutation.kind === "supertag-template-field-attach" ||
+    mutation.kind === "supertag-template-field-existing-attach" ||
+    mutation.kind === "supertag-template-field-detach" ||
+    mutation.kind === "supertag-template-field-discoverability-set" ||
+    mutation.kind === "supertag-template-field-visibility-configure"
+  ) {
+    return compensateTemplateFieldRelation(mutation, projection);
+  }
+  if (mutation.kind === "supertag-optional-field-contribution-attach") {
+    return contains(projection, mutation)
+      ? ready({
+          ...mutation,
+          kind: "supertag-optional-field-contribution-detach",
+          previousAnchor: currentAnchor(
+            projection.childOccurrences[mutation.nurseryValueNodeId] ?? [],
+            mutation.contributionOccurrenceId,
+          ),
+        })
+      : noCompensation();
+  }
+  return !contains(projection, mutation) && mutation.previousAnchor
+    ? ready({ ...mutation, kind: "supertag-optional-field-contribution-attach", anchor: mutation.previousAnchor })
+    : noCompensation();
+}
+
+function compensateTemplateFieldRelation(
+  mutation: Extract<
+    SupertagMutation,
+    {
+      kind:
+        | "supertag-template-field-attach"
+        | "supertag-template-field-existing-attach"
+        | "supertag-template-field-detach"
+        | "supertag-template-field-discoverability-set"
+        | "supertag-template-field-visibility-configure";
+    }
+  >,
+  projection: ScopedProjection,
+): CompensationStep {
+  if (mutation.kind === "supertag-template-field-discoverability-set") {
+    return mutation.previousDiscoverable === undefined
+      ? noCompensation()
+      : ready({
+          ...mutation,
+          discoverable: mutation.previousDiscoverable,
+          previousDiscoverable: mutation.discoverable,
+        });
+  }
+  if (mutation.kind === "supertag-template-field-visibility-configure") {
+    if (mutation.previousVisibility === undefined) {
+      return noCompensation();
+    }
+    const current = (projection.templateFields[mutation.supertagId] ?? []).find(
+      (field) => field.templateFieldNodeId === mutation.templateFieldNodeId,
+    );
+    return current === undefined
+      ? noCompensation()
+      : ready({
+          kind: mutation.kind,
+          supertagId: mutation.supertagId,
+          templateFieldNodeId: mutation.templateFieldNodeId,
+          fieldDefinitionId: mutation.fieldDefinitionId,
+          visibility: mutation.previousVisibility,
+          previousVisibility: current.visibility,
+          observedVisibilityFactIds: current.visibilityCandidates.map((candidate) => candidate.contributionId),
+        });
+  }
+  if (mutation.kind === "supertag-template-field-detach") {
+    return !contains(projection, mutation) && mutation.previousAnchor
+      ? ready({
+          kind: "supertag-template-field-existing-attach",
+          ...templateFieldIdentity(mutation),
+          anchor: mutation.previousAnchor,
+        })
+      : noCompensation();
+  }
+  return contains(projection, mutation)
+    ? ready({
+        kind: "supertag-template-field-detach",
+        ...templateFieldIdentity(mutation),
+        previousAnchor: currentAnchor(
+          projection.childOccurrences[mutation.supertagId] ?? [],
+          mutation.templateFieldOccurrenceId,
+        ),
+      })
+    : noCompensation();
+}
+
+function templateFieldIdentity(
+  mutation: Extract<
+    SupertagMutation,
+    {
+      kind:
+        "supertag-template-field-attach" | "supertag-template-field-existing-attach" | "supertag-template-field-detach";
+    }
+  >,
+) {
+  return {
+    supertagId: mutation.supertagId,
+    templateFieldNodeId: mutation.templateFieldNodeId,
+    templateFieldOccurrenceId: mutation.templateFieldOccurrenceId,
+    fieldDefinitionId: mutation.fieldDefinitionId,
+    definitionOccurrenceId: mutation.definitionOccurrenceId,
+    staticDefaultValueNodeId: mutation.staticDefaultValueNodeId,
+    staticDefaultValueOccurrenceId: mutation.staticDefaultValueOccurrenceId,
+  } as const;
+}
+
+function compensateSupertagApplication(
+  mutation: Extract<SupertagMutation, { kind: "supertag-apply" | "supertag-remove" }>,
+  projection: ScopedProjection,
+): CompensationStep {
+  if (mutation.kind === "supertag-apply") {
+    return contains(projection, mutation)
+      ? ready({
+          kind: "supertag-remove",
+          hostNodeId: mutation.hostNodeId,
+          supertagId: mutation.supertagId,
+          applicationNodeId: mutation.applicationNodeId,
+          applicationOccurrenceId: mutation.applicationOccurrenceId,
+          relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
+          definitionOccurrenceId: mutation.definitionOccurrenceId,
+          detachedValueNodeId: detachedSupertagValueNodeId(mutation.applicationNodeId),
+          detachedValueOccurrenceId: detachedSupertagValueOccurrenceId(mutation.applicationNodeId),
+          previousAnchor: applicationAnchor(projection, mutation),
+        })
+      : noCompensation();
+  }
+  return !contains(projection, mutation) && mutation.previousAnchor
+    ? ready({
+        kind: "supertag-apply",
+        hostNodeId: mutation.hostNodeId,
+        supertagId: mutation.supertagId,
+        applicationNodeId: mutation.applicationNodeId,
+        applicationOccurrenceId: mutation.applicationOccurrenceId,
+        relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
+        definitionOccurrenceId: mutation.definitionOccurrenceId,
+        anchor: mutation.previousAnchor,
+      })
+    : noCompensation();
 }
 
 function compensateTemplateNodeRelation(
@@ -141,26 +229,46 @@ function ready(mutation: Mutation): CompensationStep {
 
 function contains(projection: ScopedProjection, mutation: SupertagMutation): boolean {
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return (projection.supertagApplications[mutation.nodeId] ?? []).includes(mutation.supertagId);
-  }
-  if (
-    mutation.kind === "supertag-field-add" ||
-    mutation.kind === "supertag-field-remove" ||
-    mutation.kind === "supertag-field-configure"
-  ) {
-    return (projection.templateFields[mutation.supertagId] ?? []).some(
-      (field) => field.fieldNodeId === mutation.fieldNodeId,
+    return (projection.supertagApplications[mutation.hostNodeId] ?? []).some(
+      (application) => application.applicationNodeId === mutation.applicationNodeId,
     );
   }
   if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
     return (projection.supertagExtensions[mutation.supertagId] ?? []).includes(mutation.baseSupertagId);
   }
-  const occurrence = projection.occurrences[mutation.templateOccurrenceId];
-  return occurrence?.nodeId === mutation.templateNodeId && occurrence.parentNodeId === mutation.supertagId;
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    const occurrence = projection.occurrences[mutation.templateOccurrenceId];
+    return occurrence?.nodeId === mutation.templateNodeId && occurrence.parentNodeId === mutation.supertagId;
+  }
+  if (
+    mutation.kind === "supertag-template-field-attach" ||
+    mutation.kind === "supertag-template-field-existing-attach" ||
+    mutation.kind === "supertag-template-field-detach" ||
+    mutation.kind === "supertag-template-field-discoverability-set" ||
+    mutation.kind === "supertag-template-field-visibility-configure"
+  ) {
+    return (projection.templateFields[mutation.supertagId] ?? []).some(
+      (field) => field.templateFieldNodeId === mutation.templateFieldNodeId,
+    );
+  }
+  return (projection.optionalFieldContributions[mutation.supertagId] ?? []).some(
+    (field) => field.contributionNodeId === mutation.contributionNodeId,
+  );
 }
 
 function currentAnchor(identities: readonly string[], identity: string) {
   return sequenceAnchorAt(identities, identities.indexOf(identity));
+}
+
+function applicationAnchor(
+  projection: ScopedProjection,
+  mutation: Extract<SupertagMutation, { kind: "supertag-apply" | "supertag-remove" }>,
+) {
+  const metanodeId = projection.metanodes[mutation.hostNodeId];
+  return currentAnchor(
+    metanodeId === undefined ? [] : (projection.childOccurrences[metanodeId] ?? []),
+    mutation.applicationOccurrenceId,
+  );
 }
 
 function hasLaterRelationEdit(target: ContributionFact, activeFacts: readonly ContributionFact[]): boolean {
@@ -178,17 +286,22 @@ function hasLaterRelationEdit(target: ContributionFact, activeFacts: readonly Co
 
 function relationOwner(mutation: SupertagMutation): string {
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return JSON.stringify(["application", mutation.nodeId, mutation.supertagId]);
-  }
-  if (
-    mutation.kind === "supertag-field-add" ||
-    mutation.kind === "supertag-field-remove" ||
-    mutation.kind === "supertag-field-configure"
-  ) {
-    return JSON.stringify(["field", mutation.fieldNodeId]);
+    return JSON.stringify(["application", mutation.applicationNodeId]);
   }
   if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
     return JSON.stringify(["extension", mutation.supertagId, mutation.baseSupertagId]);
   }
-  return JSON.stringify(["template-node", mutation.supertagId, mutation.templateNodeId]);
+  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
+    return JSON.stringify(["template-node", mutation.supertagId, mutation.templateNodeId]);
+  }
+  if (
+    mutation.kind === "supertag-template-field-attach" ||
+    mutation.kind === "supertag-template-field-existing-attach" ||
+    mutation.kind === "supertag-template-field-detach" ||
+    mutation.kind === "supertag-template-field-discoverability-set" ||
+    mutation.kind === "supertag-template-field-visibility-configure"
+  ) {
+    return JSON.stringify(["template-field", mutation.supertagId, mutation.templateFieldNodeId]);
+  }
+  return JSON.stringify(["optional-field", mutation.supertagId, mutation.contributionNodeId]);
 }

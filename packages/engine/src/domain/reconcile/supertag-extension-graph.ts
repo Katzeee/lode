@@ -4,6 +4,7 @@ export type SupertagExtensionGraph = Readonly<{
   instanceSupertags: Readonly<Record<string, readonly string[]>>;
   conflicts: Readonly<Record<string, readonly string[]>>;
   lineage(supertagId: string): readonly string[];
+  paths(supertagId: string): readonly (readonly string[])[];
 }>;
 
 export function supertagExtensionGraph(
@@ -14,7 +15,30 @@ export function supertagExtensionGraph(
     instanceSupertags: instanceSupertags(extensions, cyclic),
     conflicts: extensionConflicts(extensions, cyclic),
     lineage: (supertagId) => lineage(supertagId, extensions, cyclic),
+    paths: (supertagId) => extensionPaths(supertagId, extensions, cyclic),
   };
+}
+
+function extensionPaths(
+  supertagId: string,
+  extensions: Readonly<Record<string, readonly string[]>>,
+  cyclic: ReadonlySet<string>,
+  visited: ReadonlySet<string> = new Set(),
+): readonly (readonly string[])[] {
+  if (cyclic.has(supertagId)) {
+    return [[supertagId]];
+  }
+  const result: string[][] = [[supertagId]];
+  const nextVisited = new Set([...visited, supertagId]);
+  for (const baseSupertagId of extensions[supertagId] ?? []) {
+    if (nextVisited.has(baseSupertagId) || cyclic.has(baseSupertagId)) {
+      continue;
+    }
+    for (const path of extensionPaths(baseSupertagId, extensions, cyclic, nextVisited)) {
+      result.push([supertagId, ...path]);
+    }
+  }
+  return result;
 }
 
 function instanceSupertags(

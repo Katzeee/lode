@@ -6,8 +6,8 @@ import {
   type FactSnapshot,
   type Mutation,
   factTransactionId,
-  workspaceTrashNodeId,
-  workspaceTrashOccurrenceId,
+  workspaceGenesisMutations,
+  NODE_SUPERTAGS_DEFINITION_NODE_ID,
 } from "../../../src/domain/fact/index.js";
 import {
   CURRENT_PROJECTION_VERSIONS,
@@ -15,6 +15,7 @@ import {
   type ProjectionGeneration,
   type ProjectionVersions,
 } from "../../../src/domain/reconcile/index.js";
+import { withInitialOwnerRelations } from "../reconcile/placed-node-test-helpers.js";
 
 export const REPLICA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 export const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -31,17 +32,7 @@ export class ReviewFacts {
   readonly values: Fact[] = [];
 
   constructor() {
-    this.addTransaction([
-      { kind: "node-create", nodeId: "workspace" },
-      { kind: "node-create", nodeId: workspaceTrashNodeId("workspace") },
-      {
-        kind: "occurrence-create",
-        occurrenceId: workspaceTrashOccurrenceId("workspace"),
-        nodeId: workspaceTrashNodeId("workspace"),
-        parentNodeId: "workspace",
-        anchor: end,
-      },
-    ]);
+    this.addTransaction(workspaceGenesisMutations("workspace"));
   }
 
   add(mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {
@@ -50,12 +41,66 @@ export class ReviewFacts {
 
   addTransaction(mutations: readonly Mutation[], intent: "direct" | "proposal" = "direct"): readonly Fact[] {
     return this.addBodies(
-      mutations.map((mutation) => ({
+      withInitialOwnerRelations(mutations).map((mutation) => ({
         kind: "contribution" as const,
         actorId: "actor",
         intent,
         mutation,
       })),
+    );
+  }
+
+  applySupertag(hostNodeId: string, supertagId: string, intent: "direct" | "proposal" = "direct"): readonly Fact[] {
+    const stem = `${hostNodeId}-${supertagId}-application`;
+    const metanodeId = `${hostNodeId}-metanode`;
+    const metanodeExists = this.values.some(
+      (fact) =>
+        fact.body.kind === "contribution" &&
+        fact.body.mutation.kind === "metanode-attach" &&
+        fact.body.mutation.hostNodeId === hostNodeId,
+    );
+    return this.addTransaction(
+      [
+        ...(metanodeExists
+          ? []
+          : ([
+              { kind: "node-create", nodeId: metanodeId },
+              { kind: "metanode-attach", hostNodeId, metanodeId },
+            ] as const)),
+        { kind: "node-create", nodeId: stem },
+        {
+          kind: "occurrence-create",
+          occurrenceId: `${stem}-occurrence`,
+          nodeId: stem,
+          parentNodeId: metanodeId,
+          anchor: end,
+        },
+        {
+          kind: "occurrence-create",
+          occurrenceId: `${stem}-relation-definition-occurrence`,
+          nodeId: NODE_SUPERTAGS_DEFINITION_NODE_ID,
+          parentNodeId: stem,
+          anchor: end,
+        },
+        {
+          kind: "occurrence-create",
+          occurrenceId: `${stem}-definition-occurrence`,
+          nodeId: supertagId,
+          parentNodeId: stem,
+          anchor: end,
+        },
+        {
+          kind: "supertag-apply",
+          hostNodeId,
+          supertagId,
+          applicationNodeId: stem,
+          applicationOccurrenceId: `${stem}-occurrence`,
+          relationDefinitionOccurrenceId: `${stem}-relation-definition-occurrence`,
+          definitionOccurrenceId: `${stem}-definition-occurrence`,
+          anchor: end,
+        },
+      ],
+      intent,
     );
   }
 
@@ -66,10 +111,10 @@ export class ReviewFacts {
     intent: "direct" | "proposal" = "direct",
   ): readonly Fact[] {
     return this.addTransaction(
-      [
+      withInitialOwnerRelations([
         { kind: "node-create", nodeId },
         { kind: "occurrence-create", occurrenceId, nodeId, parentNodeId, anchor: end },
-      ],
+      ]),
       intent,
     );
   }

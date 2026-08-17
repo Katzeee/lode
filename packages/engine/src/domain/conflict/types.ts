@@ -1,12 +1,4 @@
-import type {
-  FactFrontier,
-  SupertagFieldConfig,
-  FieldValueSeed,
-  ResolutionDecision,
-  SequenceAnchor,
-  NodeType,
-  Mutation,
-} from "../fact/index.js";
+import type { FactFrontier, ResolutionDecision, SequenceAnchor, IntrinsicNodeType, Mutation } from "../fact/index.js";
 
 export type ResolutionConflictCandidate = Readonly<{
   resolutionId: string;
@@ -30,12 +22,12 @@ export type ConflictIssue =
       recoveryActions: readonly ["restore-support"];
     }>
   | Readonly<{
-      kind: "node-type-conflict";
+      kind: "intrinsic-node-type-conflict";
       identity: string;
       nodeId: string;
       candidates: readonly Readonly<{
         contributionId: string;
-        nodeType: NodeType;
+        intrinsicNodeType: IntrinsicNodeType;
         actorId: string;
         replicaId: string;
         observedFrontier: FactFrontier;
@@ -65,30 +57,6 @@ export type ConflictIssue =
       kind: "supertag-extension-cycle";
       identity: string;
       supertagIds: readonly string[];
-    }>
-  | Readonly<{
-      kind: "field-config-conflict";
-      identity: string;
-      ownerNodeId: string | null;
-      fieldDefinitionId: string;
-      supertagIds: readonly string[];
-      templateOccurrenceIds: readonly string[];
-      candidates: readonly Readonly<{
-        config: SupertagFieldConfig;
-        contributionIds: readonly string[];
-      }>[];
-    }>
-  | Readonly<{
-      kind: "field-initialization-conflict";
-      identity: string;
-      ownerNodeId: string;
-      fieldDefinitionId: string;
-      candidates: readonly Readonly<{
-        initializationId: string;
-        supertagId: string;
-        source: "static-default" | "auto-initialize";
-        values: readonly FieldValueSeed[];
-      }>[];
     }>;
 
 export type ConflictQuery = Readonly<{

@@ -1,15 +1,11 @@
 import type { ContributionMutation as ProtocolContributionMutation } from "@lode/protocol/dto/fact";
 import { ContributionMutationSchema } from "@lode/protocol/proto";
-import type { ContributionMutation, InitializedFieldValue } from "./fact.js";
-import type { SupertagFieldConfig } from "./model.js";
+import type { ContributionMutation } from "./fact.js";
+import type { FieldInitializationExpression } from "./model.js";
 import { fromProtocolMessage, toProtocolMessage } from "./protocol-message-codec.js";
-import {
-  fromSupertagFieldConfig,
-  fromProtocolValue,
-  required,
-  toSupertagFieldConfig,
-  toProtocolValue,
-} from "./protocol-shape-codec.js";
+import { fromProtocolValue, required, toProtocolValue } from "./protocol-shape-codec.js";
+import { fromSearchExpressionSpec, toSearchExpressionSpec } from "./protocol-search-expression-codec.js";
+import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 
 type ProtocolContributionMutationCase = NonNullable<
   ReturnType<typeof ProtocolContributionMutation.decode>["mutation"]
@@ -25,12 +21,9 @@ const KIND_BY_CASE = {
   occurrenceMove: "occurrence-move",
   nodeOwnerSet: "node-owner-set",
   metanodeAttach: "metanode-attach",
-  nodeTypeDeclare: "node-type-declare",
+  declareIntrinsicNodeType: "intrinsic-node-type-declare",
   supertagApply: "supertag-apply",
   supertagRemove: "supertag-remove",
-  supertagFieldAdd: "supertag-field-add",
-  supertagFieldRemove: "supertag-field-remove",
-  supertagFieldConfigure: "supertag-field-configure",
   supertagExtensionAdd: "supertag-extension-add",
   supertagExtensionRemove: "supertag-extension-remove",
   supertagTemplateNodeAdd: "supertag-template-node-add",
@@ -39,20 +32,30 @@ const KIND_BY_CASE = {
   fieldMaterialize: "field-materialize",
   fieldValueDelete: "field-value-delete",
   materializedFieldDelete: "materialized-field-delete",
-  fieldInitialize: "field-initialize",
   textSplice: "text-splice",
   textMark: "text-mark",
   inlineReferenceCreate: "inline-reference-create",
   inlineReferenceDelete: "inline-reference-delete",
   inlineReferenceAliasAttach: "inline-reference-alias-attach",
   inlineReferenceAliasDetach: "inline-reference-alias-detach",
-  searchSupertagClauseAttach: "search-supertag-clause-attach",
-  searchFieldClauseAttach: "search-field-clause-attach",
+  searchExpressionAttach: "search-expression-attach",
+  searchExpressionDetach: "search-expression-detach",
   sharedDefaultViewDefinitionAttach: "shared-default-view-definition-attach",
+  sharedDefaultViewDefinitionDetach: "shared-default-view-definition-detach",
   sharedDefaultViewDefinitionModeSet: "shared-default-view-definition-mode-set",
+  sharedDefaultViewDefinitionSortByNameSet: "shared-default-view-definition-sort-by-name-set",
+  sharedDefaultViewDefinitionOptionsSet: "shared-default-view-definition-options-set",
   fieldDatatypeConfigure: "field-datatype-configure",
   fieldCardinalityConfigure: "field-cardinality-configure",
+  fieldOptionalityConfigure: "field-optionality-configure",
   fieldInitializationExpressionConfigure: "field-initialization-expression-configure",
+  supertagTemplateFieldAttach: "supertag-template-field-attach",
+  supertagTemplateFieldExistingAttach: "supertag-template-field-existing-attach",
+  supertagTemplateFieldDetach: "supertag-template-field-detach",
+  supertagTemplateFieldDiscoverabilitySet: "supertag-template-field-discoverability-set",
+  supertagOptionalFieldContributionAttach: "supertag-optional-field-contribution-attach",
+  supertagOptionalFieldContributionDetach: "supertag-optional-field-contribution-detach",
+  supertagTemplateFieldVisibilityConfigure: "supertag-template-field-visibility-configure",
 } as const satisfies Readonly<Record<ProtocolContributionMutationCase, ContributionMutation["kind"]>>;
 
 type AssertNever<Value extends never> = Value;
@@ -64,23 +67,30 @@ export function toContributionMutation(mutation: ContributionMutation): Record<s
   assertMutationFields(mutation);
   const value = toProtocolValue(mutation) as Record<string, unknown>;
   delete value.kind;
-  if (mutation.kind === "supertag-field-configure") {
-    value.config = toSupertagFieldConfig(mutation.config);
-    value.previousConfig = previousConfigToProtocol(mutation.previousConfig);
-    value.observedConfigFactIds = optionalStrings(mutation.observedConfigFactIds);
-  } else if (mutation.kind === "field-initialize") {
-    value.values = mutation.values.map(toInitializedFieldValue);
-    value.observedInitializationFactIds = optionalStrings(mutation.observedInitializationFactIds);
-  } else if (mutation.kind === "text-splice") {
+  if (mutation.kind === "text-splice") {
     value.deletedAtoms = mutation.deletedAtoms === undefined ? null : { values: mutation.deletedAtoms };
     value.attributes = mutation.attributes === undefined ? null : { values: mutation.attributes };
+  } else if (mutation.kind === "node-owner-set") {
+    value.ownerNodeId = currentOwnerToProtocol(mutation.ownerNodeId);
+    value.previousOwnerNodeId = previousScalarToProtocol(mutation.previousOwnerNodeId);
   } else if (mutation.kind === "field-datatype-configure") {
-    value.previousDatatype = previousScalarToProtocol(mutation.previousDatatype);
+    value.previousDatatypeNodeId = previousScalarToProtocol(mutation.previousDatatypeNodeId);
   } else if (mutation.kind === "field-cardinality-configure") {
-    value.previousCardinality = previousScalarToProtocol(mutation.previousCardinality);
+    value.previousCardinalityNodeId = previousScalarToProtocol(mutation.previousCardinalityNodeId);
+  } else if (mutation.kind === "field-optionality-configure") {
+    value.previousOptionalityNodeId = previousScalarToProtocol(mutation.previousOptionalityNodeId);
   } else if (mutation.kind === "field-initialization-expression-configure") {
     value.expression = expressionToProtocol(mutation.expression);
     value.previousExpression = previousExpressionToProtocol(mutation.previousExpression);
+  } else if (mutation.kind === "search-expression-attach") {
+    value.expression = toSearchExpressionSpec(mutation.expression);
+    value.previousExpression =
+      mutation.previousExpression === undefined ? null : toSearchExpressionSpec(mutation.previousExpression);
+  } else if (mutation.kind === "search-expression-detach") {
+    value.expression = toSearchExpressionSpec(mutation.expression);
+  } else if (mutation.kind === "shared-default-view-definition-options-set") {
+    value.options = toViewOptionsSpec(mutation.options);
+    value.previousOptions = mutation.previousOptions === undefined ? null : toViewOptionsSpec(mutation.previousOptions);
   }
   const wrapped = { mutation: { $case: caseFor(mutation.kind), value } };
   return toProtocolMessage(ContributionMutationSchema, wrapped) as Record<string, unknown>;
@@ -91,37 +101,44 @@ export function fromContributionMutation(value: unknown): ContributionMutation {
     typeof ProtocolContributionMutation.decode
   >;
   const selected = required(decodedMessage.mutation, "Contribution mutation");
+  const raw = selected.value as unknown as Record<string, unknown>;
   const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  if (selected.$case === "supertagFieldConfigure") {
-    decoded.config = fromSupertagFieldConfig(decoded.config);
-    assignOptional(decoded, "previousConfig", previousConfigFromProtocol(decoded.previousConfig));
-    assignOptional(decoded, "observedConfigFactIds", optionalStringsFromProtocol(decoded.observedConfigFactIds));
-  } else if (selected.$case === "fieldInitialize") {
-    decoded.values = (decoded.values as readonly unknown[]).map(fromInitializedFieldValue);
-    assignOptional(
-      decoded,
-      "observedInitializationFactIds",
-      optionalStringsFromProtocol(decoded.observedInitializationFactIds),
-    );
+  if (selected.$case === "nodeOwnerSet") {
+    decoded.ownerNodeId = currentOwnerFromProtocol(raw.ownerNodeId);
+    assignOptional(decoded, "previousOwnerNodeId", previousScalarFromProtocol(raw.previousOwnerNodeId));
   } else if (selected.$case === "textSplice") {
     assignOptional(decoded, "deletedAtoms", optionalValuesFromProtocol(decoded.deletedAtoms));
     assignOptional(decoded, "attributes", optionalValuesFromProtocol(decoded.attributes));
   } else if (selected.$case === "fieldDatatypeConfigure") {
-    assignOptional(decoded, "previousDatatype", previousScalarFromProtocol(decoded.previousDatatype));
+    assignOptional(decoded, "previousDatatypeNodeId", previousScalarFromProtocol(raw.previousDatatypeNodeId));
   } else if (selected.$case === "fieldCardinalityConfigure") {
-    assignOptional(decoded, "previousCardinality", previousScalarFromProtocol(decoded.previousCardinality));
+    assignOptional(decoded, "previousCardinalityNodeId", previousScalarFromProtocol(raw.previousCardinalityNodeId));
+  } else if (selected.$case === "fieldOptionalityConfigure") {
+    assignOptional(decoded, "previousOptionalityNodeId", previousScalarFromProtocol(raw.previousOptionalityNodeId));
   } else if (selected.$case === "fieldInitializationExpressionConfigure") {
     decoded.expression = expressionFromProtocol(decoded.expression);
-    assignOptional(decoded, "previousExpression", previousExpressionFromProtocol(decoded.previousExpression));
+    assignOptional(decoded, "previousExpression", previousExpressionFromProtocol(raw.previousExpression));
+  } else if (selected.$case === "searchExpressionAttach") {
+    decoded.expression = fromSearchExpressionSpec(raw.expression);
+    if (raw.previousExpression !== null) {
+      decoded.previousExpression = fromSearchExpressionSpec(raw.previousExpression);
+    }
+  } else if (selected.$case === "searchExpressionDetach") {
+    decoded.expression = fromSearchExpressionSpec(raw.expression);
+  } else if (selected.$case === "sharedDefaultViewDefinitionOptionsSet") {
+    decoded.options = fromViewOptionsSpec(raw.options);
+    if (raw.previousOptions !== null) {
+      decoded.previousOptions = fromViewOptionsSpec(raw.previousOptions);
+    }
   }
   for (const key of [
     "seed",
-    "previousOwnerNodeId",
     "previousParentNodeId",
     "previousHostNodeId",
     "previousTargetNodeId",
     "previousAnchor",
     "previous",
+    "previousDiscoverable",
   ] as const) {
     if (decoded[key] === null) {
       delete decoded[key];
@@ -135,44 +152,23 @@ export function fromContributionMutation(value: unknown): ContributionMutation {
   return { ...decoded, kind: KIND_BY_CASE[selected.$case] } as ContributionMutation;
 }
 
-function toInitializedFieldValue(value: InitializedFieldValue): Record<string, unknown> {
-  const { kind, ...fields } = value;
-  return { value: { $case: kind, value: fields } };
-}
-
-function fromInitializedFieldValue(value: unknown): InitializedFieldValue {
-  const selected = required(
-    (value as { value?: { $case: "text" | "reference"; value: Record<string, unknown> } | null }).value,
-    "Initialized Field value",
-  );
-  return { ...selected.value, kind: selected.$case } as InitializedFieldValue;
-}
-
-function previousConfigToProtocol(value: SupertagFieldConfig | null | undefined): unknown {
-  if (value === undefined) {
-    return null;
-  }
-  return value === null
-    ? { state: { $case: "unset", value: {} } }
-    : { state: { $case: "set", value: toSupertagFieldConfig(value) } };
-}
-
-function previousConfigFromProtocol(value: unknown): unknown {
-  if (value === null) {
-    return undefined;
-  }
-  const selected = required(
-    (value as { state?: { $case: "unset" | "set"; value: unknown } | null }).state,
-    "Previous Field config",
-  );
-  return selected.$case === "unset" ? null : fromSupertagFieldConfig(selected.value);
-}
-
 function previousScalarToProtocol(value: string | null | undefined): unknown {
   if (value === undefined) {
     return null;
   }
   return value === null ? { state: { $case: "unset", value: {} } } : { state: { $case: "set", value } };
+}
+
+function currentOwnerToProtocol(value: string | null): unknown {
+  return value === null ? { state: { $case: "detached", value: {} } } : { state: { $case: "ownedBy", value } };
+}
+
+function currentOwnerFromProtocol(value: unknown): string | null {
+  const selected = required(
+    (value as { state?: { $case: "detached" | "ownedBy"; value: unknown } | null }).state,
+    "Current Node Owner",
+  );
+  return selected.$case === "detached" ? null : (selected.value as string);
 }
 
 function previousScalarFromProtocol(value: unknown): unknown {
@@ -186,16 +182,17 @@ function previousScalarFromProtocol(value: unknown): unknown {
   return selected.$case === "unset" ? null : selected.value;
 }
 
-function expressionToProtocol(expression: { sourceFieldDefinitionId: string }): Record<string, unknown> {
-  return { sourceFieldDefinitionId: expression.sourceFieldDefinitionId };
+function expressionToProtocol(expression: FieldInitializationExpression): Record<string, unknown> {
+  const { kind: _kind, ...value } = expression;
+  return value;
 }
 
 function expressionFromProtocol(value: unknown): Record<string, unknown> {
   const expression = required(value as Record<string, unknown> | null, "Field initialization expression");
-  return { kind: "ancestor-field-values", sourceFieldDefinitionId: expression.sourceFieldDefinitionId };
+  return { kind: "find-field-values", ...expression };
 }
 
-function previousExpressionToProtocol(value: { sourceFieldDefinitionId: string } | null | undefined): unknown {
+function previousExpressionToProtocol(value: FieldInitializationExpression | null | undefined): unknown {
   if (value === undefined) {
     return null;
   }
@@ -213,14 +210,6 @@ function previousExpressionFromProtocol(value: unknown): unknown {
     "Previous Field initialization expression",
   );
   return selected.$case === "unset" ? null : expressionFromProtocol(selected.value);
-}
-
-function optionalStrings(value: readonly string[] | undefined): { values: readonly string[] } | null {
-  return value === undefined ? null : { values: value };
-}
-
-function optionalStringsFromProtocol(value: unknown): readonly string[] | undefined {
-  return value === null ? undefined : (value as { values: readonly string[] }).values;
 }
 
 function optionalValuesFromProtocol(value: unknown): unknown {

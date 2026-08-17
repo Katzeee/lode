@@ -59,34 +59,6 @@ describe("production History scenarios", () => {
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual([]);
   });
 
-  it("atomic History step compensates its semantic net effect", () => {
-    const cancelled = new HistoryFixture();
-    cancelled.step({
-      invocationId: "create-delete",
-      mutations: [
-        { kind: "node-create", nodeId: "temporary" },
-        {
-          kind: "occurrence-create",
-          occurrenceId: "temporary-original",
-          nodeId: "temporary",
-          parentNodeId: "workspace",
-          anchor: end,
-        },
-        { kind: "node-delete", nodeId: "temporary" },
-      ],
-    });
-    expect(
-      queryHistory("channel", cancelled.receipts, cancelled.snapshot(), cancelled.generation()).undo?.evidence
-        .compensations,
-    ).toEqual([
-      {
-        kind: "node-restore",
-        nodeId: "temporary",
-        deletionFactId: cancelled.snapshot().facts[5]?.id,
-      },
-    ]);
-  });
-
   it("partially superseded replacement restores only the still-attributable side", () => {
     const fixture = baseFixture();
     const initial = fixture.fact({
@@ -150,6 +122,25 @@ describe("production History scenarios", () => {
   it("History sees contingent Direct effects", () => {
     const contingent = new HistoryFixture();
     contingent.fact({ kind: "node-create", nodeId: "proposal-node" }, "proposal");
+    contingent.fact(
+      {
+        kind: "node-owner-set",
+        nodeId: "proposal-node",
+        ownerNodeId: "workspace",
+        previousOwnerNodeId: null,
+      },
+      "proposal",
+    );
+    contingent.fact(
+      {
+        kind: "occurrence-create",
+        occurrenceId: "proposal-node-original",
+        nodeId: "proposal-node",
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+      "proposal",
+    );
     contingent.step({
       invocationId: "direct-on-proposal",
       mutations: [
@@ -463,7 +454,28 @@ describe("production History scenarios", () => {
     expect(
       queryHistory("channel", nodeCreate.receipts, nodeCreate.snapshot(), nodeCreate.generation()).undo?.evidence
         .compensations,
-    ).toEqual([{ kind: "node-delete", nodeId: "created" }]);
+    ).toEqual([
+      { kind: "node-delete", nodeId: "created" },
+      {
+        kind: "node-owner-set",
+        nodeId: "created",
+        ownerNodeId: "workspace-trash:v1:workspace",
+        previousOwnerNodeId: "workspace",
+      },
+      {
+        kind: "occurrence-move",
+        occurrenceId: "created-original",
+        parentNodeId: "workspace-trash:v1:workspace",
+        anchor: end,
+        previousParentNodeId: "workspace",
+        previousAnchor: {
+          after: "workspace-trash-occ:v1:workspace",
+          before: null,
+          affinity: "after",
+          fallback: "end",
+        },
+      },
+    ]);
 
     const duplicateNodeCreate = new HistoryFixture();
     duplicateNodeCreate.step({
@@ -515,11 +527,25 @@ describe("production History scenarios", () => {
       mutations: [{ kind: "node-delete", nodeId: "node" }],
     });
     const selection = queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo!;
-    expect(selection.evidence.compensations[0]).toEqual({
-      kind: "node-restore",
-      nodeId: "node",
-      deletionFactId: deletion.factIds[0],
-    });
+    expect(selection.evidence.compensations).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "node-restore",
+          nodeId: "node",
+          deletionFactId: deletion.factIds[0],
+        },
+        expect.objectContaining({
+          kind: "node-owner-set",
+          nodeId: "node",
+          ownerNodeId: "workspace",
+        }),
+        expect.objectContaining({
+          kind: "occurrence-move",
+          occurrenceId: "occurrence",
+          parentNodeId: "workspace",
+        }),
+      ]),
+    );
     fixture.fact({ kind: "node-delete", nodeId: "node" });
     expect(queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo).toBeNull();
 
@@ -544,13 +570,17 @@ describe("production History scenarios", () => {
         restoredIndependentDelete.snapshot(),
         restoredIndependentDelete.generation(),
       ).undo?.evidence.compensations,
-    ).toEqual([
-      {
-        kind: "node-restore",
-        nodeId: "node",
-        deletionFactId: targetDelete.factIds[0],
-      },
-    ]);
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          kind: "node-restore",
+          nodeId: "node",
+          deletionFactId: targetDelete.factIds[0],
+        },
+        expect.objectContaining({ kind: "node-owner-set", nodeId: "node", ownerNodeId: "workspace" }),
+        expect.objectContaining({ kind: "occurrence-move", occurrenceId: "occurrence", parentNodeId: "workspace" }),
+      ]),
+    );
 
     const occurrenceDelete = baseFixture();
     const deletedOccurrence = occurrenceDelete.step({

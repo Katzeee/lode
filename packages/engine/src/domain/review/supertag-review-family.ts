@@ -1,20 +1,24 @@
 import { canonicalJson, isSupertagMutation, type Mutation } from "../fact/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { ReviewFamilyRule } from "./review-family.js";
-import { fieldConfigurationEffect, supertagCandidates } from "./supertag-candidates.js";
+import { supertagCandidates } from "./supertag-candidates.js";
 import { addSupertagRelationImpacts, supertagRelationEffect } from "./supertag-review.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 
 const SCHEMA_REVIEW_MUTATION_KINDS = [
   "supertag-apply",
   "supertag-remove",
-  "supertag-field-add",
-  "supertag-field-remove",
-  "supertag-field-configure",
   "supertag-extension-add",
   "supertag-extension-remove",
   "supertag-template-node-add",
   "supertag-template-node-remove",
+  "supertag-template-field-attach",
+  "supertag-template-field-existing-attach",
+  "supertag-template-field-detach",
+  "supertag-template-field-discoverability-set",
+  "supertag-template-field-visibility-configure",
+  "supertag-optional-field-contribution-attach",
+  "supertag-optional-field-contribution-detach",
 ] as const;
 
 export const supertagReviewFamily = {
@@ -29,17 +33,10 @@ export const supertagReviewFamily = {
       case "supertag-apply":
       case "supertag-remove":
         return [
-          reviewScope("supertag-application", mutation.nodeId),
-          associatedNodeScope(mutation.nodeId),
+          reviewScope("supertag-application", mutation.applicationNodeId),
+          associatedNodeScope(mutation.hostNodeId),
+          associatedNodeScope(mutation.applicationNodeId),
           associatedNodeScope(mutation.supertagId),
-        ];
-      case "supertag-field-add":
-      case "supertag-field-remove":
-      case "supertag-field-configure":
-        return [
-          reviewScope("supertag-template", mutation.supertagId),
-          associatedNodeScope(mutation.supertagId),
-          associatedNodeScope(mutation.fieldDefinitionId),
         ];
       case "supertag-extension-add":
       case "supertag-extension-remove":
@@ -55,21 +52,41 @@ export const supertagReviewFamily = {
           associatedNodeScope(mutation.supertagId),
           associatedNodeScope(mutation.templateNodeId),
         ];
+      case "supertag-template-field-attach":
+      case "supertag-template-field-existing-attach":
+      case "supertag-template-field-detach":
+      case "supertag-template-field-discoverability-set":
+      case "supertag-template-field-visibility-configure":
+        return [
+          reviewScope("supertag-template", mutation.supertagId),
+          associatedNodeScope(mutation.supertagId),
+          associatedNodeScope(mutation.templateFieldNodeId),
+          associatedNodeScope(mutation.fieldDefinitionId),
+        ];
+      case "supertag-optional-field-contribution-attach":
+      case "supertag-optional-field-contribution-detach":
+        return [
+          reviewScope("supertag-template", mutation.supertagId),
+          associatedNodeScope(mutation.supertagId),
+          associatedNodeScope(mutation.contributionNodeId),
+          associatedNodeScope(mutation.fieldDefinitionId),
+        ];
     }
   },
   candidates: ({ generation, pending }) => supertagCandidates(generation, pending),
   effect(fact, _targets, generation) {
     const mutation = fact.body.mutation;
-    if (mutation.kind === "supertag-field-configure") {
-      const effect = fieldConfigurationEffect(fact, generation);
-      return canonicalJson(effect.origin) === canonicalJson(effect.review)
-        ? null
-        : {
-            identity: canonicalJson(["field-configuration", effect.supertagId, effect.fieldDefinitionId]),
-            effect,
-          };
-    }
     if (isSupertagMutation(mutation)) {
+      if (
+        mutation.kind === "supertag-template-field-attach" ||
+        mutation.kind === "supertag-template-field-existing-attach" ||
+        mutation.kind === "supertag-template-field-detach" ||
+        mutation.kind === "supertag-template-field-discoverability-set" ||
+        mutation.kind === "supertag-optional-field-contribution-attach" ||
+        mutation.kind === "supertag-optional-field-contribution-detach"
+      ) {
+        return null;
+      }
       const effect = supertagRelationEffect(fact, generation);
       return effect.originIndex === effect.reviewIndex
         ? null
@@ -84,9 +101,19 @@ export const supertagReviewFamily = {
     for (const fact of targets) {
       const mutation = fact.body.mutation;
       if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-        addNodeReviewImpacts(impacts, mutation.nodeId, generation);
+        addNodeReviewImpacts(impacts, mutation.hostNodeId, generation);
+        impacts.add(mutation.applicationNodeId);
       }
-      addSupertagRelationImpacts(impacts, fact, generation);
+      if (
+        mutation.kind === "supertag-apply" ||
+        mutation.kind === "supertag-remove" ||
+        mutation.kind === "supertag-extension-add" ||
+        mutation.kind === "supertag-extension-remove" ||
+        mutation.kind === "supertag-template-node-add" ||
+        mutation.kind === "supertag-template-node-remove"
+      ) {
+        addSupertagRelationImpacts(impacts, fact, generation);
+      }
     }
   },
 } satisfies ReviewFamilyRule;

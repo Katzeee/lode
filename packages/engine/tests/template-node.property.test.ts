@@ -56,7 +56,7 @@ describe("Template Node convergence", () => {
       anchor: end,
     });
     const merged = admitted([...base.values, remove, removePlacement, add]);
-    const [detachedNode, detach, detachedOccurrence] = remoteFacts(
+    const [detachedNode, detachedOwner, detach, detachedOccurrence] = remoteFacts(
       detachReplica,
       merged.frontier,
       Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
@@ -67,6 +67,12 @@ describe("Template Node convergence", () => {
           seed: {
             text: [..."Guidance"].map((value) => ({ value, attributes: {} })),
           },
+        },
+        {
+          kind: "node-owner-set",
+          nodeId: templateInstanceNodeId("note", "guidance"),
+          ownerNodeId: "note",
+          previousOwnerNodeId: null,
         },
         {
           kind: "template-node-detach",
@@ -89,12 +95,19 @@ describe("Template Node convergence", () => {
       ],
     );
     const expected = summary(
-      rebuildGeneration("workspace", admitted([...merged.facts, detachedNode, detach, detachedOccurrence]), versions),
+      rebuildGeneration(
+        "workspace",
+        admitted([...merged.facts, detachedNode, detachedOwner, detach, detachedOccurrence]),
+        versions,
+      ),
     );
 
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = admitted(
-        shuffle([...base.values, remove, removePlacement, add, detachedNode, detach, detachedOccurrence, add], seed),
+        shuffle(
+          [...base.values, remove, removePlacement, add, detachedNode, detachedOwner, detach, detachedOccurrence, add],
+          seed,
+        ),
       );
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
@@ -119,6 +132,7 @@ describe("Template Node convergence", () => {
       removePlacement,
       add,
       detachedNode,
+      detachedOwner,
       detach,
       detachedOccurrence,
     ]);
@@ -132,7 +146,7 @@ describe("Template Node convergence", () => {
 function fixture(): Facts {
   const facts = new Facts();
   facts.addPlaced("supertag");
-  facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
+  facts.add({ kind: "intrinsic-node-type-declare", nodeId: "supertag", intrinsicNodeType: "supertag-definition" });
   facts.addPlaced("guidance");
   facts.addPlaced("note", "workspace", "note-occurrence");
   facts.add({
@@ -150,7 +164,7 @@ function fixture(): Facts {
     templateOccurrenceId: "supertag-guidance-template-occurrence",
     anchor: end,
   });
-  facts.add({ kind: "supertag-apply", nodeId: "note", supertagId: "supertag", anchor: end });
+  facts.applySupertag("note", "supertag");
   return facts;
 }
 
@@ -177,6 +191,12 @@ function remoteFacts(
   lamport: number,
   mutations: readonly [Mutation, Mutation, Mutation],
 ): readonly [Fact, Fact, Fact];
+function remoteFacts(
+  replicaId: string,
+  observed: FactFrontier,
+  lamport: number,
+  mutations: readonly [Mutation, Mutation, Mutation, Mutation],
+): readonly [Fact, Fact, Fact, Fact];
 function remoteFacts(
   replicaId: string,
   observed: FactFrontier,

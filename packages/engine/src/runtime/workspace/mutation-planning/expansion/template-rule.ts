@@ -17,7 +17,7 @@ export function expandTemplateMutation(mutation: TemplateMutation, available: Sc
     ? nodeSeed(textAtoms(source).map((atom) => ({ value: atom.value, attributes: atom.attributes })))
     : undefined;
   return atomicExpansion([
-    ...createNodeUnlessPresent(instanceNodeId, available, seed),
+    ...createNodeUnlessPresent(instanceNodeId, mutation.ownerNodeId, available, seed),
     detachment,
     {
       kind: "occurrence-create",

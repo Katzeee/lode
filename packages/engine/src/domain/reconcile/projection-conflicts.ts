@@ -7,16 +7,13 @@ import {
   type ResolutionFact,
 } from "../fact/index.js";
 import type { ConflictIssue } from "../conflict/types.js";
-import type { EffectiveField, TemplateField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { deriveActivation } from "../activation/index.js";
-import { nodeTypeConflicts } from "./node-type-conflicts.js";
+import { intrinsicNodeTypeConflicts } from "./intrinsic-node-type-conflicts.js";
 
 export function projectConflictIssues(
   snapshot: FactSnapshot,
   extensionConflicts: Readonly<Record<string, readonly string[]>>,
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>,
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
   active: readonly ContributionFact[],
   occurrences: ReadonlyMap<string, MutableOccurrence>,
 ): Readonly<Record<string, ConflictIssue>> {
@@ -24,8 +21,7 @@ export function projectConflictIssues(
     ...unsupportedDirectIntents(snapshot),
     ...resolutionConflicts(snapshot),
     ...supertagExtensionConflicts(extensionConflicts),
-    ...nodeTypeConflicts(active),
-    ...fieldConfigConflicts(templateFields, effectiveFields),
+    ...intrinsicNodeTypeConflicts(active),
     ...placementConflicts(active, occurrences),
   ];
   return Object.fromEntries(
@@ -131,81 +127,6 @@ function moveOf(fact: ContributionFact) {
     throw new Error("Placement candidate is not an Occurrence move");
   }
   return mutation;
-}
-
-function fieldConfigConflicts(
-  templateFields: Readonly<Record<string, readonly TemplateField[]>>,
-  effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>,
-): readonly ConflictIssue[] {
-  const issues: ConflictIssue[] = [];
-  for (const items of Object.values(templateFields)) {
-    for (const item of items) {
-      if (item.configCandidates.length > 1) {
-        issues.push(
-          fieldConfigConflict(
-            null,
-            item.fieldDefinitionId,
-            [item.supertagId],
-            [item.fieldNodeId],
-            item.configCandidates,
-          ),
-        );
-      }
-    }
-  }
-  for (const [ownerNodeId, fields] of Object.entries(effectiveFields)) {
-    for (const field of fields) {
-      if (field.configCandidates.length > 1) {
-        issues.push(
-          fieldConfigConflict(
-            ownerNodeId,
-            field.fieldDefinitionId,
-            field.sourceSupertagIds,
-            field.sourceFieldNodeIds,
-            field.configCandidates,
-          ),
-        );
-      }
-      const values = new Set(field.initializationCandidates.map((candidate) => canonicalJson(candidate.values)));
-      if (values.size > 1) {
-        issues.push({
-          kind: "field-initialization-conflict",
-          identity: canonicalJson(["field-initialization-conflict", ownerNodeId, field.fieldDefinitionId]),
-          ownerNodeId,
-          fieldDefinitionId: field.fieldDefinitionId,
-          candidates: field.initializationCandidates,
-        });
-      }
-    }
-  }
-  return issues;
-}
-
-function fieldConfigConflict(
-  ownerNodeId: string | null,
-  fieldDefinitionId: string,
-  supertagIds: readonly string[],
-  templateOccurrenceIds: readonly string[],
-  candidates: readonly EffectiveField["configCandidates"][number][],
-): ConflictIssue {
-  const identity = canonicalJson([
-    "field-config-conflict",
-    ownerNodeId,
-    fieldDefinitionId,
-    [...templateOccurrenceIds].sort(stableStringCompare),
-  ]);
-  return {
-    kind: "field-config-conflict",
-    identity,
-    ownerNodeId,
-    fieldDefinitionId,
-    supertagIds: [...supertagIds].sort(stableStringCompare),
-    templateOccurrenceIds: [...templateOccurrenceIds].sort(stableStringCompare),
-    candidates: candidates.map((candidate) => ({
-      config: candidate.config,
-      contributionIds: candidate.contributionIds,
-    })),
-  };
 }
 
 function resolutionConflicts(snapshot: FactSnapshot): readonly ConflictIssue[] {

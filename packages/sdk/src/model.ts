@@ -1,7 +1,5 @@
 import type {
   AuthorityReceipt as ProtocolAuthorityReceipt,
-  SupertagFieldConfig as ProtocolSupertagFieldConfig,
-  FieldValueSeed as ProtocolFieldValueSeed,
   NodeSeed as ProtocolNodeSeed,
   PreviousValue as ProtocolPreviousValue,
   ProjectionIdentity as ProtocolProjectionIdentity,
@@ -11,12 +9,11 @@ import type {
 import type {
   AnchorAffinity,
   AnchorFallback,
-  FieldVisibility,
-  FieldDatatype,
-  FieldCardinality,
   HistoryOperation,
-  NodeType,
+  IntrinsicNodeType,
   ViewType,
+  TemplateFieldVisibility,
+  ViewSortDirection,
 } from "./protocol-enums/model.js";
 import type { ProjectionPerspective } from "./protocol-enums/projection.js";
 import type { ResolutionDecision } from "./protocol-enums/review.js";
@@ -51,28 +48,74 @@ type PreviousValueCase = NonNullable<ProtocolPreviousValue["state"]>["$case"];
 export type PreviousValue =
   | Readonly<{ kind: Extract<PreviousValueCase, "unset">; value?: never }>
   | Readonly<{ kind: Extract<PreviousValueCase, "set">; value: JsonValue }>;
-export type { NodeType };
+export type { IntrinsicNodeType };
 export type { ViewType };
+export type { TemplateFieldVisibility };
+export type { ViewSortDirection };
 
 export type NodeSeed = ProtocolDto<ProtocolNodeSeed>;
 
-export type { FieldVisibility };
-export type { FieldDatatype, FieldCardinality };
 export type FieldInitializationExpression = Readonly<{
-  kind: "ancestor-field-values";
+  kind: "find-field-values";
+  expressionNodeId: string;
+  expressionOccurrenceId: string;
   sourceFieldDefinitionId: string;
+  sourceFieldDefinitionOccurrenceId: string;
+  contextNodeId: string;
+  contextOccurrenceId: string;
 }>;
-type FieldValueSeedCase = NonNullable<ProtocolFieldValueSeed["seed"]>["$case"];
-export type FieldValueSeed =
-  | Readonly<{ kind: Extract<FieldValueSeedCase, "text">; value: string; nodeId?: never }>
-  | Readonly<{ kind: Extract<FieldValueSeedCase, "reference">; nodeId: string; value?: never }>;
-type SupertagFieldConfigBase = Omit<ProtocolDto<ProtocolSupertagFieldConfig>, "visibility" | "staticDefault">;
-export type SupertagFieldConfig = SupertagFieldConfigBase &
-  Readonly<{
-    visibility: FieldVisibility;
-    staticDefault: readonly FieldValueSeed[] | null;
-  }>;
-
+export type SearchFieldValue =
+  | Readonly<{ kind: "node"; nodeId: string }>
+  | Readonly<{ kind: "text"; value: string }>
+  | Readonly<{ kind: "number"; value: number }>
+  | Readonly<{ kind: "checkbox"; value: boolean }>
+  | Readonly<{ kind: "date"; value: string }>;
+export type SearchScopeTarget =
+  Readonly<{ kind: "node"; nodeId: string }> | Readonly<{ kind: "parent" }> | Readonly<{ kind: "grandparent" }>;
+export type SearchExpressionSpec =
+  | Readonly<{ expressionNodeId: string; kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
+  | Readonly<{ expressionNodeId: string; kind: "not"; operand: SearchExpressionSpec }>
+  | Readonly<{ expressionNodeId: string; kind: "supertag"; supertagId: string }>
+  | Readonly<{ expressionNodeId: string; kind: "text"; text: string }>
+  | Readonly<{
+      expressionNodeId: string;
+      kind: "field-defined";
+      fieldDefinitionId: string;
+      defined: boolean;
+    }>
+  | Readonly<{
+      expressionNodeId: string;
+      kind: "field-value";
+      fieldDefinitionId: string;
+      value: SearchFieldValue;
+    }>
+  | Readonly<{
+      expressionNodeId: string;
+      kind: "date-compare";
+      fieldDefinitionId: string;
+      operator: "lt" | "gt";
+      date: string;
+    }>
+  | Readonly<{
+      expressionNodeId: string;
+      kind: "descendant-of" | "child-of";
+      target: SearchScopeTarget;
+    }>
+  | Readonly<{ expressionNodeId: string; kind: "links-to"; targetNodeId: string }>;
+export type ViewColumnSpec = Readonly<{ columnNodeId: string; fieldDefinitionId: string }>;
+export type ViewFilterSpec = Readonly<{ filterNodeId: string; expression: SearchExpressionSpec }>;
+export type ViewSortSpec = Readonly<{
+  sortNodeId: string;
+  fieldDefinitionId: string;
+  direction: ViewSortDirection;
+}>;
+export type ViewGroupSpec = Readonly<{ groupNodeId: string; fieldDefinitionId: string }>;
+export type ViewOptionsSpec = Readonly<{
+  columns: readonly ViewColumnSpec[];
+  filter: ViewFilterSpec | null;
+  sort: ViewSortSpec | null;
+  group: ViewGroupSpec | null;
+}>;
 export type ReceiptLineage = Omit<ProtocolDto<ProtocolReceiptLineage>, "operation"> &
   Readonly<{ operation: HistoryOperation }>;
 export type AuthorityReceipt = Omit<ProtocolDto<ProtocolAuthorityReceipt>, "lineage"> &
@@ -81,4 +124,3 @@ export type ProjectionIdentity = ProtocolDto<ProtocolProjectionIdentity>;
 
 type AssertNever<Value extends never> = Value;
 export type PreviousValueCoverage = AssertNever<Exclude<PreviousValueCase, PreviousValue["kind"]>>;
-export type FieldValueSeedCoverage = AssertNever<Exclude<FieldValueSeedCase, FieldValueSeed["kind"]>>;

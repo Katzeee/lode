@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-
 import { admitAuthorityRecords } from "../admission/index.js";
-import { frontierOf, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
+import {
+  frontierOf,
+  makeFact,
+  workspaceTrashOccurrenceId,
+  type FactSnapshot,
+  type SequenceAnchor,
+} from "../fact/index.js";
 import { rebuildGeneration } from "../reconcile/index.js";
 import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import {
@@ -119,7 +124,7 @@ describe("Conflict lifecycle", () => {
     }
     const observed = { [REPLICA_A]: facts.values.length };
     const previousAnchor = {
-      after: "workspace-trash-occ:v1:workspace",
+      after: workspaceTrashOccurrenceId("workspace"),
       before: "parent-b-occurrence",
       affinity: "after",
       fallback: "end",
@@ -237,7 +242,7 @@ describe("Conflict lifecycle", () => {
             anchor,
             previousParentNodeId: "workspace",
             previousAnchor: {
-              after: "workspace-trash-occ:v1:workspace",
+              after: workspaceTrashOccurrenceId("workspace"),
               before: "parent-occurrence",
               affinity: "after",
               fallback: "end",

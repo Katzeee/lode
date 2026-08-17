@@ -30,8 +30,8 @@ describe("production Review contracts", () => {
   it("REVIEW-2 scope is visible targets plus minimal support closure", () => {
     const facts = base();
     const created = facts.addPlaced("proposal-node", "workspace", "proposal-occurrence", "proposal");
-    const [node, occurrence] = created;
-    if (!node || !occurrence) {
+    const [node, owner, occurrence] = created;
+    if (!node || !owner || !occurrence) {
       throw new Error("Expected a Node creation transaction");
     }
     const snapshot = facts.snapshot();
@@ -39,6 +39,6 @@ describe("production Review contracts", () => {
       candidate.proposalContributionIds.includes(occurrence.id),
     );
 
-    expect(hunk?.selection.evidence.supportClosure).toEqual([node.id, occurrence.id]);
+    expect(hunk?.selection.evidence.supportClosure).toEqual([node.id, owner.id, occurrence.id]);
   });
 });

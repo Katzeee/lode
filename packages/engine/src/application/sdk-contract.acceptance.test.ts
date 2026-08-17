@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { admitAuthorityRecords } from "../domain/admission/index.js";
-import { templateInstanceNodeId, templateInstanceOccurrenceId, workspaceTrashNodeId } from "../domain/fact/index.js";
+import {
+  SYSTEM_DEFINITION_CATALOG_NODE_ID,
+  templateInstanceNodeId,
+  templateInstanceOccurrenceId,
+  workspaceTrashNodeId,
+} from "../domain/fact/index.js";
 import { FactAuthorityStore, createReplicaId } from "../runtime/authority/fact-authority-store.js";
 import { ProposalWorkspace } from "../runtime/workspace/proposal-workspace.js";
 import {
@@ -16,6 +21,7 @@ import {
 import { createEngineTransportServer } from "../../tests/support/application-transport.js";
 import { ProposalWorkspaceRegistry } from "../runtime/workspace/proposal-registry.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../domain/reconcile/index.js";
+import { createSupertagApplication } from "../../tests/support/workspace/edit-test-mutations.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
@@ -88,13 +94,13 @@ describe("transport-neutral SDK contract", () => {
           mutations: [
             ...nodeAtWorkspace("anime"),
             {
-              kind: "node-type-declare",
+              kind: "intrinsic-node-type-declare",
               nodeId: "anime",
-              nodeType: "supertag-definition",
+              intrinsicNodeType: "supertag-definition",
             },
             ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
               ...nodeAtWorkspace(nodeId),
-              { kind: "supertag-apply" as const, nodeId, supertagId: "anime", anchor: end },
+              createSupertagApplication(nodeId, "anime"),
             ]),
           ],
         })
@@ -149,7 +155,7 @@ describe("transport-neutral SDK contract", () => {
         nodes: {
           anime: {
             nodeId: "anime",
-            nodeType: "supertag-definition",
+            intrinsicNodeType: "supertag-definition",
           },
         },
       },
@@ -167,9 +173,9 @@ describe("transport-neutral SDK contract", () => {
           mutations: [
             nodeAt("note-supertag", "workspace", "note-supertag-original"),
             {
-              kind: "node-type-declare",
+              kind: "intrinsic-node-type-declare",
               nodeId: "note-supertag",
-              nodeType: "supertag-definition",
+              intrinsicNodeType: "supertag-definition",
             },
             nodeAt("guidance", "note-supertag", "note-supertag-guidance-template-occurrence"),
             nodeAt("note", "workspace", "note-occurrence"),
@@ -180,7 +186,7 @@ describe("transport-neutral SDK contract", () => {
               templateOccurrenceId: "note-supertag-guidance-template-occurrence",
               anchor: end,
             },
-            { kind: "supertag-apply", nodeId: "note", supertagId: "note-supertag", anchor: end },
+            createSupertagApplication("note", "note-supertag"),
           ],
         })
       ).status,
@@ -231,7 +237,6 @@ describe("transport-neutral SDK contract", () => {
 
   it("instance Field content deletion crosses the closed serialized contract", async () => {
     const { serialized } = await setup();
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
     expect(
       (
         await serialized.execute({
@@ -241,23 +246,15 @@ describe("transport-neutral SDK contract", () => {
             nodeAt("owner", "workspace", "owner-occurrence"),
             nodeAt("supertag", "workspace", "supertag-original"),
             nodeAt("field-definition", "workspace", "field-definition-original"),
-            { kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" },
+            { kind: "intrinsic-node-type-declare", nodeId: "supertag", intrinsicNodeType: "supertag-definition" },
             {
-              kind: "node-type-declare",
+              kind: "intrinsic-node-type-declare",
               nodeId: "field-definition",
-              nodeType: "field-definition",
+              intrinsicNodeType: "field-definition",
             },
             nodeAt("field-node", "owner", "field-occurrence"),
             nodeAt("value", "field-node", "value-occurrence"),
-            {
-              kind: "supertag-field-add",
-              supertagId: "supertag",
-              fieldDefinitionId: "field-definition",
-              fieldNodeId: "supertag-field-definition-template-field",
-              fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
-              anchor: end,
-            },
-            { kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end },
+            createSupertagApplication("owner", "supertag"),
             {
               kind: "field-materialize",
               ownerNodeId: "owner",
@@ -305,7 +302,12 @@ describe("transport-neutral SDK contract", () => {
       }),
     ).toMatchObject({
       status: "ok",
-      value: { workspaceSystemNodes: { trash: workspaceTrashNodeId("workspace") } },
+      value: {
+        workspaceSystemNodes: {
+          trash: workspaceTrashNodeId("workspace"),
+          systemDefinitionCatalog: SYSTEM_DEFINITION_CATALOG_NODE_ID,
+        },
+      },
     });
     expect(
       await serialized.query({
@@ -396,6 +398,7 @@ describe("transport-neutral SDK contract", () => {
 
   it("wire and in-process invalid inputs reject before any authority record is written", async () => {
     const { direct, facts } = await setup();
+    const initialFactIds = facts.admission().snapshot.facts.map(({ id }) => id);
     expect(
       await direct.execute({
         ...command,
@@ -433,12 +436,13 @@ describe("transport-neutral SDK contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    expect(facts.admission().snapshot.facts).toHaveLength(4);
+    expect(facts.admission().snapshot.facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
   });
 
   it("pre-send encoding failures and raw malformed envelopes are typed invalid input", async () => {
     const { direct, serialized, facts } = await setup();
+    const initialFactIds = facts.admission().snapshot.facts.map(({ id }) => id);
     const invalid = {
       ...command,
       mutations: [
@@ -463,7 +467,7 @@ describe("transport-neutral SDK contract", () => {
       const response = decodeWriteResult(await server.execute(malformedBytes));
       expect(response).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     }
-    expect(facts.admission().snapshot.facts).toHaveLength(4);
+    expect(facts.admission().snapshot.facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
   });
 

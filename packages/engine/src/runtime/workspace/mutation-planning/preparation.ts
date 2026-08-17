@@ -12,9 +12,9 @@ export function prepareMutation(
     snapshot,
     projections: () => ({ previous, available }),
   });
-  if (prepared.kind === "node-type-declare") {
-    const current = available.nodes[prepared.nodeId]?.nodeType ?? null;
-    if (current === prepared.nodeType) {
+  if (prepared.kind === "intrinsic-node-type-declare") {
+    const current = available.nodes[prepared.nodeId]?.intrinsicNodeType ?? null;
+    if (current === prepared.intrinsicNodeType) {
       throw new Error("Node already has the requested type");
     }
   }

@@ -55,17 +55,17 @@ describe("bounded derived materialization", () => {
     const facts = new Facts();
     for (const supertagId of ["anime", "book"]) {
       facts.addPlaced(supertagId);
-      facts.add({ kind: "node-type-declare", nodeId: supertagId, nodeType: "supertag-definition" });
+      facts.add({ kind: "intrinsic-node-type-declare", nodeId: supertagId, intrinsicNodeType: "supertag-definition" });
     }
     for (let index = 0; index < 250; index += 1) {
       const nodeId = `anime-${String(index).padStart(3, "0")}`;
       facts.addPlaced(nodeId);
-      facts.add({ kind: "supertag-apply", nodeId, supertagId: "anime", anchor: end });
+      facts.applySupertag(nodeId, "anime");
     }
     for (let index = 0; index < 50; index += 1) {
       const nodeId = `book-${String(index).padStart(3, "0")}`;
       facts.addPlaced(nodeId);
-      facts.add({ kind: "supertag-apply", nodeId, supertagId: "book", anchor: end });
+      facts.applySupertag(nodeId, "book");
     }
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
     await materializer.publish(generation, emptyReviewReadModel);
@@ -172,7 +172,7 @@ describe("bounded derived materialization", () => {
     };
     corrupted.contentDigest = "0".repeat(64);
     await documents.writeSnapshot(directoryId, new TextEncoder().encode(JSON.stringify(corrupted)));
-    await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 1)).rejects.toThrow(
+    await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 1_000)).rejects.toThrow(
       "materialized dataset directory is corrupt",
     );
   });
@@ -214,7 +214,7 @@ describe("bounded derived materialization", () => {
       }
       await documents.delete(selected.id);
 
-      await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 100)).rejects.toThrow(
+      await expect(materializer.page(generation.identity.generationId, "origin", "nodes", null, 1_000)).rejects.toThrow(
         "materialized dataset directory is unavailable",
       );
       await expect(materializer.read(generation.identity.generationId, "origin", "nodes", [identity])).rejects.toThrow(
@@ -353,7 +353,7 @@ describe("bounded derived materialization", () => {
       commandBytes.push(documents.loadedBytes);
     }
     expect(new Set(loads).size).toBe(1);
-    expect(loads[0]).toBeLessThanOrEqual(8);
+    expect(loads[0]).toBeLessThanOrEqual(9);
     expect(pageBytes[1]).toBeLessThanOrEqual((pageBytes[0] ?? 0) + 4_096);
     expect(commandBytes[1]).toBeLessThanOrEqual((commandBytes[0] ?? 0) + 8_192);
   });

@@ -10,7 +10,6 @@ import {
 } from "./edit-write-accumulator.js";
 import { assertNoWorkspaceCreation, expandPlanningEdit } from "./edit-expansion.js";
 import { expandMutation } from "./expansion/index.js";
-import { fieldInitializationFollowUps } from "./field-initialization-planner.js";
 import { planningReconciler } from "./planning-reconciler.js";
 import { prepareMutation } from "./preparation.js";
 import { assertNoBatchCreatedAtomReference, rememberCreatedAtomIds } from "./text-batch-policy.js";
@@ -52,25 +51,13 @@ export function prepareEdits(
     }
 
     assertNoBatchCreatedAtomReference(item.mutation, batchCreatedAtomIds);
-    const beforeReview = workingGeneration.review;
-    const previous = intent === "direct" ? workingGeneration.origin : beforeReview;
-    const mutation = prepareMutation(item.mutation, previous, beforeReview, workingSnapshot);
+    const previous = intent === "direct" ? workingGeneration.origin : workingGeneration.review;
+    const mutation = prepareMutation(item.mutation, previous, workingGeneration.review, workingSnapshot);
     const accumulator = editWriteAt(prepared, item.editIndex);
     const mutations = appendEditMutation(accumulator, mutation);
     const reconciled = planning.reconcileEdit(item.editIndex, mutations, intent);
     workingSnapshot = reconciled.snapshot;
     workingGeneration = reconciled.generation;
-    pending.splice(
-      index + 1,
-      0,
-      ...fieldInitializationFollowUps(mutation, beforeReview, workingGeneration.review).map(
-        (followUp): PendingItem => ({
-          stage: "expand",
-          editIndex: item.editIndex,
-          mutation: followUp,
-        }),
-      ),
-    );
     rememberCreatedAtomIds(mutation, reconciled.latestFact.id, batchCreatedAtomIds);
   }
   return prepared.map(finishEditWrite);

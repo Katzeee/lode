@@ -28,7 +28,11 @@ export const occurrenceMutationEvidence = {
       mutation.previousParentNodeId,
       "Occurrence previous parent evidence",
     );
-    assertEvidenceEqual(expected.previousAnchor, mutation.previousAnchor, "Occurrence previous anchor evidence");
+    assertEvidenceEqual(
+      expected.previousAnchor,
+      mutation.previousAnchor,
+      `Occurrence ${mutation.occurrenceId} previous anchor evidence`,
+    );
   },
 } satisfies MutationEvidenceFamily<(typeof OCCURRENCE_MUTATION_KINDS)[number]>;
 

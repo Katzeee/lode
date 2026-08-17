@@ -20,21 +20,23 @@ enum ProjectionSection {
   PROJECTION_SECTION_CHILD_OCCURRENCES = 3;
   PROJECTION_SECTION_NODE_OWNERS = 4;
   PROJECTION_SECTION_SUPERTAG_APPLICATIONS = 5;
-  PROJECTION_SECTION_SUPERTAG_FIELDS = 6;
-  PROJECTION_SECTION_TEMPLATE_FIELDS = 7;
   PROJECTION_SECTION_SUPERTAG_TEMPLATE_NODES = 8;
   PROJECTION_SECTION_TEMPLATE_NODE_INSTANCES = 9;
   PROJECTION_SECTION_SUPERTAG_EXTENSIONS = 10;
   PROJECTION_SECTION_SUPERTAG_INSTANCE_SUPERTAGS = 11;
   PROJECTION_SECTION_SUPERTAG_EXTENSION_CONFLICTS = 12;
   PROJECTION_SECTION_CONFLICT_ISSUES = 13;
-  PROJECTION_SECTION_EFFECTIVE_FIELDS = 14;
   PROJECTION_SECTION_MATERIALIZED_FIELDS = 15;
   PROJECTION_SECTION_WORKSPACE_SYSTEM_NODES = 16;
   PROJECTION_SECTION_METANODES = 17;
-  PROJECTION_SECTION_SEARCH_CLAUSES = 18;
+  PROJECTION_SECTION_SEARCH_EXPRESSIONS = 18;
   PROJECTION_SECTION_SHARED_DEFAULT_VIEW_DEFINITIONS = 19;
   PROJECTION_SECTION_FIELD_DEFINITION_CONFIGURATIONS = 20;
+  PROJECTION_SECTION_TEMPLATE_FIELDS = 21;
+  PROJECTION_SECTION_OPTIONAL_FIELD_CONTRIBUTIONS = 22;
+  PROJECTION_SECTION_EFFECTIVE_FIELDS = 23;
+  PROJECTION_SECTION_OPTIONAL_FIELD_SUGGESTIONS = 24;
+  PROJECTION_SECTION_TYPED_FIELD_VALUES = 25;
 }
 
 enum TemplateNodeState {
@@ -68,7 +70,7 @@ message NodeContentItem {
 message ProjectedNode {
   string node_id = 1;
   repeated NodeContentItem content = 2;
-  optional NodeType node_type = 3;
+  optional IntrinsicNodeType intrinsic_node_type = 3;
 }
 
 message ProjectedOccurrence {
@@ -78,55 +80,73 @@ message ProjectedOccurrence {
   bool derived = 4;
 }
 
-message FieldConfigCandidate {
-  SupertagFieldConfig config = 1;
-  repeated string source_supertag_ids = 2;
-  repeated string source_field_node_ids = 3;
-  repeated string contribution_ids = 4;
-}
-
-message FieldInitializationCandidate {
-  string initialization_id = 1;
-  string supertag_id = 2;
-  FieldInitializationSource source = 3;
-  repeated FieldValueSeed values = 4;
-}
-
-message TemplateField {
-  string field_node_id = 1;
-  string field_occurrence_id = 2;
-  string supertag_id = 3;
-  string field_definition_id = 4;
-  repeated FieldConfigCandidate config_candidates = 5;
-  SupertagFieldConfig effective_config = 6;
-}
-
-message EffectiveField {
-  string field_definition_id = 1;
-  repeated string source_supertag_ids = 2;
-  repeated string source_field_node_ids = 3;
-  FieldVisibility visibility = 4;
-  repeated FieldConfigCandidate config_candidates = 5;
-  SupertagFieldConfig effective_config = 6;
-  repeated FieldInitializationCandidate initialization_candidates = 7;
-  FieldValueSeedList initialized_values = 8;
-  google.protobuf.StringValue materialized_field_node_id = 9;
-}
-
 message MaterializedField {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
   string field_occurrence_id = 4;
   repeated string value_occurrence_ids = 5;
+  string definition_occurrence_id = 6;
+}
+
+enum TypedFieldValueState {
+  TYPED_FIELD_VALUE_STATE_UNSPECIFIED = 0;
+  TYPED_FIELD_VALUE_STATE_EMPTY = 1;
+  TYPED_FIELD_VALUE_STATE_VALUE = 2;
+  TYPED_FIELD_VALUE_STATE_INVALID = 3;
+}
+
+message NumberFieldValue {
+  string value_node_id = 1;
+  string value_occurrence_id = 2;
+  double value = 3;
+}
+
+message DateFieldValue {
+  string value_node_id = 1;
+  string value_occurrence_id = 2;
+  string value = 3;
+}
+
+message CheckboxFieldValue {
+  string value_node_id = 1;
+  string value_occurrence_id = 2;
+  bool value = 3;
+}
+
+message OptionsFromSupertagFieldValue {
+  string value_node_id = 1;
+  string value_occurrence_id = 2;
+  string target_node_id = 3;
+}
+
+message TypedFieldValue {
+  string owner_node_id = 1;
+  string field_definition_id = 2;
+  string field_node_id = 3;
+  string field_occurrence_id = 4;
+  string datatype_node_id = 5;
+  repeated string value_occurrence_ids = 6;
+  TypedFieldValueState state = 7;
+  oneof semantic_value {
+    NumberFieldValue number_value = 8;
+    DateFieldValue date_value = 9;
+    CheckboxFieldValue checkbox_value = 10;
+    OptionsFromSupertagFieldValue options_from_supertag_value = 11;
+  }
 }
 
 message DatatypeConfiguration {
-  FieldDatatype datatype = 1;
+  string datatype_node_id = 1;
+  google.protobuf.StringValue options_supertag_id = 2;
 }
 
 message CardinalityConfiguration {
-  FieldCardinality cardinality = 1;
+  string cardinality_node_id = 1;
+}
+
+message OptionalityConfiguration {
+  string optionality_node_id = 1;
 }
 
 message InitializationExpressionConfiguration {
@@ -137,30 +157,20 @@ message FieldDefinitionConfiguration {
   string configuration_node_id = 1;
   string configuration_occurrence_id = 2;
   string contribution_id = 3;
+  string definition_node_id = 7;
   oneof configuration {
     DatatypeConfiguration datatype = 4;
     CardinalityConfiguration cardinality = 5;
     InitializationExpressionConfiguration initialization_expression = 6;
+    OptionalityConfiguration optionality = 8;
   }
 }
 
-message SupertagInstanceOfClause {
-  string clause_node_id = 1;
-  string clause_occurrence_id = 2;
-  string supertag_id = 3;
-}
-
-message FieldDefinedClause {
-  string clause_node_id = 1;
-  string clause_occurrence_id = 2;
-  string field_definition_id = 3;
-}
-
-message SearchClause {
-  oneof clause {
-    SupertagInstanceOfClause supertag_instance_of = 1;
-    FieldDefinedClause field_defined = 2;
-  }
+message SearchExpression {
+  string expression_node_id = 1;
+  string expression_occurrence_id = 2;
+  string definition_occurrence_id = 3;
+  SearchExpressionSpec expression = 4;
 }
 
 message TemplateNodeSource {
@@ -179,31 +189,164 @@ message TemplateNodeInstance {
   repeated string detachment_contribution_ids = 7;
 }
 
+enum TemplateFieldDefinitionOwner {
+  TEMPLATE_FIELD_DEFINITION_OWNER_UNSPECIFIED = 0;
+  TEMPLATE_FIELD_DEFINITION_OWNER_TEMPLATE_FIELD = 1;
+  TEMPLATE_FIELD_DEFINITION_OWNER_WORKSPACE_SCHEMA = 2;
+}
+
+message TemplateField {
+  string supertag_id = 1;
+  string template_field_node_id = 2;
+  string template_field_occurrence_id = 3;
+  string field_definition_id = 4;
+  string definition_occurrence_id = 5;
+  string static_default_value_node_id = 6;
+  string static_default_value_occurrence_id = 7;
+  TemplateFieldDefinitionOwner field_definition_owner = 8;
+  string contribution_id = 9;
+  TemplateFieldVisibility visibility = 10;
+  repeated TemplateFieldVisibilityCandidate visibility_candidates = 11;
+  bool visibility_conflicted = 12;
+}
+
+message TemplateFieldVisibilityCandidate {
+  TemplateFieldVisibility visibility = 1;
+  string contribution_id = 2;
+}
+
+message OptionalFieldContribution {
+  string supertag_id = 1;
+  string field_nursery_node_id = 2;
+  string field_nursery_occurrence_id = 3;
+  string contribution_node_id = 4;
+  string contribution_occurrence_id = 5;
+  string field_definition_id = 6;
+  string definition_occurrence_id = 7;
+  string value_node_id = 8;
+  string value_occurrence_id = 9;
+  string contribution_id = 10;
+  string nursery_definition_occurrence_id = 11;
+  string nursery_value_node_id = 12;
+  string nursery_value_occurrence_id = 13;
+}
+
+message EffectiveTemplateFieldSource {
+  string application_node_id = 1;
+  string applied_supertag_id = 2;
+  string source_supertag_id = 3;
+  repeated string extension_path = 4;
+  string template_field_node_id = 5;
+  string static_default_value_node_id = 6;
+  TemplateFieldVisibility visibility = 7;
+}
+
+message EffectiveOptionalFieldSource {
+  string application_node_id = 1;
+  string applied_supertag_id = 2;
+  string source_supertag_id = 3;
+  repeated string extension_path = 4;
+  string optional_contribution_node_id = 5;
+}
+
+message EffectiveFieldSource {
+  oneof source {
+    EffectiveTemplateFieldSource template = 1;
+    EffectiveOptionalFieldSource optional = 2;
+  }
+}
+
+message StaticDefaultCandidate {
+  string value = 1;
+  repeated string source_template_field_node_ids = 2;
+}
+
+message EffectiveStaticDefaultValue {
+  string value = 1;
+  string source_template_field_node_id = 2;
+}
+
+message EffectiveStaticDefault {
+  repeated StaticDefaultCandidate candidates = 1;
+  oneof state {
+    bool none = 2;
+    EffectiveStaticDefaultValue value = 3;
+    bool conflict = 4;
+  }
+}
+
+message EffectiveField {
+  string owner_node_id = 1;
+  string field_definition_id = 2;
+  repeated EffectiveFieldSource sources = 3;
+  EffectiveStaticDefault static_default = 4;
+  TemplateFieldVisibility visibility = 5;
+  google.protobuf.StringValue materialized_field_node_id = 6;
+  bool visibility_conflicted = 7;
+}
+
+message OptionalFieldSuggestion {
+  string owner_node_id = 1;
+  string field_definition_id = 2;
+  repeated EffectiveOptionalFieldSource sources = 3;
+}
+
 message StringList { repeated string values = 1; }
-message TemplateFieldList { repeated TemplateField values = 1; }
-message EffectiveFieldList { repeated EffectiveField values = 1; }
 message MaterializedFieldList { repeated MaterializedField values = 1; }
 message FieldDefinitionConfigurationList { repeated FieldDefinitionConfiguration values = 1; }
+message TemplateFieldList { repeated TemplateField values = 1; }
+message OptionalFieldContributionList { repeated OptionalFieldContribution values = 1; }
+message EffectiveFieldList { repeated EffectiveField values = 1; }
+message OptionalFieldSuggestionList { repeated OptionalFieldSuggestion values = 1; }
+message TypedFieldValueList { repeated TypedFieldValue values = 1; }
 
 message NodesSection { map<string, ProjectedNode> values = 1; }
 message OccurrencesSection { map<string, ProjectedOccurrence> values = 1; }
 message StringListsSection { map<string, StringList> values = 1; }
+message SupertagApplication {
+  string host_node_id = 1;
+  string supertag_id = 2;
+  string application_node_id = 3;
+  string application_occurrence_id = 4;
+  string definition_occurrence_id = 5;
+  string contribution_id = 6;
+  string relation_definition_occurrence_id = 7;
+}
+message SupertagApplicationList { repeated SupertagApplication values = 1; }
+message SupertagApplicationsSection { map<string, SupertagApplicationList> values = 1; }
 message NullableStringsSection { map<string, google.protobuf.StringValue> values = 1; }
 message StringValuesSection { map<string, string> values = 1; }
-message TemplateFieldsSection { map<string, TemplateFieldList> values = 1; }
 message TemplateNodeInstancesSection { repeated TemplateNodeInstance values = 1; }
 message ConflictIssuesSection { map<string, ConflictIssue> values = 1; }
-message EffectiveFieldsSection { map<string, EffectiveFieldList> values = 1; }
 message MaterializedFieldsSection { map<string, MaterializedFieldList> values = 1; }
 message FieldDefinitionConfigurationsSection { map<string, FieldDefinitionConfigurationList> values = 1; }
-message SearchClauseList { repeated SearchClause values = 1; }
-message SearchClausesSection { map<string, SearchClauseList> values = 1; }
+message TemplateFieldsSection { map<string, TemplateFieldList> values = 1; }
+message OptionalFieldContributionsSection { map<string, OptionalFieldContributionList> values = 1; }
+message EffectiveFieldsSection { map<string, EffectiveFieldList> values = 1; }
+message OptionalFieldSuggestionsSection { map<string, OptionalFieldSuggestionList> values = 1; }
+message TypedFieldValuesSection { map<string, TypedFieldValueList> values = 1; }
+message SearchExpressionsSection { map<string, SearchExpression> values = 1; }
 message SharedDefaultViewDefinition {
   string host_node_id = 1;
-  string view_definition_node_id = 2;
-  string view_definition_occurrence_id = 3;
-  ViewType view_type = 4;
-  repeated string mode_contribution_ids = 5;
+  string attachment_node_id = 2;
+  string attachment_occurrence_id = 3;
+  string view_definition_node_id = 4;
+  string view_definition_occurrence_id = 5;
+  ViewType view_type = 6;
+  repeated string mode_contribution_ids = 7;
+  string relation_definition_occurrence_id = 8;
+  optional SharedDefaultViewSortByNameAscending sort_by_name_ascending = 9;
+  ViewOptionsSpec options = 10;
+  repeated string options_contribution_ids = 11;
+  bool options_conflicted = 12;
+}
+message SharedDefaultViewSortByNameAscending {
+  string sort_order_field_node_id = 1;
+  string sort_order_field_occurrence_id = 2;
+  string sort_field_node_id = 3;
+  string sort_field_occurrence_id = 4;
+  string node_name_occurrence_id = 5;
+  string ascending_occurrence_id = 6;
 }
 message SharedDefaultViewDefinitionList { repeated SharedDefaultViewDefinition values = 1; }
 message SharedDefaultViewDefinitionsSection { map<string, SharedDefaultViewDefinitionList> values = 1; }
@@ -217,21 +360,23 @@ message ProjectionPage {
     OccurrencesSection occurrences = 5;
     StringListsSection child_occurrences = 6;
     NullableStringsSection node_owners = 7;
-    StringListsSection supertag_applications = 8;
-    StringListsSection supertag_fields = 9;
-    TemplateFieldsSection template_fields = 10;
+    SupertagApplicationsSection supertag_applications = 8;
     StringListsSection supertag_template_nodes = 11;
     TemplateNodeInstancesSection template_node_instances = 12;
     StringListsSection supertag_extensions = 13;
     StringListsSection supertag_instance_supertags = 14;
     StringListsSection supertag_extension_conflicts = 15;
     ConflictIssuesSection conflict_issues = 16;
-    EffectiveFieldsSection effective_fields = 17;
     MaterializedFieldsSection materialized_fields = 18;
     StringValuesSection workspace_system_nodes = 19;
     StringValuesSection metanodes = 20;
-    SearchClausesSection search_clauses = 21;
+    SearchExpressionsSection search_expressions = 21;
     SharedDefaultViewDefinitionsSection shared_default_view_definitions = 22;
     FieldDefinitionConfigurationsSection field_definition_configurations = 23;
+    TemplateFieldsSection template_fields = 24;
+    OptionalFieldContributionsSection optional_field_contributions = 25;
+    EffectiveFieldsSection effective_fields = 26;
+    OptionalFieldSuggestionsSection optional_field_suggestions = 27;
+    TypedFieldValuesSection typed_field_values = 28;
   }
 }

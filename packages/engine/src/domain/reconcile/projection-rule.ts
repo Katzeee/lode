@@ -18,7 +18,7 @@ const PROJECTION_STAGE_ARTIFACTS = {
   "node-graph": "nodeGraphStructure",
   "supertag-relations": "supertagRelations",
   "field-definition": "fieldDefinitionConfigurations",
-  search: "searchClauses",
+  search: "searchExpressions",
   view: "sharedDefaultViewDefinitions",
   conflict: "conflictIssues",
   template: "templateStructure",

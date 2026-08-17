@@ -4,15 +4,35 @@ import { assertEvidenceEqual } from "./evidence-validation.js";
 
 const VIEW_MUTATION_KINDS = [
   "shared-default-view-definition-attach",
+  "shared-default-view-definition-detach",
   "shared-default-view-definition-mode-set",
+  "shared-default-view-definition-sort-by-name-set",
+  "shared-default-view-definition-options-set",
 ] as const satisfies readonly ViewMutation["kind"][];
 
 export const viewMutationEvidence = {
   key: "view",
   mutationKinds: VIEW_MUTATION_KINDS,
   complete(mutation, context) {
-    if (mutation.kind === "shared-default-view-definition-attach") {
+    if (
+      mutation.kind === "shared-default-view-definition-attach" ||
+      mutation.kind === "shared-default-view-definition-detach" ||
+      mutation.kind === "shared-default-view-definition-sort-by-name-set"
+    ) {
       return mutation;
+    }
+    if (mutation.kind === "shared-default-view-definition-options-set") {
+      if (mutation.previousOptions !== undefined && mutation.observedOptionsFactIds !== undefined) {
+        return mutation;
+      }
+      const definition = Object.values(context.projections().available.sharedDefaultViewDefinitions)
+        .flat()
+        .find((candidate) => candidate.viewDefinitionNodeId === mutation.viewDefinitionNodeId);
+      return {
+        ...mutation,
+        previousOptions: definition?.options ?? { columns: [], filter: null, sort: null, group: null },
+        observedOptionsFactIds: definition?.optionsContributionIds ?? [],
+      };
     }
     if (mutation.previousViewType !== undefined && mutation.observedModeFactIds !== undefined) {
       return mutation;
@@ -27,7 +47,28 @@ export const viewMutationEvidence = {
     };
   },
   validate(mutation, context) {
-    if (mutation.kind === "shared-default-view-definition-attach") {
+    if (
+      mutation.kind === "shared-default-view-definition-attach" ||
+      mutation.kind === "shared-default-view-definition-detach" ||
+      mutation.kind === "shared-default-view-definition-sort-by-name-set"
+    ) {
+      return;
+    }
+    if (mutation.kind === "shared-default-view-definition-options-set") {
+      const expected = viewMutationEvidence.complete(
+        { ...mutation, previousOptions: undefined, observedOptionsFactIds: undefined },
+        context,
+      );
+      if (expected.kind !== "shared-default-view-definition-options-set") {
+        throw new Error("View options evidence resolved to another mutation kind");
+      }
+      assertEvidenceEqual(expected.previousOptions, mutation.previousOptions, "View previous options");
+      if (
+        canonicalJson([...(expected.observedOptionsFactIds ?? [])].sort()) !==
+        canonicalJson([...(mutation.observedOptionsFactIds ?? [])].sort())
+      ) {
+        throw new Error("View options Fact evidence does not match the observed projection");
+      }
       return;
     }
     const expected = viewMutationEvidence.complete(

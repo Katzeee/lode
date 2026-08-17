@@ -3,8 +3,7 @@ import type {
   FieldValueDeleteMutation as ProtocolFieldValueDeleteMutation,
   MaterializedFieldDeleteMutation as ProtocolMaterializedFieldDeleteMutation,
   NodeDeleteMutation as ProtocolNodeDeleteMutation,
-  NodeRestoreMutation as ProtocolNodeRestoreMutation,
-  NodeTypeDeclareMutation as ProtocolNodeTypeDeclareMutation,
+  DeclareIntrinsicNodeTypeMutation as ProtocolDeclareIntrinsicNodeTypeMutation,
   OccurrenceCreateMutation as ProtocolOccurrenceCreateMutation,
   OccurrenceDeleteMutation as ProtocolOccurrenceDeleteMutation,
   OccurrenceMoveMutation as ProtocolOccurrenceMoveMutation,
@@ -12,31 +11,37 @@ import type {
   SupertagApplyMutation as ProtocolSupertagApplyMutation,
   SupertagExtensionAddMutation as ProtocolSupertagExtensionAddMutation,
   SupertagExtensionRemoveMutation as ProtocolSupertagExtensionRemoveMutation,
-  SupertagFieldAddMutation as ProtocolSupertagFieldAddMutation,
-  SupertagFieldRemoveMutation as ProtocolSupertagFieldRemoveMutation,
   SupertagRemoveMutation as ProtocolSupertagRemoveMutation,
   SupertagTemplateNodeAddMutation as ProtocolSupertagTemplateNodeAddMutation,
   SupertagTemplateNodeRemoveMutation as ProtocolSupertagTemplateNodeRemoveMutation,
+  SupertagTemplateFieldAttachMutation as ProtocolSupertagTemplateFieldAttachMutation,
+  SupertagTemplateFieldExistingAttachMutation as ProtocolSupertagTemplateFieldExistingAttachMutation,
+  SupertagTemplateFieldDetachMutation as ProtocolSupertagTemplateFieldDetachMutation,
+  SupertagTemplateFieldDiscoverabilitySetMutation as ProtocolSupertagTemplateFieldDiscoverabilitySetMutation,
+  SupertagOptionalFieldContributionAttachMutation as ProtocolSupertagOptionalFieldContributionAttachMutation,
+  SupertagOptionalFieldContributionDetachMutation as ProtocolSupertagOptionalFieldContributionDetachMutation,
   TemplateNodeDetachMutation as ProtocolTemplateNodeDetachMutation,
-  SearchSupertagClauseAttachMutation as ProtocolSearchSupertagClauseAttachMutation,
-  SearchFieldClauseAttachMutation as ProtocolSearchFieldClauseAttachMutation,
+  SearchExpressionAttachMutation as ProtocolSearchExpressionAttachMutation,
   SharedDefaultViewDefinitionAttachMutation as ProtocolSharedDefaultViewDefinitionAttachMutation,
+  SharedDefaultViewDefinitionDetachMutation as ProtocolSharedDefaultViewDefinitionDetachMutation,
   SharedDefaultViewDefinitionModeSetMutation as ProtocolSharedDefaultViewDefinitionModeSetMutation,
+  SharedDefaultViewDefinitionSortByNameSetMutation as ProtocolSharedDefaultViewDefinitionSortByNameSetMutation,
 } from "@lode/protocol/dto/edit";
 import type {
   ContributionNodeCreateMutation as ProtocolContributionNodeCreateMutation,
-  ContributionSupertagFieldConfigureMutation as ProtocolContributionSupertagFieldConfigureMutation,
+  ContributionNodeRestoreMutation as ProtocolNodeRestoreMutation,
   ContributionTextMarkMutation as ProtocolContributionTextMarkMutation,
   ContributionTextSpliceMutation as ProtocolContributionTextSpliceMutation,
-  FieldInitializeMutation as ProtocolFieldInitializeMutation,
-  InitializedReferenceFieldValue as ProtocolInitializedReferenceFieldValue,
-  InitializedTextFieldValue as ProtocolInitializedTextFieldValue,
   NodeOwnerSetMutation as ProtocolNodeOwnerSetMutation,
   MetanodeAttachMutation as ProtocolMetanodeAttachMutation,
   ContributionInlineReferenceDeleteMutation as ProtocolContributionInlineReferenceDeleteMutation,
   ContributionFieldDatatypeConfigureMutation as ProtocolContributionFieldDatatypeConfigureMutation,
   ContributionFieldCardinalityConfigureMutation as ProtocolContributionFieldCardinalityConfigureMutation,
+  ContributionFieldOptionalityConfigureMutation as ProtocolContributionFieldOptionalityConfigureMutation,
   ContributionFieldInitializationExpressionConfigureMutation as ProtocolContributionFieldInitializationExpressionConfigureMutation,
+  SearchExpressionDetachMutation as ProtocolSearchExpressionDetachMutation,
+  SupertagTemplateFieldVisibilityConfigureMutation as ProtocolSupertagTemplateFieldVisibilityConfigureMutation,
+  SharedDefaultViewDefinitionOptionsSetMutation as ProtocolSharedDefaultViewDefinitionOptionsSetMutation,
 } from "@lode/protocol/dto/fact";
 import type {
   InlineReferenceAliasAttachMutation as ProtocolInlineReferenceAliasAttachMutation,
@@ -44,49 +49,29 @@ import type {
   InlineReferenceCreateMutation as ProtocolInlineReferenceCreateMutation,
 } from "@lode/protocol/dto/edit";
 import type {
-  SupertagFieldConfig,
   JsonValue,
   NodeSeed,
-  NodeType,
+  IntrinsicNodeType,
   ViewType,
-  FieldDatatype,
-  FieldCardinality,
   FieldInitializationExpression,
   PreviousValue,
   ProtocolDto,
   SequenceAnchor,
   TextAtomId,
+  TemplateFieldVisibility,
+  SearchExpressionSpec,
+  ViewOptionsSpec,
 } from "./model.js";
-import type { FieldInitializationSource } from "./protocol-enums/model.js";
 
 type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 
 type NodeCreateMutation = Omit<WithKind<ProtocolContributionNodeCreateMutation, "node-create">, "seed"> &
   Readonly<{ seed?: NodeSeed }>;
-type NodeOwnerSetMutation = Omit<WithKind<ProtocolNodeOwnerSetMutation, "node-owner-set">, "previousOwnerNodeId"> &
-  Readonly<{ previousOwnerNodeId?: string }>;
-type SupertagFieldConfigureMutation = Omit<
-  WithKind<ProtocolContributionSupertagFieldConfigureMutation, "supertag-field-configure">,
-  "config" | "previousConfig" | "observedConfigFactIds"
+type NodeOwnerSetMutation = Omit<
+  WithKind<ProtocolNodeOwnerSetMutation, "node-owner-set">,
+  "ownerNodeId" | "previousOwnerNodeId"
 > &
-  Readonly<{
-    config: SupertagFieldConfig;
-    previousConfig?: SupertagFieldConfig | null;
-    observedConfigFactIds?: readonly string[];
-  }>;
-
-export type InitializedFieldValue =
-  WithKind<ProtocolInitializedTextFieldValue, "text"> | WithKind<ProtocolInitializedReferenceFieldValue, "reference">;
-
-type FieldInitializeMutation = Omit<
-  WithKind<ProtocolFieldInitializeMutation, "field-initialize">,
-  "source" | "values" | "observedInitializationFactIds"
-> &
-  Readonly<{
-    source: FieldInitializationSource;
-    values: readonly InitializedFieldValue[];
-    observedInitializationFactIds?: readonly string[];
-  }>;
+  Readonly<{ ownerNodeId: string | null; previousOwnerNodeId?: string | null }>;
 type TextSpliceMutation = Omit<
   WithKind<ProtocolContributionTextSpliceMutation, "text-splice">,
   "deleteAtomIds" | "deletedAtoms" | "anchor" | "attributes"
@@ -128,20 +113,26 @@ type InlineReferenceDeleteMutation = Omit<
   Readonly<{ previousAnchor?: SequenceAnchor }>;
 type FieldDatatypeConfigureMutation = Omit<
   WithKind<ProtocolContributionFieldDatatypeConfigureMutation, "field-datatype-configure">,
-  "datatype" | "previousDatatype" | "observedValueFactIds"
+  "previousDatatypeNodeId" | "observedValueFactIds"
 > &
   Readonly<{
-    datatype: FieldDatatype;
-    previousDatatype?: FieldDatatype | null;
+    previousDatatypeNodeId?: string | null;
     observedValueFactIds?: readonly string[];
   }>;
 type FieldCardinalityConfigureMutation = Omit<
   WithKind<ProtocolContributionFieldCardinalityConfigureMutation, "field-cardinality-configure">,
-  "cardinality" | "previousCardinality" | "observedValueFactIds"
+  "previousCardinalityNodeId" | "observedValueFactIds"
 > &
   Readonly<{
-    cardinality: FieldCardinality;
-    previousCardinality?: FieldCardinality | null;
+    previousCardinalityNodeId?: string | null;
+    observedValueFactIds?: readonly string[];
+  }>;
+type FieldOptionalityConfigureMutation = Omit<
+  WithKind<ProtocolContributionFieldOptionalityConfigureMutation, "field-optionality-configure">,
+  "previousOptionalityNodeId" | "observedValueFactIds"
+> &
+  Readonly<{
+    previousOptionalityNodeId?: string | null;
     observedValueFactIds?: readonly string[];
   }>;
 type FieldInitializationExpressionConfigureMutation = Omit<
@@ -156,6 +147,19 @@ type FieldInitializationExpressionConfigureMutation = Omit<
     previousExpression?: FieldInitializationExpression | null;
     observedValueFactIds?: readonly string[];
   }>;
+type SearchExpressionAttachMutation = Omit<
+  WithKind<ProtocolSearchExpressionAttachMutation, "search-expression-attach">,
+  "expression" | "previousExpression"
+> &
+  Readonly<{
+    expression: SearchExpressionSpec;
+    previousExpression?: SearchExpressionSpec;
+  }>;
+type SearchExpressionDetachMutation = Omit<
+  WithKind<ProtocolSearchExpressionDetachMutation, "search-expression-detach">,
+  "expression"
+> &
+  Readonly<{ expression: SearchExpressionSpec }>;
 
 export type ContributionMutation =
   | NodeCreateMutation
@@ -171,16 +175,11 @@ export type ContributionMutation =
       Readonly<{ anchor: SequenceAnchor; previousAnchor?: SequenceAnchor }>)
   | NodeOwnerSetMutation
   | WithKind<ProtocolMetanodeAttachMutation, "metanode-attach">
-  | (Omit<WithKind<ProtocolNodeTypeDeclareMutation, "node-type-declare">, "nodeType"> &
-      Readonly<{ nodeType: NodeType }>)
+  | (Omit<WithKind<ProtocolDeclareIntrinsicNodeTypeMutation, "intrinsic-node-type-declare">, "intrinsicNodeType"> &
+      Readonly<{ intrinsicNodeType: IntrinsicNodeType }>)
   | (Omit<WithKind<ProtocolSupertagApplyMutation, "supertag-apply">, "anchor"> & Readonly<{ anchor: SequenceAnchor }>)
   | (Omit<WithKind<ProtocolSupertagRemoveMutation, "supertag-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagFieldAddMutation, "supertag-field-add">, "anchor"> &
-      Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagFieldRemoveMutation, "supertag-field-remove">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | SupertagFieldConfigureMutation
   | (Omit<WithKind<ProtocolSupertagExtensionAddMutation, "supertag-extension-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
   | (Omit<WithKind<ProtocolSupertagExtensionRemoveMutation, "supertag-extension-remove">, "previousAnchor"> &
@@ -189,27 +188,77 @@ export type ContributionMutation =
       Readonly<{ anchor: SequenceAnchor }>)
   | (Omit<WithKind<ProtocolSupertagTemplateNodeRemoveMutation, "supertag-template-node-remove">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
+  | (Omit<WithKind<ProtocolSupertagTemplateFieldAttachMutation, "supertag-template-field-attach">, "anchor"> &
+      Readonly<{ anchor: SequenceAnchor }>)
+  | (Omit<
+      WithKind<ProtocolSupertagTemplateFieldExistingAttachMutation, "supertag-template-field-existing-attach">,
+      "anchor"
+    > &
+      Readonly<{ anchor: SequenceAnchor }>)
+  | (Omit<WithKind<ProtocolSupertagTemplateFieldDetachMutation, "supertag-template-field-detach">, "previousAnchor"> &
+      Readonly<{ previousAnchor?: SequenceAnchor }>)
+  | (Omit<
+      WithKind<ProtocolSupertagTemplateFieldDiscoverabilitySetMutation, "supertag-template-field-discoverability-set">,
+      "previousDiscoverable"
+    > &
+      Readonly<{ previousDiscoverable?: boolean }>)
+  | (Omit<
+      WithKind<
+        ProtocolSupertagTemplateFieldVisibilityConfigureMutation,
+        "supertag-template-field-visibility-configure"
+      >,
+      "visibility" | "previousVisibility" | "observedVisibilityFactIds"
+    > &
+      Readonly<{
+        visibility: TemplateFieldVisibility;
+        previousVisibility?: TemplateFieldVisibility;
+        observedVisibilityFactIds?: readonly string[];
+      }>)
+  | (Omit<
+      WithKind<ProtocolSupertagOptionalFieldContributionAttachMutation, "supertag-optional-field-contribution-attach">,
+      "anchor"
+    > &
+      Readonly<{ anchor: SequenceAnchor }>)
+  | (Omit<
+      WithKind<ProtocolSupertagOptionalFieldContributionDetachMutation, "supertag-optional-field-contribution-detach">,
+      "previousAnchor"
+    > &
+      Readonly<{ previousAnchor?: SequenceAnchor }>)
   | TemplateNodeDetachMutation
   | WithKind<ProtocolFieldMaterializeMutation, "field-materialize">
   | (Omit<WithKind<ProtocolFieldValueDeleteMutation, "field-value-delete">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
   | (Omit<WithKind<ProtocolMaterializedFieldDeleteMutation, "materialized-field-delete">, "previousAnchor"> &
       Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | FieldInitializeMutation
   | TextSpliceMutation
   | TextMarkMutation
   | InlineReferenceCreateMutation
   | InlineReferenceDeleteMutation
   | WithKind<ProtocolInlineReferenceAliasAttachMutation, "inline-reference-alias-attach">
   | WithKind<ProtocolInlineReferenceAliasDetachMutation, "inline-reference-alias-detach">
-  | WithKind<ProtocolSearchSupertagClauseAttachMutation, "search-supertag-clause-attach">
-  | WithKind<ProtocolSearchFieldClauseAttachMutation, "search-field-clause-attach">
+  | SearchExpressionAttachMutation
+  | SearchExpressionDetachMutation
   | WithKind<ProtocolSharedDefaultViewDefinitionAttachMutation, "shared-default-view-definition-attach">
+  | WithKind<ProtocolSharedDefaultViewDefinitionDetachMutation, "shared-default-view-definition-detach">
   | (Omit<
       WithKind<ProtocolSharedDefaultViewDefinitionModeSetMutation, "shared-default-view-definition-mode-set">,
       "viewType" | "previousViewType" | "observedModeFactIds"
     > &
       Readonly<{ viewType: ViewType; previousViewType?: ViewType | null; observedModeFactIds?: readonly string[] }>)
+  | WithKind<
+      ProtocolSharedDefaultViewDefinitionSortByNameSetMutation,
+      "shared-default-view-definition-sort-by-name-set"
+    >
+  | (Omit<
+      WithKind<ProtocolSharedDefaultViewDefinitionOptionsSetMutation, "shared-default-view-definition-options-set">,
+      "options" | "previousOptions" | "observedOptionsFactIds"
+    > &
+      Readonly<{
+        options: ViewOptionsSpec;
+        previousOptions?: ViewOptionsSpec;
+        observedOptionsFactIds?: readonly string[];
+      }>)
   | FieldDatatypeConfigureMutation
   | FieldCardinalityConfigureMutation
+  | FieldOptionalityConfigureMutation
   | FieldInitializationExpressionConfigureMutation;

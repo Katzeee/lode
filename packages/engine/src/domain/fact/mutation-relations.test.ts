@@ -39,35 +39,6 @@ describe("mutation relations", () => {
     expect(relations.instanceSupertagIds).toEqual(["application-supertag"]);
   });
 
-  it("captures initialized field identities and their causal observations", () => {
-    const mutation: Mutation = {
-      kind: "field-initialize",
-      ownerNodeId: "owner",
-      supertagId: "supertag",
-      fieldDefinitionId: "field-definition",
-      fieldNodeId: "field-node",
-      fieldOccurrenceId: "field-occurrence",
-      source: "static-default",
-      values: [
-        { kind: "text", nodeId: "text-node", occurrenceId: "text-occurrence", value: "x" },
-        { kind: "reference", nodeId: "reference-node", occurrenceId: "reference-occurrence" },
-      ],
-      observedInitializationFactIds: ["observed-fact"],
-    };
-
-    const relations = mutationRelations(mutation);
-
-    expect(new Set(relations.nodeIds)).toEqual(
-      new Set(["owner", "supertag", "field-definition", "field-node", "text-node", "reference-node"]),
-    );
-    expect(new Set(relations.occurrenceIds)).toEqual(
-      new Set(["field-occurrence", "text-occurrence", "reference-occurrence"]),
-    );
-    expect(relations.factIds).toEqual(["observed-fact"]);
-    expect(relations.instanceSupertagIds).toEqual(["supertag"]);
-    expect(relations.fieldDefinitionIds).toEqual(["field-definition"]);
-  });
-
   it("keeps text atom contributions as typed relations", () => {
     const textRelations = mutationRelations({
       kind: "text-mark",

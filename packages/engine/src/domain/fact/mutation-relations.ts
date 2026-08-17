@@ -1,4 +1,5 @@
-import { templateInstanceNodeId } from "./identity.js";
+import { addFieldMutationRelations } from "./field-mutation-relations.js";
+import { addInlineReferenceMutationRelations, addTextMutationRelations } from "./content-mutation-relations.js";
 import {
   addAnchorRelations,
   addChildrenRelation,
@@ -8,20 +9,18 @@ import {
   type MutableMutationRelations,
   type MutationRelations,
 } from "./mutation-relation-collection.js";
+import { addTemplateMutationRelations } from "./template-mutation-relations.js";
+import { addSupertagMutationRelations } from "./supertag-mutation-relations.js";
 import type {
-  FieldMutation,
   FieldDefinitionConfigMutation,
-  InlineReferenceMutation,
   MetanodeMutation,
   NodeMutation,
   OccurrenceMutation,
-  SupertagMutation,
-  TemplateMutation,
-  TextMutation,
-  SearchClauseMutation,
+  SearchExpressionMutation,
   ViewMutation,
 } from "./mutation-family.js";
 import type { Mutation, SequenceAnchor } from "./types.js";
+import { visitSearchExpression } from "./search-expression-spec.js";
 
 export function mutationRelations(mutation: Mutation): MutationRelations {
   const relations = createMutationRelationCollection();
@@ -35,7 +34,7 @@ function addMutationRelations(relations: MutableMutationRelations, mutation: Mut
     case "node-delete":
     case "node-restore":
     case "node-owner-set":
-    case "node-type-declare":
+    case "intrinsic-node-type-declare":
       addNodeMutationRelations(relations, mutation);
       break;
     case "metanode-attach":
@@ -49,13 +48,17 @@ function addMutationRelations(relations: MutableMutationRelations, mutation: Mut
       break;
     case "supertag-apply":
     case "supertag-remove":
-    case "supertag-field-add":
-    case "supertag-field-remove":
-    case "supertag-field-configure":
     case "supertag-extension-add":
     case "supertag-extension-remove":
     case "supertag-template-node-add":
     case "supertag-template-node-remove":
+    case "supertag-template-field-attach":
+    case "supertag-template-field-existing-attach":
+    case "supertag-template-field-detach":
+    case "supertag-template-field-discoverability-set":
+    case "supertag-template-field-visibility-configure":
+    case "supertag-optional-field-contribution-attach":
+    case "supertag-optional-field-contribution-detach":
       addSupertagMutationRelations(relations, mutation);
       break;
     case "template-node-detach":
@@ -64,11 +67,20 @@ function addMutationRelations(relations: MutableMutationRelations, mutation: Mut
     case "field-materialize":
     case "field-value-delete":
     case "materialized-field-delete":
-    case "field-initialize":
       addFieldMutationRelations(relations, mutation);
       break;
     case "field-datatype-configure":
+      addFieldDefinitionConfigMutationRelations(relations, mutation);
+      relations.nodeIds.add(mutation.datatypeNodeId);
+      break;
     case "field-cardinality-configure":
+      addFieldDefinitionConfigMutationRelations(relations, mutation);
+      relations.nodeIds.add(mutation.cardinalityNodeId);
+      break;
+    case "field-optionality-configure":
+      addFieldDefinitionConfigMutationRelations(relations, mutation);
+      relations.nodeIds.add(mutation.optionalityNodeId);
+      break;
     case "field-initialization-expression-configure":
       addFieldDefinitionConfigMutationRelations(relations, mutation);
       break;
@@ -82,16 +94,20 @@ function addMutationRelations(relations: MutableMutationRelations, mutation: Mut
     case "inline-reference-alias-detach":
       addInlineReferenceMutationRelations(relations, mutation);
       break;
-    case "search-supertag-clause-attach":
-    case "search-field-clause-attach":
+    case "search-expression-attach":
+    case "search-expression-detach":
       addSearchMutationRelations(relations, mutation);
       break;
     case "shared-default-view-definition-attach":
+    case "shared-default-view-definition-detach":
     case "shared-default-view-definition-mode-set":
+    case "shared-default-view-definition-sort-by-name-set":
+    case "shared-default-view-definition-options-set":
       addViewMutationRelations(relations, mutation);
       break;
     default:
-      assertNever(mutation);
+      mutation satisfies never;
+      throw new Error(`Unhandled mutation: ${JSON.stringify(mutation)}`);
   }
 }
 
@@ -104,29 +120,104 @@ function addFieldDefinitionConfigMutationRelations(
   relations.occurrenceIds.add(mutation.configurationOccurrenceId);
   mutation.observedValueFactIds?.forEach((id) => relations.factIds.add(id));
   if (mutation.kind === "field-initialization-expression-configure") {
+    relations.nodeIds.add(mutation.expression.expressionNodeId);
+    relations.occurrenceIds.add(mutation.expression.expressionOccurrenceId);
     addFieldDefinition(relations, mutation.expression.sourceFieldDefinitionId);
+    relations.occurrenceIds.add(mutation.expression.sourceFieldDefinitionOccurrenceId);
+    relations.nodeIds.add(mutation.expression.contextNodeId);
+    relations.occurrenceIds.add(mutation.expression.contextOccurrenceId);
   }
 }
 
 function addViewMutationRelations(relations: MutableMutationRelations, mutation: ViewMutation): void {
   relations.nodeIds.add(mutation.viewDefinitionNodeId);
-  if (mutation.kind === "shared-default-view-definition-attach") {
+  if (
+    mutation.kind === "shared-default-view-definition-attach" ||
+    mutation.kind === "shared-default-view-definition-detach"
+  ) {
     relations.nodeIds.add(mutation.hostNodeId);
+    relations.nodeIds.add(mutation.attachmentNodeId);
+    relations.occurrenceIds.add(mutation.attachmentOccurrenceId);
+    relations.occurrenceIds.add(mutation.relationDefinitionOccurrenceId);
     relations.occurrenceIds.add(mutation.viewDefinitionOccurrenceId);
-  } else {
+    if (mutation.kind === "shared-default-view-definition-detach") {
+      relations.nodeIds.add(mutation.detachedValueNodeId);
+      relations.occurrenceIds.add(mutation.detachedValueOccurrenceId);
+    }
+  } else if (mutation.kind === "shared-default-view-definition-mode-set") {
     mutation.observedModeFactIds?.forEach((id) => relations.factIds.add(id));
+  } else if (mutation.kind === "shared-default-view-definition-options-set") {
+    relations.nodeIds.add(mutation.hostNodeId);
+    for (const column of mutation.options.columns) {
+      relations.nodeIds.add(column.fieldDefinitionId);
+    }
+    if (mutation.options.filter !== null) {
+      visitSearchExpression(mutation.options.filter.expression, (expression) => {
+        if (expression.kind === "supertag") {
+          addSupertagRelation(relations, expression.supertagId);
+        } else if (
+          expression.kind === "field-defined" ||
+          expression.kind === "field-value" ||
+          expression.kind === "date-compare"
+        ) {
+          relations.nodeIds.add(expression.fieldDefinitionId);
+          if (expression.kind === "field-value" && expression.value.kind === "node") {
+            relations.nodeIds.add(expression.value.nodeId);
+          }
+        } else if (
+          (expression.kind === "descendant-of" || expression.kind === "child-of") &&
+          expression.target.kind === "node"
+        ) {
+          relations.nodeIds.add(expression.target.nodeId);
+        } else if (expression.kind === "links-to") {
+          relations.nodeIds.add(expression.targetNodeId);
+        }
+      });
+    }
+    if (mutation.options.sort !== null) {
+      relations.nodeIds.add(mutation.options.sort.fieldDefinitionId);
+    }
+    if (mutation.options.group !== null) {
+      relations.nodeIds.add(mutation.options.group.fieldDefinitionId);
+    }
+    mutation.observedOptionsFactIds?.forEach((id) => relations.factIds.add(id));
+  } else {
+    relations.nodeIds.add(mutation.hostNodeId);
+    relations.nodeIds.add(mutation.sortOrderFieldNodeId);
+    relations.nodeIds.add(mutation.sortFieldNodeId);
+    relations.occurrenceIds.add(mutation.sortOrderFieldOccurrenceId);
+    relations.occurrenceIds.add(mutation.sortFieldOccurrenceId);
+    relations.occurrenceIds.add(mutation.nodeNameOccurrenceId);
+    relations.occurrenceIds.add(mutation.ascendingOccurrenceId);
   }
 }
 
-function addSearchMutationRelations(relations: MutableMutationRelations, mutation: SearchClauseMutation): void {
+function addSearchMutationRelations(relations: MutableMutationRelations, mutation: SearchExpressionMutation): void {
   relations.nodeIds.add(mutation.searchNodeId);
-  relations.nodeIds.add(mutation.clauseNodeId);
-  relations.occurrenceIds.add(mutation.clauseOccurrenceId);
-  if (mutation.kind === "search-supertag-clause-attach") {
-    addSupertagRelation(relations, mutation.supertagId);
-  } else {
-    addFieldDefinition(relations, mutation.fieldDefinitionId);
-  }
+  relations.nodeIds.add(mutation.expressionNodeId);
+  relations.occurrenceIds.add(mutation.expressionOccurrenceId);
+  relations.occurrenceIds.add(mutation.definitionOccurrenceId);
+  visitSearchExpression(mutation.expression, (expression) => {
+    if (expression.kind === "supertag") {
+      addSupertagRelation(relations, expression.supertagId);
+    } else if (
+      expression.kind === "field-defined" ||
+      expression.kind === "field-value" ||
+      expression.kind === "date-compare"
+    ) {
+      relations.nodeIds.add(expression.fieldDefinitionId);
+      if (expression.kind === "field-value" && expression.value.kind === "node") {
+        relations.nodeIds.add(expression.value.nodeId);
+      }
+    } else if (
+      (expression.kind === "descendant-of" || expression.kind === "child-of") &&
+      expression.target.kind === "node"
+    ) {
+      relations.nodeIds.add(expression.target.nodeId);
+    } else if (expression.kind === "links-to") {
+      relations.nodeIds.add(expression.targetNodeId);
+    }
+  });
 }
 
 function addMetanodeMutationRelations(relations: MutableMutationRelations, mutation: MetanodeMutation): void {
@@ -140,8 +231,10 @@ function addNodeMutationRelations(relations: MutableMutationRelations, mutation:
   if (mutation.kind === "node-restore") {
     relations.factIds.add(mutation.deletionFactId);
   } else if (mutation.kind === "node-owner-set") {
-    addChildrenRelation(relations, mutation.ownerNodeId);
-    if (mutation.previousOwnerNodeId !== undefined) {
+    if (mutation.ownerNodeId !== null) {
+      addChildrenRelation(relations, mutation.ownerNodeId);
+    }
+    if (mutation.previousOwnerNodeId !== undefined && mutation.previousOwnerNodeId !== null) {
       addChildrenRelation(relations, mutation.previousOwnerNodeId);
     }
   }
@@ -165,132 +258,14 @@ function addOccurrenceMutationRelations(relations: MutableMutationRelations, mut
   }
 }
 
-function addSupertagMutationRelations(relations: MutableMutationRelations, mutation: SupertagMutation): void {
-  addSupertagRelation(relations, mutation.supertagId);
-  if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    relations.nodeIds.add(mutation.nodeId);
-    addRelationAnchor(relations, mutation);
-    return;
-  }
-  if (mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove") {
-    addSupertagRelation(relations, mutation.baseSupertagId);
-    relations.instanceSupertagIds.add(mutation.supertagId);
-    relations.instanceSupertagIds.add(mutation.baseSupertagId);
-    addRelationAnchor(relations, mutation);
-    return;
-  }
-  if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
-    relations.nodeIds.add(mutation.templateNodeId);
-    relations.occurrenceIds.add(mutation.templateOccurrenceId);
-    addRelationAnchor(relations, mutation);
-    return;
-  }
-  addFieldDefinition(relations, mutation.fieldDefinitionId);
-  relations.nodeIds.add(mutation.fieldNodeId);
-  relations.instanceSupertagIds.add(mutation.supertagId);
-  if (mutation.kind === "supertag-field-configure") {
-    mutation.observedConfigFactIds?.forEach((id) => relations.factIds.add(id));
-  } else {
-    relations.occurrenceIds.add(mutation.fieldOccurrenceId);
-    addRelationAnchor(relations, mutation);
-  }
-}
-
-function addRelationAnchor(
-  relations: MutableMutationRelations,
-  mutation: Exclude<SupertagMutation, { kind: "supertag-field-configure" }>,
-): void {
-  if (
-    mutation.kind === "supertag-apply" ||
-    mutation.kind === "supertag-field-add" ||
-    mutation.kind === "supertag-extension-add" ||
-    mutation.kind === "supertag-template-node-add"
-  ) {
-    addAnchorRelations(relations, mutation.anchor);
-  } else {
-    addAnchorRelations(relations, mutation.previousAnchor);
-  }
-}
-
-function addTemplateMutationRelations(relations: MutableMutationRelations, mutation: TemplateMutation): void {
-  relations.nodeIds.add(mutation.ownerNodeId);
-  relations.nodeIds.add(mutation.templateNodeId);
-  relations.nodeIds.add(mutation.instanceNodeId);
-  relations.nodeIds.add(templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId));
-  relations.occurrenceIds.add(mutation.instanceOccurrenceId);
-  addAnchorRelations(relations, mutation.anchor);
-  mutation.sourceSupertagIds?.forEach((supertagId) => addSupertagRelation(relations, supertagId));
-  mutation.sourceApplicationSupertagIds?.forEach((supertagId) => {
-    addSupertagRelation(relations, supertagId);
-    relations.instanceSupertagIds.add(supertagId);
-  });
-  mutation.sourceTemplateOccurrenceIds?.forEach((id) => relations.occurrenceIds.add(id));
-}
-
-function addFieldMutationRelations(relations: MutableMutationRelations, mutation: FieldMutation): void {
-  relations.nodeIds.add(mutation.ownerNodeId);
-  addFieldDefinition(relations, mutation.fieldDefinitionId);
-  if (mutation.kind === "field-value-delete") {
-    relations.occurrenceIds.add(mutation.valueOccurrenceId);
-    addPreviousPlacement(relations, mutation.previousParentNodeId, mutation.previousAnchor);
-    return;
-  }
-  relations.nodeIds.add(mutation.fieldNodeId);
-  relations.occurrenceIds.add(mutation.fieldOccurrenceId);
-  if (mutation.kind === "field-initialize") {
-    addSupertagRelation(relations, mutation.supertagId);
-    relations.instanceSupertagIds.add(mutation.supertagId);
-    mutation.values.forEach((value) => {
-      relations.nodeIds.add(value.nodeId);
-      relations.occurrenceIds.add(value.occurrenceId);
-    });
-    mutation.observedInitializationFactIds?.forEach((id) => relations.factIds.add(id));
-    return;
-  }
-  addChildrenRelation(relations, mutation.fieldNodeId);
-  if (mutation.kind === "materialized-field-delete") {
-    addPreviousPlacement(relations, mutation.previousParentNodeId, mutation.previousAnchor);
-  }
-}
-
-function addTextMutationRelations(relations: MutableMutationRelations, mutation: TextMutation): void {
-  relations.nodeIds.add(mutation.nodeId);
-  if (mutation.kind === "text-splice") {
-    addAnchorRelations(relations, mutation.anchor);
-    mutation.deleteAtomIds.forEach((id) => relations.factIds.add(atomContributionId(id)));
-  } else {
-    mutation.atomIds.forEach((id) => relations.factIds.add(atomContributionId(id)));
-  }
-}
-
-function addInlineReferenceMutationRelations(
-  relations: MutableMutationRelations,
-  mutation: InlineReferenceMutation,
-): void {
-  relations.inlineReferenceIds.add(mutation.inlineReferenceId);
-  if (mutation.kind === "inline-reference-create") {
-    relations.nodeIds.add(mutation.hostNodeId);
-    relations.nodeIds.add(mutation.targetNodeId);
-  } else if (mutation.kind === "inline-reference-delete") {
-    if (mutation.previousHostNodeId !== undefined) {
-      relations.nodeIds.add(mutation.previousHostNodeId);
-    }
-    if (mutation.previousTargetNodeId !== undefined) {
-      relations.nodeIds.add(mutation.previousTargetNodeId);
-    }
-  } else {
-    relations.nodeIds.add(mutation.aliasNodeId);
-  }
+function addPlacement(relations: MutableMutationRelations, parentNodeId: string, anchor: SequenceAnchor): void {
+  addChildrenRelation(relations, parentNodeId);
+  addAnchorRelations(relations, anchor);
 }
 
 function addFieldDefinition(relations: MutableMutationRelations, fieldDefinitionId: string): void {
   relations.nodeIds.add(fieldDefinitionId);
   relations.fieldDefinitionIds.add(fieldDefinitionId);
-}
-
-function addPlacement(relations: MutableMutationRelations, parentNodeId: string, anchor: SequenceAnchor): void {
-  addChildrenRelation(relations, parentNodeId);
-  addAnchorRelations(relations, anchor);
 }
 
 function addPreviousPlacement(
@@ -302,12 +277,4 @@ function addPreviousPlacement(
     addChildrenRelation(relations, parentNodeId);
   }
   addAnchorRelations(relations, anchor);
-}
-
-function atomContributionId(atomId: `${string}#${number}`): string {
-  return atomId.slice(0, atomId.lastIndexOf("#"));
-}
-
-function assertNever(value: never): never {
-  throw new Error(`Unhandled mutation: ${JSON.stringify(value)}`);
 }

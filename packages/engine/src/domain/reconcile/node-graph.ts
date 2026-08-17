@@ -1,4 +1,4 @@
-import type { InlineReferenceId, JsonValue, NodeType, SequenceAnchor, TextAtomId } from "../fact/index.js";
+import type { InlineReferenceId, JsonValue, IntrinsicNodeType, SequenceAnchor, TextAtomId } from "../fact/index.js";
 import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
 import type { Metanodes } from "./metanodes.js";
 
@@ -63,7 +63,7 @@ export function locateInlineReference(
 
 export type ProjectedNode = Readonly<{
   nodeId: string;
-  nodeType: NodeType | null;
+  intrinsicNodeType: IntrinsicNodeType | null;
   content: readonly NodeContentItem[];
 }>;
 
@@ -122,7 +122,7 @@ export function isNodeInTrash(workspaceNodeId: string, graph: NodeLocationGraph,
 }
 
 export function isPresentNodeOutsideTrash(workspaceNodeId: string, graph: NodeLocationGraph, nodeId: string): boolean {
-  return graph.nodes[nodeId] !== undefined && nodeLocation(workspaceNodeId, graph, nodeId) !== "trash";
+  return nodeLocation(workspaceNodeId, graph, nodeId) === "active";
 }
 
 type NodeGraphState = Readonly<{
@@ -139,12 +139,17 @@ export function validateNodeGraph(graph: NodeGraphState): void {
   validateKnownOwners(graph);
 }
 
-export function validateRootedNodeGraph(workspaceNodeId: string, graph: NodeGraphState): void {
+export function validateRootedNodeGraph(
+  workspaceNodeId: string,
+  graph: NodeGraphState,
+  detachedRootNodeIds: ReadonlySet<string> = new Set(),
+): void {
   validateNodeGraph(graph);
   if (!graph.nodes.has(workspaceNodeId)) {
     throw new Error("Node Graph has no Workspace Node");
   }
-  validateRootedOwnership(workspaceNodeId, graph);
+  validateRootedOwnership(workspaceNodeId, graph, detachedRootNodeIds);
+  validateMetanodeOwners(graph);
 }
 
 function validateIdentities(graph: NodeGraphState): void {
@@ -202,9 +207,6 @@ function validateOccurrenceIndex(graph: NodeGraphState): void {
 }
 
 function validateKnownOwners(graph: NodeGraphState): void {
-  const attachedHostsByRoot = new Map(
-    Object.entries(graph.metanodes).map(([hostNodeId, rootNodeId]) => [rootNodeId, hostNodeId]),
-  );
   for (const [nodeId, ownerNodeId] of Object.entries(graph.nodeOwners)) {
     if (!graph.nodes.has(nodeId)) {
       throw new Error(`Node Graph Owner subject is absent: ${nodeId}`);
@@ -212,18 +214,10 @@ function validateKnownOwners(graph: NodeGraphState): void {
     if (ownerNodeId !== null && !graph.nodes.has(ownerNodeId)) {
       throw new Error(`Node Graph Owner is absent: ${nodeId}`);
     }
-    if (ownerNodeId !== null) {
-      const originals = [...graph.occurrences.values()].filter(
-        (occurrence) => occurrence.nodeId === nodeId && occurrence.parentNodeId === ownerNodeId,
-      );
-      const attachedHost = attachedHostsByRoot.get(nodeId);
-      const validAttachment = attachedHost === ownerNodeId && originals.length === 0;
-      const validOriginal = attachedHost === undefined && originals.length === 1;
-      if (!validAttachment && !validOriginal) {
-        throw new Error(`Node Graph Node must have exactly one Original Occurrence: ${nodeId}`);
-      }
-    }
   }
+}
+
+function validateMetanodeOwners(graph: NodeGraphState): void {
   for (const [hostNodeId, rootNodeId] of Object.entries(graph.metanodes)) {
     if (!graph.nodes.has(hostNodeId) || !graph.nodes.has(rootNodeId) || graph.nodeOwners[rootNodeId] !== hostNodeId) {
       throw new Error(`Node Graph Metanode attachment is invalid: ${hostNodeId}`);
@@ -231,7 +225,11 @@ function validateKnownOwners(graph: NodeGraphState): void {
   }
 }
 
-function validateRootedOwnership(workspaceNodeId: string, graph: NodeGraphState): void {
+function validateRootedOwnership(
+  workspaceNodeId: string,
+  graph: NodeGraphState,
+  detachedRootNodeIds: ReadonlySet<string>,
+): void {
   for (const nodeId of graph.nodes.keys()) {
     if (!Object.hasOwn(graph.nodeOwners, nodeId)) {
       throw new Error(`Node Graph Node has no Owner: ${nodeId}`);
@@ -243,10 +241,13 @@ function validateRootedOwnership(workspaceNodeId: string, graph: NodeGraphState)
       }
       continue;
     }
+    if (detachedRootNodeIds.has(nodeId) && ownerNodeId === null) {
+      continue;
+    }
     if (ownerNodeId === null || ownerNodeId === undefined || !graph.nodes.has(ownerNodeId)) {
       throw new Error(`Node Graph Owner is absent: ${nodeId}`);
     }
-    validateOwnerPath(workspaceNodeId, nodeId, graph.nodeOwners);
+    validateOwnerPath(workspaceNodeId, nodeId, graph.nodeOwners, detachedRootNodeIds);
   }
 }
 
@@ -254,10 +255,14 @@ function validateOwnerPath(
   workspaceNodeId: string,
   nodeId: string,
   nodeOwners: Readonly<Record<string, string | null>>,
+  detachedRootNodeIds: ReadonlySet<string>,
 ): void {
   const visited = new Set<string>();
   let cursor: string | null | undefined = nodeId;
   while (cursor !== workspaceNodeId) {
+    if (cursor !== null && cursor !== undefined && detachedRootNodeIds.has(cursor) && nodeOwners[cursor] === null) {
+      return;
+    }
     if (cursor === null || cursor === undefined || visited.has(cursor)) {
       throw new Error(`Node Graph Owner chain does not reach the Workspace: ${nodeId}`);
     }

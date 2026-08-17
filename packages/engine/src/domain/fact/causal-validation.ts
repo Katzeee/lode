@@ -3,7 +3,6 @@ import { factObserves } from "./frontier.js";
 import { validateMaintenanceFact } from "./maintenance-causal-validation.js";
 import { occurrenceRestoreDeletionId } from "./mutation-family.js";
 import { type Fact, type ResolutionFact } from "./types.js";
-import { DEFAULT_SUPERTAG_FIELD_CONFIG, type SupertagFieldConfig } from "./supertag-field-config-types.js";
 
 export function validateAdmissibleFact(
   fact: Fact,
@@ -22,9 +21,7 @@ export function validateAdmissibleFact(
     throw new Error(`Invalid Fact Lamport rank: ${fact.id}`);
   }
   validateResolution(fact, admitted);
-  validateFieldConfiguration(fact, admitted);
   validateViewMode(fact, admitted);
-  validateFieldInitialization(fact, admitted);
   validateRestore(fact, admitted);
   validateMaintenanceFact(fact, admitted);
 }
@@ -68,86 +65,6 @@ function validateViewMode(fact: Fact, admitted: readonly Fact[]): void {
   const expectedPrevious = previousModes.size === 1 ? ([...previousModes][0] ?? null) : null;
   if (mutation.previousViewType !== expectedPrevious) {
     throw new Error(`View previous mode evidence is stale: ${fact.id}`);
-  }
-}
-
-function validateFieldInitialization(fact: Fact, admitted: readonly Fact[]): void {
-  if (fact.body.kind !== "contribution" || fact.body.mutation.kind !== "field-initialize") {
-    return;
-  }
-  const mutation = fact.body.mutation;
-  const observed = admitted.filter(
-    (candidate) =>
-      candidate.body.kind === "contribution" &&
-      candidate.body.mutation.kind === "field-initialize" &&
-      candidate.body.mutation.ownerNodeId === mutation.ownerNodeId &&
-      candidate.body.mutation.fieldDefinitionId === mutation.fieldDefinitionId &&
-      factObserves(fact, candidate),
-  );
-  const superseded = new Set(
-    observed.flatMap((candidate) =>
-      candidate.body.kind === "contribution" && candidate.body.mutation.kind === "field-initialize"
-        ? (candidate.body.mutation.observedInitializationFactIds ?? [])
-        : [],
-    ),
-  );
-  const expected = observed
-    .filter((candidate) => !superseded.has(candidate.id))
-    .map((candidate) => candidate.id)
-    .sort();
-  if (
-    mutation.observedInitializationFactIds === undefined ||
-    canonicalJson([...mutation.observedInitializationFactIds].sort()) !== canonicalJson(expected)
-  ) {
-    throw new Error(`Field initialization evidence is stale: ${fact.id}`);
-  }
-}
-
-function validateFieldConfiguration(fact: Fact, admitted: readonly Fact[]): void {
-  if (fact.body.kind !== "contribution" || fact.body.mutation.kind !== "supertag-field-configure") {
-    return;
-  }
-  const mutation = fact.body.mutation;
-  const observed = admitted.filter(
-    (candidate) =>
-      candidate.body.kind === "contribution" &&
-      candidate.body.mutation.kind === "supertag-field-configure" &&
-      candidate.body.mutation.supertagId === mutation.supertagId &&
-      candidate.body.mutation.fieldDefinitionId === mutation.fieldDefinitionId &&
-      factObserves(fact, candidate),
-  );
-  const superseded = new Set(
-    observed.flatMap((candidate) =>
-      candidate.body.kind === "contribution" && candidate.body.mutation.kind === "supertag-field-configure"
-        ? (candidate.body.mutation.observedConfigFactIds ?? [])
-        : [],
-    ),
-  );
-  const maximal = observed.filter((candidate) => !superseded.has(candidate.id));
-  const expectedIds = maximal.map((candidate) => candidate.id).sort();
-  if (
-    mutation.observedConfigFactIds === undefined ||
-    canonicalJson([...mutation.observedConfigFactIds].sort()) !== canonicalJson(expectedIds)
-  ) {
-    throw new Error(`Field config evidence does not cover observed candidates: ${fact.id}`);
-  }
-  const previousCandidates = new Map<string, SupertagFieldConfig>();
-  for (const candidate of maximal) {
-    if (candidate.body.kind === "contribution") {
-      const candidateMutation = candidate.body.mutation;
-      if (candidateMutation.kind === "supertag-field-configure") {
-        previousCandidates.set(canonicalJson(candidateMutation.config), candidateMutation.config);
-      }
-    }
-  }
-  const expectedPrevious =
-    previousCandidates.size === 0
-      ? DEFAULT_SUPERTAG_FIELD_CONFIG
-      : previousCandidates.size === 1
-        ? ([...previousCandidates.values()][0] ?? null)
-        : null;
-  if (canonicalJson(mutation.previousConfig) !== canonicalJson(expectedPrevious)) {
-    throw new Error(`Field config previous evidence is stale: ${fact.id}`);
   }
 }
 

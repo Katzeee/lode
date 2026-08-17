@@ -25,8 +25,6 @@ export async function queryWorkspaceReview(
     .facts(selectedIds)
     .filter((fact): fact is ContributionFact => fact.body.kind === "contribution" && fact.body.intent === "proposal");
   const pending = new Map(selectedFacts.map((fact) => [fact.id, fact]));
-  const supportBatch = await projections.reviewSupport(generationId, selectedIds);
-  const supportByContribution = new Map(supportBatch.entries.map((entry) => [entry.identity, entry.supportIds]));
   const generation = await readMutationGeneration(
     projections,
     generationId,
@@ -40,7 +38,6 @@ export async function queryWorkspaceReview(
     reviewCapabilityKey,
     {
       pending,
-      context: { pending, supportByContribution },
       next: scopePage.next,
     },
   );

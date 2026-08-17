@@ -73,7 +73,8 @@ function lifecycleRepresentatives(
     return null;
   }
   if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
-    const active = nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) === "active";
+    const location = nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId);
+    const active = location === "active" || (location === "absent" && projection.nodeOwners[mutation.nodeId] != null);
     const wanted = active ? ["node-create", "node-restore"] : ["node-delete"];
     const matching = ordered.filter((fact) => wanted.includes(fact.body.mutation.kind));
     return active ? matching.slice(-1) : matching;
@@ -112,18 +113,11 @@ function compensationOwner(mutation: Mutation): string | null {
   if (mutation.kind === "node-owner-set") {
     return `owner/${mutation.nodeId}`;
   }
-  if (mutation.kind === "node-type-declare") {
-    return `node-type/${mutation.nodeId}`;
+  if (mutation.kind === "intrinsic-node-type-declare") {
+    return `intrinsic-node-type/${mutation.nodeId}`;
   }
   if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return `supertag-application/${mutation.nodeId}/${mutation.supertagId}`;
-  }
-  if (
-    mutation.kind === "supertag-field-add" ||
-    mutation.kind === "supertag-field-remove" ||
-    mutation.kind === "supertag-field-configure"
-  ) {
-    return `supertag-field/${mutation.supertagId}/${mutation.fieldDefinitionId}`;
+    return `supertag-application/${mutation.applicationNodeId}`;
   }
   return mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
     ? `supertag-extension/${mutation.supertagId}/${mutation.baseSupertagId}`

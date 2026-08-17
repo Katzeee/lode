@@ -26,7 +26,7 @@ export type ProjectionArtifactKey =
   | "nodeGraphStructure"
   | "supertagRelations"
   | "fieldDefinitionConfigurations"
-  | "searchClauses"
+  | "searchExpressions"
   | "sharedDefaultViewDefinitions"
   | "conflictIssues"
   | "templateStructure"

@@ -27,6 +27,61 @@ const restoreReplica = "eeeeeeeeeeeeeeeeeeeeeeeeee";
 const checkpointKey = "field-content-deletion-property";
 
 describe("Field content deletion convergence", () => {
+  it("converges concurrent same-Field value reorders across 32 arrival, incremental, and checkpoint topologies", () => {
+    const base = orderingFixture();
+    const baseSnapshot = admitted(base.values);
+    const moveC = remoteFact(insertReplica, baseSnapshot.frontier, {
+      kind: "occurrence-move",
+      occurrenceId: "value-c-occurrence",
+      parentNodeId: "field-node",
+      anchor: {
+        after: "field-definition-endpoint-occ:v1:field-occurrence",
+        before: "value-a-occurrence",
+        affinity: "before",
+        fallback: "start",
+      },
+      previousParentNodeId: "field-node",
+      previousAnchor: { after: "value-b-occurrence", before: null, affinity: "after", fallback: "end" },
+    });
+    const moveB = remoteFact(unrelatedReplica, baseSnapshot.frontier, {
+      kind: "occurrence-move",
+      occurrenceId: "value-b-occurrence",
+      parentNodeId: "field-node",
+      anchor: {
+        after: "field-definition-endpoint-occ:v1:field-occurrence",
+        before: "value-a-occurrence",
+        affinity: "before",
+        fallback: "start",
+      },
+      previousParentNodeId: "field-node",
+      previousAnchor: {
+        after: "value-a-occurrence",
+        before: "value-c-occurrence",
+        affinity: "after",
+        fallback: "end",
+      },
+    });
+    const expectedSnapshot = admitted([...base.values, moveC, moveB]);
+    const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
+    const expectedSummary = summary(expected);
+    const expectedOrder = expected.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds;
+    expect(new Set(expectedOrder)).toEqual(new Set(["value-a-occurrence", "value-b-occurrence", "value-c-occurrence"]));
+
+    for (let seed = 65; seed <= 96; seed += 1) {
+      const snapshot = admitted(shuffle([...base.values, moveB, moveC, moveB, moveC], seed));
+      expect(summary(rebuildGeneration("workspace", snapshot, versions))).toBe(expectedSummary);
+    }
+
+    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
+    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
+      expectedSummary,
+    );
+    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
+      expectedSummary,
+    );
+  });
+
   it("preserves a concurrent new value while deleting only the selected value across 32 topologies", () => {
     const base = fixture();
     const baseSnapshot = admitted(base.values);
@@ -40,10 +95,10 @@ describe("Field content deletion convergence", () => {
         valueOccurrenceId: "value-a-occurrence",
         previousParentNodeId: "field-node",
         previousAnchor: {
-          after: null,
+          after: "field-definition-endpoint-occ:v1:field-occurrence",
           before: "value-b-occurrence",
           affinity: "after",
-          fallback: "start",
+          fallback: "end",
         },
       },
       ["value-a"],
@@ -138,7 +193,23 @@ describe("Field content deletion convergence", () => {
     const restoration = remoteTransaction(
       restoreReplica,
       merged.frontier,
-      [{ kind: "node-restore", nodeId: "field-node", deletionFactId: fieldDeletionFactId }],
+      [
+        { kind: "node-restore", nodeId: "field-node", deletionFactId: fieldDeletionFactId },
+        {
+          kind: "node-owner-set",
+          nodeId: "field-node",
+          ownerNodeId: "owner",
+          previousOwnerNodeId: "workspace-trash:v1:workspace",
+        },
+        {
+          kind: "occurrence-move",
+          occurrenceId: "field-occurrence",
+          parentNodeId: "owner",
+          anchor: { ...end, fallback: "start" },
+          previousParentNodeId: "workspace-trash:v1:workspace",
+          previousAnchor: { ...end, fallback: "start" },
+        },
+      ],
       Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
     );
     const expectedSnapshot = admitted([...base.values, ...deletion, insertion, ...restoration]);
@@ -172,13 +243,11 @@ describe("Field content deletion convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("supertag");
   facts.addPlaced("field-definition");
-  facts.add({ kind: "node-type-declare", nodeId: "supertag", nodeType: "supertag-definition" });
   facts.add({
-    kind: "node-type-declare",
+    kind: "intrinsic-node-type-declare",
     nodeId: "field-definition",
-    nodeType: "field-definition",
+    intrinsicNodeType: "field-definition",
   });
   facts.addPlaced("owner", "workspace", "owner-occurrence");
   facts.addPlaced("field-node", "owner", "field-occurrence");
@@ -187,14 +256,28 @@ function fixture(): Facts {
   facts.addPlaced("value-c", "workspace");
   facts.addPlaced("unrelated", "workspace");
   facts.add({
-    kind: "supertag-field-add",
-    supertagId: "supertag",
+    kind: "field-materialize",
+    ownerNodeId: "owner",
     fieldDefinitionId: "field-definition",
-    fieldNodeId: "supertag-field-definition-template-field",
-    fieldOccurrenceId: "supertag-field-definition-template-field-occurrence",
-    anchor: end,
+    fieldNodeId: "field-node",
+    fieldOccurrenceId: "field-occurrence",
   });
-  facts.add({ kind: "supertag-apply", nodeId: "owner", supertagId: "supertag", anchor: end });
+  return facts;
+}
+
+function orderingFixture(): Facts {
+  const facts = new Facts();
+  facts.addPlaced("field-definition");
+  facts.add({
+    kind: "intrinsic-node-type-declare",
+    nodeId: "field-definition",
+    intrinsicNodeType: "field-definition",
+  });
+  facts.addPlaced("owner", "workspace", "owner-occurrence");
+  facts.addPlaced("field-node", "owner", "field-occurrence");
+  facts.addPlaced("value-a", "field-node", "value-a-occurrence");
+  facts.addPlaced("value-b", "field-node", "value-b-occurrence");
+  facts.addPlaced("value-c", "field-node", "value-c-occurrence");
   facts.add({
     kind: "field-materialize",
     ownerNodeId: "owner",
@@ -231,7 +314,29 @@ function remoteDeletion(
   if (!rootNodeId) {
     throw new Error("Field content deletion fixture requires a structural root");
   }
-  return remoteTransaction(replicaId, observed, [mutation, { kind: "node-delete", nodeId: rootNodeId }]);
+  const ownerNodeId = mutation.kind === "field-value-delete" ? mutation.previousParentNodeId : mutation.ownerNodeId;
+  const occurrenceId = mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
+  if (!ownerNodeId) {
+    throw new Error("Field content deletion fixture has no root Owner");
+  }
+  return remoteTransaction(replicaId, observed, [
+    mutation,
+    { kind: "node-delete", nodeId: rootNodeId },
+    {
+      kind: "node-owner-set",
+      nodeId: rootNodeId,
+      ownerNodeId: "workspace-trash:v1:workspace",
+      previousOwnerNodeId: ownerNodeId,
+    },
+    {
+      kind: "occurrence-move",
+      occurrenceId,
+      parentNodeId: "workspace-trash:v1:workspace",
+      anchor: end,
+      previousParentNodeId: ownerNodeId,
+      previousAnchor: mutation.previousAnchor,
+    },
+  ]);
 }
 
 function remoteTransaction(

@@ -20,6 +20,10 @@ import {
   createGenerationCheckpoint,
   reconcileFromCheckpoint,
 } from "../src/runtime/materialization/generation-checkpoint.js";
+import {
+  withFieldDefinitionEndpoints,
+  withInitialOwnerRelations,
+} from "./support/reconcile/placed-node-test-helpers.js";
 
 const checkpointKey = "supertag-convergence-property";
 
@@ -29,15 +33,16 @@ export function remoteBranch(
   lamport: number,
   mutations: readonly Mutation[],
 ): readonly Fact[] {
+  const ownedMutations = withFieldDefinitionEndpoints(withInitialOwnerRelations(mutations));
   const transactionId = factTransactionId("workspace", replicaId, 1);
-  return mutations.map((mutation, index) =>
+  return ownedMutations.map((mutation, index) =>
     makeFact({
       workspaceId: "workspace",
       replicaId,
       sequence: index + 1,
       observed: { ...observed, ...(index === 0 ? {} : { [replicaId]: index }) },
       lamport: lamport + index,
-      transaction: { transactionId, index, size: mutations.length },
+      transaction: { transactionId, index, size: ownedMutations.length },
       body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
     }),
   );

@@ -57,21 +57,41 @@
     },
     {
       "id": "model.search-node",
-      "contract": "A Search Node owns an ordered identity-bearing clause graph, while SearchResultReferences are derived from the selected Projection through one reusable query evaluator.",
+      "contract": "A Search Node owns one recursive, identity-bearing, ordered Search Expression covering Supertag, text, Field, Date, scope, reference, and boolean composition; updates preserve authority identity, while live SearchResultReferences, Supertag pages, and View Filters share one evaluator and never own Originals.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-1 composes Supertag and defined-Field clauses across Origin, Review, and Trash"
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-1 evaluates one Supertag Search Expression across Origin, Review, and Trash"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-2 keeps clause identity and hidden ownership through public Undo and Redo"
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-2 keeps expression identity and hidden ownership through public Undo and Redo"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-3 composes daily clauses, preserves clause identities through updates, and evaluates live Originals"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-4 restores the composed authority and derived results after restart"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-5 syncs legal composed authority and rejects target-ownership smuggling"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-6 distinguishes Effective placeholders from Materialized Fields for Defined and Not Defined"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent Search Expression reorder and update converge across three replicas and all Reconcile paths"
         }
       ]
     },
     {
       "id": "model.view-definition",
-      "contract": "A host has at most one shared default View Definition as ordinary Configuration Graph identity; implicit Outline and derived View rows preserve their ordinary Occurrence or SearchResultReference source.",
+      "contract": "A host has at most one shared default View Definition; Outline/Table rows preserve ordinary Occurrence or SearchResultReference sources, while identity-bearing Display columns, shared Search Filter, typed Field Sort, and Field Group derive presentation without copying rows, Fields, or values across Proposal, History, restart, Sync, and concurrent reconciliation.",
       "tests": [
         {
           "workspace": "engine",
@@ -80,6 +100,34 @@
         {
           "workspace": "engine",
           "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-2 changes mode through public Proposal and History while preserving View Definition identity"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-3 removes the shared default through graph truth across Direct, Proposal, History, and reapplication"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > syncs a public View removal as its complete removal graph"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-4 presents typed columns, shared Search filtering, Date sort, and Field groups without copying row content"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-5 restores View option identities and derived presentation after restart"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > syncs typed View options and rejects a compensation transaction that smuggles Field Definition ownership"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent View column reorder and Filter update converge across three replicas and all Reconcile paths"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > carries a public View removal through the daemon as graph truth"
         }
       ]
     },
@@ -102,28 +150,96 @@
       ]
     },
     {
-      "id": "supertag.applications-and-fields",
-      "contract": "A Node applies multiple Supertags; ordered Field Contributions merge by stable Field Definition identity.",
+      "id": "supertag.applications",
+      "contract": "A Node applies multiple identity-bearing Supertag relations; applications survive restart and preserve concurrent observed-remove intent.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > writes, queries, and restarts multiple Supertag applications with shared effective Fields"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > keeps multiple Supertag applications and deduplicates a shared Field Definition by source"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > uses observed-remove for concurrent Supertag Application and Field Contribution intent"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > writes, queries, and restarts multiple Supertag applications"
         },
         {
           "workspace": "engine",
           "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Supertag Application observed-remove intent across 32 four-replica topologies"
+        }
+      ]
+    },
+    {
+      "id": "supertag.template-field-existing-readd",
+      "contract": "A discoverable Field Definition can be exposed by a new Template Field use without changing Definition identity or authority; removal moves the old use graph to Trash, History restores that graph, ordinary re-add creates new use and default-slot identities, and the complete lifecycle remains valid across restart, Proposal, and Fact sync.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-1 trashes a removed use, restores it through History, and re-adds the same Definition as a new use"
         },
         {
           "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > reviews a new Template Field use of one discoverable Field Definition"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > rejects non-discoverable endpoints, duplicate exposure, and reused relation identities"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > syncs a same-Definition Template Field re-add and rejects authority smuggled through its narrower Fact"
+        }
+      ]
+    },
+    {
+      "id": "supertag.template-field-visibility-and-optionality",
+      "contract": "Template Field visibility is configuration local to one Template Field use: pinned fields precede normal fields, concurrent writes expose their candidates while resolving conservatively, and Optional-only contributions remain suggestions until an explicit materialization creates durable authored empty content that survives source removal and restart.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-2 projects pinned fields, optional suggestions, and authored empty content across source removal"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > concurrent Template Field visibility writes converge without hiding the conflict"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > rejects ownership authority smuggled through a Template Field visibility Fact"
+        }
+      ]
+    },
+    {
+      "id": "supertag.template-field-static-default",
+      "contract": "A public Template Field Static Default edit changes or clears one stable Template-use-owned text slot; fresh applications copy the current non-empty value without overwriting earlier materializations, an empty default remains an Effective placeholder, and Proposal, History, restart, Fact sync, authority admission, and concurrent CRDT text authorship preserve those boundaries.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-3 sets, modifies, clears, reviews, restores, and restarts one stable Static Default slot"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/sync/fact-sync.acceptance.test.ts > Fact-only production sync > syncs a public Static Default edit and rejects Owner authority smuggled through its text Fact"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Static Default text authorship across 32 three-replica topologies"
+        }
+      ]
+    },
+    {
+      "id": "supertag.field-composition",
+      "contract": "Direct applications and every valid Extension path contribute fields by shared Definition identity; provenance retains the application, source use, and complete path, pinned visibility aggregates conservatively, source removal recomputes placeholders without deleting authored Field content, chain defaults prefer the more specific use, and incomparable defaults surface an explicit conflict rather than depending on order.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > merges two Extension sources by Definition and preserves authored Field content after the last source is removed"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > resolves chain defaults by specificity and surfaces incomparable defaults without an order winner"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > preserves both Extension paths when a diamond contributes the same Template Field"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent"
         }
       ]
     },
@@ -133,15 +249,7 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > binds a Materialized Field to real Node and Occurrence identities with ordered values"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > materializes a Field as real structure and preserves authored values after Supertag removal"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > reviews and accepts a Materialized Field with stable identities"
         },
         {
           "workspace": "engine",
@@ -150,28 +258,48 @@
       ]
     },
     {
-      "id": "field.optional-default-initialization-expression",
-      "contract": "Optional Fields, static defaults, and ancestor initialization expressions preserve instance-owned values and expose conflicts.",
+      "id": "field.definition-configuration",
+      "contract": "Field Definition configuration preserves definition-led typed relation identities through Proposal and History and rejects invalid endpoint types.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > materializes a static default once and preserves its Node identity after source removal"
+          "test": "src/runtime/workspace/field-definition-configuration.acceptance.test.ts > Field Definition configuration > keeps typed configuration identities across Proposal and History"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/field-definition-configuration.acceptance.test.ts > Field Definition configuration > keeps typed configuration identities across Proposal, History, values, and ancestor initialization"
+          "test": "src/domain/admission/admission.test.ts > domain admission > rejects Definition relations whose target is only an ordinary Node"
+        }
+      ]
+    },
+    {
+      "id": "field.typed-datatype-values",
+      "contract": "Options from Supertag, Number, Checkbox, and Date use protected datatype endpoints and typed public edits; Options validates Supertag membership, Number and Date preserve value identity and normalized semantics, authored empty preserves the Field tuple, Checkbox distinguishes unset from false, and the Projection survives Proposal, History, restart, and Fact sync.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/typed-field-value.acceptance.test.ts > typed Field Values > keeps typed value identity and three-state semantics through Proposal, History, clear, and restart"
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > keeps an Optional Field as a suggestion until explicit empty materialization and preserves nested values"
+          "test": "src/runtime/workspace/typed-field-value.acceptance.test.ts > typed Field Values > validates the configured datatype and Options target membership and syncs typed Projection"
+        }
+      ]
+    },
+    {
+      "id": "field.value-depth",
+      "contract": "Plain and Options Field content preserves independent ordered value identities and nested Plain children; list values reorder only within their Field, explicit Single rejects new overflow without truncating existing values, Datatype and Cardinality changes preserve content, and Proposal, History, restart, Fact admission, and concurrent arrival retain the same graph.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace/field-value-depth.acceptance.test.ts > Field Value depth > FIELD-VALUE-1 preserves list identities, nested Plain content, and reorder through Proposal, History, and restart"
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > three replicas converge without choosing divergent Field initialization results"
+          "test": "src/runtime/workspace/field-value-depth.acceptance.test.ts > Field Value depth > FIELD-VALUE-2 preserves overfull content across configuration changes and rejects new Single values and cross-Field moves"
         },
         {
           "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
+          "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > converges concurrent same-Field value reorders across 32 arrival, incremental, and checkpoint topologies"
         }
       ]
     },
@@ -195,15 +323,11 @@
     },
     {
       "id": "supertag.extension-search-cycle",
-      "contract": "Multiple Supertag Extension paths build a polymorphic search closure while cycles remain explicit conflicts.",
+      "contract": "Supertag Extensions cross Proposal and restart boundaries while cycle/search projections and concurrent observed-remove intent converge.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > inherits Fields through multi-base and diamond Extensions and builds polymorphic search"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/reconcile/supertag-relations.acceptance.test.ts > Supertag applications and effective Fields > keeps concurrent Extension edges but suspends inheritance and search inside a cycle"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > reviews, accepts, queries, and restarts a Supertag Extension"
         },
         {
           "workspace": "engine",
@@ -211,7 +335,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent"
         }
       ]
     },
@@ -221,11 +345,7 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > shows deleted Definitions, blocks new use, permits cleanup, and restores the same identity"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/definition-lifecycle.property.test.ts > Definition lifecycle convergence > preserves concurrent offline config while the Definition is in Trash and restores it for every arrival order"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > blocks new use of a deleted Definition and restores the same identity"
         },
         {
           "workspace": "engine",
@@ -241,11 +361,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > makes a Definition deletion selection stale when a newly related instance appears"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > makes Supertag deletion and Extension selections stale when affected Fields materialize"
+          "test": "src/runtime/workspace/supertag-workspace.acceptance.test.ts > Supertag product model > reviews a Definition move to Trash before it changes Origin"
         }
       ]
     },
@@ -259,7 +375,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion by trashing its owned subtree and retaining the Effective placeholder"
+          "test": "src/runtime/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion by trashing its owned subtree"
         },
         {
           "workspace": "engine",
@@ -333,7 +449,7 @@
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements"
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application, Resolution, and History after lost acknowledgements"
         }
       ]
     },
@@ -355,21 +471,35 @@
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
+          "test": "tests/integration/lode-anime-notes-domain.test.ts > Anime Notes through task-oriented CLI commands > models, searches, presents, reviews, restarts, and syncs connected notes without raw JSON"
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application initialization, Resolution, and History after lost acknowledgements"
+          "test": "tests/integration/lode-task-project.test.ts > Task and Project through task-oriented CLI commands > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/daemon-process-restart.test.ts > real daemon child-process restart > deduplicates Supertag Application, Resolution, and History after lost acknowledgements"
         }
       ]
     },
     {
       "id": "product.anime-notes",
-      "contract": "The public CLI and daemon build, navigate, review, restart, and synchronize the complete Anime Notes knowledge graph.",
+      "contract": "Task-oriented CLI commands build, navigate, search, present, review, restart, and synchronize the connected Anime Notes knowledge graph without raw mutation or Projection JSON.",
       "tests": [
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-anime-notes.test.ts > Anime Notes through the public CLI and daemon > persists, reviews, restarts, and synchronizes one connected knowledge graph"
+          "test": "tests/integration/lode-anime-notes-domain.test.ts > Anime Notes through task-oriented CLI commands > models, searches, presents, reviews, restarts, and syncs connected notes without raw JSON"
+        }
+      ]
+    },
+    {
+      "id": "product.task-project",
+      "contract": "Task-oriented CLI commands build reusable Task and Project Supertags and Fields, compose live Search and Table presentation, preserve authored values through source removal, accept and reject Proposals, undo Direct edits, restart, and synchronize into a fresh durable replica without raw command JSON.",
+      "tests": [
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-task-project.test.ts > Task and Project through task-oriented CLI commands > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
         }
       ]
     },
@@ -409,19 +539,11 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > keeps Field removal complete across a concurrent duplicate Contribution"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent and inherited search closure"
+          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Extension observed-remove intent"
         },
         {
           "workspace": "engine",
           "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves divergent concurrent default configs as explicit candidates"
         }
       ]
     }

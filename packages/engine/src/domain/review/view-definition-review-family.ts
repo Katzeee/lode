@@ -6,7 +6,10 @@ import type { ViewDefinitionDecisionEffect, ViewDefinitionDecisionState } from "
 
 const VIEW_MUTATION_KINDS = [
   "shared-default-view-definition-attach",
+  "shared-default-view-definition-detach",
   "shared-default-view-definition-mode-set",
+  "shared-default-view-definition-sort-by-name-set",
+  "shared-default-view-definition-options-set",
 ] as const;
 
 export const viewDefinitionReviewFamily = {
@@ -20,7 +23,13 @@ export const viewDefinitionReviewFamily = {
     return [
       reviewScope("view-definition", mutation.viewDefinitionNodeId),
       associatedNodeScope(mutation.viewDefinitionNodeId),
-      ...(mutation.kind === "shared-default-view-definition-attach" ? [associatedNodeScope(mutation.hostNodeId)] : []),
+      ...(mutation.kind !== "shared-default-view-definition-mode-set"
+        ? [associatedNodeScope(mutation.hostNodeId)]
+        : []),
+      ...(mutation.kind === "shared-default-view-definition-attach" ||
+      mutation.kind === "shared-default-view-definition-detach"
+        ? [associatedNodeScope(mutation.attachmentNodeId)]
+        : []),
     ];
   },
   candidates: ({ generation, pending }) => viewDefinitionCandidates(generation, pending),
@@ -41,6 +50,12 @@ export const viewDefinitionReviewFamily = {
         continue;
       }
       impacts.add(mutation.viewDefinitionNodeId);
+      if (
+        mutation.kind === "shared-default-view-definition-attach" ||
+        mutation.kind === "shared-default-view-definition-detach"
+      ) {
+        impacts.add(mutation.attachmentNodeId);
+      }
       const effect = viewDefinitionEffect(mutation.viewDefinitionNodeId, generation);
       for (const state of [effect.origin, effect.review]) {
         if (state) {
@@ -98,5 +113,15 @@ function viewDefinitionState(
   const definition = Object.values(projection.sharedDefaultViewDefinitions)
     .flat()
     .find((candidate) => candidate.viewDefinitionNodeId === viewDefinitionNodeId);
-  return definition ? { hostNodeId: definition.hostNodeId, viewType: definition.viewType } : null;
+  return definition
+    ? {
+        hostNodeId: definition.hostNodeId,
+        attachmentNodeId: definition.attachmentNodeId,
+        attachmentOccurrenceId: definition.attachmentOccurrenceId,
+        viewType: definition.viewType,
+        sortByNameAscending: definition.sortByNameAscending !== null,
+        options: definition.options,
+        optionsConflicted: definition.optionsConflicted,
+      }
+    : null;
 }

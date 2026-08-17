@@ -1,6 +1,6 @@
 import type { SearchResultsQueryRequest, SearchResultsResult } from "@lode/sdk";
 import { stableStringCompare } from "../../../domain/fact/index.js";
-import { evaluateSearchClauses, searchResultRowKey } from "../../../domain/query/index.js";
+import { evaluateSearchExpression, searchResultRowKey } from "../../../domain/query/index.js";
 import { nodeLocation } from "../../../domain/reconcile/index.js";
 import type { ProjectionGenerationReader } from "../../materialization/index.js";
 
@@ -12,10 +12,10 @@ export async function querySearchResults(
   const generation = await projections.load(generationId);
   const projection = generation[query.perspective];
   const available =
-    projection.nodes[query.searchNodeId]?.nodeType === "search" &&
+    projection.nodes[query.searchNodeId]?.intrinsicNodeType === "search" &&
     nodeLocation(projection.identity.workspaceNodeId, projection, query.searchNodeId) === "active";
   const targets = available
-    ? evaluateSearchClauses(query.searchNodeId, projection.searchClauses[query.searchNodeId] ?? [], projection)
+    ? evaluateSearchExpression(query.searchNodeId, projection.searchExpressions[query.searchNodeId], projection)
     : [];
   const after = query.after ?? null;
   const remaining = after === null ? targets : targets.filter((nodeId) => stableStringCompare(nodeId, after) > 0);

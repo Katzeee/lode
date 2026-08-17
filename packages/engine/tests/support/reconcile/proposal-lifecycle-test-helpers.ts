@@ -1,4 +1,10 @@
-import type { MetanodeMutation, Mutation, SearchClauseMutation, ViewMutation } from "../../../src/domain/fact/index.js";
+import type {
+  MetanodeMutation,
+  Mutation,
+  SearchExpressionMutation,
+  SupertagMutation,
+  ViewMutation,
+} from "../../../src/domain/fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
@@ -25,9 +31,6 @@ const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
   "node-owner-set",
   "supertag-apply",
   "supertag-remove",
-  "supertag-field-add",
-  "supertag-field-remove",
-  "supertag-field-configure",
   "supertag-extension-add",
   "supertag-extension-remove",
   "supertag-template-node-add",
@@ -36,6 +39,7 @@ const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
   "materialized-field-delete",
   "field-datatype-configure",
   "field-cardinality-configure",
+  "field-optionality-configure",
   "text-splice",
   "text-mark",
   "inline-reference-create",
@@ -54,7 +58,7 @@ const PROPOSAL_LIFECYCLE_CASES = {
   "occurrence-restore": occurrenceRestoreCase,
   "occurrence-move": occurrenceMoveCase,
   "node-owner-set": nodeOwnerCase,
-  "node-type-declare": nodeTypeDeclareCase,
+  "intrinsic-node-type-declare": declareIntrinsicNodeTypeCase,
   ...supertagProposalLifecycleCases,
   ...fieldProposalLifecycleCases,
   ...viewProposalLifecycleCases,
@@ -64,17 +68,41 @@ const PROPOSAL_LIFECYCLE_CASES = {
 } satisfies Record<
   Exclude<
     Mutation,
-    MetanodeMutation | SearchClauseMutation | Extract<ViewMutation, { kind: "shared-default-view-definition-attach" }>
+    | MetanodeMutation
+    | SearchExpressionMutation
+    | Extract<
+        SupertagMutation,
+        {
+          kind:
+            | "supertag-template-field-attach"
+            | "supertag-template-field-existing-attach"
+            | "supertag-template-field-detach"
+            | "supertag-template-field-discoverability-set"
+            | "supertag-template-field-visibility-configure"
+            | "supertag-optional-field-contribution-attach"
+            | "supertag-optional-field-contribution-detach";
+        }
+      >
+    | Extract<
+        ViewMutation,
+        {
+          kind:
+            | "shared-default-view-definition-attach"
+            | "shared-default-view-definition-detach"
+            | "shared-default-view-definition-options-set"
+            | "shared-default-view-definition-sort-by-name-set";
+        }
+      >
   >["kind"],
   () => ProposalLifecycleCase
 >;
 
-function nodeTypeDeclareCase(): ProposalLifecycleCase {
+function declareIntrinsicNodeTypeCase(): ProposalLifecycleCase {
   const facts = base();
   return lifecycle(facts, {
-    kind: "node-type-declare",
+    kind: "intrinsic-node-type-declare",
     nodeId: "node",
-    nodeType: "supertag-definition",
+    intrinsicNodeType: "supertag-definition",
   });
 }
 
