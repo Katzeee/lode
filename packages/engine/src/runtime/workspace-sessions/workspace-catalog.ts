@@ -34,6 +34,12 @@ export class WorkspaceCatalog {
     await this.persist();
   }
 
+  async remove(workspaceId: string): Promise<void> {
+    await this.load();
+    this.entries = this.entries.filter((entry) => entry.workspaceId !== workspaceId);
+    await this.persist();
+  }
+
   private async load(): Promise<void> {
     if (this.loaded || this.file === undefined) {
       this.loaded = true;

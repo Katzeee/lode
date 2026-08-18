@@ -77,6 +77,38 @@ export async function setSyncEndpoint(homePath: string, workspaceId: string, end
   await rename(temporary, target);
 }
 
+export function workspaceActorsFile(homePath: string): string {
+  return join(homePath, "workspace-actors.json");
+}
+
+type WorkspaceActorStore = Readonly<{ workspaceActors?: Readonly<Record<string, string>> }>;
+
+export async function readWorkspaceActor(homePath: string, workspaceId: string): Promise<string | null> {
+  const store = await readWorkspaceActorStore(homePath);
+  return store.workspaceActors?.[workspaceId] ?? null;
+}
+
+async function readWorkspaceActorStore(homePath: string): Promise<WorkspaceActorStore> {
+  try {
+    return JSON.parse(await readFile(workspaceActorsFile(homePath), "utf8")) as WorkspaceActorStore;
+  } catch {
+    return {};
+  }
+}
+
+export async function setWorkspaceActor(homePath: string, workspaceId: string, actorId: string): Promise<void> {
+  const store = await readWorkspaceActorStore(homePath);
+  const updated: WorkspaceActorStore = {
+    ...store,
+    workspaceActors: { ...(store.workspaceActors ?? {}), [workspaceId]: actorId },
+  };
+  const target = workspaceActorsFile(homePath);
+  const temporary = `${target}.tmp`;
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(temporary, `${JSON.stringify(updated, null, 2)}\n`, "utf8");
+  await rename(temporary, target);
+}
+
 async function readStore(homePath: string): Promise<SyncEndpointStore> {
   try {
     return JSON.parse(await readFile(syncEndpointsFile(homePath), "utf8")) as SyncEndpointStore;

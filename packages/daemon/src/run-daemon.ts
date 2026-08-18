@@ -5,11 +5,12 @@ import { join } from "node:path";
 
 import { configureLogger } from "@lode/logger";
 import { createEngine } from "@lode/engine/host";
-import { startDaemon } from "./daemon.js";
+import { defaultExchangeEndpoint, startDaemon } from "./daemon.js";
 import { defaultEndpoint, socketPathOf } from "./endpoint.js";
 import { homePaths, resolveLodeHome } from "./home.js";
 import { acquireDaemonLock } from "./daemon-lock.js";
 import { parseDaemonArgs } from "./daemon-args.js";
+import { PeerExchangeDialPool } from "./peer-exchange-transport.js";
 
 export async function runDaemon(argv: string[]): Promise<void> {
   const options = parseDaemonArgs(argv);
@@ -28,6 +29,11 @@ export async function runDaemon(argv: string[]): Promise<void> {
     if (socketPath) {
       await unlink(socketPath).catch(() => {});
     }
+    const exchangeListen = options.exchangeListen ?? defaultExchangeEndpoint(listen);
+    const exchangeSocketPath = socketPathOf(exchangeListen);
+    if (exchangeSocketPath && exchangeSocketPath !== socketPath) {
+      await unlink(exchangeSocketPath).catch(() => {});
+    }
     let resolveStop = () => {};
     const stopped = new Promise<void>((resolve) => {
       resolveStop = resolve;
@@ -35,27 +41,40 @@ export async function runDaemon(argv: string[]): Promise<void> {
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.once(signal, resolveStop);
     }
-    // Engine creation awaits every cataloged session, so the endpoint below is
-    // only published once all workspaces are active or diagnosably faulted.
-    const engine = await createEngine({ persistence: { dataRoot: options.dataRoot ?? paths.data } });
-    const daemon = await startDaemon({
-      engine,
-      listen,
-      accessToken,
-      status: {
-        homeName: options.homeName ?? "",
-        daemonVersion: daemonVersion(),
-        homePath: home,
-      },
-      onShutdown: resolveStop,
-    });
-    await writeEndpoint(paths.endpoint, daemon.address);
-    process.stdout.write(`lode daemon listening on: ${daemon.address}\n`);
+    // Engine creation awaits every cataloged session, so the endpoints below
+    // are only published once all workspaces are active or diagnosably
+    // faulted. The dial wiring hands the Engine the peer-exchange transport.
+    const exchangeDials = new PeerExchangeDialPool();
     try {
-      await stopped;
+      const engine = await createEngine({
+        persistence: { dataRoot: options.dataRoot ?? paths.data },
+        dialExchange: exchangeDials.wire,
+      });
+      const daemon = await startDaemon({
+        engine,
+        listen,
+        exchangeListen,
+        accessToken,
+        status: {
+          homeName: options.homeName ?? "",
+          daemonVersion: daemonVersion(),
+          homePath: home,
+        },
+        onShutdown: resolveStop,
+      });
+      await writeEndpoint(paths.endpoint, daemon.address);
+      await writeEndpoint(paths.syncEndpoint, daemon.exchangeAddress);
+      process.stdout.write(`lode daemon listening on: ${daemon.address}\n`);
+      process.stdout.write(`lode peer exchange listening on: ${daemon.exchangeAddress}\n`);
+      try {
+        await stopped;
+      } finally {
+        await daemon.stop();
+        await unlink(paths.endpoint).catch(() => {});
+        await unlink(paths.syncEndpoint).catch(() => {});
+      }
     } finally {
-      await daemon.stop();
-      await unlink(paths.endpoint).catch(() => {});
+      exchangeDials.close();
     }
   } finally {
     await lock.release();

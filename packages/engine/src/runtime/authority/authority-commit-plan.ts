@@ -34,6 +34,7 @@ export function planAuthorityCommit(
     maximumLamport: number;
     previousChannelReceipt: AuthorityReceipt | null;
     admitRecords: AuthorityAdmissionPolicy;
+    signFact?: (digest: string, actorId: string) => string;
   }>,
 ): AuthorityCommitPlan {
   const digest = requestDigest(input.request);
@@ -65,6 +66,7 @@ export function planAuthorityCommit(
     digest,
     state.admission.snapshot,
     state.maximumLamport,
+    state.signFact,
   );
   const candidate = admitPlannedAuthorityAppend(
     state.workspaceId,

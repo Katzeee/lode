@@ -17,6 +17,12 @@ export function classify(error: unknown): CliError {
   if (code === "unauthenticated" || /^\[unauthenticated\]/u.test(message)) {
     return new CliError("authorization", "The daemon rejected the access token.");
   }
+  if (code === "permission_denied" || /^\[permission_denied\]/u.test(message)) {
+    return new CliError("authorization", message);
+  }
+  if (code === "failed_precondition" || /^\[failed_precondition\]/u.test(message)) {
+    return new CliError("conflict", message);
+  }
   if (
     ["unavailable", "unknown", "canceled", "deadline_exceeded", "internal"].includes(code) ||
     /^\[(?:unavailable|canceled|deadline_exceeded|unavailable)\]/u.test(message)

@@ -16,7 +16,72 @@ import { engineQueryFailure } from "../outcome/index.js";
 
 export type WorkspaceHostPort = Readonly<{
   list(): Promise<readonly Readonly<{ workspaceId: string; label: string }>[]>;
-  create(workspaceId: string, name: string): Promise<void>;
+  create(workspaceId: string, name: string, actorId: string): Promise<void>;
+  adopt(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
+}>;
+
+export type ActorSummaryView = Readonly<{
+  actorId: string;
+  label: string;
+  createdAt: string;
+  unlocked: boolean;
+}>;
+
+export type IdentityHostPort = Readonly<{
+  list(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummaryView[] }>>;
+  create(
+    input: Readonly<{ label: string; passphrase: string }>,
+  ): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>>;
+  importActor(
+    input: Readonly<{ recoveryPhrase: string; passphrase: string; label: string }>,
+  ): Promise<Readonly<{ actorId: string }>>;
+  unlock(passphrase: string): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummaryView[] }>>;
+  lock(): Promise<void>;
+  peerMaterial(): Promise<
+    Readonly<{ peerId: string; peerIdentityPublicKey: string; peerKxPublicKey: string; actorIds: readonly string[] }>
+  >;
+}>;
+
+export type GovernancePeerView = Readonly<{
+  peerId: string;
+  peerKxPublicKey: string;
+  admittedAtEpoch: number;
+  admittedByActorId: string;
+  syncAdmitted: boolean;
+}>;
+
+export type GovernanceSummaryView = Readonly<{
+  established: boolean;
+  ownerActorId?: string;
+  memberActorIds: readonly string[];
+  epoch: number;
+  peers: readonly GovernancePeerView[];
+}>;
+
+export type GovernanceHostPort = Readonly<{
+  summary(workspaceId: string): Promise<GovernanceSummaryView>;
+  admitActor(
+    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
+  ): Promise<void>;
+  removeActor(
+    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
+  ): Promise<void>;
+  transferOwner(
+    input: Readonly<{ workspaceId: string; actingActorId: string; nextOwnerActorId: string; requestId?: string }>,
+  ): Promise<void>;
+  admitPeer(
+    input: Readonly<{
+      workspaceId: string;
+      actingActorId: string;
+      peerId: string;
+      peerKxPublicKey: string;
+      requestId?: string;
+    }>,
+  ): Promise<void>;
+  revokePeer(
+    input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
+  ): Promise<void>;
+  rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
 }>;
 
 export type ReplicaHostPort = Readonly<{
@@ -26,6 +91,8 @@ export type ReplicaHostPort = Readonly<{
 export type DesktopSession = Readonly<{
   application: EngineApplicationContract;
   workspaces: WorkspaceHostPort;
+  identity: IdentityHostPort;
+  governance: GovernanceHostPort;
   replicas: ReplicaHostPort;
   /** Reads one whole projection section by following its bounded pages. */
   readProjection<S extends ProjectionPageSection>(
@@ -41,7 +108,25 @@ export function openSession(client: DesktopClient): DesktopSession {
     application: client,
     workspaces: {
       list: () => client.listWorkspaces(),
-      create: (workspaceId, name) => client.createWorkspace(workspaceId, name),
+      create: (workspaceId, name, actorId) => client.createWorkspace(workspaceId, name, actorId),
+      adopt: (endpoint, workspaceId) => client.adoptWorkspace(endpoint, workspaceId),
+    },
+    identity: {
+      list: () => client.listActors(),
+      create: (input) => client.createActor(input),
+      importActor: (input) => client.importActor(input),
+      unlock: (passphrase) => client.unlockVault(passphrase),
+      lock: () => client.lockVault(),
+      peerMaterial: () => client.peerMaterial(),
+    },
+    governance: {
+      summary: (workspaceId) => client.governanceSummary(workspaceId),
+      admitActor: (input) => client.admitActor(input),
+      removeActor: (input) => client.removeActor(input),
+      transferOwner: (input) => client.transferOwner(input),
+      admitPeer: (input) => client.admitPeer(input),
+      revokePeer: (input) => client.revokePeer(input),
+      rotateTransit: (input) => client.rotateTransit(input),
     },
     replicas: {
       run: (workspaceId, remoteEndpoint) => client.syncWorkspace(workspaceId, remoteEndpoint),

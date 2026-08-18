@@ -5,6 +5,7 @@ import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
 import {
+  AdoptWorkspaceRequestSchema,
   CreateWorkspaceRequestSchema,
   DaemonService,
   EngineCommandSchema,
@@ -17,6 +18,11 @@ import {
   WorkspaceRequestSchema,
   WorkspaceRunState as ProtocolWorkspaceRunState,
   WorkspaceSyncRequestSchema,
+  IdentityService,
+  WorkspaceGovernanceService,
+  type ActorSummary,
+  type GovernanceSummary,
+  type HomePeerMaterial,
 } from "@lode/protocol/proto";
 import {
   createTransportEngineApplication,
@@ -25,11 +31,14 @@ import {
   type Unsubscribe,
 } from "@lode/sdk";
 import type { WorkspaceRunState } from "@lode/sdk/host";
+import { createGovernanceSurface, createIdentitySurface } from "./identity-surface.js";
 
 type ConnectTransport = Readonly<{
   daemon: Client<typeof DaemonService>;
   application: Client<typeof EngineService>;
   workspaces: Client<typeof EngineWorkspaceService>;
+  identity: Client<typeof IdentityService>;
+  governance: Client<typeof WorkspaceGovernanceService>;
   close(): void;
 }>;
 
@@ -68,14 +77,22 @@ class SocketEngineTransport {
     }));
   }
 
-  async createWorkspace(workspaceId: string, name: string): Promise<void> {
-    await this.transport.workspaces.createWorkspace(create(CreateWorkspaceRequestSchema, { workspaceId, name }), {
-      headers: this.requestHeaders,
-    });
+  async createWorkspace(workspaceId: string, name: string, actorId: string): Promise<void> {
+    await this.transport.workspaces.createWorkspace(
+      create(CreateWorkspaceRequestSchema, { workspaceId, name, actorId }),
+      { headers: this.requestHeaders },
+    );
   }
 
-  async shutdown(): Promise<void> {
-    await this.transport.daemon.shutdown(create(EmptySchema), { headers: this.requestHeaders });
+  async adoptWorkspace(
+    endpoint: string,
+    workspaceId: string,
+  ): Promise<Readonly<{ workspaceId: string; label: string }>> {
+    const adopted = await this.transport.workspaces.adoptWorkspace(
+      create(AdoptWorkspaceRequestSchema, { endpoint, workspaceId }),
+      { headers: this.requestHeaders },
+    );
+    return { workspaceId: adopted.workspaceId, label: adopted.label };
   }
 
   async status(): Promise<DaemonStatusView> {
@@ -91,6 +108,10 @@ class SocketEngineTransport {
         state: summary.state === ProtocolWorkspaceRunState.AUTHORITY_FAULT ? "authority-fault" : "active",
       })),
     };
+  }
+
+  async shutdown(): Promise<void> {
+    await this.transport.daemon.shutdown(create(EmptySchema), { headers: this.requestHeaders });
   }
 
   async syncWorkspace(
@@ -167,6 +188,8 @@ function createSocketTransport(dial: SocketDial): ConnectTransport {
     daemon: createClient(DaemonService, transport),
     application: createClient(EngineService, transport),
     workspaces: createClient(EngineWorkspaceService, transport),
+    identity: createClient(IdentityService, transport),
+    governance: createClient(WorkspaceGovernanceService, transport),
     close: () => sessionManager.abort(),
   };
 }
@@ -185,13 +208,51 @@ export type DesktopClient = EngineApplicationContract &
     shutdown(): Promise<void>;
     recoverWorkspaceAuthority(workspaceId: string): Promise<boolean>;
     listWorkspaces(): Promise<readonly { workspaceId: string; label: string; state: WorkspaceRunState }[]>;
-    createWorkspace(workspaceId: string, name: string): Promise<void>;
+    createWorkspace(workspaceId: string, name: string, actorId: string): Promise<void>;
+    adoptWorkspace(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
+    governanceSummary(workspaceId: string): Promise<GovernanceSummary>;
+    admitActor(
+      input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
+    ): Promise<void>;
+    removeActor(
+      input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
+    ): Promise<void>;
+    transferOwner(
+      input: Readonly<{ workspaceId: string; actingActorId: string; nextOwnerActorId: string; requestId?: string }>,
+    ): Promise<void>;
+    admitPeer(
+      input: Readonly<{
+        workspaceId: string;
+        actingActorId: string;
+        peerId: string;
+        peerKxPublicKey: string;
+        requestId?: string;
+      }>,
+    ): Promise<void>;
+    revokePeer(
+      input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
+    ): Promise<void>;
+    rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
+    listActors(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
+    createActor(
+      input: Readonly<{ label: string; passphrase: string }>,
+    ): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>>;
+    importActor(
+      input: Readonly<{ recoveryPhrase: string; passphrase: string; label: string }>,
+    ): Promise<Readonly<{ actorId: string }>>;
+    unlockVault(passphrase: string): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
+    lockVault(): Promise<void>;
+    peerMaterial(): Promise<HomePeerMaterial>;
     syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<Readonly<{ pulled: number; pushed: number }>>;
     close(): void;
   }>;
 
 export function createDesktopClient(endpoint: string, accessToken: string): DesktopClient {
-  const transport = new SocketEngineTransport(createSocketTransport(dialTarget(endpoint)), accessToken);
+  const socketTransport = createSocketTransport(dialTarget(endpoint));
+  const transport = new SocketEngineTransport(socketTransport, accessToken);
+  const headers = () => new Headers({ authorization: `Bearer ${accessToken}` });
+  const identitySurface = createIdentitySurface(socketTransport, headers);
+  const governanceSurface = createGovernanceSurface(socketTransport, headers);
   return {
     execute: (command) => transport.application.execute(command),
     query: (query) => transport.application.query(query),
@@ -200,7 +261,10 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
     shutdown: () => transport.shutdown(),
     recoverWorkspaceAuthority: (workspaceId) => transport.recoverWorkspaceAuthority(workspaceId),
     listWorkspaces: () => transport.listWorkspaces(),
-    createWorkspace: (workspaceId, name) => transport.createWorkspace(workspaceId, name),
+    createWorkspace: (workspaceId, name, actorId) => transport.createWorkspace(workspaceId, name, actorId),
+    adoptWorkspace: (endpoint, workspaceId) => transport.adoptWorkspace(endpoint, workspaceId),
+    ...identitySurface,
+    ...governanceSurface,
     syncWorkspace: (workspaceId, remoteEndpoint) => transport.syncWorkspace(workspaceId, remoteEndpoint),
     close: () => transport.close(),
   };

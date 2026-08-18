@@ -7,6 +7,7 @@ import type { FactTransactionId, FactTransactionPosition } from "./transaction-t
 import type { InlineReferenceMutation } from "./inline-reference-types.js";
 import type { SearchExpressionMutation } from "./search-expression-types.js";
 import type { SupertagMutation } from "./supertag-types.js";
+import type { GovernanceBody } from "./governance-types.js";
 import type {
   SharedDefaultViewDefinitionAttachMutation,
   SharedDefaultViewDefinitionDetachMutation,
@@ -188,7 +189,15 @@ export type MaintenanceBody = Readonly<{
   action: MaintenanceAction;
 }>;
 
-export type FactBody = ContributionBody | ResolutionBody | MaintenanceBody;
+export type FactBody = ContributionBody | ResolutionBody | MaintenanceBody | GovernanceBody;
+
+/**
+ * Actor attribution: an Ed25519 signature over the Fact's contentDigest made
+ * by the Fact body's actorId at creation time and replicated with the Fact.
+ * null marks journal material produced without an Actor identity (engine test
+ * journals); a governed journal requires a valid signature on every Fact.
+ */
+export type FactAttribution = string | null;
 
 export type Fact = Readonly<{
   formatGeneration: typeof FORMAT_GENERATION;
@@ -199,6 +208,7 @@ export type Fact = Readonly<{
   coordinate: CausalCoordinate;
   body: FactBody;
   contentDigest: string;
+  attribution: FactAttribution;
 }>;
 
 export type ContributionFact = Fact & Readonly<{ body: ContributionBody }>;
@@ -217,6 +227,7 @@ export type Admission = Readonly<{
 }>;
 
 export type { AuthorityReceipt, HistoryOperation, ReceiptLineage } from "./authority-types.js";
+export type { GovernanceAction, GovernanceBody, PeerId, TransitEnvelope } from "./governance-types.js";
 export type { FieldContentDeletionMutation } from "./field-content-types.js";
 export type { InlineReferenceId, InlineReferenceMutation } from "./inline-reference-types.js";
 export type {

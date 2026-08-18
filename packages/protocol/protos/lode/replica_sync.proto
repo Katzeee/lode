@@ -4,37 +4,54 @@ package lode;
 
 import "google/protobuf/empty.proto";
 
-service ReplicaSyncService {
-  rpc Profile(WorkspaceSyncProfileRequest) returns (WorkspaceSyncProfile);
-  rpc Fetch(WorkspaceSyncFetchRequest) returns (WorkspaceSyncPayload);
-  rpc Send(WorkspaceSyncSendRequest) returns (google.protobuf.Empty);
+// The remote replica-exchange boundary. Every RPC authenticates the dialing
+// Peer by an Ed25519 signature over a canonical challenge with the key behind
+// its peer id, and every payload beyond the handshake is sealed under the
+// Workspace's current transit key. This surface knows no Home access token,
+// no daemon control, and no tunnel provider: an endpoint is an opaque
+// address, and only admitted Peers can exchange anything.
+service PeerExchangeService {
+  rpc Profile(PeerExchangeProfileRequest) returns (PeerExchangeProfileResponse);
+  rpc Fetch(PeerExchangeFetchRequest) returns (PeerExchangePayload);
+  rpc Send(PeerExchangeSendRequest) returns (google.protobuf.Empty);
 }
 
-message WorkspaceSyncProfileRequest {
+message PeerAuthentication {
   string workspace_id = 1;
+  string peer_id = 2;
+  string nonce = 3;
+  bytes signature = 4;
 }
 
-message WorkspaceSyncProfileEntry {
-  string document_id = 1;
-  bytes version = 2;
+// The transit key sealed to the authenticated Peer, so an admitted Peer can
+// bootstrap decryption on its first contact after adoption or rotation.
+message TransitHandshake {
+  uint32 epoch = 1;
+  bytes envelope_ephemeral = 2;
+  bytes envelope_seal = 3;
 }
 
-message WorkspaceSyncProfile {
-  repeated WorkspaceSyncProfileEntry entries = 1;
+message PeerExchangeProfileRequest {
+  PeerAuthentication auth = 1;
 }
 
-message WorkspaceSyncFetchRequest {
-  string workspace_id = 1;
+message PeerExchangeProfileResponse {
+  TransitHandshake handshake = 1;
+  bytes sealed_profile = 2;
+}
+
+message PeerExchangeFetchRequest {
+  PeerAuthentication auth = 1;
   string document_id = 2;
-  bytes from = 3;
+  bytes sealed_from = 3;
 }
 
-message WorkspaceSyncPayload {
-  bytes payload = 1;
+message PeerExchangePayload {
+  bytes sealed_payload = 1;
 }
 
-message WorkspaceSyncSendRequest {
-  string workspace_id = 1;
+message PeerExchangeSendRequest {
+  PeerAuthentication auth = 1;
   string document_id = 2;
-  bytes payload = 3;
+  bytes sealed_payload = 3;
 }

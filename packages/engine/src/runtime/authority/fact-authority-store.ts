@@ -34,6 +34,12 @@ export type FactAuthorityStoreOptions = Readonly<{
   onAuthorityAdvanced?: (frontier: FactFrontier) => void;
   snapshotInterval?: number;
   admitRecords: AuthorityAdmissionPolicy;
+  /**
+   * Actor attribution signer: returns the base64 Ed25519 signature over a
+   * Fact's contentDigest for the body's actorId. Absent — or an unlocked-key
+   * miss inside it — leaves attribution null, which governed journals reject.
+   */
+  signFact?: (digest: string, actorId: string) => string;
 }>;
 
 export class FactAuthorityStore implements FactAuthority {
@@ -118,6 +124,7 @@ export class FactAuthorityStore implements FactAuthority {
       maximumLamport: this.journal.maximumLamport(),
       previousChannelReceipt: input.lineage ? this.journal.lastReceiptForChannel(input.lineage.channelId) : null,
       admitRecords: this.options.admitRecords,
+      signFact: this.options.signFact,
     });
     if (plan.kind === "replay") {
       await this.replica.heal(this.admission());

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { startDaemon, type Daemon } from "@lode/daemon";
+import { PeerExchangeDialPool, startDaemon, type Daemon } from "@lode/daemon";
 import { createEngine } from "@lode/engine/host";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -50,18 +50,28 @@ const systemDefinitionNodeIds = [
   "system-view-sort-value:v1:ascending",
 ] as const;
 const accessToken = "anime-notes-transport-access-token";
+const vaultPassphrase = "anime-notes-vault-passphrase";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+/** The Actor whose key signs writes on the home under test. */
+let actingActorId = "";
 const temporaryDirectories: string[] = [];
 
 async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: string; accessToken: string }>) {
-  const engine = await createEngine({ persistence: { dataRoot: options.dataRoot } });
+  const dials = new PeerExchangeDialPool();
+  const engine = await createEngine({ persistence: { dataRoot: options.dataRoot }, dialExchange: dials.wire });
   const daemon = await startDaemon({
     engine,
     listen: options.listen,
     accessToken: options.accessToken,
     status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
   });
-  return daemon;
+  return {
+    ...daemon,
+    stop: async () => {
+      await daemon.stop();
+      dials.close();
+    },
+  };
 }
 
 afterEach(async () => {
@@ -81,7 +91,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     });
     let right: Daemon | null = null;
     try {
-      await createFor(left.address, workspaceId, "Anime Notes");
+      const leftActor = await createFor(left.address, workspaceId, "Anime Notes");
       await executeProgram(left.address, "build-anime-notes", animeNotesProgram());
       await expectAnimeNotes(left.address, "initial publication");
 
@@ -91,6 +101,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: leftRoot,
         accessToken,
       });
+      await unlockVaultOn(left.address);
       await expectAnimeNotes(left.address, "daemon restart");
 
       await execute(left.address, "propose-review-application", "proposal", reviewApplicationProposal());
@@ -121,9 +132,9 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: rightRoot,
         accessToken,
       });
-      await createFor(right.address, workspaceId, "Anime Notes");
+      await joinIntoWorkspace(left, leftActor, right, workspaceId);
       await projectionMap(right.address, "origin", "nodes");
-      await sync(left.address, right.address, workspaceId);
+      await sync(left, right, workspaceId);
       await expectAnimeNotes(right.address, "peer synchronization");
     } finally {
       await left.stop();
@@ -141,7 +152,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     });
     let right: Daemon | null = null;
     try {
-      await createFor(left.address, outlineWorkspaceId, "Outline Product");
+      const leftActor = await createFor(left.address, outlineWorkspaceId, "Outline Product");
       await executeOutline(left.address, "create-outline", [
         nodeAt("outline-root", outlineWorkspaceId, "outline-root-occurrence"),
         nodeAt("alpha", "outline-root", "alpha-occurrence"),
@@ -178,7 +189,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         kind: "mutate",
         workspaceId: outlineWorkspaceId,
         invocationId: "create-extra-root-occurrence",
-        actorId: "outline-user",
+        actorId: actingActorId,
         intent: "direct",
         historyChannelId: "outline",
         mutations: [nodeAt("extra-root", outlineWorkspaceId, "extra-root-occurrence")],
@@ -232,6 +243,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: leftRoot,
         accessToken,
       });
+      await unlockVaultOn(left.address);
       expect(new Set(Object.keys(await outlineProjection(left.address, "nodes")))).toEqual(
         new Set([
           "alpha",
@@ -261,9 +273,9 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: rightRoot,
         accessToken,
       });
-      await createFor(right.address, outlineWorkspaceId, "Outline Product");
+      await joinIntoWorkspace(left, leftActor, right, outlineWorkspaceId);
       await outlineProjection(right.address, "nodes");
-      await sync(left.address, right.address, outlineWorkspaceId);
+      await sync(left, right, outlineWorkspaceId);
       expect(await nodeTextInWorkspace(right.address, "alpha")).toBe("Alpha");
       expect(await occurrenceNodeInWorkspace(right.address, "alpha-reference")).toBe("alpha");
 
@@ -278,10 +290,11 @@ describe("Anime Notes through the public CLI and daemon", () => {
           insert: " from right",
         },
       ]);
-      await sync(right.address, left.address, outlineWorkspaceId);
+      await sync(right, left, outlineWorkspaceId);
       expect(await nodeTextInWorkspace(left.address, "alpha")).toBe("Alpha from right");
       expect(await occurrenceNodeInWorkspace(left.address, "alpha-reference")).toBe("alpha");
 
+      actingActorId = leftActor;
       await executeOutline(left.address, "delete-outline-child", [
         {
           kind: "occurrence-delete",
@@ -294,6 +307,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       });
 
       await createFor(left.address, "isolated-workspace", "Isolated");
+      void leftActor;
       const isolated = await query(left.address, {
         kind: "projection",
         workspaceId: "isolated-workspace",
@@ -317,12 +331,60 @@ describe("Anime Notes through the public CLI and daemon", () => {
   });
 });
 
-async function createFor(endpoint: string, targetWorkspaceId: string, name: string): Promise<void> {
+async function createFor(endpoint: string, targetWorkspaceId: string, name: string): Promise<string> {
   const client = createDesktopClient(endpoint, accessToken);
   try {
-    await client.createWorkspace(targetWorkspaceId, name);
+    const actor = await client.createActor({ label: `${name} Owner`, passphrase: vaultPassphrase });
+    await client.createWorkspace(targetWorkspaceId, name, actor.actorId);
+    actingActorId = actor.actorId;
+    return actor.actorId;
   } finally {
     client.close();
+  }
+}
+
+/** A restart locks the vault again; writes still need the Actor key. */
+async function unlockVaultOn(endpoint: string): Promise<void> {
+  const client = createDesktopClient(endpoint, accessToken);
+  try {
+    await client.unlockVault(vaultPassphrase);
+  } finally {
+    client.close();
+  }
+}
+
+/** The product admission-and-adoption flow: the joiner's own Actor, admitted
+ * by the member, adopts the remote journal instead of forging a second
+ * genesis for the same id. */
+async function joinIntoWorkspace(
+  member: Daemon,
+  memberActorId: string,
+  joiner: Daemon,
+  targetWorkspaceId: string,
+): Promise<string> {
+  const joinerClient = createDesktopClient(joiner.address, accessToken);
+  const memberClient = createDesktopClient(member.address, accessToken);
+  try {
+    const joinerActor = await joinerClient.createActor({ label: "Joiner", passphrase: vaultPassphrase });
+    const material = await joinerClient.peerMaterial();
+    await memberClient.admitActor({
+      workspaceId: targetWorkspaceId,
+      actingActorId: memberActorId,
+      actorId: joinerActor.actorId,
+    });
+    await memberClient.admitPeer({
+      workspaceId: targetWorkspaceId,
+      actingActorId: memberActorId,
+      peerId: material.peerId,
+      peerKxPublicKey: material.peerKxPublicKey,
+    });
+    const adopted = await joinerClient.adoptWorkspace(member.exchangeAddress, targetWorkspaceId);
+    expect(adopted.workspaceId).toBe(targetWorkspaceId);
+    actingActorId = joinerActor.actorId;
+    return joinerActor.actorId;
+  } finally {
+    joinerClient.close();
+    memberClient.close();
   }
 }
 
@@ -336,7 +398,7 @@ async function executeOutline(endpoint: string, invocationId: string, mutations:
       kind: "mutate",
       workspaceId: outlineWorkspaceId,
       invocationId: `${invocationId}-${index}`,
-      actorId: "outline-user",
+      actorId: actingActorId,
       intent: "direct",
       historyChannelId: "outline",
       mutations: [mutation],
@@ -348,11 +410,11 @@ async function executeOutline(endpoint: string, invocationId: string, mutations:
   }
 }
 
-async function sync(endpoint: string, remoteEndpoint: string, targetWorkspaceId: string): Promise<void> {
+async function sync(local: Daemon, remote: Daemon, targetWorkspaceId: string): Promise<void> {
   // Low-level transport regression: the Fact exchange itself, not the product sync family.
-  const client = createDesktopClient(endpoint, accessToken);
+  const client = createDesktopClient(local.address, accessToken);
   try {
-    await client.syncWorkspace(targetWorkspaceId, remoteEndpoint);
+    await client.syncWorkspace(targetWorkspaceId, remote.exchangeAddress);
   } finally {
     client.close();
   }
@@ -456,7 +518,7 @@ async function execute(
     kind: "mutate",
     workspaceId,
     invocationId,
-    actorId: "anime-notes-user",
+    actorId: actingActorId,
     intent,
     historyChannelId: "anime-notes",
     mutations,
@@ -493,7 +555,7 @@ async function resolve(
     kind: "resolve-review",
     workspaceId,
     invocationId,
-    actorId: "anime-notes-reviewer",
+    actorId: actingActorId,
     decision,
     selection,
   });

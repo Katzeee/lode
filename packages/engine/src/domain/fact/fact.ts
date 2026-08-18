@@ -4,6 +4,7 @@ import {
   FACT_SCHEMA_VERSION,
   FORMAT_GENERATION,
   type Fact,
+  type FactAttribution,
   type FactBody,
   type FactFrontier,
   type FactTransactionPosition,
@@ -19,6 +20,7 @@ export function makeFact(input: {
   lamport: number;
   transaction?: FactTransactionPosition;
   body: FactBody;
+  attribution?: FactAttribution;
 }): Fact {
   const id = factId(input.workspaceId, input.replicaId, input.sequence);
   const transaction =
@@ -41,7 +43,7 @@ export function makeFact(input: {
     },
     body: input.body,
   } as const;
-  return { ...unsigned, contentDigest: canonicalDigest(unsigned) };
+  return { ...unsigned, contentDigest: canonicalDigest(unsigned), attribution: input.attribution ?? null };
 }
 
 export function factId(workspaceId: WorkspaceId, replicaId: ReplicaId, sequence: number): string {
@@ -60,7 +62,8 @@ export function isReplicaId(value: string): boolean {
   return /^[a-z2-7]{26}$/.test(value);
 }
 
-export function unsignedFact(fact: Fact): Omit<Fact, "contentDigest"> {
-  const { contentDigest: _digest, ...unsigned } = fact;
+/** The exact bytes a Fact digest (and therefore an Actor signature) covers. */
+export function unsignedFact(fact: Fact): Omit<Fact, "contentDigest" | "attribution"> {
+  const { contentDigest: _digest, attribution: _attribution, ...unsigned } = fact;
   return unsigned;
 }

@@ -4,7 +4,9 @@ import http2 from "node:http2";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { Code, ConnectError, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
+import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
 import {
+  AdoptWorkspaceResultSchema,
   DaemonService,
   DaemonStatusSchema,
   EngineCommandSchema,
@@ -12,28 +14,30 @@ import {
   EngineQuerySchema,
   EngineService,
   EngineWorkspaceService,
+  IdentityService,
   ListWorkspacesResultSchema,
   QueryResultSchema,
   RecoverWorkspaceAuthorityResultSchema,
-  ReplicaSyncService,
+  WorkspaceGovernanceService,
   WorkspaceRunState,
   WorkspaceSummarySchema,
   WorkspaceSyncResultSchema,
   WriteResultSchema,
-  WorkspaceSyncProfileEntrySchema,
-  WorkspaceSyncProfileSchema,
-  WorkspaceSyncPayloadSchema,
+  type AdoptWorkspaceRequest,
   type CreateWorkspaceRequest,
   type EngineCommand,
   type EngineEvent as ProtocolEngineEvent,
   type EngineQuery,
-  type WorkspaceSyncFetchRequest,
-  type WorkspaceSyncProfileRequest,
-  type WorkspaceSyncRequest,
-  type WorkspaceSyncSendRequest,
   type WorkspaceRequest,
+  type WorkspaceSyncRequest,
 } from "@lode/protocol/proto";
-import { WorkspaceNotFoundError, type Engine } from "@lode/sdk/host";
+import {
+  GovernanceAuthorizationError,
+  GovernancePreconditionError,
+  WorkspaceNotFoundError,
+  type Engine,
+} from "@lode/sdk/host";
+import { governanceRoutes, identityRoutes, type UnaryWrapper } from "./control-identity.js";
 import {
   decodeEngineCommand,
   decodeEngineQuery,
@@ -43,8 +47,6 @@ import {
   type EngineEvent,
   type Unsubscribe,
 } from "@lode/sdk";
-import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
-import { createPeerSyncTransport } from "./peer-sync-transport.js";
 
 /** Home identity the daemon reports through `DaemonService.Status`. */
 export type DaemonStatusIdentity = Readonly<{
@@ -53,6 +55,13 @@ export type DaemonStatusIdentity = Readonly<{
   homePath: string;
 }>;
 
+/**
+ * The local control plane: daemon management, Engine commands and events,
+ * workspace lifecycle (create, adopt, recover), Actor identity, and signed
+ * governance — all behind the Home access token. Remote replica exchange
+ * lives on its own listener (peer-exchange-server) with its own
+ * workspace-scoped authorization.
+ */
 export function createLodeServer(
   engine: Engine,
   accessToken: string,
@@ -68,13 +77,8 @@ export function createLodeServer(
     routes: (router) => {
       router.service(DaemonService, {
         syncWorkspace: unary(accessToken, async (request: WorkspaceSyncRequest) => {
-          const peer = createPeerSyncTransport(request.remoteEndpoint, request.workspaceId, accessToken);
-          try {
-            const exchanged = await engine.replicas.synchronize(request.workspaceId, peer.peer);
-            return create(WorkspaceSyncResultSchema, exchanged);
-          } finally {
-            peer.close();
-          }
+          const peer = await engine.replicas.remotePeer(request.remoteEndpoint, request.workspaceId);
+          return create(WorkspaceSyncResultSchema, await engine.replicas.synchronize(request.workspaceId, peer));
         }),
         status: unary(accessToken, async () =>
           create(DaemonStatusSchema, {
@@ -94,6 +98,8 @@ export function createLodeServer(
           return create(EmptySchema);
         }),
       });
+      router.service(IdentityService, identityRoutes(engine, unaryAdapter(accessToken)));
+      router.service(WorkspaceGovernanceService, governanceRoutes(engine, unaryAdapter(accessToken)));
       router.service(EngineWorkspaceService, {
         recoverWorkspaceAuthority: unary(accessToken, async (request: WorkspaceRequest) =>
           create(RecoverWorkspaceAuthorityResultSchema, {
@@ -106,8 +112,19 @@ export function createLodeServer(
           }),
         ),
         createWorkspace: unary(accessToken, async (request: CreateWorkspaceRequest) => {
-          await engine.workspaces.createWorkspace(request.workspaceId, request.name);
+          await engine.workspaces.createWorkspace({
+            workspaceId: request.workspaceId,
+            label: request.name,
+            ownerActorId: request.actorId,
+          });
           return create(EmptySchema);
+        }),
+        adoptWorkspace: unary(accessToken, async (request: AdoptWorkspaceRequest) => {
+          const adopted = await engine.workspaces.adoptWorkspace({
+            endpoint: request.endpoint,
+            workspaceId: request.workspaceId,
+          });
+          return create(AdoptWorkspaceResultSchema, adopted);
         }),
       });
       router.service(EngineService, {
@@ -123,23 +140,6 @@ export function createLodeServer(
           authenticate(context, accessToken);
           return eventStream(engine.application.subscribe, context.signal);
         },
-      });
-      router.service(ReplicaSyncService, {
-        profile: unary(accessToken, async (request: WorkspaceSyncProfileRequest) => {
-          const entries = await engine.replicas.peer(request.workspaceId).profile();
-          return create(WorkspaceSyncProfileSchema, {
-            entries: entries.map((entry) => create(WorkspaceSyncProfileEntrySchema, entry)),
-          });
-        }),
-        fetch: unary(accessToken, async (request: WorkspaceSyncFetchRequest) =>
-          create(WorkspaceSyncPayloadSchema, {
-            payload: await engine.replicas.peer(request.workspaceId).fetch(request.documentId, request.from),
-          }),
-        ),
-        send: unary(accessToken, async (request: WorkspaceSyncSendRequest) => {
-          await engine.replicas.peer(request.workspaceId).send(request.documentId, request.payload);
-          return create(EmptySchema);
-        }),
       });
     },
     contextValues: (request) => {
@@ -176,7 +176,17 @@ function toConnectError(error: unknown): ConnectError {
   if (error instanceof WorkspaceNotFoundError) {
     return new ConnectError(error.message, Code.NotFound);
   }
+  if (error instanceof GovernanceAuthorizationError) {
+    return new ConnectError(error.message, Code.PermissionDenied);
+  }
+  if (error instanceof GovernancePreconditionError) {
+    return new ConnectError(error.message, Code.FailedPrecondition);
+  }
   return new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
+}
+
+function unaryAdapter(accessToken: string): UnaryWrapper {
+  return (handler) => unary(accessToken, handler);
 }
 
 function unary<I, O>(accessToken: string, handler: (request: I) => Promise<O> | O) {

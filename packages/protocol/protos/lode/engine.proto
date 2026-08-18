@@ -27,6 +27,8 @@ enum EngineErrorCode {
   ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 6;
   ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED = 7;
   ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 8;
+  ENGINE_ERROR_CODE_ACTOR_LOCKED = 9;
+  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 10;
 }
 
 enum EngineEventKind {
@@ -451,12 +453,25 @@ message ListWorkspacesResult {
 message CreateWorkspaceRequest {
   string workspace_id = 1;
   string name = 2;
+  string actor_id = 3;
+}
+
+message AdoptWorkspaceRequest {
+  // Opaque address of the remote replica-exchange boundary.
+  string endpoint = 1;
+  string workspace_id = 2;
+}
+
+message AdoptWorkspaceResult {
+  string workspace_id = 1;
+  string label = 2;
 }
 
 service EngineWorkspaceService {
   rpc RecoverWorkspaceAuthority(WorkspaceRequest) returns (RecoverWorkspaceAuthorityResult);
   rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResult);
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (google.protobuf.Empty);
+  rpc AdoptWorkspace(AdoptWorkspaceRequest) returns (AdoptWorkspaceResult);
 }
 
 service EngineLifecycleService {

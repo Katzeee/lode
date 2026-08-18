@@ -15,6 +15,7 @@ import { runLode } from "../../src/composition.js";
  */
 
 export const accessToken = "home-harness-access-token";
+export const vaultPassphrase = "home-harness-passphrase";
 
 const temporaryDirectories: string[] = [];
 
@@ -47,7 +48,17 @@ export async function startHomeHarness(label: string, workspaceLabel: string): P
     accessToken,
     status: { homeName: "main", daemonVersion: "test", homePath: home },
   });
-  await engine.workspaces.createWorkspace("workspace", workspaceLabel);
+  const actor = await engine.identity.createActor({ label: "Harness Actor", passphrase: vaultPassphrase });
+  await engine.workspaces.createWorkspace({
+    workspaceId: "workspace",
+    label: workspaceLabel,
+    ownerActorId: actor.actorId,
+  });
+  await writeFile(
+    join(home, "workspace-actors.json"),
+    `${JSON.stringify({ workspaceActors: { workspace: actor.actorId } }, null, 2)}\n`,
+    "utf8",
+  );
   await writeFile(join(home, "endpoint"), `${daemon.address}\n`, "utf8");
   let stopped = false;
   return {

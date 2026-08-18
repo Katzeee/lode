@@ -2,7 +2,7 @@ import type { HistoryQuery } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { CLI_ACTOR, CLI_HISTORY_CHANNEL, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
+import { actorIdOf, CLI_HISTORY_CHANNEL, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
 
 /**
  * History family: undo/redo on the stable `cli` channel. The CLI picks the
@@ -105,7 +105,7 @@ async function compensate(context: Parameters<ProductCommandRun>[0], side: "undo
     kind: side,
     workspaceId: workspaceIdOf(context),
     invocationId: invocationId(context.requestId),
-    actorId: CLI_ACTOR,
+    actorId: actorIdOf(context),
     selection,
   } as const;
   const result = await context.session.application.execute(command);

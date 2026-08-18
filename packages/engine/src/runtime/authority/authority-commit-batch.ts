@@ -17,6 +17,7 @@ export function createAuthorityCommitBatch(
   requestDigest: string,
   before: FactSnapshot,
   maximumLamport: number,
+  signFact?: (digest: string, actorId: string) => string,
 ): Readonly<{
   facts: readonly Fact[];
   receipt: AuthorityReceipt;
@@ -30,17 +31,16 @@ export function createAuthorityCommitBatch(
     const bodies = write.kind === "transaction" ? write.bodies : [write];
     const transactionId = factTransactionId(workspaceId, replicaId, sequence);
     for (const [index, body] of bodies.entries()) {
-      facts.push(
-        makeFact({
-          workspaceId,
-          replicaId,
-          sequence,
-          observed,
-          lamport,
-          transaction: { transactionId, index, size: bodies.length },
-          body,
-        }),
-      );
+      const fact = makeFact({
+        workspaceId,
+        replicaId,
+        sequence,
+        observed,
+        lamport,
+        transaction: { transactionId, index, size: bodies.length },
+        body,
+      });
+      facts.push(signFact ? withAttribution(fact, signFact(fact.contentDigest, body.actorId)) : fact);
       observed = normalizeFrontier({ ...observed, [replicaId]: sequence });
       sequence += 1;
       lamport += 1;
@@ -63,4 +63,8 @@ export function createAuthorityCommitBatch(
       { recordKind: "receipt", receipt },
     ],
   };
+}
+
+function withAttribution(fact: Fact, signature: string): Fact {
+  return { ...fact, attribution: signature };
 }

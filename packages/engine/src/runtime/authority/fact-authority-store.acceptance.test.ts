@@ -69,7 +69,7 @@ describe("production Fact authority store", () => {
       ...unsignedFact(first),
       body: { ...body, mutation: { kind: "node-create" as const, nodeId: "other" } },
     };
-    const conflict = { ...unsigned, contentDigest: canonicalDigest(unsigned) };
+    const conflict = { ...unsigned, contentDigest: canonicalDigest(unsigned), attribution: null };
     await seed(documents, [
       { recordKind: "fact", fact: first },
       { recordKind: "fact", fact: first },
@@ -479,6 +479,7 @@ describe("production Fact authority store", () => {
     const unsupported = {
       ...unsigned,
       contentDigest: canonicalDigest(unsigned),
+      attribution: null,
     } as unknown as Fact;
     await seed(documents, [{ recordKind: "fact", fact: unsupported }]);
     const admission = (await open(documents)).admission();

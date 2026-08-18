@@ -13,11 +13,18 @@ import { CliError, type TargetCandidate } from "./outcome/index.js";
 import { argvIncludesFormat, classify, renderFailure, renderResult } from "./rendering.js";
 import { CommandCatalog } from "./catalog/index.js";
 import { decodeInvocation, validateGlobalsFor, type InputFileReader, type Invocation } from "./invocation/index.js";
-import { readCliPreferences, readSyncEndpoint, setSyncEndpoint } from "./config/index.js";
+import {
+  readCliPreferences,
+  readSyncEndpoint,
+  readWorkspaceActor,
+  setSyncEndpoint,
+  setWorkspaceActor,
+} from "./config/index.js";
 import { openSession } from "./session/index.js";
 import type { Io } from "./output/index.js";
 import { resolveWorkspaceFromList } from "./target/index.js";
 import { registerWorkspaceCommands } from "./families/workspace.js";
+import { registerWorkspaceGovernanceCommands } from "./families/workspace-governance.js";
 import { registerNodeCommands } from "./families/node.js";
 import { registerReferenceCommands } from "./families/reference.js";
 import { registerSupertagCommands } from "./families/supertag.js";
@@ -27,6 +34,7 @@ import { registerViewCommands } from "./families/view.js";
 import { registerHistoryCommands } from "./families/history.js";
 import { registerReviewCommands } from "./families/review.js";
 import { registerSyncCommands } from "./families/sync.js";
+import { registerIdentityCommands } from "./families/identity.js";
 import { daemonCommands } from "./manage/daemon.js";
 import { homeCommands } from "./manage/home.js";
 import { launchDaemon } from "./daemon-launch.js";
@@ -53,6 +61,8 @@ export function buildCatalog(): CommandCatalog {
   const catalog = new CommandCatalog();
   for (const register of [
     registerWorkspaceCommands,
+    registerWorkspaceGovernanceCommands,
+    registerIdentityCommands,
     registerNodeCommands,
     registerReferenceCommands,
     registerSupertagCommands,
@@ -144,6 +154,8 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
         }
         workspace = resolveWorkspaceFromList(workspaces, workspaceChoice);
       }
+      const selectedActor =
+        globals.actor ?? (workspace === null ? null : await readWorkspaceActor(selection.path, workspace.workspaceId));
       const result = await definition.run(
         {
           session,
@@ -154,9 +166,12 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
           requestId: globals.requestId ?? `cli-${crypto.randomUUID()}`,
           limit: globals.limit ?? preferences.defaultLimit ?? 50,
           cursor: globals.cursor,
+          actor: selectedActor,
           persistence: {
             setSyncEndpoint: (workspaceId, endpoint) => setSyncEndpoint(selection.path, workspaceId, endpoint),
             readSyncEndpoint: (workspaceId) => readSyncEndpoint(selection.path, workspaceId),
+            setWorkspaceActor: (workspaceId, actorId) => setWorkspaceActor(selection.path, workspaceId, actorId),
+            readWorkspaceActor: (workspaceId) => readWorkspaceActor(selection.path, workspaceId),
           },
         },
         args,

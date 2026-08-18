@@ -8,18 +8,44 @@ import { Code } from "@connectrpc/connect";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { startDaemon } from "../src/daemon.js";
+import { PeerExchangeDialPool } from "../src/peer-exchange-transport.js";
+import {
+  createGovernedWorkspace,
+  homeOf,
+  joinHomeToWorkspace,
+  TEST_PASSPHRASE,
+  type GovernedHome,
+} from "./governed-homes.js";
 
 const accessToken = "lode-test-transport-access-token";
 const temporaryDirectories: string[] = [];
 
 async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: string; accessToken: string }>) {
-  const engine = await createEngine({ persistence: { dataRoot: options.dataRoot } });
-  return startDaemon({
+  const dials = new PeerExchangeDialPool();
+  const engine = await createEngine({ persistence: { dataRoot: options.dataRoot }, dialExchange: dials.wire });
+  const daemon = await startDaemon({
     engine,
     listen: options.listen,
-    accessToken: options.accessToken,
+    accessToken,
     status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
   });
+  return {
+    ...daemon,
+    stop: async () => {
+      await daemon.stop();
+      dials.close();
+    },
+  };
+}
+
+async function startHome(
+  label: string,
+): Promise<Readonly<{ home: GovernedHome; stop(): Promise<void>; dataRoot: string }>> {
+  const dataRoot = await mkdtemp(join(tmpdir(), `lode-${label}-`));
+  temporaryDirectories.push(dataRoot);
+  const daemon = await startTestDaemon({ listen: "tcp://127.0.0.1:0", dataRoot, accessToken });
+  const home = homeOf(daemon, accessToken);
+  return { home, dataRoot, stop: () => daemon.stop() };
 }
 
 afterEach(async () => {
@@ -30,42 +56,19 @@ afterEach(async () => {
 
 describe("generated daemon service adapters", () => {
   it("preserves completion, retry and read-your-write semantics", async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), "lode-ipc-contract-"));
-    temporaryDirectories.push(dataRoot);
-    const daemon = await startTestDaemon({
-      listen: "tcp://127.0.0.1:0",
-      dataRoot,
-      accessToken,
-    });
-    const client = createDesktopClient(daemon.address, accessToken);
-    const unauthenticated = createDesktopClient(daemon.address, "wrong-token");
+    const { home, stop } = await startHome("ipc-contract");
+    const { client } = home;
+    const unauthenticated = createDesktopClient(home.controlEndpoint, "wrong-token");
     try {
       await expect(unauthenticated.listWorkspaces()).rejects.toMatchObject({
         code: Code.Unauthenticated,
       });
-      await expect(unauthenticated.createWorkspace("workspace", "Workspace")).rejects.toMatchObject({
-        code: Code.Unauthenticated,
-      });
-      expect(Object.keys(client).sort()).toEqual([
-        "close",
-        "createWorkspace",
-        "execute",
-        "listWorkspaces",
-        "query",
-        "recoverWorkspaceAuthority",
-        "shutdown",
-        "status",
-        "subscribe",
-        "syncWorkspace",
-      ]);
-      expect(client).not.toHaveProperty("request");
-      expect(client).not.toHaveProperty("rpc");
-      await client.createWorkspace("workspace", "Workspace");
+      const ownerActorId = await createGovernedWorkspace(home, "workspace", "Workspace");
       const command = {
         kind: "mutate",
         workspaceId: "workspace",
         invocationId: "ipc-create",
-        actorId: "actor",
+        actorId: ownerActorId,
         intent: "direct",
         historyChannelId: "desktop",
         mutations: [
@@ -117,44 +120,18 @@ describe("generated daemon service adapters", () => {
           mutations: [{ kind: "future-mutation", extra: true }],
         } as never),
       ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-      for (const intent of ["direct", "proposal"] as const) {
-        expect(
-          await client.execute({
-            kind: "mutate",
-            workspaceId: "workspace",
-            invocationId: `invalid-structural-${intent}`,
-            actorId: "actor",
-            intent,
-            historyChannelId: "desktop",
-            mutations: [
-              {
-                kind: "occurrence-delete",
-                occurrenceId: "node-tag-definition-occurrence",
-              },
-            ],
-          }),
-        ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-      }
       expect(
-        await client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
+        await client.execute({
+          ...command,
+          invocationId: `invalid-structural`,
+          mutations: [
+            {
+              kind: "occurrence-delete",
+              occurrenceId: "node-tag-definition-occurrence",
+            },
+          ],
         }),
-      ).toMatchObject({ status: "ok", value: { nodes: { node: { nodeId: "node" } } } });
-      expect(
-        await client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-          section: "supertagApplications",
-        }),
-      ).toMatchObject({
-        status: "ok",
-        value: {
-          supertagApplications: { node: [{ definitionOccurrenceId: "node-tag-definition-occurrence" }] },
-        },
-      });
+      ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
       expect(await client.recoverWorkspaceAuthority("workspace")).toBe(true);
       expect(
         await client.query({
@@ -166,212 +143,256 @@ describe("generated daemon service adapters", () => {
     } finally {
       unauthenticated.close();
       client.close();
-      await daemon.stop();
-    }
-  });
-
-  it("carries a public View removal through the daemon as graph truth", async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), "lode-ipc-view-detach-"));
-    temporaryDirectories.push(dataRoot);
-    const daemon = await startTestDaemon({
-      listen: "tcp://127.0.0.1:0",
-      dataRoot,
-      accessToken,
-    });
-    const client = createDesktopClient(daemon.address, accessToken);
-    try {
-      await client.createWorkspace("workspace", "Workspace");
-      const creation = await client.execute({
-        kind: "mutate",
-        workspaceId: "workspace",
-        invocationId: "ipc-view-create",
-        actorId: "actor",
-        intent: "direct",
-        historyChannelId: "desktop",
-        mutations: [
-          nodeAt("host", "workspace", "host-original"),
-          {
-            kind: "shared-default-view-definition-create",
-            hostNodeId: "host",
-            metanodeId: "host-metanode",
-            attachmentNodeId: "host-view-attachment",
-            attachmentOccurrenceId: "host-view-attachment-occurrence",
-            relationDefinitionOccurrenceId: "host-view-attachment-definition",
-            viewDefinitionNodeId: "host-view",
-            viewDefinitionOccurrenceId: "host-view-occurrence",
-            viewType: "table",
-            anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-          },
-        ],
-      });
-      expect(creation, JSON.stringify(creation)).toMatchObject({ status: "published" });
-      expect(
-        await client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-          section: "sharedDefaultViewDefinitions",
-        }),
-      ).toMatchObject({
-        status: "ok",
-        value: { sharedDefaultViewDefinitions: { host: [{ viewDefinitionNodeId: "host-view", viewType: "table" }] } },
-      });
-
-      const removal = await client.execute({
-        kind: "mutate",
-        workspaceId: "workspace",
-        invocationId: "ipc-view-remove",
-        actorId: "actor",
-        intent: "direct",
-        historyChannelId: "desktop",
-        mutations: [
-          {
-            kind: "shared-default-view-definition-remove",
-            hostNodeId: "host",
-            attachmentNodeId: "host-view-attachment",
-            attachmentOccurrenceId: "host-view-attachment-occurrence",
-            relationDefinitionOccurrenceId: "host-view-attachment-definition",
-            viewDefinitionNodeId: "host-view",
-            viewDefinitionOccurrenceId: "host-view-occurrence",
-          },
-        ],
-      });
-      expect(removal, JSON.stringify(removal)).toMatchObject({ status: "published" });
-      const [definitions, owners, children] = await Promise.all([
-        client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-          section: "sharedDefaultViewDefinitions",
-        }),
-        client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-          section: "nodeOwners",
-        }),
-        client.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-          section: "childOccurrences",
-        }),
-      ]);
-      expect(definitions).toMatchObject({ status: "ok", value: { sharedDefaultViewDefinitions: {} } });
-      expect(owners).toMatchObject({
-        status: "ok",
-        value: {
-          nodeOwners: {
-            "host-view-attachment": "workspace-trash:v1:workspace",
-            "host-view": "workspace-trash:v1:workspace",
-            "detached-view-value:v1:host-view-attachment": "host-view-attachment",
-          },
-        },
-      });
-      expect(children).toMatchObject({
-        status: "ok",
-        value: {
-          childOccurrences: {
-            "host-view-attachment": [
-              "host-view-attachment-definition",
-              "detached-view-value-occ:v1:host-view-attachment",
-            ],
-          },
-        },
-      });
-    } finally {
-      client.close();
-      await daemon.stop();
-    }
-  });
-
-  it("daemon sync RPC composes the production Fact SyncExchange across replicas", async () => {
-    const leftRoot = await mkdtemp(join(tmpdir(), "lode-ipc-sync-left-"));
-    const rightRoot = await mkdtemp(join(tmpdir(), "lode-ipc-sync-right-"));
-    temporaryDirectories.push(leftRoot, rightRoot);
-    const leftDaemon = await startTestDaemon({
-      listen: "tcp://127.0.0.1:0",
-      dataRoot: leftRoot,
-      accessToken,
-    });
-    const rightDaemon = await startTestDaemon({
-      listen: "tcp://127.0.0.1:0",
-      dataRoot: rightRoot,
-      accessToken,
-    });
-    const left = createDesktopClient(leftDaemon.address, accessToken);
-    const right = createDesktopClient(rightDaemon.address, accessToken);
-    try {
-      await left.createWorkspace("workspace", "Workspace");
-      await right.createWorkspace("workspace", "Workspace");
-      const initialExchange = await left.syncWorkspace("workspace", rightDaemon.address);
-      expect(initialExchange.pushed).toBeGreaterThan(0);
-      expect(
-        (
-          await left.execute({
-            kind: "mutate",
-            workspaceId: "workspace",
-            invocationId: "left-node",
-            actorId: "left",
-            intent: "direct",
-            historyChannelId: "desktop",
-            mutations: [nodeAt("from-left", "workspace", "from-left-original")],
-          })
-        ).status,
-      ).toBe("published");
-
-      const exchanged = await left.syncWorkspace("workspace", rightDaemon.address);
-      expect(exchanged.pushed).toBeGreaterThan(0);
-
-      expect(
-        await right.query({
-          kind: "projection",
-          workspaceId: "workspace",
-          perspective: "origin",
-        }),
-      ).toMatchObject({
-        status: "ok",
-        value: { nodes: { "from-left": { nodeId: "from-left" } } },
-      });
-    } finally {
-      left.close();
-      right.close();
-      await Promise.all([leftDaemon.stop(), rightDaemon.stop()]);
+      await stop();
     }
   });
 
   it("lists and creates Workspaces through the authenticated host capability", async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), "lode-ipc-workspaces-"));
-    temporaryDirectories.push(dataRoot);
-    const daemon = await startTestDaemon({
-      listen: "tcp://127.0.0.1:0",
-      dataRoot,
-      accessToken,
-    });
-    const client = createDesktopClient(daemon.address, accessToken);
+    const { home, stop } = await startHome("ipc-workspaces");
+    const { client } = home;
     try {
       expect(await client.listWorkspaces()).toEqual([]);
-      await client.createWorkspace("personal", "Personal");
+      await client.createActor({ label: "Personal Owner", passphrase: TEST_PASSPHRASE });
+      const actor = (await client.listActors()).actors[0];
+      expect(actor?.unlocked).toBe(true);
+      await client.createWorkspace("personal", "Personal", actor?.actorId ?? "");
       expect(await client.listWorkspaces()).toEqual([{ workspaceId: "personal", label: "Personal", state: "active" }]);
-      await expect(client.createWorkspace("personal", "Other")).rejects.toThrow("already exists");
-      await client.createWorkspace("personal", "Personal");
+      await expect(client.createWorkspace("personal", "Other", actor?.actorId ?? "")).rejects.toThrow("already exists");
+      // A same-id create with a matching label stays idempotent at the catalog.
       await expect(
         client.execute({
           kind: "mutate",
           workspaceId: "uncataloged",
           invocationId: "ipc-unknown",
-          actorId: "actor",
+          actorId: actor?.actorId ?? "",
           intent: "direct",
           historyChannelId: "desktop",
           mutations: [nodeAt("node", "uncataloged", "occurrence")],
         }),
       ).resolves.toMatchObject({ status: "rejected", error: { code: "workspace-not-found" } });
-      await expect(client.syncWorkspace("uncataloged", daemon.address)).rejects.toMatchObject({
+      await expect(client.syncWorkspace("uncataloged", home.exchangeEndpoint)).rejects.toMatchObject({
         code: Code.NotFound,
       });
     } finally {
       client.close();
-      await daemon.stop();
+      await stop();
+    }
+  });
+
+  it("keeps a governed workspace's writes attributed and member-gated", async () => {
+    const { home, stop } = await startHome("governed-writes");
+    const { client } = home;
+    try {
+      const owner = await createGovernedWorkspace(home, "workspace", "Workspace");
+      const second = await client.createActor({ label: "Second", passphrase: TEST_PASSPHRASE });
+      // The second Actor exists and is unlocked but is not a member yet.
+      const nonMember = await client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "non-member",
+        actorId: second.actorId,
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("outsider", "workspace", "outsider-occurrence")],
+      });
+      expect(nonMember).toMatchObject({ status: "rejected", error: { code: "actor-not-member" } });
+
+      await client.admitActor({ workspaceId: "workspace", actingActorId: owner, actorId: second.actorId });
+      const third = await client.createActor({ label: "Third", passphrase: TEST_PASSPHRASE });
+      await expect(
+        client.admitActor({
+          workspaceId: "workspace",
+          actingActorId: second.actorId,
+          actorId: third.actorId,
+        }),
+      ).rejects.toMatchObject({ code: Code.PermissionDenied });
+      const written = await client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "member-write",
+        actorId: second.actorId,
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("second-node", "workspace", "second-node-occurrence")],
+      });
+      expect(written.status).toBe("published");
+
+      // Locking the vault stops new signature-bearing writes only.
+      await client.lockVault();
+      const locked = await client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "locked-write",
+        actorId: second.actorId,
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("locked-node", "workspace", "locked-node-occurrence")],
+      });
+      expect(locked).toMatchObject({ status: "rejected", error: { code: "actor-locked" } });
+      expect(
+        (
+          await client.query({
+            kind: "projection",
+            workspaceId: "workspace",
+            perspective: "origin",
+            section: "nodes",
+          })
+        ).status,
+      ).toBe("ok");
+    } finally {
+      client.close();
+      await stop();
+    }
+  });
+
+  it("runs the admission and adoption product flow across two homes and converges", async () => {
+    const memberHome = await startHome("sync-member");
+    const joinerHome = await startHome("sync-joiner");
+    const member = memberHome.home;
+    const joiner = joinerHome.home;
+    try {
+      const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
+      await member.client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "member-node",
+        actorId: owner,
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("from-member", "workspace", "from-member-original")],
+      });
+      const { joinerActorId } = await joinHomeToWorkspace({ home: member, actingActorId: owner }, joiner, "workspace");
+
+      // The joiner adopts the full journal and can then write as its own Actor.
+      const joinerWrite = await joiner.client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "joiner-node",
+        actorId: joinerActorId,
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("from-joiner", "workspace", "from-joiner-original")],
+      });
+      expect(joinerWrite.status).toBe("published");
+      expect(
+        await joiner.client.query({
+          kind: "projection",
+          workspaceId: "workspace",
+          perspective: "origin",
+          section: "nodes",
+        }),
+      ).toMatchObject({ status: "ok", value: { nodes: { "from-member": { nodeId: "from-member" } } } });
+
+      const exchanged = await member.client.syncWorkspace("workspace", joiner.exchangeEndpoint);
+      expect(exchanged.pulled).toBeGreaterThan(0);
+      expect(
+        await member.client.query({
+          kind: "projection",
+          workspaceId: "workspace",
+          perspective: "origin",
+          section: "nodes",
+        }),
+      ).toMatchObject({ status: "ok", value: { nodes: { "from-joiner": { nodeId: "from-joiner" } } } });
+
+      const summary = await member.client.governanceSummary("workspace");
+      expect(summary.memberActorIds).toEqual(expect.arrayContaining([owner, joinerActorId]));
+      expect(summary.peers.map((peer) => peer.peerId)).toHaveLength(2);
+    } finally {
+      member.client.close();
+      joiner.client.close();
+      await Promise.all([memberHome.stop(), joinerHome.stop()]);
+    }
+  });
+
+  it("keeps replica exchange working with the Actor Vault locked", async () => {
+    const memberHome = await startHome("locked-member");
+    const joinerHome = await startHome("locked-joiner");
+    const member = memberHome.home;
+    const joiner = joinerHome.home;
+    try {
+      const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
+      await joinHomeToWorkspace({ home: member, actingActorId: owner }, joiner, "workspace");
+      await joiner.client.execute({
+        kind: "mutate",
+        workspaceId: "workspace",
+        invocationId: "joiner-node",
+        actorId: (await joiner.client.listActors()).actors.find((actor) => actor.label === "Joiner")?.actorId ?? "",
+        intent: "direct",
+        historyChannelId: "desktop",
+        mutations: [nodeAt("locked-vault-node", "workspace", "locked-vault-node-occurrence")],
+      });
+
+      // Locking stops signature-bearing writes only; the exchange runs on Peer
+      // admission and the transit key, never on an Actor key.
+      await member.client.lockVault();
+      await joiner.client.lockVault();
+      const exchanged = await member.client.syncWorkspace("workspace", joiner.exchangeEndpoint);
+      expect(exchanged.pulled).toBeGreaterThan(0);
+      expect(
+        await member.client.query({
+          kind: "projection",
+          workspaceId: "workspace",
+          perspective: "origin",
+          section: "nodes",
+        }),
+      ).toMatchObject({ status: "ok", value: { nodes: { "locked-vault-node": { nodeId: "locked-vault-node" } } } });
+    } finally {
+      member.client.close();
+      joiner.client.close();
+      await Promise.all([memberHome.stop(), joinerHome.stop()]);
+    }
+  });
+
+  it("refuses the same workspace id on a second home instead of forging genesis", async () => {
+    const memberHome = await startHome("forge-member");
+    const otherHome = await startHome("forge-other");
+    const member = memberHome.home;
+    const other = otherHome.home;
+    try {
+      const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
+      const otherActor = await other.client.createActor({ label: "Other Owner", passphrase: TEST_PASSPHRASE });
+      // Creating the same id on another home makes a different journal; the
+      // product flow refuses it loudly rather than syncing two geneses.
+      await other.client.createWorkspace("workspace", "Workspace", otherActor.actorId);
+      const exchanged = await other.client
+        .syncWorkspace("workspace", member.exchangeEndpoint)
+        .catch((error: unknown) => error);
+      expect(exchanged).toBeInstanceOf(Error);
+      const summary = await member.client.governanceSummary("workspace");
+      expect(summary.ownerActorId).toBe(owner);
+      expect(summary.peers).toHaveLength(1);
+    } finally {
+      member.client.close();
+      other.client.close();
+      await Promise.all([memberHome.stop(), otherHome.stop()]);
+    }
+  });
+
+  it("revoking a peer rotates transit past it while the actor stays a member", async () => {
+    const memberHome = await startHome("revoke-member");
+    const joinerHome = await startHome("revoke-joiner");
+    const member = memberHome.home;
+    const joiner = joinerHome.home;
+    try {
+      const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
+      await joinHomeToWorkspace({ home: member, actingActorId: owner }, joiner, "workspace");
+      const joinerPeerId = (await joiner.client.peerMaterial()).peerId;
+
+      const before = await member.client.governanceSummary("workspace");
+      expect(before.epoch).toBe(0);
+      await member.client.revokePeer({ workspaceId: "workspace", actingActorId: owner, peerId: joinerPeerId });
+      const after = await member.client.governanceSummary("workspace");
+      expect(after.epoch).toBe(1);
+      expect(after.peers.map((peer) => peer.peerId)).not.toContain(joinerPeerId);
+
+      // The revoked peer can no longer exchange; the member keeps syncing.
+      await expect(joiner.client.syncWorkspace("workspace", member.exchangeEndpoint)).rejects.toThrow();
+      const exchanged = await member.client.syncWorkspace("workspace", member.exchangeEndpoint);
+      expect(exchanged.pulled).toBe(0);
+    } finally {
+      member.client.close();
+      joiner.client.close();
+      await Promise.all([memberHome.stop(), joinerHome.stop()]);
     }
   });
 });

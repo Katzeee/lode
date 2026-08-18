@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+
+// Actor identity and the per-Home Peer material. This is local-control-plane
+// only: the daemon authenticates these RPCs with the Home access token, and
+// recovery phrases never travel between Homes.
+service IdentityService {
+  rpc ListActors(google.protobuf.Empty) returns (ActorListResult);
+  rpc CreateActor(CreateActorRequest) returns (CreateActorResult);
+  rpc ImportActor(ImportActorRequest) returns (ImportActorResult);
+  rpc UnlockVault(UnlockVaultRequest) returns (ActorListResult);
+  rpc LockVault(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc PeerMaterial(google.protobuf.Empty) returns (HomePeerMaterial);
+}
+
+message ActorSummary {
+  string actor_id = 1;
+  string label = 2;
+  string created_at = 3;
+  bool unlocked = 4;
+}
+
+message ActorListResult {
+  repeated ActorSummary actors = 1;
+  bool vault_exists = 2;
+}
+
+message CreateActorRequest {
+  string label = 1;
+  string passphrase = 2;
+}
+
+message CreateActorResult {
+  string actor_id = 1;
+  // The recovery phrase; shown exactly once at creation.
+  string recovery_phrase = 2;
+}
+
+message ImportActorRequest {
+  string recovery_phrase = 1;
+  string passphrase = 2;
+  string label = 3;
+}
+
+message ImportActorResult {
+  string actor_id = 1;
+}
+
+message UnlockVaultRequest {
+  string passphrase = 1;
+}
+
+// The material another Home needs to admit this Home's Actor and Peer into a
+// Workspace. Contains public keys only.
+message HomePeerMaterial {
+  string peer_id = 1;
+  string peer_identity_public_key = 2;
+  string peer_kx_public_key = 3;
+  repeated string actor_ids = 4;
+}

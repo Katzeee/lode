@@ -7,6 +7,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createEngine } from "../../engine.js";
 
 const temporaryDirectories: string[] = [];
+const vaultPassphrase = "catalog-test-passphrase";
+
+async function createWorkspaceAs(
+  engine: Awaited<ReturnType<typeof createEngine>>,
+  workspaceId: string,
+  label: string,
+): Promise<string> {
+  const actor = await engine.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
+  await engine.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
+  return actor.actorId;
+}
 
 afterEach(async () => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -19,7 +30,7 @@ describe("workspace catalog", () => {
     const dataRoot = await recordTemporaryHome();
     const engine = await createEngine({ persistence: { dataRoot } });
     try {
-      await engine.workspaces.createWorkspace("ws-personal", "Personal");
+      const owner = await createWorkspaceAs(engine, "ws-personal", "Personal");
       expect(await engine.workspaces.listWorkspaces()).toEqual([
         { workspaceId: "ws-personal", label: "Personal", state: "active" },
       ]);
@@ -28,7 +39,7 @@ describe("workspace catalog", () => {
           kind: "mutate",
           workspaceId: "ws-personal",
           invocationId: "catalog-boot",
-          actorId: "actor",
+          actorId: owner,
           intent: "direct",
           historyChannelId: "test",
           mutations: [
@@ -80,8 +91,10 @@ describe("workspace catalog", () => {
         }),
       ).rejects.toThrow("does not exist");
       expect(await engine.workspaces.listWorkspaces()).toEqual([]);
-      await engine.workspaces.createWorkspace("ghost", "Ghost");
-      await expect(engine.workspaces.createWorkspace("ghost", "Other")).rejects.toThrow("already exists");
+      await createWorkspaceAs(engine, "ghost", "Ghost");
+      await expect(
+        engine.workspaces.createWorkspace({ workspaceId: "ghost", label: "Other", ownerActorId: "actor_x" }),
+      ).rejects.toThrow("already exists");
       expect(await engine.workspaces.listWorkspaces()).toEqual([
         { workspaceId: "ghost", label: "Ghost", state: "active" },
       ]);

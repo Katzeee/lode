@@ -86,7 +86,17 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
   assertObject(value, `Fact ${index}`);
   assertKeys(
     value,
-    ["formatGeneration", "schemaVersion", "workspaceId", "id", "transaction", "coordinate", "body", "contentDigest"],
+    [
+      "formatGeneration",
+      "schemaVersion",
+      "workspaceId",
+      "id",
+      "transaction",
+      "coordinate",
+      "body",
+      "contentDigest",
+      "attribution",
+    ],
     "Fact",
   );
   requireNumber(value.formatGeneration, "Fact format generation");
@@ -94,6 +104,9 @@ function assertFact(value: unknown, index: number): asserts value is Fact {
   requireString(value.workspaceId, "Fact Workspace identity");
   requireString(value.id, "Fact identity");
   requireString(value.contentDigest, "Fact content digest");
+  if (value.attribution !== null) {
+    requireString(value.attribution, "Fact attribution");
+  }
   assertObject(value.transaction, "Fact transaction position");
   assertKeys(value.transaction, ["transactionId", "index", "size"], "Fact transaction position");
   requireString(value.transaction.transactionId, "Fact transaction identity");

@@ -1,0 +1,241 @@
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+
+import {
+  aeadOpen,
+  aeadSeal,
+  isActorId,
+  DEFAULT_VAULT_KDF_PARAMETERS,
+  deriveVaultKey,
+  generateVaultSalt,
+  VAULT_CANARY,
+  type VaultKdfParameters,
+} from "../../crypto/index.js";
+
+/**
+ * The Actor Vault: one passphrase-encrypted store per Home holding every
+ * Actor's Ed25519 seed. The scrypt salt and parameters travel with the file;
+ * the canary authenticates the passphrase even when no entry exists yet.
+ */
+
+const VAULT_VERSION = 1;
+
+export type VaultEntry = Readonly<{
+  actorId: string;
+  label: string;
+  createdAt: string;
+  seed: string;
+}>;
+
+export type VaultFile = Readonly<{
+  version: number;
+  kdf: Readonly<{ algo: "scrypt"; salt: string; params: VaultKdfParameters }>;
+  canary: string;
+  entries: readonly VaultEntry[];
+}>;
+
+export class VaultLockedError extends Error {
+  constructor() {
+    super("The Actor Vault is locked; unlock it before identity operations");
+    this.name = "VaultLockedError";
+  }
+}
+
+export class VaultPassphraseError extends Error {
+  constructor() {
+    super("The Actor Vault passphrase is incorrect");
+    this.name = "VaultPassphraseError";
+  }
+}
+
+export class VaultStore {
+  private constructor(
+    private readonly file: string | undefined,
+    private vault: VaultFile | undefined,
+  ) {}
+
+  static async open(file: string | undefined): Promise<VaultStore> {
+    const store = new VaultStore(file, undefined);
+    await store.load();
+    return store;
+  }
+
+  exists(): boolean {
+    return this.vault !== undefined;
+  }
+
+  entries(): readonly VaultEntry[] {
+    return this.vault?.entries ?? [];
+  }
+
+  /** Creates the vault under a fresh passphrase; refuses to re-initialize. */
+  async initialize(passphrase: string): Promise<void> {
+    if (this.vault) {
+      throw new Error("The Actor Vault already exists");
+    }
+    const salt = generateVaultSalt();
+    const key = await deriveVaultKey(passphrase, salt, DEFAULT_VAULT_KDF_PARAMETERS);
+    this.vault = {
+      version: VAULT_VERSION,
+      kdf: { algo: "scrypt", salt: toBase64(salt), params: DEFAULT_VAULT_KDF_PARAMETERS },
+      canary: toBase64(aeadSeal(key, new TextEncoder().encode(VAULT_CANARY))),
+      entries: [],
+    };
+    await this.persist();
+  }
+
+  /** Verifies the passphrase and returns the key that unlocks every entry. */
+  async deriveKey(passphrase: string): Promise<Uint8Array> {
+    if (!this.vault) {
+      throw new VaultLockedError();
+    }
+    const key = await deriveVaultKey(passphrase, fromBase64(this.vault.kdf.salt), this.vault.kdf.params);
+    try {
+      const opened = new TextDecoder().decode(aeadOpen(key, fromBase64(this.vault.canary)));
+      if (opened !== VAULT_CANARY) {
+        throw new Error("canary mismatch");
+      }
+    } catch {
+      throw new VaultPassphraseError();
+    }
+    return key;
+  }
+
+  async appendEntry(key: Uint8Array, entry: Omit<VaultEntry, "seed">, seed: Uint8Array): Promise<void> {
+    if (!this.vault) {
+      throw new VaultLockedError();
+    }
+    if (this.vault.entries.some((existing) => existing.actorId === entry.actorId)) {
+      throw new Error(`Actor ${entry.actorId} already exists in this Home`);
+    }
+    this.vault = {
+      ...this.vault,
+      entries: [...this.vault.entries, { ...entry, seed: toBase64(aeadSeal(key, seed)) }],
+    };
+    await this.persist();
+  }
+
+  openEntrySeed(key: Uint8Array, entry: VaultEntry): Uint8Array {
+    return aeadOpen(key, fromBase64(entry.seed));
+  }
+
+  private async load(): Promise<void> {
+    if (this.file === undefined) {
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(await readFile(this.file, "utf8"));
+      if (!isVaultFile(parsed)) {
+        throw new Error(`Actor Vault is corrupt: ${this.file}`);
+      }
+      this.vault = parsed;
+    } catch (error) {
+      if (isMissingFile(error)) {
+        return;
+      }
+      throw new Error(`Cannot load Actor Vault: ${this.file}`, { cause: error });
+    }
+  }
+
+  private async persist(): Promise<void> {
+    if (this.file === undefined || this.vault === undefined) {
+      return;
+    }
+    const temporary = `${this.file}.tmp`;
+    await mkdir(dirname(this.file), { recursive: true });
+    await writeFile(temporary, `${JSON.stringify(this.vault, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(temporary, this.file);
+    await chmod(this.file, 0o600).catch(() => {});
+  }
+}
+
+function isVaultFile(value: unknown): value is VaultFile {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.version !== VAULT_VERSION ||
+    !isVaultKdf(candidate.kdf) ||
+    !isSealedBase64(candidate.canary) ||
+    !Array.isArray(candidate.entries) ||
+    !candidate.entries.every(isVaultEntry)
+  ) {
+    return false;
+  }
+  const actorIds = candidate.entries.map((entry) => entry.actorId);
+  return new Set(actorIds).size === actorIds.length;
+}
+
+function isVaultKdf(value: unknown): value is VaultFile["kdf"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  const parameters = candidate.params;
+  return (
+    candidate.algo === "scrypt" &&
+    isBase64Bytes(candidate.salt, 16) &&
+    typeof parameters === "object" &&
+    parameters !== null &&
+    isKdfParameters(parameters as Record<string, unknown>)
+  );
+}
+
+function isKdfParameters(value: Record<string, unknown>): value is Record<"n" | "r" | "p", number> {
+  const n = value.n;
+  const r = value.r;
+  const p = value.p;
+  return (
+    Number.isSafeInteger(n) &&
+    typeof n === "number" &&
+    n >= 2 ** 14 &&
+    n <= 2 ** 20 &&
+    (n & (n - 1)) === 0 &&
+    Number.isSafeInteger(r) &&
+    typeof r === "number" &&
+    r >= 1 &&
+    r <= 32 &&
+    Number.isSafeInteger(p) &&
+    typeof p === "number" &&
+    p >= 1 &&
+    p <= 16
+  );
+}
+
+function isVaultEntry(value: unknown): value is VaultEntry {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.actorId === "string" &&
+    isActorId(candidate.actorId) &&
+    typeof candidate.label === "string" &&
+    typeof candidate.createdAt === "string" &&
+    !Number.isNaN(Date.parse(candidate.createdAt)) &&
+    isSealedBase64(candidate.seed)
+  );
+}
+
+function isSealedBase64(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(value) && Buffer.from(value, "base64").length >= 28;
+}
+
+function isBase64Bytes(value: unknown, length: number): value is string {
+  return (
+    typeof value === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(value) && Buffer.from(value, "base64").length === length
+  );
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function toBase64(value: Uint8Array): string {
+  return Buffer.from(value).toString("base64");
+}
+
+function fromBase64(value: string): Uint8Array {
+  return new Uint8Array(Buffer.from(value, "base64"));
+}

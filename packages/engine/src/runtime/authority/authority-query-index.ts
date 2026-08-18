@@ -163,6 +163,9 @@ function scopeKeys(fact: Fact): readonly string[] {
     if (fact.body.action.kind === "node-purge") {
       fact.body.action.acknowledgementFactIds.forEach((id) => keys.add(factKey(id)));
     }
+  } else if (fact.body.kind === "governance") {
+    // Governance Facts index under their actor only; they carry no content keys.
+    keys.add(nodeKey(fact.body.actorId));
   } else {
     const relations = mutationRelations(fact.body.mutation);
     relations.nodeIds.forEach((id) => keys.add(nodeKey(id)));

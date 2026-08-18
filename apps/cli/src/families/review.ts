@@ -2,7 +2,7 @@ import type { ConflictIssue, ConflictQuery, ReviewQuery } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { CLI_ACTOR, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
+import { actorIdOf, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
 
 /**
  * Review and Conflict families: opaque semantic refs produced by list/show,
@@ -146,7 +146,7 @@ async function resolve(context: Parameters<ProductCommandRun>[0], token: string,
     kind: "resolve-review",
     workspaceId: workspaceIdOf(context),
     invocationId: invocationId(context.requestId),
-    actorId: CLI_ACTOR,
+    actorId: actorIdOf(context),
     decision,
     selection: hunk.selection,
   } as const;
@@ -283,7 +283,7 @@ const conflictResolve: CommandDefinition = {
       kind: "adjudicate-resolution",
       workspaceId: workspaceIdOf(context),
       invocationId: invocationId(context.requestId),
-      actorId: CLI_ACTOR,
+      actorId: actorIdOf(context),
       decision,
       proposalContributionIds: issue.proposalContributionIds,
       resolutionIds: issue.candidates.map((candidate) => candidate.resolutionId),

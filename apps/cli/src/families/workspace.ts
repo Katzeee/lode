@@ -3,22 +3,32 @@ import type { OutlineResult, ProjectedNode } from "@lode/sdk";
 import { CliError, okOutcome, type CommandResult, type HumanView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import type { CommandContext, ParsedArgs } from "../invocation/index.js";
+import { actorIdOf } from "../intent/index.js";
 import { descriptor, nodeLabel, resolveWorkspaceFromList } from "../target/index.js";
 
 /**
- * Workspace family: create/list/show over the formal host capability. Knowledge
- * commands select their Workspace explicitly with --workspace.
+ * Workspace family: lifecycle (create/adopt/list/show), Actor selection, and
+ * signed governance. Governance commands act as the Actor selected with the
+ * global --actor flag or the Workspace's saved selection.
  */
 
 export function registerWorkspaceCommands(catalog: CommandCatalog): void {
   catalog.register(workspaceCreate);
+  catalog.register(workspaceAdopt);
+  catalog.register(workspaceUseActor);
   catalog.register(workspaceList);
   catalog.register(workspaceShow);
 }
 
+/** Resolves a workspace token (label or ref) against the daemon catalog. */
+async function workspaceByToken(context: CommandContext, token: string): Promise<string> {
+  const entry = resolveWorkspaceFromList(await context.session.workspaces.list(), token);
+  return entry.workspaceId;
+}
+
 const workspaceCreate: CommandDefinition = {
   path: ["workspace", "create"],
-  summary: "Create a workspace with the given name.",
+  summary: "Create a governed workspace owned by the selected Actor.",
   positionals: [["name", "Name of the new workspace"]],
   options: [],
   kind: "write",
@@ -26,11 +36,13 @@ const workspaceCreate: CommandDefinition = {
   needsWorkspace: false,
   run: async (context, args) => {
     const name = args.positional("name");
+    const actorId = actorIdOf(context);
     const workspaceId = `ws-${crypto.randomUUID()}`;
-    await context.session.workspaces.create(workspaceId, name);
+    await context.session.workspaces.create(workspaceId, name, actorId);
+    await context.persistence.setWorkspaceActor(workspaceId, actorId);
     const resource = descriptor(workspaceId, "workspace", workspaceId, name);
     return okOutcome(
-      { workspace: resource },
+      { workspace: resource, actor: actorId },
       {
         view: {
           kind: "text",
@@ -38,10 +50,75 @@ const workspaceCreate: CommandDefinition = {
             `Created workspace ${resource.label}`,
             `Ref: ${resource.ref}`,
             `Link: ${resource.link}`,
+            `Owner Actor: ${actorId}`,
             "Use it with --workspace <label|ref>.",
           ],
         },
       },
+    );
+  },
+};
+
+const workspaceAdopt: CommandDefinition = {
+  path: ["workspace", "adopt"],
+  summary: "Adopt a remote workspace by pulling its journal from an exchange endpoint.",
+  positionals: [
+    ["endpoint", "Remote peer-exchange endpoint"],
+    ["workspace", "Workspace id to adopt"],
+  ],
+  options: [],
+  kind: "write",
+  paginated: false,
+  needsWorkspace: false,
+  run: async (context, args) => {
+    const endpoint = args.positional("endpoint");
+    const adopted = await context.session.workspaces.adopt(endpoint, args.positional("workspace"));
+    await context.persistence.setSyncEndpoint(adopted.workspaceId, endpoint);
+    const resource = descriptor(adopted.workspaceId, "workspace", adopted.workspaceId, adopted.label);
+    return okOutcome(
+      { workspace: resource },
+      {
+        view: {
+          kind: "text",
+          lines: [
+            `Adopted workspace ${resource.label}`,
+            `Ref: ${resource.ref}`,
+            "Run `lode sync run` to exchange Facts.",
+          ],
+        },
+      },
+    );
+  },
+};
+
+const workspaceUseActor: CommandDefinition = {
+  path: ["workspace", "use-actor"],
+  summary: "Set the Actor this Home acts as inside a workspace.",
+  positionals: [
+    ["workspace", "Workspace label, workspace: ref, or canonical link"],
+    ["actor", "Actor id held by this Home"],
+  ],
+  options: [],
+  kind: "write",
+  paginated: false,
+  needsWorkspace: false,
+  run: async (context, args) => {
+    const workspaceId = await workspaceByToken(context, args.positional("workspace"));
+    const actorId = args.positional("actor");
+    const [identity, governance] = await Promise.all([
+      context.session.identity.list(),
+      context.session.governance.summary(workspaceId),
+    ]);
+    if (!identity.actors.some((actor) => actor.actorId === actorId)) {
+      throw new CliError("invalid-value", `Actor ${actorId} is not held by this Home.`);
+    }
+    if (!governance.memberActorIds.includes(actorId)) {
+      throw new CliError("authorization", `Actor ${actorId} is not a member of workspace ${workspaceId}.`);
+    }
+    await context.persistence.setWorkspaceActor(workspaceId, actorId);
+    return okOutcome(
+      { workspace: workspaceId, actor: actorId },
+      { view: { kind: "text", lines: [`Workspace ${workspaceId} now acts as ${actorId}.`] } },
     );
   },
 };

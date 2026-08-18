@@ -24,6 +24,7 @@
   "dependencies": {
     "@lode/logger": "file:../logger",
     "@lode/sdk": "file:../sdk",
+    "@scure/bip39": "^2.3.0",
     "better-sqlite3": "^12.0.0",
     "loro-crdt": "^1.11.0"
   },

@@ -13,6 +13,7 @@ export type { CommandContext, WorkspacePersistence } from "./context.js";
 export const GLOBAL_OPTIONS = [
   "--home",
   "--workspace",
+  "--actor",
   "--perspective",
   "--intent",
   "--format",
@@ -24,6 +25,7 @@ export const GLOBAL_OPTIONS = [
 export type GlobalOptions = Readonly<{
   home?: string;
   workspace?: string;
+  actor?: string;
   perspective?: "origin" | "review";
   intent?: "direct" | "proposal";
   format?: "human" | "json";
@@ -177,6 +179,7 @@ function baseGlobals(
   };
   set("home", read("--home"));
   set("workspace", read("--workspace"));
+  set("actor", read("--actor"));
   set("perspective", enumerated("--perspective", PERSPECTIVES));
   set("intent", enumerated("--intent", INTENTS));
   set("format", enumerated("--format", FORMATS));

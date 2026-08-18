@@ -8,6 +8,7 @@ import { createDesktopClient } from "@lode/desktop-client";
 import { array, cliRequest, type DaemonProcess, record, startDaemonProcess } from "./daemon-process-test-helpers.js";
 
 const accessToken = "real-child-process-access-token";
+const vaultPassphrase = "restart-test-passphrase";
 const workspaceId = "restart-idempotency";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const temporaryDirectories: string[] = [];
@@ -25,7 +26,9 @@ describe("real daemon child-process restart", () => {
   it("deduplicates Supertag Application, Resolution, and History after lost acknowledgements", async () => {
     const processRoot = await temporaryDirectory();
     daemon = await startDaemonProcess(processRoot, accessToken);
-    await createWorkspace(daemon.address, workspaceId);
+    const actorId = await createActor(daemon.address);
+    restartActorId = actorId;
+    await createWorkspace(daemon.address, workspaceId, actorId);
     await mutate(daemon.address, "setup", "setup", [
       nodeAt("task", workspaceId, "task-occurrence"),
       nodeAt("supertag", workspaceId, "supertag-occurrence", "supertag-definition"),
@@ -82,7 +85,7 @@ describe("real daemon child-process restart", () => {
       kind: "resolve-review",
       workspaceId,
       invocationId: "resolve-once",
-      actorId: "reviewer",
+      actorId: actorOf(),
       decision: "accept",
       selection: hunk.selection,
     };
@@ -110,7 +113,7 @@ describe("real daemon child-process restart", () => {
       kind: "undo",
       workspaceId,
       invocationId: "undo-once",
-      actorId: "history-user",
+      actorId: actorOf(),
       selection: history.undo,
     };
     await loseAcknowledgement(daemon.address, undo);
@@ -137,10 +140,20 @@ function nodeAt(
   };
 }
 
-async function createWorkspace(endpoint: string, targetWorkspaceId: string): Promise<void> {
+async function createActor(endpoint: string): Promise<string> {
   const client = createDesktopClient(endpoint, accessToken);
   try {
-    await client.createWorkspace(targetWorkspaceId, "Restart Idempotency");
+    const created = await client.createActor({ label: "Restart User", passphrase: vaultPassphrase });
+    return created.actorId;
+  } finally {
+    client.close();
+  }
+}
+
+async function createWorkspace(endpoint: string, targetWorkspaceId: string, actorId: string): Promise<void> {
+  const client = createDesktopClient(endpoint, accessToken);
+  try {
+    await client.createWorkspace(targetWorkspaceId, "Restart Idempotency", actorId);
   } finally {
     client.close();
   }
@@ -169,11 +182,19 @@ function mutateCommand(
     kind: "mutate",
     workspaceId,
     invocationId,
-    actorId: "restart-user",
+    actorId: actorOf(),
     intent,
     historyChannelId: channelId,
     mutations,
   };
+}
+
+let restartActorId: string | null = null;
+function actorOf(): string {
+  if (restartActorId === null) {
+    throw new Error("actor created later in the test; command built too early");
+  }
+  return restartActorId;
 }
 
 async function loseAcknowledgement(endpoint: string, command: unknown): Promise<void> {
@@ -199,7 +220,15 @@ async function expectRetryMatchesDurableOutcome(
 
 async function restart(processRoot: string, current: DaemonProcess): Promise<DaemonProcess> {
   await current.stop();
-  return startDaemonProcess(processRoot, accessToken);
+  const restarted = await startDaemonProcess(processRoot, accessToken);
+  // A restart locks the vault again; retried writes still need the Actor key.
+  const client = createDesktopClient(restarted.address, accessToken);
+  try {
+    await client.unlockVault(vaultPassphrase);
+  } finally {
+    client.close();
+  }
+  return restarted;
 }
 
 async function projectionSection(endpoint: string, section: string): Promise<Record<string, unknown>> {

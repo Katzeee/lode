@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { canonicalDigest } from "../../domain/fact/index.js";
 import { admitAuthorityRecords } from "../../domain/admission/index.js";
@@ -31,8 +31,17 @@ export type OpenedProposalWorkspace = Readonly<{
   close(): Promise<void>;
 }>;
 
-export async function openProposalWorkspace(workspaceId: string, dataRoot?: string): Promise<OpenedProposalWorkspace> {
-  const storage = await openDocuments(workspaceId, dataRoot);
+/**
+ * A workspace authority without a session: creation flows write the governed
+ * journal (establish, genesis, label) here first, so the hosted session later
+ * opens over a complete journal and never publishes an empty checkpoint.
+ */
+export async function openWorkspaceAuthority(
+  workspaceId: string,
+  dataRoot?: string,
+  options: Readonly<{ signFact?: (digest: string, actorId: string) => string; storageFile?: string }> = {},
+): Promise<Readonly<{ facts: FactAuthorityStore; close(): Promise<void> }>> {
+  const storage = await openDocuments(workspaceId, dataRoot, options.storageFile);
   const local = await loadOrCreateLocalReplica(storage.documents);
   const facts = await FactAuthorityStore.open({
     workspaceId,
@@ -40,6 +49,25 @@ export async function openProposalWorkspace(workspaceId: string, dataRoot?: stri
     loroPeerId: local.loroPeerId,
     documents: storage.documents,
     admitRecords: admitAuthorityRecords,
+    signFact: options.signFact,
+  });
+  return { facts, close: () => storage.close() };
+}
+
+export async function openProposalWorkspace(
+  workspaceId: string,
+  dataRoot?: string,
+  options: Readonly<{ signFact?: (digest: string, actorId: string) => string; storageFile?: string }> = {},
+): Promise<OpenedProposalWorkspace> {
+  const storage = await openDocuments(workspaceId, dataRoot, options.storageFile);
+  const local = await loadOrCreateLocalReplica(storage.documents);
+  const facts = await FactAuthorityStore.open({
+    workspaceId,
+    replicaId: local.replicaId,
+    loroPeerId: local.loroPeerId,
+    documents: storage.documents,
+    admitRecords: admitAuthorityRecords,
+    signFact: options.signFact,
   });
   const materializer = new BoundedProjectionMaterializer(storage.documents);
   const workspace = await ProposalWorkspace.open({
@@ -47,6 +75,7 @@ export async function openProposalWorkspace(workspaceId: string, dataRoot?: stri
     facts,
     versions: CURRENT_PROJECTION_VERSIONS,
     reviewCapabilityKey: local.reviewCapabilityKey,
+    seedGenesis: false,
     projection: {
       checkpoints: new ProjectionCheckpointRepository(storage.documents, workspaceId, local.reviewCapabilityKey),
       projections: materializer,
@@ -67,7 +96,13 @@ export async function openProposalWorkspace(workspaceId: string, dataRoot?: stri
 async function openDocuments(
   workspaceId: string,
   dataRoot?: string,
+  storageFile?: string,
 ): Promise<Readonly<{ documents: DocumentStore; close(): Promise<void> }>> {
+  if (storageFile !== undefined) {
+    await mkdir(dirname(storageFile), { recursive: true });
+    const store = await WorkspaceStore.open(storageFile);
+    return { documents: new WorkspaceDocStore(store), close: () => store.close() };
+  }
   if (!dataRoot) {
     return { documents: new InMemoryDocumentStore(), close: () => Promise.resolve() };
   }

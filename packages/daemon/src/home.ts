@@ -7,6 +7,8 @@ export type LodeHomePaths = {
   data: string;
   token: string;
   endpoint: string;
+  /** The remote replica-exchange boundary address shared with other Homes. */
+  syncEndpoint: string;
   lock: string;
   logs: string;
 };
@@ -35,6 +37,7 @@ export function homePaths(home: string): LodeHomePaths {
     data: join(home, "data"),
     token: join(home, "token"),
     endpoint: join(home, "endpoint"),
+    syncEndpoint: join(home, "sync-endpoint"),
     lock: join(home, "daemon.lock"),
     logs: join(home, "logs"),
   };

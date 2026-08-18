@@ -26,6 +26,12 @@ export type ProposalWorkspaceOptions = Readonly<{
   versions: ProjectionVersions;
   reviewCapabilityKey?: string;
   projection?: ProjectionLifecycleOptions;
+  /**
+   * Seed an untitled genesis transaction into an empty journal. Only for
+   * ungoverned engine-local contexts; production hosts own genesis through
+   * governed creation (attributed to the owner Actor) or staged adoption.
+   */
+  seedGenesis?: boolean;
 }>;
 
 export class ProposalWorkspace {
@@ -52,7 +58,9 @@ export class ProposalWorkspace {
     });
   }
   static async open(options: ProposalWorkspaceOptions): Promise<ProposalWorkspace> {
-    await ensureWorkspaceGenesis(options.workspaceId, options.facts);
+    if (options.seedGenesis !== false) {
+      await ensureWorkspaceGenesis(options.workspaceId, options.facts);
+    }
     const admission = options.facts.admission();
     const authorityFault = admission.kind === "fault" ? (admission.fault ?? "Authority admission fault") : null;
     const signals = new WorkspaceSignals(options.workspaceId, authorityFault);

@@ -127,7 +127,7 @@
         },
         {
           "workspace": "daemon",
-          "test": "tests/daemon-services.test.ts > generated daemon service adapters > carries a public View removal through the daemon as graph truth"
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > runs the admission and adoption product flow across two homes and converges"
         }
       ]
     },
@@ -459,7 +459,7 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "tests/engine.test.ts > Engine composition > production engine sync exchanges only Facts and publishes remote authority advances"
+          "test": "tests/engine.test.ts > Engine composition > restores one Actor on a second Home and adopts the workspace through the exchange"
         },
         {
           "workspace": "engine",
@@ -467,7 +467,7 @@
         },
         {
           "workspace": "daemon",
-          "test": "tests/daemon-services.test.ts > generated daemon service adapters > daemon sync RPC composes the production Fact SyncExchange across replicas"
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > keeps replica exchange working with the Actor Vault locked"
         },
         {
           "workspace": "cli",
@@ -544,6 +544,104 @@
         {
           "workspace": "engine",
           "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > merges concurrent authored materializations without losing either value or identity"
+        }
+      ]
+    },
+    {
+      "id": "identity.actor-attribution",
+      "contract": "Every Fact in a governed workspace carries an Ed25519 attribution signature over its content digest by the acting Actor; verification is a pure function of the Fact and faults closed on forgery.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > GOV-1 attribution is a pure Fact property: wrong signer faults, unsigned faults"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > non-member contributions fault deterministically regardless of arrival order"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > an ungoverned journal rejects attributed Facts as firmly as a governed one rejects bare Facts"
+        }
+      ]
+    },
+    {
+      "id": "identity.governance-replay",
+      "contract": "Actor membership, Peer admission, ownership, and transit rotation are governance Facts on the unified journal; replay is a deterministic fold whose invalid inputs fault or skip identically under any merge order.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > GOV-2 concurrent governance converges under different merge orders"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > a second establish faults the journal no matter which replica authored it"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > stale rotations and unauthorized governance have no effect, forged signatures fault"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > removing one Actor leaves admitted Peers serving the others (orthogonal axes)"
+        }
+      ]
+    },
+    {
+      "id": "identity.multi-home",
+      "contract": "A Home holds multiple Actors, an Actor restores on multiple Homes with distinct Peers and Replicas, and a second Home joins a workspace through admission and staged adoption rather than a forged genesis.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "tests/engine.test.ts > Engine composition > restores one Actor on a second Home and adopts the workspace through the exchange"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > runs the admission and adoption product flow across two homes and converges"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > refuses the same workspace id on a second home instead of forging genesis"
+        },
+        {
+          "workspace": "cli",
+          "test": "tests/integration/lode-product-acceptance.test.ts > Task and Project through the product CLI binary > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
+        }
+      ]
+    },
+    {
+      "id": "identity.revocation-and-vault",
+      "contract": "Revoking a Peer rotates the transit key past it while other Peers keep syncing, membership survives revocation of a Peer, and a locked Actor Vault stops new signed writes without stopping replica exchange.",
+      "tests": [
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > revoking a peer rotates transit past it while the actor stays a member"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > keeps a governed workspace's writes attributed and member-gated"
+        },
+        {
+          "workspace": "daemon",
+          "test": "tests/daemon-services.test.ts > generated daemon service adapters > keeps replica exchange working with the Actor Vault locked"
+        }
+      ]
+    },
+    {
+      "id": "identity.adoption-recovery",
+      "contract": "Adoption stages the remote journal invisibly; failure, interruption, or restart leaves either a complete workspace or no queryable trace.",
+      "tests": [
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace-sessions/adoption.test.ts > staged adoption crash recovery > an adoption interrupted before promotion leaves no trace after restart"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace-sessions/adoption.test.ts > staged adoption crash recovery > a failed adoption cleans its staging workspace immediately"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/runtime/workspace-sessions/adoption.test.ts > staged adoption crash recovery > a completed adoption is visible, boot-stable, and leaves no manifest"
         }
       ]
     }

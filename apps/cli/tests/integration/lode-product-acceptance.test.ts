@@ -1,12 +1,11 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createDesktopClient } from "@lode/desktop-client";
 import { startDaemonProcess } from "./daemon-process-test-helpers.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -69,8 +68,38 @@ async function setupProductHome(label: string): Promise<string> {
     `default_home = "main"\n\n[homes.main]\npath = ${tomlPath(home)}\n`,
     "utf8",
   );
+  await writeFile(join(root, "passphrase.txt"), "product-acceptance-passphrase\n", "utf8");
   productConfigDir = configDir;
+  productRoot = root;
   return root;
+}
+
+let productRoot = "";
+
+function passphraseFile(): string {
+  return join(productRoot, "passphrase.txt");
+}
+
+/** Creates the home's first Actor through the real CLI and leaves the vault
+ * unlocked, so governed creation and knowledge writes can proceed. */
+async function bootstrapProductActor(label: string, configDir: string = productConfigDir): Promise<string> {
+  const run = await lode(
+    ["--format", "json", "identity", "create", label, "--passphrase-file", passphraseFile()],
+    configDir,
+  );
+  expect(run.exitCode, run.stdout + run.stderr).toBe(0);
+  const actor = record(
+    record(record(run.envelope, "Create Actor envelope").data, "Create Actor data").actor,
+    "Created Actor",
+  );
+  return String(actor.actorId);
+}
+
+async function lodeIn(configDir: string, argv: readonly string[]): Promise<Record<string, unknown>> {
+  const run = await lode(["--format", "json", ...argv], configDir);
+  expect(run.exitCode, `${argv.join(" ")}\nstdout: ${run.stdout}\nstderr: ${run.stderr}`).toBe(0);
+  expect(run.envelope?.status, argv.join(" ")).toBe("ok");
+  return run.envelope as Record<string, unknown>;
 }
 
 function tomlPath(path: string): string {
@@ -144,7 +173,8 @@ describe("Task and Project through the product CLI binary", () => {
       expect(noWorkspace.status).toBe("error");
       expect((noWorkspace.error as { code: string }).code).toBe("configuration-missing");
       expect((noWorkspace.error as { candidates: unknown[] }).candidates).toEqual([]);
-      await product("Task and Project", ["workspace", "create", "Task and Project"]);
+      const ownerActorId = await bootstrapProductActor("Task Owner");
+      await product("Task and Project", ["--actor", ownerActorId, "workspace", "create", "Task and Project"]);
       await product("Task and Project", ["node", "create", "Projects"]);
 
       await product("Task and Project", ["--request-id", "s-task", "supertag", "create", "Task"]);
@@ -417,19 +447,41 @@ describe("Task and Project through the product CLI binary", () => {
       expect(items(afterRestart).map((item) => item.label)).toEqual(["First task"]);
       const statusAfterRestart = await product("Task and Project", ["sync", "status"]);
       expect((statusAfterRestart.data as { connected: boolean }).connected).toBe(false);
+      await product("Task and Project", ["identity", "unlock", "--passphrase-file", passphraseFile()]);
 
       const replicaRoot = await setupReplicaHome(root, "replica");
       const replica = await startDaemonProcess(replicaRoot, accessToken);
+      const replicaConfig = join(replicaRoot, "config");
       try {
-        await createSameWorkspaceOnReplica(replica.address);
-        await product("Task and Project", ["sync", "connect", replica.address]);
+        const workspaceId = await workspaceIdByLabel("Task and Project");
+        const joinerActorId = await bootstrapProductActor("Replica Owner", replicaConfig);
+        const exported = await lodeIn(replicaConfig, ["identity", "export"]);
+        const admission = record(record(exported, "Export envelope").data, "Export data").admission;
+        const admissionFile = join(replicaRoot, "admission.json");
+        await writeFile(admissionFile, `${JSON.stringify(admission)}\n`, "utf8");
+        await product("Task and Project", ["workspace", "admit-actor", "Task and Project", joinerActorId]);
+        await product("Task and Project", [
+          "workspace",
+          "admit-peer",
+          "Task and Project",
+          "--admission-file",
+          admissionFile,
+        ]);
+        const primaryExchange = (await readFile(join(root, "home", "sync-endpoint"), "utf8")).trim();
+        await lodeIn(replicaConfig, ["workspace", "adopt", primaryExchange, workspaceId]);
+        const replicaExchange = (await readFile(join(replicaRoot, "home", "sync-endpoint"), "utf8")).trim();
+        await product("Task and Project", ["sync", "connect", replicaExchange]);
         await product("Task and Project", ["sync", "run"]);
         const replicaResults = await lode(
           ["--format", "json", "--workspace", "Task and Project", "search", "results", "Open tasks"],
-          join(replicaRoot, "config"),
+          replicaConfig,
         );
         const envelope = record(JSON.parse(replicaResults.stdout) as unknown, "Replica search");
         expect(items(envelope).map((item) => item.label)).toEqual(["First task"]);
+        await lodeIn(replicaConfig, ["--workspace", "Task and Project", "sync", "connect", primaryExchange]);
+        await lodeIn(replicaConfig, ["--workspace", "Task and Project", "sync", "run"]);
+        const replicaSearch = await product("Task and Project", ["search", "results", "Open tasks"]);
+        expect(items(replicaSearch).map((item) => item.label)).toEqual(["First task"]);
       } finally {
         await replica.stop();
       }
@@ -443,7 +495,8 @@ describe("Anime Notes through the product CLI binary", () => {
   it("models, searches, presents, reviews, and syncs connected notes without raw JSON", async () => {
     await setupProductHome("anime");
     try {
-      await product("Anime Notes", ["workspace", "create", "Anime Notes"]);
+      const animeActorId = await bootstrapProductActor("Anime Owner");
+      await product("Anime Notes", ["--actor", animeActorId, "workspace", "create", "Anime Notes"]);
       await product("Anime Notes", ["--request-id", "n-lib", "node", "create", "Definition Library"]);
       await product("Anime Notes", ["--request-id", "n-notes", "node", "create", "Notes"]);
 
@@ -678,23 +731,15 @@ describe("product CLI process exit codes", () => {
   }, 60_000);
 });
 
-// ponytail: reads the workspace id from `workspace list` and creates the same id
-// on the replica through the host capability; a product-level join/accept flow
-// replaces this when replica admission is designed.
-async function createSameWorkspaceOnReplica(replicaEndpoint: string): Promise<void> {
-  const listed = await product("Task and Project", ["workspace", "list"]);
+/** Reads a workspace id by label through the product CLI. */
+async function workspaceIdByLabel(label: string): Promise<string> {
+  const listed = await product(label, ["workspace", "list"]);
   const entries = (listed.data as { items: readonly { ref: string; label: string }[] }).items;
-  const entry = entries.find((candidate) => candidate.label === "Task and Project");
+  const entry = entries.find((candidate) => candidate.label === label);
   if (!entry) {
-    throw new Error("Task and Project workspace missing before sync");
+    throw new Error(`${label} workspace missing`);
   }
-  const workspaceId = entry.ref.replace(/^workspace:/, "");
-  const client = createDesktopClient(replicaEndpoint, accessToken);
-  try {
-    await client.createWorkspace(workspaceId, "Task and Project");
-  } finally {
-    client.close();
-  }
+  return entry.ref.replace(/^workspace:/, "");
 }
 
 /** A second registered home whose daemon is spawned through the internal mode

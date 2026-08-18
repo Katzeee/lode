@@ -211,5 +211,8 @@ function engineErrorToCli(error: EngineError, domainExit: 3 | 4): CliError {
       return new CliError("unavailable", error.message, { exitCode: 4, details: { engineCode: error.code } });
     case "workspace-not-found":
       return new CliError("target-not-found", error.message, { exitCode: 4, details: { engineCode: error.code } });
+    case "actor-locked":
+    case "actor-not-member":
+      return new CliError("configuration-missing", error.message, { exitCode: 3, details: { engineCode: error.code } });
   }
 }

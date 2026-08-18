@@ -12,7 +12,6 @@ import type { DesktopSession } from "../session/index.js";
  * byte-identical.
  */
 
-export const CLI_ACTOR = "cli";
 export const CLI_HISTORY_CHANNEL = "cli";
 
 /** The explicitly resolved Workspace for a knowledge-model command. */
@@ -22,6 +21,18 @@ export function workspaceIdOf(context: Readonly<{ workspace: unknown }>): string
     throw new CliError("configuration-missing", "This command needs an explicit Workspace.");
   }
   return workspace.workspaceId;
+}
+
+/** The acting Actor for a knowledge-model write: --actor or the workspace's saved selection. */
+export function actorIdOf(context: Readonly<{ actor: unknown; workspace: unknown }>): string {
+  const actor = context.actor as string | null;
+  if (actor === null) {
+    throw new CliError(
+      "configuration-missing",
+      "No Actor selected for this Workspace. Pass --actor <actorId> or set one with `lode workspace use-actor <workspace> <actor>`.",
+    );
+  }
+  return actor;
 }
 
 export type WriteOutcomeData = Readonly<{
@@ -39,7 +50,7 @@ export async function executeWrite(
     kind: "mutate",
     workspaceId: workspaceIdOf(context),
     invocationId: invocationId(context.requestId),
-    actorId: CLI_ACTOR,
+    actorId: actorIdOf(context),
     intent: context.intent,
     historyChannelId: CLI_HISTORY_CHANNEL,
     mutations,

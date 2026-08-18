@@ -115,6 +115,34 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/engine/src/crypto/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../application/**",
+                "../domain/**",
+                "../persistence/**",
+                "../runtime/**",
+                "../sync/**",
+                "loro-crdt",
+                "@lode/protocol",
+                "@lode/sdk",
+                "@lode/desktop-client",
+                "@bufbuild/**",
+              ],
+              message: "The crypto leaf is a neutral substrate and cannot depend on engine concepts or layers.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["packages/engine/src/shape-validation/**/*.ts"],
     rules: {
       "no-restricted-imports": [

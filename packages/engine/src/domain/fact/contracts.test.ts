@@ -297,7 +297,7 @@ describe("production Fact contracts", () => {
         mutation: { kind: "node-create" as const, nodeId: "different" },
       },
     };
-    const altered = { ...alteredUnsigned, contentDigest: canonicalDigest(alteredUnsigned) };
+    const altered = { ...alteredUnsigned, contentDigest: canonicalDigest(alteredUnsigned), attribution: null };
     const conflicted = admitAuthorityRecordShapes("workspace", [duplicate, { recordKind: "fact", fact: altered }]);
     expect(conflicted.kind).toBe("fault");
     expect(conflicted.fault).toContain("FactId content conflict");

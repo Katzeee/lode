@@ -15,6 +15,8 @@ export type CommandContext = Readonly<{
   requestId: string;
   limit: number;
   cursor?: string;
+  /** The acting Actor: explicit --actor beats the workspace's saved selection. */
+  actor: string | null;
   persistence: WorkspacePersistence;
 }>;
 
@@ -74,4 +76,6 @@ export class ParsedArgs {
 export type WorkspacePersistence = Readonly<{
   setSyncEndpoint(workspaceId: string, endpoint: string): Promise<void>;
   readSyncEndpoint(workspaceId: string): Promise<string | null>;
+  setWorkspaceActor(workspaceId: string, actorId: string): Promise<void>;
+  readWorkspaceActor(workspaceId: string): Promise<string | null>;
 }>;

@@ -1,10 +1,16 @@
 import type { FactBody } from "./types.js";
+import { assertGovernanceAction } from "./governance-shape-validation.js";
 import { assertMaintenanceAction } from "./maintenance-shape-validation.js";
 import { assertKeys, assertObject, assertStringArray, requireString } from "../../shape-validation/index.js";
 
 export function assertFactBody(value: unknown, assertMutation: (mutation: unknown) => void): asserts value is FactBody {
   assertObject(value, "Fact body");
   requireString(value.actorId, "Fact actor identity");
+  if (value.kind === "governance") {
+    assertKeys(value, ["kind", "actorId", "action"], "Governance Fact");
+    assertGovernanceAction(value.action);
+    return;
+  }
   if (value.kind === "resolution") {
     assertKeys(
       value,

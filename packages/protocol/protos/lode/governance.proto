@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package lode;
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/wrappers.proto";
+
+// Signed workspace governance: Actor membership, Peer admission, transit
+// rotation, ownership transfer, and Workspace adoption. All RPCs run on the
+// daemon's local control plane; the acting Actor's attribution signature is
+// produced inside the Engine from the unlocked vault.
+service WorkspaceGovernanceService {
+  rpc Summary(GovernanceSummaryRequest) returns (GovernanceSummary);
+  rpc AdmitActor(AdmitActorRequest) returns (google.protobuf.Empty);
+  rpc RemoveActor(RemoveActorRequest) returns (google.protobuf.Empty);
+  rpc TransferOwner(TransferOwnerRequest) returns (google.protobuf.Empty);
+  rpc AdmitPeer(AdmitPeerRequest) returns (google.protobuf.Empty);
+  rpc RevokePeer(RevokePeerRequest) returns (google.protobuf.Empty);
+  rpc RotateTransit(RotateTransitRequest) returns (google.protobuf.Empty);
+}
+
+message GovernanceSummaryRequest {
+  string workspace_id = 1;
+}
+
+message GovernancePeerView {
+  string peer_id = 1;
+  string peer_kx_public_key = 2;
+  uint32 admitted_at_epoch = 3;
+  string admitted_by_actor_id = 4;
+  bool sync_admitted = 5;
+}
+
+message GovernanceSummary {
+  bool established = 1;
+  google.protobuf.StringValue owner_actor_id = 2;
+  repeated string member_actor_ids = 3;
+  uint32 epoch = 4;
+  repeated GovernancePeerView peers = 5;
+}
+
+message AdmitActorRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  string actor_id = 3;
+  google.protobuf.StringValue request_id = 4;
+}
+
+message RemoveActorRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  string actor_id = 3;
+  google.protobuf.StringValue request_id = 4;
+}
+
+message TransferOwnerRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  string next_owner_actor_id = 3;
+  google.protobuf.StringValue request_id = 4;
+}
+
+message AdmitPeerRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  string peer_id = 3;
+  string peer_kx_public_key = 4;
+  google.protobuf.StringValue request_id = 5;
+}
+
+message RevokePeerRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  string peer_id = 3;
+  google.protobuf.StringValue request_id = 4;
+}
+
+message RotateTransitRequest {
+  string workspace_id = 1;
+  string acting_actor_id = 2;
+  google.protobuf.StringValue request_id = 3;
+}

@@ -7,6 +7,7 @@ export type {
   ContributionId,
   EditIntent,
   Fact,
+  FactAttribution,
   FactBody,
   FactFrontier,
   FactSnapshot,
@@ -26,6 +27,7 @@ export type {
   ProjectionPerspective,
   WorkspaceId,
 } from "./types.js";
+export type { GovernanceAction, GovernanceBody, PeerId, TransitEnvelope } from "./governance-types.js";
 export type { AuthorityReceipt, ReceiptLineage } from "./authority-types.js";
 export type { FieldContentDeletionMutation } from "./field-content-types.js";
 export type { FieldDefinitionConfigMutation, FieldInitializationExpression } from "./field-definition-config-types.js";

@@ -74,6 +74,9 @@ function validateBody(body: FactBody, id: string): void {
   if (!body.actorId) {
     throw new Error(`Fact actor is empty: ${id}`);
   }
+  if (body.kind === "governance") {
+    return;
+  }
   if (body.kind === "resolution") {
     if (body.decision !== "accept" && body.decision !== "reject") {
       throw new Error(`Invalid Resolution decision: ${id}`);

@@ -33,7 +33,7 @@ export function scopedHistoryFacts(
         }
         continue;
       }
-      if (fact.body.kind === "maintenance") {
+      if (fact.body.kind === "maintenance" || fact.body.kind === "governance") {
         continue;
       }
       if (scope.factIds.has(fact.id) || mutationTouches(scope, fact.body.mutation)) {

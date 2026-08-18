@@ -8,6 +8,17 @@ import { createEngine } from "../src/engine.js";
 import type { TrashEvidenceResult } from "@lode/sdk";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+const vaultPassphrase = "workspace-host-passphrase";
+
+async function createWorkspaceAs(
+  engine: Awaited<ReturnType<typeof createEngine>>,
+  workspaceId: string,
+  label: string,
+): Promise<string> {
+  const actor = await engine.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
+  await engine.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
+  return actor.actorId;
+}
 
 const temporaryDirectories: string[] = [];
 
@@ -23,16 +34,18 @@ describe("Engine workspace host capabilities", () => {
     temporaryDirectories.push(dataRoot);
 
     const engine = await createEngine({ persistence: { dataRoot } });
-    await engine.workspaces.createWorkspace("personal", "Personal");
-    await engine.workspaces.createWorkspace("tasks", "Task and Project");
+    await createWorkspaceAs(engine, "personal", "Personal");
+    await createWorkspaceAs(engine, "tasks", "Task and Project");
 
     expect(await engine.workspaces.listWorkspaces()).toEqual([
       { workspaceId: "personal", label: "Personal", state: "active" },
       { workspaceId: "tasks", label: "Task and Project", state: "active" },
     ]);
 
-    await engine.workspaces.createWorkspace("personal", "Personal");
-    await expect(engine.workspaces.createWorkspace("personal", "Other")).rejects.toThrow(/different name/u);
+    await createWorkspaceAs(engine, "personal", "Personal");
+    await expect(
+      engine.workspaces.createWorkspace({ workspaceId: "personal", label: "Other", ownerActorId: "actor_x" }),
+    ).rejects.toThrow(/different name/u);
 
     await engine.close();
 
@@ -46,12 +59,12 @@ describe("Engine workspace host capabilities", () => {
 
   it("serves Trash Evidence for restore and clears it after restore", async () => {
     const engine = await createEngine();
-    await engine.workspaces.createWorkspace("workspace", "Workspace");
+    const tester = await createWorkspaceAs(engine, "workspace", "Workspace");
     await engine.application.execute({
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "setup",
-      actorId: "tester",
+      actorId: tester,
       intent: "direct",
       historyChannelId: "test",
       mutations: [
@@ -72,7 +85,7 @@ describe("Engine workspace host capabilities", () => {
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "trash-draft",
-      actorId: "tester",
+      actorId: tester,
       intent: "direct",
       historyChannelId: "test",
       mutations: [{ kind: "node-delete", nodeId: "draft" }],
@@ -92,7 +105,7 @@ describe("Engine workspace host capabilities", () => {
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "restore-draft",
-      actorId: "tester",
+      actorId: tester,
       intent: "direct",
       historyChannelId: "test",
       mutations: [
