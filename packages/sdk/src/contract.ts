@@ -34,6 +34,8 @@ import type {
   OutlineRow as ProtocolOutlineRow,
   DebugNodeQueryRequest as ProtocolDebugNodeQueryRequest,
   DebugNodeResult as ProtocolDebugNodeResult,
+  TrashEvidenceQueryRequest as ProtocolTrashEvidenceQueryRequest,
+  TrashEvidence as ProtocolTrashEvidence,
 } from "@lode/protocol/dto/engine";
 import type { EditMutation } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
@@ -45,6 +47,7 @@ import type {
   ProjectionPerspective,
   ViewOptionsSpec,
   ViewType,
+  SequenceAnchor,
 } from "./model.js";
 import type { MaterializedField, ProjectedNode, ProjectionPage, ProjectionPageSection } from "./projection.js";
 import type { ConflictQuery, ReviewQuery, ReviewSelection } from "./review.js";
@@ -150,6 +153,13 @@ export type OutlineResult = Omit<ProtocolDto<ProtocolOutlineResult>, "perspectiv
   Readonly<{ perspective: ProjectionPerspective; rows: readonly OutlineRow[] }>;
 export type DebugNodeQueryRequest = Omit<WithKind<ProtocolDebugNodeQueryRequest, "debug-node">, "perspective"> &
   Readonly<{ perspective: ProjectionPerspective }>;
+export type TrashEvidenceQueryRequest = Omit<
+  WithKind<ProtocolTrashEvidenceQueryRequest, "trash-evidence">,
+  "perspective"
+> &
+  Readonly<{ perspective: ProjectionPerspective }>;
+export type TrashEvidenceResult = Omit<ProtocolDto<ProtocolTrashEvidence>, "perspective" | "previousAnchor"> &
+  Readonly<{ perspective: ProjectionPerspective; previousAnchor: SequenceAnchor | null }>;
 export type DebugNodeResult = Omit<
   ProtocolDto<ProtocolDebugNodeResult>,
   "perspective" | "node" | "ownerNodeId" | "metanodeId" | "materializedFields" | "url" | "codeLanguage"
@@ -177,7 +187,8 @@ export type EngineQueryContract =
   | Readonly<{ query: SearchResultsQueryRequest; value: SearchResultsResult }>
   | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>
   | Readonly<{ query: OutlineQueryRequest; value: OutlineResult }>
-  | Readonly<{ query: DebugNodeQueryRequest; value: DebugNodeResult }>;
+  | Readonly<{ query: DebugNodeQueryRequest; value: DebugNodeResult }>
+  | Readonly<{ query: TrashEvidenceQueryRequest; value: TrashEvidenceResult }>;
 export type EngineQuery = EngineQueryContract["query"];
 export type EngineQueryKind = EngineQuery["kind"];
 export type EngineQueryForKind<Kind extends EngineQueryKind> = Extract<EngineQuery, Readonly<{ kind: Kind }>>;

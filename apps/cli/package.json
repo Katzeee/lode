@@ -16,12 +16,14 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "@lode/daemon": "file:../../packages/daemon",
     "@lode/desktop-client": "file:../../packages/desktop-client",
-    "@lode/sdk": "file:../../packages/sdk"
+    "@lode/engine": "file:../../packages/engine",
+    "@lode/logger": "file:../../packages/logger",
+    "@lode/sdk": "file:../../packages/sdk",
+    "smol-toml": "^1.8.0"
   },
   "devDependencies": {
-    "@lode/daemon": "file:../../packages/daemon",
-    "@lode/engine": "file:../../packages/engine",
     "@types/node": "^20.19.39",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

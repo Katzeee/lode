@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 export type LodeHomePaths = {
   data: string;
+  token: string;
   endpoint: string;
   lock: string;
   logs: string;
@@ -32,6 +33,7 @@ export function resolveLodeHome(argHome?: string): string {
 export function homePaths(home: string): LodeHomePaths {
   return {
     data: join(home, "data"),
+    token: join(home, "token"),
     endpoint: join(home, "endpoint"),
     lock: join(home, "daemon.lock"),
     logs: join(home, "logs"),

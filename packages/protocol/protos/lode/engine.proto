@@ -26,6 +26,7 @@ enum EngineErrorCode {
   ENGINE_ERROR_CODE_AUTHORITY_FAULT = 5;
   ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 6;
   ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED = 7;
+  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 8;
 }
 
 enum EngineEventKind {
@@ -221,6 +222,12 @@ message DebugNodeQueryRequest {
   string node_id = 3;
 }
 
+message TrashEvidenceQueryRequest {
+  string workspace_id = 1;
+  ProjectionPerspective perspective = 2;
+  string node_id = 3;
+}
+
 message EngineQuery {
   oneof query {
     ProjectionQuery projection = 1;
@@ -235,6 +242,7 @@ message EngineQuery {
     ViewRowsQueryRequest view_rows = 10;
     OutlineQueryRequest outline = 11;
     DebugNodeQueryRequest debug_node = 12;
+    TrashEvidenceQueryRequest trash_evidence = 13;
   }
 }
 
@@ -361,6 +369,19 @@ message DebugNodeResult {
   google.protobuf.StringValue code_language = 13;
 }
 
+message TrashEvidence {
+  string generation_id = 1;
+  map<string, uint64> frontier = 2;
+  ProjectionPerspective perspective = 3;
+  string node_id = 4;
+  bool available = 5;
+  string deletion_fact_id = 6;
+  string occurrence_id = 7;
+  string previous_owner_node_id = 8;
+  string previous_parent_node_id = 9;
+  SequenceAnchor previous_anchor = 10;
+}
+
 message AbsentInvocationOutcome {}
 
 message InvocationOutcome {
@@ -386,6 +407,7 @@ message QueryResult {
     ViewRowsResult view_rows = 11;
     OutlineResult outline = 12;
     DebugNodeResult debug_node = 13;
+    TrashEvidence trash_evidence = 14;
   }
 }
 
@@ -406,18 +428,35 @@ message WorkspaceRequest {
   string workspace_id = 1;
 }
 
-message CloseWorkspaceResult {
-  bool closed = 1;
-}
-
 message RecoverWorkspaceAuthorityResult {
   bool recovered = 1;
 }
 
+enum WorkspaceRunState {
+  WORKSPACE_RUN_STATE_UNSPECIFIED = 0;
+  WORKSPACE_RUN_STATE_ACTIVE = 1;
+  WORKSPACE_RUN_STATE_AUTHORITY_FAULT = 2;
+}
+
+message WorkspaceSummary {
+  string workspace_id = 1;
+  string label = 2;
+  WorkspaceRunState state = 3;
+}
+
+message ListWorkspacesResult {
+  repeated WorkspaceSummary workspaces = 1;
+}
+
+message CreateWorkspaceRequest {
+  string workspace_id = 1;
+  string name = 2;
+}
+
 service EngineWorkspaceService {
-  rpc OpenWorkspace(WorkspaceRequest) returns (google.protobuf.Empty);
-  rpc CloseWorkspace(WorkspaceRequest) returns (CloseWorkspaceResult);
   rpc RecoverWorkspaceAuthority(WorkspaceRequest) returns (RecoverWorkspaceAuthorityResult);
+  rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResult);
+  rpc CreateWorkspace(CreateWorkspaceRequest) returns (google.protobuf.Empty);
 }
 
 service EngineLifecycleService {

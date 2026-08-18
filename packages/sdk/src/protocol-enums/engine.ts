@@ -4,6 +4,7 @@ import {
   EngineEventKind as ProtocolEngineEventKind,
   BacklinkSourceKind as ProtocolBacklinkSourceKind,
   ViewRowReference_SourceKind as ProtocolViewRowSourceKind,
+  WorkspaceRunState as ProtocolWorkspaceRunState,
 } from "@lode/protocol/dto/engine";
 import { defineProtocolEnum, type DomainEnum } from "./enum-codec.js";
 
@@ -28,11 +29,23 @@ export const engineErrorCode = defineProtocolEnum<ProtocolEngineErrorCode>()(
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_AUTHORITY_FAULT]: "authority-fault",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE]: "history-unavailable",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED]: "maintenance-blocked",
+    [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND]: "workspace-not-found",
     [ProtocolEngineErrorCode.UNRECOGNIZED]: null,
   },
   "Engine error code",
 );
 export type EngineErrorCode = DomainEnum<typeof engineErrorCode>;
+
+export const workspaceRunState = defineProtocolEnum<ProtocolWorkspaceRunState>()(
+  {
+    [ProtocolWorkspaceRunState.WORKSPACE_RUN_STATE_UNSPECIFIED]: null,
+    [ProtocolWorkspaceRunState.WORKSPACE_RUN_STATE_ACTIVE]: "active",
+    [ProtocolWorkspaceRunState.WORKSPACE_RUN_STATE_AUTHORITY_FAULT]: "authority-fault",
+    [ProtocolWorkspaceRunState.UNRECOGNIZED]: null,
+  },
+  "Workspace run state",
+);
+export type WorkspaceRunStateEnum = DomainEnum<typeof workspaceRunState>;
 
 export const engineEventKind = defineProtocolEnum<ProtocolEngineEventKind>()(
   {

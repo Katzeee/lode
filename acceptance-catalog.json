@@ -471,11 +471,11 @@
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-anime-notes-domain.test.ts > Anime Notes through task-oriented CLI commands > models, searches, presents, reviews, restarts, and syncs connected notes without raw JSON"
+          "test": "tests/integration/lode-product-acceptance.test.ts > Anime Notes through the product CLI binary > models, searches, presents, reviews, and syncs connected notes without raw JSON"
         },
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-task-project.test.ts > Task and Project through task-oriented CLI commands > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
+          "test": "tests/integration/lode-product-acceptance.test.ts > Task and Project through the product CLI binary > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
         },
         {
           "workspace": "cli",
@@ -489,7 +489,7 @@
       "tests": [
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-anime-notes-domain.test.ts > Anime Notes through task-oriented CLI commands > models, searches, presents, reviews, restarts, and syncs connected notes without raw JSON"
+          "test": "tests/integration/lode-product-acceptance.test.ts > Anime Notes through the product CLI binary > models, searches, presents, reviews, and syncs connected notes without raw JSON"
         }
       ]
     },
@@ -499,7 +499,7 @@
       "tests": [
         {
           "workspace": "cli",
-          "test": "tests/integration/lode-task-project.test.ts > Task and Project through task-oriented CLI commands > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
+          "test": "tests/integration/lode-product-acceptance.test.ts > Task and Project through the product CLI binary > builds, searches, presents, reviews, restores, restarts, and syncs the daily modeling loop"
         }
       ]
     },

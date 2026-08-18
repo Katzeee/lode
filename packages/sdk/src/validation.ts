@@ -129,6 +129,10 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     exact(query, ["kind", "workspaceId", "perspective", "nodeId"]);
     enumString(query.perspective, projectionPerspective.values, "Debug Node perspective");
     nonempty(query.nodeId, "Debug Node identity");
+  } else if (kind === "trash-evidence") {
+    exact(query, ["kind", "workspaceId", "perspective", "nodeId"]);
+    enumString(query.perspective, projectionPerspective.values, "Trash Evidence perspective");
+    nonempty(query.nodeId, "Trash Evidence Node identity");
   } else if (kind === "review" || kind === "conflicts") {
     exact(query, pagination);
     paginationValues(query, 100, kind === "review" ? "Review" : "Conflict");

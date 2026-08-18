@@ -5,20 +5,25 @@ import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import { Code, ConnectError, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import {
-  CloseWorkspaceResultSchema,
   DaemonService,
+  DaemonStatusSchema,
   EngineCommandSchema,
   EngineEventSchema,
   EngineQuerySchema,
   EngineService,
   EngineWorkspaceService,
+  ListWorkspacesResultSchema,
   QueryResultSchema,
   RecoverWorkspaceAuthorityResultSchema,
   ReplicaSyncService,
+  WorkspaceRunState,
+  WorkspaceSummarySchema,
+  WorkspaceSyncResultSchema,
   WriteResultSchema,
   WorkspaceSyncProfileEntrySchema,
   WorkspaceSyncProfileSchema,
   WorkspaceSyncPayloadSchema,
+  type CreateWorkspaceRequest,
   type EngineCommand,
   type EngineEvent as ProtocolEngineEvent,
   type EngineQuery,
@@ -28,7 +33,7 @@ import {
   type WorkspaceSyncSendRequest,
   type WorkspaceRequest,
 } from "@lode/protocol/proto";
-import type { Engine } from "@lode/sdk/host";
+import { WorkspaceNotFoundError, type Engine } from "@lode/sdk/host";
 import {
   decodeEngineCommand,
   decodeEngineQuery,
@@ -41,9 +46,17 @@ import {
 import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
 import { createPeerSyncTransport } from "./peer-sync-transport.js";
 
+/** Home identity the daemon reports through `DaemonService.Status`. */
+export type DaemonStatusIdentity = Readonly<{
+  homeName: string;
+  daemonVersion: string;
+  homePath: string;
+}>;
+
 export function createLodeServer(
   engine: Engine,
   accessToken: string,
+  status: DaemonStatusIdentity,
   onShutdown?: () => void,
 ): Readonly<{ server: http2.Http2Server; closeConnections(): void }> {
   if (accessToken.length === 0) {
@@ -57,12 +70,23 @@ export function createLodeServer(
         syncWorkspace: unary(accessToken, async (request: WorkspaceSyncRequest) => {
           const peer = createPeerSyncTransport(request.remoteEndpoint, request.workspaceId, accessToken);
           try {
-            await engine.replicas.synchronize(request.workspaceId, peer.peer);
+            const exchanged = await engine.replicas.synchronize(request.workspaceId, peer.peer);
+            return create(WorkspaceSyncResultSchema, exchanged);
           } finally {
             peer.close();
           }
-          return create(EmptySchema);
         }),
+        status: unary(accessToken, async () =>
+          create(DaemonStatusSchema, {
+            homeName: status.homeName,
+            daemonVersion: status.daemonVersion,
+            homePath: status.homePath,
+            // Serving implies every cataloged session already reached active or
+            // a diagnosable authority-fault: engine creation awaits startAll.
+            ready: true,
+            workspaces: (await engine.workspaces.listWorkspaces()).map(toProtocolSummary),
+          }),
+        ),
         shutdown: unary(accessToken, () => {
           if (onShutdown) {
             setImmediate(onShutdown);
@@ -71,20 +95,20 @@ export function createLodeServer(
         }),
       });
       router.service(EngineWorkspaceService, {
-        openWorkspace: unary(accessToken, async (request: WorkspaceRequest) => {
-          await engine.workspaces.open(request.workspaceId);
-          return create(EmptySchema);
-        }),
-        closeWorkspace: unary(accessToken, async (request: WorkspaceRequest) =>
-          create(CloseWorkspaceResultSchema, {
-            closed: await engine.workspaces.close(request.workspaceId),
-          }),
-        ),
         recoverWorkspaceAuthority: unary(accessToken, async (request: WorkspaceRequest) =>
           create(RecoverWorkspaceAuthorityResultSchema, {
             recovered: await engine.workspaces.recoverAuthority(request.workspaceId),
           }),
         ),
+        listWorkspaces: unary(accessToken, async () =>
+          create(ListWorkspacesResultSchema, {
+            workspaces: (await engine.workspaces.listWorkspaces()).map(toProtocolSummary),
+          }),
+        ),
+        createWorkspace: unary(accessToken, async (request: CreateWorkspaceRequest) => {
+          await engine.workspaces.createWorkspace(request.workspaceId, request.name);
+          return create(EmptySchema);
+        }),
       });
       router.service(EngineService, {
         execute: unary(accessToken, async (request: EngineCommand) => {
@@ -120,7 +144,7 @@ export function createLodeServer(
     },
     contextValues: (request) => {
       const session = (request as http2.Http2ServerRequest).stream.session;
-      if (session) {
+      if (session && !sessions.has(session)) {
         sessions.add(session);
         session.once("close", () => sessions.delete(session));
       }
@@ -137,10 +161,22 @@ export function createLodeServer(
   };
 }
 
+function toProtocolSummary(summary: { workspaceId: string; label: string; state: "active" | "authority-fault" }) {
+  return create(WorkspaceSummarySchema, {
+    workspaceId: summary.workspaceId,
+    label: summary.label,
+    state: summary.state === "authority-fault" ? WorkspaceRunState.AUTHORITY_FAULT : WorkspaceRunState.ACTIVE,
+  });
+}
+
 function toConnectError(error: unknown): ConnectError {
-  return error instanceof ConnectError
-    ? error
-    : new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
+  if (error instanceof ConnectError) {
+    return error;
+  }
+  if (error instanceof WorkspaceNotFoundError) {
+    return new ConnectError(error.message, Code.NotFound);
+  }
+  return new ConnectError(error instanceof Error ? error.message : String(error), Code.Internal);
 }
 
 function unary<I, O>(accessToken: string, handler: (request: I) => Promise<O> | O) {

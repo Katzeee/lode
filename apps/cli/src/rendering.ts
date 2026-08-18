@@ -1,0 +1,118 @@
+import { CliError, errorOutcome, type CliOutcome, type CommandResult } from "./outcome/index.js";
+import { renderHuman, renderJson, type Io } from "./output/index.js";
+
+/**
+ * Composition-owned render dispatch: finished outcomes and failures to
+ * exit-code + renderer calls. The exit-code mapping is CLI policy, so it lives
+ * with the composition, not inside the pure renderers.
+ */
+
+export function classify(error: unknown): CliError {
+  if (error instanceof CliError) {
+    return error;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  const rawCode = (error as { code?: unknown }).code;
+  const code = typeof rawCode === "string" ? rawCode : "";
+  if (code === "unauthenticated" || /^\[unauthenticated\]/u.test(message)) {
+    return new CliError("authorization", "The daemon rejected the access token.");
+  }
+  if (
+    ["unavailable", "unknown", "canceled", "deadline_exceeded", "internal"].includes(code) ||
+    /^\[(?:unavailable|canceled|deadline_exceeded|unavailable)\]/u.test(message)
+  ) {
+    return new CliError("transport", message);
+  }
+  return new CliError("internal", message);
+}
+
+export function renderResult(
+  command: string,
+  workspace: Readonly<{ workspaceId: string; label: string }> | null,
+  result: CommandResult,
+  format: "human" | "json",
+  io: Io,
+): number {
+  const outcome: CliOutcome = {
+    command,
+    workspace: workspace === null ? null : { ref: `workspace:${workspace.workspaceId}`, label: workspace.label },
+    status: result.status,
+    data: result.data,
+    page: result.page ?? null,
+    view: result.view ?? null,
+    error: result.error ?? null,
+    warnings: result.warnings ?? [],
+  };
+  return dispatchRender(outcome, format, io);
+}
+
+export function renderFailure(
+  error: CliError,
+  options: Readonly<{
+    command: string;
+    workspace: Readonly<{ ref: string; label: string }> | null;
+    io: Io;
+    format?: "human" | "json";
+  }>,
+): number {
+  const outcome: CliOutcome = {
+    command: options.command,
+    workspace: options.workspace,
+    ...errorOutcome(error),
+    view: null,
+  };
+  return dispatchRender(outcome, options.format ?? "human", options.io);
+}
+
+function dispatchRender(outcome: CliOutcome, format: "human" | "json", io: Io): number {
+  const exitCode = exitCodeFor(outcome);
+  const result = { outcome, exitCode };
+  if (format === "json") {
+    renderJson(result, io);
+  } else {
+    renderHuman(result, io);
+  }
+  return exitCode;
+}
+
+function exitCodeFor(outcome: CliOutcome): number {
+  switch (outcome.status) {
+    case "ok":
+    case "committed-pending":
+      return 0;
+    case "outcome-unknown":
+      return 5;
+    case "error":
+      if (outcome.error === null) {
+        return 1;
+      }
+      switch (outcome.error.code) {
+        case "usage":
+        case "configuration-missing":
+        case "target-not-found":
+        case "ambiguous-target":
+        case "unsupported":
+          return 2;
+        case "invalid-value":
+          // A domain rejection keeps the invalid-value code but exits 3.
+          return outcome.error.details.engineCode === undefined ? 2 : 3;
+        case "conflict":
+        case "stale-selection":
+        case "invocation-conflict":
+          return 3;
+        case "unavailable":
+        case "authorization":
+        case "transport":
+          return 4;
+        case "outcome-unknown":
+          return 5;
+        case "internal":
+          return 1;
+      }
+  }
+}
+
+export function argvIncludesFormat(argv: readonly string[]): "human" | "json" | undefined {
+  const index = argv.indexOf("--format");
+  return index >= 0 && argv[index + 1] === "json" ? "json" : index >= 0 ? "human" : undefined;
+}

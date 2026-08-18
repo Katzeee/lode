@@ -26,6 +26,22 @@ _Avoid_: Hosted Workspace, Workspace Host
 The serializable command, query, result, and event semantics shared by every Engine client. It is independent of whether a call crosses an in-process, native, or network boundary.
 _Avoid_: IPC contract, daemon API
 
+**Task-oriented CLI**:
+The human-facing client that accepts explicit knowledge-model targets and values, resolves them without exposing storage identities, and compiles the requested action into the Engine Application Contract. It does not define parallel Node, Supertag, Field, Search, View, History, Review, or Sync semantics.
+_Avoid_: Raw command CLI, domain JSON CLI, Engine shell
+
+**CLI Command Family**:
+A user-facing namespace that groups related CLI actions by the Tana-aligned or Lode-owned product concept they target. A family compensates for the terminal's lack of UI focus by making the target kind explicit; it is not an Engine mutation family or a persistent Command Node.
+_Avoid_: Schema command, context menu, mutation family
+
+**CLI Target**:
+The Node, Definition, relation use, saved collection, View, Review item, or conflict explicitly selected for one Task-oriented CLI action. The Current Workspace may be implicit, but the CLI never infers a mutable Current Node from a previous invocation.
+_Avoid_: Focused Node, cursor context, last-used object
+
+**Current Workspace**:
+The Workspace explicitly selected as the durable default boundary for Task-oriented CLI actions. It is the CLI's only implicit knowledge-model context and never implies a Current Node, Search, View, Origin/Review perspective, or multi-node selection.
+_Avoid_: CLI context, Current Node, active View
+
 **Replica**:
 One independently evolving copy of a Workspace's Fact authority, identified separately so it can advance while disconnected and later exchange Facts with another Replica. A Replica is not a Projection cache or a client connection.
 _Avoid_: Peer connection, synchronized view
@@ -126,7 +142,7 @@ A Node of type Search whose Configuration Graph owns one Search Expression. Sear
 _Avoid_: Saved result list, query blob, Supertag Instances Query
 
 **Search Expression**:
-An identity-bearing relation Node owned beneath a Search Node's Metanode whose ordered endpoints define the persistent query. The current contract supports only one Supertag-instance expression with a non-owning Search Expression definition endpoint followed by a non-owning Supertag Definition endpoint; Field predicates, sibling conjunction, boolean nesting, reordering, and clearing remain absent until paired evidence defines their graph and lifecycle.
+An identity-bearing recursive expression tree owned beneath a Search Node's Metanode. Ordered `and`/`or` operands, negation, Supertag, text, Field presence and typed value, Date comparison, scope, and reference predicates define the persistent query; updates preserve reusable expression identities, while evaluation produces derived Search Result References.
 _Avoid_: Search Clause, Query JSON, filter callback, anonymous predicate
 
 **Search Result Reference**:

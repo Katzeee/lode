@@ -4,6 +4,7 @@ import {
   engineErrorCode,
   engineEventKind,
   viewRowSourceKind,
+  workspaceRunState,
 } from "./protocol-enums/engine.js";
 import { contributionMutationKind } from "./protocol-enums/fact.js";
 import { hardDeleteBlocker } from "./protocol-enums/maintenance.js";
@@ -63,4 +64,5 @@ export const protocolEnumCodecs = new Map<string, AnyEnumCodec>([
   ["lode.ViewSortDirection", viewSortDirection],
   ["lode.SearchDateComparisonOperator", searchDateComparisonOperator],
   ["lode.ViewRowReference.SourceKind", viewRowSourceKind],
+  ["lode.WorkspaceRunState", workspaceRunState],
 ]);

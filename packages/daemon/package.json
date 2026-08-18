@@ -32,11 +32,12 @@
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-node": "^2.1.2",
     "@lode/protocol": "file:../protocol",
-    "@lode/sdk": "file:../sdk"
+    "@lode/sdk": "file:../sdk",
+    "@lode/engine": "file:../engine",
+    "@lode/logger": "file:../logger"
   },
   "devDependencies": {
     "@lode/desktop-client": "file:../desktop-client",
-    "@lode/engine": "file:../engine",
     "@types/node": "^20.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"

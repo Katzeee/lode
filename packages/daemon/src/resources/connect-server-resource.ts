@@ -1,23 +1,31 @@
 import { chmod } from "node:fs/promises";
 import type { Engine } from "@lode/sdk/host";
 import { canonicalAddress, type ParsedEndpoint, listenTarget } from "../endpoint.js";
-import { createLodeServer } from "../connect-server.js";
+import { createLodeServer, type DaemonStatusIdentity } from "../connect-server.js";
 
 /** Hosts the daemon's generated services without joining their lifecycle to the Engine internals. */
 export class ConnectServerResource {
   private readonly engine: Engine;
   private readonly endpoint: ParsedEndpoint;
   private readonly accessToken: string;
+  private readonly status: DaemonStatusIdentity;
   private readonly onShutdown?: () => void;
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
   private closePromise?: Promise<void>;
 
-  constructor(engine: Engine, endpoint: ParsedEndpoint, accessToken: string, onShutdown?: () => void) {
+  constructor(
+    engine: Engine,
+    endpoint: ParsedEndpoint,
+    accessToken: string,
+    status: DaemonStatusIdentity,
+    onShutdown?: () => void,
+  ) {
     this.engine = engine;
     this.endpoint = endpoint;
     this.accessToken = accessToken;
+    this.status = status;
     this.onShutdown = onShutdown;
   }
 
@@ -27,7 +35,7 @@ export class ConnectServerResource {
   }
 
   async start(): Promise<void> {
-    const { server, closeConnections } = createLodeServer(this.engine, this.accessToken, this.onShutdown);
+    const { server, closeConnections } = createLodeServer(this.engine, this.accessToken, this.status, this.onShutdown);
     this.server = server;
     this.closeConnections = closeConnections;
     await new Promise<void>((resolve) => {
@@ -54,9 +62,13 @@ export class ConnectServerResource {
     });
   }
 
+  /** Stops accepting new connections, lets accepted requests drain, then forces
+   * long-lived event streams down. ponytail: fixed 3s drain window; make it
+   * configurable if slow clients ever sit inside it. */
   async close(): Promise<void> {
-    this.closeConnections();
     this.quiesce();
+    await Promise.race([this.closePromise, new Promise((resolve) => setTimeout(resolve, 3_000))]);
+    this.closeConnections();
     await this.closePromise;
   }
 }

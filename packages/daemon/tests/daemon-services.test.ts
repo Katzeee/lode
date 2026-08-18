@@ -14,7 +14,12 @@ const temporaryDirectories: string[] = [];
 
 async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: string; accessToken: string }>) {
   const engine = await createEngine({ persistence: { dataRoot: options.dataRoot } });
-  return startDaemon({ engine, listen: options.listen, accessToken: options.accessToken });
+  return startDaemon({
+    engine,
+    listen: options.listen,
+    accessToken: options.accessToken,
+    status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
+  });
 }
 
 afterEach(async () => {
@@ -35,22 +40,27 @@ describe("generated daemon service adapters", () => {
     const client = createDesktopClient(daemon.address, accessToken);
     const unauthenticated = createDesktopClient(daemon.address, "wrong-token");
     try {
-      await expect(unauthenticated.openWorkspace("workspace")).rejects.toMatchObject({
+      await expect(unauthenticated.listWorkspaces()).rejects.toMatchObject({
+        code: Code.Unauthenticated,
+      });
+      await expect(unauthenticated.createWorkspace("workspace", "Workspace")).rejects.toMatchObject({
         code: Code.Unauthenticated,
       });
       expect(Object.keys(client).sort()).toEqual([
         "close",
-        "closeWorkspace",
+        "createWorkspace",
         "execute",
-        "openWorkspace",
+        "listWorkspaces",
         "query",
         "recoverWorkspaceAuthority",
+        "shutdown",
+        "status",
         "subscribe",
         "syncWorkspace",
       ]);
       expect(client).not.toHaveProperty("request");
       expect(client).not.toHaveProperty("rpc");
-      await client.openWorkspace("workspace");
+      await client.createWorkspace("workspace", "Workspace");
       const command = {
         kind: "mutate",
         workspaceId: "workspace",
@@ -145,9 +155,14 @@ describe("generated daemon service adapters", () => {
           supertagApplications: { node: [{ definitionOccurrenceId: "node-tag-definition-occurrence" }] },
         },
       });
-      expect(await client.closeWorkspace("workspace")).toBe(true);
-      expect(await client.closeWorkspace("workspace")).toBe(false);
-      expect(await client.recoverWorkspaceAuthority("workspace")).toBe(false);
+      expect(await client.recoverWorkspaceAuthority("workspace")).toBe(true);
+      expect(
+        await client.query({
+          kind: "projection",
+          workspaceId: "unknown-workspace",
+          perspective: "origin",
+        }),
+      ).toMatchObject({ status: "rejected", error: { code: "workspace-not-found" } });
     } finally {
       unauthenticated.close();
       client.close();
@@ -165,7 +180,7 @@ describe("generated daemon service adapters", () => {
     });
     const client = createDesktopClient(daemon.address, accessToken);
     try {
-      await client.openWorkspace("workspace");
+      await client.createWorkspace("workspace", "Workspace");
       const creation = await client.execute({
         kind: "mutate",
         workspaceId: "workspace",
@@ -287,7 +302,10 @@ describe("generated daemon service adapters", () => {
     const left = createDesktopClient(leftDaemon.address, accessToken);
     const right = createDesktopClient(rightDaemon.address, accessToken);
     try {
-      await Promise.all([left.openWorkspace("workspace"), right.openWorkspace("workspace")]);
+      await left.createWorkspace("workspace", "Workspace");
+      await right.createWorkspace("workspace", "Workspace");
+      const initialExchange = await left.syncWorkspace("workspace", rightDaemon.address);
+      expect(initialExchange.pushed).toBeGreaterThan(0);
       expect(
         (
           await left.execute({
@@ -302,7 +320,8 @@ describe("generated daemon service adapters", () => {
         ).status,
       ).toBe("published");
 
-      await left.syncWorkspace("workspace", rightDaemon.address);
+      const exchanged = await left.syncWorkspace("workspace", rightDaemon.address);
+      expect(exchanged.pushed).toBeGreaterThan(0);
 
       expect(
         await right.query({
@@ -318,6 +337,41 @@ describe("generated daemon service adapters", () => {
       left.close();
       right.close();
       await Promise.all([leftDaemon.stop(), rightDaemon.stop()]);
+    }
+  });
+
+  it("lists and creates Workspaces through the authenticated host capability", async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), "lode-ipc-workspaces-"));
+    temporaryDirectories.push(dataRoot);
+    const daemon = await startTestDaemon({
+      listen: "tcp://127.0.0.1:0",
+      dataRoot,
+      accessToken,
+    });
+    const client = createDesktopClient(daemon.address, accessToken);
+    try {
+      expect(await client.listWorkspaces()).toEqual([]);
+      await client.createWorkspace("personal", "Personal");
+      expect(await client.listWorkspaces()).toEqual([{ workspaceId: "personal", label: "Personal", state: "active" }]);
+      await expect(client.createWorkspace("personal", "Other")).rejects.toThrow("already exists");
+      await client.createWorkspace("personal", "Personal");
+      await expect(
+        client.execute({
+          kind: "mutate",
+          workspaceId: "uncataloged",
+          invocationId: "ipc-unknown",
+          actorId: "actor",
+          intent: "direct",
+          historyChannelId: "desktop",
+          mutations: [nodeAt("node", "uncataloged", "occurrence")],
+        }),
+      ).resolves.toMatchObject({ status: "rejected", error: { code: "workspace-not-found" } });
+      await expect(client.syncWorkspace("uncataloged", daemon.address)).rejects.toMatchObject({
+        code: Code.NotFound,
+      });
+    } finally {
+      client.close();
+      await daemon.stop();
     }
   });
 });

@@ -1,11 +1,13 @@
 import type { Engine } from "@lode/sdk/host";
 import { parseEndpoint } from "./endpoint.js";
 import { ConnectServerResource } from "./resources/connect-server-resource.js";
+import type { DaemonStatusIdentity } from "./connect-server.js";
 
 export type DaemonOptions = Readonly<{
   engine: Engine;
   listen: string;
   accessToken: string;
+  status: DaemonStatusIdentity;
   onShutdown?: () => void;
 }>;
 
@@ -19,6 +21,7 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
     options.engine,
     parseEndpoint(options.listen),
     options.accessToken,
+    options.status,
     options.onShutdown,
   );
   try {

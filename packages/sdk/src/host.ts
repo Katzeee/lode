@@ -14,10 +14,26 @@ export type ReplicaPeer = Readonly<{
   send(documentId: string, bytes: Uint8Array): Promise<void>;
 }>;
 
+export type WorkspaceRunState = "active" | "authority-fault";
+
+/** Raised when an operation targets a workspace the catalog does not contain. */
+export class WorkspaceNotFoundError extends Error {
+  constructor(workspaceId: string) {
+    super(`Workspace does not exist: ${workspaceId}`);
+    this.name = "WorkspaceNotFoundError";
+  }
+}
+
+export type WorkspaceSummary = Readonly<{
+  workspaceId: string;
+  label: string;
+  state: WorkspaceRunState;
+}>;
+
 export type EngineWorkspaces = Readonly<{
-  open(workspaceId: string): Promise<void>;
-  close(workspaceId: string): Promise<boolean>;
   recoverAuthority(workspaceId: string): Promise<boolean>;
+  listWorkspaces(): Promise<readonly WorkspaceSummary[]>;
+  createWorkspace(workspaceId: string, name: string): Promise<void>;
 }>;
 
 export type EngineReplicaExchange = Readonly<{
@@ -42,9 +58,9 @@ type ApplicationMethodMap = Readonly<{
   listenEvents: "subscribe";
 }>;
 type WorkspaceMethodMap = Readonly<{
-  openWorkspace: "open";
-  closeWorkspace: "close";
   recoverWorkspaceAuthority: "recoverAuthority";
+  listWorkspaces: "listWorkspaces";
+  createWorkspace: "createWorkspace";
 }>;
 type SameMembers<Left, Right> = [Left] extends [Right] ? ([Right] extends [Left] ? true : false) : false;
 type AssertTrue<Value extends true> = Value;

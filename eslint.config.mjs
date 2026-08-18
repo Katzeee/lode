@@ -508,8 +508,105 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/daemon/src/**/*.ts"],
+    // CLI MVP one-way module architecture (see the CLI README's ownership table).
+    files: ["apps/cli/src/**/*.ts"],
+    ignores: [
+      "**/*.test.ts",
+      "apps/cli/src/domain-cli.ts",
+      "apps/cli/src/domain-command-support.ts",
+      "apps/cli/src/domain-data-mutations.ts",
+      "apps/cli/src/domain-structure-mutations.ts",
+      "apps/cli/src/cli.ts",
+      "apps/cli/src/composition.ts",
+      "apps/cli/src/session/index.ts",
+      "apps/cli/src/diagnostics/index.ts",
+      "apps/cli/src/manage/**/*.ts",
+      "apps/cli/src/daemon-launch.ts",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/desktop-client", "@lode/desktop-client/**"],
+              message: "Only the composition root and the desktop session adapter own the transport.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["apps/cli/src/families/**/*.ts"],
     ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "@lode/desktop-client",
+                "@lode/desktop-client/**",
+                "../output/index.js",
+                "../../output/index.js",
+                "node:process",
+                "node:fs",
+                "node:fs/promises",
+                "node:os",
+                "node:child_process",
+              ],
+              message:
+                "Product families compose the SDK contract through shared modules; they own no transport, rendering, or process access.",
+            },
+            {
+              regex: "^\\.\\./(?:\\.\\./)?families/[a-z-]+\\.js$",
+              message:
+                "Command families never import each other; cross-family actions belong to the user command path's family.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["apps/cli/src/{output,target,value,invocation,catalog}/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/desktop-client", "@lode/desktop-client/**", "../families/**", "../../families/**", "../output/index.js", "../../output/index.js", "node:process"],
+              message: "Target/value/invocation/catalog/output modules stay below families and never render or dial.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["apps/cli/src/output/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/sdk", "@lode/sdk/**", "@lode/desktop-client", "@lode/desktop-client/**", "../families/**", "../session/index.js", "node:process"],
+              message: "Renderers are pure functions over finished outcomes; they never query, dial, or know families.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["packages/daemon/src/**/*.ts"],
+    ignores: ["**/*.test.ts", "packages/daemon/src/run-daemon.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -518,7 +615,7 @@ export default tseslint.config(
             {
               group: ["@lode/engine", "@lode/engine/**"],
               message:
-                "The daemon depends on the host-neutral Engine contract; its composition root selects an implementation.",
+                "Only the daemon process module (run-daemon) composes a concrete Engine; everything else depends on the host-neutral contract.",
             },
             {
               group: ["@lode/desktop-client", "@lode/desktop-client/**"],

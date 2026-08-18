@@ -68,6 +68,9 @@ export class ProposalWorkspace {
   get workspaceId(): string {
     return this.options.workspaceId;
   }
+  get authorityFaulted(): boolean {
+    return this.signals.authorityFaulted;
+  }
   async execute(command: EngineCommand): Promise<WriteResult> {
     let accepted: AcceptedEngineCommand;
     try {

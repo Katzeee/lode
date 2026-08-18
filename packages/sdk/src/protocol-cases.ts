@@ -53,6 +53,7 @@ const QUERY_KIND_BY_CASE = {
   viewRows: "view-rows",
   outline: "outline",
   debugNode: "debug-node",
+  trashEvidence: "trash-evidence",
 } as const satisfies Readonly<Record<ProtocolQueryCase, EngineQuery["kind"]>>;
 
 const MUTATION_KIND_BY_CASE = {

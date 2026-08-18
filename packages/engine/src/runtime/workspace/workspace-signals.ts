@@ -10,6 +10,10 @@ export class WorkspaceSignals {
     private authorityFault: string | null,
   ) {}
 
+  get authorityFaulted(): boolean {
+    return this.authorityFault !== null;
+  }
+
   subscribe(listener: (event: EngineEvent) => void): Unsubscribe {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

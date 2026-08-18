@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createDesktopClient } from "@lode/desktop-client";
 import { array, cliRequest, type DaemonProcess, record, startDaemonProcess } from "./daemon-process-test-helpers.js";
 
 const accessToken = "real-child-process-access-token";
@@ -24,6 +25,7 @@ describe("real daemon child-process restart", () => {
   it("deduplicates Supertag Application, Resolution, and History after lost acknowledgements", async () => {
     const processRoot = await temporaryDirectory();
     daemon = await startDaemonProcess(processRoot, accessToken);
+    await createWorkspace(daemon.address, workspaceId);
     await mutate(daemon.address, "setup", "setup", [
       nodeAt("task", workspaceId, "task-occurrence"),
       nodeAt("supertag", workspaceId, "supertag-occurrence", "supertag-definition"),
@@ -116,8 +118,8 @@ describe("real daemon child-process restart", () => {
     await expectRetryMatchesDurableOutcome(daemon.address, "undo-once", undo);
     const task = record((await projectionSection(daemon.address, "nodes")).task, "Task");
     expect(nodeText(task)).toBe("reviewed");
-  });
-});
+  }, 60_000);
+}, 60_000);
 
 function nodeAt(
   nodeId: string,
@@ -133,6 +135,15 @@ function nodeAt(
     anchor: end,
     ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
   };
+}
+
+async function createWorkspace(endpoint: string, targetWorkspaceId: string): Promise<void> {
+  const client = createDesktopClient(endpoint, accessToken);
+  try {
+    await client.createWorkspace(targetWorkspaceId, "Restart Idempotency");
+  } finally {
+    client.close();
+  }
 }
 
 async function mutate(

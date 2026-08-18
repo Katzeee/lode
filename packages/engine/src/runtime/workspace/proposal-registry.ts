@@ -121,8 +121,8 @@ function invalidError(error: unknown): EngineError {
 
 function notLoaded(workspaceId: string): EngineError {
   return {
-    code: "invalid-input",
-    message: `Workspace is not loaded: ${workspaceId}`,
+    code: "workspace-not-found",
+    message: `Workspace does not exist: ${workspaceId}`,
     currentGenerationId: null,
   };
 }

@@ -2,11 +2,11 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 
-import { runCli } from "../../src/cli.js";
+import { runDiagnosticCli } from "../../src/diagnostics/index.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const tsxCli = resolve(repositoryRoot, "node_modules/tsx/dist/cli.mjs");
-const lodeDaemon = resolve(repositoryRoot, "apps/daemon/src/bin/lode-daemon.ts");
+const lodeBin = resolve(repositoryRoot, "apps/cli/src/bin/lode.ts");
 
 export type DaemonProcess = Readonly<{
   address: string;
@@ -18,7 +18,8 @@ export async function startDaemonProcess(processRoot: string, accessToken: strin
     process.execPath,
     [
       tsxCli,
-      lodeDaemon,
+      lodeBin,
+      "--internal-daemon",
       "--listen",
       "tcp://127.0.0.1:0",
       "--home",
@@ -43,7 +44,7 @@ export async function cliRequest(
   request: unknown,
 ): Promise<Record<string, unknown>> {
   let output = "";
-  await runCli([operation, endpoint, JSON.stringify(request), "--access-token", accessToken], (text) => {
+  await runDiagnosticCli([operation, endpoint, JSON.stringify(request), "--access-token", accessToken], (text) => {
     output += text;
   });
   return record(JSON.parse(output) as unknown, "CLI response");

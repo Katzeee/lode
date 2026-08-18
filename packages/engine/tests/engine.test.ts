@@ -18,7 +18,7 @@ afterEach(async () => {
 describe("Engine composition", () => {
   it("isolates public Engine event subscribers", async () => {
     const engine = await createEngine();
-    await engine.workspaces.open("workspace");
+    await engine.workspaces.createWorkspace("workspace", "Workspace");
     const events: string[] = [];
     engine.application.subscribe((event) => {
       const key = Object.keys(event.frontier)[0];
@@ -46,7 +46,7 @@ describe("Engine composition", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-proposal-engine-"));
     temporaryDirectories.push(dataRoot);
     const first = await createEngine({ persistence: { dataRoot } });
-    await first.workspaces.open("workspace");
+    await first.workspaces.createWorkspace("workspace", "Workspace");
     const written = await first.application.execute(createNodeCommand());
     await first.application.execute({
       ...createNodeCommand(),
@@ -65,7 +65,7 @@ describe("Engine composition", () => {
     await first.close();
 
     const restarted = await createEngine({ persistence: { dataRoot } });
-    await restarted.workspaces.open("workspace");
+    await restarted.workspaces.createWorkspace("workspace", "Workspace");
     const retry = await restarted.application.execute(createNodeCommand());
     expect(retry.status).toBe("published");
     if (retry.status === "published" && written.status === "published") {
@@ -126,7 +126,7 @@ describe("Engine composition", () => {
     await restarted.close();
 
     const afterUndoRestart = await createEngine({ persistence: { dataRoot } });
-    await afterUndoRestart.workspaces.open("workspace");
+    await afterUndoRestart.workspaces.createWorkspace("workspace", "Workspace");
     const persistedMobileHistory = await afterUndoRestart.application.query({
       kind: "history",
       workspaceId: "workspace",
@@ -164,7 +164,7 @@ describe("Engine composition", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-review-capability-"));
     temporaryDirectories.push(dataRoot);
     const first = await createEngine({ persistence: { dataRoot } });
-    await first.workspaces.open("workspace");
+    await first.workspaces.createWorkspace("workspace", "Workspace");
     expect(
       (
         await first.application.execute({
@@ -191,7 +191,7 @@ describe("Engine composition", () => {
     await first.close();
 
     const restarted = await createEngine({ persistence: { dataRoot } });
-    await restarted.workspaces.open("workspace");
+    await restarted.workspaces.createWorkspace("workspace", "Workspace");
     expect(
       (
         await restarted.application.execute({
@@ -220,7 +220,10 @@ describe("Engine composition", () => {
   it("production engine sync exchanges only Facts and publishes remote authority advances", async () => {
     const left = await createEngine();
     const right = await createEngine();
-    await Promise.all([left.workspaces.open("workspace"), right.workspaces.open("workspace")]);
+    await Promise.all([
+      left.workspaces.createWorkspace("workspace", "Workspace"),
+      right.workspaces.createWorkspace("workspace", "Workspace"),
+    ]);
     const events: string[] = [];
     right.application.subscribe((event) => events.push(event.kind));
     await left.application.execute(createNodeCommand());
@@ -241,7 +244,7 @@ describe("Engine composition", () => {
 
   it("corrupt remote authority transitions once to fault and explicit recovery emits recovered", async () => {
     const engine = await createEngine();
-    await engine.workspaces.open("workspace");
+    await engine.workspaces.createWorkspace("workspace", "Workspace");
     const events: string[] = [];
     engine.application.subscribe((event) => events.push(event.kind));
     const corrupt = new LoroDoc();
@@ -259,22 +262,9 @@ describe("Engine composition", () => {
     await engine.close();
   });
 
-  it("concurrent open is idempotent and close waits for workspace command serialization", async () => {
+  it("engine close drains an in-flight Fact sync lease before closing durable storage", async () => {
     const engine = await createEngine();
-    await Promise.all([
-      engine.workspaces.open("workspace"),
-      engine.workspaces.open("workspace"),
-      engine.workspaces.open("workspace"),
-    ]);
-    expect((await engine.application.execute(createNodeCommand())).status).toBe("published");
-    expect(await engine.workspaces.close("workspace")).toBe(true);
-    expect(await engine.workspaces.close("workspace")).toBe(false);
-    await engine.close();
-  });
-
-  it("close drains an in-flight Fact sync lease before closing durable storage", async () => {
-    const engine = await createEngine();
-    await engine.workspaces.open("workspace");
+    await engine.workspaces.createWorkspace("workspace", "Workspace");
     let enterProfile: (() => void) | undefined;
     const entered = new Promise<void>((resolve) => {
       enterProfile = resolve;
@@ -294,16 +284,14 @@ describe("Engine composition", () => {
     });
     await entered;
     let closed = false;
-    const closing = engine.workspaces.close("workspace").then((result) => {
+    const closing = engine.close().then(() => {
       closed = true;
-      return result;
     });
     await Promise.resolve();
     expect(closed).toBe(false);
     releaseProfile?.();
     await syncing;
-    expect(await closing).toBe(true);
-    await engine.close();
+    await closing;
   });
 });
 

@@ -6,7 +6,8 @@ import { startDaemon, type Daemon } from "@lode/daemon";
 import { createEngine } from "@lode/engine/host";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { runCli } from "../../src/cli.js";
+import { createDesktopClient } from "@lode/desktop-client";
+import { runDiagnosticCli } from "../../src/diagnostics/index.js";
 import { animeNotesProgram, reviewApplicationProposal } from "./anime-notes-fixture.js";
 
 const workspaceId = "anime-notes";
@@ -54,7 +55,13 @@ const temporaryDirectories: string[] = [];
 
 async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: string; accessToken: string }>) {
   const engine = await createEngine({ persistence: { dataRoot: options.dataRoot } });
-  return startDaemon({ engine, listen: options.listen, accessToken: options.accessToken });
+  const daemon = await startDaemon({
+    engine,
+    listen: options.listen,
+    accessToken: options.accessToken,
+    status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
+  });
+  return daemon;
 }
 
 afterEach(async () => {
@@ -74,6 +81,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     });
     let right: Daemon | null = null;
     try {
+      await createFor(left.address, workspaceId, "Anime Notes");
       await executeProgram(left.address, "build-anime-notes", animeNotesProgram());
       await expectAnimeNotes(left.address, "initial publication");
 
@@ -113,6 +121,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: rightRoot,
         accessToken,
       });
+      await createFor(right.address, workspaceId, "Anime Notes");
       await projectionMap(right.address, "origin", "nodes");
       await sync(left.address, right.address, workspaceId);
       await expectAnimeNotes(right.address, "peer synchronization");
@@ -132,6 +141,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
     });
     let right: Daemon | null = null;
     try {
+      await createFor(left.address, outlineWorkspaceId, "Outline Product");
       await executeOutline(left.address, "create-outline", [
         nodeAt("outline-root", outlineWorkspaceId, "outline-root-occurrence"),
         nodeAt("alpha", "outline-root", "alpha-occurrence"),
@@ -251,6 +261,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         dataRoot: rightRoot,
         accessToken,
       });
+      await createFor(right.address, outlineWorkspaceId, "Outline Product");
       await outlineProjection(right.address, "nodes");
       await sync(left.address, right.address, outlineWorkspaceId);
       expect(await nodeTextInWorkspace(right.address, "alpha")).toBe("Alpha");
@@ -282,6 +293,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         parentNodeId: workspaceTrashNodeId(outlineWorkspaceId),
       });
 
+      await createFor(left.address, "isolated-workspace", "Isolated");
       const isolated = await query(left.address, {
         kind: "projection",
         workspaceId: "isolated-workspace",
@@ -304,6 +316,15 @@ describe("Anime Notes through the public CLI and daemon", () => {
     }
   });
 });
+
+async function createFor(endpoint: string, targetWorkspaceId: string, name: string): Promise<void> {
+  const client = createDesktopClient(endpoint, accessToken);
+  try {
+    await client.createWorkspace(targetWorkspaceId, name);
+  } finally {
+    client.close();
+  }
+}
 
 function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
   return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end };
@@ -328,7 +349,13 @@ async function executeOutline(endpoint: string, invocationId: string, mutations:
 }
 
 async function sync(endpoint: string, remoteEndpoint: string, targetWorkspaceId: string): Promise<void> {
-  await runCli(["sync", endpoint, targetWorkspaceId, remoteEndpoint, "--access-token", accessToken], () => undefined);
+  // Low-level transport regression: the Fact exchange itself, not the product sync family.
+  const client = createDesktopClient(endpoint, accessToken);
+  try {
+    await client.syncWorkspace(targetWorkspaceId, remoteEndpoint);
+  } finally {
+    client.close();
+  }
 }
 
 async function outlineProjection(endpoint: string, section: string): Promise<Record<string, unknown>> {
@@ -550,7 +577,7 @@ async function cliRequest(
   request: unknown,
 ): Promise<Record<string, unknown>> {
   let output = "";
-  await runCli([operation, endpoint, JSON.stringify(request), "--access-token", accessToken], (text) => {
+  await runDiagnosticCli([operation, endpoint, JSON.stringify(request), "--access-token", accessToken], (text) => {
     output += text;
   });
   return record(JSON.parse(output) as unknown, "CLI response");

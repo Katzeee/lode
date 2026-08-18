@@ -19,6 +19,7 @@ import { querySearchResults } from "./search-results.js";
 import { queryViewRows } from "./view-rows.js";
 import { queryOutline } from "./outline.js";
 import { queryDebugNode } from "./debug-node.js";
+import { queryTrashEvidence } from "./trash-evidence.js";
 
 type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
   ProjectionGenerationReader &
@@ -70,6 +71,8 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
       return queryOutline(query, context.generationId, context.projections);
     case "debug-node":
       return queryDebugNode(query, context.generationId, context.projections);
+    case "trash-evidence":
+      return queryTrashEvidence(query, context.generationId, context.snapshot, context.projections);
     case "hard-delete-preview":
       return hardDeletePreview(
         context.workspaceId,

@@ -70,6 +70,7 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     case "history":
     case "invocation":
     case "hard-delete-preview":
+    case "trash-evidence":
       return query;
   }
 }

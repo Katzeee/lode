@@ -1,9 +1,11 @@
 import net, { type Socket } from "node:net";
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import { createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
 import {
+  CreateWorkspaceRequestSchema,
   DaemonService,
   EngineCommandSchema,
   EngineEventSchema,
@@ -13,6 +15,7 @@ import {
   QueryResultSchema,
   WriteResultSchema,
   WorkspaceRequestSchema,
+  WorkspaceRunState as ProtocolWorkspaceRunState,
   WorkspaceSyncRequestSchema,
 } from "@lode/protocol/proto";
 import {
@@ -21,6 +24,7 @@ import {
   type EngineTransport,
   type Unsubscribe,
 } from "@lode/sdk";
+import type { WorkspaceRunState } from "@lode/sdk/host";
 
 type ConnectTransport = Readonly<{
   daemon: Client<typeof DaemonService>;
@@ -45,20 +49,6 @@ class SocketEngineTransport {
     this.application = createTransportEngineApplication(this.engineTransport());
   }
 
-  async openWorkspace(workspaceId: string): Promise<void> {
-    await this.transport.workspaces.openWorkspace(create(WorkspaceRequestSchema, { workspaceId }), {
-      headers: this.requestHeaders,
-    });
-  }
-
-  async closeWorkspace(workspaceId: string): Promise<boolean> {
-    return (
-      await this.transport.workspaces.closeWorkspace(create(WorkspaceRequestSchema, { workspaceId }), {
-        headers: this.requestHeaders,
-      })
-    ).closed;
-  }
-
   async recoverWorkspaceAuthority(workspaceId: string): Promise<boolean> {
     return (
       await this.transport.workspaces.recoverWorkspaceAuthority(create(WorkspaceRequestSchema, { workspaceId }), {
@@ -67,10 +57,51 @@ class SocketEngineTransport {
     ).recovered;
   }
 
-  async syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<void> {
-    await this.transport.daemon.syncWorkspace(create(WorkspaceSyncRequestSchema, { workspaceId, remoteEndpoint }), {
+  async listWorkspaces(): Promise<readonly { workspaceId: string; label: string; state: WorkspaceRunState }[]> {
+    const result = await this.transport.workspaces.listWorkspaces(create(EmptySchema), {
       headers: this.requestHeaders,
     });
+    return result.workspaces.map((summary) => ({
+      workspaceId: summary.workspaceId,
+      label: summary.label,
+      state: summary.state === ProtocolWorkspaceRunState.AUTHORITY_FAULT ? "authority-fault" : "active",
+    }));
+  }
+
+  async createWorkspace(workspaceId: string, name: string): Promise<void> {
+    await this.transport.workspaces.createWorkspace(create(CreateWorkspaceRequestSchema, { workspaceId, name }), {
+      headers: this.requestHeaders,
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    await this.transport.daemon.shutdown(create(EmptySchema), { headers: this.requestHeaders });
+  }
+
+  async status(): Promise<DaemonStatusView> {
+    const status = await this.transport.daemon.status(create(EmptySchema), { headers: this.requestHeaders });
+    return {
+      homeName: status.homeName,
+      daemonVersion: status.daemonVersion,
+      homePath: status.homePath,
+      ready: status.ready,
+      workspaces: status.workspaces.map((summary) => ({
+        workspaceId: summary.workspaceId,
+        label: summary.label,
+        state: summary.state === ProtocolWorkspaceRunState.AUTHORITY_FAULT ? "authority-fault" : "active",
+      })),
+    };
+  }
+
+  async syncWorkspace(
+    workspaceId: string,
+    remoteEndpoint: string,
+  ): Promise<Readonly<{ pulled: number; pushed: number }>> {
+    const result = await this.transport.daemon.syncWorkspace(
+      create(WorkspaceSyncRequestSchema, { workspaceId, remoteEndpoint }),
+      { headers: this.requestHeaders },
+    );
+    return { pulled: result.pulled, pushed: result.pushed };
   }
 
   private engineTransport(): EngineTransport {
@@ -140,12 +171,22 @@ function createSocketTransport(dial: SocketDial): ConnectTransport {
   };
 }
 
+export type DaemonStatusView = Readonly<{
+  homeName: string;
+  daemonVersion: string;
+  homePath: string;
+  ready: boolean;
+  workspaces: readonly Readonly<{ workspaceId: string; label: string; state: WorkspaceRunState }>[];
+}>;
+
 export type DesktopClient = EngineApplicationContract &
   Readonly<{
-    openWorkspace(workspaceId: string): Promise<void>;
-    closeWorkspace(workspaceId: string): Promise<boolean>;
+    status(): Promise<DaemonStatusView>;
+    shutdown(): Promise<void>;
     recoverWorkspaceAuthority(workspaceId: string): Promise<boolean>;
-    syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<void>;
+    listWorkspaces(): Promise<readonly { workspaceId: string; label: string; state: WorkspaceRunState }[]>;
+    createWorkspace(workspaceId: string, name: string): Promise<void>;
+    syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<Readonly<{ pulled: number; pushed: number }>>;
     close(): void;
   }>;
 
@@ -155,9 +196,11 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
     execute: (command) => transport.application.execute(command),
     query: (query) => transport.application.query(query),
     subscribe: (listener) => transport.application.subscribe(listener),
-    openWorkspace: (workspaceId) => transport.openWorkspace(workspaceId),
-    closeWorkspace: (workspaceId) => transport.closeWorkspace(workspaceId),
+    status: () => transport.status(),
+    shutdown: () => transport.shutdown(),
     recoverWorkspaceAuthority: (workspaceId) => transport.recoverWorkspaceAuthority(workspaceId),
+    listWorkspaces: () => transport.listWorkspaces(),
+    createWorkspace: (workspaceId, name) => transport.createWorkspace(workspaceId, name),
     syncWorkspace: (workspaceId, remoteEndpoint) => transport.syncWorkspace(workspaceId, remoteEndpoint),
     close: () => transport.close(),
   };

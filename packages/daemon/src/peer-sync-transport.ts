@@ -23,13 +23,11 @@ export function createPeerSyncTransport(
       : new Http2SessionManager(dial.authority, undefined, {
           createConnection: dial.createConnection,
         });
-  const rpc = createClient(
-    ReplicaSyncService,
-    createGrpcTransport({
-      baseUrl: "tcpUrl" in dial ? dial.tcpUrl : dial.authority,
-      sessionManager: manager,
-    }),
-  );
+  const transport = createGrpcTransport({
+    baseUrl: "tcpUrl" in dial ? dial.tcpUrl : dial.authority,
+    sessionManager: manager,
+  });
+  const rpc = createClient(ReplicaSyncService, transport);
   const headers = new Headers({ authorization: `Bearer ${accessToken}` });
   return {
     peer: {

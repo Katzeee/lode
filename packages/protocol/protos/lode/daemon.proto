@@ -3,13 +3,28 @@ syntax = "proto3";
 package lode;
 
 import "google/protobuf/empty.proto";
+import "lode/engine.proto";
 
 service DaemonService {
-  rpc SyncWorkspace(WorkspaceSyncRequest) returns (google.protobuf.Empty);
+  rpc SyncWorkspace(WorkspaceSyncRequest) returns (WorkspaceSyncResult);
+  rpc Status(google.protobuf.Empty) returns (DaemonStatus);
   rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+message DaemonStatus {
+  string home_name = 1;
+  string daemon_version = 2;
+  string home_path = 3;
+  bool ready = 4;
+  repeated WorkspaceSummary workspaces = 5;
 }
 
 message WorkspaceSyncRequest {
   string workspace_id = 1;
   string remote_endpoint = 2;
+}
+
+message WorkspaceSyncResult {
+  uint32 pulled = 1;
+  uint32 pushed = 2;
 }
