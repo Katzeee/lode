@@ -1,4 +1,4 @@
-import { assertKeys, assertObject, requireSafeInteger, requireString } from "../../shape-validation/index.js";
+import { assertKeys, assertObject, requireSafeInteger, requireString } from "../../decoding/index.js";
 import type { GovernanceAction, TransitEnvelope } from "./governance-types.js";
 
 /** Base64 of exactly 32 bytes: 43 body characters plus one pad character. */

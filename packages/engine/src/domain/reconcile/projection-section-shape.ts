@@ -1,6 +1,6 @@
 import { parseConflictIssue } from "../conflict/index.js";
 import { isIntrinsicNodeType, parseJsonRecord, parseTextAtomId, parseViewOptionsSpec } from "../fact/index.js";
-import { array, exact, nonempty, object, stringArray, stringValue } from "../../shape-validation/index.js";
+import { array, exact, nonempty, object, stringArray, stringValue } from "../../decoding/index.js";
 import type {
   ProjectedNode,
   ProjectionSectionName,

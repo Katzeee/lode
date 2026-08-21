@@ -34,7 +34,7 @@ function validateInitialOwnerAttachments(transaction: FactTransaction, before: F
     ),
   );
   const workspaceId = transaction.facts[0]?.workspaceId ?? "";
-  const beforeGeneration = rebuildGeneration(workspaceId, before, CURRENT_PROJECTION_VERSIONS).generation;
+  const beforeGeneration = rebuildGeneration(workspaceId, before, CURRENT_PROJECTION_VERSIONS);
   const detachedBefore = new Set(
     [beforeGeneration.origin, beforeGeneration.review].flatMap((projection) =>
       Object.entries(projection.nodeOwners).flatMap(([nodeId, ownerNodeId]) =>
@@ -121,11 +121,7 @@ function validateNodeCreations(transaction: FactTransaction): void {
 }
 
 function validateCommittedDomainState(snapshot: FactSnapshot): void {
-  const generation = rebuildGeneration(
-    snapshot.facts[0]?.workspaceId ?? "",
-    snapshot,
-    CURRENT_PROJECTION_VERSIONS,
-  ).generation;
+  const generation = rebuildGeneration(snapshot.facts[0]?.workspaceId ?? "", snapshot, CURRENT_PROJECTION_VERSIONS);
   for (const projection of [generation.origin, generation.review]) {
     validateMetanodeLifecycle(snapshot, projection);
     validateTrashLifecycle(snapshot, projection);

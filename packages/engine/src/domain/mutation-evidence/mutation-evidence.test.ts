@@ -9,7 +9,7 @@ describe("Mutation evidence", () => {
   it("protects the Workspace Trash role target rather than a deterministic Node identity", () => {
     const facts = new Facts("custom-trash-node");
     facts.addPlaced(workspaceTrashNodeId("workspace"));
-    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.review;
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).review;
     const context = {
       snapshot: facts.snapshot(),
       projections: () => ({ previous: projection, available: projection }),
@@ -35,7 +35,7 @@ describe("Mutation evidence", () => {
       insert: "AB",
       attributes: { style: { weight: 700 } },
     });
-    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.review;
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).review;
     const node = projection.nodes.node;
     if (!node) {
       throw new Error("Expected text Node");
@@ -75,7 +75,7 @@ describe("Mutation evidence", () => {
   it("derives one stable previous Occurrence placement", () => {
     const facts = new Facts();
     facts.addPlaced("node");
-    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.review;
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).review;
 
     const completed = completeMutationEvidence(
       { kind: "occurrence-delete", occurrenceId: "node-original" },
@@ -109,7 +109,7 @@ describe("Mutation evidence", () => {
       affinity: "before",
       fallback: "start",
     });
-    const generation = rebuildGeneration("workspace", facts.snapshot(), versions).generation;
+    const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
 
     const completed = completeMutationEvidence(
       {

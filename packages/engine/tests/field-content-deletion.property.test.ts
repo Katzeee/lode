@@ -15,19 +15,14 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
 
 const deleteReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const insertReplica = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";
 const restoreReplica = "eeeeeeeeeeeeeeeeeeeeeeeeee";
-const checkpointKey = "field-content-deletion-property";
 
 describe("Field content deletion convergence", () => {
-  it("converges concurrent same-Field value reorders across 32 arrival, incremental, and checkpoint topologies", () => {
+  it("converges concurrent same-Field value reorders across 32 arrival and incremental topologies", () => {
     const base = orderingFixture();
     const baseSnapshot = admitted(base.values);
     const moveC = remoteFact(insertReplica, baseSnapshot.frontier, {
@@ -64,7 +59,7 @@ describe("Field content deletion convergence", () => {
     const expectedSnapshot = admitted([...base.values, moveC, moveB]);
     const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
     const expectedSummary = summary(expected);
-    const expectedOrder = expected.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds;
+    const expectedOrder = expected.origin.materializedFields.owner?.[0]?.valueOccurrenceIds;
     expect(new Set(expectedOrder)).toEqual(new Set(["value-a-occurrence", "value-b-occurrence", "value-c-occurrence"]));
 
     for (let seed = 65; seed <= 96; seed += 1) {
@@ -72,12 +67,8 @@ describe("Field content deletion convergence", () => {
       expect(summary(rebuildGeneration("workspace", snapshot, versions))).toBe(expectedSummary);
     }
 
-    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    const before = rebuildGeneration("workspace", baseSnapshot, versions);
     expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
-    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
       expectedSummary,
     );
   });
@@ -126,23 +117,17 @@ describe("Field content deletion convergence", () => {
       const snapshot = admitted(shuffle([...base.values, insertion, ...deletion, unrelated, ...deletion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
-      expect(full.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
+      expect(full.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
         "value-b-occurrence",
         "value-c-occurrence",
       ]);
-      expect(full.generation.origin.occurrences["value-a-occurrence"]?.parentNodeId).toBe(
-        "workspace-trash:v1:workspace",
-      );
-      expect(full.generation.origin.nodes["value-a"]).toBeDefined();
-      expect(full.generation.review).toEqual({ ...full.generation.origin, perspective: "review" });
+      expect(full.origin.occurrences["value-a-occurrence"]?.parentNodeId).toBe("workspace-trash:v1:workspace");
+      expect(full.origin.nodes["value-a"]).toBeDefined();
+      expect(full.review).toEqual({ ...full.origin, perspective: "review" });
     }
 
-    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    const before = rebuildGeneration("workspace", baseSnapshot, versions);
     expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
-    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
       expectedSummary,
     );
   });
@@ -172,7 +157,7 @@ describe("Field content deletion convergence", () => {
       anchor: end,
     });
     const merged = admitted([...base.values, ...deletion, insertion]);
-    const hidden = rebuildGeneration("workspace", merged, versions).generation.origin;
+    const hidden = rebuildGeneration("workspace", merged, versions).origin;
     expect(hidden.materializedFields.owner).toBeUndefined();
     expect(hidden.nodes["field-node"]).toBeDefined();
     expect(hidden.nodes["value-a"]).toBeDefined();
@@ -220,22 +205,18 @@ describe("Field content deletion convergence", () => {
       const snapshot = admitted(shuffle([...base.values, insertion, ...restoration, ...deletion, insertion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
-      expect(full.generation.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
+      expect(full.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
         "value-a-occurrence",
         "value-b-occurrence",
         "value-c-occurrence",
       ]);
-      expect(full.generation.origin.nodes["value-a"]).toBeDefined();
-      expect(full.generation.origin.nodes["value-b"]).toBeDefined();
-      expect(full.generation.origin.nodes["value-c"]).toBeDefined();
+      expect(full.origin.nodes["value-a"]).toBeDefined();
+      expect(full.origin.nodes["value-b"]).toBeDefined();
+      expect(full.origin.nodes["value-c"]).toBeDefined();
     }
 
-    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    const before = rebuildGeneration("workspace", baseSnapshot, versions);
     expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
-    expect(summary(reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey))).toBe(
       expectedSummary,
     );
   });
@@ -379,7 +360,7 @@ function summary(result: ReturnType<typeof rebuildGeneration> | null): string {
   if (!result) {
     throw new Error("Expected Field content deletion Reconcile result");
   }
-  return canonicalJson(result.generation);
+  return canonicalJson(result);
 }
 
 function shuffle(values: Fact[], seed: number): Fact[] {

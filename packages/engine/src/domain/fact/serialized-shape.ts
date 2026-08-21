@@ -6,7 +6,7 @@ import {
   nullableString,
   object,
   safeInteger,
-} from "../../shape-validation/index.js";
+} from "../../decoding/index.js";
 import { isReplicaId } from "./fact.js";
 import type { FactFrontier, JsonValue, SequenceAnchor, TextAtomId } from "./types.js";
 

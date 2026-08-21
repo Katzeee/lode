@@ -1,5 +1,4 @@
 import { compareFacts, frontierCovers, frontierEquals, type FactSnapshot } from "../fact/index.js";
-import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { advanceDirectProjection } from "./incremental-projection.js";
 import { invalidatedProjectionStages, PROJECTION_PLAN } from "./projection-plan.js";
 import { projectWithPlan } from "./projection-plan-api.js";
@@ -9,21 +8,11 @@ import {
   type ProjectionVersions,
 } from "./projection-types.js";
 
-export type ReconcileStats = Readonly<{
-  evaluatedStages: readonly ProjectionStageKey[];
-  supportPasses: number;
-}>;
-
-export type ReconcileResult = Readonly<{
-  generation: ProjectionGeneration;
-  stats: ReconcileStats;
-}>;
-
 export function rebuildGeneration(
   workspaceId: string,
   snapshot: FactSnapshot,
   versions: ProjectionVersions,
-): ReconcileResult {
+): ProjectionGeneration {
   assertSupportedProjectionVersions(versions);
   const origin = projectWithPlan(workspaceId, snapshot, "origin", versions);
   const review = projectWithPlan(workspaceId, snapshot, "review", versions);
@@ -34,16 +23,10 @@ export function rebuildGeneration(
     throw new Error("Origin and Review cannot form one Projection Generation");
   }
   return {
-    generation: {
-      identity: origin.projection.identity,
-      origin: origin.projection,
-      review: review.projection,
-      planCaches: { origin: origin.planCache, review: review.planCache },
-    },
-    stats: {
-      evaluatedStages: PROJECTION_PLAN.ordered.map((stage) => stage.key),
-      supportPasses: Math.max(origin.planCache.supportPasses, review.planCache.supportPasses),
-    },
+    identity: origin.projection.identity,
+    origin: origin.projection,
+    review: review.projection,
+    planCaches: { origin: origin.planCache, review: review.planCache },
   };
 }
 
@@ -53,7 +36,7 @@ export function advanceGeneration(
   nextSnapshot: FactSnapshot,
   versions: ProjectionVersions,
   previousGeneration?: ProjectionGeneration,
-): ReconcileResult {
+): ProjectionGeneration {
   assertSupportedProjectionVersions(versions);
   if (!frontierCovers(nextSnapshot.frontier, previousSnapshot.frontier)) {
     throw new Error("Incremental snapshot does not contain the previous frontier");
@@ -91,21 +74,14 @@ export function advanceGeneration(
     );
     if (origin && review) {
       return {
-        generation: {
-          identity: origin.projection.identity,
-          origin: origin.projection,
-          review: review.projection,
-          planCaches: { origin: origin.planCache, review: review.planCache },
-        },
-        stats: { evaluatedStages: origin.evaluatedStages, supportPasses: 0 },
+        identity: origin.projection.identity,
+        origin: origin.projection,
+        review: review.projection,
+        planCaches: { origin: origin.planCache, review: review.planCache },
       };
     }
   }
-  const result = rebuildGeneration(workspaceId, nextSnapshot, versions);
-  return {
-    generation: result.generation,
-    stats: result.stats,
-  };
+  return rebuildGeneration(workspaceId, nextSnapshot, versions);
 }
 
 export function snapshotAtFrontier(snapshot: FactSnapshot, frontier: Readonly<Record<string, number>>): FactSnapshot {

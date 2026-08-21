@@ -7,20 +7,20 @@ The formal app transport authenticates every command, query, event stream, maint
 ## Language
 
 **Engine**:
-Lode's headless, embeddable application core, which owns domain commands and queries, Workspace state, persistence coordination, and replica-exchange semantics. An Engine does not own client transport, process lifetime, listening addresses, or access authentication.
+Lode's headless, embeddable application core, which owns domain commands and queries, Workspace state, persistence coordination, Replica Exchange semantics, and the runtime of an accepted Peer Transport. An Engine does not choose listening addresses or own Client Session transport, process lifetime, or client access authentication.
 _Avoid_: Engine Runtime, server, daemon
 
 **Engine Host**:
-A component that creates and closes an Engine instance, supplies platform resources, and makes the Engine available through a platform adapter. An Engine Host decides process and platform integration without redefining Engine semantics.
+A component that constructs, starts, and stops an Engine instance, supplies platform resources, and makes the Engine API available through a platform adapter after startup succeeds. An Engine Host decides process and platform integration without redefining Engine semantics.
 _Avoid_: Engine Runtime, application core
 
 **Daemon**:
-The desktop Engine Host, which exposes Engine capabilities through an authenticated local process and coordinates remote connections. The Daemon owns listeners, connections, and process shutdown, but not Workspaces or domain authority.
+The desktop Engine Host, which exposes Engine capabilities through authenticated Client Sessions and supplies the desktop Peer Transport adapter. The Daemon owns its Client Session listener and connections, platform addresses, and process shutdown; the Engine owns the accepted Peer Transport runtime, Workspaces, and domain authority.
 _Avoid_: Engine server, desktop Engine
 
-**Workspace Session**:
-The active Engine resources for one open Workspace, binding its domain capabilities to its persistent and replica state. Closing a Session stops new use and drains active work without changing the Workspace's persistent identity.
-_Avoid_: Hosted Workspace, Workspace Host
+**Client Session**:
+One client's connection to an Engine Host. A Client Session may access several Workspaces and may share each Workspace with other Client Sessions; closing it ends that client's connection without owning or closing any Workspace.
+_Avoid_: Workspace Session, Hosted Workspace, Workspace Host
 
 **Engine Application Contract**:
 The serializable command, query, result, and event semantics shared by every Engine client. It is independent of whether a call crosses an in-process, native, or network boundary.
@@ -47,7 +47,7 @@ One independently evolving copy of a Workspace's Fact authority, identified sepa
 _Avoid_: Peer connection, synchronized view
 
 **Replica Exchange**:
-The Engine capability through which two Workspace Replicas compare versions and exchange authoritative data. Endpoint discovery, connection establishment, and retry belong to the Engine Host rather than Replica Exchange.
+The Engine capability through which two Workspace Replicas compare versions and exchange authoritative data. It uses physical communication owned by the Engine's accepted Peer Transport without treating a connection as authority; endpoint selection, explicit synchronization scheduling, and exchange retry remain caller or Engine Host decisions.
 _Avoid_: Remote sync connection, transport authority
 
 **Node**:

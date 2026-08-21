@@ -62,12 +62,12 @@ export function planCompensation(
     firstTarget.workspaceId,
     { facts: scopedFacts, frontier: snapshot.frontier },
     versions,
-  ).generation[perspective];
+  )[perspective];
   const counterfactual = rebuildGeneration(
     firstTarget.workspaceId,
     { facts: counterfactualFacts, frontier: snapshot.frontier },
     versions,
-  ).generation[perspective];
+  )[perspective];
   if (canonicalJson(scoped) === canonicalJson(counterfactual)) {
     return { kind: "unavailable", reason: "History Step has no attributable effect" };
   }

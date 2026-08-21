@@ -1,3 +1,6 @@
+import { chmod } from "node:fs/promises";
+import { constants, type ServerHttp2Session } from "node:http2";
+
 import { create } from "@bufbuild/protobuf";
 import { createClient } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
@@ -8,9 +11,15 @@ import {
   PeerExchangeSendRequestSchema,
   PeerExchangeService,
 } from "@lode/protocol/proto";
-import type { PeerExchangeProof, PeerExchangeWire } from "@lode/sdk/host";
+import type {
+  PeerTransportPort,
+  ReplicaExchangeHandler,
+  ReplicaExchangeProof,
+  ReplicaExchangeWire,
+} from "@lode/engine/host";
 
-import { dialTarget } from "./endpoint.js";
+import { canonicalAddress, dialTarget, listenTarget, parseEndpoint, type ParsedEndpoint } from "./endpoint.js";
+import { createPeerExchangeServer } from "./peer-exchange-server.js";
 
 /**
  * The dialing half of the remote exchange boundary: turns an opaque endpoint
@@ -19,7 +28,7 @@ import { dialTarget } from "./endpoint.js";
  * seals each payload; this module only moves bytes.
  */
 
-export function dialPeerExchange(endpoint: string): Readonly<{ wire: PeerExchangeWire; close(): void }> {
+function dialPeerExchange(endpoint: string): Readonly<{ wire: ReplicaExchangeWire; close(): void }> {
   const dial = dialTarget(endpoint);
   const manager =
     "tcpUrl" in dial
@@ -71,7 +80,7 @@ export function dialPeerExchange(endpoint: string): Readonly<{ wire: PeerExchang
   };
 }
 
-function encodeProof(proof: PeerExchangeProof) {
+function encodeProof(proof: ReplicaExchangeProof) {
   return create(PeerAuthenticationSchema, {
     workspaceId: proof.workspaceId,
     peerId: proof.peerId,
@@ -80,11 +89,11 @@ function encodeProof(proof: PeerExchangeProof) {
   });
 }
 
-/** Daemon-owned connection pool; repeated syncs reuse sessions and shutdown releases them. */
-export class PeerExchangeDialPool {
+/** Desktop transport channel pool; repeated exchanges reuse channels until Connection stops the accepted adapter. */
+class PeerConnectionPool {
   private readonly dials = new Map<string, ReturnType<typeof dialPeerExchange>>();
 
-  wire = (endpoint: string): PeerExchangeWire => {
+  wire = (endpoint: string): ReplicaExchangeWire => {
     const existing = this.dials.get(endpoint);
     if (existing) {
       return existing.wire;
@@ -100,4 +109,93 @@ export class PeerExchangeDialPool {
     }
     this.dials.clear();
   }
+}
+
+export class DesktopPeerTransport implements PeerTransportPort {
+  private readonly endpoint: ParsedEndpoint;
+  private readonly connections = new PeerConnectionPool();
+  private readonly inboundSessions = new Set<ServerHttp2Session>();
+  private server?: ReturnType<typeof createPeerExchangeServer>["server"];
+  private boundPort = 0;
+
+  constructor(endpoint: string) {
+    this.endpoint = parseEndpoint(endpoint);
+  }
+
+  get address(): string {
+    return canonicalAddress(this.endpoint, this.boundPort);
+  }
+
+  async start(handler: ReplicaExchangeHandler): Promise<void> {
+    if (this.server) {
+      throw new Error("Desktop Peer Transport is already started");
+    }
+    const { server } = createPeerExchangeServer(handler);
+    this.server = server;
+    server.on("session", (session) => {
+      this.inboundSessions.add(session);
+      session.on("error", () => {
+        // Forced owner shutdown reports through close(); the session error is not an independent failure channel.
+      });
+      session.once("close", () => this.inboundSessions.delete(session));
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(listenTarget(this.endpoint), () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      if (this.server === server) {
+        this.server = undefined;
+      }
+      throw error;
+    }
+    if (this.endpoint.scheme === "tcp") {
+      this.boundPort = (server.address() as { port: number }).port;
+    } else if (this.endpoint.scheme === "unix") {
+      await chmod(this.endpoint.socketPath, 0o600).catch(() => {});
+    }
+  }
+
+  dial(endpoint: string): ReplicaExchangeWire {
+    return this.connections.wire(endpoint);
+  }
+
+  async close(): Promise<void> {
+    let failure: Error | undefined;
+    try {
+      this.connections.close();
+    } catch (error) {
+      failure = toError(error);
+    }
+    for (const session of this.inboundSessions) {
+      try {
+        session.destroy(new Error("Desktop Peer Transport is stopping"), constants.NGHTTP2_CANCEL);
+      } catch (error) {
+        failure ??= toError(error);
+      }
+    }
+    this.inboundSessions.clear();
+    if (this.server) {
+      const server = this.server;
+      this.server = undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      } catch (error) {
+        failure ??= toError(error);
+      }
+    }
+    if (failure) {
+      throw failure;
+    }
+  }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

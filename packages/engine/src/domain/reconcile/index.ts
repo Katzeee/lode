@@ -35,7 +35,7 @@ export {
   parseProjectionSectionValue,
 } from "./projection-section-shape.js";
 export { advanceGeneration, rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
-export type { ReconcileResult } from "./reconcile.js";
+export { projectionIdentity } from "./projection-identity.js";
 export { impactAddress } from "./impact-address.js";
 export { assertMaterializedField } from "./materialized-field.js";
 export { projectFieldAvailability } from "./field-availability.js";

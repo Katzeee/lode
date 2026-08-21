@@ -86,7 +86,7 @@ describe("production Fact contracts", () => {
     });
   });
 
-  it("VER-1 unsupported format supertag rules and checkpoints fail closed", () => {
+  it("VER-1 unsupported Fact versions fail closed", () => {
     const supported = contribution(1);
     const unsupported = { ...supported, schemaVersion: supported.schemaVersion + 1 } as unknown as Fact;
     const admission = admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: unsupported }]);

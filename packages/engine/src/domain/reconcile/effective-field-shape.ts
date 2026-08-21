@@ -1,4 +1,4 @@
-import { array, exact, nonempty, object, stringValue } from "../../shape-validation/index.js";
+import { array, exact, nonempty, object, stringValue } from "../../decoding/index.js";
 import type {
   EffectiveField,
   EffectiveFieldSource,

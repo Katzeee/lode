@@ -3,6 +3,190 @@ import prettier from "eslint-config-prettier";
 import nodeImport from "eslint-plugin-node-import";
 import unicorn from "eslint-plugin-unicorn";
 import tseslint from "typescript-eslint";
+import { dirname, resolve } from "node:path";
+
+function moduleSource(node) {
+  const source = node.source ?? node.argument ?? node.parameter;
+  if (typeof source?.value === "string") {
+    return source.value;
+  }
+  if (source?.type === "TemplateLiteral" && source.expressions.length === 0) {
+    return source.quasis[0]?.value.cooked ?? source.quasis[0]?.value.raw;
+  }
+  return undefined;
+}
+
+function moduleVisitors(check) {
+  return {
+    ImportDeclaration: check,
+    ExportNamedDeclaration: check,
+    ExportAllDeclaration: check,
+    ImportExpression: check,
+    TSImportType: check,
+  };
+}
+
+function normalizedModule(context, source) {
+  return source.startsWith(".") ? resolve(dirname(context.filename), source).replaceAll("\\", "/") : source;
+}
+
+const architecturePlugin = {
+  rules: {
+    "engine-owner-location": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        return {
+          Program(node) {
+            const filename = context.filename.replaceAll("\\", "/");
+            const engineSource = "/packages/engine/src/";
+            const sourceIndex = filename.toLowerCase().indexOf(engineSource);
+            if (sourceIndex < 0) {
+              return;
+            }
+            const relative = filename.slice(sourceIndex + engineSource.length);
+            const topLevel = relative.split("/")[0];
+            const allowed = new Set(["crypto", "decoding", "domain", "subsystems", "engine.ts", "host.ts"]);
+            if (!allowed.has(topLevel)) {
+              context.report({
+                node,
+                messageId: "restricted",
+                data: {
+                  message:
+                    "Engine source lives in an apex file, the pure domain, a neutral technical leaf, or its owning subsystem.",
+                },
+              });
+            }
+          },
+        };
+      },
+    },
+    "engine-transport-neutral": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (
+            typeof source === "string" &&
+            (source === "@lode/protocol" ||
+              source.startsWith("@lode/protocol/") ||
+              source === "@lode/desktop-client" ||
+              source.startsWith("@lode/desktop-client/") ||
+              source.startsWith("@bufbuild/"))
+          ) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "Engine contracts and domain code are transport-neutral." },
+            });
+          }
+        });
+      },
+    },
+    "engine-composition": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const filename = context.filename.replaceAll("\\", "/");
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (!source) {
+            return;
+          }
+          const target = normalizedModule(context, source);
+          const importsCollection = /\/subsystems\/(?:index|collection)\.js$/.test(target);
+          const importsDefinition = /\/subsystems\/[^/]+\/[^/]+-subsystem\.js$/.test(target);
+          const importsLifecyclePrimitive = /\/subsystems\/(?:definition|subsystem)\.js$/.test(target);
+          const insideSubsystem = filename.includes("/packages/engine/src/subsystems/");
+          if (importsCollection || importsDefinition || (importsLifecyclePrimitive && !insideSubsystem)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message:
+                  "Engine subsystem collection composition belongs to engine.ts; subsystem definitions own only their lifecycle definition and declared seams.",
+              },
+            });
+          }
+        });
+      },
+    },
+    "subsystem-dependencies": {
+      meta: {
+        type: "problem",
+        schema: [{ type: "object", properties: { owner: { type: "string" }, forbidden: { type: "array" } } }],
+        messages: {
+          restricted: "The {{owner}} subsystem can depend only in the declared Engine subsystem graph direction.",
+        },
+      },
+      create(context) {
+        const { owner = "unknown", forbidden = [] } = context.options[0] ?? {};
+        const forbiddenOwners = new Set(forbidden);
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (!source) {
+            return;
+          }
+          const dependency = /\/subsystems\/([^/]+)(?:\/|\.js$)/.exec(normalizedModule(context, source))?.[1];
+          if (dependency && forbiddenOwners.has(dependency)) {
+            context.report({ node, messageId: "restricted", data: { owner } });
+          }
+        });
+      },
+    },
+    "persistence-seam": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (!source) {
+            return;
+          }
+          const target = normalizedModule(context, source);
+          if (/\/subsystems\/persistence\/(?!index\.js$).+/.test(target)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "Persistence is consumed through its public subsystem seam." },
+            });
+          }
+        });
+      },
+    },
+    "daemon-peer-ports": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const allowed = new Set([
+          "PeerTransportPort",
+          "ReplicaExchangeHandler",
+          "ReplicaExchangeProof",
+          "ReplicaExchangeWire",
+        ]);
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (typeof source !== "string" || !source.startsWith("@lode/engine")) {
+            return;
+          }
+          const valid =
+            node.type === "ImportDeclaration" &&
+            source === "@lode/engine/host" &&
+            node.importKind === "type" &&
+            node.specifiers.every(
+              (specifier) => specifier.type === "ImportSpecifier" && allowed.has(specifier.imported.name),
+            );
+          if (!valid) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message:
+                  "Daemon Peer adapters import only named Engine-owned Peer Transport port types from @lode/engine/host.",
+              },
+            });
+          }
+        });
+      },
+    },
+  },
+};
 
 export default tseslint.config(
   {
@@ -14,14 +198,17 @@ export default tseslint.config(
       "**/src/dto-gen/**",
       "**/*.config.js",
       "**/*.config.mjs",
-      "**/*.config.ts",
+      "vitest.config.ts",
+      "packages/daemon/vitest.config.ts",
+      "packages/engine/vitest.config.ts",
+      "packages/logger/vitest.config.ts",
       "experiments/**",
     ],
   },
   {
     files: ["**/*.ts"],
     extends: [eslint.configs.recommended, ...tseslint.configs.recommendedTypeChecked, prettier],
-    plugins: { "node-import": nodeImport, unicorn },
+    plugins: { "node-import": nodeImport, unicorn, architecture: architecturePlugin },
     languageOptions: {
       parserOptions: { project: "tsconfig.eslint.json", tsconfigRootDir: import.meta.dirname },
     },
@@ -63,6 +250,12 @@ export default tseslint.config(
   },
   {
     files: ["packages/engine/src/**/*.ts"],
+    rules: {
+      "architecture/engine-owner-location": "error",
+    },
+  },
+  {
+    files: ["packages/engine/src/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "max-lines-per-function": ["error", { max: 100, skipBlankLines: true, skipComments: true }],
@@ -70,10 +263,6 @@ export default tseslint.config(
         "error",
         {
           patterns: [
-            {
-              group: ["@lode/protocol", "@lode/protocol/**", "@lode/desktop-client", "@bufbuild/**"],
-              message: "Engine contracts and domain code are transport-neutral.",
-            },
             {
               regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?mutation-evidence/(?!index\\.js$).+",
               message: "Mutation evidence is consumed through its public domain seam, never its family internals.",
@@ -97,17 +286,14 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../application/**",
-                "../../runtime/**",
-                "../../persistence/**",
-                "../../sync/**",
+                "../../subsystems/**",
                 "loro-crdt",
                 "@lode/protocol",
                 "@lode/sdk",
                 "@lode/desktop-client",
                 "@bufbuild/**",
               ],
-              message: "Domain policy cannot depend on applications, runtime, storage, CRDTs, or wire types.",
+              message: "Domain policy cannot depend on applications, subsystem owners, storage, CRDTs, or wire types.",
             },
           ],
         },
@@ -124,11 +310,8 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../application/**",
                 "../domain/**",
-                "../persistence/**",
-                "../runtime/**",
-                "../sync/**",
+                "../subsystems/**",
                 "loro-crdt",
                 "@lode/protocol",
                 "@lode/sdk",
@@ -143,15 +326,15 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/shape-validation/**/*.ts"],
+    files: ["packages/engine/src/decoding/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
             {
-              group: ["../application/**", "../domain/**", "../persistence/**", "../runtime/**", "../sync/**"],
-              message: "Shape validation is a neutral leaf and cannot depend on engine concepts or layers.",
+              group: ["../crypto/**", "../domain/**", "../subsystems/**"],
+              message: "Decoding is a neutral leaf and cannot depend on Engine concepts or runtime owners.",
             },
           ],
         },
@@ -231,7 +414,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/application/**/*.ts"],
+    files: ["packages/engine/src/subsystems/persistence/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
@@ -239,8 +422,14 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../runtime/**", "../persistence/**", "../sync/**", "loro-crdt", "@bufbuild/**"],
-              message: "Engine application adapters depend only on the SDK contract and domain-owned types.",
+              group: [
+                "../../domain/**",
+                "../{connection,event,identity,synchronization,workspace}/**",
+                "loro-crdt",
+                "@lode/sdk",
+                "@lode/sdk/**",
+              ],
+              message: "Persistence owns storage resources and cannot depend on Domain or another runtime owner.",
             },
           ],
         },
@@ -248,24 +437,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/persistence/**/*.ts", "packages/engine/src/sync/**/*.ts"],
+    files: ["packages/engine/src/subsystems/identity/**/*.ts", "packages/engine/src/subsystems/workspace/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../application/**", "../domain/**", "../runtime/**", "loro-crdt"],
-              message: "Persistence and sync ports are neutral substrate modules.",
-            },
-          ],
-        },
-      ],
+      "architecture/persistence-seam": "error",
     },
   },
   {
-    files: ["packages/engine/src/runtime/authority/**/*.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
@@ -273,7 +452,12 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../../application/**", "../../domain/{history,reconcile,review}/**", "../workspace/**"],
+              group: [
+                "../../../domain/{history,reconcile,review}/**",
+                "../application/**",
+                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../workspace*.js",
+              ],
               message:
                 "Fact authority cannot depend on projections, review, history, applications, or workspace orchestration.",
             },
@@ -283,7 +467,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/runtime/authority/authority-commit-plan.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/authority-commit-plan.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -291,14 +475,15 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../application/**",
-                "../../domain/{history,reconcile,review}/**",
+                "../../../domain/{history,reconcile,review}/**",
                 "../../persistence/**",
-                "../../sync/**",
-                "../workspace/**",
+                "../application/**",
+                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../replica-sync.js",
+                "../workspace*.js",
                 "./authority-journal-*.js",
                 "./authority-sync-*.js",
-                "./fact-authority-store*.js",
+                "./fact-authority.js",
                 "./loro-*.js",
               ],
               message:
@@ -310,7 +495,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/runtime/authority/authority-journal-session.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/authority-journal-session.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -318,13 +503,14 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../application/**",
-                "../../domain/{history,reconcile,review}/**",
-                "../../sync/**",
-                "../workspace/**",
+                "../../../domain/{history,reconcile,review}/**",
+                "../application/**",
+                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../replica-sync.js",
+                "../workspace*.js",
                 "./authority-commit-plan.js",
                 "./authority-sync-*.js",
-                "./fact-authority-store.js",
+                "./fact-authority.js",
                 "./loro-*.js",
               ],
               message:
@@ -336,7 +522,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/runtime/authority/authority-sync-import.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/authority-sync-import.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -344,13 +530,14 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../application/**",
-                "../../domain/{history,reconcile,review}/**",
+                "../../../domain/{history,reconcile,review}/**",
                 "../../persistence/**",
-                "../workspace/**",
+                "../application/**",
+                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../workspace*.js",
                 "./authority-commit-plan.js",
                 "./authority-journal-*.js",
-                "./fact-authority-store.js",
+                "./fact-authority.js",
               ],
               message:
                 "Authority sync import coordinates a replica through explicit callbacks and cannot own journal or store state.",
@@ -361,15 +548,15 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/runtime/workspace/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    files: ["packages/engine/src/subsystems/workspace/**/*.ts"],
+    ignores: ["**/*.test.ts", "**/authority/**", "**/materialization/**"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           patterns: [
             {
-              group: ["../sync/**"],
+              regex: "^(?:\\.\\./)+synchronization(?:/|\\.js$)",
               message: "Workspace orchestration does not depend on sync composition.",
             },
             {
@@ -378,57 +565,23 @@ export default tseslint.config(
                 "Workspace orchestration consumes the public Reconcile contract, never its internal projection algorithms.",
             },
             {
-              regex: "^(?:\\.\\./)+materialization/(?!index\\.js$).+",
-              message: "Workspace orchestration consumes Materialization through its public ports.",
-            },
-            {
               regex:
-                "^(?:\\./|(?:\\.\\./)+)(?:authority-lifecycle|command|generation-reading|mutation-planning|projection-lifecycle|query)/(?!index\\.js$).+",
+                "^(?:\\./|(?:\\.\\./)+)(?:authority-coordination|command|generation-reading|mutation-planning|projection|query)/(?!index\\.js$).+",
               message:
                 "Workspace orchestration modules are consumed through their public funnels, never their internals.",
             },
             {
-              regex: "^(?:\\.\\./)+(?:authority-lifecycle|command|query)/index\\.js$",
+              regex: "^(?:\\.\\./)+(?:authority-coordination|command|query)/index\\.js$",
               message: "Workspace command, query, and authority use cases remain independent sibling modules.",
             },
-            {
-              group: ["../proposal-registry.js", "../proposal-storage.js", "../proposal-workspace.js"],
-              message: "Workspace use cases cannot depend back on workspace composition.",
-            },
           ],
         },
       ],
     },
   },
   {
-    files: ["packages/engine/src/runtime/materialization/**/*.ts"],
+    files: ["packages/engine/src/subsystems/workspace/projection/materialization/**/*.ts"],
     ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../../application/**", "../{authority,sync,workspace}/**"],
-              message:
-                "Projection materialization exposes storage-native data and cannot depend on application contracts, workspace composition, authority, or sync.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: [
-      "packages/engine/src/runtime/materialization/bounded-materialized-store.ts",
-      "packages/engine/src/runtime/materialization/materialize-generation.ts",
-      "packages/engine/src/runtime/materialization/materialized-dataset.ts",
-      "packages/engine/src/runtime/materialization/materialized-directory.ts",
-      "packages/engine/src/runtime/materialization/materialized-format-validation.ts",
-      "packages/engine/src/runtime/materialization/materialized-generation-format.ts",
-      "packages/engine/src/runtime/materialization/materialized-publication.ts",
-      "packages/engine/src/runtime/materialization/materialized-value-validation.ts",
-    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -437,17 +590,12 @@ export default tseslint.config(
             {
               group: [
                 "../../application/**",
-                "../../domain/{reconcile,review}/**",
-                "../{authority,sync,workspace}/**",
-                "./ports.js",
-                "./projection-*.js",
-                "./review-*.js",
-                "./materialized-projection-*.js",
-                "./materialized-review-*.js",
-                "./supertag-instances-reader.js",
+                "../../../synchronization/**",
+                "../../authority/**",
+                "../../workspace*.js",
               ],
               message:
-                "The materialized storage kernel depends on dataset contracts, never higher runtime modules or Projection and Review adapters.",
+                "Projection owns materialization; its storage adapter cannot depend on application contracts, workspace composition, authority, or sync.",
             },
           ],
         },
@@ -455,7 +603,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/runtime/sync/**/*.ts"],
+    files: ["packages/engine/src/subsystems/workspace/projection/materialization/store/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
@@ -463,12 +611,88 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../../application/**", "../../domain/{history,reconcile,review}/**", "../workspace/**"],
-              message: "Fact sync exchanges authority bytes and cannot depend on derived views or App orchestration.",
+              group: [
+                "../../../application/**",
+                "../../../../../domain/{reconcile,review}/**",
+                "../../../../synchronization/**",
+                "../../../authority/**",
+                "../../../workspace*.js",
+              ],
+              message:
+                "The Workspace materialized storage kernel depends on dataset contracts, never orchestration, sync, or Projection and Review adapters.",
             },
           ],
         },
       ],
+    },
+  },
+  {
+    files: ["packages/engine/src/subsystems/workspace/application/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: [
+                "../{authority,authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../workspace*.js",
+                "../../{connection,event,identity,persistence,synchronization}/**",
+                "loro-crdt",
+                "@bufbuild/**",
+              ],
+              message: "Workspace application decoding depends only on the SDK contract, Domain, and neutral decoding.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  ...[
+    {
+      owner: "event",
+      forbidden: ["connection", "identity", "persistence", "synchronization", "workspace"],
+    },
+    {
+      owner: "persistence",
+      forbidden: ["connection", "event", "identity", "synchronization", "workspace"],
+    },
+    {
+      owner: "identity",
+      forbidden: ["connection", "event", "synchronization", "workspace"],
+    },
+    {
+      owner: "connection",
+      forbidden: ["event", "identity", "persistence", "synchronization", "workspace"],
+    },
+    {
+      owner: "workspace",
+      forbidden: ["connection", "synchronization"],
+    },
+    {
+      owner: "synchronization",
+      forbidden: ["event", "persistence"],
+    },
+  ].map(({ owner, forbidden }) => ({
+    files: [`packages/engine/src/subsystems/${owner}/**/*.ts`],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "architecture/subsystem-dependencies": ["error", { owner, forbidden }],
+    },
+  })),
+  {
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: ["**/*.test.ts", "packages/engine/src/engine.ts", "packages/engine/src/subsystems/index.ts"],
+    rules: {
+      "architecture/engine-composition": "error",
+    },
+  },
+  {
+    files: ["packages/engine/src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    rules: {
+      "architecture/engine-transport-neutral": "error",
     },
   },
   {
@@ -607,7 +831,15 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["@lode/desktop-client", "@lode/desktop-client/**", "../families/**", "../../families/**", "../output/index.js", "../../output/index.js", "node:process"],
+              group: [
+                "@lode/desktop-client",
+                "@lode/desktop-client/**",
+                "../families/**",
+                "../../families/**",
+                "../output/index.js",
+                "../../output/index.js",
+                "node:process",
+              ],
               message: "Target/value/invocation/catalog/output modules stay below families and never render or dial.",
             },
           ],
@@ -624,7 +856,15 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["@lode/sdk", "@lode/sdk/**", "@lode/desktop-client", "@lode/desktop-client/**", "../families/**", "../session/index.js", "node:process"],
+              group: [
+                "@lode/sdk",
+                "@lode/sdk/**",
+                "@lode/desktop-client",
+                "@lode/desktop-client/**",
+                "../families/**",
+                "../session/index.js",
+                "node:process",
+              ],
               message: "Renderers are pure functions over finished outcomes; they never query, dial, or know families.",
             },
           ],
@@ -634,7 +874,12 @@ export default tseslint.config(
   },
   {
     files: ["packages/daemon/src/**/*.ts"],
-    ignores: ["**/*.test.ts", "packages/daemon/src/run-daemon.ts"],
+    ignores: [
+      "**/*.test.ts",
+      "packages/daemon/src/run-daemon.ts",
+      "packages/daemon/src/peer-exchange-server.ts",
+      "packages/daemon/src/peer-exchange-transport.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -655,13 +900,19 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/daemon/src/peer-exchange-server.ts", "packages/daemon/src/peer-exchange-transport.ts"],
+    rules: {
+      "architecture/daemon-peer-ports": "error",
+    },
+  },
+  {
     files: ["packages/engine/src/**/*.ts"],
     ignores: [
       "**/*.test.ts",
-      "packages/engine/src/runtime/authority/fact-sync-projection.ts",
-      "packages/engine/src/runtime/authority/loro-fact-replica-state.ts",
-      "packages/engine/src/runtime/authority/loro-fact-replica.ts",
-      "packages/engine/src/runtime/authority/sync-import-validation.ts",
+      "packages/engine/src/subsystems/workspace/authority/fact-sync-projection.ts",
+      "packages/engine/src/subsystems/workspace/authority/loro-fact-replica-state.ts",
+      "packages/engine/src/subsystems/workspace/authority/loro-fact-replica.ts",
+      "packages/engine/src/subsystems/workspace/authority/sync-import-validation.ts",
     ],
     rules: {
       "no-restricted-syntax": [

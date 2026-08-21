@@ -13,13 +13,7 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
   type ProjectionGeneration,
 } from "../src/domain/reconcile/index.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
-
-const CHECKPOINT_KEY = "property-fixture-key";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
   const failure = equivalenceFailure(facts, seed);
@@ -136,26 +130,25 @@ function occurrence(facts: Facts, occurrenceId: string, nodeId: string, parentNo
 
 function equivalenceFailure(facts: readonly Fact[], seed: number): string | null {
   const snapshot = factSnapshot(facts);
-  const full = rebuildGeneration("workspace", snapshot, versions).generation;
+  const full = rebuildGeneration("workspace", snapshot, versions);
   const expected = normalized(full);
   const cuts = [...new Set([0, Math.floor(facts.length / 2), seed % Math.max(1, facts.length)])];
   for (const cut of cuts) {
     const prefix = factSnapshot(facts.slice(0, cut));
-    const prefixGeneration = rebuildGeneration("workspace", prefix, versions).generation;
-    const incremental = advanceGeneration("workspace", prefix, snapshot, versions, prefixGeneration).generation;
+    const prefixGeneration = rebuildGeneration("workspace", prefix, versions);
+    const incremental = advanceGeneration("workspace", prefix, snapshot, versions, prefixGeneration);
     if (normalized(incremental) !== expected) {
       return `incremental path differs at cut ${cut}`;
     }
-    const checkpoint = createGenerationCheckpoint("workspace", prefix, prefixGeneration, CHECKPOINT_KEY);
-    const checkpointResult = reconcileFromCheckpoint(
-      checkpoint,
+    const shuffledIncremental = advanceGeneration(
       "workspace",
+      prefix,
       { facts: shuffle(facts, seed + cut), frontier: snapshot.frontier },
       versions,
-      CHECKPOINT_KEY,
+      prefixGeneration,
     );
-    if (!checkpointResult || normalized(checkpointResult.generation) !== expected) {
-      return `checkpoint path differs at cut ${cut}`;
+    if (normalized(shuffledIncremental) !== expected) {
+      return `shuffled incremental path differs at cut ${cut}`;
     }
   }
   const expectedAdmission = admitAuthorityRecords("workspace", records(facts));

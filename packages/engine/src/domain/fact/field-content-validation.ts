@@ -1,5 +1,5 @@
 import type { FieldContentDeletionMutation, Mutation } from "./types.js";
-import { requireString } from "../../shape-validation/index.js";
+import { requireString } from "../../decoding/index.js";
 
 export function assertFieldContentDeletionShape(
   value: Record<string, unknown>,

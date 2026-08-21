@@ -1,4 +1,4 @@
-import { exact, nonempty, object } from "../../shape-validation/index.js";
+import { exact, nonempty, object } from "../../decoding/index.js";
 import type { FieldDefinitionConfiguration } from "./projection-types.js";
 
 export function parseFieldDefinitionConfiguration(value: unknown): FieldDefinitionConfiguration {

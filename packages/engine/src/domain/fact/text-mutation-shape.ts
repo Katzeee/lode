@@ -5,7 +5,7 @@ import {
   assertStringArray,
   requireString,
   requireStringAllowEmpty,
-} from "../../shape-validation/index.js";
+} from "../../decoding/index.js";
 
 export function assertTextMutationShape(value: Record<string, unknown>, assertAnchor: (value: unknown) => void): void {
   if (value.kind === "text-splice") {

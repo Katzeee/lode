@@ -20,7 +20,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
     "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
-    "verify": "npm run build && npm run typecheck && npm run lint && npm run test && npm run verify:acceptance-catalog",
+    "verify:import-cycles": "node scripts/verify-import-cycles.mjs",
+    "verify": "npm run build && npm run typecheck && npm run lint && npm run test && npm run verify:import-cycles && npm run verify:acceptance-catalog",
     "prepare": "husky"
   },
   "lint-staged": {

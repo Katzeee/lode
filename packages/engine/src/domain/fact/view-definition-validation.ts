@@ -1,4 +1,4 @@
-import { assertOneOf, assertStringArray, requireString } from "../../shape-validation/index.js";
+import { assertOneOf, assertStringArray, requireString } from "../../decoding/index.js";
 import { canonicalJson } from "./canonical.js";
 import { parseViewOptionsSpec } from "./view-options-spec.js";
 import type {

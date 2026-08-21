@@ -1,11 +1,11 @@
 import { chmod } from "node:fs/promises";
-import type { Engine } from "@lode/sdk/host";
+import type { EngineApi } from "@lode/sdk/host";
 import { canonicalAddress, type ParsedEndpoint, listenTarget } from "../endpoint.js";
 import { createLodeServer, type DaemonStatusIdentity } from "../connect-server.js";
 
 /** Hosts the daemon's generated services without joining their lifecycle to the Engine internals. */
 export class ConnectServerResource {
-  private readonly engine: Engine;
+  private readonly engine: EngineApi;
   private readonly endpoint: ParsedEndpoint;
   private readonly accessToken: string;
   private readonly status: DaemonStatusIdentity;
@@ -13,10 +13,9 @@ export class ConnectServerResource {
   private server?: ReturnType<typeof createLodeServer>["server"];
   private closeConnections: () => void = () => {};
   private boundPort = 0;
-  private closePromise?: Promise<void>;
 
   constructor(
-    engine: Engine,
+    engine: EngineApi,
     endpoint: ParsedEndpoint,
     accessToken: string,
     status: DaemonStatusIdentity,
@@ -35,12 +34,27 @@ export class ConnectServerResource {
   }
 
   async start(): Promise<void> {
+    if (this.server) {
+      throw new Error("Daemon Client Session listener is already started");
+    }
     const { server, closeConnections } = createLodeServer(this.engine, this.accessToken, this.status, this.onShutdown);
     this.server = server;
     this.closeConnections = closeConnections;
-    await new Promise<void>((resolve) => {
-      server.listen(listenTarget(this.endpoint), () => resolve());
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(listenTarget(this.endpoint), () => {
+          server.off("error", reject);
+          resolve();
+        });
+      });
+    } catch (error) {
+      if (this.server === server) {
+        this.server = undefined;
+        this.closeConnections = () => {};
+      }
+      throw error;
+    }
     if (this.endpoint.scheme === "tcp") {
       this.boundPort = (server.address() as { port: number }).port;
     } else if (this.endpoint.scheme === "unix") {
@@ -51,24 +65,34 @@ export class ConnectServerResource {
     }
   }
 
-  private quiesce(): void {
-    if (!this.server) {
-      this.closePromise ??= Promise.resolve();
+  /** Revokes owned Client Sessions before closing the listener, so no call can outlive the Engine it targets. */
+  async close(): Promise<void> {
+    const server = this.server;
+    if (!server) {
       return;
     }
-    const server = this.server;
-    this.closePromise ??= new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
+    this.server = undefined;
+    const closeConnections = this.closeConnections;
+    this.closeConnections = () => {};
+    let failure: Error | undefined;
+    try {
+      closeConnections();
+    } catch (error) {
+      failure = toError(error);
+    }
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    } catch (error) {
+      failure ??= toError(error);
+    }
+    if (failure) {
+      throw failure;
+    }
   }
+}
 
-  /** Stops accepting new connections, lets accepted requests drain, then forces
-   * long-lived event streams down. ponytail: fixed 3s drain window; make it
-   * configurable if slow clients ever sit inside it. */
-  async close(): Promise<void> {
-    this.quiesce();
-    await Promise.race([this.closePromise, new Promise((resolve) => setTimeout(resolve, 3_000))]);
-    this.closeConnections();
-    await this.closePromise;
-  }
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

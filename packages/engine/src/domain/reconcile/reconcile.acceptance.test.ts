@@ -7,16 +7,10 @@ import {
   makeFact,
   workspaceTrashNodeId,
 } from "../fact/index.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../../runtime/materialization/generation-checkpoint.js";
 import { advanceGeneration, rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { fullSurface } from "../../../tests/support/reconcile/full-surface-test-fixture.js";
 import { base, end, Facts, versions } from "../../../tests/support/reconcile/reconcile-test-helpers.js";
-
-const CHECKPOINT_KEY = "reconcile-acceptance-key";
 
 describe("production Reconcile", () => {
   it("PROJ-1 projection is deterministic for one snapshot and versions", () => {
@@ -54,20 +48,15 @@ describe("production Reconcile", () => {
 
     facts.resolve([proposal.id], "accept");
     snapshot = facts.snapshot();
-    const accepted = rebuildGeneration("workspace", snapshot, versions).generation;
+    const accepted = rebuildGeneration("workspace", snapshot, versions);
     expect(projectionText(accepted.origin, "node")).toBe("proposal");
     expect(accepted.origin.nodes).toEqual(accepted.review.nodes);
   });
 
-  it("PROJ-3 full checkpoint-tail and incremental paths are equivalent", () => {
+  it("PROJ-3 full and incremental paths are equivalent", () => {
     const facts = base();
     const before = facts.snapshot();
-    const generation = rebuildGeneration("workspace", before, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", before, generation, CHECKPOINT_KEY);
-    expect(reconcileFromCheckpoint(checkpoint, "workspace", before, versions, CHECKPOINT_KEY)?.generation).toEqual(
-      generation,
-    );
-
+    const generation = rebuildGeneration("workspace", before, versions);
     facts.add({
       kind: "text-splice",
       nodeId: "node",
@@ -77,16 +66,10 @@ describe("production Reconcile", () => {
     });
     const after = facts.snapshot();
     const incremental = advanceGeneration("workspace", before, after, versions, generation);
-    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY);
-    expect(incremental.generation).toEqual(rebuildGeneration("workspace", after, versions).generation);
-    expect(checkpointTail).toEqual(incremental);
-    expect(incremental.stats).toEqual({
-      evaluatedStages: ["activation", "content", "supertag-relations", "conflict", "template", "view", "assembly"],
-      supportPasses: 0,
-    });
+    expect(incremental).toEqual(rebuildGeneration("workspace", after, versions));
   });
 
-  it("checkpoint tail falls back when a later arrival precedes checkpoint facts in neutral order", () => {
+  it("incremental reconciliation falls back when a later arrival precedes prior facts in neutral order", () => {
     const baseFact = makeFact({
       workspaceId: "workspace",
       replicaId: "mmmmmmmmmmmmmmmmmmmmmmmmmm",
@@ -120,25 +103,21 @@ describe("production Reconcile", () => {
           },
         },
       });
-    const checkpointFact = textFact("zzzzzzzzzzzzzzzzzzzzzzzzzz", "A");
+    const priorFact = textFact("zzzzzzzzzzzzzzzzzzzzzzzzzz", "A");
     const lateEarlierFact = textFact("aaaaaaaaaaaaaaaaaaaaaaaaaa", "B");
     const before = {
-      facts: [baseFact, checkpointFact],
-      frontier: frontierOf([baseFact, checkpointFact]),
+      facts: [baseFact, priorFact],
+      frontier: frontierOf([baseFact, priorFact]),
     };
-    const generation = rebuildGeneration("workspace", before, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", before, generation, CHECKPOINT_KEY);
+    const generation = rebuildGeneration("workspace", before, versions);
     const after = {
-      facts: [baseFact, checkpointFact, lateEarlierFact],
-      frontier: frontierOf([baseFact, checkpointFact, lateEarlierFact]),
+      facts: [baseFact, priorFact, lateEarlierFact],
+      frontier: frontierOf([baseFact, priorFact, lateEarlierFact]),
     };
     const full = rebuildGeneration("workspace", after, versions);
 
-    expect(advanceGeneration("workspace", before, after, versions, generation).generation).toEqual(full.generation);
-    expect(reconcileFromCheckpoint(checkpoint, "workspace", after, versions, CHECKPOINT_KEY)?.generation).toEqual(
-      full.generation,
-    );
-    expect(projectionText(full.generation.origin, "node")).toBe("BA");
+    expect(advanceGeneration("workspace", before, after, versions, generation)).toEqual(full);
+    expect(projectionText(full.origin, "node")).toBe("BA");
   });
 
   it("Direct lifecycle and structure tails stay on their owner-local incremental paths", () => {
@@ -271,11 +250,11 @@ describe("production Reconcile", () => {
     for (const testCase of cases) {
       const { facts, tail } = testCase.prepare();
       const before = facts.snapshot();
-      const generation = rebuildGeneration("workspace", before, versions).generation;
+      const generation = rebuildGeneration("workspace", before, versions);
       tail();
       const after = facts.snapshot();
       const incremental = advanceGeneration("workspace", before, after, versions, generation);
-      expect(incremental.generation, testCase.name).toEqual(rebuildGeneration("workspace", after, versions).generation);
+      expect(incremental, testCase.name).toEqual(rebuildGeneration("workspace", after, versions));
     }
   });
 

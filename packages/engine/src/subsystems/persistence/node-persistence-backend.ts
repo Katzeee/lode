@@ -1,0 +1,159 @@
+import { randomUUID } from "node:crypto";
+import { access, mkdir, readdir, rename, rm } from "node:fs/promises";
+import { join } from "node:path";
+
+import type {
+  PersistenceBackend,
+  PhysicalIdentityStorage,
+  PhysicalWorkspaceStorage,
+  PhysicalWorkspaceStorageStage,
+} from "./backend.js";
+import { FileBlobStore } from "./file-blob-store.js";
+import { SqliteWorkspaceStore } from "./sqlite-workspace-store.js";
+import { SqliteDocumentStore } from "./sqlite-document-store.js";
+
+const FINAL_PREFIX = "workspace-";
+const STAGING_PREFIX = ".staging-";
+const SQLITE_SUFFIX = ".sqlite";
+
+export class NodePersistenceBackend implements PersistenceBackend {
+  private readonly staged = new Set<string>();
+  private closed = false;
+
+  constructor(private readonly dataRoot: string) {}
+
+  openIdentityStorage(): Promise<PhysicalIdentityStorage> {
+    this.assertOpen();
+    const identityRoot = join(this.dataRoot, "identity");
+    return Promise.resolve({
+      vault: new FileBlobStore(join(identityRoot, "vault.json")),
+      peerIdentity: new FileBlobStore(join(identityRoot, "peer.json")),
+    });
+  }
+
+  async listWorkspaceIds(): Promise<readonly string[]> {
+    this.assertOpen();
+    const names = await readdir(this.workspaceDirectory()).catch(() => [] as string[]);
+    return names.flatMap(decodeWorkspaceFile).sort();
+  }
+
+  async openWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorage> {
+    this.assertOpen();
+    return this.openPhysical(workspaceId, this.finalFile(workspaceId));
+  }
+
+  async stageWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorageStage> {
+    this.assertOpen();
+    if ((await exists(this.finalFile(workspaceId))) || this.staged.has(workspaceId)) {
+      throw new Error(`Workspace storage already exists: ${workspaceId}`);
+    }
+    await mkdir(this.workspaceDirectory(), { recursive: true });
+    const stageId = randomUUID();
+    const stagedFile = this.stagingFile(stageId);
+    const final = this.finalFile(workspaceId);
+    const opened = await this.openPhysical(workspaceId, stagedFile);
+    let closeTask: Promise<void> | undefined;
+    const close = (): Promise<void> => (closeTask ??= Promise.resolve().then(() => opened.close()));
+    const storage = { ...opened, close };
+    let active = true;
+    this.staged.add(workspaceId);
+    return {
+      storage,
+      promote: async () => {
+        this.assertOpen();
+        if (!active) {
+          throw new Error(`Workspace storage stage is no longer active: ${workspaceId}`);
+        }
+        if (await exists(final)) {
+          throw new Error(`Workspace storage already exists: ${workspaceId}`);
+        }
+        await close();
+        await this.removeSidecars(stagedFile);
+        await rename(stagedFile, final);
+        active = false;
+        this.staged.delete(workspaceId);
+        return this.openPhysical(workspaceId, final);
+      },
+      discard: async () => {
+        this.assertOpen();
+        if (!active) {
+          return;
+        }
+        await close();
+        await this.removeSqliteFiles(stagedFile);
+        active = false;
+        this.staged.delete(workspaceId);
+      },
+    };
+  }
+
+  async discardStagedWorkspaces(): Promise<void> {
+    this.assertOpen();
+    const directory = this.workspaceDirectory();
+    const names = await readdir(directory).catch(() => [] as string[]);
+    for (const name of names) {
+      if (name.startsWith(STAGING_PREFIX) && name.endsWith(SQLITE_SUFFIX)) {
+        await this.removeSqliteFiles(join(directory, name));
+      }
+    }
+    this.staged.clear();
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+
+  private async openPhysical(workspaceId: string, file: string): Promise<PhysicalWorkspaceStorage> {
+    const store = await SqliteWorkspaceStore.open(file);
+    return { workspaceId, documents: new SqliteDocumentStore(store), close: () => store.close() };
+  }
+
+  private workspaceDirectory(): string {
+    return join(this.dataRoot, "workspaces");
+  }
+
+  private finalFile(workspaceId: string): string {
+    const encoded = Buffer.from(workspaceId, "utf8").toString("base64url");
+    return join(this.workspaceDirectory(), `${FINAL_PREFIX}${encoded}${SQLITE_SUFFIX}`);
+  }
+
+  private stagingFile(stageId: string): string {
+    return join(this.workspaceDirectory(), `${STAGING_PREFIX}${stageId}${SQLITE_SUFFIX}`);
+  }
+
+  private async removeSqliteFiles(file: string): Promise<void> {
+    await Promise.all([file, `${file}-wal`, `${file}-shm`].map(async (candidate) => rm(candidate, { force: true })));
+  }
+
+  private async removeSidecars(file: string): Promise<void> {
+    await Promise.all([`${file}-wal`, `${file}-shm`].map(async (candidate) => rm(candidate, { force: true })));
+  }
+
+  private assertOpen(): void {
+    if (this.closed) {
+      throw new Error("Persistence backend is closed");
+    }
+  }
+}
+
+function decodeWorkspaceFile(name: string): readonly string[] {
+  if (!name.startsWith(FINAL_PREFIX) || !name.endsWith(SQLITE_SUFFIX)) {
+    return [];
+  }
+  const encoded = name.slice(FINAL_PREFIX.length, -SQLITE_SUFFIX.length);
+  try {
+    const workspaceId = Buffer.from(encoded, "base64url").toString("utf8");
+    return Buffer.from(workspaceId, "utf8").toString("base64url") === encoded ? [workspaceId] : [];
+  } catch {
+    return [];
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}

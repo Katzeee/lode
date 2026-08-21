@@ -19,8 +19,8 @@ export function validateStructuralRoleChanges(
   if (isWorkspaceGenesisTransaction(transaction, workspaceId)) {
     return;
   }
-  const beforeGeneration = rebuildGeneration(workspaceId, before, CURRENT_PROJECTION_VERSIONS).generation;
-  const afterGeneration = rebuildGeneration(workspaceId, after, CURRENT_PROJECTION_VERSIONS).generation;
+  const beforeGeneration = rebuildGeneration(workspaceId, before, CURRENT_PROJECTION_VERSIONS);
+  const afterGeneration = rebuildGeneration(workspaceId, after, CURRENT_PROJECTION_VERSIONS);
   const projections = [
     beforeGeneration.origin,
     beforeGeneration.review,

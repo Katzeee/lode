@@ -8,7 +8,7 @@ current product decisions determine actual behavior.
 
 Lode is local-first. Its application surfaces communicate with a headless, embeddable Engine through
 a serializable, transport-neutral contract whose source of truth is protobuf. Generated types define
-the commands, queries, results, events, Workspace Session operations, and replica-exchange messages
+the commands, queries, results, events, Workspace operations, and replica-exchange messages
 used across implementation languages. The SDK provides an ergonomic Engine client surface,
 validation, and generated-message adaptation without redeclaring DTO fields or depending on an
 Engine implementation. Hosts may use in-process, native, IPC, or network adapters without creating
@@ -19,15 +19,15 @@ The Engine is the application core rather than a business-agnostic storage wrapp
 commands and validation, workspace state, persistence coordination, queries, and change
 publication. Apps own presentation and genuinely client-local interaction state.
 
-An Engine Host creates and closes an Engine instance and supplies its platform resources. The Engine
-owns Workspace Sessions, domain state, persistence coordination, and replica-exchange semantics;
+An Engine Host creates, starts, and stops an Engine instance and supplies its platform resources. The Engine
+owns Workspaces, domain state, persistence coordination, and replica-exchange semantics;
 the host owns process or application lifetime, platform integration, and connection orchestration.
 The desktop Daemon is one Engine Host per Lode Home. CLI, GUI, and TUI surfaces reach it through the
 shared desktop client and do not own domain authority. A host that embeds the Engine reaches the same
 application contract without requiring a Daemon.
 
 The protobuf boundary separates six relationships. `EngineService` carries application commands,
-queries, results, and events. `EngineWorkspaceService` controls Engine-owned Workspace Sessions —
+queries, results, and events. `EngineWorkspaceService` controls Engine-owned Workspaces —
 creation, adoption, and recovery. `IdentityService` manages the Home's Actor vault and Peer
 identity material, and `WorkspaceGovernanceService` carries signed governance (Actor membership,
 Peer admission, transit rotation, ownership transfer) — both local-control-plane only.
@@ -59,7 +59,7 @@ The Loro-backed FactStore is the sole replicated authority for domain state. A d
 fact; correction and undo add compensating facts instead of rewriting synchronized history. Facts
 are retained so replicas can merge their histories without depending on a lossy summary.
 
-Origin, Review, indexes, caches, checkpoints, and materialized shards are derived views. They may be
+Origin, Review, indexes, caches, and materialized shards are derived views. They may be
 persisted for performance, but they are versioned and rebuildable from facts and never become a
 second source of truth. Events notify consumers that something happened; they are not durable state
 and cannot be used as synchronization history.
@@ -79,11 +79,19 @@ query.
 Lifecycle ownership and capability dependencies are different relationships. Every mutable runtime
 unit, resource, admitted operation, background task, subscription, and child runtime has one
 lifecycle owner. Registries may index an owned unit but do not acquire the right to stop it.
+Engine subsystem directories are the canonical homes of both their lifecycle definitions and the
+implementation they own; there is no parallel runtime layer. A neutral substrate has its own leaf
+only when its concept is independent of every subsystem owner. Crypto and decoding remain neutral
+Engine leaves; persistence implementations live with the Persistence subsystem, while application
+decoding, Replica data surfaces, and materialized storage that serve Workspaces live with the
+Workspace subsystem.
 
-Shutdown rejects new work, drains accepted work while its dependencies remain available,
-checkpoints only cleanly drained state, and then releases the ownership subtree once. Construction
-is atomic: a unit is published only after it starts successfully, and failure releases everything
-it acquired.
+Shutdown marks the Collection's shared stop signal before cleanup begins, rejects new entries, and
+releases resources through their owners in reverse dependency order. A subsystem's successful stop
+establishes that it no longer depends on its own or its dependencies' runtime resources; the subsystem
+itself owns how accepted work reaches that state. A Host receives an inert Engine at construction and
+publishes its API to clients only after startup succeeds; subsystem startup failure triggers Collection-owned
+rollback of every subsystem whose initialization began.
 
 ## Synchronization and identity
 

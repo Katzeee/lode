@@ -11,7 +11,7 @@ import { selectEligibleDirectTail } from "./index.js";
 describe("Direct Projection tail policy", () => {
   it("delegates Projection prerequisites to each Mutation family", () => {
     const facts = fullSurface("direct");
-    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.origin;
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).origin;
     const application = supertagApplicationIdentity("node", "supertag");
     const eligible = [
       { kind: "node-delete", nodeId: "node" },
@@ -54,7 +54,7 @@ describe("Direct Projection tail policy", () => {
 
   it("admits Template detachment only for an existing linked instance", () => {
     const facts = base();
-    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).generation.origin;
+    const projection = rebuildGeneration("workspace", facts.snapshot(), versions).origin;
     const linked: Projection = {
       ...projection,
       templateNodeInstances: [
@@ -85,7 +85,7 @@ describe("Direct Projection tail policy", () => {
   it("selects only a neutral-order all-Direct Fact suffix", () => {
     const facts = base();
     const before = facts.snapshot();
-    const projection = rebuildGeneration("workspace", before, versions).generation.origin;
+    const projection = rebuildGeneration("workspace", before, versions).origin;
     const direct = facts.add({
       kind: "text-splice",
       nodeId: "node",

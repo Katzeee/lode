@@ -4,13 +4,13 @@ import { createRequire } from "node:module";
 import { join } from "node:path";
 
 import { configureLogger } from "@lode/logger";
-import { createEngine } from "@lode/engine/host";
-import { defaultExchangeEndpoint, startDaemon } from "./daemon.js";
+import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { defaultExchangeEndpoint, startDaemon, type Daemon } from "./daemon.js";
 import { defaultEndpoint, socketPathOf } from "./endpoint.js";
 import { homePaths, resolveLodeHome } from "./home.js";
 import { acquireDaemonLock } from "./daemon-lock.js";
 import { parseDaemonArgs } from "./daemon-args.js";
-import { PeerExchangeDialPool } from "./peer-exchange-transport.js";
+import { DesktopPeerTransport } from "./peer-exchange-transport.js";
 
 export async function runDaemon(argv: string[]): Promise<void> {
   const options = parseDaemonArgs(argv);
@@ -38,22 +38,22 @@ export async function runDaemon(argv: string[]): Promise<void> {
     const stopped = new Promise<void>((resolve) => {
       resolveStop = resolve;
     });
+    const peerTransport = new DesktopPeerTransport(exchangeListen);
+    const engine = createEngine({
+      persistence: new NodePersistenceBackend(options.dataRoot ?? paths.data),
+      peerTransport,
+    });
     for (const signal of ["SIGINT", "SIGTERM"] as const) {
       process.once(signal, resolveStop);
     }
-    // Engine creation awaits every cataloged session, so the endpoints below
-    // are only published once all workspaces are active or diagnosably
-    // faulted. The dial wiring hands the Engine the peer-exchange transport.
-    const exchangeDials = new PeerExchangeDialPool();
+    let daemon: Daemon | undefined;
+    let failure: unknown;
     try {
-      const engine = await createEngine({
-        persistence: { dataRoot: options.dataRoot ?? paths.data },
-        dialExchange: exchangeDials.wire,
-      });
-      const daemon = await startDaemon({
+      await engine.start();
+      daemon = await startDaemon({
         engine,
         listen,
-        exchangeListen,
+        exchangeAddress: peerTransport.address,
         accessToken,
         status: {
           homeName: options.homeName ?? "",
@@ -66,19 +66,55 @@ export async function runDaemon(argv: string[]): Promise<void> {
       await writeEndpoint(paths.syncEndpoint, daemon.exchangeAddress);
       process.stdout.write(`lode daemon listening on: ${daemon.address}\n`);
       process.stdout.write(`lode peer exchange listening on: ${daemon.exchangeAddress}\n`);
-      try {
-        await stopped;
-      } finally {
-        await daemon.stop();
-        await unlink(paths.endpoint).catch(() => {});
-        await unlink(paths.syncEndpoint).catch(() => {});
+      await stopped;
+    } catch (error) {
+      failure = error;
+    }
+    for (const signal of ["SIGINT", "SIGTERM"] as const) {
+      process.off(signal, resolveStop);
+    }
+    const cleanupErrors: Error[] = [];
+    const stop = daemon ? () => daemon.stop() : () => engine.stop();
+    await captureCleanup(stop, cleanupErrors);
+    await captureCleanup(() => unlink(paths.endpoint), cleanupErrors, "ENOENT");
+    await captureCleanup(() => unlink(paths.syncEndpoint), cleanupErrors, "ENOENT");
+    if (failure !== undefined) {
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError([toError(failure), ...cleanupErrors], "Daemon failed and did not clean up fully", {
+          cause: failure,
+        });
       }
-    } finally {
-      exchangeDials.close();
+      throw toError(failure);
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError(cleanupErrors, "Daemon failed to stop cleanly");
     }
   } finally {
     await lock.release();
   }
+}
+
+async function captureCleanup(
+  operation: () => void | Promise<void>,
+  errors: Error[],
+  ignoredCode?: string,
+): Promise<void> {
+  try {
+    await operation();
+  } catch (error) {
+    if (ignoredCode && hasCode(error, ignoredCode)) {
+      return;
+    }
+    errors.push(toError(error));
+  }
+}
+
+function hasCode(value: unknown, code: string): boolean {
+  return typeof value === "object" && value !== null && "code" in value && value.code === code;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 async function readHomeToken(path: string): Promise<string | null> {
@@ -102,9 +138,13 @@ async function writeEndpoint(path: string, address: string): Promise<void> {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporaryPath, `${address}\n`);
   try {
-    await rename(temporaryPath, path);
-  } catch {
-    await unlink(path).catch(() => {});
-    await rename(temporaryPath, path);
+    try {
+      await rename(temporaryPath, path);
+    } catch {
+      await unlink(path).catch(() => {});
+      await rename(temporaryPath, path);
+    }
+  } finally {
+    await unlink(temporaryPath).catch(() => {});
   }
 }

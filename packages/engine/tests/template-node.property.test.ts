@@ -18,15 +18,10 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
 
 const removeReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const addReplica = "cccccccccccccccccccccccccc";
 const detachReplica = "dddddddddddddddddddddddddd";
-const checkpointKey = "template-node-property";
 
 describe("Template Node convergence", () => {
   it("preserves concurrent observed-remove support and detached content across 32 arrival topologies", () => {
@@ -111,21 +106,20 @@ describe("Template Node convergence", () => {
       );
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
-      expect(full.generation.origin.supertagTemplateNodes.supertag).toEqual(["guidance"]);
-      expect(full.generation.origin.templateNodeInstances[0]).toMatchObject({
+      expect(full.origin.supertagTemplateNodes.supertag).toEqual(["guidance"]);
+      expect(full.origin.templateNodeInstances[0]).toMatchObject({
         state: "detached",
         instanceNodeId: templateInstanceNodeId("note", "guidance"),
         detachmentContributionIds: [detach.id],
       });
       expect(
-        textAtoms(full.generation.origin.nodes[templateInstanceNodeId("note", "guidance")])
+        textAtoms(full.origin.nodes[templateInstanceNodeId("note", "guidance")])
           .map((atom) => atom.value)
           .join(""),
       ).toBe("Guidance");
     }
 
-    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    const before = rebuildGeneration("workspace", baseSnapshot, versions);
     const finalSnapshot = admitted([
       ...base.values,
       remove,
@@ -137,9 +131,7 @@ describe("Template Node convergence", () => {
       detachedOccurrence,
     ]);
     const incremental = advanceGeneration("workspace", baseSnapshot, finalSnapshot, versions, before);
-    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, checkpointKey);
     expect(summary(incremental)).toEqual(expected);
-    expect(summary(checkpointTail)).toEqual(expected);
   });
 });
 
@@ -228,11 +220,8 @@ function admitted(facts: readonly Fact[]) {
   return admission.snapshot;
 }
 
-function summary(result: ReturnType<typeof rebuildGeneration> | null): string {
-  if (result === null) {
-    throw new Error("Expected checkpoint-tail Reconcile result");
-  }
-  return canonicalJson({ origin: result.generation.origin, review: result.generation.review });
+function summary(result: ReturnType<typeof rebuildGeneration>): string {
+  return canonicalJson({ origin: result.origin, review: result.review });
 }
 
 function shuffle(values: Fact[], seed: number): Fact[] {

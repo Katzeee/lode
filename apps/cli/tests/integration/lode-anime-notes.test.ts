@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PeerExchangeDialPool, startDaemon, type Daemon } from "@lode/daemon";
-import { createEngine } from "@lode/engine/host";
+import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
+import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createDesktopClient } from "@lode/desktop-client";
@@ -57,21 +57,20 @@ let actingActorId = "";
 const temporaryDirectories: string[] = [];
 
 async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: string; accessToken: string }>) {
-  const dials = new PeerExchangeDialPool();
-  const engine = await createEngine({ persistence: { dataRoot: options.dataRoot }, dialExchange: dials.wire });
+  const peerTransport = new DesktopPeerTransport(defaultExchangeEndpoint(options.listen));
+  const engine = createEngine({
+    persistence: new NodePersistenceBackend(options.dataRoot),
+    peerTransport,
+  });
+  await engine.start();
   const daemon = await startDaemon({
     engine,
     listen: options.listen,
+    exchangeAddress: peerTransport.address,
     accessToken: options.accessToken,
     status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
   });
-  return {
-    ...daemon,
-    stop: async () => {
-      await daemon.stop();
-      dials.close();
-    },
-  };
+  return daemon;
 }
 
 afterEach(async () => {

@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { startDaemon, type Daemon } from "@lode/daemon";
-import { createEngine } from "@lode/engine/host";
+import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
+import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 
 import { runLode } from "../../src/composition.js";
 
@@ -41,15 +41,22 @@ export async function startHomeHarness(label: string, workspaceLabel: string): P
     `default_home = "main"\n\n[homes.main]\npath = ${tomlPath(home)}\n`,
     "utf8",
   );
-  const engine = await createEngine({ persistence: { dataRoot: join(home, "data") } });
+  const listen = "tcp://127.0.0.1:0";
+  const peerTransport = new DesktopPeerTransport(defaultExchangeEndpoint(listen));
+  const engine = createEngine({
+    persistence: new NodePersistenceBackend(join(home, "data")),
+    peerTransport,
+  });
+  await engine.start();
   const daemon: Daemon = await startDaemon({
     engine,
-    listen: "tcp://127.0.0.1:0",
+    listen,
+    exchangeAddress: peerTransport.address,
     accessToken,
     status: { homeName: "main", daemonVersion: "test", homePath: home },
   });
-  const actor = await engine.identity.createActor({ label: "Harness Actor", passphrase: vaultPassphrase });
-  await engine.workspaces.createWorkspace({
+  const actor = await engine.api.identity.createActor({ label: "Harness Actor", passphrase: vaultPassphrase });
+  await engine.api.workspaces.createWorkspace({
     workspaceId: "workspace",
     label: workspaceLabel,
     ownerActorId: actor.actorId,

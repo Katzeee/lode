@@ -62,7 +62,7 @@ describe("Conflict lifecycle", () => {
       },
     });
     const conflicted = facts.snapshot([accept, reject]);
-    const conflictedGeneration = rebuildGeneration("workspace", conflicted, versions).generation;
+    const conflictedGeneration = rebuildGeneration("workspace", conflicted, versions);
 
     const issues = Object.values(conflictedGeneration.review.conflictIssues);
     expect(issues[0]?.identity).toMatch(/^\["resolution-conflict"/);
@@ -111,7 +111,7 @@ describe("Conflict lifecycle", () => {
     }));
     const admission = admitAuthorityRecords("workspace", records);
     expect(admission.kind).toBe("ready");
-    const terminal = rebuildGeneration("workspace", admission.snapshot, versions).generation;
+    const terminal = rebuildGeneration("workspace", admission.snapshot, versions);
     expect(projectionText(terminal.origin, "node")).toBe("P");
     expect(Object.values(terminal.review.conflictIssues)).toEqual([]);
     expect(frontierOf(admission.snapshot.facts)).toEqual(admission.snapshot.frontier);
@@ -166,7 +166,7 @@ describe("Conflict lifecycle", () => {
       },
     });
     const conflicted = admitted(facts.snapshot([moveB, moveC]));
-    const generation = rebuildGeneration("workspace", conflicted, versions).generation;
+    const generation = rebuildGeneration("workspace", conflicted, versions);
     const issue = Object.values(generation.review.conflictIssues)[0];
     expect(issue).toMatchObject({
       kind: "placement-conflict",
@@ -214,7 +214,7 @@ describe("Conflict lifecycle", () => {
       facts: [...conflicted.facts, resolution],
       frontier: frontierOf([...conflicted.facts, resolution]),
     });
-    const terminal = rebuildGeneration("workspace", resolved, versions).generation;
+    const terminal = rebuildGeneration("workspace", resolved, versions);
     expect(terminal.origin.occurrences.occurrence?.parentNodeId).toBe("parent-b");
     expect(Object.values(terminal.review.conflictIssues)).toEqual([]);
   });
@@ -256,7 +256,7 @@ describe("Conflict lifecycle", () => {
         move(REPLICA_C, { after: "right", before: null, affinity: "after", fallback: "end" }),
       ]),
     );
-    const generation = rebuildGeneration("workspace", snapshot, versions).generation;
+    const generation = rebuildGeneration("workspace", snapshot, versions);
     expect(generation.origin.occurrences.occurrence?.parentNodeId).toBe("parent");
     expect(generation.origin.childOccurrences.parent).toContain("occurrence");
     expect(Object.values(generation.review.conflictIssues)).toEqual([]);

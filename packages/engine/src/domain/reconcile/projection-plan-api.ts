@@ -12,17 +12,15 @@ export function projectWithPlan(
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
-  evaluatedStages: readonly ProjectionStageKey[];
 }> {
   const context = emptyProjectionPlanContext(workspaceId, snapshot, perspective, versions);
-  const evaluatedStages = PROJECTION_PLAN.run(context);
+  PROJECTION_PLAN.run(context);
   if (!context.projection) {
     throw new Error("Projection owner plan did not assemble a Projection");
   }
   return {
     projection: context.projection,
     planCache: context.activation.planCache,
-    evaluatedStages,
   };
 }
 
@@ -37,7 +35,6 @@ export function advanceWithPlan(
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
-  evaluatedStages: readonly ProjectionStageKey[];
 }> {
   const context = incrementalProjectionPlanContext(
     workspaceId,
@@ -48,13 +45,12 @@ export function advanceWithPlan(
     versions,
     projectionReplayPolicy(selected),
   );
-  const evaluatedStages = PROJECTION_PLAN.run(context, selected);
+  PROJECTION_PLAN.run(context, selected);
   if (!context.projection) {
     throw new Error("Incremental owner plan did not assemble a Projection");
   }
   return {
     projection: context.projection,
     planCache: context.activation.planCache,
-    evaluatedStages,
   };
 }

@@ -1,4 +1,4 @@
-import { assertObject, requireString } from "../../shape-validation/index.js";
+import { assertObject, requireString } from "../../decoding/index.js";
 import { parseSearchExpressionSpec } from "./search-expression-spec.js";
 import type { Mutation } from "./types.js";
 

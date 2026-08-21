@@ -1,10 +1,4 @@
-import {
-  assertNullableString,
-  assertObject,
-  assertOneOf,
-  assertKeys,
-  requireString,
-} from "../../shape-validation/index.js";
+import { assertNullableString, assertObject, assertOneOf, assertKeys, requireString } from "../../decoding/index.js";
 import { assertSupertagFieldMutationShape } from "./supertag-field-mutation-shape.js";
 
 export function assertSupertagMutationShape(value: Record<string, unknown>): void {

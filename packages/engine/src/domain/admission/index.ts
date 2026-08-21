@@ -111,7 +111,7 @@ function validateSemanticEvidence(fact: Fact, observed: FactSnapshot): void {
     snapshot: observed,
     projections: () => {
       if (!projections) {
-        const generation = rebuildGeneration(fact.workspaceId, observed, CURRENT_PROJECTION_VERSIONS).generation;
+        const generation = rebuildGeneration(fact.workspaceId, observed, CURRENT_PROJECTION_VERSIONS);
         projections = {
           previous: contribution.intent === "direct" ? generation.origin : generation.review,
           available: generation.review,

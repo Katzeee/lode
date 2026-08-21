@@ -1,4 +1,4 @@
-import { array, exact, nonempty, object } from "../../shape-validation/index.js";
+import { array, exact, nonempty, object } from "../../decoding/index.js";
 import type { TypedFieldValue } from "./projection-types.js";
 
 export function parseTypedFieldValue(value: unknown): TypedFieldValue {

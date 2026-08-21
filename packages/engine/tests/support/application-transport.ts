@@ -9,8 +9,8 @@ import {
   type EngineTransport,
 } from "@lode/sdk";
 
-import { deliverListeners } from "../../src/application/event-delivery.js";
-import { parseEngineCommand, parseEngineQuery } from "../../src/application/input-validation.js";
+import { deliverListeners } from "../../src/subsystems/event/index.js";
+import { parseEngineCommand, parseEngineQuery } from "../../src/subsystems/workspace/application/input-validation.js";
 
 export function createEngineTransportServer(contract: EngineApplicationContract): EngineTransport {
   const eventListeners = new Set<(bytes: Uint8Array) => void>();

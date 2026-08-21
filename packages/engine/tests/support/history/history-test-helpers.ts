@@ -212,7 +212,7 @@ export class HistoryFixture {
   }
 
   generation(): ProjectionGeneration {
-    return rebuildGeneration("workspace", this.snapshot(), versions).generation;
+    return rebuildGeneration("workspace", this.snapshot(), versions);
   }
 }
 

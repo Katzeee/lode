@@ -1,10 +1,4 @@
-import {
-  assertKeys,
-  assertObject,
-  assertOneOf,
-  assertStringArray,
-  requireString,
-} from "../../shape-validation/index.js";
+import { assertKeys, assertObject, assertOneOf, assertStringArray, requireString } from "../../decoding/index.js";
 
 export function assertFieldDefinitionConfigMutationShape(value: Record<string, unknown>): void {
   requireString(value.fieldDefinitionId, "Field Definition identity");

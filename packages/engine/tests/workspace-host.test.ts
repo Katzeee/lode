@@ -4,19 +4,16 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createEngine } from "../src/engine.js";
+import { createEngine, type Engine, type EngineOptions } from "../src/engine.js";
+import { NodePersistenceBackend } from "../src/subsystems/persistence/node-persistence-backend.js";
 import type { TrashEvidenceResult } from "@lode/sdk";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const vaultPassphrase = "workspace-host-passphrase";
 
-async function createWorkspaceAs(
-  engine: Awaited<ReturnType<typeof createEngine>>,
-  workspaceId: string,
-  label: string,
-): Promise<string> {
-  const actor = await engine.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
-  await engine.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
+async function createWorkspaceAs(engine: Engine, workspaceId: string, label: string): Promise<string> {
+  const actor = await engine.api.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
+  await engine.api.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
   return actor.actorId;
 }
 
@@ -33,34 +30,33 @@ describe("Engine workspace host capabilities", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-workspace-host-"));
     temporaryDirectories.push(dataRoot);
 
-    const engine = await createEngine({ persistence: { dataRoot } });
+    const engine = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     await createWorkspaceAs(engine, "personal", "Personal");
     await createWorkspaceAs(engine, "tasks", "Task and Project");
 
-    expect(await engine.workspaces.listWorkspaces()).toEqual([
+    expect(await engine.api.workspaces.listWorkspaces()).toEqual([
       { workspaceId: "personal", label: "Personal", state: "active" },
       { workspaceId: "tasks", label: "Task and Project", state: "active" },
     ]);
 
-    await createWorkspaceAs(engine, "personal", "Personal");
     await expect(
-      engine.workspaces.createWorkspace({ workspaceId: "personal", label: "Other", ownerActorId: "actor_x" }),
-    ).rejects.toThrow(/different name/u);
+      engine.api.workspaces.createWorkspace({ workspaceId: "personal", label: "Other", ownerActorId: "actor_x" }),
+    ).rejects.toThrow("already exists");
 
-    await engine.close();
+    await engine.stop();
 
-    const restarted = await createEngine({ persistence: { dataRoot } });
-    expect(await restarted.workspaces.listWorkspaces()).toEqual([
+    const restarted = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
+    expect(await restarted.api.workspaces.listWorkspaces()).toEqual([
       { workspaceId: "personal", label: "Personal", state: "active" },
       { workspaceId: "tasks", label: "Task and Project", state: "active" },
     ]);
-    await restarted.close();
+    await restarted.stop();
   });
 
   it("serves Trash Evidence for restore and clears it after restore", async () => {
-    const engine = await createEngine();
+    const engine = await startEngine();
     const tester = await createWorkspaceAs(engine, "workspace", "Workspace");
-    await engine.application.execute({
+    await engine.api.application.execute({
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "setup",
@@ -81,7 +77,7 @@ describe("Engine workspace host capabilities", () => {
     const activeDraft = await trashEvidence(engine, "workspace", "draft");
     expect(activeDraft.available).toBe(false);
 
-    await engine.application.execute({
+    await engine.api.application.execute({
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "trash-draft",
@@ -101,7 +97,7 @@ describe("Engine workspace host capabilities", () => {
     expect(draftEvidence.previousOwnerNodeId).toBe("parent");
     expect(draftEvidence.deletionFactId).not.toBe("");
 
-    const restored = await engine.application.execute({
+    const restored = await engine.api.application.execute({
       kind: "mutate",
       workspaceId: "workspace",
       invocationId: "restore-draft",
@@ -122,16 +118,12 @@ describe("Engine workspace host capabilities", () => {
     });
     expect(restored.status).toBe("published");
     expect((await trashEvidence(engine, "workspace", "draft")).available).toBe(false);
-    await engine.close();
+    await engine.stop();
   });
 });
 
-async function trashEvidence(
-  engine: Awaited<ReturnType<typeof createEngine>>,
-  workspaceId: string,
-  nodeId: string,
-): Promise<TrashEvidenceResult> {
-  const result = await engine.application.query({
+async function trashEvidence(engine: Engine, workspaceId: string, nodeId: string): Promise<TrashEvidenceResult> {
+  const result = await engine.api.application.query({
     kind: "trash-evidence",
     workspaceId,
     perspective: "origin",
@@ -141,4 +133,10 @@ async function trashEvidence(
     throw new Error(`trash-evidence query rejected: ${result.error.message}`);
   }
   return result.value as TrashEvidenceResult;
+}
+
+async function startEngine(options?: EngineOptions): Promise<Engine> {
+  const engine = createEngine(options);
+  await engine.start();
+  return engine;
 }

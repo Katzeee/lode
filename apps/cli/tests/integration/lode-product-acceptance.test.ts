@@ -688,7 +688,7 @@ describe("Anime Notes through the product CLI binary", () => {
 });
 
 describe("product CLI process exit codes", () => {
-  it("classifies authorization failures and outcome-unknown mapping", async () => {
+  it("classifies authorization failures", async () => {
     const root = await mkdtemp(join(tmpdir(), "lode-product-codes-"));
     temporaryDirectories.push(root);
     const daemon = await startDaemonProcess(join(root, "d"), accessToken);

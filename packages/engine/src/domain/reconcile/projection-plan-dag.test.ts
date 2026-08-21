@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { frontierOf, makeFact, type Fact, type Mutation } from "../fact/index.js";
+import { makeFact, type Fact, type Mutation } from "../fact/index.js";
 import { deriveActivation } from "../activation/index.js";
-import { advanceGeneration, rebuildGeneration, CURRENT_PROJECTION_VERSIONS as versions } from "./index.js";
 import { compileProjectionPlan } from "./projection-plan-dag.js";
+import { invalidatedProjectionStages, PROJECTION_PLAN } from "./projection-plan.js";
 
 const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 
@@ -59,16 +59,8 @@ describe("Projection plan dataflow", () => {
         insert: "tail",
       }),
     ];
-    const before = { facts: beforeFacts, frontier: frontierOf(beforeFacts) };
-    const result = advanceGeneration(
-      "workspace",
-      before,
-      { facts: afterFacts, frontier: frontierOf(afterFacts) },
-      versions,
-      rebuildGeneration("workspace", before, versions).generation,
-    );
-    expect(result.stats.evaluatedStages).toEqual([
-      "activation",
+    const invalidated = invalidatedProjectionStages(afterFacts.slice(beforeFacts.length));
+    expect([...PROJECTION_PLAN.downstream(invalidated)]).toEqual([
       "content",
       "supertag-relations",
       "conflict",
@@ -76,7 +68,6 @@ describe("Projection plan dataflow", () => {
       "view",
       "assembly",
     ]);
-    expect(result.generation.planCaches.origin.activeContributionIds).toEqual(afterFacts.map((fact) => fact.id));
   });
 });
 

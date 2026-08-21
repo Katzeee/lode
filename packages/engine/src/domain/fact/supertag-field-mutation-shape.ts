@@ -5,7 +5,7 @@ import {
   assertOneOf,
   assertStringArray,
   requireString,
-} from "../../shape-validation/index.js";
+} from "../../decoding/index.js";
 
 export function assertSupertagFieldMutationShape(value: Record<string, unknown>): boolean {
   if (value.kind === "supertag-template-field-discoverability-set") {

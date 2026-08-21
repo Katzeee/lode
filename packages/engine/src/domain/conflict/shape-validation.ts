@@ -4,7 +4,7 @@ import {
   parseFactFrontier as frontier,
   parseSequenceAnchor as sequenceAnchor,
 } from "../fact/index.js";
-import { exact, nonempty as string, object as record, stringArray as strings } from "../../shape-validation/index.js";
+import { exact, nonempty as string, object as record, stringArray as strings } from "../../decoding/index.js";
 import type { ConflictIssue } from "./types.js";
 
 export function parseConflictIssue(value: unknown): ConflictIssue {

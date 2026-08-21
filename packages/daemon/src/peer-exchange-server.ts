@@ -14,7 +14,7 @@ import {
   type PeerExchangeSendRequest,
 } from "@lode/protocol/proto";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import type { Engine, PeerExchangeProof } from "@lode/sdk/host";
+import type { ReplicaExchangeHandler, ReplicaExchangeProof } from "@lode/engine/host";
 
 /**
  * The remote replica-exchange listener: one HTTP/2 server publishing only
@@ -23,13 +23,13 @@ import type { Engine, PeerExchangeProof } from "@lode/sdk/host";
  * state, and every payload rides sealed under the workspace transit key.
  */
 
-export function createPeerExchangeServer(engine: Engine): Readonly<{ server: http2.Http2Server }> {
+export function createPeerExchangeServer(exchange: ReplicaExchangeHandler): Readonly<{ server: http2.Http2Server }> {
   const handler = connectNodeAdapter({
     grpc: true,
     routes: (router) => {
       router.service(PeerExchangeService, {
         profile: async (request: PeerExchangeProfileRequest) => {
-          const exchanged = await engine.remotes.exchangeProfile(proofOf(request.auth));
+          const exchanged = await exchange.exchangeProfile(proofOf(request.auth));
           return create(PeerExchangeProfileResponseSchema, {
             handshake: create(TransitHandshakeSchema, {
               epoch: exchanged.handshake.epoch,
@@ -40,15 +40,11 @@ export function createPeerExchangeServer(engine: Engine): Readonly<{ server: htt
           });
         },
         fetch: async (request: PeerExchangeFetchRequest) => {
-          const sealed = await engine.remotes.exchangeFetch(
-            proofOf(request.auth),
-            request.documentId,
-            request.sealedFrom,
-          );
+          const sealed = await exchange.exchangeFetch(proofOf(request.auth), request.documentId, request.sealedFrom);
           return create(PeerExchangePayloadSchema, { sealedPayload: sealed });
         },
         send: async (request: PeerExchangeSendRequest) => {
-          await engine.remotes.exchangeSend(proofOf(request.auth), request.documentId, request.sealedPayload);
+          await exchange.exchangeSend(proofOf(request.auth), request.documentId, request.sealedPayload);
           return create(EmptySchema);
         },
       });
@@ -57,7 +53,7 @@ export function createPeerExchangeServer(engine: Engine): Readonly<{ server: htt
   return { server: http2.createServer({}, handler) };
 }
 
-function proofOf(auth: PeerAuthentication | undefined): PeerExchangeProof {
+function proofOf(auth: PeerAuthentication | undefined): ReplicaExchangeProof {
   if (!auth) {
     throw new ConnectError("Peer exchange requires peer authentication", Code.Unauthenticated);
   }

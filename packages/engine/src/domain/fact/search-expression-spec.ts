@@ -1,4 +1,4 @@
-import { array, booleanValue, enumValue, exact, nonempty, object, stringValue } from "../../shape-validation/index.js";
+import { array, booleanValue, enumValue, exact, nonempty, object, stringValue } from "../../decoding/index.js";
 
 export type SearchFieldValue =
   | Readonly<{ kind: "node"; nodeId: string }>

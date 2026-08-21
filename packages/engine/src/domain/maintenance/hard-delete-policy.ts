@@ -45,9 +45,6 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
   if (knownReplicaIds.some((replicaId) => !acknowledgedReplicaIds.includes(replicaId))) {
     blockers.push("replica-unconfirmed");
   }
-  if (evidence.outcomeUnknownInvocationIds.length > 0) {
-    blockers.push("outcome-unknown");
-  }
   return {
     selection: {
       workspaceId,
@@ -71,7 +68,6 @@ export function evaluateHardDelete(evidence: HardDeleteEvidence): HardDeleteAsse
     pendingProposalContributionIds,
     knownReplicaIds,
     acknowledgedReplicaIds,
-    outcomeUnknownInvocationIds: [...evidence.outcomeUnknownInvocationIds],
     blockers,
     canExecute: blockers.length === 0,
   };

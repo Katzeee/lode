@@ -9,15 +9,7 @@ import type {
 } from "@lode/protocol/proto";
 import type { EngineApplicationContract } from "./contract.js";
 
-export type SyncProfileEntry = Readonly<{ documentId: string; version: Uint8Array }>;
-
-export type ReplicaPeer = Readonly<{
-  profile(): Promise<readonly SyncProfileEntry[]>;
-  fetch(documentId: string, from: Uint8Array): Promise<Uint8Array>;
-  send(documentId: string, bytes: Uint8Array): Promise<void>;
-}>;
-
-/** Raised when an operation targets a workspace the catalog does not contain. */
+/** Raised when an operation targets a Workspace that is not resident in the Engine. */
 export class WorkspaceNotFoundError extends Error {
   constructor(workspaceId: string) {
     super(`Workspace does not exist: ${workspaceId}`);
@@ -130,54 +122,18 @@ export type EngineWorkspaces = Readonly<{
   ): Promise<Readonly<{ workspaceId: string; label: string }>>;
 }>;
 
-export type EngineReplicaExchange = Readonly<{
-  synchronize(workspaceId: string, peer: ReplicaPeer): Promise<Readonly<{ pulled: number; pushed: number }>>;
-  peer(workspaceId: string): ReplicaPeer;
-  remotePeer(endpoint: string, workspaceId: string): Promise<ReplicaPeer>;
+export type ReplicaSynchronizationResult = Readonly<{ pulled: number; pushed: number }>;
+
+export type EngineReplicas = Readonly<{
+  synchronize(workspaceId: string, endpoint: string): Promise<ReplicaSynchronizationResult>;
 }>;
 
-/** Proof that a dialing Peer owns the identity key behind its peer id. */
-export type PeerExchangeProof = Readonly<{
-  workspaceId: string;
-  peerId: string;
-  nonce: string;
-  signature: Uint8Array;
-}>;
-
-export type TransitHandshake = Readonly<{
-  epoch: number;
-  envelopeEphemeral: Uint8Array;
-  envelopeSeal: Uint8Array;
-}>;
-
-/**
- * The remote replica-exchange boundary as the Engine owns it: the serving
- * side answers authenticated, transit-sealed requests; the dialing side rides
- * a daemon-provided wire. Workspace-scoped by construction — a proof names
- * exactly one workspace and one peer.
- */
-export type EngineRemotes = Readonly<{
-  exchangeProfile(
-    proof: PeerExchangeProof,
-  ): Promise<Readonly<{ handshake: TransitHandshake; sealedProfile: Uint8Array }>>;
-  exchangeFetch(proof: PeerExchangeProof, documentId: string, sealedFrom: Uint8Array): Promise<Uint8Array>;
-  exchangeSend(proof: PeerExchangeProof, documentId: string, sealedPayload: Uint8Array): Promise<void>;
-}>;
-
-export type PeerExchangeWire = Readonly<{
-  profile(proof: PeerExchangeProof): Promise<Readonly<{ handshake: TransitHandshake; sealedProfile: Uint8Array }>>;
-  fetch(proof: PeerExchangeProof, documentId: string, sealedFrom: Uint8Array): Promise<Uint8Array>;
-  send(proof: PeerExchangeProof, documentId: string, sealedPayload: Uint8Array): Promise<void>;
-}>;
-
-export type Engine = Readonly<{
+export type EngineApi = Readonly<{
   application: EngineApplicationContract;
   identity: EngineIdentity;
   governance: EngineGovernance;
   workspaces: EngineWorkspaces;
-  replicas: EngineReplicaExchange;
-  remotes: EngineRemotes;
-  close(): Promise<void>;
+  replicas: EngineReplicas;
 }>;
 
 type ProtocolApplicationMethod = keyof (typeof EngineService)["method"];

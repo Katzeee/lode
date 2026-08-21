@@ -35,7 +35,7 @@ import {
   GovernanceAuthorizationError,
   GovernancePreconditionError,
   WorkspaceNotFoundError,
-  type Engine,
+  type EngineApi,
 } from "@lode/sdk/host";
 import { governanceRoutes, identityRoutes, type UnaryWrapper } from "./control-identity.js";
 import {
@@ -63,7 +63,7 @@ export type DaemonStatusIdentity = Readonly<{
  * workspace-scoped authorization.
  */
 export function createLodeServer(
-  engine: Engine,
+  engine: EngineApi,
   accessToken: string,
   status: DaemonStatusIdentity,
   onShutdown?: () => void,
@@ -77,16 +77,17 @@ export function createLodeServer(
     routes: (router) => {
       router.service(DaemonService, {
         syncWorkspace: unary(accessToken, async (request: WorkspaceSyncRequest) => {
-          const peer = await engine.replicas.remotePeer(request.remoteEndpoint, request.workspaceId);
-          return create(WorkspaceSyncResultSchema, await engine.replicas.synchronize(request.workspaceId, peer));
+          return create(
+            WorkspaceSyncResultSchema,
+            await engine.replicas.synchronize(request.workspaceId, request.remoteEndpoint),
+          );
         }),
         status: unary(accessToken, async () =>
           create(DaemonStatusSchema, {
             homeName: status.homeName,
             daemonVersion: status.daemonVersion,
             homePath: status.homePath,
-            // Serving implies every cataloged session already reached active or
-            // a diagnosable authority-fault: engine creation awaits startAll.
+            // The listener is published only after Engine startup completes.
             ready: true,
             workspaces: (await engine.workspaces.listWorkspaces()).map(toProtocolSummary),
           }),
@@ -142,20 +143,21 @@ export function createLodeServer(
         },
       });
     },
-    contextValues: (request) => {
-      const session = (request as http2.Http2ServerRequest).stream.session;
-      if (session && !sessions.has(session)) {
-        sessions.add(session);
-        session.once("close", () => sessions.delete(session));
-      }
-      return createContextValues();
-    },
+    contextValues: () => createContextValues(),
+  });
+  const server = http2.createServer({}, handler);
+  server.on("session", (session) => {
+    sessions.add(session);
+    session.on("error", () => {
+      // Forced Client Session shutdown is reported by the owning server resource.
+    });
+    session.once("close", () => sessions.delete(session));
   });
   return {
-    server: http2.createServer({}, handler),
+    server,
     closeConnections: () => {
       for (const session of sessions) {
-        session.destroy();
+        session.destroy(new Error("Daemon Client Session is stopping"), http2.constants.NGHTTP2_CANCEL);
       }
     },
   };

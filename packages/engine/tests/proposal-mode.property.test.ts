@@ -19,10 +19,6 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
   rebuildGeneration,
 } from "../src/domain/reconcile/index.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
 import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
 import {
   supertagApplicationIdentity,
@@ -37,8 +33,6 @@ import { fullSurface } from "./support/reconcile/full-surface-test-fixture.js";
 import { historyLifecycleCases, proposalLifecycleCases } from "./support/reconcile/proposal-lifecycle-test-helpers.js";
 import { assertGeneratedPathEquivalence, generatedDomainGraph } from "./proposal-mode-property-fixtures.js";
 import { withInitialOwnerRelations } from "./support/reconcile/placed-node-test-helpers.js";
-
-const CHECKPOINT_KEY = "property-test-key";
 
 const A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -55,22 +49,15 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("checkpoint tails and stage registration order are permutation invariant", () => {
+  it("incremental tails and stage registration order are permutation invariant", () => {
     const facts = causalFixture();
     const beforeFacts = facts.slice(0, 3);
     const before = { facts: beforeFacts, frontier: frontierOf(beforeFacts) };
-    const checkpoint = createGenerationCheckpoint(
-      "workspace",
-      before,
-      rebuildGeneration("workspace", before, versions).generation,
-      CHECKPOINT_KEY,
-    );
-    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions).generation;
+    const beforeGeneration = rebuildGeneration("workspace", before, versions);
+    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
-        expected,
-      );
+      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
     }
 
     for (let seed = 1; seed <= 32; seed += 1) {
@@ -79,27 +66,20 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("Supertag Extension cycle and search projections converge across seeded arrival and checkpoints", () => {
+  it("Supertag Extension cycle and search projections converge across seeded arrival and incremental tails", () => {
     const facts = extensionCycleFixture();
     const prefixFacts = facts.slice(0, 6);
     const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
-    const checkpoint = createGenerationCheckpoint(
-      "workspace",
-      prefix,
-      rebuildGeneration("workspace", prefix, versions).generation,
-      CHECKPOINT_KEY,
-    );
-    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions).generation;
+    const prefixGeneration = rebuildGeneration("workspace", prefix, versions);
+    const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions);
     expect(expected.origin.supertagExtensionConflicts).toEqual({
       "supertag-a": ["supertag-a", "supertag-b"],
       "supertag-b": ["supertag-a", "supertag-b"],
     });
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(rebuildGeneration("workspace", snapshot, versions).generation).toEqual(expected);
-      expect(reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, CHECKPOINT_KEY)?.generation).toEqual(
-        expected,
-      );
+      expect(rebuildGeneration("workspace", snapshot, versions)).toEqual(expected);
+      expect(advanceGeneration("workspace", prefix, snapshot, versions, prefixGeneration)).toEqual(expected);
     }
   });
 
@@ -107,22 +87,14 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     const { prefix, facts } = concurrentSearchExpressionFixture();
     const before = { facts: prefix, frontier: frontierOf(prefix) };
     const finalSnapshot = { facts, frontier: frontierOf(facts) };
-    const beforeGeneration = rebuildGeneration("workspace", before, versions).generation;
-    const expected = rebuildGeneration("workspace", finalSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", before, beforeGeneration, CHECKPOINT_KEY);
+    const beforeGeneration = rebuildGeneration("workspace", before, versions);
+    const expected = rebuildGeneration("workspace", finalSnapshot, versions);
     expect(expected.origin.searchExpressions.search).toBeUndefined();
-    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration).generation).toEqual(
-      expected,
-    );
-    expect(
-      reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, CHECKPOINT_KEY)?.generation,
-    ).toEqual(expected);
+    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration)).toEqual(expected);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(rebuildGeneration("workspace", shuffled, versions).generation).toEqual(expected);
-      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
-        expected,
-      );
+      expect(rebuildGeneration("workspace", shuffled, versions)).toEqual(expected);
+      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
     }
   });
 
@@ -130,24 +102,16 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     const { prefix, facts } = concurrentViewOptionsFixture();
     const before = { facts: prefix, frontier: frontierOf(prefix) };
     const finalSnapshot = { facts, frontier: frontierOf(facts) };
-    const beforeGeneration = rebuildGeneration("workspace", before, versions).generation;
-    const expected = rebuildGeneration("workspace", finalSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", before, beforeGeneration, CHECKPOINT_KEY);
+    const beforeGeneration = rebuildGeneration("workspace", before, versions);
+    const expected = rebuildGeneration("workspace", finalSnapshot, versions);
     const definition = expected.origin.sharedDefaultViewDefinitions.host?.[0];
     expect(definition?.optionsConflicted).toBe(true);
     expect(definition?.optionsContributionIds).toHaveLength(2);
-    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration).generation).toEqual(
-      expected,
-    );
-    expect(
-      reconcileFromCheckpoint(checkpoint, "workspace", finalSnapshot, versions, CHECKPOINT_KEY)?.generation,
-    ).toEqual(expected);
+    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration)).toEqual(expected);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(rebuildGeneration("workspace", shuffled, versions).generation).toEqual(expected);
-      expect(reconcileFromCheckpoint(checkpoint, "workspace", shuffled, versions, CHECKPOINT_KEY)?.generation).toEqual(
-        expected,
-      );
+      expect(rebuildGeneration("workspace", shuffled, versions)).toEqual(expected);
+      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
     }
   });
 
@@ -228,7 +192,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("complete Direct and Proposal mutation surfaces survive seeded delivery checkpoint and resolution permutations", () => {
+  it("complete Direct and Proposal mutation surfaces survive seeded delivery, incremental, and resolution permutations", () => {
     for (const intent of ["direct", "proposal"] as const) {
       for (const decision of ["accept", "reject"] as const) {
         const fixture = fullSurface(intent);
@@ -243,7 +207,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           frontier: frontierOf(fixture.values),
         };
         const expectedAdmission = admitAuthorityRecords("workspace", records(fixture.values));
-        const expectedGeneration = rebuildGeneration("workspace", expectedSnapshot, versions).generation;
+        const expectedGeneration = rebuildGeneration("workspace", expectedSnapshot, versions);
         for (let seed = 1; seed <= 16; seed += 1) {
           const delivered = shuffle(
             [...records(fixture.values), ...records(fixture.values.filter((_, index) => (index + seed) % 3 === 0))],
@@ -254,21 +218,14 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           const cut = seed % fixture.values.length;
           const prefixFacts = fixture.values.slice(0, cut);
           const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
-          const checkpoint = createGenerationCheckpoint(
-            "workspace",
-            prefix,
-            rebuildGeneration("workspace", prefix, versions).generation,
-            CHECKPOINT_KEY,
+          const prefixGeneration = rebuildGeneration("workspace", prefix, versions);
+          const deliveredSnapshot = {
+            facts: shuffle(fixture.values, seed),
+            frontier: expectedSnapshot.frontier,
+          };
+          expect(advanceGeneration("workspace", prefix, deliveredSnapshot, versions, prefixGeneration)).toEqual(
+            expectedGeneration,
           );
-          expect(
-            reconcileFromCheckpoint(
-              checkpoint,
-              "workspace",
-              { facts: shuffle(fixture.values, seed), frontier: expectedSnapshot.frontier },
-              versions,
-              CHECKPOINT_KEY,
-            )?.generation,
-          ).toEqual(expectedGeneration);
         }
       }
     }
@@ -361,7 +318,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("generated bounded domain graphs shrink and preserve full incremental and checkpoint semantics", () => {
+  it("generated bounded domain graphs shrink and preserve full and incremental semantics", () => {
     for (let seed = 1; seed <= 24; seed += 1) {
       assertGeneratedPathEquivalence(generatedDomainGraph(seed), seed);
     }
@@ -403,14 +360,14 @@ function historyFor(prefix: readonly Fact[]): HistoryFixture {
 function clonedHistoryState(history: HistoryFixture): Readonly<{
   receipts: readonly AuthorityReceipt[];
   snapshot: FactSnapshot;
-  generation: ReturnType<typeof rebuildGeneration>["generation"];
+  generation: ReturnType<typeof rebuildGeneration>;
 }> {
   const facts = structuredClone(history.facts);
   const snapshot = { facts, frontier: frontierOf(facts) };
   return {
     receipts: structuredClone(history.receipts),
     snapshot,
-    generation: rebuildGeneration("workspace", snapshot, versions).generation,
+    generation: rebuildGeneration("workspace", snapshot, versions),
   };
 }
 

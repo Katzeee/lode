@@ -1,10 +1,4 @@
-import {
-  assertKeys,
-  assertNullableString,
-  assertObject,
-  assertOneOf,
-  requireString,
-} from "../../shape-validation/index.js";
+import { assertKeys, assertNullableString, assertObject, assertOneOf, requireString } from "../../decoding/index.js";
 import { requireIdentity, validateAnchor } from "./mutation-static-validation-primitives.js";
 import type { InlineReferenceMutation } from "./inline-reference-types.js";
 

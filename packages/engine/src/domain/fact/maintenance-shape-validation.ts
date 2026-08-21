@@ -1,4 +1,4 @@
-import { assertKeys, assertObject, assertStringArray, requireString } from "../../shape-validation/index.js";
+import { assertKeys, assertObject, assertStringArray, requireString } from "../../decoding/index.js";
 
 export function assertMaintenanceAction(value: unknown): void {
   assertObject(value, "Maintenance action");

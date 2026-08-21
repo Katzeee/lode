@@ -18,7 +18,7 @@ import {
   type UnlockVaultRequest,
 } from "@lode/protocol/proto";
 import type { HandlerContext } from "@connectrpc/connect";
-import type { Engine } from "@lode/sdk/host";
+import type { EngineApi } from "@lode/sdk/host";
 
 /**
  * The identity and governance halves of the local control plane: Actor vault
@@ -30,7 +30,7 @@ export type UnaryWrapper = <I, O>(
   handler: (request: I) => Promise<O> | O,
 ) => (request: I, context: HandlerContext) => Promise<O>;
 
-export function identityRoutes(engine: Engine, unary: UnaryWrapper) {
+export function identityRoutes(engine: EngineApi, unary: UnaryWrapper) {
   return {
     listActors: unary(async () => {
       const listed = await engine.identity.listActors();
@@ -72,7 +72,7 @@ export function identityRoutes(engine: Engine, unary: UnaryWrapper) {
   };
 }
 
-export function governanceRoutes(engine: Engine, unary: UnaryWrapper) {
+export function governanceRoutes(engine: EngineApi, unary: UnaryWrapper) {
   return {
     summary: unary(async (request: GovernanceSummaryRequest) => {
       const summary = await engine.governance.summary(request.workspaceId);

@@ -1,14 +1,12 @@
-import type { Engine } from "@lode/sdk/host";
+import type { EngineApi } from "@lode/sdk/host";
 import { parseEndpoint } from "./endpoint.js";
 import { ConnectServerResource } from "./resources/connect-server-resource.js";
-import { PeerExchangeResource } from "./resources/peer-exchange-resource.js";
 import type { DaemonStatusIdentity } from "./connect-server.js";
 
 export type DaemonOptions = Readonly<{
-  engine: Engine;
+  engine: Readonly<{ api: EngineApi; stop(): Promise<void> }>;
   listen: string;
-  /** Listener for the remote replica-exchange boundary; defaults to `listen`'s sibling. */
-  exchangeListen?: string;
+  exchangeAddress: string;
   accessToken: string;
   status: DaemonStatusIdentity;
   onShutdown?: () => void;
@@ -28,36 +26,48 @@ export type Daemon = Readonly<{
  * inter-device credential.
  */
 export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
-  const exchangeEndpoint = parseEndpoint(options.exchangeListen ?? defaultExchangeEndpoint(options.listen));
   const control = new ConnectServerResource(
-    options.engine,
+    options.engine.api,
     parseEndpoint(options.listen),
     options.accessToken,
     options.status,
     options.onShutdown,
   );
-  const exchange = new PeerExchangeResource(options.engine, exchangeEndpoint);
   try {
-    await Promise.all([control.start(), exchange.start()]);
+    await control.start();
   } catch (error) {
-    await Promise.allSettled([control.close(), exchange.close(), options.engine.close()]);
+    const cleanup = await Promise.allSettled([control.close(), options.engine.stop()]);
+    const cleanupErrors = cleanup.flatMap((result) => (result.status === "rejected" ? [toError(result.reason)] : []));
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([toError(error), ...cleanupErrors], "Daemon startup failed to roll back cleanly", {
+        cause: error,
+      });
+    }
     throw error;
   }
   let stopPromise: Promise<void> | undefined;
   return {
     address: control.address,
-    exchangeAddress: exchange.address,
-    stop: () => (stopPromise ??= stopDaemon(control, exchange, options.engine)),
+    exchangeAddress: options.exchangeAddress,
+    stop: () => (stopPromise ??= stopDaemon(control, options.engine)),
   };
 }
 
-async function stopDaemon(
-  control: ConnectServerResource,
-  exchange: PeerExchangeResource,
-  engine: Engine,
-): Promise<void> {
-  await Promise.allSettled([control.close(), exchange.close()]);
-  await engine.close();
+async function stopDaemon(control: ConnectServerResource, engine: Readonly<{ stop(): Promise<void> }>): Promise<void> {
+  try {
+    await control.close();
+  } catch (error) {
+    throw new AggregateError([toError(error)], "Daemon failed to stop cleanly", { cause: error });
+  }
+  try {
+    await engine.stop();
+  } catch (error) {
+    throw new AggregateError([toError(error)], "Daemon failed to stop cleanly", { cause: error });
+  }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 /**

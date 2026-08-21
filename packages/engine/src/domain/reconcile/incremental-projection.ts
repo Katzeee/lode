@@ -15,7 +15,6 @@ export function advanceDirectProjection(
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
-  evaluatedStages: readonly ProjectionStageKey[];
 }> | null {
   const contributions = selectEligibleDirectTail(previous, snapshot.facts, changed);
   if (!contributions) {

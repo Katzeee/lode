@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { startDaemon, type Daemon } from "@lode/daemon";
-import { createEngine } from "@lode/engine/host";
+import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
+import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 
 import { ensureRunningDaemon, homeConnectionFiles, probeDaemon, selectHome } from "./home-connection.js";
 
@@ -120,10 +120,17 @@ async function temporaryHome(): Promise<string> {
  * standing in for what `lode --internal-daemon` does for real. */
 async function startHomeDaemon(home: string): Promise<Daemon> {
   await writeFile(join(home, "token"), `${accessToken}\n`, "utf8");
-  const engine = await createEngine({ persistence: { dataRoot: join(home, "data") } });
+  const listen = "tcp://127.0.0.1:0";
+  const peerTransport = new DesktopPeerTransport(defaultExchangeEndpoint(listen));
+  const engine = createEngine({
+    persistence: new NodePersistenceBackend(join(home, "data")),
+    peerTransport,
+  });
+  await engine.start();
   const daemon = await startDaemon({
     engine,
-    listen: "tcp://127.0.0.1:0",
+    listen,
+    exchangeAddress: peerTransport.address,
     accessToken,
     status: { homeName: "main", daemonVersion: "test", homePath: home },
   });

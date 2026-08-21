@@ -19,7 +19,6 @@ import { assertFieldDefinitionConfigMutationShape } from "./field-definition-con
 import { assertTextMutationShape } from "./text-mutation-shape.js";
 import { isSupertagMutation } from "./mutation-family.js";
 import {
-  assertFrontier,
   assertKeys,
   assertNullableString,
   assertObject,
@@ -28,7 +27,7 @@ import {
   requireNumber,
   requireSafeInteger,
   requireString,
-} from "../../shape-validation/index.js";
+} from "../../decoding/index.js";
 
 export function parseAuthorityRecords(records: readonly unknown[]): AuthorityRecord[] {
   return records.map((record, index) => {
@@ -279,5 +278,13 @@ function assertAnchor(value: unknown): asserts value is SequenceAnchor {
 function assertOptionalAnchor(value: unknown): void {
   if (value !== undefined) {
     assertAnchor(value);
+  }
+}
+
+function assertFrontier(value: unknown, label: string): void {
+  assertObject(value, label);
+  for (const [replicaId, sequence] of Object.entries(value)) {
+    requireString(replicaId, `${label} Replica identity`);
+    requireSafeInteger(sequence, 0, `${label} sequence`);
   }
 }

@@ -17,15 +17,9 @@ import {
   type ProjectionGeneration,
 } from "../src/domain/reconcile/index.js";
 import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
-import {
   withFieldDefinitionEndpoints,
   withInitialOwnerRelations,
 } from "./support/reconcile/placed-node-test-helpers.js";
-
-const checkpointKey = "supertag-convergence-property";
 
 export function remoteBranch(
   replicaId: string,
@@ -65,7 +59,7 @@ export function assertSupertagConvergence(
   inspect: (generation: ProjectionGeneration) => void,
 ): void {
   const expectedSnapshot = admitted(facts);
-  const expected = rebuildGeneration("workspace", expectedSnapshot, versions).generation;
+  const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
   const expectedSummary = canonicalJson(expected);
   inspect(expected);
 
@@ -74,22 +68,18 @@ export function assertSupertagConvergence(
     const delivered = shuffle([...facts, ...duplicates], seed);
     const snapshot = admitted(delivered);
     const full = rebuildGeneration("workspace", snapshot, versions);
-    expect(canonicalJson(full.generation)).toBe(expectedSummary);
+    expect(canonicalJson(full)).toBe(expectedSummary);
 
     const tailLength = facts.length - prefixCount;
     const cut = prefixCount + (tailLength === 0 ? 0 : seed % tailLength);
     const beforeSnapshot = admitted(facts.slice(0, cut));
-    const before = rebuildGeneration("workspace", beforeSnapshot, versions).generation;
+    const before = rebuildGeneration("workspace", beforeSnapshot, versions);
     const incremental = advanceGeneration("workspace", beforeSnapshot, snapshot, versions, before);
-    expect(canonicalJson(incremental.generation)).toBe(expectedSummary);
-
-    const checkpoint = createGenerationCheckpoint("workspace", beforeSnapshot, before, checkpointKey);
-    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", snapshot, versions, checkpointKey);
-    expect(canonicalJson(checkpointTail?.generation)).toBe(expectedSummary);
+    expect(canonicalJson(incremental)).toBe(expectedSummary);
 
     const restarted = rebuildGeneration("workspace", structuredClone(snapshot), versions);
-    expect(canonicalJson(restarted.generation)).toBe(expectedSummary);
-    inspect(full.generation);
+    expect(canonicalJson(restarted)).toBe(expectedSummary);
+    inspect(full);
   }
 }
 

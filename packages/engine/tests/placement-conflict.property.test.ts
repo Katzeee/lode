@@ -8,15 +8,10 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
-import {
-  createGenerationCheckpoint,
-  reconcileFromCheckpoint,
-} from "../src/runtime/materialization/generation-checkpoint.js";
 
 const moveReplicaB = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
 const moveReplicaC = "cccccccccccccccccccccccccc";
 const unrelatedReplica = "dddddddddddddddddddddddddd";
-const checkpointKey = "placement-conflict-property";
 const previousAnchor = {
   after: "parent-c-occurrence",
   before: null,
@@ -47,7 +42,7 @@ describe("Placement Conflict convergence", () => {
       const snapshot = admitted(shuffle([...base.values, moveB, moveC, unrelated, moveB], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
-      const issue = Object.values(full.generation.origin.conflictIssues)[0];
+      const issue = Object.values(full.origin.conflictIssues)[0];
       expect(issue).toMatchObject({
         kind: "placement-conflict",
         occurrenceId: "value-occurrence",
@@ -56,18 +51,15 @@ describe("Placement Conflict convergence", () => {
           { contributionId: moveC.id, parentNodeId: "parent-c" },
         ],
       });
-      expect(full.generation.review.conflictIssues).toEqual(full.generation.origin.conflictIssues);
-      expect(full.generation.review.occurrences["value-occurrence"]?.parentNodeId).toBe(
-        full.generation.origin.occurrences["value-occurrence"]?.parentNodeId,
+      expect(full.review.conflictIssues).toEqual(full.origin.conflictIssues);
+      expect(full.review.occurrences["value-occurrence"]?.parentNodeId).toBe(
+        full.origin.occurrences["value-occurrence"]?.parentNodeId,
       );
     }
 
-    const before = rebuildGeneration("workspace", baseSnapshot, versions).generation;
-    const checkpoint = createGenerationCheckpoint("workspace", baseSnapshot, before, checkpointKey);
+    const before = rebuildGeneration("workspace", baseSnapshot, versions);
     const incremental = advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before);
-    const checkpointTail = reconcileFromCheckpoint(checkpoint, "workspace", expectedSnapshot, versions, checkpointKey);
     expect(summary(incremental)).toBe(expectedSummary);
-    expect(summary(checkpointTail)).toBe(expectedSummary);
   });
 });
 
@@ -118,7 +110,7 @@ function summary(result: ReturnType<typeof rebuildGeneration> | null): string {
   if (!result) {
     throw new Error("Expected Placement Conflict Reconcile result");
   }
-  return canonicalJson(result.generation);
+  return canonicalJson(result);
 }
 
 function shuffle(values: Fact[], seed: number): Fact[] {

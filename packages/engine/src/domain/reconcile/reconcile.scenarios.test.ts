@@ -162,7 +162,7 @@ describe("production Reconcile scenarios", () => {
         const pendingHunk = queryReview(
           "workspace",
           pendingSnapshot,
-          rebuildGeneration("workspace", pendingSnapshot, versions).generation,
+          rebuildGeneration("workspace", pendingSnapshot, versions),
         ).hunks.find((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id));
         expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
         entry.facts.resolve(pendingHunk!.selection.evidence.supportClosure, decision);
@@ -180,7 +180,7 @@ describe("production Reconcile scenarios", () => {
           queryReview(
             "workspace",
             terminalSnapshot,
-            rebuildGeneration("workspace", terminalSnapshot, versions).generation,
+            rebuildGeneration("workspace", terminalSnapshot, versions),
           ).hunks.some((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id)),
         ).toBe(false);
       }

@@ -1,4 +1,4 @@
-import { assertJsonValue, assertKeys, assertObject, requireStringAllowEmpty } from "../../shape-validation/index.js";
+import { assertJsonValue, assertKeys, assertObject, requireStringAllowEmpty } from "../../decoding/index.js";
 
 export function assertOptionalNodeSeed(value: unknown): void {
   if (value === undefined) {

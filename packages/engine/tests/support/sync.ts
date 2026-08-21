@@ -1,5 +1,9 @@
-import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../src/sync/syncable.js";
-import { SyncExchange, type ReplicaPeer, type SyncProfileEntry } from "../../src/runtime/sync/sync-exchange.js";
+import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../src/subsystems/workspace/replica-sync.js";
+import {
+  SyncExchange,
+  type ReplicaPeer,
+  type SyncProfileEntry,
+} from "../../src/subsystems/synchronization/sync-exchange.js";
 
 export class InMemoryReplicaPeer implements ReplicaPeer {
   constructor(private readonly remote: SyncableComposite) {}

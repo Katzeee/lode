@@ -1,4 +1,4 @@
-import { array, exact, nonempty, object, stringArray } from "../../shape-validation/index.js";
+import { array, exact, nonempty, object, stringArray } from "../../decoding/index.js";
 import type { ProjectedOccurrence, TemplateNodeInstance } from "./projection-types.js";
 
 export function projectedOccurrence(value: unknown): ProjectedOccurrence {

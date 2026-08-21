@@ -171,7 +171,7 @@ export function generation(
   snapshot: FactSnapshot,
   selectedVersions: ProjectionVersions = versions,
 ): ProjectionGeneration {
-  return rebuildGeneration("workspace", snapshot, selectedVersions).generation;
+  return rebuildGeneration("workspace", snapshot, selectedVersions);
 }
 
 export function remoteFact(input: {

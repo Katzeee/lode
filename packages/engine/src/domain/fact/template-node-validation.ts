@@ -5,7 +5,7 @@ import {
   assertNullableString,
   assertStringArray,
   requireString,
-} from "../../shape-validation/index.js";
+} from "../../decoding/index.js";
 import type { Mutation } from "./types.js";
 import { templateInstanceNodeId, templateInstanceOccurrenceId } from "./identity.js";
 
