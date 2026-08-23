@@ -1,4 +1,4 @@
-import type { ProjectionIdentity, ProjectionPerspective } from "../../../../domain/fact/index.js";
+import type { FactActionId, ProjectionIdentity, ProjectionPerspective } from "../../../../domain/fact/index.js";
 import type { ProjectionGeneration, ProjectionSectionName } from "../../../../domain/reconcile/index.js";
 import type { ReviewReadModel } from "../../../../domain/review/index.js";
 import type { DocumentStore } from "../../../persistence/index.js";
@@ -7,7 +7,7 @@ import { MATERIALIZED_DATASETS } from "./materialized-datasets.js";
 import { REVIEW_MATERIALIZED_DATASETS, reviewReadModelEntries } from "./materialized-review-read-model.js";
 import type { ProjectionShardBatch, ProjectionSliceName } from "./projection-slices.js";
 import {
-  loadProjectionGeneration,
+  restoreProjectionGeneration,
   readProjectionSectionPage,
   readProjectionSupertagInstances,
   readProjectionSlice,
@@ -16,7 +16,7 @@ import { projectionMaterializedEntries } from "./projection-materialized-dataset
 import { readReviewScopes, readReviewSupport } from "./review-materialized-reader.js";
 import type { ProjectionStoreRestore } from "./ports.js";
 
-export type BoundedProjectionStoreOptions = Readonly<{
+type BoundedProjectionStoreOptions = Readonly<{
   capacity?: number;
 }>;
 
@@ -38,14 +38,10 @@ export class BoundedProjectionStore {
     ]);
   }
 
-  async load(generationId: string): Promise<ProjectionGeneration> {
-    return this.store.read(generationId, loadProjectionGeneration);
-  }
-
   async restore(generationId: string): Promise<ProjectionStoreRestore> {
     const restored = await this.store.restore(generationId, async (generation) => {
       const [projection] = await Promise.all([
-        loadProjectionGeneration(generation),
+        restoreProjectionGeneration(generation),
         ...REVIEW_MATERIALIZED_DATASETS.map((dataset) => generation.all(dataset)),
       ]);
       return projection;
@@ -65,8 +61,8 @@ export class BoundedProjectionStore {
     return this.store.read(generationId, (generation) => readReviewScopes(generation, after, limit));
   }
 
-  async reviewSupport(generationId: string, contributionIds: readonly string[]) {
-    return this.store.read(generationId, (generation) => readReviewSupport(generation, contributionIds));
+  async reviewSupport(generationId: string, factActionIds: readonly FactActionId[]) {
+    return this.store.read(generationId, (generation) => readReviewSupport(generation, factActionIds));
   }
 
   async page<Section extends ProjectionSectionName>(

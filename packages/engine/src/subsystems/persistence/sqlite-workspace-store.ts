@@ -34,16 +34,34 @@ export class SqliteWorkspaceStore {
 
   /** Append one incremental update for a content sub-doc; returns the assigned seq. */
   async appendUpdate(input: { subDoc: string; updateBytes: Uint8Array }): Promise<number> {
-    const nextSeq = (await this.latestSeq(input.subDoc)) + 1;
-    await this.db.run(
-      `INSERT INTO content_updates (sub_doc, seq, update_bytes, created_at)
-       VALUES (?, ?, ?, ?)`,
-      input.subDoc,
-      nextSeq,
-      bytesToBuffer(input.updateBytes),
-      Date.now(),
-    );
-    return nextSeq;
+    const [sequence] = await this.appendUpdates([input]);
+    if (sequence === undefined) {
+      throw new Error("Document update did not produce a sequence");
+    }
+    return sequence;
+  }
+
+  async appendUpdates(
+    inputs: readonly Readonly<{ subDoc: string; updateBytes: Uint8Array }>[],
+  ): Promise<readonly number[]> {
+    return this.db.transaction(async () => {
+      const nextByDocument = new Map<string, number>();
+      const sequences: number[] = [];
+      for (const input of inputs) {
+        const nextSeq = nextByDocument.get(input.subDoc) ?? (await this.latestSeq(input.subDoc)) + 1;
+        await this.db.run(
+          `INSERT INTO content_updates (sub_doc, seq, update_bytes, created_at)
+           VALUES (?, ?, ?, ?)`,
+          input.subDoc,
+          nextSeq,
+          bytesToBuffer(input.updateBytes),
+          Date.now(),
+        );
+        nextByDocument.set(input.subDoc, nextSeq + 1);
+        sequences.push(nextSeq);
+      }
+      return sequences;
+    });
   }
 
   /** Write (or overwrite) a snapshot for a content sub-doc covering up to `coveredUpdateSeq`. */
@@ -177,7 +195,7 @@ export class SqliteWorkspaceStore {
   }
 }
 
-export type LoadedDocBytes = {
+type LoadedDocBytes = {
   snapshotBytes: Uint8Array | null;
   updateBytes: Uint8Array[];
 };

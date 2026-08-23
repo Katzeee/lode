@@ -36,7 +36,7 @@ export type MaterializedGenerationRead<Identity> = Readonly<{
   ): Promise<readonly LoadedMaterializedEntry<Value>[]>;
 }>;
 
-export type MaterializedGenerationRestore<Value> =
+type MaterializedGenerationRestore<Value> =
   | Readonly<{ kind: "found"; value: Value }>
   | Readonly<{ kind: "missing" }>
   | Readonly<{ kind: "invalid"; reason: string }>;

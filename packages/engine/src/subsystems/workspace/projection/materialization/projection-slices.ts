@@ -5,7 +5,7 @@ import {
   type ProjectionSections,
 } from "../../../../domain/reconcile/index.js";
 
-export const PROJECTION_LOOKUP_INDEX_NAMES = [
+const PROJECTION_LOOKUP_INDEX_NAMES = [
   "occurrenceIdsByNode",
   "nodeIdsByOwner",
   "nodeIdsBySupertag",
@@ -18,7 +18,7 @@ export const PROJECTION_LOOKUP_INDEX_NAMES = [
   "templateNodeInstancesBySupertag",
 ] as const;
 
-export type ProjectionLookupIndexName = (typeof PROJECTION_LOOKUP_INDEX_NAMES)[number];
+type ProjectionLookupIndexName = (typeof PROJECTION_LOOKUP_INDEX_NAMES)[number];
 export type ProjectionListIndexName = Exclude<ProjectionLookupIndexName, "supertagInstanceMemberships">;
 export type ProjectionSliceName = ProjectionSectionName | ProjectionLookupIndexName;
 

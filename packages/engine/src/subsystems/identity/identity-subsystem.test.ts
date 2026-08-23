@@ -24,7 +24,7 @@ describe("IdentitySubsystem", () => {
     await first.lifecycle.start();
     const created = await first.api.vault.createActor({ label: "Owner", passphrase: "identity-test-passphrase" });
     const peerId = first.api.peer.peerId();
-    expect(first.api.signing.isActorUnlocked(created.actorId)).toBe(true);
+    expect(first.api.vault.isActorUnlocked(created.actorId)).toBe(true);
     await first.lifecycle.stop();
 
     expect(() => first.api.peer.peerId()).toThrow("Identity subsystem is not initialized");
@@ -36,7 +36,7 @@ describe("IdentitySubsystem", () => {
       { actorId: created.actorId, label: "Owner", unlocked: false },
     ]);
     await second.api.vault.unlock("identity-test-passphrase");
-    expect(second.api.signing.isActorUnlocked(created.actorId)).toBe(true);
+    expect(second.api.vault.isActorUnlocked(created.actorId)).toBe(true);
     await second.lifecycle.stop();
   });
 

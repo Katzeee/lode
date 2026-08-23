@@ -1,125 +1,100 @@
-import { canonicalJson, isSupertagMutation, type Mutation } from "../fact/index.js";
+import { canonicalJson, isSupertagAction, type AuthoredAction } from "../fact/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { ReviewFamilyRule } from "./review-family.js";
 import { supertagCandidates } from "./supertag-candidates.js";
 import { addSupertagRelationImpacts, supertagRelationEffect } from "./supertag-review.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 
-const SCHEMA_REVIEW_MUTATION_KINDS = [
-  "supertag-apply",
-  "supertag-remove",
+const ACTION_KINDS = [
+  "supertag-application-add",
+  "supertag-membership-remove",
   "supertag-extension-add",
   "supertag-extension-remove",
-  "supertag-template-node-add",
-  "supertag-template-node-remove",
-  "supertag-template-field-attach",
-  "supertag-template-field-existing-attach",
-  "supertag-template-field-detach",
-  "supertag-template-field-discoverability-set",
-  "supertag-template-field-visibility-configure",
-  "supertag-optional-field-contribution-attach",
-  "supertag-optional-field-contribution-detach",
+  "template-member-add",
+  "template-member-remove",
+  "template-field-add",
+  "template-field-remove",
+  "template-field-restore",
+  "template-field-visibility-set",
+  "template-field-static-default-set",
+  "optional-field-contribution-add",
+  "optional-field-contribution-remove",
 ] as const;
 
 export const supertagReviewFamily = {
   key: "supertag",
-  mutationKinds: SCHEMA_REVIEW_MUTATION_KINDS,
+  actionKinds: ACTION_KINDS,
   scopes(fact) {
-    const mutation = fact.body.mutation;
-    if (!isSupertagReviewMutation(mutation)) {
-      throw new Error("Supertag Review family received another Mutation family");
+    const action = fact.action;
+    if (!isSupertagReviewAction(action)) {
+      throw new Error("Supertag Review family received another AuthoredAction family");
     }
-    switch (mutation.kind) {
-      case "supertag-apply":
-      case "supertag-remove":
-        return [
-          reviewScope("supertag-application", mutation.applicationNodeId),
-          associatedNodeScope(mutation.hostNodeId),
-          associatedNodeScope(mutation.applicationNodeId),
-          associatedNodeScope(mutation.supertagId),
-        ];
-      case "supertag-extension-add":
-      case "supertag-extension-remove":
-        return [
-          reviewScope("supertag-extension", mutation.supertagId),
-          associatedNodeScope(mutation.supertagId),
-          associatedNodeScope(mutation.baseSupertagId),
-        ];
-      case "supertag-template-node-add":
-      case "supertag-template-node-remove":
-        return [
-          reviewScope("supertag-template", mutation.supertagId),
-          associatedNodeScope(mutation.supertagId),
-          associatedNodeScope(mutation.templateNodeId),
-        ];
-      case "supertag-template-field-attach":
-      case "supertag-template-field-existing-attach":
-      case "supertag-template-field-detach":
-      case "supertag-template-field-discoverability-set":
-      case "supertag-template-field-visibility-configure":
-        return [
-          reviewScope("supertag-template", mutation.supertagId),
-          associatedNodeScope(mutation.supertagId),
-          associatedNodeScope(mutation.templateFieldNodeId),
-          associatedNodeScope(mutation.fieldDefinitionId),
-        ];
-      case "supertag-optional-field-contribution-attach":
-      case "supertag-optional-field-contribution-detach":
-        return [
-          reviewScope("supertag-template", mutation.supertagId),
-          associatedNodeScope(mutation.supertagId),
-          associatedNodeScope(mutation.contributionNodeId),
-          associatedNodeScope(mutation.fieldDefinitionId),
-        ];
+    if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
+      return [
+        reviewScope("supertag-application", action.hostNodeId, action.supertagId),
+        associatedNodeScope(action.hostNodeId),
+        associatedNodeScope(action.supertagId),
+      ];
     }
+    if (action.kind === "supertag-extension-add" || action.kind === "supertag-extension-remove") {
+      return [
+        reviewScope("supertag-extension", action.supertagId, action.baseSupertagId),
+        associatedNodeScope(action.supertagId),
+        associatedNodeScope(action.baseSupertagId),
+      ];
+    }
+    if (action.kind === "template-member-add" || action.kind === "template-member-remove") {
+      return [
+        reviewScope("supertag-template", action.supertagId),
+        associatedNodeScope(action.supertagId),
+        associatedNodeScope(action.templateNodeId),
+      ];
+    }
+    if (action.kind === "template-field-add") {
+      return [
+        reviewScope("template-field", action.supertagId, action.fieldDefinition.fieldDefinitionId),
+        associatedNodeScope(action.supertagId),
+        associatedNodeScope(action.fieldDefinition.fieldDefinitionId),
+      ];
+    }
+    if (
+      action.kind === "template-field-restore" ||
+      action.kind === "template-field-visibility-set" ||
+      action.kind === "template-field-static-default-set"
+    ) {
+      return [reviewScope("template-field", action.templateFieldId)];
+    }
+    return [
+      reviewScope("supertag-template", action.supertagId),
+      associatedNodeScope(action.supertagId),
+      associatedNodeScope(action.fieldDefinitionId),
+    ];
   },
   candidates: ({ generation, pending }) => supertagCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (isSupertagMutation(mutation)) {
-      if (
-        mutation.kind === "supertag-template-field-attach" ||
-        mutation.kind === "supertag-template-field-existing-attach" ||
-        mutation.kind === "supertag-template-field-detach" ||
-        mutation.kind === "supertag-template-field-discoverability-set" ||
-        mutation.kind === "supertag-optional-field-contribution-attach" ||
-        mutation.kind === "supertag-optional-field-contribution-detach"
-      ) {
-        return null;
-      }
-      const effect = supertagRelationEffect(fact, generation);
-      return effect.originIndex === effect.reviewIndex
-        ? null
-        : {
-            identity: canonicalJson(["supertag-relation", effect.relation, effect.ownerId, effect.targetId]),
-            effect,
-          };
+    if (!isSupertagAction(fact.action)) {
+      throw new Error("Supertag Review family received another AuthoredAction family");
     }
-    throw new Error("Supertag Review family received another Mutation family");
+    const effect = supertagRelationEffect(fact, generation);
+    return effect.originIndex === effect.reviewIndex
+      ? null
+      : { identity: canonicalJson(["supertag-relation", effect.relation, effect.ownerId, effect.targetId]), effect };
   },
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-        addNodeReviewImpacts(impacts, mutation.hostNodeId, generation);
-        impacts.add(mutation.applicationNodeId);
+      if (!isSupertagAction(fact.action)) {
+        continue;
       }
-      if (
-        mutation.kind === "supertag-apply" ||
-        mutation.kind === "supertag-remove" ||
-        mutation.kind === "supertag-extension-add" ||
-        mutation.kind === "supertag-extension-remove" ||
-        mutation.kind === "supertag-template-node-add" ||
-        mutation.kind === "supertag-template-node-remove"
-      ) {
-        addSupertagRelationImpacts(impacts, fact, generation);
+      if (fact.action.kind === "supertag-application-add" || fact.action.kind === "supertag-membership-remove") {
+        addNodeReviewImpacts(impacts, fact.action.hostNodeId, generation);
       }
+      addSupertagRelationImpacts(impacts, fact, generation);
     }
   },
 } satisfies ReviewFamilyRule;
 
-function isSupertagReviewMutation(
-  mutation: Mutation,
-): mutation is Extract<Mutation, { kind: (typeof SCHEMA_REVIEW_MUTATION_KINDS)[number] }> {
-  return SCHEMA_REVIEW_MUTATION_KINDS.includes(mutation.kind as (typeof SCHEMA_REVIEW_MUTATION_KINDS)[number]);
+function isSupertagReviewAction(
+  action: AuthoredAction,
+): action is Extract<AuthoredAction, { kind: (typeof ACTION_KINDS)[number] }> {
+  return ACTION_KINDS.includes(action.kind as (typeof ACTION_KINDS)[number]);
 }

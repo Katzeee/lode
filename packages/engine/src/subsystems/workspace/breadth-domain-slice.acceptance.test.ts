@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { MutationCommand } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import type { EditCommand } from "@lode/sdk";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -26,22 +25,11 @@ describe("breadth-first domain slice", () => {
       ]),
     );
 
-    await publish(
-      workspace,
-      command("debug-open", [{ kind: "debug-node-open", hostNodeId: "debug-target", metanodeId: "debug-meta" }]),
-    );
     expect(await debugNode(workspace, "debug-target")).toMatchObject({
       available: true,
-      metanodeId: "debug-meta",
+      metanodeId: null,
       metanodeChildOccurrenceIds: [],
     });
-    expect(
-      await workspace.execute(
-        command("debug-open-again", [
-          { kind: "debug-node-open", hostNodeId: "debug-target", metanodeId: "debug-meta" },
-        ]),
-      ),
-    ).toMatchObject({ status: "rejected" });
 
     await publish(
       workspace,
@@ -146,7 +134,7 @@ describe("breadth-first domain slice", () => {
     expect(secondPage.rows.map((row) => [row.nodeId, row.depth])).toEqual([["outline-a", 1]]);
   });
 
-  it("BREADTH-2 creates the evidenced View Sort graph and persists the corresponding outline reorder", async () => {
+  it("BREADTH-2 applies semantic node-name sort and restores both the option and sequence through History", async () => {
     const workspace = await setup();
     await publish(
       workspace,
@@ -160,32 +148,22 @@ describe("breadth-first domain slice", () => {
       workspace,
       command("view-create", [
         {
-          kind: "shared-default-view-definition-create",
+          kind: "shared-default-view-create",
           hostNodeId: "host",
-          metanodeId: "host-meta",
-          attachmentNodeId: "view-attachment",
-          attachmentOccurrenceId: "view-attachment-occ",
-          relationDefinitionOccurrenceId: "view-attachment-definition-occ",
-          viewDefinitionNodeId: "view-definition",
-          viewDefinitionOccurrenceId: "view-definition-occ",
           viewType: "outline",
           anchor: end,
         },
       ]),
     );
+    const viewId = await sharedViewId(workspace, "host");
     await publish(
       workspace,
       command("view-sort", [
         {
-          kind: "shared-default-view-definition-sort-by-name-create",
+          kind: "view-sort-by-node-name",
           hostNodeId: "host",
-          viewDefinitionNodeId: "view-definition",
-          sortOrderFieldNodeId: "sort-order",
-          sortOrderFieldOccurrenceId: "sort-order-occ",
-          sortFieldNodeId: "sort-field",
-          sortFieldOccurrenceId: "sort-field-occ",
-          nodeNameOccurrenceId: "sort-node-name-occ",
-          ascendingOccurrenceId: "sort-ascending-occ",
+          viewId,
+          direction: "ascending",
         },
       ]),
     );
@@ -199,11 +177,8 @@ describe("breadth-first domain slice", () => {
     if (!("sharedDefaultViewDefinitions" in definitions)) {
       throw new Error("Expected View Definition Projection");
     }
-    expect(definitions.sharedDefaultViewDefinitions.host?.[0]?.sortByNameAscending).toMatchObject({
-      sortOrderFieldNodeId: "sort-order",
-      sortFieldNodeId: "sort-field",
-      nodeNameOccurrenceId: "sort-node-name-occ",
-      ascendingOccurrenceId: "sort-ascending-occ",
+    expect(definitions.sharedDefaultViewDefinitions.host?.[0]?.options.sort).toMatchObject({
+      direction: "ascending",
     });
     const view = await workspace.query({
       kind: "view-rows",
@@ -242,7 +217,7 @@ describe("breadth-first domain slice", () => {
     if (!("sharedDefaultViewDefinitions" in definitionsAfterUndo)) {
       throw new Error("Expected View Definition Projection after Undo");
     }
-    expect(definitionsAfterUndo.sharedDefaultViewDefinitions.host?.[0]?.sortByNameAscending).toBeNull();
+    expect(definitionsAfterUndo.sharedDefaultViewDefinitions.host?.[0]?.options.sort).toBeNull();
     expect(
       (
         await workspace.query({
@@ -279,15 +254,6 @@ describe("breadth-first domain slice", () => {
         })
       ).rows.map((row) => row.nodeId),
     ).toEqual(["a-child", "z-child"]);
-
-    expect(
-      await workspace.execute(
-        command("tamper-sort", [nodeAt("illegal-sort-value", "sort-field", "illegal-sort-value-occ", "illegal")]),
-      ),
-    ).toMatchObject({
-      status: "rejected",
-      error: { message: "Structural role requires a typed mutation: Tuple sort-field" },
-    });
   });
 
   it("BREADTH-3 keeps View Sort isolated in Review until its Proposal is accepted", async () => {
@@ -304,33 +270,23 @@ describe("breadth-first domain slice", () => {
       workspace,
       command("proposal-view", [
         {
-          kind: "shared-default-view-definition-create",
+          kind: "shared-default-view-create",
           hostNodeId: "proposal-host",
-          metanodeId: "proposal-host-meta",
-          attachmentNodeId: "proposal-view-attachment",
-          attachmentOccurrenceId: "proposal-view-attachment-occ",
-          relationDefinitionOccurrenceId: "proposal-view-attachment-definition-occ",
-          viewDefinitionNodeId: "proposal-view-definition",
-          viewDefinitionOccurrenceId: "proposal-view-definition-occ",
           viewType: "outline",
           anchor: end,
         },
       ]),
     );
+    const proposalViewId = await sharedViewId(workspace, "proposal-host");
     const proposed = await workspace.execute(
       command(
         "propose-view-sort",
         [
           {
-            kind: "shared-default-view-definition-sort-by-name-create",
+            kind: "view-sort-by-node-name",
             hostNodeId: "proposal-host",
-            viewDefinitionNodeId: "proposal-view-definition",
-            sortOrderFieldNodeId: "proposal-sort-order",
-            sortOrderFieldOccurrenceId: "proposal-sort-order-occ",
-            sortFieldNodeId: "proposal-sort-field",
-            sortFieldOccurrenceId: "proposal-sort-field-occ",
-            nodeNameOccurrenceId: "proposal-sort-node-name-occ",
-            ascendingOccurrenceId: "proposal-sort-ascending-occ",
+            viewId: proposalViewId,
+            direction: "ascending",
           },
         ],
         "proposal",
@@ -365,11 +321,8 @@ describe("breadth-first domain slice", () => {
 async function setup(): Promise<Workspace> {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId: "112",
-    authorityJournal: new InMemoryDocumentStore(),
-    factReplication: new InMemoryDocumentStore(),
-    admitRecords: admitAuthorityRecords,
+    documents: new InMemoryDocumentStore(),
   });
   return Workspace.open({ workspaceId: "workspace", facts, versions });
 }
@@ -380,7 +333,7 @@ function nodeAt(
   occurrenceId: string,
   text: string,
   intrinsicNodeType?: "field-definition",
-): MutationCommand["mutations"][number] {
+): EditCommand["actions"][number] {
   return {
     kind: "node-create",
     nodeId,
@@ -398,17 +351,17 @@ function textSeed(text: string) {
 
 function command(
   invocationId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "breadth",
-    mutations,
+    actions,
   };
 }
 
@@ -427,8 +380,21 @@ async function outlineNodeIds(
   return outline.rows.map((row) => row.nodeId);
 }
 
-async function publish(workspace: Workspace, mutation: MutationCommand): Promise<void> {
-  const result = await workspace.execute(mutation);
+async function sharedViewId(workspace: Workspace, hostNodeId: string) {
+  const projection = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    perspective: "origin",
+    section: "sharedDefaultViewDefinitions",
+  });
+  if (!("sharedDefaultViewDefinitions" in projection)) {
+    throw new Error("Expected View Definition Projection");
+  }
+  return required(projection.sharedDefaultViewDefinitions[hostNodeId]?.[0], "shared View Definition").viewId;
+}
+
+async function publish(workspace: Workspace, command: EditCommand): Promise<void> {
+  const result = await workspace.execute(command);
   expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
 }
 

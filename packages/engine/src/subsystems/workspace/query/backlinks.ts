@@ -1,14 +1,9 @@
 import type { Backlink, BacklinksQueryRequest, BacklinksResult } from "@lode/sdk";
 import { stableStringCompare } from "../../../domain/fact/index.js";
 import { nodeLocation, type ProjectionGeneration } from "../../../domain/reconcile/index.js";
-import type { ProjectionGenerationReader } from "../projection/index.js";
 
-export async function queryBacklinks(
-  query: BacklinksQueryRequest,
-  generationId: string,
-  projections: ProjectionGenerationReader,
-): Promise<BacklinksResult> {
-  const generation = await projections.load(generationId);
+export function queryBacklinks(query: BacklinksQueryRequest, generation: ProjectionGeneration): BacklinksResult {
+  const generationId = generation.identity.generationId;
   const projection = generation[query.perspective];
   const targetStatus = targetLocation(projection, query.targetNodeId);
   const indexed = [

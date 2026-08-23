@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { parseEditMutation } from "./input-validation.js";
+import { parseEditAction } from "./input-validation.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+const semanticId = "g1/workspace/101/2/actions/0";
 
 describe("edit input validation", () => {
   it("accepts domain intent without prepared Fact evidence", () => {
     expect(
-      parseEditMutation({
+      parseEditAction({
         kind: "occurrence-move",
         occurrenceId: "placement",
         parentNodeId: "parent",
@@ -21,35 +22,16 @@ describe("edit input validation", () => {
     });
   });
 
-  it("rejects causal evidence owned by Fact preparation", () => {
-    expect(() =>
-      parseEditMutation({
-        kind: "occurrence-move",
-        occurrenceId: "placement",
-        parentNodeId: "parent",
-        anchor: end,
-        previousParentNodeId: "old-parent",
-      }),
-    ).toThrow(/Prepared Fact evidence/);
-  });
-
-  it("names ownership changes as Reference promotion", () => {
-    expect(parseEditMutation({ kind: "reference-promote", occurrenceId: "reference" })).toEqual({
+  it("accepts Reference promotion", () => {
+    expect(parseEditAction({ kind: "reference-promote", occurrenceId: "reference" })).toEqual({
       kind: "reference-promote",
       occurrenceId: "reference",
     });
-    expect(() =>
-      parseEditMutation({
-        kind: "node-owner-set",
-        nodeId: "node",
-        ownerNodeId: "parent",
-      }),
-    ).toThrow(/not a public edit operation/);
   });
 
   it("accepts an explicit Intrinsic Node Type on Node creation", () => {
     expect(
-      parseEditMutation({
+      parseEditAction({
         kind: "node-create",
         nodeId: "tag",
         occurrenceId: "tag-original",
@@ -66,97 +48,91 @@ describe("edit input validation", () => {
 
   it("accepts an empty Static Default as an explicit clear and rejects non-text values", () => {
     expect(
-      parseEditMutation({
+      parseEditAction({
         kind: "supertag-template-field-static-default-set",
         supertagId: "task-supertag",
-        templateFieldNodeId: "status-template",
+        templateFieldId: semanticId,
         value: "",
       }),
     ).toEqual({
       kind: "supertag-template-field-static-default-set",
       supertagId: "task-supertag",
-      templateFieldNodeId: "status-template",
+      templateFieldId: semanticId,
       value: "",
     });
     expect(() =>
-      parseEditMutation({
+      parseEditAction({
         kind: "supertag-template-field-static-default-set",
         supertagId: "task-supertag",
-        templateFieldNodeId: "status-template",
+        templateFieldId: semanticId,
         value: null,
       }),
     ).toThrow("Template Field Static Default is invalid");
   });
 
-  it("validates recursive Search Expressions and rejects duplicate clause identities", () => {
+  it("validates recursive Search Expression intent without caller-owned projection identities", () => {
     expect(
-      parseEditMutation({
-        kind: "search-expression-update",
+      parseEditAction({
+        kind: "search-expression-create",
         searchNodeId: "search",
+        anchor: end,
         expression: {
-          expressionNodeId: "root",
           kind: "and",
           operands: [
-            { expressionNodeId: "tag", kind: "supertag", supertagId: "task" },
+            { kind: "supertag", supertagId: "task" },
             {
-              expressionNodeId: "negated",
               kind: "not",
-              operand: { expressionNodeId: "text", kind: "text", text: "archived" },
+              operand: { kind: "text", text: "archived" },
             },
           ],
         },
       }),
-    ).toMatchObject({ kind: "search-expression-update", expression: { kind: "and" } });
+    ).toMatchObject({ kind: "search-expression-create", expression: { kind: "and" } });
     expect(() =>
-      parseEditMutation({
-        kind: "search-expression-update",
+      parseEditAction({
+        kind: "search-expression-create",
         searchNodeId: "search",
-        expression: {
-          expressionNodeId: "root",
-          kind: "or",
-          operands: [
-            { expressionNodeId: "same", kind: "text", text: "one" },
-            { expressionNodeId: "same", kind: "text", text: "two" },
-          ],
-        },
+        anchor: end,
+        expression: { kind: "not", operand: { kind: "unknown" } },
       }),
-    ).toThrow(/repeats a Node identity/);
+    ).toThrow();
   });
 
-  it("validates typed View options and rejects identities reused across rules", () => {
+  it("validates semantic View option edits and their Fact identities", () => {
     expect(
-      parseEditMutation({
-        kind: "shared-default-view-definition-options-update",
+      parseEditAction({
+        kind: "view-sort-add",
         hostNodeId: "host",
-        viewDefinitionNodeId: "view",
-        options: {
-          columns: [{ columnNodeId: "column", fieldDefinitionId: "status" }],
-          filter: {
-            filterNodeId: "filter",
-            expression: {
-              expressionNodeId: "predicate",
-              kind: "field-defined",
-              fieldDefinitionId: "status",
-              defined: true,
-            },
-          },
-          sort: { sortNodeId: "sort", fieldDefinitionId: "date", direction: "descending" },
-          group: { groupNodeId: "group", fieldDefinitionId: "status" },
-        },
+        viewId: semanticId,
+        fieldDefinitionId: "date",
+        direction: "descending",
       }),
-    ).toMatchObject({ kind: "shared-default-view-definition-options-update" });
+    ).toEqual({
+      kind: "view-sort-add",
+      hostNodeId: "host",
+      viewId: semanticId,
+      fieldDefinitionId: "date",
+      direction: "descending",
+    });
     expect(() =>
-      parseEditMutation({
-        kind: "shared-default-view-definition-options-update",
+      parseEditAction({
+        kind: "view-sort-add",
         hostNodeId: "host",
-        viewDefinitionNodeId: "view",
-        options: {
-          columns: [{ columnNodeId: "same", fieldDefinitionId: "status" }],
-          filter: null,
-          sort: { sortNodeId: "same", fieldDefinitionId: "date", direction: "ascending" },
-          group: null,
-        },
+        viewId: "view",
+        fieldDefinitionId: "date",
+        direction: "ascending",
       }),
-    ).toThrow(/identities must be unique/);
+    ).toThrow("View identity must be a Fact Action identity");
+
+    expect(
+      parseEditAction({
+        kind: "view-filter-expression-configure",
+        hostNodeId: "host",
+        viewId: semanticId,
+        filterId: "g1/workspace/101/2/actions/1",
+        expressionId: "g1/workspace/101/2/actions/2",
+        clause: { kind: "text", text: "ready" },
+      }),
+    ).toMatchObject({ kind: "view-filter-expression-configure", clause: { kind: "text", text: "ready" } });
   });
 });

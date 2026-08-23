@@ -2,7 +2,7 @@ import { stableStringCompare } from "../../../../domain/fact/index.js";
 import type { Projection } from "../../../../domain/reconcile/index.js";
 import { isStringArray } from "../../../../decoding/index.js";
 
-export type ProjectionLookupIndexEntry = Readonly<{
+type ProjectionLookupIndexEntry = Readonly<{
   section:
     | "occurrenceIdsByNode"
     | "nodeIdsByOwner"

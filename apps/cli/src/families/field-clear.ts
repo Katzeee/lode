@@ -1,4 +1,4 @@
-import type { EditMutation } from "@lode/sdk";
+import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -24,7 +24,7 @@ const fieldClear: CommandDefinition = {
     }
     const typed = ["number", "date", "checkbox", "options", "options-from-supertag"].includes(state.datatype);
     const requestId = context.requestId;
-    const mutations: readonly EditMutation[] = typed
+    const actions: readonly EditAction[] = typed
       ? [
           {
             kind: "typed-field-value-clear",
@@ -38,14 +38,12 @@ const fieldClear: CommandDefinition = {
         ]
       : [
           {
-            kind: "materialized-field-delete",
+            kind: "materialized-field-clear",
             ownerNodeId: state.ownerNodeId,
             fieldDefinitionId: state.fieldDefinitionId,
-            fieldNodeId: state.materialized.fieldNodeId,
-            fieldOccurrenceId: state.materialized.fieldOccurrenceId,
           },
         ];
-    const { result, data } = await executeWrite(context, "field.clear", mutations);
+    const { result, data } = await executeWrite(context, "field.clear", actions);
     return writeResult(data, result, {
       extra: {
         target: state.fieldDescriptor,

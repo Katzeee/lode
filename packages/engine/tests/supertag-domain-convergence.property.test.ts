@@ -1,20 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { frontierOf, type Fact, type FactFrontier, type Mutation, type TextAtomId } from "../src/domain/fact/index.js";
-import { textAtoms } from "../src/domain/reconcile/index.js";
+import { frontierOf, type Fact, type FactFrontier } from "../src/domain/fact/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
+import { addDefinitionNode, addPlacedNode } from "./support/reconcile/placed-node-test-helpers.js";
 import {
-  supertagApplicationIdentity,
-  supertagApplicationMutations,
-  supertagRemovalMutations,
+  supertagApplicationActions,
+  supertagRemovalActions,
 } from "./support/reconcile/supertag-application-test-helpers.js";
 import { assertSupertagConvergence, remoteBranch } from "./supertag-convergence-property-helpers.js";
 
-const B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
-const C = "cccccccccccccccccccccccccc";
-const D = "dddddddddddddddddddddddddd";
-const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
-const occurrenceStart = { after: null, before: null, affinity: "after", fallback: "start" } as const;
+const B = "202";
+const C = "303";
+const D = "404";
 
 describe("Supertag domain convergence matrix", () => {
   it("preserves concurrent Supertag Application observed-remove intent across 32 four-replica topologies", () => {
@@ -22,18 +19,8 @@ describe("Supertag domain convergence matrix", () => {
     base.applySupertag("task", "supertag");
     const frontier = frontierOf(base.values);
     const events = [
-      ...remoteBranch(
-        B,
-        frontier,
-        base.values.length + 1,
-        supertagRemovalMutations(supertagApplicationIdentity("task", "supertag"), start, occurrenceStart),
-      ),
-      ...remoteBranch(
-        C,
-        frontier,
-        base.values.length + 1,
-        supertagApplicationMutations(supertagApplicationIdentity("task", "supertag", 2), end, false),
-      ),
+      ...remoteBranch(B, frontier, base.values.length + 1, supertagRemovalActions("task", "supertag")),
+      ...remoteBranch(C, frontier, base.values.length + 1, supertagApplicationActions("task", "supertag", end)),
       ...unrelated(D, frontier, base.values.length + 1),
     ];
     assertSupertagConvergence(base.values.length, [...base.values, ...events], (generation) => {
@@ -50,7 +37,7 @@ describe("Supertag domain convergence matrix", () => {
     const frontier = frontierOf(base.values);
     const events = [
       ...remoteBranch(B, frontier, base.values.length + 1, [
-        { kind: "supertag-extension-remove", supertagId: "derived", baseSupertagId: "base", previousAnchor: start },
+        { kind: "supertag-extension-remove", supertagId: "derived", baseSupertagId: "base" },
       ]),
       ...remoteBranch(C, frontier, base.values.length + 1, [
         { kind: "supertag-extension-add", supertagId: "derived", baseSupertagId: "base", anchor: end },
@@ -60,15 +47,18 @@ describe("Supertag domain convergence matrix", () => {
     assertSupertagConvergence(base.values.length, [...base.values, ...events], (generation) => {
       expect(generation.origin.supertagExtensions.derived).toEqual(["base"]);
       expect(generation.origin.supertagInstanceSupertags.base).toEqual(["base", "derived"]);
+      const applicationNodeId = generation.origin.effectiveFields.task?.[0]?.sources[0]?.applicationNodeId;
+      if (typeof applicationNodeId !== "string") {
+        throw new Error("Expected Effective Field provenance to identify its Supertag Application");
+      }
       expect(generation.origin.effectiveFields.task).toEqual([
         expect.objectContaining({
           fieldDefinitionId: "field-definition",
           sources: [
             expect.objectContaining({
-              applicationNodeId: "task-derived-application-1",
+              applicationNodeId,
               sourceSupertagId: "base",
               extensionPath: ["derived", "base"],
-              templateFieldNodeId: "template-field",
             }),
           ],
         }),
@@ -92,65 +82,25 @@ describe("Supertag domain convergence matrix", () => {
       );
     });
   });
-
-  it("preserves concurrent Static Default text authorship across 32 three-replica topologies", () => {
-    const { facts: base, baseline } = staticDefaultBase();
-    const frontier = frontierOf(base.values);
-    const deletedAtoms = [..."Alpha"].map(
-      (value, index): { id: TextAtomId; value: string; attributes: Record<string, never> } => ({
-        id: `${baseline.id}#${index}`,
-        value,
-        attributes: {},
-      }),
-    );
-    const replacement = (insert: string): Mutation => ({
-      kind: "text-splice",
-      nodeId: "static-default",
-      deleteAtomIds: deletedAtoms.map((atom) => atom.id),
-      deletedAtoms,
-      anchor: end,
-      insert,
-    });
-    const events = [
-      ...remoteBranch(B, frontier, base.values.length + 1, [replacement("Beta")]),
-      ...remoteBranch(C, frontier, base.values.length + 1, [replacement("Gamma")]),
-    ];
-
-    assertSupertagConvergence(base.values.length, [...base.values, ...events], (generation) => {
-      const value = textAtoms(generation.origin.nodes["static-default"])
-        .map((atom) => atom.value)
-        .join("");
-      expect(value).not.toContain("Alpha");
-      expect(value).toContain("Beta");
-      expect(value).toContain("Gamma");
-      expect(generation.origin.templateFields.supertag?.[0]).toMatchObject({
-        templateFieldNodeId: "template-field",
-        fieldDefinitionId: "field-definition",
-        staticDefaultValueNodeId: "static-default",
-      });
-    });
-  });
 });
 
 function relationBase(nodeIds: readonly string[]): Facts {
   const facts = new Facts();
   for (const nodeId of nodeIds) {
-    facts.addPlaced(nodeId);
-  }
-  for (const nodeId of nodeIds.filter(
-    (nodeId) => nodeId.includes("supertag") || nodeId === "derived" || nodeId === "base",
-  )) {
-    facts.add({ kind: "intrinsic-node-type-declare", nodeId, intrinsicNodeType: "supertag-definition" });
-  }
-  if (nodeIds.includes("field")) {
-    facts.add({ kind: "intrinsic-node-type-declare", nodeId: "field", intrinsicNodeType: "field-definition" });
+    if (nodeId.includes("supertag") || nodeId === "derived" || nodeId === "base") {
+      addDefinitionNode(facts, nodeId, "supertag-definition");
+    } else if (nodeId === "field") {
+      addDefinitionNode(facts, nodeId, "field-definition");
+    } else {
+      addPlacedNode(facts, nodeId);
+    }
   }
   return facts;
 }
 
 function unrelated(replicaId: string, observed: FactFrontier, lamport: number): readonly Fact[] {
   return remoteBranch(replicaId, observed, lamport, [
-    { kind: "text-splice", nodeId: "unrelated", deleteAtomIds: [], deletedAtoms: [], anchor: end, insert: "unrelated" },
+    { kind: "rich-text-splice", nodeId: "unrelated", deleteAtomIds: [], anchor: end, insert: "unrelated" },
   ]);
 }
 
@@ -158,87 +108,13 @@ function materializationBase(): Facts {
   return relationBase(["field", "owner", "unrelated"]);
 }
 
-function staticDefaultBase(): { facts: Facts; baseline: Fact } {
-  const facts = relationBase(["supertag", "unrelated"]);
-  attachOwnedTemplateField(facts, "supertag");
-  const baseline = facts.add({
-    kind: "text-splice",
-    nodeId: "static-default",
-    deleteAtomIds: [],
-    deletedAtoms: [],
-    anchor: end,
-    insert: "Alpha",
-  });
-  return { facts, baseline };
-}
-
 function attachOwnedTemplateField(facts: Facts, supertagId: string): void {
-  facts.addTransaction([
-    { kind: "node-create", nodeId: "template-field" },
-    {
-      kind: "node-owner-set",
-      nodeId: "template-field",
-      ownerNodeId: supertagId,
-      previousOwnerNodeId: null,
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "template-field-occurrence",
-      nodeId: "template-field",
-      parentNodeId: supertagId,
-      anchor: end,
-    },
-    { kind: "intrinsic-node-type-declare", nodeId: "template-field", intrinsicNodeType: "field" },
-    { kind: "node-create", nodeId: "field-definition" },
-    {
-      kind: "node-owner-set",
-      nodeId: "field-definition",
-      ownerNodeId: "template-field",
-      previousOwnerNodeId: null,
-    },
-    {
-      kind: "intrinsic-node-type-declare",
-      nodeId: "field-definition",
-      intrinsicNodeType: "field-definition",
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "field-definition-occurrence",
-      nodeId: "field-definition",
-      parentNodeId: "template-field",
-      anchor: end,
-    },
-    { kind: "node-create", nodeId: "static-default" },
-    {
-      kind: "node-owner-set",
-      nodeId: "static-default",
-      ownerNodeId: "template-field",
-      previousOwnerNodeId: null,
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "static-default-occurrence",
-      nodeId: "static-default",
-      parentNodeId: "template-field",
-      anchor: {
-        after: "field-definition-occurrence",
-        before: null,
-        affinity: "after",
-        fallback: "end",
-      },
-    },
-    {
-      kind: "supertag-template-field-attach",
-      supertagId,
-      templateFieldNodeId: "template-field",
-      templateFieldOccurrenceId: "template-field-occurrence",
-      fieldDefinitionId: "field-definition",
-      definitionOccurrenceId: "field-definition-occurrence",
-      staticDefaultValueNodeId: "static-default",
-      staticDefaultValueOccurrenceId: "static-default-occurrence",
-      anchor: end,
-    },
-  ]);
+  facts.add({
+    kind: "template-field-add",
+    supertagId,
+    fieldDefinition: { kind: "new", fieldDefinitionId: "field-definition" },
+    anchor: end,
+  });
 }
 
 function materializationBranch(
@@ -249,14 +125,12 @@ function materializationBranch(
   text: string,
 ): readonly Fact[] {
   return remoteBranch(replicaId, observed, lamport, [
-    { kind: "node-create", nodeId: `${prefix}-field` },
-    { kind: "intrinsic-node-type-declare", nodeId: `${prefix}-field`, intrinsicNodeType: "field" },
     {
-      kind: "occurrence-create",
-      occurrenceId: `${prefix}-field-occurrence`,
+      kind: "node-create",
       nodeId: `${prefix}-field`,
-      parentNodeId: "owner",
-      anchor: end,
+      ownerNodeId: "owner",
+      originalPlacement: { placementId: `${prefix}-field-occurrence`, anchor: end },
+      intrinsicNodeType: "field",
     },
     {
       kind: "field-materialize",
@@ -265,14 +139,12 @@ function materializationBranch(
       fieldNodeId: `${prefix}-field`,
       fieldOccurrenceId: `${prefix}-field-occurrence`,
     },
-    { kind: "node-create", nodeId: `${prefix}-value` },
     {
-      kind: "occurrence-create",
-      occurrenceId: `${prefix}-value-occurrence`,
+      kind: "node-create",
       nodeId: `${prefix}-value`,
-      parentNodeId: `${prefix}-field`,
-      anchor: end,
+      ownerNodeId: `${prefix}-field`,
+      originalPlacement: { placementId: `${prefix}-value-occurrence`, anchor: end },
     },
-    { kind: "text-splice", nodeId: `${prefix}-value`, deleteAtomIds: [], deletedAtoms: [], anchor: end, insert: text },
+    { kind: "rich-text-splice", nodeId: `${prefix}-value`, deleteAtomIds: [], anchor: end, insert: text },
   ]);
 }

@@ -1,7 +1,7 @@
 import { exactInputKeys, nonemptyInputString } from "./input-validation-primitives.js";
-import type { EditMutation } from "./types.js";
+import type { EditAction } from "./types.js";
 
-export function parseTypedFieldValueEdit(edit: Record<string, unknown>): EditMutation {
+export function parseTypedFieldValueEdit(edit: Record<string, unknown>): EditAction {
   const commonKeys = ["kind", "ownerNodeId", "fieldDefinitionId", "fieldNodeId", "fieldOccurrenceId"] as const;
   const common = {
     ownerNodeId: nonemptyInputString(edit.ownerNodeId, "Field owner Node identity"),
@@ -71,7 +71,7 @@ export function parseTypedFieldValueEdit(edit: Record<string, unknown>): EditMut
   };
 }
 
-export function normalizedCalendarDate(value: unknown): string {
+function normalizedCalendarDate(value: unknown): string {
   if (typeof value !== "string") {
     throw new Error("Date Field value must use YYYY-MM-DD");
   }

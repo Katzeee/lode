@@ -1,23 +1,23 @@
 import {
-  isFieldMutation,
-  isFieldDefinitionConfigMutation,
-  isInlineReferenceMutation,
-  isMetanodeMutation,
-  isNodeMutation,
-  isOccurrenceMutation,
-  isSupertagMutation,
-  isTemplateMutation,
-  isTextMutation,
-  isSearchMutation,
-  isViewMutation,
-  type ContributionFact,
+  factActionsFromFacts,
+  isFieldAction,
+  isFieldDefinitionAction,
+  isInlineReferenceAction,
+  isNodeAction,
+  isPlacementAction,
+  isSupertagAction,
+  isTemplateAction,
+  isTextAction,
+  isSearchAction,
+  isViewAction,
+  type FactAction,
   type Fact,
-  type Mutation,
+  type AuthoredAction,
 } from "../../fact/index.js";
 import type { Projection } from "../projection-types.js";
 import { canApplyFieldDirectTail } from "./field-rule.js";
 import { canApplyNodeDirectTail } from "./node-rule.js";
-import { canApplyOccurrenceDirectTail } from "./occurrence-rule.js";
+import { canApplyPlacementDirectTail } from "./placement-rule.js";
 import { canApplySupertagDirectTail } from "./supertag-rule.js";
 import { selectNeutralFactTail } from "./tail-selection.js";
 import { canApplyTemplateDirectTail } from "./template-rule.js";
@@ -28,55 +28,55 @@ export function selectEligibleDirectTail(
   projection: Projection,
   facts: readonly Fact[],
   changed: readonly Fact[],
-): readonly ContributionFact[] | null {
+): readonly FactAction[] | null {
   const tail = selectNeutralFactTail(facts, changed);
   if (!tail) {
     return null;
   }
-  const contributions = tail.filter((fact): fact is ContributionFact => fact.body.kind === "contribution");
-  return contributions.length === tail.length &&
-    contributions.every((fact) => fact.body.intent === "direct" && canApplyDirectTail(projection, fact.body.mutation))
-    ? contributions
+  if (!tail.every((fact) => fact.body.kind === "edit" && fact.body.intent === "direct")) {
+    return null;
+  }
+  const actions = factActionsFromFacts(tail);
+  return actions.length > 0 &&
+    actions.every((fact) => fact.intent === "direct" && canApplyDirectTail(projection, fact.action))
+    ? actions
     : null;
 }
 
-function canApplyDirectTail(projection: Projection, mutation: Mutation): boolean {
-  if (isMetanodeMutation(mutation)) {
+function canApplyDirectTail(projection: Projection, authoredAction: AuthoredAction): boolean {
+  if (isNodeAction(authoredAction)) {
+    return canApplyNodeDirectTail(projection, authoredAction);
+  }
+  if (isPlacementAction(authoredAction)) {
+    return canApplyPlacementDirectTail(projection, authoredAction);
+  }
+  if (isSupertagAction(authoredAction)) {
+    return canApplySupertagDirectTail(projection, authoredAction);
+  }
+  if (isTemplateAction(authoredAction)) {
+    return canApplyTemplateDirectTail(projection, authoredAction);
+  }
+  if (isFieldAction(authoredAction)) {
+    return canApplyFieldDirectTail(projection, authoredAction);
+  }
+  if (isFieldDefinitionAction(authoredAction)) {
     return false;
   }
-  if (isNodeMutation(mutation)) {
-    return canApplyNodeDirectTail(projection, mutation);
+  if (isTextAction(authoredAction)) {
+    return canApplyTextDirectTail(projection, authoredAction);
   }
-  if (isOccurrenceMutation(mutation)) {
-    return canApplyOccurrenceDirectTail(projection, mutation);
+  if (isInlineReferenceAction(authoredAction)) {
+    return canApplyInlineReferenceDirectTail(projection, authoredAction);
   }
-  if (isSupertagMutation(mutation)) {
-    return canApplySupertagDirectTail(projection, mutation);
-  }
-  if (isTemplateMutation(mutation)) {
-    return canApplyTemplateDirectTail(projection, mutation);
-  }
-  if (isFieldMutation(mutation)) {
-    return canApplyFieldDirectTail(projection, mutation);
-  }
-  if (isFieldDefinitionConfigMutation(mutation)) {
+  if (isSearchAction(authoredAction)) {
     return false;
   }
-  if (isTextMutation(mutation)) {
-    return canApplyTextDirectTail(projection, mutation);
-  }
-  if (isInlineReferenceMutation(mutation)) {
-    return canApplyInlineReferenceDirectTail(projection, mutation);
-  }
-  if (isSearchMutation(mutation)) {
+  if (isViewAction(authoredAction)) {
     return false;
   }
-  if (isViewMutation(mutation)) {
-    return false;
-  }
-  return assertNever(mutation);
+  return assertNever(authoredAction);
 }
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled Direct tail Mutation: ${JSON.stringify(value)}`);
+  throw new Error(`Unhandled Direct tail AuthoredAction: ${JSON.stringify(value)}`);
 }

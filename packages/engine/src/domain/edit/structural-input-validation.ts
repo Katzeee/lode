@@ -1,8 +1,8 @@
-import { parseMutation } from "../fact/index.js";
-import { exactInputKeys, nonemptyInputString, rejectPreparedEvidence } from "./input-validation-primitives.js";
-import { isFactMutationEdit, type EditMutation } from "./types.js";
+import { parseAuthoredAction } from "../fact/index.js";
+import { exactInputKeys, nonemptyInputString, optionalNodeSeed } from "./input-validation-primitives.js";
+import { isDirectAuthoredActionEdit, type EditAction } from "./types.js";
 
-export function parseStructuralEdit(edit: Record<string, unknown>): EditMutation {
+export function parseStructuralEdit(edit: Record<string, unknown>): EditAction {
   switch (edit.kind) {
     case "reference-promote":
       exactInputKeys(edit, ["kind", "occurrenceId"]);
@@ -19,82 +19,110 @@ export function parseStructuralEdit(edit: Record<string, unknown>): EditMutation
       return parseInlineReferenceAlias(edit);
     case "node-create":
       return parseNodeCreate(edit);
+    case "occurrence-create":
+    case "occurrence-delete":
+    case "occurrence-restore":
+    case "occurrence-move":
+      return parseOccurrenceEdit(edit);
     default:
-      rejectPreparedEvidence(edit);
       return parsePublicFactEdit(edit);
   }
 }
 
-function parseNodeRestore(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "nodeId", "deletionFactId", "occurrenceId", "ownerNodeId", "parentNodeId", "anchor"]);
-  const placement = parseMutation({
+function parseOccurrenceEdit(edit: Record<string, unknown>): EditAction {
+  if (edit.kind === "occurrence-delete") {
+    exactInputKeys(edit, ["kind", "occurrenceId"]);
+    return { kind: "occurrence-delete", occurrenceId: nonemptyInputString(edit.occurrenceId, "Occurrence identity") };
+  }
+  if (edit.kind === "occurrence-create" || edit.kind === "occurrence-restore") {
+    exactInputKeys(edit, ["kind", "occurrenceId", "nodeId", "parentNodeId", "anchor"]);
+    const placement = parseAuthoredAction({
+      kind: "placement-create",
+      placementId: edit.occurrenceId,
+      nodeId: edit.nodeId,
+      parentNodeId: edit.parentNodeId,
+      anchor: edit.anchor,
+    });
+    return {
+      kind: edit.kind,
+      occurrenceId: placement.placementId,
+      nodeId: placement.nodeId,
+      parentNodeId: placement.parentNodeId,
+      anchor: placement.anchor,
+    };
+  }
+  exactInputKeys(edit, ["kind", "occurrenceId", "parentNodeId", "anchor"]);
+  const placement = parseAuthoredAction({
+    kind: "placement-move",
+    placementId: edit.occurrenceId,
+    parentNodeId: edit.parentNodeId,
+    anchor: edit.anchor,
+  });
+  return {
     kind: "occurrence-move",
-    occurrenceId: edit.occurrenceId,
+    occurrenceId: placement.placementId,
+    parentNodeId: placement.parentNodeId,
+    anchor: placement.anchor,
+  };
+}
+
+function parseNodeRestore(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "nodeId", "occurrenceId", "parentNodeId", "anchor"]);
+  const placement = parseAuthoredAction({
+    kind: "placement-move",
+    placementId: edit.occurrenceId,
     parentNodeId: edit.parentNodeId,
     anchor: edit.anchor,
   });
   return {
     kind: "node-restore",
     nodeId: nonemptyInputString(edit.nodeId, "Restore target Node identity"),
-    deletionFactId: nonemptyInputString(edit.deletionFactId, "Node deletion Fact identity"),
-    occurrenceId: placement.occurrenceId,
-    ownerNodeId: nonemptyInputString(edit.ownerNodeId, "Restore Owner Node identity"),
+    occurrenceId: placement.placementId,
     parentNodeId: placement.parentNodeId,
     anchor: placement.anchor,
   };
 }
 
-function parseInlineReferenceAlias(edit: Record<string, unknown>): EditMutation {
+function parseInlineReferenceAlias(edit: Record<string, unknown>): EditAction {
   exactInputKeys(edit, ["kind", "inlineReferenceId", "hostNodeId", "aliasNodeId", "seed"]);
   const aliasNodeId = nonemptyInputString(edit.aliasNodeId, "Inline Alias Node identity");
-  const aliasNode = parseMutation({
-    kind: "node-create",
-    nodeId: aliasNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
+  const seed = optionalNodeSeed(edit.seed);
   return {
     kind: "inline-reference-alias-create",
     inlineReferenceId: nonemptyInputString(edit.inlineReferenceId, "Inline Reference identity"),
     hostNodeId: nonemptyInputString(edit.hostNodeId, "Inline Reference host Node identity"),
     aliasNodeId,
-    ...(aliasNode.seed === undefined ? {} : { seed: aliasNode.seed }),
+    ...(seed === undefined ? {} : { seed }),
   };
 }
 
-function parseNodeCreate(edit: Record<string, unknown>): EditMutation {
+function parseNodeCreate(edit: Record<string, unknown>): EditAction {
   exactInputKeys(edit, ["kind", "nodeId", "occurrenceId", "parentNodeId", "anchor", "seed", "intrinsicNodeType"]);
-  const identity = parseMutation({
+  const identity = parseAuthoredAction({
     kind: "node-create",
     nodeId: edit.nodeId,
+    ownerNodeId: edit.parentNodeId,
+    originalPlacement: { placementId: edit.occurrenceId, anchor: edit.anchor },
+    ...(edit.intrinsicNodeType === undefined ? {} : { intrinsicNodeType: edit.intrinsicNodeType }),
     ...(edit.seed === undefined ? {} : { seed: edit.seed }),
   });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: edit.occurrenceId,
-    nodeId: edit.nodeId,
-    parentNodeId: edit.parentNodeId,
-    anchor: edit.anchor,
-  });
-  const intrinsicNodeType =
-    edit.intrinsicNodeType === undefined
-      ? undefined
-      : parseMutation({
-          kind: "intrinsic-node-type-declare",
-          nodeId: edit.nodeId,
-          intrinsicNodeType: edit.intrinsicNodeType,
-        });
+  if (identity.originalPlacement === null) {
+    throw new Error("Created Node requires an Original Placement");
+  }
   return {
-    ...identity,
-    occurrenceId: placement.occurrenceId,
-    parentNodeId: placement.parentNodeId,
-    anchor: placement.anchor,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType: intrinsicNodeType.intrinsicNodeType }),
+    kind: "node-create",
+    nodeId: identity.nodeId,
+    occurrenceId: identity.originalPlacement.placementId,
+    parentNodeId: identity.ownerNodeId,
+    anchor: identity.originalPlacement.anchor,
+    ...(identity.intrinsicNodeType === undefined ? {} : { intrinsicNodeType: identity.intrinsicNodeType }),
+    ...(identity.seed === undefined ? {} : { seed: identity.seed }),
   };
 }
 
-function parsePublicFactEdit(edit: Record<string, unknown>): EditMutation {
-  const parsed = parseMutation(edit);
-  if (!isFactMutationEdit(parsed)) {
+function parsePublicFactEdit(edit: Record<string, unknown>): EditAction {
+  const parsed = parseAuthoredAction(edit);
+  if (!isDirectAuthoredActionEdit(parsed)) {
     throw new Error(`${parsed.kind} is not a public edit operation`);
   }
   return parsed;

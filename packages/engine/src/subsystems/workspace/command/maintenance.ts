@@ -1,5 +1,6 @@
-import type { EngineCommand, RejectedResult } from "@lode/sdk";
-import type { AuthorityReceipt, FactSnapshot, FactWrite } from "../../../domain/fact/index.js";
+import type { RejectedResult } from "@lode/sdk";
+import type { AcceptedEngineCommand } from "../application/input-validation.js";
+import type { AuthorityReceipt, FactSnapshot, FactBody } from "../../../domain/fact/index.js";
 import { sameHardDeleteSelection } from "../../../domain/maintenance/index.js";
 import type { ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
@@ -9,11 +10,15 @@ import type { BoundWorkspaceCommand } from "./command-rule.js";
 
 type MaintenancePlan =
   | Readonly<{
-      writes: readonly FactWrite[];
+      writes: readonly FactBody[];
       lineage: AuthorityReceipt["lineage"];
+      inverse: AuthorityReceipt["inverse"];
     }>
   | RejectedResult;
-type MaintenanceCommand = Extract<EngineCommand, { kind: "acknowledge-deletion" | "retire-replica" | "hard-delete" }>;
+type MaintenanceCommand = Extract<
+  AcceptedEngineCommand,
+  { kind: "acknowledge-deletion" | "retire-replica" | "hard-delete" }
+>;
 type MaintenanceAuthority = Pick<FactAuthorityPort, "replicaId">;
 
 export function bindMaintenanceCommand(command: MaintenanceCommand): BoundWorkspaceCommand {
@@ -23,9 +28,9 @@ export function bindMaintenanceCommand(command: MaintenanceCommand): BoundWorksp
       : command.kind === "acknowledge-deletion"
         ? command.nodeId
         : null;
-  const mutations = nodeId ? [{ kind: "node-delete" as const, nodeId }] : [];
+  const actions = nodeId ? [{ kind: "node-delete" as const, nodeId }] : [];
   return {
-    readPlan: { kind: "mutations", mutations, historyChannelId: null },
+    readPlan: { kind: "edits", actions, historyChannelId: null },
     plan({ workspaceId, snapshot, generation, maintenanceAuthority }) {
       return planMaintenanceCommand(workspaceId, command, snapshot, generation, maintenanceAuthority);
     },
@@ -42,8 +47,8 @@ function planMaintenanceCommand(
   if (command.kind === "acknowledge-deletion") {
     const assessment = assessWorkspaceHardDelete(workspaceId, command.nodeId, snapshot, authority, generation.origin);
     if (
-      assessment.selection.deletionFactIds.length === 0 ||
-      JSON.stringify(command.deletionFactIds) !== JSON.stringify(assessment.selection.deletionFactIds)
+      assessment.selection.deletionActionIds.length === 0 ||
+      JSON.stringify(command.deletionActionIds) !== JSON.stringify(assessment.selection.deletionActionIds)
     ) {
       return blocked("Deletion acknowledgement does not match the current Trash placement", generation);
     }
@@ -55,11 +60,11 @@ function planMaintenanceCommand(
           action: {
             kind: "deletion-acknowledge",
             nodeId: command.nodeId,
-            deletionFactIds: command.deletionFactIds,
           },
         },
       ],
       lineage: null,
+      inverse: [],
     };
   }
   if (command.kind === "retire-replica") {
@@ -74,6 +79,7 @@ function planMaintenanceCommand(
             },
           ],
           lineage: null,
+          inverse: [],
         };
   }
   if (command.kind !== "hard-delete") {
@@ -100,13 +106,11 @@ function planMaintenanceCommand(
         action: {
           kind: "node-purge",
           nodeId: command.selection.nodeId,
-          deletionFactIds: command.selection.deletionFactIds,
-          acknowledgementFactIds: command.selection.acknowledgementFactIds,
-          retiredReplicaIds: command.selection.retiredReplicaIds,
         },
       },
     ],
     lineage: null,
+    inverse: [],
   };
 }
 

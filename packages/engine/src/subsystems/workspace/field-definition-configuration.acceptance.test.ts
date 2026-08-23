@@ -4,13 +4,11 @@ import {
   FIELD_CONFIGURATION_DEFINITION_NODE_IDS,
   FIELD_DATATYPE_NODE_IDS,
   FIELD_OPTIONALITY_NODE_IDS,
-  type Mutation,
 } from "../../domain/fact/index.js";
 
-import type { MutationCommand } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import type { EditCommand } from "@lode/sdk";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { FactReplication } from "./fact-replication.js";
@@ -19,65 +17,53 @@ import { syncPair } from "../../../tests/support/sync.js";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Field Definition configuration", () => {
-  it("keeps typed configuration identities across Proposal and History", async () => {
+  it("projects semantic configurations across Proposal and History and rejects ordinary values", async () => {
     const workspace = await setup();
     await execute(
       workspace,
       command("field-fixture", "setup", [
-        nodeAt("status", "workspace", "status-original"),
-        { kind: "intrinsic-node-type-declare", nodeId: "status", intrinsicNodeType: "field-definition" },
+        nodeAt("status", "workspace", "status-original", "field-definition"),
+        nodeAt("ordinary", "workspace", "ordinary-original"),
       ]),
     );
+
+    expect(
+      await workspace.execute(
+        command("reject-ordinary-datatype", "field-config", [
+          {
+            kind: "field-datatype-configure",
+            fieldDefinitionId: "status",
+            datatypeNodeId: "ordinary",
+          },
+        ]),
+      ),
+    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
 
     await execute(
       workspace,
       command("field-configurations", "field-config", [
         {
-          kind: "field-datatype-configuration-create",
+          kind: "field-datatype-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-datatype",
-          configurationOccurrenceId: "status-datatype-occurrence",
-          definitionOccurrenceId: "status-datatype-definition-occurrence",
-          valueOccurrenceId: "status-datatype-value-occurrence",
           datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
-          anchor: end,
         },
         {
-          kind: "field-cardinality-configuration-create",
+          kind: "field-cardinality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-cardinality",
-          configurationOccurrenceId: "status-cardinality-occurrence",
-          definitionOccurrenceId: "status-cardinality-definition-occurrence",
-          valueOccurrenceId: "status-cardinality-value-occurrence",
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.single,
-          anchor: end,
         },
         {
-          kind: "field-optionality-configuration-create",
+          kind: "field-optionality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-optionality",
-          configurationOccurrenceId: "status-optionality-occurrence",
-          definitionOccurrenceId: "status-optionality-definition-occurrence",
-          valueOccurrenceId: "status-optionality-value-occurrence",
           optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
-          anchor: end,
         },
         {
-          kind: "field-initialization-expression-configuration-create",
+          kind: "field-initialization-expression-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-initialization",
-          configurationOccurrenceId: "status-initialization-occurrence",
-          definitionOccurrenceId: "status-initialization-definition-occurrence",
           expression: {
             kind: "find-field-values",
-            expressionNodeId: "status-initialization-expression",
-            expressionOccurrenceId: "status-initialization-expression-occurrence",
             sourceFieldDefinitionId: "status",
-            sourceFieldDefinitionOccurrenceId: "status-initialization-source-occurrence",
-            contextNodeId: "status-initialization-above",
-            contextOccurrenceId: "status-initialization-above-occurrence",
           },
-          anchor: end,
         },
       ]),
     );
@@ -86,64 +72,29 @@ describe("Field Definition configuration", () => {
       status: [
         {
           kind: "datatype",
-          configurationNodeId: "status-datatype",
           definitionNodeId: FIELD_CONFIGURATION_DEFINITION_NODE_IDS.datatype,
           datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
         },
         {
           kind: "cardinality",
-          configurationNodeId: "status-cardinality",
           definitionNodeId: FIELD_CONFIGURATION_DEFINITION_NODE_IDS.cardinality,
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.single,
         },
         {
           kind: "optionality",
-          configurationNodeId: "status-optionality",
           definitionNodeId: FIELD_CONFIGURATION_DEFINITION_NODE_IDS.optionality,
           optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
         },
         {
           kind: "initialization-expression",
-          configurationNodeId: "status-initialization",
           definitionNodeId: FIELD_CONFIGURATION_DEFINITION_NODE_IDS.initializationExpression,
           expression: {
             kind: "find-field-values",
-            expressionNodeId: "status-initialization-expression",
             sourceFieldDefinitionId: "status",
-            contextNodeId: "status-initialization-above",
           },
         },
       ],
     });
-    expect(await projectionSection(workspace, "childOccurrences")).toMatchObject({
-      status: [
-        "status-datatype-occurrence",
-        "status-cardinality-occurrence",
-        "status-optionality-occurrence",
-        "status-initialization-occurrence",
-      ],
-      "status-datatype": ["status-datatype-definition-occurrence", "status-datatype-value-occurrence"],
-      "status-cardinality": ["status-cardinality-definition-occurrence", "status-cardinality-value-occurrence"],
-      "status-optionality": ["status-optionality-definition-occurrence", "status-optionality-value-occurrence"],
-      "status-initialization": [
-        "status-initialization-definition-occurrence",
-        "status-initialization-expression-occurrence",
-      ],
-      "status-initialization-expression": [
-        "status-initialization-source-occurrence",
-        "status-initialization-above-occurrence",
-      ],
-    });
-    expect(await projectionSection(workspace, "nodeOwners")).toMatchObject({
-      "status-datatype": "status",
-      "status-cardinality": "status",
-      "status-optionality": "status",
-      "status-initialization": "status",
-      "status-initialization-expression": "status-initialization",
-      "status-initialization-above": "status-initialization-expression",
-    });
-    expect(await projectionSection(workspace, "metanodes")).not.toHaveProperty("status");
-
     await execute(
       workspace,
       command(
@@ -153,19 +104,16 @@ describe("Field Definition configuration", () => {
           {
             kind: "field-datatype-configure",
             fieldDefinitionId: "status",
-            configurationNodeId: "status-datatype",
-            configurationOccurrenceId: "status-datatype-occurrence",
             datatypeNodeId: FIELD_DATATYPE_NODE_IDS.options,
-            valueOccurrenceId: "status-datatype-options-occurrence",
           },
         ],
         "proposal",
       ),
     );
-    expect((await configurations(workspace, "origin")).status?.[0]).toMatchObject({
+    expect(configurationOfKind(await configurations(workspace, "origin"), "datatype")).toMatchObject({
       datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
     });
-    expect((await configurations(workspace, "review")).status?.[0]).toMatchObject({
+    expect(configurationOfKind(await configurations(workspace, "review"), "datatype")).toMatchObject({
       datatypeNodeId: FIELD_DATATYPE_NODE_IDS.options,
     });
     const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
@@ -191,10 +139,7 @@ describe("Field Definition configuration", () => {
         {
           kind: "field-optionality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-optionality",
-          configurationOccurrenceId: "status-optionality-occurrence",
           optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
-          valueOccurrenceId: "status-optionality-yes-occurrence",
         },
       ]),
     );
@@ -213,8 +158,7 @@ describe("Field Definition configuration", () => {
       actorId: "actor",
       selection: optionalityHistory.undo,
     });
-    expect((await configurations(workspace, "origin")).status?.[2]).toMatchObject({
-      configurationNodeId: "status-optionality",
+    expect(configurationOfKind(await configurations(workspace, "origin"), "optionality")).toMatchObject({
       optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
     });
 
@@ -224,10 +168,7 @@ describe("Field Definition configuration", () => {
         {
           kind: "field-cardinality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-cardinality",
-          configurationOccurrenceId: "status-cardinality-occurrence",
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.list,
-          valueOccurrenceId: "status-cardinality-list-occurrence",
         },
       ]),
     );
@@ -242,8 +183,7 @@ describe("Field Definition configuration", () => {
       actorId: "actor",
       selection: history.undo,
     });
-    expect((await configurations(workspace, "origin")).status?.[1]).toMatchObject({
-      configurationNodeId: "status-cardinality",
+    expect(configurationOfKind(await configurations(workspace, "origin"), "cardinality")).toMatchObject({
       cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.single,
     });
   });
@@ -254,32 +194,21 @@ describe("Field Definition configuration", () => {
     await execute(
       left.workspace,
       command("sync-field-fixture", "sync-setup", [
-        nodeAt("status", "workspace", "status-original"),
-        { kind: "intrinsic-node-type-declare", nodeId: "status", intrinsicNodeType: "field-definition" },
+        nodeAt("status", "workspace", "status-original", "field-definition"),
       ]),
     );
     await execute(
       left.workspace,
       command("sync-field-configurations", "sync-setup", [
         {
-          kind: "field-cardinality-configuration-create",
+          kind: "field-cardinality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-cardinality",
-          configurationOccurrenceId: "status-cardinality-occurrence",
-          definitionOccurrenceId: "status-cardinality-definition-occurrence",
-          valueOccurrenceId: "status-cardinality-value-occurrence",
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.single,
-          anchor: end,
         },
         {
-          kind: "field-optionality-configuration-create",
+          kind: "field-optionality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-optionality",
-          configurationOccurrenceId: "status-optionality-occurrence",
-          definitionOccurrenceId: "status-optionality-definition-occurrence",
-          valueOccurrenceId: "status-optionality-value-occurrence",
           optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
-          anchor: end,
         },
       ]),
     );
@@ -289,10 +218,7 @@ describe("Field Definition configuration", () => {
         {
           kind: "field-optionality-configure",
           fieldDefinitionId: "status",
-          configurationNodeId: "status-optionality",
-          configurationOccurrenceId: "status-optionality-occurrence",
           optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
-          valueOccurrenceId: "status-optionality-yes-occurrence",
         },
       ]),
     );
@@ -300,53 +226,59 @@ describe("Field Definition configuration", () => {
     await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
-    expect((await configurations(right.workspace, "origin")).status?.[1]).toMatchObject({
+    expect(configurationOfKind(await configurations(right.workspace, "origin"), "optionality")).toMatchObject({
       kind: "optionality",
-      configurationNodeId: "status-optionality",
       optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
     });
+  });
 
-    const optionality = (await configurations(left.workspace, "origin")).status?.find(
-      (configuration) => configuration.kind === "optionality",
+  it("lets a later direct semantic value supersede a pending Proposal without depending on it", async () => {
+    const workspace = await setup();
+    await execute(
+      workspace,
+      command("field", "setup", [nodeAt("status", "workspace", "status-original", "field-definition")]),
     );
-    if (!optionality || optionality.kind !== "optionality") {
-      throw new Error("Expected synchronized Field Optionality");
+    await execute(
+      workspace,
+      command("plain", "field-config", [
+        {
+          kind: "field-datatype-configure",
+          fieldDefinitionId: "status",
+          datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
+        },
+      ]),
+    );
+    await execute(
+      workspace,
+      command(
+        "proposed-options",
+        "field-config",
+        [
+          {
+            kind: "field-datatype-configure",
+            fieldDefinitionId: "status",
+            datatypeNodeId: FIELD_DATATYPE_NODE_IDS.options,
+          },
+        ],
+        "proposal",
+      ),
+    );
+    await execute(
+      workspace,
+      command("date", "field-config", [
+        { kind: "field-datatype-configure", fieldDefinitionId: "status", datatypeNodeId: FIELD_DATATYPE_NODE_IDS.date },
+      ]),
+    );
+
+    for (const perspective of ["origin", "review"] as const) {
+      expect(configurationOfKind(await configurations(workspace, perspective), "datatype")).toMatchObject({
+        datatypeNodeId: FIELD_DATATYPE_NODE_IDS.date,
+      });
     }
-    const observedValueFactIds = left.facts
-      .snapshot()
-      .facts.filter(
-        (fact) =>
-          fact.body.kind === "contribution" &&
-          fact.body.mutation.kind === "field-optionality-configure" &&
-          fact.body.mutation.configurationNodeId === "status-optionality" &&
-          fact.body.mutation.optionalityNodeId === FIELD_OPTIONALITY_NODE_IDS.no,
-      )
-      .map((fact) => fact.id);
-    await expect(
-      smuggleOptionalityAuthority(left.facts, "smuggle-field-definition", observedValueFactIds, {
-        kind: "node-owner-set",
-        nodeId: "status",
-        ownerNodeId: null,
-        previousOwnerNodeId: "workspace",
-      }),
-    ).rejects.toThrow(/Field Definition configuration structure is invalid: status-optionality/);
-    await expect(
-      smuggleOptionalityAuthority(left.facts, "smuggle-intrinsic-type", observedValueFactIds, {
-        kind: "intrinsic-node-type-declare",
-        nodeId: "status",
-        intrinsicNodeType: "supertag-definition",
-      }),
-    ).rejects.toThrow(/Structural role requires a typed mutation: Intrinsic Node Type status/);
-    await expect(
-      smuggleOptionalityAuthority(left.facts, "smuggle-other-configuration", observedValueFactIds, {
-        kind: "text-splice",
-        nodeId: "status-cardinality",
-        deleteAtomIds: [],
-        deletedAtoms: [],
-        anchor: end,
-        insert: "tampered",
-      }),
-    ).rejects.toThrow(/Structural role requires a typed mutation: Node status-cardinality/);
+    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
+    expect("hunks" in review ? review.hunks : []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ diffSpace: { kind: "field-definition-configuration" } })]),
+    );
   });
 });
 
@@ -357,69 +289,10 @@ async function setup(): Promise<Workspace> {
 async function open(loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: new InMemoryDocumentStore(),
-    factReplication: new InMemoryDocumentStore(),
-    admitRecords: admitAuthorityRecords,
+    documents: new InMemoryDocumentStore(),
   });
   return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
-}
-
-function smuggleOptionalityAuthority(
-  facts: FactAuthority,
-  invocationId: string,
-  observedValueFactIds: readonly string[],
-  extraMutation: Mutation,
-) {
-  const candidateOccurrenceId = `${invocationId}-value-occurrence`;
-  const contribution = (mutation: Mutation) => ({
-    kind: "contribution" as const,
-    actorId: "remote",
-    intent: "direct" as const,
-    mutation,
-  });
-  return facts.commit({
-    invocationId,
-    request: { command: invocationId },
-    writes: [
-      {
-        kind: "transaction",
-        bodies: [
-          contribution({
-            kind: "occurrence-delete",
-            occurrenceId: "status-optionality-yes-occurrence",
-            previousParentNodeId: "status-optionality",
-            previousAnchor: {
-              after: "status-optionality-definition-occurrence",
-              before: null,
-              affinity: "after",
-              fallback: "end",
-            },
-          }),
-          contribution({
-            kind: "occurrence-create",
-            occurrenceId: candidateOccurrenceId,
-            nodeId: FIELD_OPTIONALITY_NODE_IDS.no,
-            parentNodeId: "status-optionality",
-            anchor: end,
-          }),
-          contribution({
-            kind: "field-optionality-configure",
-            fieldDefinitionId: "status",
-            configurationNodeId: "status-optionality",
-            configurationOccurrenceId: "status-optionality-occurrence",
-            optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
-            previousOptionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
-            observedValueFactIds,
-          }),
-          contribution(extraMutation),
-        ],
-      },
-    ],
-    lineage: null,
-    publishedFrontier: facts.snapshot().frontier,
-  });
 }
 
 async function configurations(workspace: Workspace, perspective: "origin" | "review") {
@@ -435,18 +308,11 @@ async function configurations(workspace: Workspace, perspective: "origin" | "rev
   return result.fieldDefinitionConfigurations;
 }
 
-async function projectionSection(workspace: Workspace, section: "childOccurrences" | "nodeOwners" | "metanodes") {
-  const result = await workspace.query({
-    kind: "projection",
-    workspaceId: "workspace",
-    perspective: "origin",
-    section,
-  });
-  const page = result as unknown as Readonly<Record<string, unknown>>;
-  if (!(section in page)) {
-    throw new Error(`Expected ${section} Projection`);
-  }
-  return page[section];
+function configurationOfKind(
+  values: Awaited<ReturnType<typeof configurations>>,
+  kind: "datatype" | "cardinality" | "optionality" | "initialization-expression",
+) {
+  return values.status?.find((configuration) => configuration.kind === kind);
 }
 
 function nodeAt(
@@ -470,17 +336,17 @@ function nodeAt(
 function command(
   invocationId: string,
   historyChannelId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId,
-    mutations,
+    actions,
   };
 }
 

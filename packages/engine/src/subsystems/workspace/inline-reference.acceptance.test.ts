@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  MutationCommand,
+  EditCommand,
   ProjectedInlineReference,
   ProjectedNode,
   ProjectedOccurrence,
   ProjectionPage,
 } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
@@ -45,7 +44,7 @@ describe("Inline Reference product model", () => {
         await workspace.execute(
           command("rename-target", "target", [
             {
-              kind: "text-splice",
+              kind: "rich-text-splice",
               nodeId: "target",
               deleteAtomIds: targetAtoms ?? [],
               anchor: end,
@@ -121,21 +120,18 @@ describe("Inline Reference product model", () => {
     expect(redoResult.status).toBe("published");
     expect(inlineReference(await projection(workspace, "origin"), "host", "inline-1").aliasNodeId).toBe("alias");
 
-    expect(
-      (
-        await workspace.execute(
-          command("detach-alias", "alias-attachment", [
-            { kind: "inline-reference-alias-detach", inlineReferenceId: "inline-1", aliasNodeId: "alias" },
-          ]),
-        )
-      ).status,
-    ).toBe("published");
+    const detachedAlias = await workspace.execute(
+      command("detach-alias", "alias-attachment", [
+        { kind: "inline-alias-detach", inlineReferenceId: "inline-1", aliasNodeId: "alias" },
+      ]),
+    );
+    expect(detachedAlias, JSON.stringify(detachedAlias)).toMatchObject({ status: "published" });
     expect(inlineReference(await projection(workspace, "origin"), "host", "inline-1").aliasNodeId).toBeNull();
     expect(
       (
         await workspace.execute(
           command("attach-alias", "alias-attachment", [
-            { kind: "inline-reference-alias-attach", inlineReferenceId: "inline-1", aliasNodeId: "alias" },
+            { kind: "inline-alias-attach", inlineReferenceId: "inline-1", aliasNodeId: "alias" },
           ]),
         )
       ).status,
@@ -175,9 +171,7 @@ describe("Inline Reference product model", () => {
             {
               kind: "node-restore",
               nodeId: "target",
-              deletionFactId: required(deletion.receipt.factIds[0], "target deletion Fact"),
               occurrenceId: "target-original",
-              ownerNodeId: "workspace",
               parentNodeId: "workspace",
               anchor: end,
             },
@@ -288,11 +282,8 @@ describe("Inline Reference product model", () => {
 async function setup(): Promise<Workspace> {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId: "101",
-    authorityJournal: new InMemoryDocumentStore(),
-    factReplication: new InMemoryDocumentStore(),
-    admitRecords: admitAuthorityRecords,
+    documents: new InMemoryDocumentStore(),
   });
   return Workspace.open({ workspaceId: "workspace", facts, versions });
 }
@@ -302,8 +293,8 @@ async function createHostAndTarget(workspace: Workspace): Promise<void> {
     command("host-and-target", "setup", [
       nodeAt("host", "workspace", "host-original"),
       nodeAt("target", "workspace", "target-original"),
-      { kind: "text-splice", nodeId: "host", deleteAtomIds: [], anchor: end, insert: "AB" },
-      { kind: "text-splice", nodeId: "target", deleteAtomIds: [], anchor: end, insert: "Target" },
+      { kind: "rich-text-splice", nodeId: "host", deleteAtomIds: [], anchor: end, insert: "AB" },
+      { kind: "rich-text-splice", nodeId: "target", deleteAtomIds: [], anchor: end, insert: "Target" },
     ]),
   );
   expect(result.status).toBe("published");
@@ -312,17 +303,17 @@ async function createHostAndTarget(workspace: Workspace): Promise<void> {
 function command(
   invocationId: string,
   historyChannelId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId,
-    mutations,
+    actions,
   };
 }
 

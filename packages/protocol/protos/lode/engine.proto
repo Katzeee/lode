@@ -23,12 +23,11 @@ enum EngineErrorCode {
   ENGINE_ERROR_CODE_STALE_SELECTION = 2;
   ENGINE_ERROR_CODE_PROJECTION_UNAVAILABLE = 3;
   ENGINE_ERROR_CODE_INVOCATION_CONFLICT = 4;
-  ENGINE_ERROR_CODE_AUTHORITY_FAULT = 5;
-  ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 6;
-  ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED = 7;
-  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 8;
-  ENGINE_ERROR_CODE_ACTOR_LOCKED = 9;
-  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 10;
+  ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 5;
+  ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED = 6;
+  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 7;
+  ENGINE_ERROR_CODE_ACTOR_LOCKED = 8;
+  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 9;
 }
 
 enum EngineEventKind {
@@ -39,13 +38,13 @@ enum EngineEventKind {
   ENGINE_EVENT_KIND_PROJECTION_RECOVERED = 4;
 }
 
-message MutationCommand {
+message EditCommand {
   string workspace_id = 1;
   string invocation_id = 2;
   string actor_id = 3;
   EditIntent intent = 4;
   string history_channel_id = 5;
-  repeated EditMutation mutations = 6;
+  repeated EditAction actions = 6;
 }
 
 message ResolveReviewCommand {
@@ -61,7 +60,7 @@ message AdjudicateResolutionCommand {
   string invocation_id = 2;
   string actor_id = 3;
   ResolutionDecision decision = 4;
-  repeated string proposal_contribution_ids = 5;
+  repeated string proposal_fact_ids = 5;
   repeated string resolution_ids = 6;
 }
 
@@ -77,7 +76,7 @@ message AcknowledgeDeletionCommand {
   string invocation_id = 2;
   string actor_id = 3;
   string node_id = 4;
-  repeated string deletion_fact_ids = 5;
+  repeated string deletion_action_ids = 5;
 }
 
 message RetireReplicaCommand {
@@ -96,7 +95,7 @@ message HardDeleteCommand {
 
 message EngineCommand {
   oneof command {
-    MutationCommand mutate = 1;
+    EditCommand edit = 1;
     ResolveReviewCommand resolve_review = 2;
     AdjudicateResolutionCommand adjudicate_resolution = 3;
     HistoryCommand undo = 4;
@@ -377,11 +376,9 @@ message TrashEvidence {
   ProjectionPerspective perspective = 3;
   string node_id = 4;
   bool available = 5;
-  string deletion_fact_id = 6;
-  string occurrence_id = 7;
-  string previous_owner_node_id = 8;
-  string previous_parent_node_id = 9;
-  SequenceAnchor previous_anchor = 10;
+  string occurrence_id = 6;
+  string parent_node_id = 7;
+  SequenceAnchor anchor = 8;
 }
 
 message AbsentInvocationOutcome {}
@@ -430,20 +427,9 @@ message WorkspaceRequest {
   string workspace_id = 1;
 }
 
-message RecoverWorkspaceAuthorityResult {
-  bool recovered = 1;
-}
-
-enum WorkspaceRunState {
-  WORKSPACE_RUN_STATE_UNSPECIFIED = 0;
-  WORKSPACE_RUN_STATE_ACTIVE = 1;
-  WORKSPACE_RUN_STATE_AUTHORITY_FAULT = 2;
-}
-
 message WorkspaceSummary {
   string workspace_id = 1;
   string label = 2;
-  WorkspaceRunState state = 3;
 }
 
 message ListWorkspacesResult {
@@ -468,7 +454,6 @@ message AdoptWorkspaceResult {
 }
 
 service EngineWorkspaceService {
-  rpc RecoverWorkspaceAuthority(WorkspaceRequest) returns (RecoverWorkspaceAuthorityResult);
   rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResult);
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (google.protobuf.Empty);
   rpc AdoptWorkspace(AdoptWorkspaceRequest) returns (AdoptWorkspaceResult);

@@ -5,12 +5,7 @@ export const fieldDefinitionProjectionRule = projectionRule({
   key: "field-definition",
   dependencies: ["activation", "node", "node-graph"],
   factScope: "history",
-  invalidatedBy: [
-    "field-datatype-configure",
-    "field-cardinality-configure",
-    "field-optionality-configure",
-    "field-initialization-expression-configure",
-  ],
+  invalidatedBy: ["field-configuration-set"],
   evaluate: (context) => ({
     fieldDefinitionConfigurations: projectFieldDefinitionConfigurations(
       context.workspaceNodeId,

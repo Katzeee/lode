@@ -1,15 +1,8 @@
-import type {
-  MetanodeMutation,
-  Mutation,
-  SearchExpressionMutation,
-  SupertagMutation,
-  ViewMutation,
-} from "../../../src/domain/fact/index.js";
+import type { AuthoredAction } from "../../../src/domain/fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
 import { supertagProposalLifecycleCases } from "./proposal-supertag-lifecycle-test-helpers.js";
-import { viewProposalLifecycleCases } from "./proposal-view-lifecycle-test-helpers.js";
 import { inlineReferenceProposalLifecycleCases } from "./proposal-inline-reference-lifecycle-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 export type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
@@ -20,91 +13,45 @@ export const proposalLifecycleCases = (): readonly ProposalLifecycleCase[] =>
 export const historyLifecycleCases = (): readonly ProposalLifecycleCase[] =>
   proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
 
-const HISTORY_MUTATION_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
+const HISTORY_MUTATION_KINDS: ReadonlySet<AuthoredAction["kind"]> = new Set([
   "node-create",
-  "node-delete",
+  "node-trash",
   "node-restore",
-  "occurrence-create",
-  "occurrence-delete",
-  "occurrence-restore",
-  "occurrence-move",
-  "node-owner-set",
-  "supertag-apply",
-  "supertag-remove",
+  "original-promote",
+  "placement-create",
+  "placement-remove",
+  "placement-move",
+  "supertag-application-add",
+  "supertag-membership-remove",
   "supertag-extension-add",
   "supertag-extension-remove",
-  "supertag-template-node-add",
-  "supertag-template-node-remove",
-  "field-value-delete",
-  "materialized-field-delete",
-  "field-datatype-configure",
-  "field-cardinality-configure",
-  "field-optionality-configure",
-  "text-splice",
-  "text-mark",
+  "template-member-add",
+  "template-member-remove",
+  "field-value-remove",
+  "materialized-field-clear",
+  "field-configuration-set",
+  "rich-text-splice",
+  "rich-text-mark",
   "inline-reference-create",
-  "inline-reference-delete",
-  "inline-reference-alias-attach",
-  "inline-reference-alias-detach",
-  "shared-default-view-definition-mode-set",
+  "inline-reference-remove",
+  "inline-alias-attach",
+  "inline-alias-detach",
 ]);
 
 const PROPOSAL_LIFECYCLE_CASES = {
   "node-create": nodeCreateCase,
-  "node-delete": nodeDeleteCase,
+  "node-trash": nodeDeleteCase,
   "node-restore": nodeRestoreCase,
-  "occurrence-create": occurrenceCreateCase,
-  "occurrence-delete": occurrenceDeleteCase,
-  "occurrence-restore": occurrenceRestoreCase,
-  "occurrence-move": occurrenceMoveCase,
-  "node-owner-set": nodeOwnerCase,
-  "intrinsic-node-type-declare": declareIntrinsicNodeTypeCase,
+  "original-promote": originalPromoteCase,
+  "placement-create": occurrenceCreateCase,
+  "placement-remove": occurrenceDeleteCase,
+  "placement-move": occurrenceMoveCase,
   ...supertagProposalLifecycleCases,
   ...fieldProposalLifecycleCases,
-  ...viewProposalLifecycleCases,
   ...inlineReferenceProposalLifecycleCases,
-  "text-splice": textSpliceCase,
-  "text-mark": textMarkCase,
-} satisfies Record<
-  Exclude<
-    Mutation,
-    | MetanodeMutation
-    | SearchExpressionMutation
-    | Extract<
-        SupertagMutation,
-        {
-          kind:
-            | "supertag-template-field-attach"
-            | "supertag-template-field-existing-attach"
-            | "supertag-template-field-detach"
-            | "supertag-template-field-discoverability-set"
-            | "supertag-template-field-visibility-configure"
-            | "supertag-optional-field-contribution-attach"
-            | "supertag-optional-field-contribution-detach";
-        }
-      >
-    | Extract<
-        ViewMutation,
-        {
-          kind:
-            | "shared-default-view-definition-attach"
-            | "shared-default-view-definition-detach"
-            | "shared-default-view-definition-options-set"
-            | "shared-default-view-definition-sort-by-name-set";
-        }
-      >
-  >["kind"],
-  () => ProposalLifecycleCase
->;
-
-function declareIntrinsicNodeTypeCase(): ProposalLifecycleCase {
-  const facts = base();
-  return lifecycle(facts, {
-    kind: "intrinsic-node-type-declare",
-    nodeId: "node",
-    intrinsicNodeType: "supertag-definition",
-  });
-}
+  "rich-text-splice": richTextSpliceCase,
+  "rich-text-mark": richTextMarkCase,
+} satisfies Readonly<Record<string, () => ProposalLifecycleCase>>;
 
 function nodeCreateCase(): ProposalLifecycleCase {
   const facts = new Facts();
@@ -117,24 +64,36 @@ function nodeCreateCase(): ProposalLifecycleCase {
 
 function nodeDeleteCase(): ProposalLifecycleCase {
   const facts = base();
-  return lifecycle(facts, { kind: "node-delete", nodeId: "node" });
+  return lifecycle(facts, { kind: "node-trash", nodeId: "node" });
 }
 
 function nodeRestoreCase(): ProposalLifecycleCase {
   const facts = base();
-  const deletion = facts.add({ kind: "node-delete", nodeId: "node" });
+  facts.add({ kind: "node-trash", nodeId: "node" });
   return lifecycle(facts, {
     kind: "node-restore",
     nodeId: "node",
-    deletionFactId: deletion.id,
+    placementId: "occurrence",
+    parentNodeId: "workspace",
+    anchor: end,
+  });
+}
+
+function originalPromoteCase(): ProposalLifecycleCase {
+  const facts = base();
+  addReferencePlacement(facts);
+  return lifecycle(facts, {
+    kind: "original-promote",
+    nodeId: "node",
+    placementId: "reference",
   });
 }
 
 function occurrenceCreateCase(): ProposalLifecycleCase {
   const facts = base();
   return lifecycle(facts, {
-    kind: "occurrence-create",
-    occurrenceId: "created-occurrence",
+    kind: "placement-create",
+    placementId: "created-occurrence",
     nodeId: "node",
     parentNodeId: "node",
     anchor: end,
@@ -145,36 +104,16 @@ function occurrenceDeleteCase(): ProposalLifecycleCase {
   const facts = base();
   addReferencePlacement(facts);
   return lifecycle(facts, {
-    kind: "occurrence-delete",
-    occurrenceId: "reference",
-    previousParentNodeId: "reference-parent",
-    previousAnchor: { ...end, fallback: "start" },
-  });
-}
-
-function occurrenceRestoreCase(): ProposalLifecycleCase {
-  const facts = base();
-  addReferencePlacement(facts);
-  const deletion = facts.add({
-    kind: "occurrence-delete",
-    occurrenceId: "reference",
-    previousParentNodeId: "reference-parent",
-    previousAnchor: { ...end, fallback: "start" },
-  });
-  return lifecycle(facts, {
-    kind: "occurrence-restore",
-    occurrenceId: "reference",
-    deletionFactId: deletion.id,
-    parentNodeId: "reference-parent",
-    anchor: end,
+    kind: "placement-remove",
+    placementId: "reference",
   });
 }
 
 function addReferencePlacement(facts: Facts): void {
   addPlacedNode(facts, "reference-parent");
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "reference",
+    kind: "placement-create",
+    placementId: "reference",
     nodeId: "node",
     parentNodeId: "reference-parent",
     anchor: end,
@@ -183,56 +122,36 @@ function addReferencePlacement(facts: Facts): void {
 
 function occurrenceMoveCase(): ProposalLifecycleCase {
   const facts = nestedOccurrenceBase();
-  facts.add({ kind: "node-create", nodeId: "parent" });
+  facts.add({ kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null });
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "parent",
+    kind: "placement-create",
+    placementId: "parent",
     nodeId: "parent",
     parentNodeId: "outline-root-node",
     anchor: end,
   });
   return lifecycle(facts, {
-    kind: "occurrence-move",
-    occurrenceId: "occurrence",
+    kind: "placement-move",
+    placementId: "occurrence",
     parentNodeId: "parent",
     anchor: end,
-    previousParentNodeId: "outline-root-node",
-    previousAnchor: end,
-  });
-}
-
-function nodeOwnerCase(): ProposalLifecycleCase {
-  const facts = base();
-  addPlacedNode(facts, "reference-parent");
-  facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "reference",
-    nodeId: "node",
-    parentNodeId: "reference-parent",
-    anchor: end,
-  });
-  return lifecycle(facts, {
-    kind: "node-owner-set",
-    nodeId: "node",
-    ownerNodeId: "reference-parent",
-    previousOwnerNodeId: "workspace",
   });
 }
 
 function nestedOccurrenceBase(): Facts {
   const facts = new Facts();
-  facts.add({ kind: "node-create", nodeId: "outline-root-node" });
-  facts.add({ kind: "node-create", nodeId: "node" });
+  facts.add({ kind: "node-create", nodeId: "outline-root-node", ownerNodeId: "workspace", originalPlacement: null });
+  facts.add({ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null });
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "outline-root-occurrence",
+    kind: "placement-create",
+    placementId: "outline-root-occurrence",
     nodeId: "outline-root-node",
     parentNodeId: "workspace",
     anchor: end,
   });
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "occurrence",
+    kind: "placement-create",
+    placementId: "occurrence",
     nodeId: "node",
     parentNodeId: "outline-root-node",
     anchor: end,
@@ -240,36 +159,34 @@ function nestedOccurrenceBase(): Facts {
   return facts;
 }
 
-function textSpliceCase(): ProposalLifecycleCase {
+function richTextSpliceCase(): ProposalLifecycleCase {
   return lifecycle(base(), {
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: "node",
     deleteAtomIds: [],
-    deletedAtoms: [],
     anchor: end,
     insert: "proposal",
   });
 }
 
-function textMarkCase(): ProposalLifecycleCase {
+function richTextMarkCase(): ProposalLifecycleCase {
   const facts = base();
   const text = facts.add({
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: "node",
     deleteAtomIds: [],
     anchor: end,
     insert: "A",
   });
   return lifecycle(facts, {
-    kind: "text-mark",
+    kind: "rich-text-mark",
     nodeId: "node",
     atomIds: [`${text.id}#0`],
     key: "bold",
     value: { kind: "set", value: true },
-    previous: { kind: "unset" },
   });
 }
 
-function lifecycle(facts: Facts, mutation: Mutation): ProposalLifecycleCase {
-  return { kind: mutation.kind, facts, proposal: facts.add(mutation, "proposal") };
+function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+  return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

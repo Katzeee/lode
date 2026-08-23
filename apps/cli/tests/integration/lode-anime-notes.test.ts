@@ -80,7 +80,7 @@ afterEach(async () => {
 });
 
 describe("Anime Notes through the public CLI and daemon", () => {
-  it("preserves the legacy structured transport for one connected knowledge graph", async () => {
+  it("preserves one connected knowledge graph across transport and restart", async () => {
     const leftRoot = await temporaryDirectory("left");
     const rightRoot = await temporaryDirectory("right");
     let left = await startTestDaemon({
@@ -115,10 +115,10 @@ describe("Anime Notes through the public CLI and daemon", () => {
         kind: "supertag-relation",
         relation: "application",
         ownerId: "quick-note",
-        targetId: "quick-note-review-application",
+        targetId: "review",
       });
       expect(array(applicationEvidence.associatedImpactIds, "Application impacts")).toContain(
-        "supertag-application/quick-note/quick-note-review-application",
+        "supertag-application/quick-note/review",
       );
       await resolve(left.address, "reject-review-application", "reject", applicationHunk.selection);
       expect(await supertagApplications(left.address, "origin", "quick-note")).toEqual([
@@ -156,7 +156,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         nodeAt("outline-root", outlineWorkspaceId, "outline-root-occurrence"),
         nodeAt("alpha", "outline-root", "alpha-occurrence"),
         {
-          kind: "text-splice",
+          kind: "rich-text-splice",
           nodeId: "alpha",
           deleteAtomIds: [],
           anchor: end,
@@ -164,7 +164,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
         },
         nodeAt("beta", "outline-root", "beta-occurrence"),
         {
-          kind: "text-splice",
+          kind: "rich-text-splice",
           nodeId: "beta",
           deleteAtomIds: [],
           anchor: end,
@@ -185,13 +185,13 @@ describe("Anime Notes through the public CLI and daemon", () => {
         "outline-root-occurrence",
       ]);
       const extraRoot = await cliRequest("execute", left.address, {
-        kind: "mutate",
+        kind: "edit",
         workspaceId: outlineWorkspaceId,
         invocationId: "create-extra-root-occurrence",
         actorId: actingActorId,
         intent: "direct",
         historyChannelId: "outline",
-        mutations: [nodeAt("extra-root", outlineWorkspaceId, "extra-root-occurrence")],
+        actions: [nodeAt("extra-root", outlineWorkspaceId, "extra-root-occurrence")],
       });
       expect(extraRoot).toMatchObject({ status: "published" });
       expect(await outlineChildren(left.address, outlineWorkspaceId)).toEqual([
@@ -209,7 +209,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       const alphaAtoms = await nodeAtomsInWorkspace(left.address, "alpha");
       await executeOutline(left.address, "mark-and-reorder", [
         {
-          kind: "text-mark",
+          kind: "rich-text-mark",
           nodeId: "alpha",
           atomIds: [record(alphaAtoms[0], "Alpha atom").id],
           key: "bold",
@@ -282,7 +282,7 @@ describe("Anime Notes through the public CLI and daemon", () => {
       const lastAtomId = record(rightAtoms.at(-1), "Last Alpha atom").id;
       await executeOutline(right.address, "edit-from-right", [
         {
-          kind: "text-splice",
+          kind: "rich-text-splice",
           nodeId: "alpha",
           deleteAtomIds: [],
           anchor: { after: lastAtomId, before: null, affinity: "after", fallback: "end" },
@@ -391,19 +391,19 @@ function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
   return { kind: "node-create", nodeId, parentNodeId, occurrenceId, anchor: end };
 }
 
-async function executeOutline(endpoint: string, invocationId: string, mutations: readonly unknown[]): Promise<void> {
-  for (const [index, mutation] of mutations.entries()) {
+async function executeOutline(endpoint: string, invocationId: string, actions: readonly unknown[]): Promise<void> {
+  for (const [index, action] of actions.entries()) {
     const result = await cliRequest("execute", endpoint, {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: outlineWorkspaceId,
       invocationId: `${invocationId}-${index}`,
       actorId: actingActorId,
       intent: "direct",
       historyChannelId: "outline",
-      mutations: [mutation],
+      actions: [action],
     });
     if (result.status !== "published") {
-      throw new Error(`Outline mutation ${index} ${JSON.stringify(mutation)} failed: ${JSON.stringify(result)}`);
+      throw new Error(`Outline action ${index} ${JSON.stringify(action)} failed: ${JSON.stringify(result)}`);
     }
     expect(result.status).toBe("published");
   }
@@ -511,16 +511,16 @@ async function execute(
   endpoint: string,
   invocationId: string,
   intent: "direct" | "proposal",
-  mutations: readonly unknown[],
+  actions: readonly unknown[],
 ): Promise<void> {
   const result = await cliRequest("execute", endpoint, {
-    kind: "mutate",
+    kind: "edit",
     workspaceId,
     invocationId,
     actorId: actingActorId,
     intent,
     historyChannelId: "anime-notes",
-    mutations,
+    actions,
   });
   if (result.status !== "published") {
     throw new Error(JSON.stringify(result));
@@ -528,18 +528,14 @@ async function execute(
   expect(result.status).toBe("published");
 }
 
-async function executeProgram(
-  endpoint: string,
-  invocationPrefix: string,
-  mutations: readonly unknown[],
-): Promise<void> {
+async function executeProgram(endpoint: string, invocationPrefix: string, actions: readonly unknown[]): Promise<void> {
   const batchSize = 20;
-  for (let index = 0; index < mutations.length; index += batchSize) {
+  for (let index = 0; index < actions.length; index += batchSize) {
     await execute(
       endpoint,
       `${invocationPrefix}-${index / batchSize}`,
       "direct",
-      mutations.slice(index, index + batchSize),
+      actions.slice(index, index + batchSize),
     );
   }
 }

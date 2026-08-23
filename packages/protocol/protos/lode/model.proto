@@ -79,6 +79,10 @@ message NodeSeed {
 }
 
 message FieldInitializationExpression {
+  string source_field_definition_id = 1;
+}
+
+message ProjectedFieldInitializationExpression {
   string expression_node_id = 1;
   string expression_occurrence_id = 2;
   string source_field_definition_id = 3;
@@ -131,29 +135,67 @@ message SearchLinksToExpression { string target_node_id = 1; }
 
 message SearchExpressionSpec {
   string expression_node_id = 1;
+  string expression_id = 2;
   oneof expression {
-    SearchExpressionList all = 2;
-    SearchExpressionList any = 3;
-    SearchNegatedExpression negated = 4;
-    SearchSupertagExpression supertag = 5;
-    SearchTextExpression text = 6;
-    SearchFieldDefinedExpression field_defined = 7;
-    SearchFieldValueExpression field_value = 8;
-    SearchDateCompareExpression date_compare = 9;
-    SearchScopeExpression descendant_of = 10;
-    SearchScopeExpression child_of = 11;
-    SearchLinksToExpression links_to = 12;
+    SearchExpressionList all = 3;
+    SearchExpressionList any = 4;
+    SearchNegatedExpression negated = 5;
+    SearchSupertagExpression supertag = 6;
+    SearchTextExpression text = 7;
+    SearchFieldDefinedExpression field_defined = 8;
+    SearchFieldValueExpression field_value = 9;
+    SearchDateCompareExpression date_compare = 10;
+    SearchScopeExpression descendant_of = 11;
+    SearchScopeExpression child_of = 12;
+    SearchLinksToExpression links_to = 13;
+  }
+}
+
+message SearchExpressionDraftList { repeated SearchExpressionDraft values = 1; }
+message SearchNegatedExpressionDraft { SearchExpressionDraft operand = 1; }
+
+message SearchExpressionDraft {
+  oneof expression {
+    SearchExpressionDraftList all = 1;
+    SearchExpressionDraftList any = 2;
+    SearchNegatedExpressionDraft negated = 3;
+    SearchSupertagExpression supertag = 4;
+    SearchTextExpression text = 5;
+    SearchFieldDefinedExpression field_defined = 6;
+    SearchFieldValueExpression field_value = 7;
+    SearchDateCompareExpression date_compare = 8;
+    SearchScopeExpression descendant_of = 9;
+    SearchScopeExpression child_of = 10;
+    SearchLinksToExpression links_to = 11;
+  }
+}
+
+message SearchClause {
+  oneof clause {
+    google.protobuf.Empty all = 1;
+    google.protobuf.Empty any = 2;
+    google.protobuf.Empty negated = 3;
+    SearchSupertagExpression supertag = 4;
+    SearchTextExpression text = 5;
+    SearchFieldDefinedExpression field_defined = 6;
+    SearchFieldValueExpression field_value = 7;
+    SearchDateCompareExpression date_compare = 8;
+    SearchScopeExpression descendant_of = 9;
+    SearchScopeExpression child_of = 10;
+    SearchLinksToExpression links_to = 11;
   }
 }
 
 message ViewColumnSpec {
-  string column_node_id = 1;
-  string field_definition_id = 2;
+  string column_id = 1;
+  string column_node_id = 2;
+  string field_definition_id = 3;
 }
 
 message ViewFilterSpec {
-  string filter_node_id = 1;
-  SearchExpressionSpec expression = 2;
+  string filter_id = 1;
+  string filter_node_id = 2;
+  SearchExpressionSpec expression = 3;
 }
 
 enum ViewSortDirection {
@@ -163,14 +205,16 @@ enum ViewSortDirection {
 }
 
 message ViewSortSpec {
-  string sort_node_id = 1;
-  string field_definition_id = 2;
-  ViewSortDirection direction = 3;
+  string sort_id = 1;
+  string sort_node_id = 2;
+  string field_definition_id = 3;
+  ViewSortDirection direction = 4;
 }
 
 message ViewGroupSpec {
-  string group_node_id = 1;
-  string field_definition_id = 2;
+  string group_id = 1;
+  string group_node_id = 2;
+  string field_definition_id = 3;
 }
 
 message ViewOptionsSpec {

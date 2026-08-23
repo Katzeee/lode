@@ -1,4 +1,4 @@
-import type { BacklinksResult, EditMutation, ProjectedNode } from "@lode/sdk";
+import type { BacklinksResult, EditAction, ProjectedNode } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -58,7 +58,7 @@ const referenceAdd: CommandDefinition = {
       args.option("--after"),
     );
     const occurrenceId = identity(context.requestId, "reference-occurrence");
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "occurrence-create",
         occurrenceId,
@@ -67,7 +67,7 @@ const referenceAdd: CommandDefinition = {
         anchor,
       },
     ];
-    const { result, data } = await executeWrite(context, "reference.add", mutations);
+    const { result, data } = await executeWrite(context, "reference.add", actions);
     const occurrence = descriptor(workspaceId, "occurrence", occurrenceId, target.label);
     return writeResult(data, result, {
       extra: {
@@ -117,7 +117,7 @@ const referenceAddInline: CommandDefinition = {
       throw new CliError("target-not-found", `Node ${host.nodeId} is not in this projection.`);
     }
     const inlineReferenceId = identity(context.requestId, "inline-reference");
-    const mutations: EditMutation[] = [
+    const actions: EditAction[] = [
       {
         kind: "inline-reference-create",
         inlineReferenceId,
@@ -128,7 +128,7 @@ const referenceAddInline: CommandDefinition = {
     ];
     const alias = args.option("--alias");
     if (alias !== undefined) {
-      mutations.push({
+      actions.push({
         kind: "inline-reference-alias-create",
         inlineReferenceId,
         hostNodeId: host.nodeId,
@@ -136,7 +136,7 @@ const referenceAddInline: CommandDefinition = {
         seed: { text: [{ value: alias, attributes: {} }] },
       });
     }
-    const { result, data } = await executeWrite(context, "reference.add-inline", mutations);
+    const { result, data } = await executeWrite(context, "reference.add-inline", actions);
     const reference = descriptor(workspaceId, "reference", inlineReferenceId, target.label);
     return writeResult(data, result, {
       extra: { target: target.descriptor, on: host.descriptor, reference },

@@ -1,47 +1,44 @@
-import { canonicalJson, compareFacts, isFieldDefinitionConfigMutation, type ContributionFact } from "../fact/index.js";
-import type { FieldDefinitionConfiguration, ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import { canonicalJson, compareCausalOrder, isFieldDefinitionConfigAction, type FactAction } from "../fact/index.js";
+import {
+  fieldConfigurationProjectionIdentity,
+  type FieldDefinitionConfiguration,
+  type ScopedProjection,
+  type ScopedProjectionGeneration,
+} from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { FieldDefinitionConfigurationDecisionEffect, FieldDefinitionConfigurationDecisionState } from "./types.js";
 
-const MUTATION_KINDS = [
-  "field-datatype-configure",
-  "field-cardinality-configure",
-  "field-optionality-configure",
-  "field-initialization-expression-configure",
-] as const;
+const ACTION_KINDS = ["field-configuration-set"] as const;
 
 export const fieldDefinitionConfigurationReviewFamily = {
   key: "field-definition-configuration",
-  mutationKinds: MUTATION_KINDS,
+  actionKinds: ACTION_KINDS,
   scopes(fact) {
-    const mutation = fact.body.mutation;
-    if (!isFieldDefinitionConfigMutation(mutation)) {
-      throw new Error("Field Definition configuration Review family received another Mutation family");
+    const action = fact.action;
+    if (!isFieldDefinitionConfigAction(action)) {
+      throw new Error("Field Definition configuration Review family received another AuthoredAction family");
     }
-    return [
-      reviewScope("field-definition-configuration", mutation.configurationNodeId),
-      associatedNodeScope(mutation.configurationNodeId),
-      associatedNodeScope(mutation.fieldDefinitionId),
-    ];
+    const identity = configurationIdentity(action.fieldDefinitionId, action.configuration.kind);
+    return [reviewScope("field-definition-configuration", identity), associatedNodeScope(action.fieldDefinitionId)];
   },
   candidates: ({ generation, pending }) => candidates(generation, pending),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (!isFieldDefinitionConfigMutation(mutation)) {
-      throw new Error("Field Definition configuration Review family received another Mutation family");
+    const action = fact.action;
+    if (!isFieldDefinitionConfigAction(action)) {
+      throw new Error("Field Definition configuration Review family received another AuthoredAction family");
     }
-    const effect = configurationEffect(mutation.fieldDefinitionId, mutation.configurationNodeId, generation);
+    const effect = configurationEffect(action.fieldDefinitionId, action.configuration.kind, generation);
     return canonicalJson(effect.origin) === canonicalJson(effect.review)
       ? null
-      : { identity: `field-definition-configuration/${mutation.configurationNodeId}`, effect };
+      : { identity: configurationIdentity(action.fieldDefinitionId, action.configuration.kind), effect };
   },
   addImpacts(impacts, targets) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (isFieldDefinitionConfigMutation(mutation)) {
-        impacts.add(mutation.fieldDefinitionId);
-        impacts.add(mutation.configurationNodeId);
+      const action = fact.action;
+      if (isFieldDefinitionConfigAction(action)) {
+        impacts.add(action.fieldDefinitionId);
+        impacts.add(fieldConfigurationProjectionIdentity(fact.id).configurationNodeId);
       }
     }
   },
@@ -49,34 +46,31 @@ export const fieldDefinitionConfigurationReviewFamily = {
 
 function candidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
+  const groups = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isFieldDefinitionConfigMutation(mutation)) {
+    const action = fact.action;
+    if (!isFieldDefinitionConfigAction(action)) {
       continue;
     }
-    const key = `${mutation.fieldDefinitionId}\u0000${mutation.configurationNodeId}`;
+    const key = configurationIdentity(action.fieldDefinitionId, action.configuration.kind);
     const facts = groups.get(key) ?? [];
     facts.push(fact);
     groups.set(key, facts);
   }
-  return [...groups.values()].flatMap((facts) => {
-    const mutation = facts[0]?.body.mutation;
-    if (!mutation || !isFieldDefinitionConfigMutation(mutation)) {
+  return [...groups.entries()].flatMap(([identity, facts]) => {
+    const action = facts[0]?.action;
+    if (!action || !isFieldDefinitionConfigAction(action)) {
       return [];
     }
-    const effect = configurationEffect(mutation.fieldDefinitionId, mutation.configurationNodeId, generation);
+    const effect = configurationEffect(action.fieldDefinitionId, action.configuration.kind, generation);
     return canonicalJson(effect.origin) === canonicalJson(effect.review)
       ? []
       : [
           {
-            diffSpace: {
-              kind: "field-definition-configuration" as const,
-              identity: mutation.configurationNodeId,
-            },
-            targets: [...facts].sort(compareFacts).map((fact) => fact.id),
+            diffSpace: { kind: "field-definition-configuration" as const, identity },
+            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
             bridges: [],
           },
         ];
@@ -85,47 +79,48 @@ function candidates(
 
 function configurationEffect(
   fieldDefinitionId: string,
-  configurationNodeId: string,
+  configurationKind: FieldDefinitionConfiguration["kind"],
   generation: ScopedProjectionGeneration,
 ): FieldDefinitionConfigurationDecisionEffect {
   return {
     kind: "field-definition-configuration",
     fieldDefinitionId,
-    configurationNodeId,
-    origin: configurationState(fieldDefinitionId, configurationNodeId, generation.origin),
-    review: configurationState(fieldDefinitionId, configurationNodeId, generation.review),
+    configurationKind,
+    origin: configurationState(fieldDefinitionId, configurationKind, generation.origin),
+    review: configurationState(fieldDefinitionId, configurationKind, generation.review),
   };
 }
 
 function configurationState(
   fieldDefinitionId: string,
-  configurationNodeId: string,
+  configurationKind: FieldDefinitionConfiguration["kind"],
   projection: ScopedProjection,
 ): FieldDefinitionConfigurationDecisionState | null {
   const configuration = (projection.fieldDefinitionConfigurations[fieldDefinitionId] ?? []).find(
-    (candidate) => candidate.configurationNodeId === configurationNodeId,
+    (candidate) => candidate.kind === configurationKind,
   );
   return configuration ? decisionState(configuration) : null;
 }
 
 function decisionState(configuration: FieldDefinitionConfiguration): FieldDefinitionConfigurationDecisionState {
   if (configuration.kind === "datatype") {
-    return {
-      kind: configuration.kind,
-      datatypeNodeId: configuration.datatypeNodeId,
-    };
+    return { kind: configuration.kind, datatypeNodeId: configuration.datatypeNodeId };
   }
   if (configuration.kind === "cardinality") {
-    return {
-      kind: configuration.kind,
-      cardinalityNodeId: configuration.cardinalityNodeId,
-    };
+    return { kind: configuration.kind, cardinalityNodeId: configuration.cardinalityNodeId };
   }
   if (configuration.kind === "optionality") {
-    return {
-      kind: configuration.kind,
-      optionalityNodeId: configuration.optionalityNodeId,
-    };
+    return { kind: configuration.kind, optionalityNodeId: configuration.optionalityNodeId };
   }
-  return { kind: configuration.kind, expression: configuration.expression };
+  return {
+    kind: configuration.kind,
+    expression: {
+      kind: configuration.expression.kind,
+      sourceFieldDefinitionId: configuration.expression.sourceFieldDefinitionId,
+    },
+  };
+}
+
+function configurationIdentity(fieldDefinitionId: string, kind: FieldDefinitionConfiguration["kind"]): string {
+  return `${fieldDefinitionId}/${kind}`;
 }

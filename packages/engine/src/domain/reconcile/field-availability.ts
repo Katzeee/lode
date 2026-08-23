@@ -14,23 +14,26 @@ import type {
 } from "./projection-types.js";
 import { supertagExtensionGraph } from "./supertag-extension-graph.js";
 
-type ContentNode = Readonly<{
-  content: readonly Readonly<{ kind: string; value?: string }>[];
-}>;
+type FieldAvailabilityApplication = Pick<SupertagApplication, "hostNodeId" | "supertagId" | "applicationNodeId">;
 
 export function projectFieldAvailability(
-  applications: Readonly<Record<string, readonly SupertagApplication[]>>,
+  applications: Readonly<Record<string, readonly FieldAvailabilityApplication[]>>,
   templateFields: Readonly<Record<string, readonly TemplateField[]>>,
   optionalContributions: Readonly<Record<string, readonly OptionalFieldContribution[]>>,
   extensions: Readonly<Record<string, readonly string[]>>,
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>,
-  nodes: Readonly<Record<string, ContentNode>>,
+  _nodes: Readonly<Record<string, unknown>>,
 ): Readonly<{
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   optionalFieldSuggestions: Readonly<Record<string, readonly OptionalFieldSuggestion[]>>;
 }> {
   const effectiveFields: Record<string, readonly EffectiveField[]> = {};
   const optionalFieldSuggestions: Record<string, readonly OptionalFieldSuggestion[]> = {};
+  const templateFieldByNodeId = new Map(
+    Object.values(templateFields)
+      .flat()
+      .map((field) => [field.templateFieldNodeId, field]),
+  );
   for (const [ownerNodeId, ownerApplications] of Object.entries(applications).sort(([left], [right]) =>
     stableStringCompare(left, right),
   )) {
@@ -52,7 +55,7 @@ export function projectFieldAvailability(
                 ownerNodeId,
                 fieldDefinitionId,
                 sources: [...item.templateSources, ...item.optionalSources],
-                staticDefault: effectiveStaticDefault(item.templateSources, nodes),
+                staticDefault: effectiveStaticDefault(item.templateSources, templateFieldByNodeId),
                 visibility: item.templateSources.some((source) => source.visibility === "pinned") ? "pinned" : "normal",
                 visibilityConflicted: item.visibilityConflicted,
                 materializedFieldNodeId: materialized.get(fieldDefinitionId) ?? null,
@@ -76,7 +79,7 @@ export function projectFieldAvailability(
 }
 
 function contributionsByDefinition(
-  applications: readonly SupertagApplication[],
+  applications: readonly FieldAvailabilityApplication[],
   templateFields: Readonly<Record<string, readonly TemplateField[]>>,
   optionalContributions: Readonly<Record<string, readonly OptionalFieldContribution[]>>,
   extensions: Readonly<Record<string, readonly string[]>>,
@@ -142,17 +145,19 @@ function appendSource<Source extends EffectiveFieldSource>(values: Source[], sou
 }
 
 function sourceIdentity(source: EffectiveFieldSource): string {
-  const contributionId = source.kind === "template" ? source.templateFieldNodeId : source.optionalContributionNodeId;
-  return [source.kind, source.applicationNodeId, source.extensionPath.join("\u0000"), contributionId].join("\u0001");
+  const factActionId = source.kind === "template" ? source.templateFieldNodeId : source.optionalContributionNodeId;
+  return [source.kind, source.applicationNodeId, source.extensionPath.join("\u0000"), factActionId].join("\u0001");
 }
 
 function effectiveStaticDefault(
   sources: readonly EffectiveTemplateFieldSource[],
-  nodes: Readonly<Record<string, ContentNode>>,
+  templateFields: ReadonlyMap<string, TemplateField>,
 ): EffectiveStaticDefault {
   const authored = sources.flatMap((source) => {
-    const value = textContent(nodes[source.staticDefaultValueNodeId]);
-    return value.length === 0 ? [] : [{ source, value }];
+    const field = templateFields.get(source.templateFieldNodeId);
+    return (field?.staticDefaultCandidates ?? []).flatMap((candidate) =>
+      candidate.value.length === 0 ? [] : [{ source, value: candidate.value }],
+    );
   });
   const unshadowed = authored.filter(
     ({ source }) =>
@@ -187,13 +192,6 @@ function effectiveStaticDefault(
     return { state: "none", candidates: [] };
   }
   return { state: "value", value: candidate.value, sourceTemplateFieldNodeId, candidates };
-}
-
-function textContent(node: ContentNode | undefined): string {
-  if (node === undefined || node.content.some((item) => item.kind !== "text")) {
-    return "";
-  }
-  return node.content.map((item) => item.value ?? "").join("");
 }
 
 function isPathPrefix(prefix: readonly string[], value: readonly string[]): boolean {

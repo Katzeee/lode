@@ -1,31 +1,22 @@
-import type { AuthorityReceipt as AuthorityReceiptValue } from "./authority-types.js";
-import type { FieldContentDeletionMutation } from "./field-content-types.js";
-import type { FieldDefinitionConfigMutation } from "./field-definition-config-types.js";
-import type { NodeSeed } from "./node-create-types.js";
+import type { FieldContentRemovalAction } from "./field-content-types.js";
+import type { FieldDefinitionAction } from "./field-definition-config-types.js";
+import type { NodeSeed, OriginalPlacement } from "./node-create-types.js";
 import type { IntrinsicNodeType } from "./intrinsic-node-type-types.js";
-import type { FactTransactionId, FactTransactionPosition } from "./transaction-types.js";
-import type { InlineReferenceMutation } from "./inline-reference-types.js";
-import type { SearchExpressionMutation } from "./search-expression-types.js";
-import type { SupertagMutation } from "./supertag-types.js";
+import type { InlineReferenceAction } from "./inline-reference-types.js";
+import type { SearchExpressionAction } from "./search-expression-types.js";
+import type { SupertagAction } from "./supertag-types.js";
 import type { GovernanceBody } from "./governance-types.js";
-import type {
-  SharedDefaultViewDefinitionAttachMutation,
-  SharedDefaultViewDefinitionDetachMutation,
-  SharedDefaultViewDefinitionModeSetMutation,
-  SharedDefaultViewDefinitionOptionsSetMutation,
-  SharedDefaultViewDefinitionSortByNameSetMutation,
-} from "./view-definition-types.js";
+import type { ViewAction } from "./view-definition-types.js";
 
-export const FORMAT_GENERATION = 1 as const;
-export const FACT_SCHEMA_VERSION = 1 as const;
+export const FACT_ID_GENERATION = 1 as const;
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
 export type ActorId = string;
 export type InvocationId = string;
-export type ContributionId = string;
-export type ResolutionId = string;
-export type FactId = string;
+export type FactId = `g${number}/${string}/${string}/${number}`;
+export type FactActionId = `${FactId}/actions/${number}`;
+export type ResolutionId = FactId;
 export type HistoryChannelId = string;
 
 export type EditIntent = "direct" | "proposal";
@@ -37,7 +28,7 @@ export type JsonValue =
 
 export type FactFrontier = Readonly<Record<ReplicaId, number>>;
 
-export type FactDot = Readonly<{
+type FactDot = Readonly<{
   replicaId: ReplicaId;
   sequence: number;
 }>;
@@ -48,7 +39,7 @@ export type CausalCoordinate = Readonly<{
   lamport: number;
 }>;
 
-export type TextAtomId = `${string}#${number}`;
+export type TextAtomId = `${FactActionId}#${number}`;
 
 export type SequenceAnchor = Readonly<{
   after: string | null;
@@ -59,51 +50,43 @@ export type SequenceAnchor = Readonly<{
 
 export type PreviousValue = Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;
 
-export type Mutation =
-  | Readonly<{ kind: "node-create"; nodeId: string; seed?: NodeSeed }>
-  | Readonly<{ kind: "node-delete"; nodeId: string }>
-  | Readonly<{ kind: "node-restore"; nodeId: string; deletionFactId: FactId }>
+export type AuthoredAction =
+  | Readonly<{ kind: "workspace-bootstrap"; workspaceNodeId: string }>
   | Readonly<{
-      kind: "occurrence-create";
-      occurrenceId: string;
+      kind: "node-create";
+      nodeId: string;
+      ownerNodeId: string;
+      originalPlacement: OriginalPlacement | null;
+      intrinsicNodeType?: IntrinsicNodeType;
+      seed?: NodeSeed;
+    }>
+  | Readonly<{ kind: "node-trash"; nodeId: string }>
+  | Readonly<{
+      kind: "node-restore";
+      nodeId: string;
+      placementId: string;
+      parentNodeId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{ kind: "original-promote"; nodeId: string; placementId: string }>
+  | Readonly<{
+      kind: "placement-create";
+      placementId: string;
       nodeId: string;
       parentNodeId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "occurrence-delete";
-      occurrenceId: string;
-      previousParentNodeId?: string;
-      previousAnchor?: SequenceAnchor;
+      kind: "placement-remove";
+      placementId: string;
     }>
   | Readonly<{
-      kind: "occurrence-restore";
-      occurrenceId: string;
-      deletionFactId: FactId;
+      kind: "placement-move";
+      placementId: string;
       parentNodeId: string;
       anchor: SequenceAnchor;
     }>
-  | Readonly<{
-      kind: "occurrence-move";
-      occurrenceId: string;
-      parentNodeId: string;
-      anchor: SequenceAnchor;
-      previousParentNodeId?: string;
-      previousAnchor?: SequenceAnchor;
-    }>
-  | Readonly<{
-      kind: "node-owner-set";
-      nodeId: string;
-      ownerNodeId: string | null;
-      previousOwnerNodeId?: string | null;
-    }>
-  | Readonly<{
-      kind: "metanode-attach";
-      hostNodeId: string;
-      metanodeId: string;
-    }>
-  | Readonly<{ kind: "intrinsic-node-type-declare"; nodeId: string; intrinsicNodeType: IntrinsicNodeType }>
-  | SupertagMutation
+  | SupertagAction
   | Readonly<{
       kind: "template-node-detach";
       ownerNodeId: string;
@@ -111,9 +94,6 @@ export type Mutation =
       instanceNodeId: string;
       instanceOccurrenceId: string;
       anchor: SequenceAnchor;
-      sourceSupertagIds?: readonly string[];
-      sourceApplicationSupertagIds?: readonly string[];
-      sourceTemplateOccurrenceIds?: readonly string[];
     }>
   | Readonly<{
       kind: "field-materialize";
@@ -122,96 +102,72 @@ export type Mutation =
       fieldNodeId: string;
       fieldOccurrenceId: string;
     }>
-  | FieldContentDeletionMutation
-  | FieldDefinitionConfigMutation
+  | FieldContentRemovalAction
+  | FieldDefinitionAction
   | Readonly<{
-      kind: "text-splice";
+      kind: "rich-text-splice";
       nodeId: string;
       deleteAtomIds: readonly TextAtomId[];
-      deletedAtoms?: readonly Readonly<{
-        id: TextAtomId;
-        value: string;
-        attributes: Readonly<Record<string, JsonValue>>;
-      }>[];
       anchor: SequenceAnchor;
       insert: string;
       attributes?: Readonly<Record<string, JsonValue>>;
     }>
   | Readonly<{
-      kind: "text-mark";
+      kind: "rich-text-mark";
       nodeId: string;
       atomIds: readonly TextAtomId[];
       key: string;
       value: PreviousValue;
-      previous?: PreviousValue;
     }>
-  | InlineReferenceMutation
-  | SearchExpressionMutation
-  | SharedDefaultViewDefinitionAttachMutation
-  | SharedDefaultViewDefinitionDetachMutation
-  | SharedDefaultViewDefinitionModeSetMutation
-  | SharedDefaultViewDefinitionOptionsSetMutation
-  | SharedDefaultViewDefinitionSortByNameSetMutation;
+  | InlineReferenceAction
+  | SearchExpressionAction
+  | ViewAction;
 
-export type ContributionBody = Readonly<{
-  kind: "contribution";
+export type EditBody = Readonly<{
+  kind: "edit";
   actorId: ActorId;
   intent: EditIntent;
-  mutation: Mutation;
+  actions: readonly [AuthoredAction, ...AuthoredAction[]];
 }>;
 
 export type ResolutionBody = Readonly<{
   kind: "resolution";
   actorId: ActorId;
   decision: ResolutionDecision;
-  proposalContributionIds: readonly ContributionId[];
+  proposalFactIds: readonly FactId[];
   adjudicatesResolutionIds: readonly ResolutionId[];
 }>;
 
-export type MaintenanceAction =
-  | Readonly<{
-      kind: "deletion-acknowledge";
-      nodeId: string;
-      deletionFactIds: readonly FactId[];
-    }>
+type MaintenanceAction =
+  | Readonly<{ kind: "deletion-acknowledge"; nodeId: string }>
   | Readonly<{ kind: "replica-retire"; replicaId: ReplicaId }>
-  | Readonly<{
-      kind: "node-purge";
-      nodeId: string;
-      deletionFactIds: readonly FactId[];
-      acknowledgementFactIds: readonly FactId[];
-      retiredReplicaIds: readonly ReplicaId[];
-    }>;
+  | Readonly<{ kind: "node-purge"; nodeId: string }>;
 
-export type MaintenanceBody = Readonly<{
+type MaintenanceBody = Readonly<{
   kind: "maintenance";
   actorId: ActorId;
   action: MaintenanceAction;
 }>;
 
-export type FactBody = ContributionBody | ResolutionBody | MaintenanceBody | GovernanceBody;
-
-/**
- * Actor attribution: an Ed25519 signature over the Fact's contentDigest made
- * by the Fact body's actorId at creation time and replicated with the Fact.
- * null marks journal material produced without an Actor identity (engine test
- * journals); a governed journal requires a valid signature on every Fact.
- */
-export type FactAttribution = string | null;
+export type FactBody = EditBody | ResolutionBody | MaintenanceBody | GovernanceBody;
 
 export type Fact = Readonly<{
-  formatGeneration: typeof FORMAT_GENERATION;
-  schemaVersion: typeof FACT_SCHEMA_VERSION;
-  workspaceId: WorkspaceId;
   id: FactId;
-  transaction: FactTransactionPosition;
   coordinate: CausalCoordinate;
   body: FactBody;
-  contentDigest: string;
-  attribution: FactAttribution;
 }>;
 
-export type ContributionFact = Fact & Readonly<{ body: ContributionBody }>;
+export type FactAction = Readonly<{
+  id: FactActionId;
+  factId: FactId;
+  index: number;
+  coordinate: CausalCoordinate;
+  actorId: ActorId;
+  intent: EditIntent;
+  action: AuthoredAction;
+}>;
+
+export type EditFact = Fact & Readonly<{ body: EditBody }>;
 export type ResolutionFact = Fact & Readonly<{ body: ResolutionBody }>;
 
 export type FactSnapshot = Readonly<{
@@ -219,34 +175,12 @@ export type FactSnapshot = Readonly<{
   frontier: FactFrontier;
 }>;
 
-export type Admission = Readonly<{
-  kind: "ready" | "pending" | "fault";
-  snapshot: FactSnapshot;
-  pendingTransactionIds: readonly FactTransactionId[];
-  fault: string | null;
-}>;
+export type { FieldContentRemovalAction } from "./field-content-types.js";
+export type { InlineReferenceId } from "./inline-reference-types.js";
+type RulesVersion = string;
+type SchemaVersion = string;
 
-export type { AuthorityReceipt, HistoryOperation, ReceiptLineage } from "./authority-types.js";
-export type { GovernanceAction, GovernanceBody, PeerId, TransitEnvelope } from "./governance-types.js";
-export type { FieldContentDeletionMutation } from "./field-content-types.js";
-export type { InlineReferenceId, InlineReferenceMutation } from "./inline-reference-types.js";
-export type {
-  FactTransaction,
-  FactTransactionId,
-  FactTransactionPlan,
-  FactTransactionPosition,
-  FactWrite,
-} from "./transaction-types.js";
-
-export type AuthorityRecord =
-  | Readonly<{ recordKind: "fact"; fact: Fact }>
-  | Readonly<{ recordKind: "receipt"; receipt: AuthorityReceiptValue }>
-  | Readonly<{ recordKind: "quarantine"; reason: string; updateDigest: string }>;
-
-export type RulesVersion = string;
-export type SchemaVersion = string;
-
-export type ProjectionGenerationId = string;
+type ProjectionGenerationId = string;
 
 export type ProjectionIdentity = Readonly<{
   workspaceNodeId: WorkspaceId;

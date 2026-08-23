@@ -1,25 +1,38 @@
 import type { RejectedResult } from "@lode/sdk";
-import type { EditMutation } from "../../../domain/edit/index.js";
-import type { AuthorityReceipt, FactSnapshot, FactWrite, HistoryChannelId } from "../../../domain/fact/index.js";
+import type { EditAction } from "../../../domain/edit/index.js";
+import type {
+  AuthorityReceipt,
+  FactActionId,
+  FactId,
+  FactSnapshot,
+  FactBody,
+  HistoryChannelId,
+} from "../../../domain/fact/index.js";
 import type { ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 
 export type WorkspaceCommandReadPlan =
   | Readonly<{
-      kind: "mutations";
-      mutations: readonly EditMutation[];
+      kind: "edits";
+      actions: readonly EditAction[];
       historyChannelId: HistoryChannelId | null;
     }>
   | Readonly<{
       kind: "facts";
-      factIds: readonly string[];
+      factIds: readonly FactId[];
+      historyChannelId: HistoryChannelId | null;
+    }>
+  | Readonly<{
+      kind: "action-ids";
+      actionIds: readonly FactActionId[];
       historyChannelId: HistoryChannelId | null;
     }>;
 
-export type WorkspaceCommandPlan =
+type WorkspaceCommandPlan =
   | Readonly<{
-      writes: readonly FactWrite[];
+      writes: readonly FactBody[];
       lineage: AuthorityReceipt["lineage"];
+      inverse: AuthorityReceipt["inverse"];
     }>
   | RejectedResult;
 

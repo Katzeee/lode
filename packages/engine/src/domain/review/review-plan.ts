@@ -1,9 +1,10 @@
 import {
   canonicalJson,
   stableStringCompare,
-  type ContributionFact,
+  type FactAction,
+  type FactActionId,
   type FactSnapshot,
-  type Mutation,
+  type AuthoredAction,
 } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { fieldMaterializationReviewFamily } from "./field-materialization-review-family.js";
@@ -13,53 +14,56 @@ import { supertagReviewFamily } from "./supertag-review-family.js";
 import { structureReviewFamily } from "./structure-review-family.js";
 import { textReviewFamily } from "./text-review-family.js";
 import type { DecisionEffect } from "./types.js";
-import { configurationReviewFamily } from "./configuration-review-family.js";
+import { searchExpressionReviewFamily } from "./search-expression-review-family.js";
 import { inlineReferenceReviewFamily } from "./inline-reference-review-family.js";
 import { viewDefinitionReviewFamily } from "./view-definition-review-family.js";
 import { fieldDefinitionConfigurationReviewFamily } from "./field-definition-configuration-review-family.js";
+import { fieldDefinitionLifecycleReviewFamily } from "./field-definition-lifecycle-review-family.js";
 
 const REVIEW_FAMILIES = [
   textReviewFamily,
   structureReviewFamily,
   lifecycleReviewFamily,
-  configurationReviewFamily,
+  searchExpressionReviewFamily,
   inlineReferenceReviewFamily,
   viewDefinitionReviewFamily,
   fieldDefinitionConfigurationReviewFamily,
+  fieldDefinitionLifecycleReviewFamily,
   supertagReviewFamily,
   fieldMaterializationReviewFamily,
 ] as const satisfies readonly ReviewFamilyRule[];
 
-type OwnedMutationKind = (typeof REVIEW_FAMILIES)[number]["mutationKinds"][number];
+type OwnedActionKind = (typeof REVIEW_FAMILIES)[number]["actionKinds"][number];
 type AssertNever<Value extends never> = Value;
-export type ReviewMutationOwnershipIsComplete = AssertNever<Exclude<Mutation["kind"], OwnedMutationKind>>;
+type ReviewedActionKind =
+  AssertNever<Exclude<AuthoredAction["kind"], OwnedActionKind>> extends never ? AuthoredAction["kind"] : never;
 
-const FAMILY_BY_MUTATION = compileReviewFamilies(REVIEW_FAMILIES);
+const FAMILY_BY_ACTION = compileReviewFamilies(REVIEW_FAMILIES);
 
 export function collectReviewCandidates(
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactActionId, FactAction>,
 ): readonly HunkCandidate[] {
   const context = { snapshot, generation, pending };
   return REVIEW_FAMILIES.flatMap((family) => family.candidates(context));
 }
 
 export function reviewPaginationScopeKeys(
-  fact: ContributionFact,
-  occurrenceNodeId: (occurrenceId: string) => string | null,
+  fact: FactAction,
+  occurrence: (occurrenceId: string) => Readonly<{ nodeId: string; parentNodeId: string }> | null,
 ): readonly string[] {
-  const family = familyFor(fact.body.mutation.kind);
-  return family.scopes(fact, { occurrenceNodeId });
+  const family = familyFor(fact.action.kind);
+  return family.scopes(fact, { occurrence });
 }
 
 export function normalizedReviewEffects(
-  targets: readonly ContributionFact[],
+  targets: readonly FactAction[],
   generation: ScopedProjectionGeneration,
 ): readonly DecisionEffect[] {
   const effects = new Map<string, DecisionEffect>();
   for (const fact of targets) {
-    const family = familyFor(fact.body.mutation.kind);
+    const family = familyFor(fact.action.kind);
     const entry = family.effect(fact, targets, generation);
     if (entry) {
       effects.set(entry.identity, entry.effect);
@@ -68,16 +72,16 @@ export function normalizedReviewEffects(
   return [...effects.values()].sort((left, right) => stableStringCompare(canonicalJson(left), canonicalJson(right)));
 }
 
-function familyFor(kind: Mutation["kind"]): ReviewFamilyRule {
-  const family = FAMILY_BY_MUTATION.get(kind);
+function familyFor(kind: AuthoredAction["kind"]): ReviewFamilyRule {
+  const family = FAMILY_BY_ACTION.get(kind);
   if (!family) {
-    throw new Error(`Review Mutation has no family owner: ${kind}`);
+    throw new Error(`Review AuthoredAction has no family owner: ${kind}`);
   }
   return family;
 }
 
 export function associatedReviewImpacts(
-  targets: readonly ContributionFact[],
+  targets: readonly FactAction[],
   generation: ScopedProjectionGeneration,
 ): readonly string[] {
   const impacts = new Set<string>();
@@ -87,16 +91,18 @@ export function associatedReviewImpacts(
   return [...impacts].sort(stableStringCompare);
 }
 
-function compileReviewFamilies(families: readonly ReviewFamilyRule[]): ReadonlyMap<Mutation["kind"], ReviewFamilyRule> {
-  const byMutation = new Map<Mutation["kind"], ReviewFamilyRule>();
+function compileReviewFamilies(
+  families: readonly ReviewFamilyRule[],
+): ReadonlyMap<ReviewedActionKind, ReviewFamilyRule> {
+  const byAction = new Map<ReviewedActionKind, ReviewFamilyRule>();
   for (const family of families) {
-    for (const kind of family.mutationKinds) {
-      const owner = byMutation.get(kind);
+    for (const kind of family.actionKinds) {
+      const owner = byAction.get(kind);
       if (owner) {
-        throw new Error(`Review Mutation ${kind} has duplicate family owners: ${owner.key}, ${family.key}`);
+        throw new Error(`Review AuthoredAction ${kind} has duplicate family owners: ${owner.key}, ${family.key}`);
       }
-      byMutation.set(kind, family);
+      byAction.set(kind, family);
     }
   }
-  return byMutation;
+  return byAction;
 }

@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
-import { workspaceTrashNodeId, type ProjectionPerspective } from "../../domain/fact/index.js";
+import type { EditAction } from "../../domain/edit/index.js";
+import type { ProjectionPerspective } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
@@ -56,9 +55,8 @@ describe("instance Field content deletion", () => {
     );
     expect(await fieldValues(fixture, "origin")).toEqual(["value-b-occurrence"]);
     expect((await section(fixture, "origin", "nodes")).nodes["value-a"]).toBeDefined();
-    expect((await section(fixture, "origin", "nodeOwners")).nodeOwners["value-a"]).toBe(
-      workspaceTrashNodeId("workspace"),
-    );
+    expect((await section(fixture, "origin", "occurrences")).occurrences["value-a-occurrence"]).toBeUndefined();
+    expect((await section(fixture, "origin", "nodeOwners")).nodeOwners["value-a"]).toBeUndefined();
 
     const history = await fixture.workspace.query({
       kind: "history",
@@ -106,7 +104,7 @@ describe("instance Field content deletion", () => {
     expect(await fieldValues(fixture, "origin")).toEqual(["value-a-occurrence", "value-b-occurrence"]);
   });
 
-  it("accepts Materialized Field deletion by trashing its owned subtree", async () => {
+  it("accepts Materialized Field clearing without destroying its detached content", async () => {
     const documents = new InMemoryDocumentStore();
     const fixture = await open(documents, "701");
     expect((await mutate(fixture, "setup-field", explicitFieldProgram())).status).toBe("published");
@@ -156,11 +154,10 @@ describe("instance Field content deletion", () => {
   });
 });
 
-function explicitFieldProgram(): readonly EditMutation[] {
+function explicitFieldProgram(): readonly EditAction[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("field-definition", "workspace", "field-definition-original"),
-    { kind: "intrinsic-node-type-declare", nodeId: "field-definition", intrinsicNodeType: "field-definition" },
+    nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
     nodeAt("field-node", "owner", "field-occurrence"),
     nodeAt("value-a", "field-node", "value-a-occurrence"),
     nodeAt("value-b", "field-node", "value-b-occurrence"),
@@ -174,32 +171,34 @@ function explicitFieldProgram(): readonly EditMutation[] {
   ];
 }
 
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditMutation {
+function nodeAt(
+  nodeId: string,
+  parentNodeId: string,
+  occurrenceId: string,
+  intrinsicNodeType?: "field-definition",
+): EditAction {
   return {
     kind: "node-create",
     occurrenceId,
     nodeId,
     parentNodeId,
     anchor: end,
+    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
   };
 }
 
-function valueDeletion(valueOccurrenceId: string): EditMutation {
+function valueDeletion(valueOccurrenceId: string): EditAction {
   return {
-    kind: "field-value-delete",
-    ownerNodeId: "owner",
-    fieldDefinitionId: "field-definition",
-    valueOccurrenceId,
+    kind: "field-value-remove",
+    valuePlacementId: valueOccurrenceId,
   };
 }
 
-function materializedFieldDeletion(): EditMutation {
+function materializedFieldDeletion(): EditAction {
   return {
-    kind: "materialized-field-delete",
+    kind: "materialized-field-clear",
     ownerNodeId: "owner",
     fieldDefinitionId: "field-definition",
-    fieldNodeId: "field-node",
-    fieldOccurrenceId: "field-occurrence",
   };
 }
 
@@ -210,7 +209,8 @@ async function expectDeletedFieldState(fixture: WorkspaceFixture): Promise<void>
   expect(nodes["value-a"]).toBeDefined();
   expect(nodes["value-b"]).toBeDefined();
   const owners = (await section(fixture, "origin", "nodeOwners")).nodeOwners;
-  expect(owners["field-node"]).toBe(workspaceTrashNodeId("workspace"));
+  expect((await section(fixture, "origin", "occurrences")).occurrences["field-occurrence"]).toBeUndefined();
+  expect(owners["field-node"]).toBeUndefined();
   expect(owners["value-a"]).toBe("field-node");
   expect(owners["value-b"]).toBe("field-node");
 }
@@ -226,17 +226,17 @@ async function materializedField(fixture: WorkspaceFixture, perspective: Project
 async function mutate(
   fixture: WorkspaceFixture,
   invocationId: string,
-  mutations: readonly EditMutation[],
+  actions: readonly EditAction[],
   intent: "direct" | "proposal" = "direct",
 ) {
   return fixture.workspace.execute({
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "desktop",
-    mutations,
+    actions,
   });
 }
 
@@ -245,11 +245,8 @@ type WorkspaceFixture = Awaited<ReturnType<typeof open>>;
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return {
     facts,

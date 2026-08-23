@@ -1,7 +1,5 @@
 import type { CliOutcome, HumanView } from "../outcome/index.js";
 
-export type { HumanView };
-
 /**
  * Pure rendering of one finished command outcome. Renderers never query the
  * engine, resolve targets, or re-derive state; JSON and human output come
@@ -59,7 +57,7 @@ export function renderHuman(result: RenderedOutcome, io: Io): void {
   }
 }
 
-export function renderView(view: HumanView): string {
+function renderView(view: HumanView): string {
   if (view.kind === "text") {
     return view.lines.length === 0 ? "" : `${view.lines.join("\n")}\n`;
   }

@@ -1,4 +1,4 @@
-import type { ProjectionIdentity, ProjectionPerspective } from "../../../../domain/fact/index.js";
+import { isReplicaId, type ProjectionIdentity, type ProjectionPerspective } from "../../../../domain/fact/index.js";
 import type { ProjectionGeneration } from "../../../../domain/reconcile/index.js";
 import type { MaterializedDataset, MaterializedDatasetEntry } from "./store/materialized-dataset.js";
 import { defineMaterializedDataset, materializedDatasetEntry } from "./store/materialized-dataset.js";
@@ -72,8 +72,7 @@ export function isProjectionIdentity(value: unknown, generationId: string): valu
     return false;
   }
   return Object.entries(value.frontier).every(
-    ([replicaId, sequence]) =>
-      /^[a-z2-7]{26}$/.test(replicaId) && Number.isSafeInteger(sequence) && (sequence as number) >= 0,
+    ([replicaId, sequence]) => isReplicaId(replicaId) && Number.isSafeInteger(sequence) && (sequence as number) >= 0,
   );
 }
 
@@ -83,12 +82,10 @@ function isPlanCaches(value: unknown): boolean {
   }
   return [value.origin, value.review].every(
     (cache) =>
-      hasExactKeys(cache, ["activeContributionIds", "supportByContribution", "supportPasses"]) &&
-      Array.isArray(cache.activeContributionIds) &&
-      cache.activeContributionIds.every((id) => typeof id === "string") &&
-      isStringArrayRecord(cache.supportByContribution) &&
-      Number.isSafeInteger(cache.supportPasses) &&
-      (cache.supportPasses as number) >= 0,
+      hasExactKeys(cache, ["activeActionIds", "supportByAction"]) &&
+      Array.isArray(cache.activeActionIds) &&
+      cache.activeActionIds.every((id) => typeof id === "string") &&
+      isStringArrayRecord(cache.supportByAction),
   );
 }
 

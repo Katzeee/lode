@@ -1,36 +1,49 @@
 import { describe, expect, it } from "vitest";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-mutations.js";
-import {
-  detachedViewValueNodeId,
-  detachedViewValueOccurrenceId,
-  FIELD_DATATYPE_NODE_IDS,
-  workspaceTrashNodeId,
-} from "../../domain/fact/index.js";
 
-import type { MutationCommand, ViewOptionsSpec, ViewRowsResult } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
+import type { EditCommand, ViewRowsResult } from "@lode/sdk";
+import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
+import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
+import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { FactAuthority } from "./authority/fact-authority.js";
+import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("View Definition product model", () => {
-  it("VIEW-1 applies one shared default to ordinary and Search child sources across Review and Trash", async () => {
+  it("VIEW-1 applies one shared default to ordinary and Search sources and preserves it while the host is trashed", async () => {
     const workspace = await setup();
     await createFixture(workspace);
+
     const implicit = await viewRows(workspace, "host", "origin");
     expect(implicit).toMatchObject({ viewDefinitionNodeId: null, viewType: "outline", available: true });
     expect(implicit.rows.map(sourceIdentity)).toEqual(["occurrence:child-a-original", "occurrence:child-b-original"]);
 
-    await proposeAndAcceptHostView(workspace);
-    const ordinary = await viewRows(workspace, "host", "origin");
-    expect(ordinary).toMatchObject({ viewDefinitionNodeId: "host-view", viewType: "table", available: true });
-    expect(ordinary.rows.map(sourceIdentity)).toEqual(["occurrence:child-a-original", "occurrence:child-b-original"]);
-    await expectHiddenViewDefinition(workspace);
+    await execute(workspace, command("propose-host-view", "host-view", [viewCreate("host", "table")], "proposal"));
+    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: null });
+    expect(await viewRows(workspace, "host", "review")).toMatchObject({ viewType: "table" });
+    await acceptAllHunks(workspace, "accept-host-view");
 
-    await createView(workspace, "search", "search-view", "table", "search-view-history", "search-configuration");
+    const hostView = await sharedView(workspace, "host");
+    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
+      viewDefinitionNodeId: hostView.viewDefinitionNodeId,
+      viewType: "table",
+      available: true,
+    });
+
+    const searchViewId = await createView(workspace, "search", "table", "search-view");
+    await execute(
+      workspace,
+      command("filter-search-view", "search-view", [
+        {
+          kind: "view-filter-create",
+          hostNodeId: "search",
+          viewId: searchViewId,
+          expression: { kind: "text", text: "candidate" },
+          anchor: end,
+        },
+      ]),
+    );
     const search = await workspace.query({
       kind: "search-results",
       workspaceId: "workspace",
@@ -44,325 +57,277 @@ describe("View Definition product model", () => {
       sourceKind: "search-result",
       sourceIdentity: search.results[0]?.rowKey,
     });
-    expect(
-      (
-        await workspace.execute(
-          command("filter-search-view", "search-view-history", [
-            {
-              kind: "shared-default-view-definition-options-update",
-              hostNodeId: "search",
-              viewDefinitionNodeId: "search-view",
-              options: {
-                columns: [],
-                filter: {
-                  filterNodeId: "search-view-filter",
-                  expression: { expressionNodeId: "search-view-text", kind: "text", text: "candidate" },
-                },
-                sort: null,
-                group: null,
-              },
-            },
-          ]),
-        )
-      ).status,
-    ).toBe("published");
-    expect((await viewRows(workspace, "search", "origin")).rows.map((row) => row.targetNodeId)).toEqual(["candidate"]);
 
-    const deletion = await workspace.execute(command("trash-host", "host", [{ kind: "node-delete", nodeId: "host" }]));
-    if (deletion.status !== "published") {
-      throw new Error("Expected View host deletion");
-    }
+    await execute(workspace, command("trash-host", "host", [{ kind: "node-delete", nodeId: "host" }]));
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({ available: false, rows: [] });
-    await workspace.execute(
+    await execute(
+      workspace,
       command("restore-host", "host", [
-        {
-          kind: "node-restore",
-          nodeId: "host",
-          deletionFactId: required(deletion.receipt.factIds[0], "View host deletion Fact"),
-          occurrenceId: "host-original",
-          ownerNodeId: "workspace",
-          parentNodeId: "workspace",
-          anchor: end,
-        },
+        { kind: "node-restore", nodeId: "host", occurrenceId: "host-original", parentNodeId: "workspace", anchor: end },
       ]),
     );
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({
       available: true,
-      viewDefinitionNodeId: "host-view",
-      viewType: "table",
-    });
-
-    const viewDeletion = await workspace.execute(
-      command("remove-host-view", "host-view", [{ kind: "node-delete", nodeId: "host-view" }]),
-    );
-    expect(viewDeletion).toMatchObject({
-      status: "rejected",
-      error: { message: "Structural role requires a typed mutation: Node host-view" },
-    });
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
-      available: true,
-      viewDefinitionNodeId: "host-view",
+      viewDefinitionNodeId: hostView.viewDefinitionNodeId,
       viewType: "table",
     });
   });
 
-  it("VIEW-2 changes mode through public Proposal and History while preserving View Definition identity", async () => {
+  it("VIEW-2 changes mode through Proposal and History while retaining semantic View identity", async () => {
     const workspace = await setup();
-    await workspace.execute(command("host", "setup", [nodeAt("host", "workspace", "host-original")]));
-    await createView(workspace, "host", "host-view", "outline", "view-create");
+    await execute(workspace, command("host", "setup", [nodeAt("host", "workspace", "host-original")]));
+    const viewId = await createView(workspace, "host", "outline", "view-mode");
 
-    await workspace.execute(
+    await execute(
+      workspace,
       command(
-        "table-mode",
+        "propose-table-mode",
         "view-mode",
-        [{ kind: "shared-default-view-definition-mode-set", viewDefinitionNodeId: "host-view", viewType: "table" }],
+        [{ kind: "view-mode-set", hostNodeId: "host", viewId, viewType: "table" }],
         "proposal",
       ),
     );
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewType: "outline" });
     expect(await viewRows(workspace, "host", "review")).toMatchObject({ viewType: "table" });
-    await acceptFirstHunk(workspace, "accept-table-mode");
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
-      viewDefinitionNodeId: "host-view",
-      viewType: "table",
-    });
+    await acceptAllHunks(workspace, "accept-table-mode");
 
-    await workspace.execute(
+    await execute(
+      workspace,
       command("outline-mode", "view-mode", [
-        { kind: "shared-default-view-definition-mode-set", viewDefinitionNodeId: "host-view", viewType: "outline" },
+        { kind: "view-mode-set", hostNodeId: "host", viewId, viewType: "outline" },
       ]),
     );
+    expect((await sharedView(workspace, "host")).viewId).toBe(viewId);
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewType: "outline" });
 
-    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-mode" });
-    if (!("undo" in history) || !history.undo) {
-      throw new Error("Expected View mode Undo");
-    }
-    await workspace.execute({
+    const undo = await historySelection(workspace, "view-mode", "undo");
+    await execute(workspace, {
       kind: "undo",
       workspaceId: "workspace",
       invocationId: "undo-view-mode",
       actorId: "actor",
-      selection: history.undo,
+      selection: undo,
     });
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
-      viewDefinitionNodeId: "host-view",
-      viewType: "table",
-    });
+    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewType: "table" });
 
-    const redo = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-mode" });
-    if (!("redo" in redo) || !redo.redo) {
-      throw new Error("Expected View mode Redo");
-    }
-    await workspace.execute({
+    const redo = await historySelection(workspace, "view-mode", "redo");
+    await execute(workspace, {
       kind: "redo",
       workspaceId: "workspace",
       invocationId: "redo-view-mode",
       actorId: "actor",
-      selection: redo.redo,
+      selection: redo,
     });
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
-      viewDefinitionNodeId: "host-view",
+    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewType: "outline" });
+
+    const updated = await workspace.execute(
+      command("ordered-mode-updates", "view-mode", [
+        { kind: "view-mode-set", hostNodeId: "host", viewId, viewType: "table" },
+        { kind: "view-mode-set", hostNodeId: "host", viewId, viewType: "outline" },
+      ]),
+    );
+    if (updated.status !== "published") {
+      throw new Error(JSON.stringify(updated));
+    }
+    const secondFactId = required(updated.receipt.factIds[1], "second View mode Fact");
+    const second = workspace.facts.snapshot().facts.find((fact) => fact.id === secondFactId);
+    expect(second?.body.kind === "edit" ? second.body.actions[0] : null).toEqual({
+      kind: "view-mode-set",
+      viewId,
       viewType: "outline",
     });
   });
 
-  it("VIEW-3 removes the shared default through graph truth across Direct, Proposal, History, and reapplication", async () => {
+  it("VIEW-3 removes and restores the current shared default through Direct, Proposal, and History", async () => {
     const workspace = await setup();
-    await workspace.execute(command("host", "setup", [nodeAt("host", "workspace", "host-original")]));
-    await createView(workspace, "host", "host-view", "table", "view-lifecycle");
+    await execute(workspace, command("host", "setup", [nodeAt("host", "workspace", "host-original")]));
+    const firstViewId = await createView(workspace, "host", "table", "view-lifecycle");
 
-    const removed = await workspace.execute(
-      command("remove-view", "view-lifecycle", [viewRemoval("host", "host-view")]),
+    await execute(
+      workspace,
+      command("remove-view", "view-lifecycle", [{ kind: "shared-default-view-remove", hostNodeId: "host" }]),
     );
-    expect(removed.status).toBe("published");
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({
       viewDefinitionNodeId: null,
       viewType: "outline",
     });
-    await expectDetachedViewDefinition(workspace, "host-view");
 
-    const corruption = await workspace.execute(
-      command("corrupt-removed-view", "view-lifecycle", [
-        { kind: "occurrence-delete", occurrenceId: "host-view-attachment-definition" },
-      ]),
-    );
-    expect(corruption).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    await expectDetachedViewDefinition(workspace, "host-view");
     const staleMode = await workspace.execute(
       command("change-removed-view-mode", "view-lifecycle", [
-        { kind: "shared-default-view-definition-mode-set", viewDefinitionNodeId: "host-view", viewType: "outline" },
+        { kind: "view-mode-set", hostNodeId: "host", viewId: firstViewId, viewType: "outline" },
       ]),
     );
     expect(staleMode).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
 
-    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-lifecycle" });
-    if (!("undo" in history) || !history.undo) {
-      throw new Error("Expected View removal Undo");
-    }
-    const undo = await workspace.execute({
+    await execute(workspace, {
       kind: "undo",
       workspaceId: "workspace",
       invocationId: "undo-view-removal",
       actorId: "actor",
-      selection: history.undo,
+      selection: await historySelection(workspace, "view-lifecycle", "undo"),
     });
-    expect(undo, JSON.stringify(undo)).toMatchObject({ status: "published" });
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({
-      viewDefinitionNodeId: "host-view",
-      viewType: "table",
-    });
+    expect((await sharedView(workspace, "host")).viewId).toBe(firstViewId);
 
-    const redo = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-lifecycle" });
-    if (!("redo" in redo) || !redo.redo) {
-      throw new Error("Expected View removal Redo");
-    }
-    const redone = await workspace.execute({
+    await execute(workspace, {
       kind: "redo",
       workspaceId: "workspace",
       invocationId: "redo-view-removal",
       actorId: "actor",
-      selection: redo.redo,
+      selection: await historySelection(workspace, "view-lifecycle", "redo"),
     });
-    expect(redone, JSON.stringify(redone)).toMatchObject({ status: "published" });
-    await expectDetachedViewDefinition(workspace, "host-view");
-
-    await createView(workspace, "host", "host-view-2", "table", "view-reapplication");
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: "host-view-2" });
-    await expectDetachedViewDefinition(workspace, "host-view");
-
-    const proposal = await workspace.execute(
-      command("propose-remove-reapplied-view", "view-proposal", [viewRemoval("host", "host-view-2")], "proposal"),
-    );
-    expect(proposal.status).toBe("published");
-    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: "host-view-2" });
-    expect(await viewRows(workspace, "host", "review")).toMatchObject({ viewDefinitionNodeId: null });
-    await expectDetachedViewDefinition(workspace, "host-view-2", "review");
-    await acceptFirstHunk(workspace, "accept-view-removal");
     expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: null });
-    await expectDetachedViewDefinition(workspace, "host-view-2");
+
+    const secondViewId = await createView(workspace, "host", "table", "view-reapplication");
+    expect(secondViewId).not.toBe(firstViewId);
+    await execute(
+      workspace,
+      command(
+        "propose-remove-reapplied-view",
+        "view-proposal",
+        [{ kind: "shared-default-view-remove", hostNodeId: "host" }],
+        "proposal",
+      ),
+    );
+    expect((await sharedView(workspace, "host", "origin")).viewId).toBe(secondViewId);
+    expect(await viewRows(workspace, "host", "review")).toMatchObject({ viewDefinitionNodeId: null });
+    await acceptAllHunks(workspace, "accept-view-removal");
+    expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: null });
   });
 
-  it("VIEW-4 presents typed columns, shared Search filtering, Date sort, and Field groups without copying row content", async () => {
-    const workspace = await setup();
+  it("VIEW-4 independently projects columns, Search filter, Date sort, and grouping and restores them after restart", async () => {
+    const documents = new InMemoryDocumentStore();
+    const workspace = await setup(documents, "401");
     await createTableFixture(workspace);
-    await createView(workspace, "host", "host-view", "table", "view-options");
-    const beforeOwners = await projection(workspace, "nodeOwners");
+    const viewId = await createView(workspace, "host", "table", "view-options");
 
-    const proposed = await workspace.execute(
-      command("propose-view-options", "view-options", [viewOptionsUpdate(tableOptions(true))], "proposal"),
+    await execute(
+      workspace,
+      command(
+        "propose-view-options",
+        "view-options",
+        [
+          { kind: "view-column-add", hostNodeId: "host", viewId, fieldDefinitionId: "status-field", anchor: end },
+          { kind: "view-column-add", hostNodeId: "host", viewId, fieldDefinitionId: "date-field", anchor: end },
+          {
+            kind: "view-filter-create",
+            hostNodeId: "host",
+            viewId,
+            expression: {
+              kind: "field-value",
+              fieldDefinitionId: "status-field",
+              value: { kind: "text", value: "Backlog" },
+            },
+            anchor: end,
+          },
+          {
+            kind: "view-sort-add",
+            hostNodeId: "host",
+            viewId,
+            fieldDefinitionId: "date-field",
+            direction: "descending",
+          },
+          { kind: "view-group-add", hostNodeId: "host", viewId, fieldDefinitionId: "status-field" },
+        ],
+        "proposal",
+      ),
     );
-    expect(proposed.status).toBe("published");
     expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual([
       "row-a",
       "row-b",
       "row-c",
     ]);
     const review = await viewRows(workspace, "host", "review");
-    expect(review.options).toEqual(tableOptions(true));
-    expect(review.optionsConflicted).toBe(false);
     expect(review.rows.map((row) => row.targetNodeId)).toEqual(["row-c", "row-a"]);
     expect(review.rows.map((row) => row.group?.key)).toEqual(["backlog", "backlog"]);
-    expect(review.rows[0]?.cells).toEqual([
-      {
-        columnNodeId: "status-column",
-        fieldDefinitionId: "status-field",
-        fieldNodeId: "row-c-status-field",
-        valueNodeIds: ["row-c-status-value"],
-      },
-      {
-        columnNodeId: "date-column",
-        fieldDefinitionId: "date-field",
-        fieldNodeId: "row-c-date-field",
-        valueNodeIds: ["row-c-date-value"],
-      },
-    ]);
-    const reviewOwners = await projection(workspace, "nodeOwners", "review");
-    expect(reviewOwners.nodeOwners["row-a"]).toBe(beforeOwners.nodeOwners["row-a"]);
-    expect(reviewOwners.nodeOwners["status-field"]).toBe(beforeOwners.nodeOwners["status-field"]);
-    expect(reviewOwners.nodeOwners["row-a-status-value"]).toBe(beforeOwners.nodeOwners["row-a-status-value"]);
-    expect(reviewOwners.nodeOwners["status-column"]).toBeUndefined();
-    expect(reviewOwners.nodeOwners["filter-rule"]).toBeUndefined();
+    expect(review.options.columns.map((column) => column.fieldDefinitionId)).toEqual(["status-field", "date-field"]);
+    expect(review.options.columns.every((column) => column.columnId.includes("/actions/"))).toBe(true);
+    expect(review.options.filter?.expression).toMatchObject({ kind: "field-value", fieldDefinitionId: "status-field" });
+    expect(review.options.sort).toMatchObject({ fieldDefinitionId: "date-field", direction: "descending" });
+    expect(review.options.group).toMatchObject({ fieldDefinitionId: "status-field" });
 
-    await acceptFirstHunk(workspace, "accept-view-options");
+    await acceptAllHunks(workspace, "accept-view-options");
     expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual([
       "row-c",
       "row-a",
     ]);
 
-    expect(
-      (await workspace.execute(command("remove-view-filter", "view-options", [viewOptionsUpdate(tableOptions(false))])))
-        .status,
-    ).toBe("published");
-
-    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-options" });
-    if (!("undo" in history) || history.undo === null) {
-      throw new Error("Expected View options Undo");
-    }
-    expect(
-      (
-        await workspace.execute({
-          kind: "undo",
-          workspaceId: "workspace",
-          invocationId: "undo-view-options",
-          actorId: "actor",
-          selection: history.undo,
-        })
-      ).status,
-    ).toBe("published");
-    expect((await viewRows(workspace, "host", "origin")).options).toEqual(tableOptions(true));
-    const redo = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "view-options" });
-    if (!("redo" in redo) || redo.redo === null) {
-      throw new Error("Expected View options Redo");
-    }
-    expect(
-      (
-        await workspace.execute({
-          kind: "redo",
-          workspaceId: "workspace",
-          invocationId: "redo-view-options",
-          actorId: "actor",
-          selection: redo.redo,
-        })
-      ).status,
-    ).toBe("published");
-
-    const unfiltered = await viewRows(workspace, "host", "origin");
-    expect(unfiltered.rows.map((row) => row.targetNodeId)).toEqual(["row-c", "row-a", "row-b"]);
-    expect(unfiltered.options.columns.map((column) => column.columnNodeId)).toEqual(["status-column", "date-column"]);
-    expect(unfiltered.options.sort?.sortNodeId).toBe("date-sort");
-    expect(unfiltered.options.group?.groupNodeId).toBe("status-group");
-    expect(
-      (await workspace.execute(command("readd-view-filter", "view-options", [viewOptionsUpdate(tableOptions(true))])))
-        .status,
-    ).toBe("published");
-    expect((await viewRows(workspace, "host", "origin")).options.filter).toEqual(tableOptions(true).filter);
-
-    const smuggling = await workspace.execute(
-      command("view-owner-smuggling", "view-options", [
-        { kind: "node-owner-set", nodeId: "status-field", ownerNodeId: "host-view" } as never,
+    const filter = required((await sharedView(workspace, "host")).options.filter, "View Filter");
+    await execute(
+      workspace,
+      command(
+        "configure-view-filter",
+        "view-options",
+        [
+          {
+            kind: "view-filter-expression-configure",
+            hostNodeId: "host",
+            viewId,
+            filterId: filter.filterId,
+            expressionId: filter.expression.expressionId,
+            clause: {
+              kind: "field-value",
+              fieldDefinitionId: "status-field",
+              value: { kind: "text", value: "Done" },
+            },
+          },
+        ],
+        "proposal",
+      ),
+    );
+    expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual([
+      "row-c",
+      "row-a",
+    ]);
+    expect((await viewRows(workspace, "host", "review")).rows.map((row) => row.targetNodeId)).toEqual(["row-b"]);
+    await acceptAllHunks(workspace, "accept-view-filter-configuration");
+    expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual(["row-b"]);
+    await execute(
+      workspace,
+      command("restore-view-filter-clause", "view-options", [
+        {
+          kind: "view-filter-expression-configure",
+          hostNodeId: "host",
+          viewId,
+          filterId: filter.filterId,
+          expressionId: filter.expression.expressionId,
+          clause: {
+            kind: "field-value",
+            fieldDefinitionId: "status-field",
+            value: { kind: "text", value: "Backlog" },
+          },
+        },
       ]),
     );
-    expect(smuggling).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect((await projection(workspace, "nodeOwners")).nodeOwners["status-field"]).toBe("workspace");
-  });
 
-  it("VIEW-5 restores View option identities and derived presentation after restart", async () => {
-    const documents = new InMemoryDocumentStore();
-    const first = await setup(documents, "401");
-    await createTableFixture(first);
-    await createView(first, "host", "host-view", "table", "persistent-view-options");
-    expect(
-      (
-        await first.execute(
-          command("persistent-view-options", "persistent-view-options", [viewOptionsUpdate(tableOptions(true))]),
-        )
-      ).status,
-    ).toBe("published");
+    await execute(
+      workspace,
+      command("remove-view-filter", "view-options", [{ kind: "view-filter-remove", hostNodeId: "host", viewId }]),
+    );
+    expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual([
+      "row-c",
+      "row-a",
+      "row-b",
+    ]);
+
+    await execute(workspace, {
+      kind: "undo",
+      workspaceId: "workspace",
+      invocationId: "undo-view-filter-removal",
+      actorId: "actor",
+      selection: await historySelection(workspace, "view-options", "undo"),
+    });
+    expect((await viewRows(workspace, "host", "origin")).rows.map((row) => row.targetNodeId)).toEqual([
+      "row-c",
+      "row-a",
+    ]);
+
     const restarted = await setup(documents, "402");
-    const rows = await viewRows(restarted, "host", "origin");
-    expect(rows.options).toEqual(tableOptions(true));
-    expect(rows.rows.map((row) => row.targetNodeId)).toEqual(["row-c", "row-a"]);
+    const restored = await viewRows(restarted, "host", "origin");
+    expect(restored.rows.map((row) => row.targetNodeId)).toEqual(["row-c", "row-a"]);
+    expect(restored.options.columns.map((column) => column.columnId)).toEqual(
+      (await viewRows(workspace, "host", "origin")).options.columns.map((column) => column.columnId),
+    );
+    expect(restored.options.sort?.sortId).toBe((await viewRows(workspace, "host", "origin")).options.sort?.sortId);
   });
 });
 
@@ -370,40 +335,31 @@ async function setup(
   documents: InMemoryDocumentStore = new InMemoryDocumentStore(),
   loroPeerId: `${number}` = "301",
 ): Promise<Workspace> {
-  const facts = await FactAuthority.open({
-    workspaceId: "workspace",
-    replicaId: createReplicaId(),
-    loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
-  });
+  const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
   return Workspace.open({ workspaceId: "workspace", facts, versions });
 }
 
 async function createFixture(workspace: Workspace): Promise<void> {
-  await workspace.execute(
+  await execute(
+    workspace,
     command("fixture", "setup", [
       nodeAt("host", "workspace", "host-original"),
       nodeAt("child-a", "host", "child-a-original"),
       nodeAt("child-b", "host", "child-b-original"),
       nodeAt("supertag", "workspace", "supertag-original", "supertag-definition"),
       nodeAt("candidate", "workspace", "candidate-original"),
-      { kind: "text-splice", nodeId: "candidate", deleteAtomIds: [], anchor: end, insert: "Candidate" },
+      { kind: "rich-text-splice", nodeId: "candidate", deleteAtomIds: [], anchor: end, insert: "Candidate" },
       nodeAt("search", "workspace", "search-original", "search"),
       createSupertagApplication("candidate", "supertag"),
     ]),
   );
-  await workspace.execute(
+  await execute(
+    workspace,
     command("search-expression", "search", [
       {
         kind: "search-expression-create",
         searchNodeId: "search",
-        metanodeId: "search-configuration",
-        expressionNodeId: "search-expression",
-        expressionOccurrenceId: "search-expression-occurrence",
-        definitionOccurrenceId: "search-expression-definition",
-        expression: { expressionNodeId: "search-expression", kind: "supertag", supertagId: "supertag" },
+        expression: { kind: "supertag", supertagId: "supertag" },
         anchor: end,
       },
     ]),
@@ -411,7 +367,8 @@ async function createFixture(workspace: Workspace): Promise<void> {
 }
 
 async function createTableFixture(workspace: Workspace): Promise<void> {
-  const created = await workspace.execute(
+  await execute(
+    workspace,
     command("table-fixture", "setup", [
       nodeAt("host", "workspace", "host-original"),
       nodeAt("row-a", "host", "row-a-original"),
@@ -424,57 +381,39 @@ async function createTableFixture(workspace: Workspace): Promise<void> {
       ...plainField("row-c", "status", "Backlog"),
     ]),
   );
-  if (created.status === "rejected") {
-    throw new Error(JSON.stringify(created.error));
-  }
-  const configured = await workspace.execute(
+  await execute(
+    workspace,
     command("configure-view-date", "setup", [
       {
-        kind: "field-datatype-configuration-create",
+        kind: "field-datatype-configure",
         fieldDefinitionId: "date-field",
-        configurationNodeId: "date-configuration",
-        configurationOccurrenceId: "date-configuration-occurrence",
-        definitionOccurrenceId: "date-configuration-definition-occurrence",
-        valueOccurrenceId: "date-configuration-value-occurrence",
         datatypeNodeId: FIELD_DATATYPE_NODE_IDS.date,
-        anchor: end,
       },
     ]),
   );
-  if (configured.status === "rejected") {
-    throw new Error(JSON.stringify(configured.error));
-  }
-  const dated = await workspace.execute(
+  await execute(
+    workspace,
     command("set-view-dates", "setup", [
       dateValue("row-a", "2026-08-18"),
       dateValue("row-b", "2026-08-19"),
       dateValue("row-c", "2026-08-20"),
     ]),
   );
-  if (dated.status === "rejected") {
-    throw new Error(JSON.stringify(dated.error));
-  }
 }
 
-function plainField(ownerNodeId: string, prefix: string, value: string): MutationCommand["mutations"] {
+function plainField(ownerNodeId: string, prefix: string, value: string): EditCommand["actions"] {
   const fieldNodeId = `${ownerNodeId}-${prefix}-field`;
   const fieldOccurrenceId = `${fieldNodeId}-occurrence`;
   const valueNodeId = `${ownerNodeId}-${prefix}-value`;
   return [
     nodeAt(fieldNodeId, ownerNodeId, fieldOccurrenceId),
     nodeAt(valueNodeId, fieldNodeId, `${valueNodeId}-occurrence`),
-    { kind: "text-splice", nodeId: valueNodeId, deleteAtomIds: [], anchor: end, insert: value },
-    {
-      kind: "field-materialize",
-      ownerNodeId,
-      fieldDefinitionId: "status-field",
-      fieldNodeId,
-      fieldOccurrenceId,
-    },
+    { kind: "rich-text-splice", nodeId: valueNodeId, deleteAtomIds: [], anchor: end, insert: value },
+    { kind: "field-materialize", ownerNodeId, fieldDefinitionId: "status-field", fieldNodeId, fieldOccurrenceId },
   ];
 }
 
-function dateValue(ownerNodeId: string, value: string): MutationCommand["mutations"][number] {
+function dateValue(ownerNodeId: string, value: string): EditCommand["actions"][number] {
   return {
     kind: "field-date-value-set",
     ownerNodeId,
@@ -487,192 +426,60 @@ function dateValue(ownerNodeId: string, value: string): MutationCommand["mutatio
   };
 }
 
-function tableOptions(withFilter: boolean): ViewOptionsSpec {
-  return {
-    columns: [
-      { columnNodeId: "status-column", fieldDefinitionId: "status-field" },
-      { columnNodeId: "date-column", fieldDefinitionId: "date-field" },
-    ],
-    filter: withFilter
-      ? {
-          filterNodeId: "filter-rule",
-          expression: {
-            expressionNodeId: "filter-clause",
-            kind: "field-value",
-            fieldDefinitionId: "status-field",
-            value: { kind: "text", value: "Backlog" },
-          },
-        }
-      : null,
-    sort: { sortNodeId: "date-sort", fieldDefinitionId: "date-field", direction: "descending" },
-    group: { groupNodeId: "status-group", fieldDefinitionId: "status-field" },
-  };
-}
-
-function viewOptionsUpdate(options: ViewOptionsSpec): MutationCommand["mutations"][number] {
-  return {
-    kind: "shared-default-view-definition-options-update",
-    hostNodeId: "host",
-    viewDefinitionNodeId: "host-view",
-    options,
-  };
-}
-
-async function proposeAndAcceptHostView(workspace: Workspace): Promise<void> {
-  await workspace.execute(
-    command("host-view", "host-view-history", [viewCreation("host", "host-view", "table")], "proposal"),
-  );
-  expect(await viewRows(workspace, "host", "origin")).toMatchObject({ viewDefinitionNodeId: null });
-  expect(await viewRows(workspace, "host", "review")).toMatchObject({
-    viewDefinitionNodeId: "host-view",
-    viewType: "table",
-  });
-  await acceptFirstHunk(workspace, "accept-host-view");
-}
-
-async function acceptFirstHunk(workspace: Workspace, invocationId: string): Promise<void> {
-  const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-  const viewHunk = "hunks" in review ? review.hunks.find((hunk) => hunk.diffSpace.kind === "view-definition") : null;
-  if (!viewHunk) {
-    throw new Error("Expected View Review Hunk");
-  }
-  const result = await workspace.execute({
-    kind: "resolve-review",
-    workspaceId: "workspace",
-    invocationId,
-    actorId: "reviewer",
-    decision: "accept",
-    selection: viewHunk.selection,
-  });
-  if (result.status === "rejected") {
-    throw new Error(JSON.stringify(result.error));
-  }
-  expect(result.status).toBe("published");
-}
-
 async function createView(
   workspace: Workspace,
   hostNodeId: string,
-  viewDefinitionNodeId: string,
   viewType: "outline" | "table",
   historyChannelId: string,
-  metanodeId = `${hostNodeId}-view-configuration`,
-): Promise<void> {
-  const result = await workspace.execute(
-    command(viewDefinitionNodeId, historyChannelId, [
-      viewCreation(hostNodeId, viewDefinitionNodeId, viewType, metanodeId),
-    ]),
-  );
-  if (result.status === "rejected") {
-    throw new Error(JSON.stringify(result.error));
-  }
-  expect(result.status).toBe("published");
-}
-
-function viewCreation(
-  hostNodeId: string,
-  viewDefinitionNodeId: string,
-  viewType: "outline" | "table",
-  metanodeId = `${hostNodeId}-view-configuration`,
 ) {
-  return {
-    kind: "shared-default-view-definition-create" as const,
-    hostNodeId,
-    metanodeId,
-    attachmentNodeId: `${viewDefinitionNodeId}-attachment`,
-    attachmentOccurrenceId: `${viewDefinitionNodeId}-attachment-occurrence`,
-    relationDefinitionOccurrenceId: `${viewDefinitionNodeId}-attachment-definition`,
-    viewDefinitionNodeId,
-    viewDefinitionOccurrenceId: `${viewDefinitionNodeId}-occurrence`,
-    viewType,
-    anchor: end,
-  };
-}
-
-function viewRemoval(hostNodeId: string, viewDefinitionNodeId: string) {
-  return {
-    kind: "shared-default-view-definition-remove" as const,
-    hostNodeId,
-    attachmentNodeId: `${viewDefinitionNodeId}-attachment`,
-    attachmentOccurrenceId: `${viewDefinitionNodeId}-attachment-occurrence`,
-    relationDefinitionOccurrenceId: `${viewDefinitionNodeId}-attachment-definition`,
-    viewDefinitionNodeId,
-    viewDefinitionOccurrenceId: `${viewDefinitionNodeId}-occurrence`,
-  };
-}
-
-async function expectDetachedViewDefinition(
-  workspace: Workspace,
-  viewDefinitionNodeId: string,
-  perspective: "origin" | "review" = "origin",
-): Promise<void> {
-  const attachmentNodeId = `${viewDefinitionNodeId}-attachment`;
-  const attachmentOccurrenceId = `${viewDefinitionNodeId}-attachment-occurrence`;
-  const relationDefinitionOccurrenceId = `${viewDefinitionNodeId}-attachment-definition`;
-  const viewDefinitionOccurrenceId = `${viewDefinitionNodeId}-occurrence`;
-  const detachedValueNodeId = detachedViewValueNodeId(attachmentNodeId);
-  const detachedValueOccurrenceId = detachedViewValueOccurrenceId(attachmentNodeId);
-  const [definitions, owners, occurrences, children] = await Promise.all([
-    projection(workspace, "sharedDefaultViewDefinitions", perspective),
-    projection(workspace, "nodeOwners", perspective),
-    projection(workspace, "occurrences", perspective),
-    projection(workspace, "childOccurrences", perspective),
-  ]);
-  expect(Object.values(definitions.sharedDefaultViewDefinitions).flat()).not.toContainEqual(
-    expect.objectContaining({ attachmentNodeId }),
+  await execute(
+    workspace,
+    command(`create-view-${hostNodeId}-${historyChannelId}`, historyChannelId, [viewCreate(hostNodeId, viewType)]),
   );
-  expect(owners.nodeOwners[attachmentNodeId]).toBe(workspaceTrashNodeId("workspace"));
-  expect(owners.nodeOwners[viewDefinitionNodeId]).toBe(workspaceTrashNodeId("workspace"));
-  expect(owners.nodeOwners[detachedValueNodeId]).toBe(attachmentNodeId);
-  expect(occurrences.occurrences[attachmentOccurrenceId]).toMatchObject({
-    nodeId: attachmentNodeId,
-    parentNodeId: workspaceTrashNodeId("workspace"),
-  });
-  expect(occurrences.occurrences[viewDefinitionOccurrenceId]).toMatchObject({
-    nodeId: viewDefinitionNodeId,
-    parentNodeId: workspaceTrashNodeId("workspace"),
-  });
-  expect(occurrences.occurrences[detachedValueOccurrenceId]).toMatchObject({
-    nodeId: detachedValueNodeId,
-    parentNodeId: attachmentNodeId,
-  });
-  expect(children.childOccurrences[attachmentNodeId]).toEqual([
-    relationDefinitionOccurrenceId,
-    detachedValueOccurrenceId,
-  ]);
+  return (await sharedView(workspace, hostNodeId)).viewId;
 }
 
-async function expectHiddenViewDefinition(workspace: Workspace): Promise<void> {
-  const [definitions, roots, owners, occurrences] = await Promise.all([
-    projection(workspace, "sharedDefaultViewDefinitions"),
-    projection(workspace, "metanodes"),
-    projection(workspace, "nodeOwners"),
-    projection(workspace, "occurrences"),
-  ]);
-  expect(definitions.sharedDefaultViewDefinitions.host?.[0]).toMatchObject({
-    viewDefinitionNodeId: "host-view",
-    viewDefinitionOccurrenceId: "host-view-occurrence",
-    viewType: "table",
-  });
-  expect(roots.metanodes.host).toBe("host-view-configuration");
-  expect(owners.nodeOwners["host-view-attachment"]).toBe("host-view-configuration");
-  expect(owners.nodeOwners["host-view"]).toBe("host-view-attachment");
-  expect(Object.values(occurrences.occurrences).some((item) => item.nodeId === "host-view-configuration")).toBe(false);
+function viewCreate(hostNodeId: string, viewType: "outline" | "table"): EditCommand["actions"][number] {
+  return { kind: "shared-default-view-create", hostNodeId, viewType, anchor: end };
 }
 
-async function projection<
-  Section extends "sharedDefaultViewDefinitions" | "metanodes" | "nodeOwners" | "occurrences" | "childOccurrences",
->(workspace: Workspace, section: Section, perspective: "origin" | "review" = "origin") {
+async function sharedView(workspace: Workspace, hostNodeId: string, perspective: "origin" | "review" = "origin") {
   const result = await workspace.query({
     kind: "projection",
     workspaceId: "workspace",
     perspective,
-    section,
+    section: "sharedDefaultViewDefinitions",
   });
-  if (!(section in result)) {
-    throw new Error(`Expected ${section} Projection section`);
+  if (!("sharedDefaultViewDefinitions" in result)) {
+    throw new Error("Expected View Definition Projection");
   }
-  return result as Extract<typeof result, Record<Section, unknown>>;
+  return required(result.sharedDefaultViewDefinitions[hostNodeId]?.[0], "shared View Definition");
+}
+
+async function acceptAllHunks(workspace: Workspace, invocationId: string): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || review.hunks.length === 0) {
+      return;
+    }
+    await execute(workspace, {
+      kind: "resolve-review",
+      workspaceId: "workspace",
+      invocationId: `${invocationId}-${index}`,
+      actorId: "reviewer",
+      decision: "accept",
+      selection: required(review.hunks[0], "Review Hunk").selection,
+    });
+  }
+  throw new Error("Review did not converge");
+}
+
+async function historySelection(workspace: Workspace, channelId: string, operation: "undo" | "redo") {
+  const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId });
+  if (!(operation in history) || history[operation] === null) {
+    throw new Error(`Expected View ${operation}`);
+  }
+  return history[operation];
 }
 
 function nodeAt(
@@ -680,9 +487,9 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   intrinsicNodeType?: "supertag-definition" | "field-definition" | "search",
-) {
+): EditCommand["actions"][number] {
   return {
-    kind: "node-create" as const,
+    kind: "node-create",
     nodeId,
     occurrenceId,
     parentNodeId,
@@ -694,18 +501,15 @@ function nodeAt(
 function command(
   invocationId: string,
   historyChannelId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
-  return {
-    kind: "mutate",
-    workspaceId: "workspace",
-    invocationId,
-    actorId: "actor",
-    intent,
-    historyChannelId,
-    mutations,
-  };
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
+  return { kind: "edit", workspaceId: "workspace", invocationId, actorId: "actor", intent, historyChannelId, actions };
+}
+
+async function execute(workspace: Workspace, command: Parameters<Workspace["execute"]>[0]): Promise<void> {
+  const result = await workspace.execute(command);
+  expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
 }
 
 function viewRows(workspace: Workspace, hostNodeId: string, perspective: "origin" | "review"): Promise<ViewRowsResult> {
@@ -716,8 +520,8 @@ function sourceIdentity(row: ViewRowsResult["rows"][number]): string {
   return `${row.sourceKind}:${row.sourceIdentity}`;
 }
 
-function required<T>(value: T | undefined, label: string): T {
-  if (value === undefined) {
+function required<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
     throw new Error(`Missing ${label}`);
   }
   return value;

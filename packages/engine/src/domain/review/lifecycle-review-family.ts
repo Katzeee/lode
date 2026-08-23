@@ -1,77 +1,72 @@
-import { compareFacts, templateInstanceNodeId, type ContributionFact } from "../fact/index.js";
+import { compareCausalOrder, templateInstanceNodeId, type FactAction } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
-import { nodeCreationPlacements } from "./node-creation-placement.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewEffectEntry, ReviewFamilyRule } from "./review-family.js";
 import { addDefinitionLifecycleImpacts } from "./supertag-definition-impact.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import {
-  isStructuralOccurrenceMutation,
-  mutationAnchor,
+  isStructuralPlacementAction,
+  actionAnchor,
   occurrenceIdsForNode,
   structuralOccurrenceId,
   structureEffect,
   structureEffectChanged,
 } from "./structure-effect.js";
 
-const LIFECYCLE_MUTATION_KINDS = [
+const LIFECYCLE_ACTION_KINDS = [
+  "workspace-bootstrap",
   "node-create",
-  "node-delete",
+  "node-trash",
   "node-restore",
-  "node-owner-set",
-  "intrinsic-node-type-declare",
+  "original-promote",
   "template-node-detach",
 ] as const;
 
 export const lifecycleReviewFamily = {
   key: "lifecycle",
-  mutationKinds: LIFECYCLE_MUTATION_KINDS,
+  actionKinds: LIFECYCLE_ACTION_KINDS,
   scopes(fact) {
-    const mutation = fact.body.mutation;
-    if (!isLifecycleReviewMutation(mutation)) {
-      throw new Error("Lifecycle Review family received another Mutation family");
+    const action = fact.action;
+    if (!isLifecycleReviewAction(action)) {
+      throw new Error("Lifecycle Review family received another AuthoredAction family");
     }
-    if (mutation.kind === "template-node-detach") {
+    if (action.kind === "template-node-detach") {
       return [
-        reviewScope("template-detachment", mutation.ownerNodeId, mutation.templateNodeId),
-        associatedNodeScope(mutation.ownerNodeId),
-        associatedNodeScope(mutation.templateNodeId),
+        reviewScope("template-detachment", action.ownerNodeId, action.templateNodeId),
+        associatedNodeScope(action.ownerNodeId),
+        associatedNodeScope(action.templateNodeId),
       ];
     }
-    const category =
-      mutation.kind === "node-owner-set"
-        ? "owner"
-        : mutation.kind === "intrinsic-node-type-declare"
-          ? "intrinsic-node-type"
-          : "lifecycle";
-    return [reviewScope(category, mutation.nodeId), associatedNodeScope(mutation.nodeId)];
+    const nodeId = action.kind === "workspace-bootstrap" ? action.workspaceNodeId : action.nodeId;
+    const category = action.kind === "original-promote" ? "owner" : "lifecycle";
+    return [reviewScope(category, nodeId), associatedNodeScope(nodeId)];
   },
   candidates: ({ generation, pending }) => lifecycleCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (!isLifecycleReviewMutation(mutation)) {
-      throw new Error("Lifecycle Review family received another Mutation family");
+    const action = fact.action;
+    if (!isLifecycleReviewAction(action)) {
+      throw new Error("Lifecycle Review family received another AuthoredAction family");
     }
     return lifecycleEffect(fact, generation);
   },
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (!isLifecycleReviewMutation(mutation)) {
+      const action = fact.action;
+      if (!isLifecycleReviewAction(action)) {
         continue;
       }
-      if ("nodeId" in mutation) {
-        addNodeReviewImpacts(impacts, mutation.nodeId, generation);
-        if (mutation.kind === "node-delete" || mutation.kind === "node-restore") {
-          addDefinitionLifecycleImpacts(impacts, mutation.nodeId, generation);
+      if ("nodeId" in action) {
+        addNodeReviewImpacts(impacts, action.nodeId, generation);
+        if (action.kind === "node-trash" || action.kind === "node-restore") {
+          addDefinitionLifecycleImpacts(impacts, action.nodeId, generation);
         }
       }
-      if (mutation.kind === "template-node-detach") {
-        impacts.add(mutation.ownerNodeId);
-        impacts.add(mutation.templateNodeId);
+      if (action.kind === "template-node-detach") {
+        impacts.add(action.ownerNodeId);
+        impacts.add(action.templateNodeId);
         for (const instance of templateInstances(generation)) {
-          if (instance.ownerNodeId === mutation.ownerNodeId && instance.templateNodeId === mutation.templateNodeId) {
+          if (instance.ownerNodeId === action.ownerNodeId && instance.templateNodeId === action.templateNodeId) {
             impacts.add(instance.instanceOccurrenceId);
             if (instance.instanceNodeId !== null) {
               impacts.add(instance.instanceNodeId);
@@ -85,61 +80,53 @@ export const lifecycleReviewFamily = {
 
 function lifecycleCandidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
+  const groups = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isLifecycleReviewMutation(mutation)) {
-      continue;
-    }
-    if (
-      mutation.kind === "intrinsic-node-type-declare" &&
-      mutation.intrinsicNodeType === "field" &&
-      isBoundFieldNode(generation, mutation.nodeId)
-    ) {
+    const action = fact.action;
+    if (!isLifecycleReviewAction(action)) {
       continue;
     }
     const key =
-      mutation.kind === "node-owner-set"
-        ? `owner/${mutation.nodeId}`
-        : `lifecycle/${"nodeId" in mutation ? mutation.nodeId : fact.id}`;
+      action.kind === "original-promote"
+        ? `owner/${action.nodeId}`
+        : `lifecycle/${action.kind === "workspace-bootstrap" ? action.workspaceNodeId : "nodeId" in action ? action.nodeId : fact.id}`;
     const group = groups.get(key) ?? [];
     group.push(fact);
     groups.set(key, group);
   }
-  attachCreationPlacements(groups, pending);
   return [...groups.values()].flatMap((facts) => candidatesForGroup(facts, generation));
 }
 
 function candidatesForGroup(
-  facts: readonly ContributionFact[],
+  facts: readonly FactAction[],
   generation: ScopedProjectionGeneration,
 ): readonly HunkCandidate[] {
   if (!candidateHasEffect(facts, generation)) {
     return [];
   }
-  const ordered = [...facts].sort(compareFacts);
+  const ordered = [...facts].sort(compareCausalOrder);
   const fact = ordered.at(-1);
   if (!fact) {
     return [];
   }
-  const mutation = fact.body.mutation;
+  const action = fact.action;
   const nodeImpacts =
-    "nodeId" in mutation
-      ? occurrenceIdsForNode(generation, mutation.nodeId)
-      : mutation.kind === "template-node-detach"
+    "nodeId" in action
+      ? occurrenceIdsForNode(generation, action.nodeId)
+      : action.kind === "template-node-detach"
         ? templateInstances(generation)
             .filter(
               (instance) =>
-                instance.ownerNodeId === mutation.ownerNodeId && instance.templateNodeId === mutation.templateNodeId,
+                instance.ownerNodeId === action.ownerNodeId && instance.templateNodeId === action.templateNodeId,
             )
             .map((instance) => instance.instanceOccurrenceId)
         : [];
-  const identities = nodeImpacts.length > 0 ? nodeImpacts : [mutationIdentity(fact)];
+  const identities = nodeImpacts.length > 0 ? nodeImpacts : [actionIdentity(fact)];
   return identities.map((identity) => ({
     diffSpace: {
-      kind: mutation.kind === "node-owner-set" ? ("owner" as const) : ("lifecycle" as const),
+      kind: action.kind === "original-promote" ? ("owner" as const) : ("lifecycle" as const),
       identity,
     },
     targets: ordered.map((target) => target.id),
@@ -147,38 +134,22 @@ function candidatesForGroup(
   }));
 }
 
-function lifecycleEffect(fact: ContributionFact, generation: ScopedProjectionGeneration): ReviewEffectEntry | null {
-  const mutation = fact.body.mutation;
-  if (!isLifecycleReviewMutation(mutation)) {
+function lifecycleEffect(fact: FactAction, generation: ScopedProjectionGeneration): ReviewEffectEntry | null {
+  const action = fact.action;
+  if (!isLifecycleReviewAction(action)) {
     return null;
   }
-  if (mutation.kind === "node-owner-set") {
-    const origin = generation.origin.nodeOwners[mutation.nodeId] ?? null;
-    const review = generation.review.nodeOwners[mutation.nodeId] ?? null;
+  if (action.kind === "original-promote") {
+    const origin = generation.origin.nodeOwners[action.nodeId] ?? null;
+    const review = generation.review.nodeOwners[action.nodeId] ?? null;
     return origin === review
       ? null
       : {
-          identity: `owner/${mutation.nodeId}`,
-          effect: { kind: "owner", identity: mutation.nodeId, origin, review },
+          identity: `owner/${action.nodeId}`,
+          effect: { kind: "owner", identity: action.nodeId, origin, review },
         };
   }
-  if (mutation.kind === "intrinsic-node-type-declare") {
-    const origin =
-      generation.origin.nodes[mutation.nodeId]?.intrinsicNodeType === mutation.intrinsicNodeType
-        ? mutation.intrinsicNodeType
-        : null;
-    const review =
-      generation.review.nodes[mutation.nodeId]?.intrinsicNodeType === mutation.intrinsicNodeType
-        ? mutation.intrinsicNodeType
-        : null;
-    return origin === review
-      ? null
-      : {
-          identity: `intrinsicNodeType/${mutation.nodeId}/${mutation.intrinsicNodeType}`,
-          effect: { kind: "intrinsic-node-type", identity: mutation.nodeId, origin, review },
-        };
-  }
-  const identity = mutationIdentity(fact);
+  const identity = actionIdentity(fact);
   const origin = lifecyclePresence(generation.origin, identity);
   const review = lifecyclePresence(generation.review, identity);
   return origin === review
@@ -193,59 +164,32 @@ function lifecyclePresence(projection: ScopedProjectionGeneration["origin"], nod
   return nodeLocation(projection.identity.workspaceNodeId, projection, nodeId) === "active";
 }
 
-function candidateHasEffect(facts: readonly ContributionFact[], generation: ScopedProjectionGeneration): boolean {
+function candidateHasEffect(facts: readonly FactAction[], generation: ScopedProjectionGeneration): boolean {
   return facts.some((fact) => {
     if (lifecycleEffect(fact, generation) !== null) {
       return true;
     }
-    const mutation = fact.body.mutation;
+    const action = fact.action;
     return (
-      isStructuralOccurrenceMutation(mutation) &&
-      structureEffectChanged(structureEffect(structuralOccurrenceId(mutation), generation, mutationAnchor(mutation)))
+      isStructuralPlacementAction(action) &&
+      structureEffectChanged(structureEffect(structuralOccurrenceId(action), generation, actionAnchor(action)))
     );
   });
 }
 
-function attachCreationPlacements(
-  groups: Map<string, ContributionFact[]>,
-  pending: ReadonlyMap<string, ContributionFact>,
-): void {
-  const placements = nodeCreationPlacements(pending);
-  for (const facts of groups.values()) {
-    const creation = facts.find((fact) => fact.body.mutation.kind === "node-create");
-    if (creation?.body.mutation.kind !== "node-create") {
-      continue;
-    }
-    const placement = placements.get(creation.body.mutation.nodeId);
-    const placementFact = placement ? pending.get(placement) : undefined;
-    if (placementFact) {
-      facts.push(placementFact);
-    }
+function actionIdentity(fact: FactAction): string {
+  const action = fact.action;
+  if ("nodeId" in action) {
+    return action.nodeId;
   }
-}
-
-function isBoundFieldNode(generation: ScopedProjectionGeneration, nodeId: string): boolean {
-  return [generation.origin, generation.review].some((projection) =>
-    Object.values(projection.materializedFields).some((fields) => fields.some((field) => field.fieldNodeId === nodeId)),
-  );
-}
-
-function mutationIdentity(fact: ContributionFact): string {
-  const mutation = fact.body.mutation;
-  if ("nodeId" in mutation) {
-    return mutation.nodeId;
+  if (action.kind === "workspace-bootstrap") {
+    return action.workspaceNodeId;
   }
-  if ("occurrenceId" in mutation) {
-    return mutation.occurrenceId;
+  if ("placementId" in action) {
+    return action.placementId;
   }
-  if (mutation.kind === "template-node-detach") {
-    return templateInstanceNodeId(mutation.ownerNodeId, mutation.templateNodeId);
-  }
-  if (mutation.kind === "field-value-delete") {
-    return mutation.valueOccurrenceId;
-  }
-  if (mutation.kind === "materialized-field-delete") {
-    return mutation.fieldNodeId;
+  if (action.kind === "template-node-detach") {
+    return templateInstanceNodeId(action.ownerNodeId, action.templateNodeId);
   }
   return fact.id;
 }
@@ -254,17 +198,17 @@ function templateInstances(generation: ScopedProjectionGeneration) {
   return [...generation.origin.templateNodeInstances, ...generation.review.templateNodeInstances];
 }
 
-function isLifecycleReviewMutation(mutation: ContributionFact["body"]["mutation"]): mutation is Extract<
-  ContributionFact["body"]["mutation"],
+function isLifecycleReviewAction(action: FactAction["action"]): action is Extract<
+  FactAction["action"],
   {
     kind:
+      | "workspace-bootstrap"
       | "node-create"
-      | "node-delete"
+      | "node-trash"
       | "node-restore"
-      | "node-owner-set"
-      | "intrinsic-node-type-declare"
+      | "original-promote"
       | "template-node-detach";
   }
 > {
-  return LIFECYCLE_MUTATION_KINDS.includes(mutation.kind as (typeof LIFECYCLE_MUTATION_KINDS)[number]);
+  return LIFECYCLE_ACTION_KINDS.includes(action.kind as (typeof LIFECYCLE_ACTION_KINDS)[number]);
 }

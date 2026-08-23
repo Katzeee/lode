@@ -2,7 +2,7 @@ import type { DefinitionIntrinsicNodeType } from "../fact/index.js";
 import type { Projection } from "./projection-types.js";
 import { nodeLocation } from "./node-graph.js";
 
-export type DefinitionNodeState = "active" | "deleted" | "absent";
+type DefinitionNodeState = "active" | "deleted" | "absent";
 
 export function definitionNodeState(
   projection: Pick<

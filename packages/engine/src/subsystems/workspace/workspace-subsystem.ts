@@ -24,7 +24,7 @@ import { invalidInput, invalidWrite, workspaceNotFound, workspaceUnavailable } f
 import { createWorkspaceReplica, failWorkspaceCleanup } from "./workspace-staging.js";
 import { WorkspaceStagingCollection } from "./workspace-staging-collection.js";
 
-type WorkspaceIdentity = Pick<IdentityCapability, "signing" | "peer">;
+type WorkspaceIdentity = Pick<IdentityCapability, "vault" | "peer">;
 
 type WorkspaceRegistryEntry = Readonly<{
   workspace: Workspace;
@@ -69,10 +69,6 @@ class WorkspaceCollection {
       this.assertRunning();
       return Promise.resolve(this.summaries());
     },
-    state: (workspaceId) => {
-      this.assertRunning();
-      return this.state(workspaceId);
-    },
     authority: (workspaceId) => {
       this.assertRunning();
       return this.resident(workspaceId).workspace.facts;
@@ -81,7 +77,6 @@ class WorkspaceCollection {
       this.assertRunning();
       return this.resident(workspaceId).workspace.reconcileAuthorityAdvance();
     },
-    recoverAuthority: (workspaceId) => this.recoverAuthority(workspaceId),
     create: (input) => this.transitions.run(() => this.create(input)),
     stage: (workspaceId) => this.transitions.run(() => this.stage(workspaceId)),
     replica: (workspaceId) => {
@@ -96,15 +91,11 @@ class WorkspaceCollection {
     private readonly identity: WorkspaceIdentity,
     private readonly control: EngineSubsystemControl,
   ) {
-    this.stagings = new WorkspaceStagingCollection(
-      storage,
-      (digest, actorId) => identity.signing.signFact(digest, actorId),
-      async (finalStorage) => {
-        const resident = await this.openResident(finalStorage);
-        this.residents.set(finalStorage.workspaceId, resident);
-        return resident.workspace.label;
-      },
-    );
+    this.stagings = new WorkspaceStagingCollection(storage, async (finalStorage) => {
+      const resident = await this.openResident(finalStorage);
+      this.residents.set(finalStorage.workspaceId, resident);
+      return resident.workspace.label;
+    });
   }
 
   async init(): Promise<void> {
@@ -131,12 +122,7 @@ class WorkspaceCollection {
     return [...this.residents.entries()].map(([workspaceId, resident]) => ({
       workspaceId,
       label: resident.workspace.label,
-      state: resident.workspace.authorityFaulted ? ("authority-fault" as const) : ("active" as const),
     }));
-  }
-
-  private state(workspaceId: string): "active" | "authority-fault" {
-    return this.resident(workspaceId).workspace.authorityFaulted ? "authority-fault" : "active";
   }
 
   private async create(input: Readonly<{ workspaceId: string; label: string; ownerActorId: string }>): Promise<void> {
@@ -145,7 +131,7 @@ class WorkspaceCollection {
       throw new Error("Workspace name must not be empty");
     }
     this.assertAbsent(input.workspaceId);
-    if (!this.identity.signing.isActorUnlocked(input.ownerActorId)) {
+    if (!this.identity.vault.isActorUnlocked(input.ownerActorId)) {
       throw new Error(`Actor ${input.ownerActorId} has no unlocked key; unlock the vault first`);
     }
     const staging = await this.stagings.open(input.workspaceId);
@@ -181,10 +167,7 @@ class WorkspaceCollection {
   }
 
   private open(storage: WorkspaceStorage, eventSink: EventSink) {
-    return createWorkspaceFromStorage(storage, {
-      eventSink,
-      signFact: (digest, actorId) => this.identity.signing.signFact(digest, actorId),
-    });
+    return createWorkspaceFromStorage(storage, { eventSink });
   }
 
   private execute(command: EngineCommand): Promise<WriteResult> {
@@ -232,16 +215,6 @@ class WorkspaceCollection {
         },
       };
     }
-  }
-
-  private async recoverAuthority(workspaceId: string): Promise<boolean> {
-    this.assertRunning();
-    const resident = this.residents.get(workspaceId);
-    if (!resident) {
-      return false;
-    }
-    await resident.workspace.recoverAuthority();
-    return true;
   }
 
   private assertAbsent(workspaceId: string): void {

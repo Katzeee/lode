@@ -62,24 +62,19 @@ describe("generated daemon service adapters", () => {
       });
       const ownerActorId = await createGovernedWorkspace(home, "workspace", "Workspace");
       const command = {
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "ipc-create",
         actorId: ownerActorId,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [
+        actions: [
           nodeAt("node", "workspace", "node-original"),
           { ...nodeAt("tag", "workspace", "tag-original"), intrinsicNodeType: "supertag-definition" as const },
           {
             kind: "supertag-application-create",
             hostNodeId: "node",
-            metanodeId: "node-metanode",
             supertagId: "tag",
-            applicationNodeId: "node-tag-application",
-            applicationOccurrenceId: "node-tag-application-occurrence",
-            relationDefinitionOccurrenceId: "node-tag-relation-definition-occurrence",
-            definitionOccurrenceId: "node-tag-definition-occurrence",
             anchor: { after: null, before: null, affinity: "after", fallback: "end" },
           },
         ],
@@ -105,7 +100,7 @@ describe("generated daemon service adapters", () => {
         status: "ok",
         value: {
           supertagApplications: {
-            node: [{ relationDefinitionOccurrenceId: "node-tag-relation-definition-occurrence" }],
+            node: [{ hostNodeId: "node", supertagId: "tag" }],
           },
         },
       });
@@ -114,22 +109,9 @@ describe("generated daemon service adapters", () => {
         await client.execute({
           ...command,
           invocationId: "invalid-ipc",
-          mutations: [{ kind: "future-mutation", extra: true }],
+          actions: [{ kind: "future-action", extra: true }],
         } as never),
       ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-      expect(
-        await client.execute({
-          ...command,
-          invocationId: `invalid-structural`,
-          mutations: [
-            {
-              kind: "occurrence-delete",
-              occurrenceId: "node-tag-definition-occurrence",
-            },
-          ],
-        }),
-      ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-      expect(await client.recoverWorkspaceAuthority("workspace")).toBe(true);
       expect(
         await client.query({
           kind: "projection",
@@ -153,18 +135,18 @@ describe("generated daemon service adapters", () => {
       const actor = (await client.listActors()).actors[0];
       expect(actor?.unlocked).toBe(true);
       await client.createWorkspace("personal", "Personal", actor?.actorId ?? "");
-      expect(await client.listWorkspaces()).toEqual([{ workspaceId: "personal", label: "Personal", state: "active" }]);
+      expect(await client.listWorkspaces()).toEqual([{ workspaceId: "personal", label: "Personal" }]);
       await expect(client.createWorkspace("personal", "Other", actor?.actorId ?? "")).rejects.toThrow("already exists");
       // A same-id create with a matching label stays idempotent at the catalog.
       await expect(
         client.execute({
-          kind: "mutate",
+          kind: "edit",
           workspaceId: "uncataloged",
           invocationId: "ipc-unknown",
           actorId: actor?.actorId ?? "",
           intent: "direct",
           historyChannelId: "desktop",
-          mutations: [nodeAt("node", "uncataloged", "occurrence")],
+          actions: [nodeAt("node", "uncataloged", "occurrence")],
         }),
       ).resolves.toMatchObject({ status: "rejected", error: { code: "workspace-not-found" } });
       await expect(client.syncWorkspace("uncataloged", home.exchangeEndpoint)).rejects.toMatchObject({
@@ -184,13 +166,13 @@ describe("generated daemon service adapters", () => {
       const second = await client.createActor({ label: "Second", passphrase: TEST_PASSPHRASE });
       // The second Actor exists and is unlocked but is not a member yet.
       const nonMember = await client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "non-member",
         actorId: second.actorId,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("outsider", "workspace", "outsider-occurrence")],
+        actions: [nodeAt("outsider", "workspace", "outsider-occurrence")],
       });
       expect(nonMember).toMatchObject({ status: "rejected", error: { code: "actor-not-member" } });
 
@@ -204,26 +186,26 @@ describe("generated daemon service adapters", () => {
         }),
       ).rejects.toMatchObject({ code: Code.PermissionDenied });
       const written = await client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "member-write",
         actorId: second.actorId,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("second-node", "workspace", "second-node-occurrence")],
+        actions: [nodeAt("second-node", "workspace", "second-node-occurrence")],
       });
       expect(written.status).toBe("published");
 
       // Locking the vault stops new signature-bearing writes only.
       await client.lockVault();
       const locked = await client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "locked-write",
         actorId: second.actorId,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("locked-node", "workspace", "locked-node-occurrence")],
+        actions: [nodeAt("locked-node", "workspace", "locked-node-occurrence")],
       });
       expect(locked).toMatchObject({ status: "rejected", error: { code: "actor-locked" } });
       expect(
@@ -250,25 +232,25 @@ describe("generated daemon service adapters", () => {
     try {
       const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
       await member.client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "member-node",
         actorId: owner,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("from-member", "workspace", "from-member-original")],
+        actions: [nodeAt("from-member", "workspace", "from-member-original")],
       });
       const { joinerActorId } = await joinHomeToWorkspace({ home: member, actingActorId: owner }, joiner, "workspace");
 
       // The joiner adopts the full journal and can then write as its own Actor.
       const joinerWrite = await joiner.client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "joiner-node",
         actorId: joinerActorId,
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("from-joiner", "workspace", "from-joiner-original")],
+        actions: [nodeAt("from-joiner", "workspace", "from-joiner-original")],
       });
       expect(joinerWrite.status).toBe("published");
       expect(
@@ -310,13 +292,13 @@ describe("generated daemon service adapters", () => {
       const owner = await createGovernedWorkspace(member, "workspace", "Workspace");
       await joinHomeToWorkspace({ home: member, actingActorId: owner }, joiner, "workspace");
       await joiner.client.execute({
-        kind: "mutate",
+        kind: "edit",
         workspaceId: "workspace",
         invocationId: "joiner-node",
         actorId: (await joiner.client.listActors()).actors.find((actor) => actor.label === "Joiner")?.actorId ?? "",
         intent: "direct",
         historyChannelId: "desktop",
-        mutations: [nodeAt("locked-vault-node", "workspace", "locked-vault-node-occurrence")],
+        actions: [nodeAt("locked-vault-node", "workspace", "locked-vault-node-occurrence")],
       });
 
       // Locking stops signature-bearing writes only; the exchange runs on Peer

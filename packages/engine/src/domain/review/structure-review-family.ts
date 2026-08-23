@@ -1,69 +1,67 @@
-import { canonicalJson, compareFacts, type ContributionFact, type OccurrenceMutation } from "../fact/index.js";
+import { canonicalJson, compareCausalOrder, type FactAction, type PlacementAction } from "../fact/index.js";
 import { impactAddress, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
-import { nodeCreationPlacements } from "./node-creation-placement.js";
 import { mergeLocalStructureCandidates } from "./structure-candidates.js";
 import {
-  isStructuralOccurrenceMutation,
-  mutationAnchor,
+  isStructuralPlacementAction,
+  actionAnchor,
   structuralOccurrenceId,
   structureEffect,
   structureEffectChanged,
-  type StructuralOccurrenceMutation,
+  type StructuralPlacementAction,
 } from "./structure-effect.js";
 import { childSequenceIdentity } from "./structure-space.js";
 import {
   associatedOccurrenceScopes,
-  fieldContentDeletionScopes,
+  fieldContentRemovalScopes,
   reviewScope,
   structureParentScope,
   type ReviewScopeContext,
 } from "./review-scope.js";
 
-const STRUCTURE_MUTATION_KINDS = [
-  "occurrence-create",
-  "occurrence-delete",
-  "occurrence-restore",
-  "occurrence-move",
-  "field-value-delete",
+const STRUCTURE_ACTION_KINDS = [
+  "placement-create",
+  "placement-remove",
+  "placement-move",
+  "field-value-remove",
 ] as const;
 
 export const structureReviewFamily = {
   key: "structure",
-  mutationKinds: STRUCTURE_MUTATION_KINDS,
+  actionKinds: STRUCTURE_ACTION_KINDS,
   scopes(fact, context) {
-    const mutation = fact.body.mutation;
-    if (!isStructureReviewMutation(mutation)) {
-      throw new Error("Structure Review family received another Mutation family");
+    const action = fact.action;
+    if (!isStructureReviewAction(action)) {
+      throw new Error("Structure Review family received another AuthoredAction family");
     }
-    return mutation.kind === "field-value-delete"
-      ? fieldContentDeletionScopes(mutation)
-      : occurrenceScopes(mutation, context);
+    return action.kind === "field-value-remove"
+      ? fieldContentRemovalScopes(action, context)
+      : occurrenceScopes(action, context);
   },
   candidates: ({ snapshot, generation, pending }) =>
     mergeLocalStructureCandidates(structureCandidates(generation, pending), snapshot, generation),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (!isStructureReviewMutation(mutation)) {
-      throw new Error("Structure Review family received another Mutation family");
+    const action = fact.action;
+    if (!isStructureReviewAction(action)) {
+      throw new Error("Structure Review family received another AuthoredAction family");
     }
-    const occurrenceId = structuralOccurrenceId(mutation);
-    const effect = structureEffect(occurrenceId, generation, mutationAnchor(mutation));
+    const occurrenceId = structuralOccurrenceId(action);
+    const effect = structureEffect(occurrenceId, generation, actionAnchor(action));
     return structureEffectChanged(effect) ? { identity: `structure/${occurrenceId}`, effect } : null;
   },
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (mutation.kind === "occurrence-create") {
-        addNodeReviewImpacts(impacts, mutation.nodeId, generation);
+      const action = fact.action;
+      if (action.kind === "placement-create") {
+        addNodeReviewImpacts(impacts, action.nodeId, generation);
       }
-      if (!isStructuralOccurrenceMutation(mutation)) {
+      if (!isStructuralPlacementAction(action)) {
         continue;
       }
-      const occurrenceId = structuralOccurrenceId(mutation);
+      const occurrenceId = structuralOccurrenceId(action);
       impacts.add(occurrenceId);
-      const effect = structureEffect(occurrenceId, generation, mutationAnchor(mutation));
+      const effect = structureEffect(occurrenceId, generation, actionAnchor(action));
       impacts.add(impactAddress("occurrence", occurrenceId, "origin-parent", effect.originParentId));
       impacts.add(impactAddress("occurrence", occurrenceId, "review-parent", effect.reviewParentId));
       impacts.add(impactAddress("occurrence", occurrenceId, "anchor", canonicalJson(effect.anchor)));
@@ -73,32 +71,26 @@ export const structureReviewFamily = {
   },
 } satisfies ReviewFamilyRule;
 
-function occurrenceScopes(mutation: OccurrenceMutation, context: ReviewScopeContext): readonly string[] {
-  if (mutation.kind === "occurrence-create") {
+function occurrenceScopes(action: PlacementAction, context: ReviewScopeContext): readonly string[] {
+  if (action.kind === "placement-create") {
     return [
-      structureParentScope(mutation.parentNodeId),
-      ...associatedOccurrenceScopes(mutation.occurrenceId, mutation.nodeId),
+      structureParentScope(action.parentNodeId),
+      ...associatedOccurrenceScopes(action.placementId, action.nodeId),
     ];
   }
-  const association = associatedOccurrenceScopes(
-    mutation.occurrenceId,
-    context.occurrenceNodeId(mutation.occurrenceId) ?? undefined,
-  );
-  if (mutation.kind === "occurrence-restore") {
-    return [structureParentScope(mutation.parentNodeId), ...association];
-  }
-  if (mutation.kind === "occurrence-delete") {
+  const previous = context.occurrence(action.placementId);
+  const association = associatedOccurrenceScopes(action.placementId, previous?.nodeId);
+  if (action.kind === "placement-remove") {
     return [
-      ...(mutation.previousParentNodeId === undefined
-        ? [reviewScope("structure-occurrence", mutation.occurrenceId)]
-        : [structureParentScope(mutation.previousParentNodeId)]),
+      reviewScope("structure-occurrence", action.placementId),
+      ...(previous ? [structureParentScope(previous.parentNodeId)] : []),
       ...association,
     ];
   }
   return [
     ...new Set([
-      structureParentScope(mutation.parentNodeId),
-      ...(mutation.previousParentNodeId === undefined ? [] : [structureParentScope(mutation.previousParentNodeId)]),
+      structureParentScope(action.parentNodeId),
+      ...(previous ? [structureParentScope(previous.parentNodeId)] : []),
       ...association,
     ]),
   ];
@@ -106,16 +98,15 @@ function occurrenceScopes(mutation: OccurrenceMutation, context: ReviewScopeCont
 
 function structureCandidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const grouped = new Map<string, ContributionFact[]>();
-  const creationPlacementIds = new Set(nodeCreationPlacements(pending).values());
+  const grouped = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isStructureReviewMutation(mutation) || creationPlacementIds.has(fact.id)) {
+    const action = fact.action;
+    if (!isStructureReviewAction(action)) {
       continue;
     }
-    const occurrenceId = structuralOccurrenceId(mutation);
+    const occurrenceId = structuralOccurrenceId(action);
     const group = grouped.get(occurrenceId) ?? [];
     group.push(fact);
     grouped.set(occurrenceId, group);
@@ -127,15 +118,15 @@ function structureCandidates(
 
 function candidatesForOccurrence(
   occurrenceId: string,
-  facts: readonly ContributionFact[],
+  facts: readonly FactAction[],
   generation: ScopedProjectionGeneration,
 ): readonly HunkCandidate[] {
-  const ordered = [...facts].sort(compareFacts);
-  const mutation = ordered.at(-1)?.body.mutation;
-  if (!mutation || !isStructureReviewMutation(mutation)) {
-    throw new Error("Structure Review group contains another Mutation family");
+  const ordered = [...facts].sort(compareCausalOrder);
+  const action = ordered.at(-1)?.action;
+  if (!action || !isStructureReviewAction(action)) {
+    throw new Error("Structure Review group contains another AuthoredAction family");
   }
-  const effect = structureEffect(occurrenceId, generation, mutationAnchor(mutation));
+  const effect = structureEffect(occurrenceId, generation, actionAnchor(action));
   if (!structureEffectChanged(effect)) {
     return [];
   }
@@ -157,8 +148,6 @@ function candidatesForOccurrence(
   );
 }
 
-function isStructureReviewMutation(
-  mutation: ContributionFact["body"]["mutation"],
-): mutation is Exclude<StructuralOccurrenceMutation, { kind: "materialized-field-delete" }> {
-  return isStructuralOccurrenceMutation(mutation) && mutation.kind !== "materialized-field-delete";
+function isStructureReviewAction(action: FactAction["action"]): action is StructuralPlacementAction {
+  return isStructuralPlacementAction(action);
 }

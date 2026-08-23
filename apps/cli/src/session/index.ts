@@ -14,20 +14,20 @@ import { engineQueryFailure } from "../outcome/index.js";
  * a transport, and this adapter never learns CLI vocabulary.
  */
 
-export type WorkspaceHostPort = Readonly<{
+type WorkspaceHostPort = Readonly<{
   list(): Promise<readonly Readonly<{ workspaceId: string; label: string }>[]>;
   create(workspaceId: string, name: string, actorId: string): Promise<void>;
   adopt(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
 }>;
 
-export type ActorSummaryView = Readonly<{
+type ActorSummaryView = Readonly<{
   actorId: string;
   label: string;
   createdAt: string;
   unlocked: boolean;
 }>;
 
-export type IdentityHostPort = Readonly<{
+type IdentityHostPort = Readonly<{
   list(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummaryView[] }>>;
   create(
     input: Readonly<{ label: string; passphrase: string }>,
@@ -42,7 +42,7 @@ export type IdentityHostPort = Readonly<{
   >;
 }>;
 
-export type GovernancePeerView = Readonly<{
+type GovernancePeerView = Readonly<{
   peerId: string;
   peerKxPublicKey: string;
   admittedAtEpoch: number;
@@ -50,7 +50,7 @@ export type GovernancePeerView = Readonly<{
   syncAdmitted: boolean;
 }>;
 
-export type GovernanceSummaryView = Readonly<{
+type GovernanceSummaryView = Readonly<{
   established: boolean;
   ownerActorId?: string;
   memberActorIds: readonly string[];
@@ -58,7 +58,7 @@ export type GovernanceSummaryView = Readonly<{
   peers: readonly GovernancePeerView[];
 }>;
 
-export type GovernanceHostPort = Readonly<{
+type GovernanceHostPort = Readonly<{
   summary(workspaceId: string): Promise<GovernanceSummaryView>;
   admitActor(
     input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
@@ -84,7 +84,7 @@ export type GovernanceHostPort = Readonly<{
   rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
 }>;
 
-export type ReplicaHostPort = Readonly<{
+type ReplicaHostPort = Readonly<{
   run(workspaceId: string, remoteEndpoint: string): Promise<Readonly<{ pulled: number; pushed: number }>>;
 }>;
 

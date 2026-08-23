@@ -1,172 +1,102 @@
-import { parseMutation } from "../fact/index.js";
-import { exactInputKeys, nonemptyInputString } from "./input-validation-primitives.js";
-import type { EditMutation } from "./types.js";
+import { parseAuthoredAction, requireFactActionId, type SequenceAnchor } from "../fact/index.js";
+import { exactInputKeys, nonemptyInputString, optionalNodeSeed } from "./input-validation-primitives.js";
+import type { EditAction } from "./types.js";
 
-export function parseSupertagTemplateFieldCreate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "supertagId",
-    "templateFieldNodeId",
-    "templateFieldOccurrenceId",
-    "fieldDefinitionId",
-    "definitionOccurrenceId",
-    "staticDefaultValueNodeId",
-    "staticDefaultValueOccurrenceId",
-    "anchor",
-    "fieldDefinitionSeed",
-  ]);
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: edit.templateFieldOccurrenceId,
-    nodeId: edit.templateFieldNodeId,
-    parentNodeId: edit.supertagId,
-    anchor: edit.anchor,
-  });
-  const definition = parseMutation({
-    kind: "node-create",
-    nodeId: edit.fieldDefinitionId,
-    ...(edit.fieldDefinitionSeed === undefined ? {} : { seed: edit.fieldDefinitionSeed }),
-  });
+export function parseSupertagTemplateFieldCreate(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "fieldDefinitionId", "anchor", "fieldDefinitionSeed"]);
+  const fieldDefinitionSeed = optionalNodeSeed(edit.fieldDefinitionSeed);
   return {
     kind: "supertag-template-field-create",
-    supertagId: placement.parentNodeId,
-    templateFieldNodeId: placement.nodeId,
-    templateFieldOccurrenceId: placement.occurrenceId,
-    fieldDefinitionId: definition.nodeId,
-    definitionOccurrenceId: nonemptyInputString(edit.definitionOccurrenceId, "Template Field definition endpoint"),
-    staticDefaultValueNodeId: nonemptyInputString(edit.staticDefaultValueNodeId, "Template Field default value Node"),
-    staticDefaultValueOccurrenceId: nonemptyInputString(
-      edit.staticDefaultValueOccurrenceId,
-      "Template Field default value Occurrence",
-    ),
-    anchor: placement.anchor,
-    ...(definition.seed === undefined ? {} : { fieldDefinitionSeed: definition.seed }),
+    supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
+    fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Template Field Definition identity"),
+    anchor: sequenceAnchor(edit.anchor),
+    ...(fieldDefinitionSeed === undefined ? {} : { fieldDefinitionSeed }),
   };
 }
 
-export function parseSupertagTemplateFieldAddExisting(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "supertagId",
-    "templateFieldNodeId",
-    "templateFieldOccurrenceId",
-    "fieldDefinitionId",
-    "definitionOccurrenceId",
-    "staticDefaultValueNodeId",
-    "staticDefaultValueOccurrenceId",
-    "anchor",
-  ]);
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: edit.templateFieldOccurrenceId,
-    nodeId: edit.templateFieldNodeId,
-    parentNodeId: edit.supertagId,
-    anchor: edit.anchor,
-  });
+export function parseSupertagTemplateFieldAddExisting(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "fieldDefinitionId", "anchor"]);
   return {
     kind: "supertag-template-field-add-existing",
-    supertagId: placement.parentNodeId,
-    templateFieldNodeId: placement.nodeId,
-    templateFieldOccurrenceId: placement.occurrenceId,
+    supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
     fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Existing Field Definition"),
-    definitionOccurrenceId: nonemptyInputString(edit.definitionOccurrenceId, "Template Field definition endpoint"),
-    staticDefaultValueNodeId: nonemptyInputString(edit.staticDefaultValueNodeId, "Template Field default value Node"),
-    staticDefaultValueOccurrenceId: nonemptyInputString(
-      edit.staticDefaultValueOccurrenceId,
-      "Template Field default value Occurrence",
-    ),
-    anchor: placement.anchor,
+    anchor: sequenceAnchor(edit.anchor),
   };
 }
 
-export function parseSupertagTemplateFieldMakeDiscoverable(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "supertagId", "templateFieldNodeId", "fieldDefinitionId"]);
+export function parseSupertagTemplateFieldMakeDiscoverable(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "templateFieldId"]);
   return {
     kind: "supertag-template-field-make-discoverable",
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
-    templateFieldNodeId: nonemptyInputString(edit.templateFieldNodeId, "Template Field Node"),
-    fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Field Definition"),
+    templateFieldId: requireFactActionId(edit.templateFieldId, "Template Field identity"),
   };
 }
 
-export function parseSupertagTemplateFieldRemove(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "supertagId", "templateFieldNodeId"]);
+export function parseSupertagTemplateFieldRemove(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "templateFieldId"]);
   return {
     kind: "supertag-template-field-remove",
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
-    templateFieldNodeId: nonemptyInputString(edit.templateFieldNodeId, "Template Field Node"),
+    templateFieldId: requireFactActionId(edit.templateFieldId, "Template Field identity"),
   };
 }
 
-export function parseSupertagTemplateFieldVisibilitySet(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "supertagId", "templateFieldNodeId", "visibility"]);
+export function parseSupertagTemplateFieldVisibilitySet(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "templateFieldId", "visibility"]);
   if (edit.visibility !== "normal" && edit.visibility !== "pinned") {
     throw new Error("Template Field visibility is invalid");
   }
   return {
     kind: "supertag-template-field-visibility-set",
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
-    templateFieldNodeId: nonemptyInputString(edit.templateFieldNodeId, "Template Field Node"),
+    templateFieldId: requireFactActionId(edit.templateFieldId, "Template Field identity"),
     visibility: edit.visibility,
   };
 }
 
-export function parseSupertagTemplateFieldStaticDefaultSet(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "supertagId", "templateFieldNodeId", "value"]);
+export function parseSupertagTemplateFieldStaticDefaultSet(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "templateFieldId", "value"]);
   if (typeof edit.value !== "string") {
     throw new Error("Template Field Static Default is invalid");
   }
   return {
     kind: "supertag-template-field-static-default-set",
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
-    templateFieldNodeId: nonemptyInputString(edit.templateFieldNodeId, "Template Field Node"),
+    templateFieldId: requireFactActionId(edit.templateFieldId, "Template Field identity"),
     value: edit.value,
   };
 }
 
-export function parseSupertagOptionalFieldContributionAdd(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "supertagId",
-    "metanodeId",
-    "fieldNurseryNodeId",
-    "fieldNurseryOccurrenceId",
-    "nurseryDefinitionOccurrenceId",
-    "nurseryValueNodeId",
-    "nurseryValueOccurrenceId",
-    "contributionNodeId",
-    "contributionOccurrenceId",
-    "fieldDefinitionId",
-    "definitionOccurrenceId",
-    "valueNodeId",
-    "valueOccurrenceId",
-    "anchor",
-  ]);
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: edit.contributionOccurrenceId,
-    nodeId: edit.contributionNodeId,
-    parentNodeId: edit.fieldNurseryNodeId,
-    anchor: edit.anchor,
-  });
+export function parseSupertagOptionalFieldContributionAdd(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "fieldDefinitionId", "anchor"]);
   return {
     kind: "supertag-optional-field-contribution-add",
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
-    metanodeId: nonemptyInputString(edit.metanodeId, "Supertag Metanode"),
-    fieldNurseryNodeId: placement.parentNodeId,
-    fieldNurseryOccurrenceId: nonemptyInputString(edit.fieldNurseryOccurrenceId, "Field Nursery Occurrence"),
-    nurseryDefinitionOccurrenceId: nonemptyInputString(
-      edit.nurseryDefinitionOccurrenceId,
-      "Optional fields definition endpoint",
-    ),
-    nurseryValueNodeId: nonemptyInputString(edit.nurseryValueNodeId, "Field Nursery value Node"),
-    nurseryValueOccurrenceId: nonemptyInputString(edit.nurseryValueOccurrenceId, "Field Nursery value Occurrence"),
-    contributionNodeId: placement.nodeId,
-    contributionOccurrenceId: placement.occurrenceId,
     fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Optional Field Definition"),
-    definitionOccurrenceId: nonemptyInputString(edit.definitionOccurrenceId, "Optional Field definition endpoint"),
-    valueNodeId: nonemptyInputString(edit.valueNodeId, "Optional Field value Node"),
-    valueOccurrenceId: nonemptyInputString(edit.valueOccurrenceId, "Optional Field value Occurrence"),
-    anchor: placement.anchor,
+    anchor: sequenceAnchor(edit.anchor),
   };
+}
+
+export function parseSupertagOptionalFieldContributionRemove(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "supertagId", "fieldDefinitionId"]);
+  return {
+    kind: "supertag-optional-field-contribution-remove",
+    supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition"),
+    fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Optional Field Definition"),
+  };
+}
+
+function sequenceAnchor(value: unknown): SequenceAnchor {
+  const action = parseAuthoredAction({
+    kind: "placement-create",
+    placementId: "input-anchor",
+    nodeId: "input-node",
+    parentNodeId: "input-parent",
+    anchor: value,
+  });
+  if (action.kind !== "placement-create") {
+    throw new Error("Sequence anchor is invalid");
+  }
+  return action.anchor;
 }

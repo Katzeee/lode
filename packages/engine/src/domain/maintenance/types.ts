@@ -1,11 +1,11 @@
-import type { FactFrontier, FactSnapshot, ReplicaId, WorkspaceId } from "../fact/index.js";
+import type { FactActionId, FactFrontier, FactId, FactSnapshot, ReplicaId, WorkspaceId } from "../fact/index.js";
 
 export type HardDeleteSelection = Readonly<{
   workspaceId: WorkspaceId;
   frontier: FactFrontier;
   nodeId: string;
-  deletionFactIds: readonly string[];
-  acknowledgementFactIds: readonly string[];
+  deletionActionIds: readonly FactActionId[];
+  acknowledgementFactIds: readonly FactId[];
   retiredReplicaIds: readonly string[];
 }>;
 
@@ -26,7 +26,7 @@ export type HardDeleteAssessment = Readonly<{
   supertagApplicationNodeIds: readonly string[];
   materializedFieldNodeIds: readonly string[];
   ownedDescendantNodeIds: readonly string[];
-  pendingProposalContributionIds: readonly string[];
+  pendingProposalActionIds: readonly FactActionId[];
   knownReplicaIds: readonly string[];
   acknowledgedReplicaIds: readonly string[];
   blockers: readonly HardDeleteBlocker[];

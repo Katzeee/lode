@@ -18,6 +18,7 @@ import {
 } from "./protocol-cases.js";
 import { fromProtocolMessage, toProtocolMessage } from "./protocol-message-codec.js";
 import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
+import { fromSearchClause, toSearchClause } from "./protocol-search-expression-codec.js";
 
 export function toReviewSelection(selection: ReviewSelection): Record<string, unknown> {
   const value = toProtocolValue(selection) as Record<string, unknown>;
@@ -69,6 +70,10 @@ function toDecisionEffect(effect: DecisionEffect): Record<string, unknown> {
     value.origin = viewDefinitionStateToProtocol(effect.origin);
     value.review = viewDefinitionStateToProtocol(effect.review);
   }
+  if (effect.kind === "search-expression") {
+    value.origin = searchExpressionStateToProtocol(effect.origin);
+    value.review = searchExpressionStateToProtocol(effect.review);
+  }
   const wrapped = { effect: { $case: protocolDecisionEffectCase(effect.kind), value } };
   return toProtocolMessage(DecisionEffectSchema, wrapped) as Record<string, unknown>;
 }
@@ -88,7 +93,25 @@ function fromDecisionEffect(value: unknown): DecisionEffect {
     decoded.origin = viewDefinitionStateFromProtocol(decoded.origin);
     decoded.review = viewDefinitionStateFromProtocol(decoded.review);
   }
+  if (selected.$case === "searchExpression") {
+    decoded.origin = searchExpressionStateFromProtocol(decoded.origin);
+    decoded.review = searchExpressionStateFromProtocol(decoded.review);
+  }
   return { ...decoded, kind: decisionEffectKind(selected.$case) } as DecisionEffect;
+}
+
+function searchExpressionStateToProtocol(
+  state: Extract<DecisionEffect, { kind: "search-expression" }>["origin"],
+): unknown {
+  return state === null ? null : { ...state, clause: state.clause === null ? null : toSearchClause(state.clause) };
+}
+
+function searchExpressionStateFromProtocol(value: unknown): unknown {
+  if (value === null) {
+    return null;
+  }
+  const state = value as Record<string, unknown>;
+  return { ...state, clause: state.clause === null ? null : fromSearchClause(state.clause) };
 }
 
 function viewDefinitionStateToProtocol(state: Extract<DecisionEffect, { kind: "view-definition" }>["origin"]): unknown {
@@ -224,7 +247,7 @@ export function fromProtocolValue(value: unknown): unknown {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fromProtocolValue(item)]));
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 

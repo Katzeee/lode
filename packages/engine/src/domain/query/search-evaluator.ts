@@ -18,7 +18,7 @@ export function evaluateSearchExpression(
   return evaluateSearchExpressionSpec(expression.expression, projection, searchNodeId);
 }
 
-export function evaluateSearchExpressionSpec(
+function evaluateSearchExpressionSpec(
   expression: SearchExpressionSpec,
   projection: Projection,
   relativeScopeHostNodeId?: string,

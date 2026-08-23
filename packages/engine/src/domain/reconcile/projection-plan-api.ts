@@ -1,4 +1,4 @@
-import type { ContributionFact, FactSnapshot, ProjectionPerspective } from "../fact/index.js";
+import type { FactAction, FactSnapshot, ProjectionPerspective } from "../fact/index.js";
 import type { ProjectionStageKey } from "./projection-plan-dag.js";
 import { PROJECTION_PLAN, projectionReplayPolicy } from "./projection-plan.js";
 import { emptyProjectionPlanContext, incrementalProjectionPlanContext } from "./projection-plan-context.js";
@@ -9,11 +9,12 @@ export function projectWithPlan(
   snapshot: FactSnapshot,
   perspective: ProjectionPerspective,
   versions: ProjectionVersions,
+  originPlanCache: ProjectionPlanCache | null = null,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
 }> {
-  const context = emptyProjectionPlanContext(workspaceId, snapshot, perspective, versions);
+  const context = emptyProjectionPlanContext(workspaceId, snapshot, perspective, versions, originPlanCache);
   PROJECTION_PLAN.run(context);
   if (!context.projection) {
     throw new Error("Projection owner plan did not assemble a Projection");
@@ -29,9 +30,10 @@ export function advanceWithPlan(
   previous: Projection,
   previousCache: ProjectionPlanCache,
   snapshot: FactSnapshot,
-  activeTail: readonly ContributionFact[],
+  activeTail: readonly FactAction[],
   versions: ProjectionVersions,
   selected: ReadonlySet<ProjectionStageKey>,
+  originPlanCache: ProjectionPlanCache | null = null,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
@@ -44,6 +46,7 @@ export function advanceWithPlan(
     activeTail,
     versions,
     projectionReplayPolicy(selected),
+    originPlanCache,
   );
   PROJECTION_PLAN.run(context, selected);
   if (!context.projection) {

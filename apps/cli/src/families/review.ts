@@ -7,7 +7,7 @@ import { actorIdOf, invocationId, writeResult, workspaceIdOf } from "../intent/i
 /**
  * Review and Conflict families: opaque semantic refs produced by list/show,
  * evidence re-read before every decision, and one typed resolution path per
- * conflict kind — no generic resolve mutation.
+ * conflict kind — no generic resolve action.
  */
 
 export function registerReviewCommands(catalog: CommandCatalog): void {
@@ -85,7 +85,7 @@ const reviewShow: CommandDefinition = {
           label: `${hunk.diffSpace.kind} ${hunk.diffSpace.identity}`,
         },
         diffSpace: hunk.diffSpace,
-        proposals: hunk.proposalContributionIds,
+        proposals: hunk.proposalActionIds,
       },
       {
         view: {
@@ -93,7 +93,7 @@ const reviewShow: CommandDefinition = {
           lines: [
             `Review hunk ${hunk.id}`,
             `Diff space: ${hunk.diffSpace.kind} (${hunk.diffSpace.identity})`,
-            `Proposals: ${hunk.proposalContributionIds.join(", ") || "(none)"}`,
+            `Proposals: ${hunk.proposalActionIds.join(", ") || "(none)"}`,
             `Accept with: lode review accept review:${hunk.id}`,
           ],
         },
@@ -232,9 +232,11 @@ function describeResolution(issue: ConflictIssue): string {
     case "unsupported-direct-intent":
       return "Recovery: restore the missing proposal support, then retry the dependent work.";
     case "intrinsic-node-type-conflict":
-      return "Resolve by declaring the intended type again once the concurrent declarations converge.";
+      return "The same Node identity was created with incompatible intrinsic types; use a distinct Node identity.";
     case "placement-conflict":
       return "Resolve by moving the occurrence to the intended parent (node move).";
+    case "original-conflict":
+      return "Resolve by promoting the intended occurrence to Original (node promote).";
     case "supertag-extension-cycle":
       return "Resolve by removing an extension edge (supertag unextend) to break the cycle.";
   }
@@ -285,7 +287,7 @@ const conflictResolve: CommandDefinition = {
       invocationId: invocationId(context.requestId),
       actorId: actorIdOf(context),
       decision,
-      proposalContributionIds: issue.proposalContributionIds,
+      proposalFactIds: issue.proposalFactIds,
       resolutionIds: issue.candidates.map((candidate) => candidate.resolutionId),
     } as const;
     const result = await context.session.application.execute(command);

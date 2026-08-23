@@ -6,7 +6,6 @@ export type ProjectionStageKey =
   | "occurrence"
   | "configuration"
   | "content"
-  | "owner"
   | "node-graph"
   | "supertag-relations"
   | "field-definition"
@@ -22,7 +21,6 @@ export type ProjectionArtifactKey =
   | "contentNodes"
   | "authoredStructure"
   | "metanodes"
-  | "nodeOwners"
   | "nodeGraphStructure"
   | "supertagRelations"
   | "fieldDefinitionConfigurations"
@@ -43,7 +41,7 @@ export type ProjectionStage<
   evaluate(context: Context): void;
 }>;
 
-export type CompiledProjectionPlan<
+type CompiledProjectionPlan<
   Context = unknown,
   StageKey extends string = string,
   ArtifactKey extends string = string,

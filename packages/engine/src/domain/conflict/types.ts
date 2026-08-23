@@ -1,7 +1,16 @@
-import type { FactFrontier, ResolutionDecision, SequenceAnchor, IntrinsicNodeType, Mutation } from "../fact/index.js";
+import type {
+  FactActionId,
+  FactFrontier,
+  FactId,
+  ResolutionDecision,
+  ResolutionId,
+  SequenceAnchor,
+  IntrinsicNodeType,
+  AuthoredAction,
+} from "../fact/index.js";
 
-export type ResolutionConflictCandidate = Readonly<{
-  resolutionId: string;
+type ResolutionConflictCandidate = Readonly<{
+  resolutionId: ResolutionId;
   decision: ResolutionDecision;
   actorId: string;
   replicaId: string;
@@ -12,12 +21,12 @@ export type ConflictIssue =
   | Readonly<{
       kind: "unsupported-direct-intent";
       identity: string;
-      contributionId: string;
-      mutationKind: Mutation["kind"];
+      factActionId: FactActionId;
+      actionKind: AuthoredAction["kind"];
       actorId: string;
       replicaId: string;
       observedFrontier: FactFrontier;
-      missingSupportContributionIds: readonly string[];
+      missingSupportActionIds: readonly FactActionId[];
       requiredNodeIds: readonly string[];
       recoveryActions: readonly ["restore-support"];
     }>
@@ -26,7 +35,7 @@ export type ConflictIssue =
       identity: string;
       nodeId: string;
       candidates: readonly Readonly<{
-        contributionId: string;
+        factActionId: FactActionId;
         intrinsicNodeType: IntrinsicNodeType;
         actorId: string;
         replicaId: string;
@@ -36,7 +45,7 @@ export type ConflictIssue =
   | Readonly<{
       kind: "resolution-conflict";
       identity: string;
-      proposalContributionIds: readonly string[];
+      proposalFactIds: readonly FactId[];
       candidates: readonly ResolutionConflictCandidate[];
     }>
   | Readonly<{
@@ -45,9 +54,22 @@ export type ConflictIssue =
       occurrenceId: string;
       canonicalParentNodeId: string;
       candidates: readonly Readonly<{
-        contributionId: string;
+        factActionId: FactActionId;
         parentNodeId: string;
         anchor: SequenceAnchor;
+        actorId: string;
+        replicaId: string;
+        observedFrontier: FactFrontier;
+      }>[];
+    }>
+  | Readonly<{
+      kind: "original-conflict";
+      identity: string;
+      nodeId: string;
+      canonicalPlacementId: string;
+      candidates: readonly Readonly<{
+        factActionId: FactActionId;
+        placementId: string;
         actorId: string;
         replicaId: string;
         observedFrontier: FactFrontier;

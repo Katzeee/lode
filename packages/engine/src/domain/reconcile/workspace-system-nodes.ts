@@ -1,8 +1,6 @@
 import { SYSTEM_DEFINITION_CATALOG_NODE_ID, workspaceSchemaNodeId, workspaceTrashOccurrenceId } from "../fact/index.js";
 
-export const WORKSPACE_SYSTEM_NODE_ROLES = ["trash", "schema", "systemDefinitionCatalog"] as const;
-
-export type WorkspaceSystemNodeRole = (typeof WORKSPACE_SYSTEM_NODE_ROLES)[number];
+type WorkspaceSystemNodeRole = "trash" | "schema" | "systemDefinitionCatalog";
 export type WorkspaceSystemNodes = Readonly<Partial<Record<WorkspaceSystemNodeRole, string>>>;
 
 type RoleOccurrence = Readonly<{

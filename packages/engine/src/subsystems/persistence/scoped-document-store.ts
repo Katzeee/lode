@@ -1,4 +1,4 @@
-import type { DocumentStore, LoadedDocumentBytes } from "./document-store.js";
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "./document-store.js";
 
 export class ScopedDocumentStore implements DocumentStore {
   constructor(
@@ -18,6 +18,10 @@ export class ScopedDocumentStore implements DocumentStore {
 
   appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
     return this.documents.appendUpdate(this.scoped(id), bytes);
+  }
+
+  appendUpdates(updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    return this.documents.appendUpdates(updates.map(({ id, bytes }) => ({ id: this.scoped(id), bytes })));
   }
 
   writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {

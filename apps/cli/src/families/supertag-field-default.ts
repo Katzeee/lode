@@ -23,7 +23,7 @@ const fieldSetDefault: CommandDefinition = {
       {
         kind: "supertag-template-field-static-default-set",
         supertagId: resolved.supertag.nodeId,
-        templateFieldNodeId: resolved.use.templateFieldNodeId,
+        templateFieldId: resolved.use.factActionId,
         value: args.requiredOption("--value"),
       },
     ]);
@@ -50,7 +50,7 @@ const fieldClearDefault: CommandDefinition = {
       {
         kind: "supertag-template-field-static-default-set",
         supertagId: resolved.supertag.nodeId,
-        templateFieldNodeId: resolved.use.templateFieldNodeId,
+        templateFieldId: resolved.use.factActionId,
         value: "",
       },
     ]);

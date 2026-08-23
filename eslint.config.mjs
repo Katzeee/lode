@@ -201,6 +201,7 @@ export default tseslint.config(
       "vitest.config.ts",
       "packages/daemon/vitest.config.ts",
       "packages/engine/vitest.config.ts",
+      "packages/engine/tests/benchmark/**",
       "packages/logger/vitest.config.ts",
       "experiments/**",
     ],
@@ -264,8 +265,9 @@ export default tseslint.config(
         {
           patterns: [
             {
-              regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?mutation-evidence/(?!index\\.js$).+",
-              message: "Mutation evidence is consumed through its public domain seam, never its family internals.",
+              regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?authored-intent/(?!index\\.js$).+",
+              message:
+                "Authored Intent validation is consumed through its public domain seam, never its family internals.",
             },
             {
               regex: "^(?:\\./|(?:\\.\\./)+)(?:domain/)?review/(?!index\\.js$).+",
@@ -350,7 +352,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{admission,conflict,history,reconcile,review}/**"],
+              group: ["../{conflict,history,reconcile,review}/**"],
               message: "Fact activation is a lower-level policy and depends only on Fact vocabulary.",
             },
           ],
@@ -388,7 +390,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{admission,conflict,history,reconcile,review}/**"],
+              group: ["../{conflict,history,reconcile,review}/**"],
               message: "Maintenance policy depends only on Fact vocabulary and lower-level Activation policy.",
             },
           ],
@@ -455,7 +457,7 @@ export default tseslint.config(
               group: [
                 "../../../domain/{history,reconcile,review}/**",
                 "../application/**",
-                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
                 "../workspace*.js",
               ],
               message:
@@ -478,11 +480,9 @@ export default tseslint.config(
                 "../../../domain/{history,reconcile,review}/**",
                 "../../persistence/**",
                 "../application/**",
-                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
                 "../replica-sync.js",
                 "../workspace*.js",
-                "./authority-journal-*.js",
-                "./authority-sync-*.js",
                 "./fact-authority.js",
                 "./loro-*.js",
               ],
@@ -495,7 +495,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/subsystems/workspace/authority/authority-journal-session.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/loro-fact-store.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -505,42 +505,13 @@ export default tseslint.config(
               group: [
                 "../../../domain/{history,reconcile,review}/**",
                 "../application/**",
-                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
-                "../replica-sync.js",
+                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
                 "../workspace*.js",
                 "./authority-commit-plan.js",
-                "./authority-sync-*.js",
-                "./fact-authority.js",
-                "./loro-*.js",
-              ],
-              message:
-                "The authority journal owns durable authority state and cannot depend on commit, sync, or store orchestration.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["packages/engine/src/subsystems/workspace/authority/authority-sync-import.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../../../domain/{history,reconcile,review}/**",
-                "../../persistence/**",
-                "../application/**",
-                "../{authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
-                "../workspace*.js",
-                "./authority-commit-plan.js",
-                "./authority-journal-*.js",
                 "./fact-authority.js",
               ],
               message:
-                "Authority sync import coordinates a replica through explicit callbacks and cannot own journal or store state.",
+                "The authoritative Loro Fact store owns durable and synchronized Fact state without depending on commit planning or its facade.",
             },
           ],
         },
@@ -566,7 +537,7 @@ export default tseslint.config(
             },
             {
               regex:
-                "^(?:\\./|(?:\\.\\./)+)(?:authority-coordination|command|generation-reading|mutation-planning|projection|query)/(?!index\\.js$).+",
+                "^(?:\\./|(?:\\.\\./)+)(?:authority-coordination|command|edit-planning|generation-reading|projection|query)/(?!index\\.js$).+",
               message:
                 "Workspace orchestration modules are consumed through their public funnels, never their internals.",
             },
@@ -636,7 +607,7 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../{authority,authority-coordination,command,generation-reading,mutation-planning,projection,query}/**",
+                "../{authority,authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
                 "../workspace*.js",
                 "../../{connection,event,identity,persistence,synchronization}/**",
                 "loro-crdt",
@@ -907,19 +878,13 @@ export default tseslint.config(
   },
   {
     files: ["packages/engine/src/**/*.ts"],
-    ignores: [
-      "**/*.test.ts",
-      "packages/engine/src/subsystems/workspace/authority/fact-sync-projection.ts",
-      "packages/engine/src/subsystems/workspace/authority/loro-fact-replica-state.ts",
-      "packages/engine/src/subsystems/workspace/authority/loro-fact-replica.ts",
-      "packages/engine/src/subsystems/workspace/authority/sync-import-validation.ts",
-    ],
+    ignores: ["**/*.test.ts", "packages/engine/src/subsystems/workspace/authority/loro-fact-store.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
         {
           selector: "ImportDeclaration[source.value='loro-crdt']",
-          message: "Loro belongs only in the Fact replication adapter.",
+          message: "Loro belongs only in the authoritative Fact store.",
         },
       ],
     },

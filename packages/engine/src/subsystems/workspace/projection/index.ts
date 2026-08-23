@@ -23,7 +23,6 @@ export type WorkspaceProjectionOptions = Readonly<{
 
 export { BoundedProjectionStore } from "./materialization/index.js";
 export type {
-  ProjectionGenerationReader,
   ProjectionIdentityReader,
   ProjectionListIndexName,
   ProjectionReader,
@@ -36,12 +35,12 @@ export type {
   ReviewReadModelReader,
 } from "./materialization/index.js";
 
-export type ProjectionAdvance = Readonly<{
+type ProjectionAdvance = Readonly<{
   eventKind: "projection-published" | "projection-recovered";
   identity: ProjectionIdentity;
 }>;
 
-export type WorkspaceProjectionEvent = Readonly<{
+type WorkspaceProjectionEvent = Readonly<{
   kind: "projection-published" | "projection-failed" | "projection-recovered";
   frontier: FactSnapshot["frontier"];
   generationId: string | null;
@@ -76,7 +75,7 @@ export class WorkspaceProjection {
       generation =
         (await restoreCompatibleGeneration(store, workspaceId, snapshot, versions, expectedIdentity.generationId)) ??
         rebuildGeneration(workspaceId, snapshot, versions);
-      await store.publish(generation, createReviewReadModel(snapshot, generation.review));
+      await store.publish(generation, createReviewReadModel(snapshot, generation));
     }
     return new WorkspaceProjection(workspaceId, versions, store, generation, snapshot, notify);
   }
@@ -87,6 +86,10 @@ export class WorkspaceProjection {
 
   get publishedSnapshot(): FactSnapshot {
     return this.snapshot;
+  }
+
+  get currentGeneration(): ProjectionGeneration {
+    return this.generation;
   }
 
   get failure(): string | null {
@@ -101,7 +104,7 @@ export class WorkspaceProjection {
     const previous = this.generation;
     try {
       const generation = advanceGeneration(this.workspaceId, this.snapshot, snapshot, this.versions, previous);
-      await this.store.publish(generation, createReviewReadModel(snapshot, generation.review));
+      await this.store.publish(generation, createReviewReadModel(snapshot, generation));
       const eventKind = this.projectionFailure === null ? "projection-published" : "projection-recovered";
       this.generation = generation;
       this.snapshot = snapshot;

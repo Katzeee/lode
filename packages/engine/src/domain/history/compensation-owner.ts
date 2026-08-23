@@ -1,46 +1,72 @@
-import { compareFacts, contributionFactsOfKind, type ContributionFact } from "../fact/index.js";
+import { compareCausalOrder, type FactAction } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateNodeOwner(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
+  target: FactAction,
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "node-owner-set" || mutation.previousOwnerNodeId === undefined) {
+  const authoredAction = target.action;
+  return authoredAction.kind === "original-promote"
+    ? compensateOriginalPromotion(target, activeFacts, projection, counterfactual)
+    : noCompensation();
+}
+
+function compensateOriginalPromotion(
+  target: FactAction,
+  activeFacts: readonly FactAction[],
+  projection: ScopedProjection,
+  counterfactual: ScopedProjection,
+): CompensationStep {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "original-promote") {
     return noCompensation();
   }
-  if (
-    mutation.previousOwnerNodeId === null &&
-    activeFacts.some(
+  const winner = activeFacts
+    .filter(
       (fact) =>
-        fact.transaction.transactionId === target.transaction.transactionId &&
-        fact.body.mutation.kind === "node-create" &&
-        fact.body.mutation.nodeId === mutation.nodeId,
+        (fact.action.kind === "node-create" ||
+          fact.action.kind === "original-promote" ||
+          fact.action.kind === "node-restore") &&
+        fact.action.nodeId === authoredAction.nodeId,
     )
-  ) {
-    return noCompensation();
-  }
-  const winner = [...contributionFactsOfKind(activeFacts, "node-owner-set")]
-    .filter((fact) => fact.body.mutation.nodeId === mutation.nodeId)
-    .sort(compareFacts)
+    .sort(compareCausalOrder)
     .at(-1);
-  if (winner?.id !== target.id || projection.nodeOwners[mutation.nodeId] !== mutation.ownerNodeId) {
+  const selected = projection.occurrences[authoredAction.placementId];
+  if (winner?.id !== target.id || selected?.nodeId !== authoredAction.nodeId) {
     return noCompensation();
   }
-  if (mutation.previousOwnerNodeId !== null && !projection.nodes[mutation.previousOwnerNodeId]) {
-    return { kind: "stale", reason: "Previous Owner Node is no longer valid" };
+  const previousSelection = activeFacts
+    .filter(
+      (fact) =>
+        fact.id !== target.id &&
+        (fact.action.kind === "node-create" ||
+          fact.action.kind === "original-promote" ||
+          fact.action.kind === "node-restore") &&
+        fact.action.nodeId === authoredAction.nodeId,
+    )
+    .sort(compareCausalOrder)
+    .at(-1);
+  const previousPlacementId =
+    previousSelection?.action.kind === "node-create"
+      ? previousSelection.action.originalPlacement?.placementId
+      : previousSelection?.action.kind === "original-promote" || previousSelection?.action.kind === "node-restore"
+        ? previousSelection.action.placementId
+        : Object.values(counterfactual.occurrences).find(
+            (occurrence) =>
+              occurrence.nodeId === authoredAction.nodeId &&
+              occurrence.parentNodeId === counterfactual.nodeOwners[authoredAction.nodeId],
+          )?.occurrenceId;
+  if (
+    previousPlacementId === undefined ||
+    projection.occurrences[previousPlacementId]?.nodeId !== authoredAction.nodeId
+  ) {
+    return { kind: "stale", reason: "Previous Original placement is no longer valid" };
   }
   return {
     kind: "ready",
-    mutations: [
-      {
-        kind: "node-owner-set",
-        nodeId: mutation.nodeId,
-        ownerNodeId: mutation.previousOwnerNodeId,
-        previousOwnerNodeId: mutation.ownerNodeId,
-      },
-    ],
+    actions: [{ kind: "original-promote", nodeId: authoredAction.nodeId, placementId: previousPlacementId }],
   };
 }

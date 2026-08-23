@@ -1,5 +1,5 @@
 import type { ProjectionPerspective } from "../../../domain/fact/index.js";
-import type { Projection, ScopedProjection } from "../../../domain/reconcile/index.js";
+import { metanodeHostNodeId, type Projection, type ScopedProjection } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../projection/index.js";
 import { readIndex } from "./index-reader.js";
 import { includeLifecycleScope } from "./lifecycle-scope-rule.js";
@@ -27,7 +27,7 @@ export async function resolveGenerationRead(
   plan: GenerationReadPlan,
 ): Promise<ResolvedGenerationRead> {
   const scope = plan.createScope();
-  await includeLifecycleScope(store, generationId, perspective, plan.mutations, scope);
+  await includeLifecycleScope(store, generationId, perspective, plan.actions, scope);
   await includeSupertagAndFieldInstances(store, generationId, perspective, scope);
   const templateNodeInstances = await includeTemplateInstanceScope(store, generationId, perspective, scope);
   await includeChildOccurrenceIds(store, generationId, perspective, scope);
@@ -37,7 +37,7 @@ export async function resolveGenerationRead(
     store,
     generationId,
     perspective,
-    plan.mutations,
+    plan.actions,
     occurrences,
     nodeOwners,
     scope,
@@ -119,6 +119,12 @@ function includeOccurrenceScope(scope: GenerationReadScope, occurrences: ScopedP
   for (const occurrence of Object.values(occurrences)) {
     scope.nodes.add(occurrence.nodeId);
     scope.nodes.add(occurrence.parentNodeId);
+    for (const nodeId of [occurrence.nodeId, occurrence.parentNodeId]) {
+      const hostNodeId = metanodeHostNodeId(nodeId);
+      if (hostNodeId !== null) {
+        scope.nodes.add(hostNodeId);
+      }
+    }
     scope.childOccurrences.add(occurrence.parentNodeId);
   }
 }

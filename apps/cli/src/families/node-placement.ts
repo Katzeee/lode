@@ -52,7 +52,7 @@ const nodeEdit: CommandDefinition = {
     const insertAnchor = replacementAnchor(node);
     const { result, data } = await executeWrite(context, "node.edit", [
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: target.nodeId,
         deleteAtomIds,
         anchor: insertAnchor,
@@ -169,11 +169,9 @@ const nodeRestore: CommandDefinition = {
       {
         kind: "node-restore",
         nodeId: target.nodeId,
-        deletionFactId: evidence.deletionFactId,
         occurrenceId: evidence.occurrenceId,
-        ownerNodeId: evidence.previousOwnerNodeId,
-        parentNodeId: evidence.previousParentNodeId,
-        anchor: evidence.previousAnchor ?? { after: null, before: null, affinity: "after", fallback: "end" },
+        parentNodeId: evidence.parentNodeId,
+        anchor: evidence.anchor ?? { after: null, before: null, affinity: "after", fallback: "end" },
       },
     ]);
     return writeResult(data, result, {

@@ -1,13 +1,10 @@
 import { canonicalDigest } from "./canonical.js";
 import { normalizeFrontier } from "./frontier.js";
 import {
-  FACT_SCHEMA_VERSION,
-  FORMAT_GENERATION,
+  FACT_ID_GENERATION,
   type Fact,
-  type FactAttribution,
   type FactBody,
   type FactFrontier,
-  type FactTransactionPosition,
   type WorkspaceId,
   type ReplicaId,
 } from "./types.js";
@@ -18,24 +15,11 @@ export function makeFact(input: {
   sequence: number;
   observed: FactFrontier;
   lamport: number;
-  transaction?: FactTransactionPosition;
   body: FactBody;
-  attribution?: FactAttribution;
 }): Fact {
   const id = factId(input.workspaceId, input.replicaId, input.sequence);
-  const transaction =
-    input.transaction ??
-    ({
-      transactionId: factTransactionId(input.workspaceId, input.replicaId, input.sequence),
-      index: 0,
-      size: 1,
-    } as const);
-  const unsigned = {
-    formatGeneration: FORMAT_GENERATION,
-    schemaVersion: FACT_SCHEMA_VERSION,
-    workspaceId: input.workspaceId,
+  return {
     id,
-    transaction,
     coordinate: {
       dot: { replicaId: input.replicaId, sequence: input.sequence },
       observed: normalizeFrontier(input.observed),
@@ -43,15 +27,10 @@ export function makeFact(input: {
     },
     body: input.body,
   } as const;
-  return { ...unsigned, contentDigest: canonicalDigest(unsigned), attribution: input.attribution ?? null };
 }
 
-export function factId(workspaceId: WorkspaceId, replicaId: ReplicaId, sequence: number): string {
-  return `g${FORMAT_GENERATION}/${workspaceId}/${replicaId}/${sequence}`;
-}
-
-export function factTransactionId(workspaceId: WorkspaceId, replicaId: ReplicaId, firstSequence: number): string {
-  return `t${FORMAT_GENERATION}/${workspaceId}/${replicaId}/${firstSequence}`;
+export function factId(workspaceId: WorkspaceId, replicaId: ReplicaId, sequence: number): Fact["id"] {
+  return `g${FACT_ID_GENERATION}/${workspaceId}/${replicaId}/${sequence}`;
 }
 
 export function requestDigest(request: unknown): string {
@@ -59,11 +38,5 @@ export function requestDigest(request: unknown): string {
 }
 
 export function isReplicaId(value: string): boolean {
-  return /^[a-z2-7]{26}$/.test(value);
-}
-
-/** The exact bytes a Fact digest (and therefore an Actor signature) covers. */
-export function unsignedFact(fact: Fact): Omit<Fact, "contentDigest" | "attribution"> {
-  const { contentDigest: _digest, attribution: _attribution, ...unsigned } = fact;
-  return unsigned;
+  return /^(?:0|[1-9]\d*)$/.test(value);
 }

@@ -15,8 +15,6 @@ import {
   EngineWorkspaceService,
   QueryResultSchema,
   WriteResultSchema,
-  WorkspaceRequestSchema,
-  WorkspaceRunState as ProtocolWorkspaceRunState,
   WorkspaceSyncRequestSchema,
   IdentityService,
   WorkspaceGovernanceService,
@@ -30,7 +28,7 @@ import {
   type EngineTransport,
   type Unsubscribe,
 } from "@lode/sdk";
-import type { WorkspaceRunState } from "@lode/sdk/host";
+import type { WorkspaceSummary } from "@lode/sdk/host";
 import { createGovernanceSurface, createIdentitySurface } from "./identity-surface.js";
 
 type ConnectTransport = Readonly<{
@@ -58,22 +56,13 @@ class SocketEngineTransport {
     this.application = createTransportEngineApplication(this.engineTransport());
   }
 
-  async recoverWorkspaceAuthority(workspaceId: string): Promise<boolean> {
-    return (
-      await this.transport.workspaces.recoverWorkspaceAuthority(create(WorkspaceRequestSchema, { workspaceId }), {
-        headers: this.requestHeaders,
-      })
-    ).recovered;
-  }
-
-  async listWorkspaces(): Promise<readonly { workspaceId: string; label: string; state: WorkspaceRunState }[]> {
+  async listWorkspaces(): Promise<readonly WorkspaceSummary[]> {
     const result = await this.transport.workspaces.listWorkspaces(create(EmptySchema), {
       headers: this.requestHeaders,
     });
     return result.workspaces.map((summary) => ({
       workspaceId: summary.workspaceId,
       label: summary.label,
-      state: summary.state === ProtocolWorkspaceRunState.AUTHORITY_FAULT ? "authority-fault" : "active",
     }));
   }
 
@@ -105,7 +94,6 @@ class SocketEngineTransport {
       workspaces: status.workspaces.map((summary) => ({
         workspaceId: summary.workspaceId,
         label: summary.label,
-        state: summary.state === ProtocolWorkspaceRunState.AUTHORITY_FAULT ? "authority-fault" : "active",
       })),
     };
   }
@@ -171,7 +159,7 @@ class SocketEngineTransport {
   }
 }
 
-export type SocketDial = Readonly<{ tcpUrl: string }> | Readonly<{ authority: string; createConnection: () => Socket }>;
+type SocketDial = Readonly<{ tcpUrl: string }> | Readonly<{ authority: string; createConnection: () => Socket }>;
 
 function createSocketTransport(dial: SocketDial): ConnectTransport {
   const sessionManager =
@@ -199,15 +187,14 @@ export type DaemonStatusView = Readonly<{
   daemonVersion: string;
   homePath: string;
   ready: boolean;
-  workspaces: readonly Readonly<{ workspaceId: string; label: string; state: WorkspaceRunState }>[];
+  workspaces: readonly WorkspaceSummary[];
 }>;
 
 export type DesktopClient = EngineApplicationContract &
   Readonly<{
     status(): Promise<DaemonStatusView>;
     shutdown(): Promise<void>;
-    recoverWorkspaceAuthority(workspaceId: string): Promise<boolean>;
-    listWorkspaces(): Promise<readonly { workspaceId: string; label: string; state: WorkspaceRunState }[]>;
+    listWorkspaces(): Promise<readonly WorkspaceSummary[]>;
     createWorkspace(workspaceId: string, name: string, actorId: string): Promise<void>;
     adoptWorkspace(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
     governanceSummary(workspaceId: string): Promise<GovernanceSummary>;
@@ -259,7 +246,6 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
     subscribe: (listener) => transport.application.subscribe(listener),
     status: () => transport.status(),
     shutdown: () => transport.shutdown(),
-    recoverWorkspaceAuthority: (workspaceId) => transport.recoverWorkspaceAuthority(workspaceId),
     listWorkspaces: () => transport.listWorkspaces(),
     createWorkspace: (workspaceId, name, actorId) => transport.createWorkspace(workspaceId, name, actorId),
     adoptWorkspace: (endpoint, workspaceId) => transport.adoptWorkspace(endpoint, workspaceId),

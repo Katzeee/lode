@@ -1,4 +1,4 @@
-import { factObserves, type ContributionFact, type Mutation } from "../fact/index.js";
+import { factObserves, type FactAction, type AuthoredAction } from "../fact/index.js";
 import { addTemplateDetachmentSupport, type SupertagSupportContext } from "./supertag-support.js";
 import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
 
@@ -8,31 +8,31 @@ type ExistenceSupport = Readonly<{
   viable: Set<string>;
 }>;
 
-type OccurrenceLifecycleFacts = ReadonlyMap<string, readonly ContributionFact[]>;
+type OccurrenceLifecycleFacts = ReadonlyMap<string, readonly FactAction[]>;
 
 export function addTemplateNodeSupport(
   support: Set<string>,
-  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
-  fact: ContributionFact,
+  authoredAction: Extract<AuthoredAction, { kind: "template-node-detach" }>,
+  fact: FactAction,
   supertagSupport: SupertagSupportContext,
   existence: ExistenceSupport,
 ): void {
-  addTemplateDetachmentSupport(support, mutation, fact, supertagSupport);
-  addIfPresent(support, effectiveCandidate(existence.nodes, mutation.instanceNodeId, existence.viable));
+  addTemplateDetachmentSupport(support, authoredAction, fact, supertagSupport);
+  addIfPresent(support, effectiveCandidate(existence.nodes, authoredAction.instanceNodeId, existence.viable));
 }
 
 export function addGeneratedOccurrenceSupport(
   support: Set<string>,
-  mutation: Mutation,
-  fact: ContributionFact,
+  authoredAction: AuthoredAction,
+  fact: FactAction,
   lifecycleFacts: OccurrenceLifecycleFacts,
 ): void {
-  const expected = generatedOccurrenceEffect(mutation);
+  const expected = generatedOccurrenceEffect(authoredAction);
   if (expected === null) {
     return;
   }
   const candidate = lifecycleFacts
-    .get(`${expected.kind}/${expected.occurrenceId}`)
+    .get(`${expected.kind}/${expected.placementId}`)
     ?.find((lifecycle) => factObserves(lifecycle, fact));
   if (candidate !== undefined) {
     support.add(candidate.id);
@@ -40,18 +40,9 @@ export function addGeneratedOccurrenceSupport(
 }
 
 function generatedOccurrenceEffect(
-  mutation: Mutation,
-): Readonly<{ kind: "occurrence-create" | "occurrence-delete"; occurrenceId: string }> | null {
-  if (mutation.kind === "supertag-template-node-remove") {
-    return { kind: "occurrence-delete", occurrenceId: mutation.templateOccurrenceId };
-  }
-  if (mutation.kind === "field-value-delete") {
-    return { kind: "occurrence-delete", occurrenceId: mutation.valueOccurrenceId };
-  }
-  if (mutation.kind === "materialized-field-delete") {
-    return { kind: "occurrence-delete", occurrenceId: mutation.fieldOccurrenceId };
-  }
-  return mutation.kind === "template-node-detach"
-    ? { kind: "occurrence-create", occurrenceId: mutation.instanceOccurrenceId }
+  authoredAction: AuthoredAction,
+): Readonly<{ kind: "placement-create" | "placement-remove"; placementId: string }> | null {
+  return authoredAction.kind === "template-node-detach"
+    ? { kind: "placement-create", placementId: authoredAction.instanceOccurrenceId }
     : null;
 }

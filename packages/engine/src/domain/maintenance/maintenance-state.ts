@@ -1,4 +1,11 @@
-import { mutationRelations, type ContributionFact, type Fact, type Mutation } from "../fact/index.js";
+import {
+  factObserves,
+  actionRelations,
+  type FactAction,
+  type FactActionId,
+  type Fact,
+  type AuthoredAction,
+} from "../fact/index.js";
 
 export function purgedNodeIds(facts: readonly Fact[]): ReadonlySet<string> {
   return new Set(
@@ -8,31 +15,40 @@ export function purgedNodeIds(facts: readonly Fact[]): ReadonlySet<string> {
   );
 }
 
-export function excludePurgedContributions(
-  facts: readonly ContributionFact[],
+export function excludePurgedActions(
+  actions: readonly FactAction[],
   purged: ReadonlySet<string>,
-): readonly ContributionFact[] {
+): readonly FactAction[] {
   return purged.size === 0
-    ? facts
-    : facts.filter((fact) => ![...purged].some((nodeId) => mutationReferencesNode(fact.body.mutation, nodeId)));
+    ? actions
+    : actions.filter((action) => ![...purged].some((nodeId) => actionReferencesNode(action.action, nodeId)));
 }
 
-export function mutationReferencesNode(mutation: Mutation, nodeId: string): boolean {
-  return mutationRelations(mutation).nodeIds.includes(nodeId);
+export function actionReferencesNode(action: AuthoredAction, nodeId: string): boolean {
+  return actionRelations(action).nodeIds.includes(nodeId);
 }
 
-export function nodeDeletionFactIds(active: readonly ContributionFact[]): ReadonlyMap<string, readonly string[]> {
-  const restored = new Set(
-    active.flatMap((fact) => (fact.body.mutation.kind === "node-restore" ? [fact.body.mutation.deletionFactId] : [])),
-  );
-  const result = new Map<string, string[]>();
+export function nodeDeletionActionIds(active: readonly FactAction[]): ReadonlyMap<string, readonly FactActionId[]> {
+  const result = new Map<string, FactActionId[]>();
   for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind === "node-delete" && !restored.has(fact.id)) {
-      const ids = result.get(mutation.nodeId) ?? [];
+    const action = fact.action;
+    if (
+      action.kind === "node-trash" &&
+      !active.some(
+        (restore) =>
+          restore.action.kind === "node-restore" &&
+          restore.action.nodeId === action.nodeId &&
+          actionObserves(restore, fact),
+      )
+    ) {
+      const ids = result.get(action.nodeId) ?? [];
       ids.push(fact.id);
-      result.set(mutation.nodeId, ids);
+      result.set(action.nodeId, ids);
     }
   }
   return result;
+}
+
+function actionObserves(observer: FactAction, observed: FactAction): boolean {
+  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

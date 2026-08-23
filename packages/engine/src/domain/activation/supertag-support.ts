@@ -1,120 +1,116 @@
 import {
-  compareFacts,
+  actionRelations,
+  compareCausalOrder,
   factObserves,
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
-  mutationRelations,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  type ContributionFact,
-  type Mutation,
+  type AuthoredAction,
+  type FactAction,
   type IntrinsicNodeType,
-  type SupertagMutation,
+  type SupertagAction,
 } from "../fact/index.js";
 
-export function addSupertagMutationSupport(
+export function addSupertagActionSupport(
   support: Set<string>,
-  mutation: SupertagMutation,
-  fact: ContributionFact,
+  authoredAction: SupertagAction,
+  fact: FactAction,
   context: SupertagSupportContext,
 ): void {
-  if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    addCandidateSupport(support, context.nodes, mutation.hostNodeId, context.viable);
-    addCandidateSupport(support, context.nodes, mutation.applicationNodeId, context.viable);
-  } else if (mutation.kind === "supertag-template-node-add" || mutation.kind === "supertag-template-node-remove") {
-    addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
-    if (mutation.kind === "supertag-template-node-remove") {
-      const binding = latestObservedCandidate(
-        context.templateOccurrences.get(mutation.templateOccurrenceId) ?? [],
+  if (authoredAction.kind === "supertag-application-add" || authoredAction.kind === "supertag-membership-remove") {
+    addCandidateSupport(support, context.nodes, authoredAction.hostNodeId, context.viable);
+  } else if (authoredAction.kind === "template-member-add" || authoredAction.kind === "template-member-remove") {
+    addCandidateSupport(support, context.nodes, authoredAction.templateNodeId, context.viable);
+    if (authoredAction.kind === "template-member-remove") {
+      addLatestObservedSupport(
+        support,
+        context.templateOccurrences.get(templateMemberKey(authoredAction.supertagId, authoredAction.templateNodeId)) ??
+          [],
         fact,
+        context.viable,
       );
-      if (binding !== null) {
-        support.add(binding.id);
-      }
     }
-  } else if (mutation.kind === "supertag-template-field-discoverability-set") {
-    addCandidateSupport(support, context.nodes, mutation.templateFieldNodeId, context.viable);
-    addCandidateSupport(support, context.nodes, mutation.fieldDefinitionId, context.viable);
-  } else if (mutation.kind === "supertag-template-field-visibility-configure") {
-    addCandidateSupport(support, context.nodes, mutation.templateFieldNodeId, context.viable);
-    addCandidateSupport(support, context.nodes, mutation.fieldDefinitionId, context.viable);
-    mutation.observedVisibilityFactIds?.forEach((id) => support.add(id));
+  } else if (authoredAction.kind === "template-field-add") {
+    if (authoredAction.fieldDefinition.kind === "existing") {
+      addCandidateSupport(support, context.nodes, authoredAction.fieldDefinition.fieldDefinitionId, context.viable);
+    }
+    addRelationCandidate(
+      context.templateFields,
+      relationKey(authoredAction.supertagId, authoredAction.fieldDefinition.fieldDefinitionId),
+      fact,
+    );
+  } else if (authoredAction.kind === "template-field-remove") {
+    addLatestObservedSupport(
+      support,
+      context.templateFields.get(relationKey(authoredAction.supertagId, authoredAction.fieldDefinitionId)) ?? [],
+      fact,
+      context.viable,
+    );
   } else if (
-    mutation.kind === "supertag-template-field-attach" ||
-    mutation.kind === "supertag-template-field-existing-attach" ||
-    mutation.kind === "supertag-template-field-detach"
+    authoredAction.kind === "template-field-restore" ||
+    authoredAction.kind === "template-field-visibility-set" ||
+    authoredAction.kind === "template-field-static-default-set"
   ) {
-    for (const nodeId of [
-      mutation.templateFieldNodeId,
-      mutation.fieldDefinitionId,
-      mutation.staticDefaultValueNodeId,
-    ]) {
-      addCandidateSupport(support, context.nodes, nodeId, context.viable);
-    }
-  } else if (
-    mutation.kind === "supertag-optional-field-contribution-attach" ||
-    mutation.kind === "supertag-optional-field-contribution-detach"
-  ) {
-    for (const nodeId of [
-      mutation.fieldNurseryNodeId,
-      mutation.nurseryValueNodeId,
-      mutation.contributionNodeId,
-      mutation.fieldDefinitionId,
-      mutation.valueNodeId,
-    ]) {
-      addCandidateSupport(support, context.nodes, nodeId, context.viable);
-    }
+    support.add(authoredAction.templateFieldId);
+  } else if (authoredAction.kind === "optional-field-contribution-add") {
+    addCandidateSupport(support, context.nodes, authoredAction.fieldDefinitionId, context.viable);
+    addRelationCandidate(
+      context.optionalFields,
+      relationKey(authoredAction.supertagId, authoredAction.fieldDefinitionId),
+      fact,
+    );
+  } else if (authoredAction.kind === "optional-field-contribution-remove") {
+    addLatestObservedSupport(
+      support,
+      context.optionalFields.get(relationKey(authoredAction.supertagId, authoredAction.fieldDefinitionId)) ?? [],
+      fact,
+      context.viable,
+    );
   }
-  const relations = mutationRelations(mutation);
+
+  const relations = actionRelations(authoredAction);
   for (const supertagId of relations.supertagIds) {
     addCandidateSupport(support, context.nodes, supertagId, context.viable);
     addIntrinsicNodeTypeSupport(support, context, supertagId, SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE);
   }
   for (const fieldDefinitionId of relations.fieldDefinitionIds) {
-    addCandidateSupport(support, context.nodes, fieldDefinitionId, context.viable);
-    addIntrinsicNodeTypeSupport(support, context, fieldDefinitionId, FIELD_DEFINITION_INTRINSIC_NODE_TYPE);
+    const isNewDefinition =
+      authoredAction.kind === "template-field-add" &&
+      authoredAction.fieldDefinition.kind === "new" &&
+      authoredAction.fieldDefinition.fieldDefinitionId === fieldDefinitionId;
+    if (!isNewDefinition) {
+      addCandidateSupport(support, context.nodes, fieldDefinitionId, context.viable);
+      addIntrinsicNodeTypeSupport(support, context, fieldDefinitionId, FIELD_DEFINITION_INTRINSIC_NODE_TYPE);
+    }
   }
-  if (mutation.kind === "supertag-apply") {
-    const key = supertagApplicationKey(mutation.hostNodeId, mutation.supertagId);
-    const values = context.applications.get(key) ?? [];
-    values.push(fact);
-    context.applications.set(key, values);
-  } else if (mutation.kind === "supertag-template-node-add") {
-    const key = mutation.templateOccurrenceId;
-    const values = context.templateOccurrences.get(key) ?? [];
-    values.push(fact);
-    context.templateOccurrences.set(key, values);
+
+  if (authoredAction.kind === "supertag-application-add") {
+    addRelationCandidate(context.applications, relationKey(authoredAction.hostNodeId, authoredAction.supertagId), fact);
+  } else if (authoredAction.kind === "template-member-add") {
+    addRelationCandidate(
+      context.templateOccurrences,
+      templateMemberKey(authoredAction.supertagId, authoredAction.templateNodeId),
+      fact,
+    );
   }
 }
 
 export function addTemplateDetachmentSupport(
   support: Set<string>,
-  mutation: Extract<Mutation, { kind: "template-node-detach" }>,
-  fact: ContributionFact,
+  authoredAction: Extract<AuthoredAction, { kind: "template-node-detach" }>,
+  _fact: FactAction,
   context: SupertagSupportContext,
 ): void {
-  addCandidateSupport(support, context.nodes, mutation.ownerNodeId, context.viable);
-  addCandidateSupport(support, context.nodes, mutation.templateNodeId, context.viable);
-  for (const templateOccurrenceId of mutation.sourceTemplateOccurrenceIds ?? []) {
-    const item = latestObservedCandidate(context.templateOccurrences.get(templateOccurrenceId) ?? [], fact);
-    if (item !== null) {
-      support.add(item.id);
-    }
-  }
-  for (const appliedSupertagId of mutation.sourceApplicationSupertagIds ?? []) {
-    const application = latestObservedCandidate(
-      context.applications.get(supertagApplicationKey(mutation.ownerNodeId, appliedSupertagId)) ?? [],
-      fact,
-    );
-    if (application !== null) {
-      support.add(application.id);
-    }
-  }
+  addCandidateSupport(support, context.nodes, authoredAction.ownerNodeId, context.viable);
+  addCandidateSupport(support, context.nodes, authoredAction.templateNodeId, context.viable);
 }
 
 export type SupertagSupportContext = Readonly<{
   nodes: ReadonlyMap<string, readonly string[]>;
   viable: ReadonlySet<string>;
-  applications: Map<string, ContributionFact[]>;
-  templateOccurrences: Map<string, ContributionFact[]>;
+  applications: Map<string, FactAction[]>;
+  templateOccurrences: Map<string, FactAction[]>;
+  templateFields: Map<string, FactAction[]>;
+  optionalFields: Map<string, FactAction[]>;
   intrinsicNodeTypeDeclarations: Map<string, string[]>;
 }>;
 
@@ -136,20 +132,31 @@ function addIntrinsicNodeTypeSupport(
   );
 }
 
-function supertagApplicationKey(nodeId: string, supertagId: string): string {
-  return JSON.stringify([nodeId, supertagId]);
+function templateMemberKey(supertagId: string, templateNodeId: string): string {
+  return relationKey(supertagId, templateNodeId);
 }
 
-function latestObservedCandidate(
-  candidates: readonly ContributionFact[],
-  observer: ContributionFact,
-): ContributionFact | null {
-  return (
-    candidates
-      .filter((candidate) => factObserves(observer, candidate))
-      .sort(compareFacts)
-      .at(-1) ?? null
-  );
+function relationKey(left: string, right: string): string {
+  return JSON.stringify([left, right]);
+}
+
+function addRelationCandidate(index: Map<string, FactAction[]>, key: string, fact: FactAction): void {
+  const values = index.get(key) ?? [];
+  values.push(fact);
+  index.set(key, values);
+}
+
+function addLatestObservedSupport(
+  support: Set<string>,
+  candidates: readonly FactAction[],
+  observer: FactAction,
+  viable: ReadonlySet<string>,
+): void {
+  const observed = candidates.filter((candidate) => factObserves(observer, candidate)).sort(compareCausalOrder);
+  const candidate = [...observed].reverse().find((value) => viable.has(value.id)) ?? observed.at(-1);
+  if (candidate) {
+    support.add(candidate.id);
+  }
 }
 
 function addCandidateSupport(

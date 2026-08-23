@@ -1,22 +1,21 @@
 import { canonicalJson } from "./canonical.js";
 import { isReplicaId } from "./fact.js";
 import { frontierEquals, normalizeFrontier } from "./frontier.js";
-import type { AuthorityReceipt, AuthorityRecord, Fact, WorkspaceId } from "./types.js";
+import type { AuthorityReceipt } from "./authority-types.js";
+import type { Fact, WorkspaceId } from "./types.js";
 
-export function validateReceipts(workspaceId: WorkspaceId, records: readonly AuthorityRecord[]): void {
+export function validateReceipts(
+  workspaceId: WorkspaceId,
+  receipts: readonly AuthorityReceipt[],
+  facts: readonly Fact[],
+): void {
   const receiptCanonicals = new Map<string, string>();
-  const receipts = new Map<string, AuthorityReceipt>();
+  const receiptsByKey = new Map<string, AuthorityReceipt>();
   const factClaims = new Map<string, string>();
-  const facts = new Map(
-    records.flatMap((record) => (record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [])),
-  );
-  for (const record of records) {
-    if (record.recordKind !== "receipt") {
-      continue;
-    }
-    const receipt = record.receipt;
+  const factsById = new Map(facts.map((fact) => [fact.id, fact]));
+  for (const receipt of receipts) {
     validateReceipt(workspaceId, receipt);
-    validateReceiptBatch(workspaceId, receipt, facts);
+    validateReceiptBatch(workspaceId, receipt, factsById);
     const key = `${receipt.replicaId}/${receipt.invocationId}`;
     const canonical = canonicalJson(receipt);
     const existing = receiptCanonicals.get(key);
@@ -24,7 +23,7 @@ export function validateReceipts(workspaceId: WorkspaceId, records: readonly Aut
       throw new Error(`Invocation ledger conflict: ${key}`);
     }
     receiptCanonicals.set(key, canonical);
-    receipts.set(key, receipt);
+    receiptsByKey.set(key, receipt);
     for (const factId of receipt.factIds) {
       const claimant = factClaims.get(factId);
       if (claimant && claimant !== key) {
@@ -33,24 +32,17 @@ export function validateReceipts(workspaceId: WorkspaceId, records: readonly Aut
       factClaims.set(factId, key);
     }
   }
-  validateLineages([...receipts.values()]);
+  validateLineages([...receiptsByKey.values()]);
 }
 
 export function validatePlannedReceiptAppend(
   workspaceId: WorkspaceId,
-  records: readonly AuthorityRecord[],
+  receipt: AuthorityReceipt,
+  facts: readonly Fact[],
   previousHistoryReceipt: AuthorityReceipt | null,
 ): void {
-  const facts = new Map(
-    records.flatMap((record) => (record.recordKind === "fact" ? [[record.fact.id, record.fact] as const] : [])),
-  );
-  const receipts = records.flatMap((record) => (record.recordKind === "receipt" ? [record.receipt] : []));
-  const [receipt, ...additionalReceipts] = receipts;
-  if (!receipt || additionalReceipts.length > 0) {
-    throw new Error("Planned authority append requires exactly one Invocation receipt");
-  }
   validateReceipt(workspaceId, receipt);
-  validateReceiptBatch(workspaceId, receipt, facts);
+  validateReceiptBatch(workspaceId, receipt, new Map(facts.map((fact) => [fact.id, fact])));
   const lineage = receipt.lineage;
   if (!lineage) {
     return;
@@ -89,6 +81,8 @@ function validateReceipt(workspaceId: WorkspaceId, receipt: AuthorityReceipt): v
     ) {
       throw new Error(`Receipt lineage is invalid: ${receipt.invocationId}`);
     }
+  } else if (receipt.inverse.length > 0) {
+    throw new Error(`Non-History receipt contains inverse actions: ${receipt.invocationId}`);
   }
 }
 
@@ -101,46 +95,48 @@ function validateReceiptBatch(
   if (receipt.factIds.length === 0) {
     throw new Error(`Receipt Fact batch is empty: ${receipt.invocationId}`);
   }
-  const sequences = receipt.factIds.map((id) => {
+  const positions = receipt.factIds.map((id) => {
     if (!id.startsWith(prefix)) {
       throw new Error(`Receipt Fact belongs to another Replica: ${receipt.invocationId}`);
     }
-    const sequence = Number(id.slice(prefix.length));
+    const match = /^(\d+)$/.exec(id.slice(prefix.length));
+    const sequence = Number(match?.[1]);
     if (!Number.isSafeInteger(sequence) || sequence < 1) {
       throw new Error(`Receipt contains an invalid Fact identity: ${receipt.invocationId}`);
     }
     return sequence;
   });
   if (
-    sequences.some((sequence, index) => {
-      const previous = sequences[index - 1];
+    positions.some((sequence, index) => {
+      const previous = positions[index - 1];
       return index > 0 && (previous === undefined || sequence !== previous + 1);
     })
   ) {
     throw new Error(`Receipt Fact batch is not contiguous: ${receipt.invocationId}`);
   }
   const committedSequence = receipt.committedFrontier[receipt.replicaId] ?? 0;
-  if (sequences.at(-1) !== committedSequence) {
+  if (positions.at(-1) !== committedSequence) {
     throw new Error(`Receipt frontier does not end at its Fact batch: ${receipt.invocationId}`);
   }
   const available = receipt.factIds.map((id) => facts.get(id));
-  if (available.every((fact): fact is Fact => fact !== undefined)) {
-    if (
-      available.some(
-        (fact, index) =>
-          fact.coordinate.dot.replicaId !== receipt.replicaId || fact.coordinate.dot.sequence !== sequences[index],
-      )
-    ) {
-      throw new Error(`Receipt complete batch has a Replica mismatch: ${receipt.invocationId}`);
-    }
-    const last = available.at(-1)!;
-    const expected = normalizeFrontier({
-      ...last.coordinate.observed,
-      [receipt.replicaId]: last.coordinate.dot.sequence,
-    });
-    if (!frontierEquals(receipt.committedFrontier, expected)) {
-      throw new Error(`Receipt frontier differs from its complete Fact batch: ${receipt.invocationId}`);
-    }
+  if (!available.every((fact): fact is Fact => fact !== undefined)) {
+    throw new Error(`Receipt references a missing Fact: ${receipt.invocationId}`);
+  }
+  if (
+    available.some(
+      (fact, index) =>
+        fact.coordinate.dot.replicaId !== receipt.replicaId || fact.coordinate.dot.sequence !== positions[index],
+    )
+  ) {
+    throw new Error(`Receipt complete batch has a Replica mismatch: ${receipt.invocationId}`);
+  }
+  const last = available.at(-1)!;
+  const expected = normalizeFrontier({
+    ...last.coordinate.observed,
+    [receipt.replicaId]: last.coordinate.dot.sequence,
+  });
+  if (!frontierEquals(receipt.committedFrontier, expected)) {
+    throw new Error(`Receipt frontier differs from its complete Fact batch: ${receipt.invocationId}`);
   }
 }
 

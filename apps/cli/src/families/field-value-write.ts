@@ -1,4 +1,4 @@
-import type { EditMutation, TextAtomId } from "@lode/sdk";
+import type { EditAction, TextAtomId } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
@@ -42,8 +42,8 @@ const fieldSet: CommandDefinition = {
     if (raw === undefined) {
       throw new CliError("usage", "field set takes exactly one --value.");
     }
-    const mutations = await setValueMutations(context, state, raw);
-    const { result, data } = await executeWrite(context, "field.set", mutations);
+    const actions = await setValueActions(context, state, raw);
+    const { result, data } = await executeWrite(context, "field.set", actions);
     return writeResult(data, result, {
       extra: {
         target: state.fieldDescriptor,
@@ -54,11 +54,11 @@ const fieldSet: CommandDefinition = {
   },
 };
 
-async function setValueMutations(
+async function setValueActions(
   context: Parameters<ProductCommandRun>[0],
   state: FieldState,
   raw: string,
-): Promise<readonly EditMutation[]> {
+): Promise<readonly EditAction[]> {
   const workspaceId = workspaceIdOf(context);
   const parsed = parseFieldValue(state.datatype, raw);
   const fieldNodeId = state.materialized?.fieldNodeId ?? slotId(state, "field");
@@ -88,7 +88,7 @@ async function setValueMutations(
       const deleteAtomIds = (nodes[valueNodeId]?.content ?? []).flatMap((item) =>
         item.kind === "text" && item.id !== undefined ? [item.id as TextAtomId] : [],
       );
-      return [{ kind: "text-splice", nodeId: valueNodeId, deleteAtomIds, anchor: end, insert: parsed.text }];
+      return [{ kind: "rich-text-splice", nodeId: valueNodeId, deleteAtomIds, anchor: end, insert: parsed.text }];
     }
     return [
       {
@@ -149,10 +149,10 @@ const fieldAdd: CommandDefinition = {
     if (duplicates.size !== values.length) {
       throw new CliError("invalid-value", "Duplicate --value entries in one invocation.");
     }
-    const mutations: EditMutation[] = [];
+    const actions: EditAction[] = [];
     const fieldNodeId = state.materialized?.fieldNodeId ?? slotId(state, "field");
     if (state.materialized === undefined) {
-      mutations.push(
+      actions.push(
         {
           kind: "node-create",
           nodeId: fieldNodeId,
@@ -177,7 +177,7 @@ const fieldAdd: CommandDefinition = {
           "List adds with typed datatypes are single-slot in this MVP; only Plain list values are supported.",
         );
       }
-      mutations.push({
+      actions.push({
         kind: "field-value-create",
         ownerNodeId: state.ownerNodeId,
         fieldDefinitionId: state.fieldDefinitionId,
@@ -189,7 +189,7 @@ const fieldAdd: CommandDefinition = {
         seed: { text: [{ value: parsed.text, attributes: {} }] },
       });
     }
-    const { result, data } = await executeWrite(context, "field.add", mutations);
+    const { result, data } = await executeWrite(context, "field.add", actions);
     return writeResult(data, result, {
       extra: {
         target: state.fieldDescriptor,

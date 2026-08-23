@@ -1,14 +1,15 @@
 import {
-  contributionFactsOfKind,
+  factActionsOfKind,
   factObserves,
   stableStringCompare,
   templateInstanceOccurrenceId,
-  type ContributionFact,
+  type FactAction,
 } from "../fact/index.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { supertagExtensionGraph } from "./supertag-extension-graph.js";
 import type { TemplateNodeInstance, TemplateNodeSource } from "./projection-types.js";
 import { listFor } from "./sequence.js";
+import { templateMemberOccurrenceId } from "./projection-identity.js";
 
 export type TemplateStructureProjection = Readonly<{
   occurrences: Map<string, MutableOccurrence>;
@@ -17,7 +18,8 @@ export type TemplateStructureProjection = Readonly<{
 }>;
 
 export function projectTemplateStructure(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
+  allActions: readonly FactAction[],
   supertagApplications: Readonly<Record<string, readonly string[]>>,
   supertagTemplateNodes: Readonly<Record<string, readonly string[]>>,
   supertagExtensions: Readonly<Record<string, readonly string[]>>,
@@ -60,7 +62,7 @@ export function projectTemplateStructure(
       continue;
     }
     const detached = detachFacts.length > 0;
-    const detachment = detached ? detachmentMutation(detachFacts) : null;
+    const detachment = detached ? detachmentAction(detachFacts) : null;
     const occurrenceId = detachment?.instanceOccurrenceId ?? templateInstanceOccurrenceId(ownerNodeId, templateNodeId);
     const nodeId = detachment?.instanceNodeId ?? templateNodeId;
     if (detached) {
@@ -77,58 +79,56 @@ export function projectTemplateStructure(
       });
       appendUnique(listFor(childOccurrences, ownerNodeId), occurrenceId);
     }
-    const sources = current.length > 0 ? current : sourcesFromDetachments(detachFacts);
     instances.push({
       ownerNodeId,
       templateNodeId,
       instanceNodeId: detached ? nodeId : null,
       instanceOccurrenceId: occurrenceId,
       state: detached ? "detached" : "linked",
-      sources,
-      detachmentContributionIds: detachFacts.map((fact) => fact.id).sort(stableStringCompare),
+      sources: current.length > 0 ? current : sourcesAtDetachments(detachFacts, allActions),
+      detachmentActionIds: detachFacts.map((fact) => fact.id).sort(stableStringCompare),
     });
   }
   return { occurrences, childOccurrences, instances };
 }
 
-function detachmentMutation(
-  facts: readonly ContributionFact[],
-): Extract<ContributionFact["body"]["mutation"], { kind: "template-node-detach" }> {
+function detachmentAction(
+  facts: readonly FactAction[],
+): Extract<FactAction["action"], { kind: "template-node-detach" }> {
   for (const fact of facts) {
-    if (fact.body.mutation.kind === "template-node-detach") {
-      return fact.body.mutation;
+    if (fact.action.kind === "template-node-detach") {
+      return fact.action;
     }
   }
   throw new Error("Detached Template content has no detachment Fact");
 }
 
 function activeTemplateOccurrenceId(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   supertagId: string,
   templateNodeId: string,
 ): string | null {
-  const removals = contributionFactsOfKind(active, "supertag-template-node-remove");
+  const removals = factActionsOfKind(active, "template-member-remove");
   let result: string | null = null;
   for (const fact of active) {
-    const mutation = fact.body.mutation;
+    const authoredAction = fact.action;
     if (
-      mutation.kind !== "supertag-template-node-add" ||
-      mutation.supertagId !== supertagId ||
-      mutation.templateNodeId !== templateNodeId
+      authoredAction.kind !== "template-member-add" ||
+      authoredAction.supertagId !== supertagId ||
+      authoredAction.templateNodeId !== templateNodeId
     ) {
       continue;
     }
     const removed = removals.some((candidate) => {
-      const removal = candidate.body.mutation;
+      const removal = candidate.action;
       return (
-        removal.supertagId === mutation.supertagId &&
-        removal.templateNodeId === mutation.templateNodeId &&
-        removal.templateOccurrenceId === mutation.templateOccurrenceId &&
+        removal.supertagId === authoredAction.supertagId &&
+        removal.templateNodeId === authoredAction.templateNodeId &&
         factObserves(candidate, fact)
       );
     });
     if (!removed) {
-      result = mutation.templateOccurrenceId;
+      result = templateMemberOccurrenceId(fact.id);
     }
   }
   return result;
@@ -164,14 +164,14 @@ export function authoredStructureWithoutProjectedTemplates(
   return { occurrences, childOccurrences };
 }
 
-function detachments(active: readonly ContributionFact[]): ReadonlyMap<string, readonly ContributionFact[]> {
-  const result = new Map<string, ContributionFact[]>();
+function detachments(active: readonly FactAction[]): ReadonlyMap<string, readonly FactAction[]> {
+  const result = new Map<string, FactAction[]>();
   for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "template-node-detach") {
+    const authoredAction = fact.action;
+    if (authoredAction.kind !== "template-node-detach") {
       continue;
     }
-    const key = identity(mutation.ownerNodeId, mutation.templateNodeId);
+    const key = `${encodeURIComponent(authoredAction.ownerNodeId)}/${encodeURIComponent(authoredAction.templateNodeId)}`;
     const values = result.get(key) ?? [];
     values.push(fact);
     result.set(key, values);
@@ -179,27 +179,96 @@ function detachments(active: readonly ContributionFact[]): ReadonlyMap<string, r
   return result;
 }
 
-function sourcesFromDetachments(facts: readonly ContributionFact[]): TemplateNodeSource[] {
+function sourcesAtDetachments(
+  detachments: readonly FactAction[],
+  allActions: readonly FactAction[],
+): readonly TemplateNodeSource[] {
   const sources = new Map<string, TemplateNodeSource>();
-  for (const fact of facts) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "template-node-detach") {
+  for (const detachment of detachments) {
+    const authoredAction = detachment.action;
+    if (authoredAction.kind !== "template-node-detach") {
       continue;
     }
-    const supertagIds = mutation.sourceSupertagIds ?? [];
-    const applicationSupertagIds = mutation.sourceApplicationSupertagIds ?? [];
-    const itemIds = mutation.sourceTemplateOccurrenceIds ?? [];
-    itemIds.forEach((templateOccurrenceId, index) => {
-      const supertagId = supertagIds[index];
-      const appliedSupertagId = applicationSupertagIds[index];
-      if (supertagId && appliedSupertagId) {
-        sources.set(`${appliedSupertagId}/${templateOccurrenceId}`, {
-          supertagId,
-          appliedSupertagId,
-          templateOccurrenceId,
+    const observed = allActions.filter(
+      (candidate) => candidate.id === detachment.id || factObserves(detachment, candidate),
+    );
+    const applications = observed.filter((candidate) => {
+      const application = candidate.action;
+      if (application.kind !== "supertag-application-add" || application.hostNodeId !== authoredAction.ownerNodeId) {
+        return false;
+      }
+      return !observed.some((removal) => {
+        const removed = removal.action;
+        return (
+          removed.kind === "supertag-membership-remove" &&
+          removed.hostNodeId === application.hostNodeId &&
+          removed.supertagId === application.supertagId &&
+          factObserves(removal, candidate)
+        );
+      });
+    });
+    const templateMembers = observed.filter((candidate) => {
+      const member = candidate.action;
+      if (member.kind !== "template-member-add" || member.templateNodeId !== authoredAction.templateNodeId) {
+        return false;
+      }
+      return !observed.some((removal) => {
+        const removed = removal.action;
+        return (
+          removed.kind === "template-member-remove" &&
+          removed.supertagId === member.supertagId &&
+          removed.templateNodeId === member.templateNodeId &&
+          factObserves(removal, candidate)
+        );
+      });
+    });
+    const extensionAdds = observed.filter((candidate) => {
+      const extension = candidate.action;
+      if (extension.kind !== "supertag-extension-add") {
+        return false;
+      }
+      return !observed.some((removal) => {
+        const removed = removal.action;
+        return (
+          removed.kind === "supertag-extension-remove" &&
+          removed.supertagId === extension.supertagId &&
+          removed.baseSupertagId === extension.baseSupertagId &&
+          factObserves(removal, candidate)
+        );
+      });
+    });
+    const extensions: Record<string, string[]> = {};
+    for (const extension of extensionAdds) {
+      const action = extension.action;
+      if (action.kind !== "supertag-extension-add") {
+        continue;
+      }
+      const bases = extensions[action.supertagId] ?? [];
+      if (!bases.includes(action.baseSupertagId)) {
+        bases.push(action.baseSupertagId);
+      }
+      extensions[action.supertagId] = bases;
+    }
+    const extensionGraph = supertagExtensionGraph(extensions);
+    for (const applicationFact of applications) {
+      const application = applicationFact.action;
+      if (application.kind !== "supertag-application-add") {
+        continue;
+      }
+      const lineage = new Set(extensionGraph.lineage(application.supertagId));
+      for (const memberFact of templateMembers) {
+        const member = memberFact.action;
+        if (member.kind !== "template-member-add" || !lineage.has(member.supertagId)) {
+          continue;
+        }
+        const occurrenceId = templateMemberOccurrenceId(memberFact.id);
+        sources.set(`${application.supertagId}/${occurrenceId}`, {
+          supertagId: member.supertagId,
+          appliedSupertagId: application.supertagId,
+          templateOccurrenceId: occurrenceId,
         });
       }
-    });
+    }
   }
   return [...sources.values()].sort((left, right) =>
     stableStringCompare(left.templateOccurrenceId, right.templateOccurrenceId),
@@ -212,7 +281,7 @@ function appendSource(
   templateNodeId: string,
   source: TemplateNodeSource,
 ): void {
-  const key = identity(ownerNodeId, templateNodeId);
+  const key = `${encodeURIComponent(ownerNodeId)}/${encodeURIComponent(templateNodeId)}`;
   const values = sources.get(key) ?? [];
   if (
     !values.some(
@@ -224,10 +293,6 @@ function appendSource(
     values.push(source);
   }
   sources.set(key, values);
-}
-
-function identity(ownerNodeId: string, templateNodeId: string): string {
-  return `${encodeURIComponent(ownerNodeId)}/${encodeURIComponent(templateNodeId)}`;
 }
 
 function parseIdentity(value: string): readonly [string, string] {

@@ -1,27 +1,25 @@
 import {
   frontierOf,
+  factActionsFromFacts,
+  factActions,
   makeFact,
+  owningFactIds,
   type Fact,
+  type FactAction,
+  type FactActionId,
   type FactBody,
   type FactSnapshot,
-  type Mutation,
+  type AuthoredAction,
   type SequenceAnchor,
-  factTransactionId,
-  workspaceGenesisMutations,
+  workspaceGenesisActions,
   workspaceTrashNodeId,
-  workspaceTrashOccurrenceId,
 } from "../../../src/domain/fact/index.js";
-import { withFieldDefinitionEndpoints, withInitialOwnerRelations } from "./placed-node-test-helpers.js";
-import { fixtureConsequences, fixturePrerequisites } from "./reconcile-test-mutations.js";
-import { CURRENT_PROJECTION_VERSIONS, occurrenceAnchor } from "../../../src/domain/reconcile/index.js";
-import { projectSnapshot } from "./projection.js";
-import {
-  supertagApplicationIdentity,
-  supertagApplicationMutations,
-  supertagRemovalMutations,
-} from "./supertag-application-test-helpers.js";
+import { withFieldDefinitionEndpoints, withInitialNodeRelations } from "./placed-node-test-helpers.js";
+import { fixtureConsequences, fixturePrerequisites } from "./reconcile-test-actions.js";
+import { CURRENT_PROJECTION_VERSIONS } from "../../../src/domain/reconcile/index.js";
+import { supertagApplicationActions, supertagRemovalActions } from "./supertag-application-test-helpers.js";
 
-export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+export const REPLICA = "101";
 export const versions = CURRENT_PROJECTION_VERSIONS;
 export const end = {
   after: null,
@@ -36,124 +34,25 @@ export class Facts {
   constructor(trashNodeId = workspaceTrashNodeId("workspace")) {
     const defaultTrashNodeId = workspaceTrashNodeId("workspace");
     this.addTransaction(
-      workspaceGenesisMutations("workspace").map((mutation): Mutation => {
-        if (mutation.kind === "node-create" && mutation.nodeId === defaultTrashNodeId) {
-          return { ...mutation, nodeId: trashNodeId };
+      workspaceGenesisActions("workspace").map((authoredAction): AuthoredAction => {
+        if (authoredAction.kind === "node-create" && authoredAction.nodeId === defaultTrashNodeId) {
+          return { ...authoredAction, nodeId: trashNodeId };
         }
-        if (
-          mutation.kind === "occurrence-create" &&
-          mutation.occurrenceId === workspaceTrashOccurrenceId("workspace")
-        ) {
-          return { ...mutation, nodeId: trashNodeId };
-        }
-        if (mutation.kind === "node-owner-set" && mutation.nodeId === defaultTrashNodeId) {
-          return { ...mutation, nodeId: trashNodeId };
-        }
-        return mutation;
+        return authoredAction;
       }),
     );
   }
 
-  add(mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {
-    if (mutation.kind === "node-delete") {
-      return this.deleteNode(mutation.nodeId, intent);
-    }
-    if (mutation.kind === "node-restore") {
-      return this.restoreNode(mutation, intent);
-    }
-    const prerequisites = fixturePrerequisites(mutation);
-    const fact = this.addTransaction([...prerequisites, mutation, ...fixtureConsequences(mutation)], intent)[
-      prerequisites.length
-    ];
+  add(authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): FactAction {
+    const prerequisites = fixturePrerequisites(authoredAction);
+    const fact = this.addTransaction(
+      [...prerequisites, authoredAction, ...fixtureConsequences(authoredAction)],
+      intent,
+    )[prerequisites.length];
     if (!fact) {
-      throw new Error("Fixture transaction did not contain its requested mutation");
+      throw new Error("Fixture transaction did not contain its requested action");
     }
     return fact;
-  }
-
-  private deleteNode(nodeId: string, intent: "direct" | "proposal"): Fact {
-    const projection = projectSnapshot(
-      "workspace",
-      this.snapshot(),
-      intent === "proposal" ? "review" : "origin",
-      versions,
-    );
-    const ownerNodeId = projection.nodeOwners[nodeId];
-    const trashNodeId = projection.workspaceSystemNodes.trash;
-    const occurrence = Object.values(projection.occurrences).find(
-      (candidate) => candidate.nodeId === nodeId && candidate.parentNodeId === ownerNodeId,
-    );
-    if (!ownerNodeId || !trashNodeId || !occurrence) {
-      throw new Error("Fixture Node deletion has no owning structure");
-    }
-    const facts = this.addTransaction(
-      [
-        { kind: "node-delete", nodeId },
-        { kind: "node-owner-set", nodeId, ownerNodeId: trashNodeId, previousOwnerNodeId: ownerNodeId },
-        {
-          kind: "occurrence-move",
-          occurrenceId: occurrence.occurrenceId,
-          parentNodeId: trashNodeId,
-          anchor: end,
-          previousParentNodeId: occurrence.parentNodeId,
-          previousAnchor: occurrenceAnchor(projection, occurrence.occurrenceId),
-        },
-      ],
-      intent,
-    );
-    const deletion = facts[0];
-    if (!deletion) {
-      throw new Error("Fixture Node deletion transaction is empty");
-    }
-    return deletion;
-  }
-
-  private restoreNode(mutation: Extract<Mutation, { kind: "node-restore" }>, intent: "direct" | "proposal"): Fact {
-    const deletion = this.values.find((fact) => fact.id === mutation.deletionFactId);
-    const transactionId = deletion?.transaction.transactionId;
-    const members = this.values.filter((fact) => fact.transaction.transactionId === transactionId);
-    const ownerChange = members.find(
-      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "node-owner-set",
-    );
-    const placementChange = members.find(
-      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "occurrence-move",
-    );
-    if (
-      ownerChange?.body.kind !== "contribution" ||
-      ownerChange.body.mutation.kind !== "node-owner-set" ||
-      !ownerChange.body.mutation.previousOwnerNodeId ||
-      placementChange?.body.kind !== "contribution" ||
-      placementChange.body.mutation.kind !== "occurrence-move" ||
-      !placementChange.body.mutation.previousParentNodeId ||
-      !placementChange.body.mutation.previousAnchor
-    ) {
-      throw new Error("Fixture Node restore has no explicit destination context");
-    }
-    const facts = this.addTransaction(
-      [
-        mutation,
-        {
-          kind: "node-owner-set",
-          nodeId: mutation.nodeId,
-          ownerNodeId: ownerChange.body.mutation.previousOwnerNodeId,
-          previousOwnerNodeId: ownerChange.body.mutation.ownerNodeId,
-        },
-        {
-          kind: "occurrence-move",
-          occurrenceId: placementChange.body.mutation.occurrenceId,
-          parentNodeId: placementChange.body.mutation.previousParentNodeId,
-          anchor: placementChange.body.mutation.previousAnchor,
-          previousParentNodeId: placementChange.body.mutation.parentNodeId,
-          previousAnchor: placementChange.body.mutation.anchor,
-        },
-      ],
-      intent,
-    );
-    const restore = facts[0];
-    if (!restore) {
-      throw new Error("Fixture Node restore transaction is empty");
-    }
-    return restore;
   }
 
   applySupertag(
@@ -161,79 +60,43 @@ export class Facts {
     supertagId: string,
     intent: "direct" | "proposal" = "direct",
     anchor: SequenceAnchor = end,
-  ): Fact {
-    const ordinal =
-      this.values.filter(
-        (fact) =>
-          fact.body.kind === "contribution" &&
-          fact.body.mutation.kind === "supertag-apply" &&
-          fact.body.mutation.hostNodeId === hostNodeId &&
-          fact.body.mutation.supertagId === supertagId,
-      ).length + 1;
-    const identity = supertagApplicationIdentity(hostNodeId, supertagId, ordinal);
-    const metanodeExists = this.values.some(
-      (fact) =>
-        fact.body.kind === "contribution" &&
-        fact.body.mutation.kind === "metanode-attach" &&
-        fact.body.mutation.hostNodeId === hostNodeId,
-    );
-    const mutations = supertagApplicationMutations(identity, anchor, !metanodeExists);
-    const facts = this.addTransaction(mutations, intent);
-    const application = facts.find(
-      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "supertag-apply",
-    );
+  ): FactAction {
+    const applicationActions = supertagApplicationActions(hostNodeId, supertagId, anchor);
+    const facts = this.addTransaction(applicationActions, intent);
+    const application = facts.find((fact) => fact.action.kind === "supertag-application-add");
     if (!application) {
       throw new Error("Fixture Supertag Application transaction has no application Fact");
     }
     return application;
   }
 
-  removeSupertag(hostNodeId: string, supertagId: string, intent: "direct" | "proposal" = "direct"): Fact {
-    const application = [...this.values]
+  removeSupertag(hostNodeId: string, supertagId: string, intent: "direct" | "proposal" = "direct"): FactAction {
+    const application = [...factActionsFromFacts(this.values)]
       .reverse()
       .find(
         (fact) =>
-          fact.body.kind === "contribution" &&
-          fact.body.mutation.kind === "supertag-apply" &&
-          fact.body.mutation.hostNodeId === hostNodeId &&
-          fact.body.mutation.supertagId === supertagId,
+          fact.action.kind === "supertag-application-add" &&
+          fact.action.hostNodeId === hostNodeId &&
+          fact.action.supertagId === supertagId,
       );
-    if (
-      !application ||
-      application.body.kind !== "contribution" ||
-      application.body.mutation.kind !== "supertag-apply"
-    ) {
+    if (!application || application.action.kind !== "supertag-application-add") {
       throw new Error("Fixture Supertag Application is absent");
     }
-    const mutation = application.body.mutation;
-    const identity = {
-      hostNodeId,
-      supertagId,
-      metanodeId: `${hostNodeId}-metanode`,
-      applicationNodeId: mutation.applicationNodeId,
-      applicationOccurrenceId: mutation.applicationOccurrenceId,
-      relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
-      definitionOccurrenceId: mutation.definitionOccurrenceId,
-    };
-    const facts = this.addTransaction(supertagRemovalMutations(identity), intent);
-    const removal = facts.find(
-      (fact) => fact.body.kind === "contribution" && fact.body.mutation.kind === "supertag-remove",
-    );
+    const facts = this.addTransaction(supertagRemovalActions(hostNodeId, supertagId), intent);
+    const removal = facts.find((fact) => fact.action.kind === "supertag-membership-remove");
     if (!removal) {
       throw new Error("Fixture Supertag removal transaction has no removal Fact");
     }
     return removal;
   }
 
-  addTransaction(mutations: readonly Mutation[], intent: "direct" | "proposal" = "direct"): readonly Fact[] {
-    return this.bodies(
-      withFieldDefinitionEndpoints(withInitialOwnerRelations(mutations)).map((mutation) => ({
-        kind: "contribution" as const,
-        actorId: "actor",
-        intent,
-        mutation,
-      })),
-    );
+  addTransaction(actions: readonly AuthoredAction[], intent: "direct" | "proposal" = "direct"): readonly FactAction[] {
+    const preparedActions = withFieldDefinitionEndpoints(withInitialNodeRelations(actions));
+    const [first, ...rest] = preparedActions;
+    if (!first) {
+      return [];
+    }
+    return factActions(this.body({ kind: "edit", actorId: "actor", intent, actions: [first, ...rest] }));
   }
 
   addPlaced(
@@ -241,23 +104,23 @@ export class Facts {
     parentNodeId = "workspace",
     occurrenceId = `${nodeId}-original`,
     intent: "direct" | "proposal" = "direct",
-  ): readonly Fact[] {
+  ): readonly FactAction[] {
     return this.addTransaction(
-      withInitialOwnerRelations([
-        { kind: "node-create", nodeId },
-        { kind: "occurrence-create", occurrenceId, nodeId, parentNodeId, anchor: end },
+      withInitialNodeRelations([
+        { kind: "node-create", nodeId, ownerNodeId: parentNodeId, originalPlacement: null },
+        { kind: "placement-create", placementId: occurrenceId, nodeId, parentNodeId, anchor: end },
       ]),
       intent,
     );
   }
 
-  resolve(targets: readonly string[], decision: "accept" | "reject"): Fact {
+  resolve(targets: readonly FactActionId[], decision: "accept" | "reject"): Fact {
     return this.body({
       kind: "resolution",
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision,
-      proposalContributionIds: targets,
+      proposalFactIds: owningFactIds(this.values, targets),
     });
   }
 
@@ -274,21 +137,20 @@ export class Facts {
   }
 
   private bodies(bodies: readonly FactBody[]): readonly Fact[] {
-    const firstSequence = this.values.length + 1;
-    const transactionId = factTransactionId("workspace", REPLICA, firstSequence);
-    const facts = bodies.map((body, index) => {
-      const sequence = firstSequence + index;
-      return makeFact({
+    const facts: Fact[] = [];
+    for (const body of bodies) {
+      const sequence = this.values.length + 1;
+      const fact = makeFact({
         workspaceId: "workspace",
         replicaId: REPLICA,
         sequence,
         observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
         lamport: sequence,
-        transaction: { transactionId, index, size: bodies.length },
         body,
       });
-    });
-    this.values.push(...facts);
+      this.values.push(fact);
+      facts.push(fact);
+    }
     return facts;
   }
 }
@@ -296,11 +158,11 @@ export class Facts {
 export function base(intent: "direct" | "proposal" = "direct"): Facts {
   const facts = new Facts();
   facts.addTransaction(
-    withInitialOwnerRelations([
-      { kind: "node-create", nodeId: "node" },
+    withInitialNodeRelations([
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       {
-        kind: "occurrence-create",
-        occurrenceId: "occurrence",
+        kind: "placement-create",
+        placementId: "occurrence",
         nodeId: "node",
         parentNodeId: "workspace",
         anchor: end,

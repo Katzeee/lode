@@ -6,7 +6,6 @@ export class WorkspaceStagingCollection {
 
   constructor(
     private readonly storage: WorkspaceStorageFactory,
-    private readonly signFact: (digest: string, actorId: string) => string,
     private readonly activate: (storage: WorkspaceStorage) => Promise<string>,
   ) {}
 
@@ -17,7 +16,7 @@ export class WorkspaceStagingCollection {
     const stagedStorage = await this.storage.stage(workspaceId);
     let staging: Awaited<ReturnType<typeof createWorkspaceStaging>>;
     try {
-      staging = await createWorkspaceStaging(workspaceId, stagedStorage, this.signFact);
+      staging = await createWorkspaceStaging(workspaceId, stagedStorage);
     } catch (error) {
       return failWorkspaceCleanup(error, stagedStorage.discard, "Workspace staging failed to clean up storage");
     }

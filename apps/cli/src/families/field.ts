@@ -1,15 +1,17 @@
-import type { EditMutation, FieldDefinitionConfiguration, MaterializedField, TypedFieldValue } from "@lode/sdk";
+import type {
+  EditAction,
+  FieldDefinitionConfiguration,
+  MaterializedField,
+  TemplateField,
+  TypedFieldValue,
+} from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
 import { datatypeOfEndpoint, FIELD_DATATYPES } from "../value/field-values.js";
-import {
-  cardinalityConfiguration,
-  definitionConfigurationMutations,
-  optionalityConfiguration,
-} from "./supertag-field-mutations.js";
+import { cardinalityConfiguration, datatypeConfiguration, optionalityConfiguration } from "./supertag-field-actions.js";
 import { registerFieldValueCommands } from "./field-values.js";
 import { registerFieldConfigureCommands } from "./field-configure.js";
 
@@ -79,7 +81,7 @@ const fieldCreate: CommandDefinition = {
             .nodeId;
     const datatype = (rawDatatype ?? "plain") as (typeof FIELD_DATATYPES)[number];
     const fieldDefinitionId = identity(context.requestId, "field-definition");
-    const mutations: EditMutation[] = [
+    const actions: EditAction[] = [
       {
         kind: "node-create",
         nodeId: fieldDefinitionId,
@@ -89,23 +91,15 @@ const fieldCreate: CommandDefinition = {
         intrinsicNodeType: "field-definition",
         seed: { text: [{ value: name, attributes: {} }] },
       },
-      ...definitionConfigurationMutations(context.requestId, fieldDefinitionId, datatype, optionsSupertagId),
+      datatypeConfiguration(fieldDefinitionId, datatype, optionsSupertagId),
     ];
     if (args.option("--cardinality") === "list") {
-      mutations.push(
-        cardinalityConfiguration(context.requestId, fieldDefinitionId, "system-field-cardinality:v1:list"),
-      );
+      actions.push(cardinalityConfiguration(fieldDefinitionId, "system-field-cardinality:v1:list"));
     }
     if (args.option("--required") !== undefined) {
-      mutations.push(
-        optionalityConfiguration(
-          context.requestId,
-          fieldDefinitionId,
-          requiredEndpoint(args.option("--required") === "true"),
-        ),
-      );
+      actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
     }
-    const { result, data } = await executeWrite(context, "field.create", mutations);
+    const { result, data } = await executeWrite(context, "field.create", actions);
     const resource = descriptor(workspaceId, "field", fieldDefinitionId, name);
     return writeResult(data, result, { extra: { target: resource }, view: writeView("Created", resource) });
   },
@@ -259,10 +253,7 @@ const fieldMakeDiscoverable: CommandDefinition = {
       workspaceId,
       context.perspective,
       "templateFields",
-    )) as Record<
-      string,
-      readonly { fieldDefinitionId: string; templateFieldNodeId: string; fieldDefinitionOwner: string }[]
-    >;
+    )) as Record<string, readonly TemplateField[]>;
     const owner = Object.entries(templateFields).find(([, fields]) =>
       fields.some(
         (candidate) =>
@@ -273,18 +264,15 @@ const fieldMakeDiscoverable: CommandDefinition = {
       throw new CliError("unsupported", `Field ${field.descriptor.ref} is not owned by a template field.`);
     }
     const [supertagId, use] = owner;
-    const templateFieldNodeId = use.find(
-      (candidate) => candidate.fieldDefinitionId === field.nodeId,
-    )?.templateFieldNodeId;
-    if (supertagId === undefined || templateFieldNodeId === undefined) {
+    const templateField = use.find((candidate) => candidate.fieldDefinitionId === field.nodeId);
+    if (supertagId === undefined || templateField === undefined) {
       throw new CliError("unsupported", `Field ${field.descriptor.ref} has no owning template field.`);
     }
     const { result, data } = await executeWrite(context, "field.make-discoverable", [
       {
         kind: "supertag-template-field-make-discoverable",
         supertagId,
-        templateFieldNodeId,
-        fieldDefinitionId: field.nodeId,
+        templateFieldId: templateField.factActionId,
       },
     ]);
     return writeResult(data, result, {

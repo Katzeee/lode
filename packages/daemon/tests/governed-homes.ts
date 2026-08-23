@@ -26,7 +26,7 @@ export function homeOf(daemon: Daemon, accessToken: string): GovernedHome {
 }
 
 /** Creates a fresh Actor (left unlocked in the running daemon) on a home. */
-export async function createActor(home: GovernedHome, label: string): Promise<string> {
+async function createActor(home: GovernedHome, label: string): Promise<string> {
   const created = await home.client.createActor({ label, passphrase: TEST_PASSPHRASE });
   return created.actorId;
 }

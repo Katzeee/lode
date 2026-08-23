@@ -1,15 +1,14 @@
 import {
   canonicalJson,
-  isOccurrenceMutation,
+  isPlacementAction,
   stableStringCompare,
-  type Mutation,
-  type OccurrenceMutation,
+  type AuthoredAction,
+  type PlacementAction,
   type SequenceAnchor,
 } from "../fact/index.js";
 import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
 
-export type StructuralOccurrenceMutation =
-  OccurrenceMutation | Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>;
+export type StructuralPlacementAction = PlacementAction | Extract<AuthoredAction, { kind: "field-value-remove" }>;
 
 export function occurrenceIdsForNode(generation: ScopedProjectionGeneration, nodeId: string): readonly string[] {
   return [...Object.values(generation.origin.occurrences), ...Object.values(generation.review.occurrences)]
@@ -46,31 +45,25 @@ export function structureEffectChanged(effect: ReturnType<typeof structureEffect
   );
 }
 
-export function isStructuralOccurrenceMutation(mutation: Mutation): mutation is StructuralOccurrenceMutation {
-  return (
-    isOccurrenceMutation(mutation) ||
-    mutation.kind === "field-value-delete" ||
-    mutation.kind === "materialized-field-delete"
-  );
+export function isStructuralPlacementAction(action: AuthoredAction): action is StructuralPlacementAction {
+  return isPlacementAction(action) || action.kind === "field-value-remove";
 }
 
-export function structuralOccurrenceId(mutation: StructuralOccurrenceMutation): string {
-  if ("occurrenceId" in mutation) {
-    return mutation.occurrenceId;
+export function structuralOccurrenceId(action: StructuralPlacementAction): string {
+  if ("placementId" in action) {
+    return action.placementId;
   }
-  return mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
+  return action.valuePlacementId;
 }
 
-export function mutationAnchor(mutation: StructuralOccurrenceMutation): SequenceAnchor | null {
-  switch (mutation.kind) {
-    case "occurrence-create":
-    case "occurrence-restore":
-    case "occurrence-move":
-      return mutation.anchor;
-    case "occurrence-delete":
-    case "field-value-delete":
-    case "materialized-field-delete":
-      return mutation.previousAnchor ?? null;
+export function actionAnchor(action: StructuralPlacementAction): SequenceAnchor | null {
+  switch (action.kind) {
+    case "placement-create":
+    case "placement-move":
+      return action.anchor;
+    case "placement-remove":
+    case "field-value-remove":
+      return null;
   }
 }
 

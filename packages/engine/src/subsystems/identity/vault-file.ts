@@ -18,21 +18,21 @@ import type { BlobStore } from "../persistence/index.js";
 
 const VAULT_VERSION = 1;
 
-export type VaultEntry = Readonly<{
+type VaultEntry = Readonly<{
   actorId: string;
   label: string;
   createdAt: string;
   seed: string;
 }>;
 
-export type VaultFile = Readonly<{
+type VaultFile = Readonly<{
   version: number;
   kdf: Readonly<{ algo: "scrypt"; salt: string; params: VaultKdfParameters }>;
   canary: string;
   entries: readonly VaultEntry[];
 }>;
 
-export class VaultLockedError extends Error {
+class VaultLockedError extends Error {
   constructor() {
     super("The Actor Vault is locked; unlock it before identity operations");
     this.name = "VaultLockedError";

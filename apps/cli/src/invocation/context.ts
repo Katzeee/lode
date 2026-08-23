@@ -73,7 +73,7 @@ export class ParsedArgs {
 }
 
 /** Consumer-owned persistence port; implemented by the configuration module. */
-export type WorkspacePersistence = Readonly<{
+type WorkspacePersistence = Readonly<{
   setSyncEndpoint(workspaceId: string, endpoint: string): Promise<void>;
   readSyncEndpoint(workspaceId: string): Promise<string | null>;
   setWorkspaceActor(workspaceId: string, actorId: string): Promise<void>;

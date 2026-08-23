@@ -1,159 +1,60 @@
-import { parseMutation } from "../fact/index.js";
-import { FIELD_DATATYPE_NODE_IDS } from "../fact/index.js";
-import type { EditMutation } from "./types.js";
+import { FIELD_DATATYPE_NODE_IDS, parseAuthoredAction } from "../fact/index.js";
+import type { ConfigureFieldDefinitionEdit } from "./field-definition-configuration-edit-types.js";
 
-export function parseFieldDefinitionConfigurationCreate(edit: Record<string, unknown>): EditMutation {
-  const valueKey =
-    edit.kind === "field-datatype-configuration-create"
-      ? "datatypeNodeId"
-      : edit.kind === "field-cardinality-configuration-create"
-        ? "cardinalityNodeId"
-        : edit.kind === "field-optionality-configuration-create"
-          ? "optionalityNodeId"
-          : "expression";
-  exactKeys(edit, [
-    "kind",
-    "fieldDefinitionId",
-    "configurationNodeId",
-    "configurationOccurrenceId",
-    "definitionOccurrenceId",
-    "anchor",
-    "seed",
-    ...(edit.kind === "field-initialization-expression-configuration-create" ? [] : ["valueOccurrenceId"]),
-    ...(edit.kind === "field-datatype-configuration-create"
-      ? ["optionsSupertagId", "optionsSupertagOccurrenceId"]
-      : []),
-    valueKey,
-  ]);
+export function parseFieldDefinitionConfigure(edit: Record<string, unknown>): ConfigureFieldDefinitionEdit {
+  const kind = edit.kind;
   const fieldDefinitionId = nonemptyString(edit.fieldDefinitionId, "Field Definition identity");
-  const configurationNodeId = nonemptyString(edit.configurationNodeId, "Field configuration Node identity");
-  const configurationOccurrenceId = nonemptyString(
-    edit.configurationOccurrenceId,
-    "Field configuration Occurrence identity",
-  );
-  const definitionOccurrenceId = nonemptyString(
-    edit.definitionOccurrenceId,
-    "Field configuration Definition endpoint Occurrence identity",
-  );
-  const node = parseMutation({
-    kind: "node-create",
-    nodeId: configurationNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: configurationOccurrenceId,
-    nodeId: configurationNodeId,
-    parentNodeId: fieldDefinitionId,
-    anchor: edit.anchor,
-  });
-  const common = {
-    fieldDefinitionId,
-    configurationNodeId,
-    configurationOccurrenceId,
-    definitionOccurrenceId,
-    anchor: placement.anchor,
-    ...(node.seed === undefined ? {} : { seed: node.seed }),
-  };
-  if (edit.kind === "field-datatype-configuration-create") {
+  if (kind === "field-datatype-configure") {
+    exactKeys(edit, ["kind", "fieldDefinitionId", "datatypeNodeId", "optionsSupertagId"]);
     const datatypeNodeId = nonemptyString(edit.datatypeNodeId, "Field Datatype endpoint Node identity");
-    const options = optionsSupertagInput(edit, datatypeNodeId);
+    const optionsSupertagId = optionalOptionsSource(edit.optionsSupertagId, datatypeNodeId);
     return {
-      kind: edit.kind,
-      ...common,
+      kind,
+      fieldDefinitionId,
       datatypeNodeId,
-      valueOccurrenceId: nonemptyString(edit.valueOccurrenceId, "Field Datatype endpoint Occurrence identity"),
-      ...options,
+      ...(optionsSupertagId === undefined ? {} : { optionsSupertagId }),
     };
   }
-  if (edit.kind === "field-cardinality-configuration-create") {
+  if (kind === "field-cardinality-configure") {
+    exactKeys(edit, ["kind", "fieldDefinitionId", "cardinalityNodeId"]);
     return {
-      kind: edit.kind,
-      ...common,
+      kind,
+      fieldDefinitionId,
       cardinalityNodeId: nonemptyString(edit.cardinalityNodeId, "Field Cardinality endpoint Node identity"),
-      valueOccurrenceId: nonemptyString(edit.valueOccurrenceId, "Field Cardinality endpoint Occurrence identity"),
     };
   }
-  if (edit.kind === "field-optionality-configuration-create") {
+  if (kind === "field-optionality-configure") {
+    exactKeys(edit, ["kind", "fieldDefinitionId", "optionalityNodeId"]);
     return {
-      kind: edit.kind,
-      ...common,
+      kind,
+      fieldDefinitionId,
       optionalityNodeId: nonemptyString(edit.optionalityNodeId, "Field Optionality endpoint Node identity"),
-      valueOccurrenceId: nonemptyString(edit.valueOccurrenceId, "Field Optionality endpoint Occurrence identity"),
     };
   }
-  const config = parseMutation({
+  exactKeys(edit, ["kind", "fieldDefinitionId", "expression"]);
+  const action = parseAuthoredAction({
+    kind: "field-configuration-set",
+    fieldDefinitionId,
+    configuration: { kind: "initialization-expression", expression: edit.expression },
+  });
+  if (action.kind !== "field-configuration-set" || action.configuration.kind !== "initialization-expression") {
+    throw new Error("Field Initialization Expression is invalid");
+  }
+  return {
     kind: "field-initialization-expression-configure",
     fieldDefinitionId,
-    configurationNodeId,
-    configurationOccurrenceId,
-    expression: edit.expression,
-  });
-  return { kind: "field-initialization-expression-configuration-create", ...common, expression: config.expression };
-}
-
-export function parseFieldDefinitionEndpointConfigure(edit: Record<string, unknown>): EditMutation {
-  const datatype = edit.kind === "field-datatype-configure";
-  const cardinality = edit.kind === "field-cardinality-configure";
-  exactKeys(edit, [
-    "kind",
-    "fieldDefinitionId",
-    "configurationNodeId",
-    "configurationOccurrenceId",
-    datatype ? "datatypeNodeId" : cardinality ? "cardinalityNodeId" : "optionalityNodeId",
-    "valueOccurrenceId",
-    ...(datatype ? ["optionsSupertagId", "optionsSupertagOccurrenceId"] : []),
-  ]);
-  const common = {
-    fieldDefinitionId: nonemptyString(edit.fieldDefinitionId, "Field Definition identity"),
-    configurationNodeId: nonemptyString(edit.configurationNodeId, "Field configuration Node identity"),
-    configurationOccurrenceId: nonemptyString(
-      edit.configurationOccurrenceId,
-      "Field configuration Occurrence identity",
-    ),
-    valueOccurrenceId: nonemptyString(edit.valueOccurrenceId, "Field configuration endpoint Occurrence identity"),
-  };
-  if (datatype) {
-    const datatypeNodeId = nonemptyString(edit.datatypeNodeId, "Field Datatype endpoint Node identity");
-    return {
-      kind: "field-datatype-configure",
-      ...common,
-      datatypeNodeId,
-      ...optionsSupertagInput(edit, datatypeNodeId),
-    };
-  }
-  if (cardinality) {
-    return {
-      kind: "field-cardinality-configure",
-      ...common,
-      cardinalityNodeId: nonemptyString(edit.cardinalityNodeId, "Field Cardinality endpoint Node identity"),
-    };
-  }
-  return {
-    kind: "field-optionality-configure",
-    ...common,
-    optionalityNodeId: nonemptyString(edit.optionalityNodeId, "Field Optionality endpoint Node identity"),
+    expression: action.configuration.expression,
   };
 }
 
-function optionsSupertagInput(
-  edit: Record<string, unknown>,
-  datatypeNodeId: string,
-): Readonly<{ optionsSupertagId?: string; optionsSupertagOccurrenceId?: string }> {
-  const configured = datatypeNodeId === FIELD_DATATYPE_NODE_IDS.optionsFromSupertag;
-  if (!configured) {
-    if (edit.optionsSupertagId !== undefined || edit.optionsSupertagOccurrenceId !== undefined) {
+function optionalOptionsSource(value: unknown, datatypeNodeId: string): string | undefined {
+  if (datatypeNodeId !== FIELD_DATATYPE_NODE_IDS.optionsFromSupertag) {
+    if (value !== undefined) {
       throw new Error("Only Options from Supertag accepts a source Supertag");
     }
-    return {};
+    return undefined;
   }
-  return {
-    optionsSupertagId: nonemptyString(edit.optionsSupertagId, "Options source Supertag identity"),
-    optionsSupertagOccurrenceId: nonemptyString(
-      edit.optionsSupertagOccurrenceId,
-      "Options source Supertag Occurrence identity",
-    ),
-  };
+  return nonemptyString(value, "Options source Supertag identity");
 }
 
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): void {

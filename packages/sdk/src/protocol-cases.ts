@@ -1,4 +1,4 @@
-import type { EditMutation as ProtocolEditMutation } from "@lode/protocol/dto/edit";
+import type { EditAction as ProtocolEditAction } from "@lode/protocol/dto/edit";
 import type {
   EngineCommand as ProtocolEngineCommand,
   EngineQuery as ProtocolEngineQuery,
@@ -9,28 +9,28 @@ import type {
   ConflictIssue as ProtocolConflictIssue,
   DecisionEffect as ProtocolDecisionEffect,
 } from "@lode/protocol/dto/review";
-import type { EditMutation } from "./edit.js";
+import type { EditAction } from "./edit.js";
 import type { EngineCommand, EngineQuery, WriteResult } from "./contract.js";
 import type { ConflictIssue, DecisionEffect } from "./review.js";
 
 type DecodedEngineCommand = ReturnType<typeof ProtocolEngineCommand.decode>;
 type DecodedEngineQuery = ReturnType<typeof ProtocolEngineQuery.decode>;
 type DecodedQueryResult = ReturnType<typeof ProtocolQueryResult.decode>;
-type DecodedEditMutation = ReturnType<typeof ProtocolEditMutation.decode>;
+type DecodedEditAction = ReturnType<typeof ProtocolEditAction.decode>;
 type DecodedWriteResult = ReturnType<typeof ProtocolWriteResult.decode>;
 type DecodedDecisionEffect = ReturnType<typeof ProtocolDecisionEffect.decode>;
 type DecodedConflictIssue = ReturnType<typeof ProtocolConflictIssue.decode>;
 
 export type ProtocolCommandCase = NonNullable<DecodedEngineCommand["command"]>["$case"];
 export type ProtocolQueryCase = NonNullable<DecodedEngineQuery["query"]>["$case"];
-export type ProtocolMutationCase = NonNullable<DecodedEditMutation["mutation"]>["$case"];
+export type ProtocolActionCase = NonNullable<DecodedEditAction["action"]>["$case"];
 export type ProtocolWriteResultCase = NonNullable<DecodedWriteResult["result"]>["$case"];
 export type ProtocolQueryResultCase = NonNullable<DecodedQueryResult["result"]>["$case"];
 export type ProtocolDecisionEffectCase = NonNullable<DecodedDecisionEffect["effect"]>["$case"];
 export type ProtocolConflictIssueCase = NonNullable<DecodedConflictIssue["issue"]>["$case"];
 
 const COMMAND_KIND_BY_CASE = {
-  mutate: "mutate",
+  edit: "edit",
   resolveReview: "resolve-review",
   adjudicateResolution: "adjudicate-resolution",
   undo: "undo",
@@ -56,7 +56,7 @@ const QUERY_KIND_BY_CASE = {
   trashEvidence: "trash-evidence",
 } as const satisfies Readonly<Record<ProtocolQueryCase, EngineQuery["kind"]>>;
 
-const MUTATION_KIND_BY_CASE = {
+const ACTION_KIND_BY_CASE = {
   nodeCreate: "node-create",
   referencePromote: "reference-promote",
   nodeDelete: "node-delete",
@@ -65,47 +65,59 @@ const MUTATION_KIND_BY_CASE = {
   occurrenceDelete: "occurrence-delete",
   occurrenceRestore: "occurrence-restore",
   occurrenceMove: "occurrence-move",
-  declareIntrinsicNodeType: "intrinsic-node-type-declare",
   supertagApplicationCreate: "supertag-application-create",
   supertagRemove: "supertag-remove",
   supertagExtensionAdd: "supertag-extension-add",
   supertagExtensionRemove: "supertag-extension-remove",
-  supertagTemplateNodeAdd: "supertag-template-node-add",
-  supertagTemplateNodeRemove: "supertag-template-node-remove",
+  templateMemberAdd: "template-member-add",
+  templateMemberRemove: "template-member-remove",
   templateNodeDetach: "template-node-detach",
   fieldMaterialize: "field-materialize",
-  fieldValueDelete: "field-value-delete",
-  materializedFieldDelete: "materialized-field-delete",
-  textSplice: "text-splice",
-  textMark: "text-mark",
+  fieldValueRemove: "field-value-remove",
+  materializedFieldClear: "materialized-field-clear",
+  richTextSplice: "rich-text-splice",
+  richTextMark: "rich-text-mark",
   inlineReferenceCreate: "inline-reference-create",
-  inlineReferenceDelete: "inline-reference-delete",
-  inlineReferenceAliasAttach: "inline-reference-alias-attach",
-  inlineReferenceAliasDetach: "inline-reference-alias-detach",
+  inlineReferenceRemove: "inline-reference-remove",
+  inlineAliasAttach: "inline-alias-attach",
+  inlineAliasDetach: "inline-alias-detach",
   inlineReferenceAliasCreate: "inline-reference-alias-create",
   searchExpressionCreate: "search-expression-create",
-  searchExpressionUpdate: "search-expression-update",
-  sharedDefaultViewDefinitionCreate: "shared-default-view-definition-create",
-  sharedDefaultViewDefinitionRemove: "shared-default-view-definition-remove",
-  sharedDefaultViewDefinitionModeSet: "shared-default-view-definition-mode-set",
-  sharedDefaultViewDefinitionOptionsUpdate: "shared-default-view-definition-options-update",
+  searchExpressionAdd: "search-expression-add",
+  searchExpressionConfigure: "search-expression-configure",
+  searchExpressionMove: "search-expression-move",
+  searchExpressionRemove: "search-expression-remove",
+  sharedDefaultViewCreate: "shared-default-view-create",
+  sharedDefaultViewRemove: "shared-default-view-remove",
+  viewModeSet: "view-mode-set",
+  viewColumnAdd: "view-column-add",
+  viewColumnRemove: "view-column-remove",
+  viewColumnMove: "view-column-move",
+  viewSortAdd: "view-sort-add",
+  viewSortConfigure: "view-sort-configure",
+  viewSortRemove: "view-sort-remove",
+  viewSortByNodeName: "view-sort-by-node-name",
+  viewGroupAdd: "view-group-add",
+  viewGroupRemove: "view-group-remove",
+  viewFilterCreate: "view-filter-create",
+  viewFilterRemove: "view-filter-remove",
+  viewFilterExpressionAdd: "view-filter-expression-add",
+  viewFilterExpressionConfigure: "view-filter-expression-configure",
+  viewFilterExpressionMove: "view-filter-expression-move",
+  viewFilterExpressionRemove: "view-filter-expression-remove",
   fieldDatatypeConfigure: "field-datatype-configure",
   fieldCardinalityConfigure: "field-cardinality-configure",
   fieldOptionalityConfigure: "field-optionality-configure",
-  fieldDatatypeConfigurationCreate: "field-datatype-configuration-create",
-  fieldCardinalityConfigurationCreate: "field-cardinality-configuration-create",
-  fieldOptionalityConfigurationCreate: "field-optionality-configuration-create",
-  fieldInitializationExpressionConfigurationCreate: "field-initialization-expression-configuration-create",
-  debugNodeOpen: "debug-node-open",
+  fieldInitializationExpressionConfigure: "field-initialization-expression-configure",
   fieldValueCreate: "field-value-create",
   urlNodeCreate: "url-node-create",
   codeNodeConfigure: "code-node-configure",
-  sharedDefaultViewDefinitionSortByNameCreate: "shared-default-view-definition-sort-by-name-create",
   supertagTemplateFieldCreate: "supertag-template-field-create",
   supertagTemplateFieldAddExisting: "supertag-template-field-add-existing",
   supertagTemplateFieldMakeDiscoverable: "supertag-template-field-make-discoverable",
   supertagTemplateFieldRemove: "supertag-template-field-remove",
   supertagOptionalFieldContributionAdd: "supertag-optional-field-contribution-add",
+  supertagOptionalFieldContributionRemove: "supertag-optional-field-contribution-remove",
   supertagTemplateFieldVisibilitySet: "supertag-template-field-visibility-set",
   supertagTemplateFieldStaticDefaultSet: "supertag-template-field-static-default-set",
   fieldNumberValueSet: "field-number-value-set",
@@ -113,7 +125,7 @@ const MUTATION_KIND_BY_CASE = {
   fieldCheckboxValueSet: "field-checkbox-value-set",
   fieldOptionsFromSupertagValueSet: "field-options-from-supertag-value-set",
   typedFieldValueClear: "typed-field-value-clear",
-} as const satisfies Readonly<Record<ProtocolMutationCase, EditMutation["kind"]>>;
+} as const satisfies Readonly<Record<ProtocolActionCase, EditAction["kind"]>>;
 
 const WRITE_STATUS_BY_CASE = {
   published: "published",
@@ -131,6 +143,7 @@ const DECISION_EFFECT_CASE_BY_KIND = {
   "supertag-relation": "supertagRelation",
   "field-materialization": "fieldMaterialization",
   "inline-reference": "inlineReference",
+  "search-expression": "searchExpression",
   "view-definition": "viewDefinition",
   "field-definition-configuration": "fieldDefinitionConfiguration",
 } as const satisfies Readonly<Record<DecisionEffect["kind"], ProtocolDecisionEffectCase>>;
@@ -140,6 +153,7 @@ const CONFLICT_KIND_BY_CASE = {
   intrinsicNodeTypeConflict: "intrinsic-node-type-conflict",
   resolutionConflict: "resolution-conflict",
   placementConflict: "placement-conflict",
+  originalConflict: "original-conflict",
   supertagExtensionCycle: "supertag-extension-cycle",
 } as const satisfies Readonly<Record<ProtocolConflictIssueCase, ConflictIssue["kind"]>>;
 
@@ -150,8 +164,8 @@ export type ProtocolCommandCoverage = AssertNever<
 export type ProtocolQueryCoverage = AssertNever<
   Exclude<EngineQuery["kind"], (typeof QUERY_KIND_BY_CASE)[ProtocolQueryCase]>
 >;
-export type ProtocolMutationCoverage = AssertNever<
-  Exclude<EditMutation["kind"], (typeof MUTATION_KIND_BY_CASE)[ProtocolMutationCase]>
+export type ProtocolActionCoverage = AssertNever<
+  Exclude<EditAction["kind"], (typeof ACTION_KIND_BY_CASE)[ProtocolActionCase]>
 >;
 export type ProtocolWriteResultCoverage = AssertNever<
   Exclude<WriteResult["status"], (typeof WRITE_STATUS_BY_CASE)[ProtocolWriteResultCase]>
@@ -171,7 +185,7 @@ export type ProtocolConflictIssueCoverage = AssertNever<
 
 export const COMMAND_KINDS = Object.values(COMMAND_KIND_BY_CASE);
 export const QUERY_KINDS = Object.values(QUERY_KIND_BY_CASE);
-export const MUTATION_KINDS = Object.values(MUTATION_KIND_BY_CASE);
+export const ACTION_KINDS = Object.values(ACTION_KIND_BY_CASE);
 export const DECISION_EFFECT_KINDS = Object.keys(DECISION_EFFECT_CASE_BY_KIND) as readonly DecisionEffect["kind"][];
 
 export function protocolCommandCase(kind: EngineCommand["kind"]): ProtocolCommandCase {
@@ -190,12 +204,12 @@ export function queryKind(protocolCase: ProtocolQueryCase): EngineQuery["kind"] 
   return QUERY_KIND_BY_CASE[protocolCase];
 }
 
-export function protocolMutationCase(kind: EditMutation["kind"]): ProtocolMutationCase {
-  return caseFor(kind, MUTATION_KIND_BY_CASE, "mutation");
+export function protocolActionCase(kind: EditAction["kind"]): ProtocolActionCase {
+  return caseFor(kind, ACTION_KIND_BY_CASE, "action");
 }
 
-export function mutationKind(protocolCase: ProtocolMutationCase): EditMutation["kind"] {
-  return MUTATION_KIND_BY_CASE[protocolCase];
+export function actionKind(protocolCase: ProtocolActionCase): EditAction["kind"] {
+  return ACTION_KIND_BY_CASE[protocolCase];
 }
 
 export function protocolWriteResultCase(status: WriteResult["status"]): ProtocolWriteResultCase {

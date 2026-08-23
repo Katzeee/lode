@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../src/domain/admission/index.js";
+import { buildFactSnapshot } from "../src/domain/fact/index.js";
 import {
   canonicalJson,
-  factTransactionId,
+  factActions,
   makeFact,
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
   type Fact,
   type FactFrontier,
-  type Mutation,
+  type AuthoredAction,
 } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
@@ -17,41 +17,34 @@ import {
   textAtoms,
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
+import { uniqueFacts } from "./support/facts.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
+import { addDefinitionNode } from "./support/reconcile/placed-node-test-helpers.js";
 
-const removeReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
-const addReplica = "cccccccccccccccccccccccccc";
-const detachReplica = "dddddddddddddddddddddddddd";
+const removeReplica = "202";
+const addReplica = "303";
+const detachReplica = "404";
 
 describe("Template Node convergence", () => {
   it("preserves concurrent observed-remove support and detached content across 32 arrival topologies", () => {
     const base = fixture();
-    const baseSnapshot = admitted(base.values);
+    const baseSnapshot = snapshotOf(base.values);
     const frontier = baseSnapshot.frontier;
-    const [remove, removePlacement] = remoteFacts(removeReplica, frontier, base.values.length + 1, [
+    const remove = remoteEdit(removeReplica, frontier, base.values.length + 1, [
       {
-        kind: "supertag-template-node-remove",
+        kind: "template-member-remove",
         supertagId: "supertag",
         templateNodeId: "guidance",
-        templateOccurrenceId: "supertag-guidance-template-occurrence",
-        previousAnchor: { after: null, before: null, affinity: "before", fallback: "start" },
-      },
-      {
-        kind: "occurrence-delete",
-        occurrenceId: "supertag-guidance-template-occurrence",
-        previousParentNodeId: "supertag",
-        previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
       },
     ]);
     const add = remoteFact(addReplica, frontier, base.values.length + 1, {
-      kind: "supertag-template-node-add",
+      kind: "template-member-add",
       supertagId: "supertag",
       templateNodeId: "guidance",
-      templateOccurrenceId: "supertag-guidance-template-occurrence",
       anchor: end,
     });
-    const merged = admitted([...base.values, remove, removePlacement, add]);
-    const [detachedNode, detachedOwner, detach, detachedOccurrence] = remoteFacts(
+    const merged = snapshotOf([...base.values, remove, add]);
+    const detachment = remoteEdit(
       detachReplica,
       merged.frontier,
       Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
@@ -59,15 +52,14 @@ describe("Template Node convergence", () => {
         {
           kind: "node-create",
           nodeId: templateInstanceNodeId("note", "guidance"),
+          ownerNodeId: "note",
+          originalPlacement: {
+            placementId: templateInstanceOccurrenceId("note", "guidance"),
+            anchor: end,
+          },
           seed: {
             text: [..."Guidance"].map((value) => ({ value, attributes: {} })),
           },
-        },
-        {
-          kind: "node-owner-set",
-          nodeId: templateInstanceNodeId("note", "guidance"),
-          ownerNodeId: "note",
-          previousOwnerNodeId: null,
         },
         {
           kind: "template-node-detach",
@@ -76,41 +68,21 @@ describe("Template Node convergence", () => {
           instanceNodeId: templateInstanceNodeId("note", "guidance"),
           instanceOccurrenceId: templateInstanceOccurrenceId("note", "guidance"),
           anchor: end,
-          sourceSupertagIds: ["supertag"],
-          sourceApplicationSupertagIds: ["supertag"],
-          sourceTemplateOccurrenceIds: ["supertag-guidance-template-occurrence"],
-        },
-        {
-          kind: "occurrence-create",
-          occurrenceId: templateInstanceOccurrenceId("note", "guidance"),
-          nodeId: templateInstanceNodeId("note", "guidance"),
-          parentNodeId: "note",
-          anchor: end,
         },
       ],
     );
-    const expected = summary(
-      rebuildGeneration(
-        "workspace",
-        admitted([...merged.facts, detachedNode, detachedOwner, detach, detachedOccurrence]),
-        versions,
-      ),
-    );
+    const detach = factActions(detachment).find((fact) => fact.action.kind === "template-node-detach")!;
+    const expected = summary(rebuildGeneration("workspace", snapshotOf([...merged.facts, detachment]), versions));
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const snapshot = admitted(
-        shuffle(
-          [...base.values, remove, removePlacement, add, detachedNode, detachedOwner, detach, detachedOccurrence, add],
-          seed,
-        ),
-      );
+      const snapshot = snapshotOf(shuffle([...base.values, remove, add, detachment, add], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toEqual(expected);
       expect(full.origin.supertagTemplateNodes.supertag).toEqual(["guidance"]);
       expect(full.origin.templateNodeInstances[0]).toMatchObject({
         state: "detached",
         instanceNodeId: templateInstanceNodeId("note", "guidance"),
-        detachmentContributionIds: [detach.id],
+        detachmentActionIds: [detach.id],
       });
       expect(
         textAtoms(full.origin.nodes[templateInstanceNodeId("note", "guidance")])
@@ -120,16 +92,7 @@ describe("Template Node convergence", () => {
     }
 
     const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    const finalSnapshot = admitted([
-      ...base.values,
-      remove,
-      removePlacement,
-      add,
-      detachedNode,
-      detachedOwner,
-      detach,
-      detachedOccurrence,
-    ]);
+    const finalSnapshot = snapshotOf([...base.values, remove, add, detachment]);
     const incremental = advanceGeneration("workspace", baseSnapshot, finalSnapshot, versions, before);
     expect(summary(incremental)).toEqual(expected);
   });
@@ -137,87 +100,60 @@ describe("Template Node convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("supertag");
-  facts.add({ kind: "intrinsic-node-type-declare", nodeId: "supertag", intrinsicNodeType: "supertag-definition" });
+  addDefinitionNode(facts, "supertag", "supertag-definition");
   facts.addPlaced("guidance");
   facts.addPlaced("note", "workspace", "note-occurrence");
   facts.add({
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: "guidance",
     deleteAtomIds: [],
-    deletedAtoms: [],
     anchor: end,
     insert: "Guidance",
   });
   facts.add({
-    kind: "supertag-template-node-add",
+    kind: "template-member-add",
     supertagId: "supertag",
     templateNodeId: "guidance",
-    templateOccurrenceId: "supertag-guidance-template-occurrence",
     anchor: end,
   });
   facts.applySupertag("note", "supertag");
   return facts;
 }
 
-function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, mutation: Mutation): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, authoredAction: AuthoredAction): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,
     sequence: 1,
     observed,
     lamport,
-    body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
-function remoteFacts(
+function remoteEdit(
   replicaId: string,
   observed: FactFrontier,
   lamport: number,
-  mutations: readonly [Mutation, Mutation],
-): readonly [Fact, Fact];
-function remoteFacts(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  mutations: readonly [Mutation, Mutation, Mutation],
-): readonly [Fact, Fact, Fact];
-function remoteFacts(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  mutations: readonly [Mutation, Mutation, Mutation, Mutation],
-): readonly [Fact, Fact, Fact, Fact];
-function remoteFacts(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  mutations: readonly Mutation[],
-): readonly Fact[] {
-  const transactionId = factTransactionId("workspace", replicaId, 1);
-  return mutations.map((mutation, index) =>
-    makeFact({
-      workspaceId: "workspace",
-      replicaId,
-      sequence: index + 1,
-      observed: { ...observed, ...(index > 0 ? { [replicaId]: index } : {}) },
-      lamport: lamport + index,
-      transaction: { transactionId, index, size: mutations.length },
-      body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
-    }),
-  );
+  actions: readonly AuthoredAction[],
+): Fact {
+  const [first, ...rest] = actions;
+  if (!first) {
+    throw new Error("Remote edit requires at least one AuthoredAction");
+  }
+  return makeFact({
+    workspaceId: "workspace",
+    replicaId,
+    sequence: 1,
+    observed,
+    lamport,
+    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
+  });
 }
 
-function admitted(facts: readonly Fact[]) {
-  const admission = admitAuthorityRecords(
-    "workspace",
-    facts.map((fact) => ({ recordKind: "fact" as const, fact })),
-  );
-  if (admission.kind === "fault") {
-    throw new Error(admission.fault ?? "Template Node admission failed");
-  }
-  return admission.snapshot;
+function snapshotOf(facts: readonly Fact[]) {
+  const snapshot = buildFactSnapshot("workspace", uniqueFacts(facts));
+  return snapshot;
 }
 
 function summary(result: ReturnType<typeof rebuildGeneration>): string {

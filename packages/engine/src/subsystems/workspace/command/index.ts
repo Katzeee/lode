@@ -30,7 +30,7 @@ type WorkspaceCommandExecutorOptions = Readonly<{
 
 type WorkspaceCommandAuthority = Pick<
   FactAuthorityPort,
-  "admission" | "commit" | "receipt" | "receiptsForChannel" | "relatedFacts" | "replicaId" | "snapshot"
+  "snapshot" | "commit" | "receipt" | "receiptsForChannel" | "relatedFacts" | "relatedFactsOwningActions" | "replicaId"
 >;
 
 export class WorkspaceCommandExecutor {
@@ -47,21 +47,24 @@ export class WorkspaceCommandExecutor {
       }
       return this.finishReceipt(existing);
     }
-    const admission = this.options.facts.admission();
-    if (admission.kind === "fault") {
-      return this.rejected("authority-fault", admission.fault ?? "Authority admission fault");
-    }
-    if (!frontierEquals(this.options.projection.identity.frontier, admission.snapshot.frontier)) {
+    const snapshot = this.options.facts.snapshot();
+    if (!frontierEquals(this.options.projection.identity.frontier, snapshot.frontier)) {
       return this.rejected(
         "projection-unavailable",
-        "Projection Generation does not cover the admitted authority frontier",
+        "Projection Generation does not cover the interpreted authority frontier",
       );
     }
     const bound = bindWorkspaceCommand(command);
     const { readPlan } = bound;
     const scopedFacts =
-      readPlan.kind === "facts" ? this.options.facts.relatedFacts(readPlan.factIds) : admission.snapshot.facts;
-    const commandSnapshot = { facts: scopedFacts, frontier: admission.snapshot.frontier };
+      readPlan.historyChannelId !== null
+        ? snapshot.facts
+        : readPlan.kind === "facts"
+          ? this.options.facts.relatedFacts(readPlan.factIds)
+          : readPlan.kind === "action-ids"
+            ? this.options.facts.relatedFactsOwningActions(readPlan.actionIds)
+            : snapshot.facts;
+    const commandSnapshot = { facts: scopedFacts, frontier: snapshot.frontier };
     let generation: Awaited<ReturnType<typeof readCommandGeneration>>;
     try {
       generation = await readCommandGeneration(
@@ -100,6 +103,7 @@ export class WorkspaceCommandExecutor {
         request: command,
         writes: planned.writes,
         lineage: planned.lineage,
+        inverse: planned.inverse,
         publishedFrontier: this.options.projection.identity.frontier,
       });
     } catch (error) {
@@ -118,7 +122,7 @@ export class WorkspaceCommandExecutor {
     return finishWorkspaceReceipt(
       receipt,
       this.options.projection.identity.generationId,
-      this.options.facts.admission(),
+      this.options.facts.snapshot(),
       (pendingReceipt) => this.publishToReceipt(pendingReceipt),
     );
   }

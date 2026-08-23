@@ -25,10 +25,7 @@ export type IdentityCapability = Readonly<{
     ): Promise<Readonly<{ actorId: string }>>;
     unlock(passphrase: string): Promise<readonly ActorSummary[]>;
     lock(): void;
-  }>;
-  signing: Readonly<{
     isActorUnlocked(actorId: string): boolean;
-    signFact(digest: string, actorId: string): string;
   }>;
   peer: PeerIdentityCapability;
 }>;

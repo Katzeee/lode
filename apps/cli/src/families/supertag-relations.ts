@@ -1,4 +1,4 @@
-import type { EditMutation, SupertagInstancesResult } from "@lode/sdk";
+import type { EditAction, SupertagInstancesResult } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -80,10 +80,10 @@ const supertagExtend: CommandDefinition = {
       args.requiredOption("--with"),
       ["supertag"],
     );
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       { kind: "supertag-extension-add", supertagId: supertag.nodeId, baseSupertagId: base.nodeId, anchor: end },
     ];
-    const { result, data } = await executeWrite(context, "supertag.extend", mutations);
+    const { result, data } = await executeWrite(context, "supertag.extend", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, with: base.descriptor },
       view: writeView("Extended", supertag.descriptor, `with ${base.label}`),
@@ -128,10 +128,10 @@ const supertagUnextend: CommandDefinition = {
         `Supertag ${supertag.descriptor.ref} does not extend ${base.descriptor.ref}.`,
       );
     }
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       { kind: "supertag-extension-remove", supertagId: supertag.nodeId, baseSupertagId: base.nodeId },
     ];
-    const { result, data } = await executeWrite(context, "supertag.unextend", mutations);
+    const { result, data } = await executeWrite(context, "supertag.unextend", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, with: base.descriptor },
       view: writeView("Unextended", supertag.descriptor, `from ${base.label}`),

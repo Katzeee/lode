@@ -1,4 +1,11 @@
-export type HistoryOperation = "normal" | "undo" | "redo";
+import type { EditIntent, FactId, AuthoredAction } from "./types.js";
+
+type HistoryOperation = "normal" | "undo" | "redo";
+
+export type ReceiptInverseBatch = Readonly<{
+  intent: EditIntent;
+  actions: readonly [AuthoredAction, ...AuthoredAction[]];
+}>;
 
 export type ReceiptLineage = Readonly<{
   channelId: string;
@@ -13,7 +20,8 @@ export type AuthorityReceipt = Readonly<{
   replicaId: string;
   invocationId: string;
   requestDigest: string;
-  factIds: readonly string[];
+  factIds: readonly FactId[];
   committedFrontier: Readonly<Record<string, number>>;
   lineage: ReceiptLineage | null;
+  inverse: readonly ReceiptInverseBatch[];
 }>;

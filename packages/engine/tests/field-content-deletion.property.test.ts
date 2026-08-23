@@ -1,13 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../src/domain/admission/index.js";
+import { buildFactSnapshot } from "../src/domain/fact/index.js";
 import {
   canonicalJson,
-  factTransactionId,
   makeFact,
   type Fact,
   type FactFrontier,
-  type Mutation,
+  type AuthoredAction,
 } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
@@ -15,19 +14,21 @@ import {
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
+import { addDefinitionNode } from "./support/reconcile/placed-node-test-helpers.js";
+import { uniqueFacts } from "./support/facts.js";
 
-const deleteReplica = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
-const insertReplica = "cccccccccccccccccccccccccc";
-const unrelatedReplica = "dddddddddddddddddddddddddd";
-const restoreReplica = "eeeeeeeeeeeeeeeeeeeeeeeeee";
+const deleteReplica = "202";
+const insertReplica = "303";
+const unrelatedReplica = "404";
+const restoreReplica = "505";
 
 describe("Field content deletion convergence", () => {
   it("converges concurrent same-Field value reorders across 32 arrival and incremental topologies", () => {
     const base = orderingFixture();
-    const baseSnapshot = admitted(base.values);
+    const baseSnapshot = snapshotOf(base.values);
     const moveC = remoteFact(insertReplica, baseSnapshot.frontier, {
-      kind: "occurrence-move",
-      occurrenceId: "value-c-occurrence",
+      kind: "placement-move",
+      placementId: "value-c-occurrence",
       parentNodeId: "field-node",
       anchor: {
         after: "field-definition-endpoint-occ:v1:field-occurrence",
@@ -35,12 +36,10 @@ describe("Field content deletion convergence", () => {
         affinity: "before",
         fallback: "start",
       },
-      previousParentNodeId: "field-node",
-      previousAnchor: { after: "value-b-occurrence", before: null, affinity: "after", fallback: "end" },
     });
     const moveB = remoteFact(unrelatedReplica, baseSnapshot.frontier, {
-      kind: "occurrence-move",
-      occurrenceId: "value-b-occurrence",
+      kind: "placement-move",
+      placementId: "value-b-occurrence",
       parentNodeId: "field-node",
       anchor: {
         after: "field-definition-endpoint-occ:v1:field-occurrence",
@@ -48,22 +47,15 @@ describe("Field content deletion convergence", () => {
         affinity: "before",
         fallback: "start",
       },
-      previousParentNodeId: "field-node",
-      previousAnchor: {
-        after: "value-a-occurrence",
-        before: "value-c-occurrence",
-        affinity: "after",
-        fallback: "end",
-      },
     });
-    const expectedSnapshot = admitted([...base.values, moveC, moveB]);
+    const expectedSnapshot = snapshotOf([...base.values, moveC, moveB]);
     const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
     const expectedSummary = summary(expected);
     const expectedOrder = expected.origin.materializedFields.owner?.[0]?.valueOccurrenceIds;
     expect(new Set(expectedOrder)).toEqual(new Set(["value-a-occurrence", "value-b-occurrence", "value-c-occurrence"]));
 
     for (let seed = 65; seed <= 96; seed += 1) {
-      const snapshot = admitted(shuffle([...base.values, moveB, moveC, moveB, moveC], seed));
+      const snapshot = snapshotOf(shuffle([...base.values, moveB, moveC, moveB, moveC], seed));
       expect(summary(rebuildGeneration("workspace", snapshot, versions))).toBe(expectedSummary);
     }
 
@@ -75,53 +67,38 @@ describe("Field content deletion convergence", () => {
 
   it("preserves a concurrent new value while deleting only the selected value across 32 topologies", () => {
     const base = fixture();
-    const baseSnapshot = admitted(base.values);
-    const deletion = remoteDeletion(
-      deleteReplica,
-      baseSnapshot.frontier,
-      {
-        kind: "field-value-delete",
-        ownerNodeId: "owner",
-        fieldDefinitionId: "field-definition",
-        valueOccurrenceId: "value-a-occurrence",
-        previousParentNodeId: "field-node",
-        previousAnchor: {
-          after: "field-definition-endpoint-occ:v1:field-occurrence",
-          before: "value-b-occurrence",
-          affinity: "after",
-          fallback: "end",
-        },
-      },
-      ["value-a"],
-    );
+    const baseSnapshot = snapshotOf(base.values);
+    const deletion = remoteDeletion(deleteReplica, baseSnapshot.frontier, {
+      kind: "field-value-remove",
+      valuePlacementId: "value-a-occurrence",
+    });
     const insertion = remoteFact(insertReplica, baseSnapshot.frontier, {
-      kind: "occurrence-create",
-      occurrenceId: "value-c-occurrence",
+      kind: "placement-create",
+      placementId: "value-c-occurrence",
       nodeId: "value-c",
       parentNodeId: "field-node",
       anchor: end,
     });
     const unrelated = remoteFact(unrelatedReplica, baseSnapshot.frontier, {
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "unrelated",
       deleteAtomIds: [],
-      deletedAtoms: [],
       anchor: end,
       insert: "independent",
     });
-    const expectedSnapshot = admitted([...base.values, ...deletion, insertion, unrelated]);
+    const expectedSnapshot = snapshotOf([...base.values, ...deletion, insertion, unrelated]);
     const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
     const expectedSummary = summary(expected);
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const snapshot = admitted(shuffle([...base.values, insertion, ...deletion, unrelated, ...deletion], seed));
+      const snapshot = snapshotOf(shuffle([...base.values, insertion, ...deletion, unrelated, ...deletion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
       expect(full.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
         "value-b-occurrence",
         "value-c-occurrence",
       ]);
-      expect(full.origin.occurrences["value-a-occurrence"]?.parentNodeId).toBe("workspace-trash:v1:workspace");
+      expect(full.origin.occurrences["value-a-occurrence"]).toBeUndefined();
       expect(full.origin.nodes["value-a"]).toBeDefined();
       expect(full.review).toEqual({ ...full.origin, perspective: "review" });
     }
@@ -134,29 +111,20 @@ describe("Field content deletion convergence", () => {
 
   it("restores the full Field subtree including a concurrently authored value", () => {
     const base = fixture();
-    const baseSnapshot = admitted(base.values);
-    const deletion = remoteDeletion(
-      deleteReplica,
-      baseSnapshot.frontier,
-      {
-        kind: "materialized-field-delete",
-        ownerNodeId: "owner",
-        fieldDefinitionId: "field-definition",
-        fieldNodeId: "field-node",
-        fieldOccurrenceId: "field-occurrence",
-        previousParentNodeId: "owner",
-        previousAnchor: { ...end, fallback: "start" },
-      },
-      ["value-a", "value-b", "field-node"],
-    );
+    const baseSnapshot = snapshotOf(base.values);
+    const deletion = remoteDeletion(deleteReplica, baseSnapshot.frontier, {
+      kind: "materialized-field-clear",
+      ownerNodeId: "owner",
+      fieldDefinitionId: "field-definition",
+    });
     const insertion = remoteFact(insertReplica, baseSnapshot.frontier, {
-      kind: "occurrence-create",
-      occurrenceId: "value-c-occurrence",
+      kind: "placement-create",
+      placementId: "value-c-occurrence",
       nodeId: "value-c",
       parentNodeId: "field-node",
       anchor: end,
     });
-    const merged = admitted([...base.values, ...deletion, insertion]);
+    const merged = snapshotOf([...base.values, ...deletion, insertion]);
     const hidden = rebuildGeneration("workspace", merged, versions).origin;
     expect(hidden.materializedFields.owner).toBeUndefined();
     expect(hidden.nodes["field-node"]).toBeDefined();
@@ -164,45 +132,26 @@ describe("Field content deletion convergence", () => {
     expect(hidden.nodes["value-b"]).toBeDefined();
     expect(hidden.nodes["value-c"]).toBeDefined();
     expect(merged.facts.some((fact) => fact.id === insertion.id)).toBe(true);
-    const nodeDeletions = new Map(
-      deletion.flatMap((fact) =>
-        fact.body.kind === "contribution" && fact.body.mutation.kind === "node-delete"
-          ? [[fact.body.mutation.nodeId, fact.id] as const]
-          : [],
-      ),
-    );
-    const fieldDeletionFactId = nodeDeletions.get("field-node");
-    if (!fieldDeletionFactId) {
-      throw new Error("Expected structural Field Node deletion");
-    }
     const restoration = remoteTransaction(
       restoreReplica,
       merged.frontier,
       [
-        { kind: "node-restore", nodeId: "field-node", deletionFactId: fieldDeletionFactId },
         {
-          kind: "node-owner-set",
+          kind: "placement-create",
           nodeId: "field-node",
-          ownerNodeId: "owner",
-          previousOwnerNodeId: "workspace-trash:v1:workspace",
-        },
-        {
-          kind: "occurrence-move",
-          occurrenceId: "field-occurrence",
+          placementId: "field-occurrence",
           parentNodeId: "owner",
           anchor: { ...end, fallback: "start" },
-          previousParentNodeId: "workspace-trash:v1:workspace",
-          previousAnchor: { ...end, fallback: "start" },
         },
       ],
       Math.max(...merged.facts.map((fact) => fact.coordinate.lamport)) + 1,
     );
-    const expectedSnapshot = admitted([...base.values, ...deletion, insertion, ...restoration]);
+    const expectedSnapshot = snapshotOf([...base.values, ...deletion, insertion, ...restoration]);
     const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
     const expectedSummary = summary(expected);
 
     for (let seed = 33; seed <= 64; seed += 1) {
-      const snapshot = admitted(shuffle([...base.values, insertion, ...restoration, ...deletion, insertion], seed));
+      const snapshot = snapshotOf(shuffle([...base.values, insertion, ...restoration, ...deletion, insertion], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
       expect(full.origin.materializedFields.owner?.[0]?.valueOccurrenceIds).toEqual([
@@ -224,12 +173,7 @@ describe("Field content deletion convergence", () => {
 
 function fixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("field-definition");
-  facts.add({
-    kind: "intrinsic-node-type-declare",
-    nodeId: "field-definition",
-    intrinsicNodeType: "field-definition",
-  });
+  addDefinitionNode(facts, "field-definition", "field-definition");
   facts.addPlaced("owner", "workspace", "owner-occurrence");
   facts.addPlaced("field-node", "owner", "field-occurrence");
   facts.addPlaced("value-a", "field-node", "value-a-occurrence");
@@ -248,12 +192,7 @@ function fixture(): Facts {
 
 function orderingFixture(): Facts {
   const facts = new Facts();
-  facts.addPlaced("field-definition");
-  facts.add({
-    kind: "intrinsic-node-type-declare",
-    nodeId: "field-definition",
-    intrinsicNodeType: "field-definition",
-  });
+  addDefinitionNode(facts, "field-definition", "field-definition");
   facts.addPlaced("owner", "workspace", "owner-occurrence");
   facts.addPlaced("field-node", "owner", "field-occurrence");
   facts.addPlaced("value-a", "field-node", "value-a-occurrence");
@@ -272,7 +211,7 @@ function orderingFixture(): Facts {
 function remoteFact(
   replicaId: string,
   observed: FactFrontier,
-  mutation: Mutation,
+  authoredAction: AuthoredAction,
   lamport = Math.max(...Object.values(observed)) + 1,
 ): Fact {
   return makeFact({
@@ -281,79 +220,42 @@ function remoteFact(
     sequence: 1,
     observed,
     lamport,
-    body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
 function remoteDeletion(
   replicaId: string,
   observed: FactFrontier,
-  mutation: Extract<Mutation, { kind: "field-value-delete" | "materialized-field-delete" }>,
-  ownedNodeIds: readonly string[],
+  authoredAction: Extract<AuthoredAction, { kind: "field-value-remove" | "materialized-field-clear" }>,
 ): readonly Fact[] {
-  const rootNodeId = ownedNodeIds.at(-1);
-  if (!rootNodeId) {
-    throw new Error("Field content deletion fixture requires a structural root");
-  }
-  const ownerNodeId = mutation.kind === "field-value-delete" ? mutation.previousParentNodeId : mutation.ownerNodeId;
-  const occurrenceId = mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : mutation.fieldOccurrenceId;
-  if (!ownerNodeId) {
-    throw new Error("Field content deletion fixture has no root Owner");
-  }
-  return remoteTransaction(replicaId, observed, [
-    mutation,
-    { kind: "node-delete", nodeId: rootNodeId },
-    {
-      kind: "node-owner-set",
-      nodeId: rootNodeId,
-      ownerNodeId: "workspace-trash:v1:workspace",
-      previousOwnerNodeId: ownerNodeId,
-    },
-    {
-      kind: "occurrence-move",
-      occurrenceId,
-      parentNodeId: "workspace-trash:v1:workspace",
-      anchor: end,
-      previousParentNodeId: ownerNodeId,
-      previousAnchor: mutation.previousAnchor,
-    },
-  ]);
+  return remoteTransaction(replicaId, observed, [authoredAction]);
 }
 
 function remoteTransaction(
   replicaId: string,
   observed: FactFrontier,
-  mutations: readonly Mutation[],
+  actions: readonly AuthoredAction[],
   firstLamport = Math.max(...Object.values(observed)) + 1,
 ): readonly Fact[] {
-  const transactionId = factTransactionId("workspace", replicaId, 1);
-  return mutations.map((mutation, index) =>
-    makeFact({
-      workspaceId: "workspace",
-      replicaId,
-      sequence: index + 1,
-      observed: index === 0 ? observed : { ...observed, [replicaId]: index },
-      lamport: firstLamport + index,
-      transaction: { transactionId, index, size: mutations.length },
-      body: {
-        kind: "contribution",
-        actorId: replicaId,
-        intent: "direct",
-        mutation,
-      },
-    }),
-  );
+  const [first, ...rest] = actions;
+  return first
+    ? [
+        makeFact({
+          workspaceId: "workspace",
+          replicaId,
+          sequence: 1,
+          observed,
+          lamport: firstLamport,
+          body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
+        }),
+      ]
+    : [];
 }
 
-function admitted(facts: readonly Fact[]) {
-  const admission = admitAuthorityRecords(
-    "workspace",
-    facts.map((fact) => ({ recordKind: "fact" as const, fact })),
-  );
-  if (admission.kind === "fault") {
-    throw new Error(admission.fault ?? "Field content deletion fixture admission failed");
-  }
-  return admission.snapshot;
+function snapshotOf(facts: readonly Fact[]) {
+  const snapshot = buildFactSnapshot("workspace", uniqueFacts(facts));
+  return snapshot;
 }
 
 function summary(result: ReturnType<typeof rebuildGeneration> | null): string {

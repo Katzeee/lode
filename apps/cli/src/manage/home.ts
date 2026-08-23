@@ -19,7 +19,7 @@ import type { CommandDefinition, ManagementCommandContext } from "../catalog/ind
  * home directories, and dispatch through the composition root.
  */
 
-export type HomeManagementPort = Readonly<{
+type HomeManagementPort = Readonly<{
   registry(): Promise<HomeRegistryFile>;
   writeRegistry(update: (document: Record<string, unknown>) => void): Promise<void>;
   /** Best-effort liveness probe that never starts anything. */

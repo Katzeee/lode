@@ -15,7 +15,7 @@ message HardDeleteSelection {
   string workspace_id = 1;
   map<string, uint64> frontier = 2;
   string node_id = 3;
-  repeated string deletion_fact_ids = 4;
+  repeated string deletion_action_ids = 4;
   repeated string acknowledgement_fact_ids = 5;
   repeated string retired_replica_ids = 6;
 }
@@ -33,7 +33,7 @@ message HardDeletePreview {
   repeated string reference_occurrence_ids = 3;
   repeated string supertag_application_node_ids = 4;
   repeated string materialized_field_node_ids = 5;
-  repeated string pending_proposal_contribution_ids = 6;
+  repeated string pending_proposal_action_ids = 6;
   repeated string known_replica_ids = 7;
   repeated string acknowledged_replica_ids = 8;
   repeated HardDeleteBlocker blockers = 9;

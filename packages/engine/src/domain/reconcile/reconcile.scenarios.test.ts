@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { workspaceTrashNodeId } from "../fact/index.js";
+import { workspaceTrashNodeId, type FactActionId } from "../fact/index.js";
 import { queryReview } from "../review/index.js";
-import { nodeLocation, rebuildGeneration } from "./index.js";
+import { metanodeNodeId, nodeLocation, rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
 import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";
@@ -23,45 +23,38 @@ describe("production Reconcile scenarios", () => {
     expect(root.nodeOwners.workspace).toBeNull();
 
     const unattachedFacts = new Facts();
-    unattachedFacts.add({ kind: "node-create", nodeId: "node" });
+    unattachedFacts.add({ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null });
     const unattached = projectSnapshot("workspace", unattachedFacts.snapshot(), "origin", versions);
     expect(unattached.nodes.node).toBeDefined();
-    expect(unattached.nodeOwners.node).toBeUndefined();
+    expect(unattached.nodeOwners.node).toBe("workspace");
 
     const placed = projectSnapshot("workspace", base().snapshot(), "origin", versions);
     expect(placed.nodeOwners.node).toBe("workspace");
   });
 
-  it("attaches one persistent Metanode without creating a visible Outline Occurrence", () => {
+  it("derives one Metanode without creating a visible Outline Occurrence", () => {
     const facts = base();
-    facts.addTransaction([
-      { kind: "node-create", nodeId: "node-configuration" },
-      {
-        kind: "metanode-attach",
-        hostNodeId: "node",
-        metanodeId: "node-configuration",
-      },
-    ]);
+    addPlacedNode(facts, "tag", "direct", "workspace", "tag-original", "supertag-definition");
+    facts.applySupertag("node", "tag");
+    const metanodeId = metanodeNodeId("node");
 
     const active = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(active.metanodes).toEqual({ node: "node-configuration" });
-    expect(active.nodeOwners["node-configuration"]).toBe("node");
-    expect(Object.values(active.occurrences).some((occurrence) => occurrence.nodeId === "node-configuration")).toBe(
-      false,
-    );
-    expect(active.childOccurrences.node ?? []).not.toContain("node-configuration");
+    expect(active.metanodes).toEqual({ node: metanodeId });
+    expect(active.nodeOwners[metanodeId]).toBe("node");
+    expect(Object.values(active.occurrences).some((occurrence) => occurrence.nodeId === metanodeId)).toBe(false);
+    expect(active.childOccurrences.node ?? []).not.toContain(metanodeId);
 
-    facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
     const deleted = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(nodeLocation("workspace", deleted, "node-configuration")).toBe("trash");
+    expect(nodeLocation("workspace", deleted, metanodeId)).toBe("trash");
   });
 
   it("keeps Owner authority independent from a non-owning Reference edge", () => {
     const facts = base();
     addPlacedNode(facts, "parent");
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "node-reference",
+      kind: "placement-create",
+      placementId: "node-reference",
       nodeId: "node",
       parentNodeId: "parent",
       anchor: end,
@@ -72,21 +65,127 @@ describe("production Reconcile scenarios", () => {
     expect(projection.occurrences["node-reference"]?.parentNodeId).toBe("parent");
   });
 
-  it("单人 Direct 全表面", () => {
-    const facts = fullSurface("direct");
-    const occurrenceDeletion = facts.add({
-      kind: "occurrence-delete",
-      occurrenceId: "reference",
+  it("moves Owner authority with the selected Original Placement", () => {
+    const facts = base();
+    addPlacedNode(facts, "parent");
+    facts.add({ kind: "placement-move", placementId: "occurrence", parentNodeId: "parent", anchor: end });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.occurrences.occurrence?.parentNodeId).toBe("parent");
+    expect(projection.nodeOwners.node).toBe("parent");
+  });
+
+  it("falls back between complete Placement creation intents without mixing their Node and position", () => {
+    const facts = new Facts();
+    facts.add({
+      kind: "node-create",
+      nodeId: "node-a",
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: "shared-placement", anchor: end },
+    });
+    facts.add({ kind: "node-create", nodeId: "node-b", ownerNodeId: "workspace", originalPlacement: null });
+    facts.add({
+      kind: "placement-create",
+      placementId: "node-b-reference",
+      nodeId: "node-b",
+      parentNodeId: "workspace",
+      anchor: end,
     });
     facts.add({
-      kind: "occurrence-restore",
-      occurrenceId: "reference",
-      deletionFactId: occurrenceDeletion.id,
+      kind: "node-create",
+      nodeId: "node-b",
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: "shared-placement", anchor: end },
+    });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.occurrences["shared-placement"]).toMatchObject({
+      nodeId: "node-a",
+      parentNodeId: "workspace",
+    });
+    expect(projection.occurrences["node-b-reference"]).toMatchObject({
+      nodeId: "node-b",
+      parentNodeId: "workspace",
+    });
+  });
+
+  it("orders a Placement by the valid fallback intent rather than a rejected newer candidate", () => {
+    const facts = new Facts();
+    facts.add({
+      kind: "node-create",
+      nodeId: "node-a",
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: "placement-a", anchor: end },
+    });
+    facts.add({
+      kind: "node-create",
+      nodeId: "anchored",
+      ownerNodeId: "workspace",
+      originalPlacement: {
+        placementId: "anchored-placement",
+        anchor: { after: "placement-a", before: null, affinity: "after", fallback: "end" },
+      },
+    });
+    facts.add({ kind: "node-create", nodeId: "node-b", ownerNodeId: "workspace", originalPlacement: null });
+    facts.add({
+      kind: "placement-create",
+      placementId: "node-b-reference",
+      nodeId: "node-b",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
+    facts.add({
+      kind: "node-create",
+      nodeId: "node-b",
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: "placement-a", anchor: end },
+    });
+
+    const children =
+      projectSnapshot("workspace", facts.snapshot(), "origin", versions).childOccurrences.workspace ?? [];
+    expect(children.indexOf("placement-a")).toBeLessThan(children.indexOf("anchored-placement"));
+  });
+
+  it("falls back to the latest valid Original selection", () => {
+    const facts = base();
+    facts.add({
+      kind: "placement-create",
+      placementId: "removed-reference",
+      nodeId: "node",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
+    facts.add({ kind: "placement-remove", placementId: "removed-reference" });
+    facts.add({ kind: "original-promote", nodeId: "node", placementId: "removed-reference" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
+
+    const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
+    expect(projection.occurrences.occurrence?.nodeId).toBe("node");
+    expect(projection.occurrences.occurrence?.parentNodeId).toBe(workspaceTrashNodeId("workspace"));
+    expect(projection.nodeOwners.node).toBe(workspaceTrashNodeId("workspace"));
+  });
+
+  it("单人 Direct 全表面", () => {
+    const facts = fullSurface("direct");
+    facts.add({
+      kind: "placement-remove",
+      placementId: "reference",
+    });
+    facts.add({
+      kind: "placement-create",
+      placementId: "reference",
+      nodeId: "node",
       parentNodeId: "moved-parent",
       anchor: end,
     });
-    const nodeDeletion = facts.add({ kind: "node-delete", nodeId: "node" });
-    facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDeletion.id });
+    facts.add({ kind: "node-trash", nodeId: "node" });
+    facts.add({
+      kind: "node-restore",
+      nodeId: "node",
+      placementId: "reference",
+      parentNodeId: "moved-parent",
+      anchor: end,
+    });
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projectionText(projection, "node")).toBe("AB");
     expect(projection.supertagApplications.node?.map(({ supertagId }) => supertagId)).toEqual(["supertag"]);
@@ -101,7 +200,7 @@ describe("production Reconcile scenarios", () => {
     const facts = base("direct");
     const pending = facts.add(
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
         anchor: end,
@@ -115,42 +214,36 @@ describe("production Reconcile scenarios", () => {
     expect(projectionText(projectSnapshot("workspace", facts.snapshot(), "review", versions), "node")).toBe("");
 
     const expectedKinds = [
-      "field-cardinality-configure",
-      "field-datatype-configure",
-      "field-initialization-expression-configure",
+      "field-configuration-set",
       "field-materialize",
-      "field-optionality-configure",
-      "field-value-delete",
-      "inline-reference-alias-attach",
-      "inline-reference-alias-detach",
+      "field-value-remove",
+      "inline-alias-attach",
+      "inline-alias-detach",
       "inline-reference-create",
-      "inline-reference-delete",
-      "intrinsic-node-type-declare",
-      "materialized-field-delete",
+      "inline-reference-remove",
+      "materialized-field-clear",
       "node-create",
-      "node-delete",
-      "node-owner-set",
+      "node-trash",
       "node-restore",
-      "occurrence-create",
-      "occurrence-delete",
-      "occurrence-move",
-      "occurrence-restore",
-      "shared-default-view-definition-mode-set",
-      "supertag-apply",
+      "original-promote",
+      "placement-create",
+      "placement-remove",
+      "placement-move",
+      "supertag-application-add",
       "supertag-extension-add",
       "supertag-extension-remove",
-      "supertag-remove",
-      "supertag-template-node-add",
-      "supertag-template-node-remove",
+      "supertag-membership-remove",
+      "template-member-add",
+      "template-member-remove",
       "template-node-detach",
-      "text-mark",
-      "text-splice",
+      "rich-text-mark",
+      "rich-text-splice",
     ];
     expect(
       proposalLifecycleCases()
         .map((entry) => entry.kind)
         .sort(),
-    ).toEqual(expectedKinds);
+    ).toEqual(expectedKinds.sort());
     for (const decision of ["accept", "reject"] as const) {
       for (const entry of proposalLifecycleCases()) {
         const pendingSnapshot = entry.facts.snapshot();
@@ -163,7 +256,7 @@ describe("production Reconcile scenarios", () => {
           "workspace",
           pendingSnapshot,
           rebuildGeneration("workspace", pendingSnapshot, versions),
-        ).hunks.find((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id));
+        ).hunks.find((hunk) => hunk.proposalActionIds.includes(entry.proposal.id));
         expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
         entry.facts.resolve(pendingHunk!.selection.evidence.supportClosure, decision);
         const terminalSnapshot = entry.facts.snapshot();
@@ -181,7 +274,7 @@ describe("production Reconcile scenarios", () => {
             "workspace",
             terminalSnapshot,
             rebuildGeneration("workspace", terminalSnapshot, versions),
-          ).hunks.some((hunk) => hunk.proposalContributionIds.includes(entry.proposal.id)),
+          ).hunks.some((hunk) => hunk.proposalActionIds.includes(entry.proposal.id)),
         ).toBe(false);
       }
     }
@@ -202,8 +295,8 @@ describe("production Reconcile scenarios", () => {
   it("renders a self-reference once as a non-recursive Reference", () => {
     const facts = base();
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "self",
+      kind: "placement-create",
+      placementId: "self",
       nodeId: "node",
       parentNodeId: "node",
       anchor: end,
@@ -219,58 +312,50 @@ describe("production Reconcile scenarios", () => {
     });
   });
 
-  it("moves a non-owning edge without changing Owner authority", () => {
+  it("moves a Reference without changing Owner authority", () => {
     const facts = base();
     addPlacedNode(facts, "reference-parent");
     addPlacedNode(facts, "destination");
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "reference",
+      kind: "placement-create",
+      placementId: "reference",
       nodeId: "node",
       parentNodeId: "reference-parent",
       anchor: end,
     });
     facts.add({
-      kind: "node-owner-set",
-      nodeId: "node",
-      ownerNodeId: "reference-parent",
-      previousOwnerNodeId: "workspace",
-    });
-    facts.add({
-      kind: "occurrence-move",
-      occurrenceId: "reference",
+      kind: "placement-move",
+      placementId: "reference",
       parentNodeId: "destination",
       anchor: end,
-      previousParentNodeId: "reference-parent",
-      previousAnchor: end,
     });
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
-    expect(projection.nodeOwners.node).toBe("reference-parent");
+    expect(projection.nodeOwners.node).toBe("workspace");
     expect(projection.occurrences.occurrence?.parentNodeId).toBe("workspace");
     expect(projection.occurrences.reference?.parentNodeId).toBe("destination");
   });
 
   it("Lifecycle delete/restore", () => {
     const facts = base();
-    const deletion = facts.add({
-      kind: "occurrence-delete",
-      occurrenceId: "occurrence",
+    facts.add({
+      kind: "placement-remove",
+      placementId: "occurrence",
     });
     facts.add({
-      kind: "occurrence-restore",
-      occurrenceId: "occurrence",
-      deletionFactId: deletion.id,
+      kind: "placement-create",
+      placementId: "occurrence",
+      nodeId: "node",
       parentNodeId: "workspace",
       anchor: end,
     });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences.occurrence).toBeDefined();
 
-    const nodeDelete = facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
     addPlacedNode(facts, "late-parent");
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "late-old-occurrence",
+      kind: "placement-create",
+      placementId: "late-old-occurrence",
       nodeId: "node",
       parentNodeId: "late-parent",
       anchor: end,
@@ -278,11 +363,17 @@ describe("production Reconcile scenarios", () => {
     expect(
       projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
     ).toBeDefined();
-    facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: nodeDelete.id });
+    facts.add({
+      kind: "node-restore",
+      nodeId: "node",
+      placementId: "occurrence",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
     expect(
       projectSnapshot("workspace", facts.snapshot(), "origin", versions).occurrences["late-old-occurrence"],
     ).toBeDefined();
-    facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
       workspaceTrashNodeId("workspace"),
     );
@@ -291,28 +382,28 @@ describe("production Reconcile scenarios", () => {
 
 function proposalLifecycleSurface(): Readonly<{
   facts: Facts;
-  proposalIds: readonly string[];
+  proposalIds: readonly FactActionId[];
 }> {
   const facts = base();
   const initial = facts.add({
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: "node",
     deleteAtomIds: [],
     anchor: end,
     insert: "A",
   });
-  facts.add({ kind: "node-create", nodeId: "target" });
-  facts.add({ kind: "node-create", nodeId: "owner-target" });
+  facts.add({ kind: "node-create", nodeId: "target", ownerNodeId: "workspace", originalPlacement: null });
+  facts.add({ kind: "node-create", nodeId: "owner-target", ownerNodeId: "workspace", originalPlacement: null });
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "target",
+    kind: "placement-create",
+    placementId: "target",
     nodeId: "target",
     parentNodeId: "owner-target",
     anchor: end,
   });
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId: "reference",
+    kind: "placement-create",
+    placementId: "reference",
     nodeId: "node",
     parentNodeId: "workspace",
     anchor: end,
@@ -320,7 +411,7 @@ function proposalLifecycleSurface(): Readonly<{
   const proposalIds = [
     facts.add(
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
         anchor: end,
@@ -330,7 +421,7 @@ function proposalLifecycleSurface(): Readonly<{
     ).id,
     facts.add(
       {
-        kind: "text-mark",
+        kind: "rich-text-mark",
         nodeId: "node",
         atomIds: [`${initial.id}#0`],
         key: "bold",
@@ -340,8 +431,8 @@ function proposalLifecycleSurface(): Readonly<{
     ).id,
     facts.add(
       {
-        kind: "occurrence-move",
-        occurrenceId: "occurrence",
+        kind: "placement-move",
+        placementId: "occurrence",
         parentNodeId: "target",
         anchor: end,
       },
@@ -349,20 +440,10 @@ function proposalLifecycleSurface(): Readonly<{
     ).id,
     facts.add(
       {
-        kind: "node-owner-set",
-        nodeId: "node",
-        ownerNodeId: "owner-target",
-      },
-      "proposal",
-    ).id,
-    facts.add({ kind: "node-create", nodeId: "proposal-node" }, "proposal").id,
-    facts.add(
-      {
-        kind: "occurrence-create",
-        occurrenceId: "proposal-occurrence",
+        kind: "node-create",
         nodeId: "proposal-node",
-        parentNodeId: "workspace",
-        anchor: end,
+        ownerNodeId: "workspace",
+        originalPlacement: { placementId: "proposal-occurrence", anchor: end },
       },
       "proposal",
     ).id,

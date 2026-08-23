@@ -1,56 +1,55 @@
-import { compareFacts, type ContributionFact } from "../fact/index.js";
+import { factObserves, type FactAction } from "../fact/index.js";
 
 export function hasAlternateNodeCreator(
-  target: ContributionFact,
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
 ): boolean {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "node-create" && mutation.kind !== "node-restore") {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "node-create" && authoredAction.kind !== "node-restore") {
     return false;
   }
   return activeFacts.some((fact) => {
     if (targetIds.has(fact.id)) {
       return false;
     }
-    const candidate = fact.body.mutation;
-    return mutation.kind === "node-create"
-      ? candidate.kind === "node-create" && candidate.nodeId === mutation.nodeId
-      : candidate.kind === "node-restore" &&
-          candidate.nodeId === mutation.nodeId &&
-          candidate.deletionFactId === mutation.deletionFactId;
+    const candidate = fact.action;
+    return authoredAction.kind === "node-create"
+      ? candidate.kind === "node-create" && candidate.nodeId === authoredAction.nodeId
+      : candidate.kind === "node-restore" && candidate.nodeId === authoredAction.nodeId;
   });
 }
 
 export function hasIndependentOccurrenceWork(
-  target: ContributionFact,
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
 ): boolean {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "occurrence-create" && mutation.kind !== "occurrence-restore") {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "placement-create") {
     return false;
   }
   return activeFacts.some((fact) => {
     if (targetIds.has(fact.id)) {
       return false;
     }
-    const candidate = fact.body.mutation;
+    const candidate = fact.action;
     const alternateCreator =
-      mutation.kind === "occurrence-create"
-        ? candidate.kind === "occurrence-create" && candidate.occurrenceId === mutation.occurrenceId
-        : candidate.kind === "occurrence-restore" &&
-          candidate.occurrenceId === mutation.occurrenceId &&
-          candidate.deletionFactId === mutation.deletionFactId;
+      candidate.kind === "placement-create" && candidate.placementId === authoredAction.placementId;
     if (alternateCreator) {
-      return true;
+      return !actionObserves(target, fact);
     }
-    if (compareFacts(target, fact) >= 0) {
+    if (actionObserves(target, fact)) {
       return false;
     }
     return (
-      ("occurrenceId" in candidate && candidate.occurrenceId === mutation.occurrenceId) ||
-      candidate.kind === "node-owner-set"
+      ("placementId" in candidate && candidate.placementId === authoredAction.placementId) ||
+      ((candidate.kind === "original-promote" || candidate.kind === "node-restore") &&
+        candidate.nodeId === authoredAction.nodeId)
     );
   });
+}
+
+function actionObserves(observer: FactAction, observed: FactAction): boolean {
+  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

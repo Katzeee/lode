@@ -19,7 +19,7 @@ import { launchDaemon } from "../daemon-launch.js";
  * ensure-running path the product commands use implicitly.
  */
 
-export type DaemonManagementPort = Readonly<{
+type DaemonManagementPort = Readonly<{
   /** Never spawns; resolves null when the daemon does not answer Status. */
   probe(): Promise<{ status: DaemonStatusView; shutdown(): Promise<void> } | null>;
   /** Spawns through the launcher when missing, then waits for Status ready. */
@@ -150,8 +150,7 @@ function statusResult(status: DaemonStatusView, headline: string): CommandResult
         lines: [
           headline,
           ...status.workspaces.map(
-            (workspace) =>
-              `  ${workspace.label.length > 0 ? workspace.label : workspace.workspaceId} — ${workspace.state}`,
+            (workspace) => `  ${workspace.label.length > 0 ? workspace.label : workspace.workspaceId}`,
           ),
         ],
       },

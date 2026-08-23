@@ -1,11 +1,5 @@
 import type { NodeSeed, SequenceAnchor } from "../fact/index.js";
 
-export type DebugNodeOpenEdit = Readonly<{
-  kind: "debug-node-open";
-  hostNodeId: string;
-  metanodeId: string;
-}>;
-
 export type FieldValueCreateEdit = Readonly<{
   kind: "field-value-create";
   ownerNodeId: string;
@@ -40,16 +34,4 @@ export type CodeNodeConfigureEdit = Readonly<{
   languageValueNodeId: string;
   languageValueOccurrenceId: string;
   language: string;
-}>;
-
-export type SharedDefaultViewDefinitionSortByNameCreateEdit = Readonly<{
-  kind: "shared-default-view-definition-sort-by-name-create";
-  hostNodeId: string;
-  viewDefinitionNodeId: string;
-  sortOrderFieldNodeId: string;
-  sortOrderFieldOccurrenceId: string;
-  sortFieldNodeId: string;
-  sortFieldOccurrenceId: string;
-  nodeNameOccurrenceId: string;
-  ascendingOccurrenceId: string;
 }>;

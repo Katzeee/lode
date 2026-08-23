@@ -40,7 +40,7 @@ import { homeCommands } from "./manage/home.js";
 import { launchDaemon } from "./daemon-launch.js";
 import { runDiagnosticCli } from "./diagnostics/index.js";
 
-export const CLI_VERSION = "0.1.0";
+const CLI_VERSION = "0.1.0";
 
 const DIAGNOSTIC_COMMANDS = new Set(["execute", "query"]);
 
@@ -50,7 +50,7 @@ const DIAGNOSTIC_COMMANDS = new Set(["execute", "query"]);
  * dispatches one command, and hands a finished outcome to the renderers.
  */
 
-export type ProcessInputs = Readonly<{
+type ProcessInputs = Readonly<{
   argv: readonly string[];
   environment: Readonly<Record<string, string | undefined>>;
   platform: string;

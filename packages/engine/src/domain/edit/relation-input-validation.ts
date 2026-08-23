@@ -1,202 +1,230 @@
-import { parseMutation, parseSearchExpressionSpec, parseViewOptionsSpec } from "../fact/index.js";
+import {
+  parseSearchClause,
+  parseSearchExpressionDraft,
+  parseSequenceAnchor,
+  requireFactActionId,
+} from "../fact/index.js";
 import { exactInputKeys, nonemptyInputString } from "./input-validation-primitives.js";
-import type { EditMutation } from "./types.js";
+import type { EditAction } from "./types.js";
 
-export function parseSupertagApplicationCreate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "hostNodeId",
-    "metanodeId",
-    "supertagId",
-    "applicationNodeId",
-    "applicationOccurrenceId",
-    "relationDefinitionOccurrenceId",
-    "definitionOccurrenceId",
-    "anchor",
-    "seed",
-  ]);
-  const applicationNodeId = nonemptyInputString(edit.applicationNodeId, "Supertag Application Node identity");
-  const applicationOccurrenceId = nonemptyInputString(
-    edit.applicationOccurrenceId,
-    "Supertag Application Occurrence identity",
-  );
-  const node = parseMutation({
-    kind: "node-create",
-    nodeId: applicationNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: applicationOccurrenceId,
-    nodeId: applicationNodeId,
-    parentNodeId: edit.metanodeId,
-    anchor: edit.anchor,
-  });
+export function parseSupertagApplicationCreate(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "hostNodeId", "supertagId", "anchor"]);
   return {
     kind: "supertag-application-create",
     hostNodeId: nonemptyInputString(edit.hostNodeId, "Supertag Application host Node identity"),
-    metanodeId: placement.parentNodeId,
     supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition identity"),
-    applicationNodeId,
-    applicationOccurrenceId,
-    relationDefinitionOccurrenceId: nonemptyInputString(
-      edit.relationDefinitionOccurrenceId,
-      "Node supertags relation Definition endpoint Occurrence identity",
-    ),
-    definitionOccurrenceId: nonemptyInputString(
-      edit.definitionOccurrenceId,
-      "Supertag Definition endpoint Occurrence identity",
-    ),
-    anchor: placement.anchor,
-    ...(node.seed === undefined ? {} : { seed: node.seed }),
+    anchor: parseSequenceAnchor(edit.anchor),
   };
 }
 
-export function parseSharedDefaultViewDefinitionCreate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "hostNodeId",
-    "metanodeId",
-    "attachmentNodeId",
-    "attachmentOccurrenceId",
-    "relationDefinitionOccurrenceId",
-    "viewDefinitionNodeId",
-    "viewDefinitionOccurrenceId",
-    "viewType",
-    "anchor",
-    "seed",
-  ]);
-  const attachmentNodeId = nonemptyInputString(edit.attachmentNodeId, "View attachment Node identity");
-  const attachmentOccurrenceId = nonemptyInputString(
-    edit.attachmentOccurrenceId,
-    "View attachment Occurrence identity",
+export function parseSupertagApplicationRemove(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "hostNodeId", "supertagId"]);
+  return {
+    kind: "supertag-remove",
+    hostNodeId: nonemptyInputString(edit.hostNodeId, "Supertag Application host Node identity"),
+    supertagId: nonemptyInputString(edit.supertagId, "Supertag Definition identity"),
+  };
+}
+
+export function parseViewEdit(edit: Record<string, unknown>): EditAction {
+  const hostNodeId = nonemptyInputString(edit.hostNodeId, "View host Node identity");
+  if (edit.kind === "shared-default-view-create") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewType", "anchor"]);
+    if (edit.viewType !== "outline" && edit.viewType !== "table") {
+      throw new Error("View type is invalid");
+    }
+    return { kind: edit.kind, hostNodeId, viewType: edit.viewType, anchor: parseSequenceAnchor(edit.anchor) };
+  }
+  if (edit.kind === "shared-default-view-remove") {
+    exactInputKeys(edit, ["kind", "hostNodeId"]);
+    return { kind: edit.kind, hostNodeId };
+  }
+  const viewId = requireFactActionId(edit.viewId, "View identity");
+  if (edit.kind === "view-mode-set") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "viewType"]);
+    if (edit.viewType !== "outline" && edit.viewType !== "table") {
+      throw new Error("View type is invalid");
+    }
+    return { kind: edit.kind, hostNodeId, viewId, viewType: edit.viewType };
+  }
+  if (edit.kind === "view-column-add") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "fieldDefinitionId", "anchor"]);
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      fieldDefinitionId: fieldId(edit),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  if (edit.kind === "view-column-remove") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "fieldDefinitionId"]);
+    return { kind: edit.kind, hostNodeId, viewId, fieldDefinitionId: fieldId(edit) };
+  }
+  if (edit.kind === "view-column-move") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "columnId", "anchor"]);
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      columnId: requireFactActionId(edit.columnId, "View Column identity"),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  if (edit.kind === "view-sort-add") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "fieldDefinitionId", "direction"]);
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      fieldDefinitionId: fieldId(edit),
+      direction: sortDirection(edit.direction),
+    };
+  }
+  if (edit.kind === "view-sort-configure") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "sortId", "fieldDefinitionId", "direction"]);
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      sortId: requireFactActionId(edit.sortId, "View Sort identity"),
+      fieldDefinitionId: fieldId(edit),
+      direction: sortDirection(edit.direction),
+    };
+  }
+  if (edit.kind === "view-sort-remove" || edit.kind === "view-group-remove" || edit.kind === "view-filter-remove") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId"]);
+    return { kind: edit.kind, hostNodeId, viewId };
+  }
+  if (edit.kind === "view-sort-by-node-name") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "direction"]);
+    return { kind: edit.kind, hostNodeId, viewId, direction: sortDirection(edit.direction) };
+  }
+  if (edit.kind === "view-group-add") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "fieldDefinitionId"]);
+    return { kind: edit.kind, hostNodeId, viewId, fieldDefinitionId: fieldId(edit) };
+  }
+  if (
+    edit.kind === "view-filter-expression-add" ||
+    edit.kind === "view-filter-expression-configure" ||
+    edit.kind === "view-filter-expression-move" ||
+    edit.kind === "view-filter-expression-remove"
+  ) {
+    return parseViewFilterExpressionEdit(edit, hostNodeId, viewId);
+  }
+  exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "expression", "anchor"]);
+  return {
+    kind: "view-filter-create",
+    hostNodeId,
+    viewId,
+    expression: parseSearchExpressionDraft(edit.expression),
+    anchor: parseSequenceAnchor(edit.anchor),
+  };
+}
+
+function parseViewFilterExpressionEdit(
+  edit: Record<string, unknown>,
+  hostNodeId: string,
+  viewId: ReturnType<typeof requireFactActionId>,
+): EditAction {
+  const filterId = requireFactActionId(edit.filterId, "View Filter identity");
+  if (edit.kind === "view-filter-expression-add") {
+    exactInputKeys(edit, ["kind", "hostNodeId", "viewId", "filterId", "parentExpressionId", "expression", "anchor"]);
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      filterId,
+      parentExpressionId: requireFactActionId(edit.parentExpressionId, "Search parent Expression identity"),
+      expression: parseSearchExpressionDraft(edit.expression),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  exactInputKeys(
+    edit,
+    edit.kind === "view-filter-expression-configure"
+      ? ["kind", "hostNodeId", "viewId", "filterId", "expressionId", "clause"]
+      : edit.kind === "view-filter-expression-move"
+        ? ["kind", "hostNodeId", "viewId", "filterId", "expressionId", "parentExpressionId", "anchor"]
+        : ["kind", "hostNodeId", "viewId", "filterId", "expressionId"],
   );
-  const viewDefinitionNodeId = nonemptyInputString(edit.viewDefinitionNodeId, "View Definition Node identity");
-  const viewDefinition = parseMutation({
-    kind: "node-create",
-    nodeId: viewDefinitionNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: attachmentOccurrenceId,
-    nodeId: attachmentNodeId,
-    parentNodeId: edit.metanodeId,
-    anchor: edit.anchor,
-  });
-  const mode = parseMutation({
-    kind: "shared-default-view-definition-mode-set",
-    viewDefinitionNodeId,
-    viewType: edit.viewType,
-  });
-  return {
-    kind: "shared-default-view-definition-create",
-    hostNodeId: nonemptyInputString(edit.hostNodeId, "View host Node identity"),
-    metanodeId: placement.parentNodeId,
-    attachmentNodeId,
-    attachmentOccurrenceId,
-    relationDefinitionOccurrenceId: nonemptyInputString(
-      edit.relationDefinitionOccurrenceId,
-      "Views for node Definition endpoint Occurrence identity",
-    ),
-    viewDefinitionNodeId,
-    viewDefinitionOccurrenceId: nonemptyInputString(
-      edit.viewDefinitionOccurrenceId,
-      "View Definition Occurrence identity",
-    ),
-    viewType: mode.viewType,
-    anchor: placement.anchor,
-    ...(viewDefinition.seed === undefined ? {} : { seed: viewDefinition.seed }),
-  };
+  const expressionId = requireFactActionId(edit.expressionId, "Search Expression identity");
+  if (edit.kind === "view-filter-expression-configure") {
+    return { kind: edit.kind, hostNodeId, viewId, filterId, expressionId, clause: parseSearchClause(edit.clause) };
+  }
+  if (edit.kind === "view-filter-expression-move") {
+    return {
+      kind: edit.kind,
+      hostNodeId,
+      viewId,
+      filterId,
+      expressionId,
+      parentExpressionId:
+        edit.parentExpressionId === null
+          ? null
+          : requireFactActionId(edit.parentExpressionId, "Search parent Expression identity"),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  return { kind: "view-filter-expression-remove", hostNodeId, viewId, filterId, expressionId };
 }
 
-export function parseSharedDefaultViewDefinitionRemove(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "hostNodeId",
-    "attachmentNodeId",
-    "attachmentOccurrenceId",
-    "relationDefinitionOccurrenceId",
-    "viewDefinitionNodeId",
-    "viewDefinitionOccurrenceId",
-  ]);
-  return {
-    kind: "shared-default-view-definition-remove",
-    hostNodeId: nonemptyInputString(edit.hostNodeId, "View host Node identity"),
-    attachmentNodeId: nonemptyInputString(edit.attachmentNodeId, "View attachment Node identity"),
-    attachmentOccurrenceId: nonemptyInputString(edit.attachmentOccurrenceId, "View attachment Occurrence identity"),
-    relationDefinitionOccurrenceId: nonemptyInputString(
-      edit.relationDefinitionOccurrenceId,
-      "Views for node Definition endpoint Occurrence identity",
-    ),
-    viewDefinitionNodeId: nonemptyInputString(edit.viewDefinitionNodeId, "View Definition Node identity"),
-    viewDefinitionOccurrenceId: nonemptyInputString(
-      edit.viewDefinitionOccurrenceId,
-      "View Definition Occurrence identity",
-    ),
-  };
+function fieldId(edit: Record<string, unknown>): string {
+  return nonemptyInputString(edit.fieldDefinitionId, "View option Field Definition identity");
 }
 
-export function parseSharedDefaultViewDefinitionOptionsUpdate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "hostNodeId", "viewDefinitionNodeId", "options"]);
-  return {
-    kind: "shared-default-view-definition-options-update",
-    hostNodeId: nonemptyInputString(edit.hostNodeId, "View host Node identity"),
-    viewDefinitionNodeId: nonemptyInputString(edit.viewDefinitionNodeId, "View Definition Node identity"),
-    options: parseViewOptionsSpec(edit.options),
-  };
+function sortDirection(value: unknown): "ascending" | "descending" {
+  if (value !== "ascending" && value !== "descending") {
+    throw new Error("View Sort direction is invalid");
+  }
+  return value;
 }
 
-export function parseSearchExpressionCreate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, [
-    "kind",
-    "searchNodeId",
-    "metanodeId",
-    "expressionNodeId",
-    "expressionOccurrenceId",
-    "definitionOccurrenceId",
-    "anchor",
-    "seed",
-    "expression",
-  ]);
-  const expressionNodeId = nonemptyInputString(edit.expressionNodeId, "Search expression Node identity");
-  const expressionOccurrenceId = nonemptyInputString(
-    edit.expressionOccurrenceId,
-    "Search expression Occurrence identity",
-  );
-  const expressionNode = parseMutation({
-    kind: "node-create",
-    nodeId: expressionNodeId,
-    ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-  });
-  const placement = parseMutation({
-    kind: "occurrence-create",
-    occurrenceId: expressionOccurrenceId,
-    nodeId: expressionNodeId,
-    parentNodeId: edit.metanodeId,
-    anchor: edit.anchor,
-  });
+export function parseSearchExpressionCreate(edit: Record<string, unknown>): EditAction {
+  exactInputKeys(edit, ["kind", "searchNodeId", "expression", "anchor"]);
   return {
     kind: "search-expression-create",
     searchNodeId: nonemptyInputString(edit.searchNodeId, "Search Node identity"),
-    metanodeId: placement.parentNodeId,
-    expressionNodeId,
-    expressionOccurrenceId,
-    definitionOccurrenceId: nonemptyInputString(
-      edit.definitionOccurrenceId,
-      "Search expression Definition endpoint Occurrence identity",
-    ),
-    expression: parseSearchExpressionSpec(edit.expression),
-    anchor: placement.anchor,
-    ...(expressionNode.seed === undefined ? {} : { seed: expressionNode.seed }),
+    expression: parseSearchExpressionDraft(edit.expression),
+    anchor: parseSequenceAnchor(edit.anchor),
   };
 }
 
-export function parseSearchExpressionUpdate(edit: Record<string, unknown>): EditMutation {
-  exactInputKeys(edit, ["kind", "searchNodeId", "expression"]);
-  return {
-    kind: "search-expression-update",
-    searchNodeId: nonemptyInputString(edit.searchNodeId, "Search Node identity"),
-    expression: parseSearchExpressionSpec(edit.expression),
-  };
+export function parseSearchExpressionEdit(edit: Record<string, unknown>): EditAction {
+  const searchNodeId = nonemptyInputString(edit.searchNodeId, "Search Node identity");
+  if (edit.kind === "search-expression-add") {
+    exactInputKeys(edit, ["kind", "searchNodeId", "parentExpressionId", "expression", "anchor"]);
+    return {
+      kind: edit.kind,
+      searchNodeId,
+      parentExpressionId: requireFactActionId(edit.parentExpressionId, "Search parent Expression identity"),
+      expression: parseSearchExpressionDraft(edit.expression),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  exactInputKeys(
+    edit,
+    edit.kind === "search-expression-configure"
+      ? ["kind", "searchNodeId", "expressionId", "clause"]
+      : edit.kind === "search-expression-move"
+        ? ["kind", "searchNodeId", "expressionId", "parentExpressionId", "anchor"]
+        : ["kind", "searchNodeId", "expressionId"],
+  );
+  const expressionId = requireFactActionId(edit.expressionId, "Search Expression identity");
+  if (edit.kind === "search-expression-configure") {
+    return { kind: edit.kind, searchNodeId, expressionId, clause: parseSearchClause(edit.clause) };
+  }
+  if (edit.kind === "search-expression-move") {
+    return {
+      kind: edit.kind,
+      searchNodeId,
+      expressionId,
+      parentExpressionId:
+        edit.parentExpressionId === null
+          ? null
+          : requireFactActionId(edit.parentExpressionId, "Search parent Expression identity"),
+      anchor: parseSequenceAnchor(edit.anchor),
+    };
+  }
+  return { kind: "search-expression-remove", searchNodeId, expressionId };
 }

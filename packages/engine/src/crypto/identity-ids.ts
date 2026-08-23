@@ -4,7 +4,7 @@ import { PUBLIC_KEY_LENGTH } from "./keys.js";
  * Identity encodings. An Actor id is the hex Ed25519 public key; a Peer id is
  * the hex Ed25519 identity public key — both prefixed so the kind and the
  * verifying key are recoverable from the id alone. This is what lets Fact
- * attribution and governance records carry ids without a key registry.
+ * governance records carry ids without a key registry.
  */
 
 const ACTOR_PREFIX = "actor_";
@@ -18,11 +18,6 @@ export function actorIdFromPublicKey(publicKey: Uint8Array): string {
 
 export function peerIdFromPublicKey(publicKey: Uint8Array): string {
   return `${PEER_PREFIX}${toHex(publicKey)}`;
-}
-
-/** Raw public key behind an Actor id, or null when the id is not well-formed. */
-export function actorPublicKeyFromId(actorId: string): Uint8Array | null {
-  return publicKeyFromId(actorId, ACTOR_PREFIX);
 }
 
 /** Raw public key behind a Peer id, or null when the id is not well-formed. */

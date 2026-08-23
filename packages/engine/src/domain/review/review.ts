@@ -4,8 +4,9 @@ import {
   canonicalDigest,
   canonicalJson,
   frontierEquals,
+  owningFactIds,
   stableStringCompare,
-  type ContributionFact,
+  type FactAction,
   type FactSnapshot,
   type ResolutionDecision,
 } from "../fact/index.js";
@@ -23,7 +24,7 @@ export function queryReview(
   generation: ScopedProjectionGeneration,
   capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
   page?: Readonly<{
-    pending: ReadonlyMap<string, ContributionFact>;
+    pending: ReadonlyMap<FactAction["id"], FactAction>;
     context?: ReviewEvidenceContext;
     next: string | null;
   }>,
@@ -80,7 +81,7 @@ export function validateReviewSelection(
       adjudicatesResolutionIds: [],
       actorId,
       decision,
-      proposalContributionIds: current.supportClosure,
+      proposalFactIds: owningFactIds(snapshot.facts, current.supportClosure),
     },
   };
 }
@@ -105,7 +106,7 @@ function candidateToHunk(
   return {
     id: canonicalDigest({ diffSpace: candidate.diffSpace, evidence: completeEvidence }),
     diffSpace: candidate.diffSpace,
-    proposalContributionIds: completeEvidence.proposalTargets,
+    proposalActionIds: completeEvidence.proposalTargets,
     neutralBridgeAtomIds: candidate.bridges,
     linkedHunkIds: [],
     selection,

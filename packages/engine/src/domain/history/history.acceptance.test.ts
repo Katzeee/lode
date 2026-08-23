@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { queryHistory } from "./history.js";
+import { queryHistory, validateHistorySelection } from "./history.js";
 import { baseFixture, end } from "../../../tests/support/history/history-test-helpers.js";
 
 describe("production History contracts", () => {
@@ -10,9 +10,9 @@ describe("production History contracts", () => {
       const step = fixture.step({
         invocationId: `proposal-${decision}`,
         intent: "proposal",
-        mutations: [
+        actions: [
           {
-            kind: "text-splice",
+            kind: "rich-text-splice",
             nodeId: "node",
             deleteAtomIds: [],
             anchor: end,
@@ -22,7 +22,11 @@ describe("production History contracts", () => {
       });
       fixture.resolve(step.factIds, decision);
 
-      expect(queryHistory("channel", fixture.receipts, fixture.snapshot(), fixture.generation()).undo).toBeNull();
+      const selection = queryHistory("channel", fixture.receipts).undo;
+      expect(selection).not.toBeNull();
+      expect(
+        validateHistorySelection(selection!, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
+      ).toBe("stale");
     }
   });
 });

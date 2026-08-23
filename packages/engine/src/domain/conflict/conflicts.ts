@@ -1,24 +1,25 @@
-import { canonicalJson, type FactSnapshot } from "../fact/index.js";
+import { canonicalJson, factActions, type FactSnapshot } from "../fact/index.js";
 import { deriveActivation } from "../activation/index.js";
 
 export function resolutionAdjudicationProblem(
   snapshot: FactSnapshot,
-  proposalContributionIds: readonly string[],
+  proposalFactIds: readonly string[],
   resolutionIds: readonly string[],
 ): string | null {
   const activation = deriveActivation(snapshot.facts, "review");
   const expected = new Set<string>();
-  const requestedProposals = canonicalJson([...proposalContributionIds].sort());
+  const requestedProposals = canonicalJson([...proposalFactIds].sort());
   let expectedCandidateSet: string | null = null;
-  for (const contributionId of proposalContributionIds) {
-    const candidates = activation.resolutionByContribution.get(contributionId) ?? [];
+  for (const proposalFactId of proposalFactIds) {
+    const proposal = snapshot.facts.find((fact) => fact.id === proposalFactId);
+    const factActionIds = proposal ? factActions(proposal).map((action) => action.id) : [];
+    const firstActionId = factActionIds[0];
+    const candidates = firstActionId ? (activation.resolutionByAction.get(firstActionId) ?? []) : [];
     if (new Set(candidates.map((candidate) => candidate.body.decision)).size < 2) {
-      return `Proposal Contribution has no Resolution conflict: ${contributionId}`;
+      return `Proposal Fact has no Resolution conflict: ${proposalFactId}`;
     }
     if (
-      candidates.some(
-        (candidate) => canonicalJson([...candidate.body.proposalContributionIds].sort()) !== requestedProposals,
-      )
+      candidates.some((candidate) => canonicalJson([...candidate.body.proposalFactIds].sort()) !== requestedProposals)
     ) {
       return "Adjudication Proposal targets do not match one Resolution conflict";
     }

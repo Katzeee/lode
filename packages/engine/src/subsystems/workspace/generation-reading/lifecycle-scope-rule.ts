@@ -1,7 +1,7 @@
 import {
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  type Mutation,
+  type AuthoredAction,
   type ProjectionPerspective,
 } from "../../../domain/fact/index.js";
 import type { ProjectionSnapshotReader } from "../projection/index.js";
@@ -11,11 +11,11 @@ export async function includeLifecycleScope(
   store: ProjectionSnapshotReader,
   generationId: string,
   perspective: ProjectionPerspective,
-  mutations: readonly Mutation[],
+  actions: readonly AuthoredAction[],
   scope: GenerationReadScope,
 ): Promise<void> {
-  const nodeIds = mutations.flatMap((mutation) =>
-    mutation.kind === "node-delete" || mutation.kind === "node-restore" ? [mutation.nodeId] : [],
+  const nodeIds = actions.flatMap((authoredAction) =>
+    authoredAction.kind === "node-trash" || authoredAction.kind === "node-restore" ? [authoredAction.nodeId] : [],
   );
   const batch = await store.read(generationId, perspective, "nodes", nodeIds);
   for (const entry of batch.entries) {

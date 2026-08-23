@@ -1,113 +1,168 @@
-import { compareFacts, isViewMutation, type ContributionFact, type ViewMutation } from "../fact/index.js";
+import { isViewAction, type FactAction, type FactActionId, type ViewAction } from "../fact/index.js";
 import { sequenceAnchorAt, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
-export function compensateViewMutation(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
+export function compensateViewAction(
+  target: FactAction,
+  _activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep | null {
-  const mutation = target.body.mutation;
-  if (!isViewMutation(mutation)) {
+  const action = target.action;
+  if (!isViewAction(action)) {
     return null;
   }
-  if (mutation.kind === "shared-default-view-definition-attach") {
+  if (action.kind === "shared-default-view-add") {
+    return { kind: "ready", actions: [{ kind: "shared-default-view-remove", hostNodeId: action.hostNodeId }] };
+  }
+  if (action.kind === "shared-default-view-remove") {
+    const views = counterfactual.sharedDefaultViewDefinitions[action.hostNodeId] ?? [];
+    return views.length === 0
+      ? noCompensation()
+      : { kind: "ready", actions: views.map((view) => ({ kind: "shared-default-view-restore", viewId: view.viewId })) };
+  }
+  const viewId = targetViewId(action, counterfactual);
+  if (!viewId) {
     return noCompensation();
   }
-  if (mutation.kind === "shared-default-view-definition-detach") {
-    return compensateDetach(mutation, projection);
+  if (action.kind === "shared-default-view-restore") {
+    const restored = findView(projection, viewId);
+    return restored
+      ? { kind: "ready", actions: [{ kind: "shared-default-view-remove", hostNodeId: restored.hostNodeId }] }
+      : noCompensation();
   }
-  if (mutation.kind === "shared-default-view-definition-sort-by-name-set") {
-    return {
-      kind: "ready",
-      mutations: [
-        {
-          ...mutation,
-          enabled: mutation.previousEnabled,
-          previousEnabled: mutation.enabled,
-        },
-      ],
-    };
+  const view = findView(counterfactual, viewId);
+  if (action.kind === "view-mode-set") {
+    return view
+      ? { kind: "ready", actions: [{ kind: action.kind, viewId, viewType: view.viewType }] }
+      : noCompensation();
   }
-  if (mutation.kind === "shared-default-view-definition-options-set") {
-    if (mutation.previousOptions === undefined) {
-      return noCompensation();
-    }
-    return {
-      kind: "ready",
-      mutations: [
-        {
-          ...mutation,
-          options: mutation.previousOptions,
-          previousOptions: mutation.options,
-          observedOptionsFactIds: [target.id],
-        },
-      ],
-    };
-  }
-  if (mutation.previousViewType == null) {
-    return noCompensation();
-  }
-  const changedLater = activeFacts.some(
-    (fact) =>
-      compareFacts(target, fact) < 0 &&
-      fact.body.mutation.kind === "shared-default-view-definition-mode-set" &&
-      fact.body.mutation.viewDefinitionNodeId === mutation.viewDefinitionNodeId,
-  );
-  return changedLater
-    ? noCompensation()
-    : {
-        kind: "ready",
-        mutations: [
-          {
-            kind: "shared-default-view-definition-mode-set",
-            viewDefinitionNodeId: mutation.viewDefinitionNodeId,
-            viewType: mutation.previousViewType,
-            previousViewType: mutation.viewType,
-            observedModeFactIds: [target.id],
-          },
-        ],
-      };
+  return compensateViewOption(action, viewId, view);
 }
 
-function compensateDetach(
-  mutation: Extract<ViewMutation, { kind: "shared-default-view-definition-detach" }>,
-  projection: ScopedProjection,
+type ViewOptionAction = Exclude<
+  ViewAction,
+  { kind: "shared-default-view-add" | "shared-default-view-remove" | "shared-default-view-restore" | "view-mode-set" }
+>;
+
+function compensateViewOption(
+  action: ViewOptionAction,
+  viewId: FactActionId,
+  view: ReturnType<typeof findView>,
 ): CompensationStep {
-  const trashNodeId = projection.workspaceSystemNodes.trash;
-  if (trashNodeId === undefined) {
-    return noCompensation();
+  if (action.kind === "view-column-add") {
+    return {
+      kind: "ready",
+      actions: [{ kind: "view-column-remove", viewId, fieldDefinitionId: action.fieldDefinitionId }],
+    };
   }
-  return {
-    kind: "ready",
-    mutations: [
-      { kind: "node-delete", nodeId: mutation.detachedValueNodeId },
-      {
-        kind: "node-owner-set",
-        nodeId: mutation.detachedValueNodeId,
-        ownerNodeId: trashNodeId,
-        previousOwnerNodeId: mutation.attachmentNodeId,
-      },
-      {
-        kind: "occurrence-move",
-        occurrenceId: mutation.detachedValueOccurrenceId,
-        parentNodeId: trashNodeId,
-        anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        previousParentNodeId: mutation.attachmentNodeId,
-        previousAnchor: sequenceAnchorAt(
-          projection.childOccurrences[mutation.attachmentNodeId] ?? [],
-          (projection.childOccurrences[mutation.attachmentNodeId] ?? []).indexOf(mutation.detachedValueOccurrenceId),
-        ),
-      },
-      {
-        kind: "shared-default-view-definition-attach",
-        hostNodeId: mutation.hostNodeId,
-        attachmentNodeId: mutation.attachmentNodeId,
-        attachmentOccurrenceId: mutation.attachmentOccurrenceId,
-        relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
-        viewDefinitionNodeId: mutation.viewDefinitionNodeId,
-        viewDefinitionOccurrenceId: mutation.viewDefinitionOccurrenceId,
-      },
-    ],
-  };
+  if (action.kind === "view-column-remove") {
+    const column = view?.options.columns.find((candidate) => candidate.fieldDefinitionId === action.fieldDefinitionId);
+    if (!view || !column) {
+      return noCompensation();
+    }
+    const ids = view.options.columns.map((candidate) => candidate.columnId);
+    return {
+      kind: "ready",
+      actions: [
+        {
+          kind: "view-column-add",
+          viewId,
+          fieldDefinitionId: action.fieldDefinitionId,
+          anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)),
+        },
+      ],
+    };
+  }
+  if (action.kind === "view-column-move") {
+    const column = view?.options.columns.find((candidate) => candidate.columnId === action.columnId);
+    if (!view || !column) {
+      return noCompensation();
+    }
+    const ids = view.options.columns.map((candidate) => candidate.columnId);
+    return {
+      kind: "ready",
+      actions: [
+        { kind: action.kind, columnId: action.columnId, anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)) },
+      ],
+    };
+  }
+  if (action.kind === "view-sort-add") {
+    return { kind: "ready", actions: [{ kind: "view-sort-remove", viewId }] };
+  }
+  if (action.kind === "view-sort-configure") {
+    const sort = view?.options.sort;
+    return !sort
+      ? noCompensation()
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: action.kind,
+              sortId: action.sortId,
+              fieldDefinitionId: sort.fieldDefinitionId,
+              direction: sort.direction,
+            },
+          ],
+        };
+  }
+  if (action.kind === "view-sort-remove") {
+    return view?.options.sort
+      ? { kind: "ready", actions: [{ kind: "view-sort-restore", sortId: view.options.sort.sortId }] }
+      : noCompensation();
+  }
+  if (action.kind === "view-sort-restore") {
+    return { kind: "ready", actions: [{ kind: "view-sort-remove", viewId }] };
+  }
+  if (action.kind === "view-group-add") {
+    return { kind: "ready", actions: [{ kind: "view-group-remove", viewId }] };
+  }
+  if (action.kind === "view-group-remove") {
+    return view?.options.group
+      ? {
+          kind: "ready",
+          actions: [{ kind: "view-group-add", viewId, fieldDefinitionId: view.options.group.fieldDefinitionId }],
+        }
+      : noCompensation();
+  }
+  if (action.kind === "view-filter-add") {
+    return { kind: "ready", actions: [{ kind: "view-filter-remove", viewId }] };
+  }
+  if (action.kind === "view-filter-remove") {
+    return view?.options.filter
+      ? { kind: "ready", actions: [{ kind: "view-filter-restore", filterId: view.options.filter.filterId }] }
+      : noCompensation();
+  }
+  return { kind: "ready", actions: [{ kind: "view-filter-remove", viewId }] };
+}
+
+function targetViewId(action: ViewAction, projection: ScopedProjection) {
+  if ("viewId" in action) {
+    return action.viewId;
+  }
+  if (action.kind === "view-column-move") {
+    return (
+      Object.values(projection.sharedDefaultViewDefinitions)
+        .flat()
+        .find((view) => view.options.columns.some((column) => column.columnId === action.columnId))?.viewId ?? null
+    );
+  }
+  if (action.kind === "view-sort-configure" || action.kind === "view-sort-restore") {
+    return (
+      Object.values(projection.sharedDefaultViewDefinitions)
+        .flat()
+        .find((view) => view.options.sort?.sortId === action.sortId)?.viewId ?? null
+    );
+  }
+  return action.kind === "view-filter-restore"
+    ? (Object.values(projection.sharedDefaultViewDefinitions)
+        .flat()
+        .find((view) => view.options.filter?.filterId === action.filterId)?.viewId ?? null)
+    : null;
+}
+
+function findView(projection: ScopedProjection, viewId: string) {
+  return Object.values(projection.sharedDefaultViewDefinitions)
+    .flat()
+    .find((view) => view.viewId === viewId);
 }

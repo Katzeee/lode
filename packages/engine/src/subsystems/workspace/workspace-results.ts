@@ -1,20 +1,16 @@
 import type {
   CommittedProjectionPendingResult,
+  AuthorityReceipt as PublicAuthorityReceipt,
   EngineError,
   PublishedResult,
   RejectedResult,
   WriteResult,
 } from "@lode/sdk";
-import { frontierCovers, type Admission, type AuthorityReceipt } from "../../domain/fact/index.js";
-import {
-  AuthorityAdmissionError,
-  AuthorityFaultError,
-  InvocationConflictError,
-  ProjectionUnavailableError,
-} from "./authority/errors.js";
+import { frontierCovers, type FactSnapshot, type AuthorityReceipt } from "../../domain/fact/index.js";
+import { FactValidationError, InvocationConflictError, ProjectionUnavailableError } from "./authority/errors.js";
 
 export function publishedResult(receipt: AuthorityReceipt, generationId: string): PublishedResult {
-  return { status: "published", receipt, generationId };
+  return { status: "published", receipt: publicReceipt(receipt), generationId };
 }
 
 export function pendingResult(
@@ -22,7 +18,19 @@ export function pendingResult(
   publishedGenerationId: string,
   failure: string,
 ): CommittedProjectionPendingResult {
-  return { status: "committed-projection-pending", receipt, publishedGenerationId, failure };
+  return { status: "committed-projection-pending", receipt: publicReceipt(receipt), publishedGenerationId, failure };
+}
+
+function publicReceipt(receipt: AuthorityReceipt): PublicAuthorityReceipt {
+  return {
+    workspaceId: receipt.workspaceId,
+    replicaId: receipt.replicaId,
+    invocationId: receipt.invocationId,
+    requestDigest: receipt.requestDigest,
+    factIds: receipt.factIds,
+    committedFrontier: receipt.committedFrontier,
+    lineage: receipt.lineage,
+  };
 }
 
 export function rejectedResult(
@@ -34,7 +42,7 @@ export function rejectedResult(
 }
 
 export function executionErrorResult(error: unknown, currentGenerationId: string): WriteResult {
-  if (error instanceof AuthorityAdmissionError) {
+  if (error instanceof FactValidationError) {
     return rejectedResult("invalid-input", error.message, currentGenerationId);
   }
   if (error instanceof InvocationConflictError) {
@@ -43,26 +51,17 @@ export function executionErrorResult(error: unknown, currentGenerationId: string
   if (error instanceof ProjectionUnavailableError) {
     return rejectedResult("projection-unavailable", error.message, currentGenerationId);
   }
-  if (error instanceof AuthorityFaultError) {
-    return rejectedResult("authority-fault", error.message, currentGenerationId);
-  }
   throw error;
 }
 
 export async function finishWorkspaceReceipt(
   receipt: AuthorityReceipt,
   generationId: string,
-  admission: Admission,
+  snapshot: FactSnapshot,
   publish: (receipt: AuthorityReceipt) => Promise<WriteResult>,
 ): Promise<WriteResult> {
-  if (frontierCovers(admission.snapshot.frontier, receipt.committedFrontier)) {
+  if (frontierCovers(snapshot.frontier, receipt.committedFrontier)) {
     return publish(receipt);
   }
-  return pendingResult(
-    receipt,
-    generationId,
-    admission.kind === "fault"
-      ? (admission.fault ?? "authority is faulted")
-      : "authority Facts remain pending causal admission",
-  );
+  return pendingResult(receipt, generationId, "authority publication has not reached the committed Loro version");
 }

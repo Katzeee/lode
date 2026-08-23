@@ -3,9 +3,10 @@ syntax = "proto3";
 package lode;
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/wrappers.proto";
 import "lode/model.proto";
 
-message NodeCreateMutation {
+message NodeCreateAction {
   string node_id = 1;
   string occurrence_id = 2;
   string parent_node_id = 3;
@@ -14,47 +15,40 @@ message NodeCreateMutation {
   optional IntrinsicNodeType intrinsic_node_type = 6;
 }
 
-message ReferencePromoteMutation { string occurrence_id = 1; }
-message NodeDeleteMutation { string node_id = 1; }
-message NodeRestoreMutation {
+message ReferencePromoteAction { string occurrence_id = 1; }
+message NodeDeleteAction { string node_id = 1; }
+message NodeRestoreAction {
   string node_id = 1;
-  string deletion_fact_id = 2;
-  string occurrence_id = 3;
-  string owner_node_id = 4;
-  string parent_node_id = 5;
-  SequenceAnchor anchor = 6;
+  string occurrence_id = 2;
+  string parent_node_id = 3;
+  SequenceAnchor anchor = 4;
 }
 
-message OccurrenceCreateMutation {
+message OccurrenceCreateAction {
   string occurrence_id = 1;
   string node_id = 2;
   string parent_node_id = 3;
   SequenceAnchor anchor = 4;
 }
 
-message OccurrenceDeleteMutation {
+message OccurrenceDeleteAction {
   string occurrence_id = 1;
-  optional string previous_parent_node_id = 2;
-  optional SequenceAnchor previous_anchor = 3;
 }
 
-message OccurrenceRestoreMutation {
+message OccurrenceRestoreAction {
   string occurrence_id = 1;
-  string deletion_fact_id = 2;
+  string node_id = 2;
   string parent_node_id = 3;
   SequenceAnchor anchor = 4;
 }
 
-message OccurrenceMoveMutation {
+message OccurrenceMoveAction {
   string occurrence_id = 1;
   string parent_node_id = 2;
   SequenceAnchor anchor = 3;
-  optional string previous_parent_node_id = 4;
-  optional SequenceAnchor previous_anchor = 5;
 }
 
-message DeclareIntrinsicNodeTypeMutation { string node_id = 1; IntrinsicNodeType intrinsic_node_type = 2; }
-message SupertagApplyMutation {
+message SupertagApplyAction {
   string host_node_id = 1;
   string supertag_id = 2;
   string application_node_id = 3;
@@ -64,207 +58,93 @@ message SupertagApplyMutation {
   string relation_definition_occurrence_id = 7;
 }
 
-message SupertagRemoveMutation {
+message SupertagRemoveAction {
   string host_node_id = 1;
   string supertag_id = 2;
-  string application_node_id = 3;
-  string application_occurrence_id = 4;
-  string definition_occurrence_id = 5;
-  optional SequenceAnchor previous_anchor = 6;
-  string relation_definition_occurrence_id = 7;
-  string detached_value_node_id = 8;
-  string detached_value_occurrence_id = 9;
 }
 
-message SupertagApplicationCreateMutation {
+message SupertagApplicationCreateAction {
   string host_node_id = 1;
-  string metanode_id = 2;
-  string supertag_id = 3;
-  string application_node_id = 4;
-  string application_occurrence_id = 5;
-  string definition_occurrence_id = 6;
-  SequenceAnchor anchor = 7;
-  optional NodeSeed seed = 8;
-  string relation_definition_occurrence_id = 9;
+  string supertag_id = 2;
+  SequenceAnchor anchor = 3;
 }
 
-message SupertagExtensionAddMutation { string supertag_id = 1; string base_supertag_id = 2; SequenceAnchor anchor = 3; }
-message SupertagExtensionRemoveMutation { string supertag_id = 1; string base_supertag_id = 2; optional SequenceAnchor previous_anchor = 3; }
+message SupertagExtensionAddAction { string supertag_id = 1; string base_supertag_id = 2; SequenceAnchor anchor = 3; }
+message SupertagExtensionRemoveAction { string supertag_id = 1; string base_supertag_id = 2; }
 
-message SupertagTemplateNodeAddMutation {
+message TemplateMemberAddAction {
   string supertag_id = 1;
   string template_node_id = 2;
-  string template_occurrence_id = 3;
-  SequenceAnchor anchor = 4;
+  SequenceAnchor anchor = 3;
 }
 
-message SupertagTemplateNodeRemoveMutation {
+message TemplateMemberRemoveAction {
   string supertag_id = 1;
   string template_node_id = 2;
-  string template_occurrence_id = 3;
-  optional SequenceAnchor previous_anchor = 4;
 }
 
-message SupertagTemplateFieldAttachMutation {
+message SupertagTemplateFieldCreateAction {
   string supertag_id = 1;
-  string template_field_node_id = 2;
-  string template_field_occurrence_id = 3;
-  string field_definition_id = 4;
-  string definition_occurrence_id = 5;
-  string static_default_value_node_id = 6;
-  string static_default_value_occurrence_id = 7;
-  SequenceAnchor anchor = 8;
+  string field_definition_id = 2;
+  SequenceAnchor anchor = 3;
+  optional NodeSeed field_definition_seed = 4;
 }
 
-message SupertagTemplateFieldExistingAttachMutation {
+message SupertagTemplateFieldAddExistingAction {
   string supertag_id = 1;
-  string template_field_node_id = 2;
-  string template_field_occurrence_id = 3;
-  string field_definition_id = 4;
-  string definition_occurrence_id = 5;
-  string static_default_value_node_id = 6;
-  string static_default_value_occurrence_id = 7;
-  SequenceAnchor anchor = 8;
+  string field_definition_id = 2;
+  SequenceAnchor anchor = 3;
 }
 
-message SupertagTemplateFieldDetachMutation {
+message SupertagTemplateFieldMakeDiscoverableAction {
   string supertag_id = 1;
-  string template_field_node_id = 2;
-  string template_field_occurrence_id = 3;
-  string field_definition_id = 4;
-  string definition_occurrence_id = 5;
-  string static_default_value_node_id = 6;
-  string static_default_value_occurrence_id = 7;
-  optional SequenceAnchor previous_anchor = 8;
+  string template_field_id = 2;
 }
 
-message SupertagTemplateFieldDiscoverabilitySetMutation {
+message SupertagTemplateFieldRemoveAction {
   string supertag_id = 1;
-  string template_field_node_id = 2;
-  string field_definition_id = 3;
-  bool discoverable = 4;
-  optional bool previous_discoverable = 5;
+  string template_field_id = 2;
 }
 
-message SupertagOptionalFieldContributionAttachMutation {
+message SupertagTemplateFieldVisibilitySetAction {
   string supertag_id = 1;
-  string field_nursery_node_id = 2;
-  string field_nursery_occurrence_id = 3;
-  string nursery_definition_occurrence_id = 4;
-  string nursery_value_node_id = 5;
-  string nursery_value_occurrence_id = 6;
-  string contribution_node_id = 7;
-  string contribution_occurrence_id = 8;
-  string field_definition_id = 9;
-  string definition_occurrence_id = 10;
-  string value_node_id = 11;
-  string value_occurrence_id = 12;
-  SequenceAnchor anchor = 13;
-}
-
-message SupertagOptionalFieldContributionDetachMutation {
-  string supertag_id = 1;
-  string field_nursery_node_id = 2;
-  string field_nursery_occurrence_id = 3;
-  string nursery_definition_occurrence_id = 4;
-  string nursery_value_node_id = 5;
-  string nursery_value_occurrence_id = 6;
-  string contribution_node_id = 7;
-  string contribution_occurrence_id = 8;
-  string field_definition_id = 9;
-  string definition_occurrence_id = 10;
-  string value_node_id = 11;
-  string value_occurrence_id = 12;
-  optional SequenceAnchor previous_anchor = 13;
-}
-
-message SupertagTemplateFieldCreateMutation {
-  string supertag_id = 1;
-  string template_field_node_id = 2;
-  string template_field_occurrence_id = 3;
-  string field_definition_id = 4;
-  string definition_occurrence_id = 5;
-  string static_default_value_node_id = 6;
-  string static_default_value_occurrence_id = 7;
-  SequenceAnchor anchor = 8;
-  optional NodeSeed field_definition_seed = 9;
-}
-
-message SupertagTemplateFieldAddExistingMutation {
-  string supertag_id = 1;
-  string template_field_node_id = 2;
-  string template_field_occurrence_id = 3;
-  string field_definition_id = 4;
-  string definition_occurrence_id = 5;
-  string static_default_value_node_id = 6;
-  string static_default_value_occurrence_id = 7;
-  SequenceAnchor anchor = 8;
-}
-
-message SupertagTemplateFieldMakeDiscoverableMutation {
-  string supertag_id = 1;
-  string template_field_node_id = 2;
-  string field_definition_id = 3;
-}
-
-message SupertagTemplateFieldRemoveMutation {
-  string supertag_id = 1;
-  string template_field_node_id = 2;
-}
-
-message SupertagTemplateFieldVisibilitySetMutation {
-  string supertag_id = 1;
-  string template_field_node_id = 2;
+  string template_field_id = 2;
   TemplateFieldVisibility visibility = 3;
 }
 
-message SupertagTemplateFieldStaticDefaultSetMutation {
+message SupertagTemplateFieldStaticDefaultSetAction {
   string supertag_id = 1;
-  string template_field_node_id = 2;
+  string template_field_id = 2;
   string value = 3;
 }
 
-message SupertagOptionalFieldContributionAddMutation {
+message SupertagOptionalFieldContributionAddAction {
   string supertag_id = 1;
-  string metanode_id = 2;
-  string field_nursery_node_id = 3;
-  string field_nursery_occurrence_id = 4;
-  string nursery_definition_occurrence_id = 5;
-  string nursery_value_node_id = 6;
-  string nursery_value_occurrence_id = 7;
-  string contribution_node_id = 8;
-  string contribution_occurrence_id = 9;
-  string field_definition_id = 10;
-  string definition_occurrence_id = 11;
-  string value_node_id = 12;
-  string value_occurrence_id = 13;
-  SequenceAnchor anchor = 14;
+  string field_definition_id = 2;
+  SequenceAnchor anchor = 3;
 }
 
-message TemplateNodeDetachMutation {
+message SupertagOptionalFieldContributionRemoveAction {
+  string supertag_id = 1;
+  string field_definition_id = 2;
+}
+
+message TemplateNodeDetachAction {
   string owner_node_id = 1;
   string template_node_id = 2;
   string instance_node_id = 3;
   string instance_occurrence_id = 4;
   SequenceAnchor anchor = 5;
-  repeated string source_supertag_ids = 6;
-  repeated string source_application_supertag_ids = 7;
-  repeated string source_template_occurrence_ids = 8;
 }
 
-message FieldMaterializeMutation {
+message FieldMaterializeAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
   string field_occurrence_id = 4;
 }
 
-message DebugNodeOpenMutation {
-  string host_node_id = 1;
-  string metanode_id = 2;
-}
-
-message FieldValueCreateMutation {
+message FieldValueCreateAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -275,7 +155,7 @@ message FieldValueCreateMutation {
   optional NodeSeed seed = 8;
 }
 
-message UrlNodeCreateMutation {
+message UrlNodeCreateAction {
   string node_id = 1;
   string occurrence_id = 2;
   string parent_node_id = 3;
@@ -288,7 +168,7 @@ message UrlNodeCreateMutation {
   string url = 10;
 }
 
-message CodeNodeConfigureMutation {
+message CodeNodeConfigureAction {
   string node_id = 1;
   string language_field_node_id = 2;
   string language_field_occurrence_id = 3;
@@ -297,41 +177,16 @@ message CodeNodeConfigureMutation {
   string language = 6;
 }
 
-message SharedDefaultViewDefinitionSortByNameCreateMutation {
-  string view_definition_node_id = 1;
-  string sort_order_field_node_id = 2;
-  string sort_order_field_occurrence_id = 3;
-  string sort_field_node_id = 4;
-  string sort_field_occurrence_id = 5;
-  string node_name_occurrence_id = 6;
-  string ascending_occurrence_id = 7;
-  string host_node_id = 8;
+message FieldValueRemoveAction {
+  string value_placement_id = 1;
 }
 
-message SharedDefaultViewDefinitionOptionsUpdateMutation {
-  string host_node_id = 1;
-  string view_definition_node_id = 2;
-  ViewOptionsSpec options = 3;
-}
-
-message FieldValueDeleteMutation {
+message MaterializedFieldClearAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string value_occurrence_id = 3;
-  optional string previous_parent_node_id = 4;
-  optional SequenceAnchor previous_anchor = 5;
 }
 
-message MaterializedFieldDeleteMutation {
-  string owner_node_id = 1;
-  string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  optional string previous_parent_node_id = 5;
-  optional SequenceAnchor previous_anchor = 6;
-}
-
-message TextSpliceMutation {
+message RichTextSpliceAction {
   string node_id = 1;
   repeated string delete_atom_ids = 2;
   SequenceAnchor anchor = 3;
@@ -339,198 +194,92 @@ message TextSpliceMutation {
   map<string, google.protobuf.Value> attributes = 5;
 }
 
-message TextMarkMutation {
+message RichTextMarkAction {
   string node_id = 1;
   repeated string atom_ids = 2;
   string key = 3;
   PreviousValue value = 4;
 }
 
-message InlineReferenceCreateMutation {
+message InlineReferenceCreateAction {
   string inline_reference_id = 1;
   string host_node_id = 2;
   string target_node_id = 3;
   SequenceAnchor anchor = 4;
 }
 
-message InlineReferenceDeleteMutation { string inline_reference_id = 1; }
+message InlineReferenceRemoveAction { string inline_reference_id = 1; }
 
-message InlineReferenceAliasAttachMutation {
+message InlineAliasAttachAction {
   string inline_reference_id = 1;
   string alias_node_id = 2;
 }
 
-message InlineReferenceAliasDetachMutation {
+message InlineAliasDetachAction {
   string inline_reference_id = 1;
   string alias_node_id = 2;
 }
 
-message InlineReferenceAliasCreateMutation {
+message InlineReferenceAliasCreateAction {
   string inline_reference_id = 1;
   string host_node_id = 2;
   string alias_node_id = 3;
   optional NodeSeed seed = 4;
 }
 
-message SearchExpressionAttachMutation {
+message SearchExpressionCreateAction {
   string search_node_id = 1;
-  string expression_node_id = 2;
-  string expression_occurrence_id = 3;
-  string definition_occurrence_id = 4;
-  SearchExpressionSpec expression = 5;
-  optional SearchExpressionSpec previous_expression = 6;
+  SearchExpressionDraft expression = 2;
+  SequenceAnchor anchor = 3;
 }
 
-message SearchExpressionCreateMutation {
+message SearchExpressionAddAction {
   string search_node_id = 1;
-  string metanode_id = 2;
-  string expression_node_id = 3;
-  string expression_occurrence_id = 4;
-  SequenceAnchor anchor = 5;
-  optional NodeSeed seed = 6;
-  string definition_occurrence_id = 7;
-  SearchExpressionSpec expression = 8;
+  string parent_expression_id = 2;
+  SearchExpressionDraft expression = 3;
+  SequenceAnchor anchor = 4;
 }
 
-message SearchExpressionUpdateMutation {
+message SearchExpressionConfigureAction {
   string search_node_id = 1;
-  SearchExpressionSpec expression = 2;
+  string expression_id = 2;
+  SearchClause clause = 3;
 }
 
-message SharedDefaultViewDefinitionAttachMutation {
-  string host_node_id = 1;
-  string attachment_node_id = 2;
-  string attachment_occurrence_id = 3;
-  string view_definition_node_id = 4;
-  string view_definition_occurrence_id = 5;
-  string relation_definition_occurrence_id = 6;
+message SearchExpressionMoveAction {
+  string search_node_id = 1;
+  string expression_id = 2;
+  google.protobuf.StringValue parent_expression_id = 3;
+  SequenceAnchor anchor = 4;
 }
 
-message SharedDefaultViewDefinitionModeSetMutation {
-  string view_definition_node_id = 1;
-  ViewType view_type = 2;
-  optional ViewType previous_view_type = 3;
-  repeated string observed_mode_fact_ids = 4;
+message SearchExpressionRemoveAction {
+  string search_node_id = 1;
+  string expression_id = 2;
 }
 
-message SharedDefaultViewDefinitionSortByNameSetMutation {
-  string host_node_id = 1;
-  string view_definition_node_id = 2;
-  string sort_order_field_node_id = 3;
-  string sort_order_field_occurrence_id = 4;
-  string sort_field_node_id = 5;
-  string sort_field_occurrence_id = 6;
-  string node_name_occurrence_id = 7;
-  string ascending_occurrence_id = 8;
-  bool enabled = 9;
-  bool previous_enabled = 10;
-}
-
-message SharedDefaultViewDefinitionCreateMutation {
-  string host_node_id = 1;
-  string metanode_id = 2;
-  string attachment_node_id = 3;
-  string attachment_occurrence_id = 4;
-  string view_definition_node_id = 5;
-  string view_definition_occurrence_id = 6;
-  ViewType view_type = 7;
-  SequenceAnchor anchor = 8;
-  optional NodeSeed seed = 9;
-  string relation_definition_occurrence_id = 10;
-}
-
-message SharedDefaultViewDefinitionRemoveMutation {
-  string host_node_id = 1;
-  string attachment_node_id = 2;
-  string attachment_occurrence_id = 3;
-  string relation_definition_occurrence_id = 4;
-  string view_definition_node_id = 5;
-  string view_definition_occurrence_id = 6;
-}
-
-message SharedDefaultViewDefinitionDetachMutation {
-  string host_node_id = 1;
-  string attachment_node_id = 2;
-  string attachment_occurrence_id = 3;
-  string relation_definition_occurrence_id = 4;
-  string view_definition_node_id = 5;
-  string view_definition_occurrence_id = 6;
-  string detached_value_node_id = 7;
-  string detached_value_occurrence_id = 8;
-}
-
-message FieldDatatypeConfigureMutation {
+message FieldDatatypeConfigureAction {
   string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string datatype_node_id = 4;
-  string value_occurrence_id = 5;
-  optional string options_supertag_id = 6;
-  optional string options_supertag_occurrence_id = 7;
+  string datatype_node_id = 2;
+  optional string options_supertag_id = 3;
 }
 
-message FieldCardinalityConfigureMutation {
+message FieldCardinalityConfigureAction {
   string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string cardinality_node_id = 4;
-  string value_occurrence_id = 5;
+  string cardinality_node_id = 2;
 }
 
-message FieldOptionalityConfigureMutation {
+message FieldOptionalityConfigureAction {
   string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string optionality_node_id = 4;
-  string value_occurrence_id = 5;
+  string optionality_node_id = 2;
 }
 
-message FieldDatatypeConfigurationCreateMutation {
+message FieldInitializationExpressionConfigureAction {
   string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string datatype_node_id = 4;
-  SequenceAnchor anchor = 5;
-  optional NodeSeed seed = 6;
-  string definition_occurrence_id = 7;
-  string value_occurrence_id = 8;
-  optional string options_supertag_id = 9;
-  optional string options_supertag_occurrence_id = 10;
+  FieldInitializationExpression expression = 2;
 }
 
-message FieldCardinalityConfigurationCreateMutation {
-  string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string cardinality_node_id = 4;
-  SequenceAnchor anchor = 5;
-  optional NodeSeed seed = 6;
-  string definition_occurrence_id = 7;
-  string value_occurrence_id = 8;
-}
-
-message FieldOptionalityConfigurationCreateMutation {
-  string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  string optionality_node_id = 4;
-  SequenceAnchor anchor = 5;
-  optional NodeSeed seed = 6;
-  string definition_occurrence_id = 7;
-  string value_occurrence_id = 8;
-}
-
-message FieldInitializationExpressionConfigurationCreateMutation {
-  string field_definition_id = 1;
-  string configuration_node_id = 2;
-  string configuration_occurrence_id = 3;
-  FieldInitializationExpression expression = 4;
-  SequenceAnchor anchor = 5;
-  optional NodeSeed seed = 6;
-  string definition_occurrence_id = 7;
-}
-
-message FieldNumberValueSetMutation {
+message FieldNumberValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -540,7 +289,7 @@ message FieldNumberValueSetMutation {
   double value = 7;
 }
 
-message FieldDateValueSetMutation {
+message FieldDateValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -550,7 +299,7 @@ message FieldDateValueSetMutation {
   string value = 7;
 }
 
-message FieldCheckboxValueSetMutation {
+message FieldCheckboxValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -559,7 +308,7 @@ message FieldCheckboxValueSetMutation {
   bool value = 6;
 }
 
-message FieldOptionsFromSupertagValueSetMutation {
+message FieldOptionsFromSupertagValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -568,7 +317,7 @@ message FieldOptionsFromSupertagValueSetMutation {
   string target_node_id = 6;
 }
 
-message TypedFieldValueClearMutation {
+message TypedFieldValueClearAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
   string field_node_id = 3;
@@ -577,63 +326,136 @@ message TypedFieldValueClearMutation {
   optional string empty_value_occurrence_id = 6;
 }
 
-message EditMutation {
-  oneof mutation {
-    NodeCreateMutation node_create = 1;
-    ReferencePromoteMutation reference_promote = 2;
-    NodeDeleteMutation node_delete = 3;
-    NodeRestoreMutation node_restore = 4;
-    OccurrenceCreateMutation occurrence_create = 5;
-    OccurrenceDeleteMutation occurrence_delete = 6;
-    OccurrenceRestoreMutation occurrence_restore = 7;
-    OccurrenceMoveMutation occurrence_move = 8;
-    DeclareIntrinsicNodeTypeMutation declare_intrinsic_node_type = 9;
-    SupertagApplicationCreateMutation supertag_application_create = 10;
-    SupertagRemoveMutation supertag_remove = 11;
-    SupertagExtensionAddMutation supertag_extension_add = 15;
-    SupertagExtensionRemoveMutation supertag_extension_remove = 16;
-    SupertagTemplateNodeAddMutation supertag_template_node_add = 17;
-    SupertagTemplateNodeRemoveMutation supertag_template_node_remove = 18;
-    TemplateNodeDetachMutation template_node_detach = 19;
-    FieldMaterializeMutation field_materialize = 20;
-    FieldValueDeleteMutation field_value_delete = 21;
-    MaterializedFieldDeleteMutation materialized_field_delete = 22;
-    TextSpliceMutation text_splice = 23;
-    TextMarkMutation text_mark = 24;
-    InlineReferenceCreateMutation inline_reference_create = 25;
-    InlineReferenceDeleteMutation inline_reference_delete = 26;
-    InlineReferenceAliasAttachMutation inline_reference_alias_attach = 27;
-    InlineReferenceAliasDetachMutation inline_reference_alias_detach = 28;
-    InlineReferenceAliasCreateMutation inline_reference_alias_create = 29;
-    SearchExpressionCreateMutation search_expression_create = 30;
-    SearchExpressionUpdateMutation search_expression_update = 60;
-    SharedDefaultViewDefinitionCreateMutation shared_default_view_definition_create = 32;
-    SharedDefaultViewDefinitionModeSetMutation shared_default_view_definition_mode_set = 33;
-    FieldDatatypeConfigureMutation field_datatype_configure = 34;
-    FieldCardinalityConfigureMutation field_cardinality_configure = 35;
-    FieldDatatypeConfigurationCreateMutation field_datatype_configuration_create = 37;
-    FieldCardinalityConfigurationCreateMutation field_cardinality_configuration_create = 38;
-    FieldInitializationExpressionConfigurationCreateMutation field_initialization_expression_configuration_create = 39;
-    SharedDefaultViewDefinitionRemoveMutation shared_default_view_definition_remove = 40;
-    DebugNodeOpenMutation debug_node_open = 41;
-    FieldValueCreateMutation field_value_create = 42;
-    UrlNodeCreateMutation url_node_create = 43;
-    CodeNodeConfigureMutation code_node_configure = 44;
-    SharedDefaultViewDefinitionSortByNameCreateMutation shared_default_view_definition_sort_by_name_create = 45;
-    SupertagTemplateFieldCreateMutation supertag_template_field_create = 46;
-    SupertagTemplateFieldMakeDiscoverableMutation supertag_template_field_make_discoverable = 47;
-    SupertagTemplateFieldRemoveMutation supertag_template_field_remove = 48;
-    SupertagOptionalFieldContributionAddMutation supertag_optional_field_contribution_add = 49;
-    FieldOptionalityConfigureMutation field_optionality_configure = 50;
-    FieldOptionalityConfigurationCreateMutation field_optionality_configuration_create = 51;
-    SupertagTemplateFieldAddExistingMutation supertag_template_field_add_existing = 52;
-    SupertagTemplateFieldVisibilitySetMutation supertag_template_field_visibility_set = 53;
-    SupertagTemplateFieldStaticDefaultSetMutation supertag_template_field_static_default_set = 54;
-    FieldNumberValueSetMutation field_number_value_set = 55;
-    FieldDateValueSetMutation field_date_value_set = 56;
-    FieldCheckboxValueSetMutation field_checkbox_value_set = 57;
-    FieldOptionsFromSupertagValueSetMutation field_options_from_supertag_value_set = 58;
-    TypedFieldValueClearMutation typed_field_value_clear = 59;
-    SharedDefaultViewDefinitionOptionsUpdateMutation shared_default_view_definition_options_update = 61;
+message SharedDefaultViewCreateAction {
+  string host_node_id = 1;
+  ViewType view_type = 2;
+  SequenceAnchor anchor = 3;
+}
+
+message SharedDefaultViewRemoveAction { string host_node_id = 1; }
+
+message ViewModeSetAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  ViewType view_type = 3;
+}
+
+message ViewColumnAddAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string field_definition_id = 3;
+  SequenceAnchor anchor = 4;
+}
+message ViewColumnRemoveAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; }
+message ViewColumnMoveAction { string host_node_id = 1; string view_id = 2; string column_id = 3; SequenceAnchor anchor = 4; }
+
+message ViewSortAddAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; ViewSortDirection direction = 4; }
+message ViewSortConfigureAction { string host_node_id = 1; string view_id = 2; string sort_id = 3; string field_definition_id = 4; ViewSortDirection direction = 5; }
+message ViewSortRemoveAction { string host_node_id = 1; string view_id = 2; }
+message ViewSortByNodeNameAction { string host_node_id = 1; string view_id = 2; ViewSortDirection direction = 3; }
+message ViewGroupAddAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; }
+message ViewGroupRemoveAction { string host_node_id = 1; string view_id = 2; }
+message ViewFilterCreateAction { string host_node_id = 1; string view_id = 2; SearchExpressionDraft expression = 3; SequenceAnchor anchor = 4; }
+message ViewFilterRemoveAction { string host_node_id = 1; string view_id = 2; }
+message ViewFilterExpressionAddAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string filter_id = 3;
+  string parent_expression_id = 4;
+  SearchExpressionDraft expression = 5;
+  SequenceAnchor anchor = 6;
+}
+message ViewFilterExpressionConfigureAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string filter_id = 3;
+  string expression_id = 4;
+  SearchClause clause = 5;
+}
+message ViewFilterExpressionMoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string filter_id = 3;
+  string expression_id = 4;
+  google.protobuf.StringValue parent_expression_id = 5;
+  SequenceAnchor anchor = 6;
+}
+message ViewFilterExpressionRemoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string filter_id = 3;
+  string expression_id = 4;
+}
+
+message EditAction {
+  oneof action {
+    NodeCreateAction node_create = 1;
+    ReferencePromoteAction reference_promote = 2;
+    NodeDeleteAction node_delete = 3;
+    NodeRestoreAction node_restore = 4;
+    OccurrenceCreateAction occurrence_create = 5;
+    OccurrenceDeleteAction occurrence_delete = 6;
+    OccurrenceRestoreAction occurrence_restore = 7;
+    OccurrenceMoveAction occurrence_move = 8;
+    SupertagApplicationCreateAction supertag_application_create = 9;
+    SupertagRemoveAction supertag_remove = 10;
+    SupertagExtensionAddAction supertag_extension_add = 11;
+    SupertagExtensionRemoveAction supertag_extension_remove = 12;
+    TemplateMemberAddAction template_member_add = 13;
+    TemplateMemberRemoveAction template_member_remove = 14;
+    SupertagTemplateFieldCreateAction supertag_template_field_create = 15;
+    SupertagTemplateFieldAddExistingAction supertag_template_field_add_existing = 16;
+    SupertagTemplateFieldMakeDiscoverableAction supertag_template_field_make_discoverable = 17;
+    SupertagTemplateFieldRemoveAction supertag_template_field_remove = 18;
+    SupertagTemplateFieldVisibilitySetAction supertag_template_field_visibility_set = 19;
+    SupertagTemplateFieldStaticDefaultSetAction supertag_template_field_static_default_set = 20;
+    SupertagOptionalFieldContributionAddAction supertag_optional_field_contribution_add = 21;
+    SupertagOptionalFieldContributionRemoveAction supertag_optional_field_contribution_remove = 22;
+    TemplateNodeDetachAction template_node_detach = 23;
+    FieldMaterializeAction field_materialize = 24;
+    FieldValueCreateAction field_value_create = 25;
+    FieldValueRemoveAction field_value_remove = 26;
+    MaterializedFieldClearAction materialized_field_clear = 27;
+    FieldDatatypeConfigureAction field_datatype_configure = 28;
+    FieldCardinalityConfigureAction field_cardinality_configure = 29;
+    FieldOptionalityConfigureAction field_optionality_configure = 30;
+    FieldInitializationExpressionConfigureAction field_initialization_expression_configure = 31;
+    FieldNumberValueSetAction field_number_value_set = 32;
+    FieldDateValueSetAction field_date_value_set = 33;
+    FieldCheckboxValueSetAction field_checkbox_value_set = 34;
+    FieldOptionsFromSupertagValueSetAction field_options_from_supertag_value_set = 35;
+    TypedFieldValueClearAction typed_field_value_clear = 36;
+    UrlNodeCreateAction url_node_create = 37;
+    CodeNodeConfigureAction code_node_configure = 38;
+    RichTextSpliceAction rich_text_splice = 39;
+    RichTextMarkAction rich_text_mark = 40;
+    InlineReferenceCreateAction inline_reference_create = 41;
+    InlineReferenceRemoveAction inline_reference_remove = 42;
+    InlineAliasAttachAction inline_alias_attach = 43;
+    InlineAliasDetachAction inline_alias_detach = 44;
+    InlineReferenceAliasCreateAction inline_reference_alias_create = 45;
+    SearchExpressionCreateAction search_expression_create = 46;
+    SearchExpressionAddAction search_expression_add = 47;
+    SearchExpressionConfigureAction search_expression_configure = 48;
+    SearchExpressionMoveAction search_expression_move = 49;
+    SearchExpressionRemoveAction search_expression_remove = 50;
+    SharedDefaultViewCreateAction shared_default_view_create = 51;
+    SharedDefaultViewRemoveAction shared_default_view_remove = 52;
+    ViewModeSetAction view_mode_set = 53;
+    ViewColumnAddAction view_column_add = 54;
+    ViewColumnRemoveAction view_column_remove = 55;
+    ViewColumnMoveAction view_column_move = 56;
+    ViewSortAddAction view_sort_add = 57;
+    ViewSortConfigureAction view_sort_configure = 58;
+    ViewSortRemoveAction view_sort_remove = 59;
+    ViewSortByNodeNameAction view_sort_by_node_name = 60;
+    ViewGroupAddAction view_group_add = 61;
+    ViewGroupRemoveAction view_group_remove = 62;
+    ViewFilterCreateAction view_filter_create = 63;
+    ViewFilterRemoveAction view_filter_remove = 64;
+    ViewFilterExpressionAddAction view_filter_expression_add = 65;
+    ViewFilterExpressionConfigureAction view_filter_expression_configure = 66;
+    ViewFilterExpressionMoveAction view_filter_expression_move = 67;
+    ViewFilterExpressionRemoveAction view_filter_expression_remove = 68;
   }
 }

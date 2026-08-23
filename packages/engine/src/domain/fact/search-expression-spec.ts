@@ -1,4 +1,6 @@
 import { array, booleanValue, enumValue, exact, nonempty, object, stringValue } from "../../decoding/index.js";
+import { requireFactActionId } from "./identities.js";
+import type { FactActionId } from "./types.js";
 
 export type SearchFieldValue =
   | Readonly<{ kind: "node"; nodeId: string }>
@@ -10,58 +12,90 @@ export type SearchFieldValue =
 export type SearchScopeTarget =
   Readonly<{ kind: "node"; nodeId: string }> | Readonly<{ kind: "parent" }> | Readonly<{ kind: "grandparent" }>;
 
-export type SearchExpressionSpec =
-  | Readonly<{ expressionNodeId: string; kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
-  | Readonly<{ expressionNodeId: string; kind: "not"; operand: SearchExpressionSpec }>
-  | Readonly<{ expressionNodeId: string; kind: "supertag"; supertagId: string }>
-  | Readonly<{ expressionNodeId: string; kind: "text"; text: string }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "field-defined";
-      fieldDefinitionId: string;
-      defined: boolean;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "field-value";
-      fieldDefinitionId: string;
-      value: SearchFieldValue;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "date-compare";
-      fieldDefinitionId: string;
-      operator: "lt" | "gt";
-      date: string;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "descendant-of" | "child-of";
-      target: SearchScopeTarget;
-    }>
-  | Readonly<{ expressionNodeId: string; kind: "links-to"; targetNodeId: string }>;
+export type SearchExpressionSpec = Readonly<{ expressionId: FactActionId; expressionNodeId: string }> &
+  (
+    | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
+    | Readonly<{ kind: "not"; operand: SearchExpressionSpec }>
+    | Readonly<{ kind: "supertag"; supertagId: string }>
+    | Readonly<{ kind: "text"; text: string }>
+    | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
+    | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
+    | Readonly<{
+        kind: "date-compare";
+        fieldDefinitionId: string;
+        operator: "lt" | "gt";
+        date: string;
+      }>
+    | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
+    | Readonly<{ kind: "links-to"; targetNodeId: string }>
+  );
+
+export type SearchClause =
+  | Readonly<{ kind: "and" | "or" | "not" }>
+  | Readonly<{ kind: "supertag"; supertagId: string }>
+  | Readonly<{ kind: "text"; text: string }>
+  | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
+  | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
+  | Readonly<{ kind: "date-compare"; fieldDefinitionId: string; operator: "lt" | "gt"; date: string }>
+  | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
+  | Readonly<{ kind: "links-to"; targetNodeId: string }>;
+
+export type SearchExpressionDraft =
+  | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionDraft[] }>
+  | Readonly<{ kind: "not"; operand: SearchExpressionDraft }>
+  | Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
 
 export function parseSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   const identities = new Set<string>();
   return parseExpression(value, identities, 0);
 }
 
-export function searchExpressionNodeIds(expression: SearchExpressionSpec): readonly string[] {
-  const result: string[] = [];
-  visitSearchExpression(expression, (candidate) => result.push(candidate.expressionNodeId));
+export function parseSearchClause(value: unknown): SearchClause {
+  const clause = object(value, "Search clause");
+  if (clause.kind === "and" || clause.kind === "or" || clause.kind === "not") {
+    exact(clause, ["kind"], "Search logical clause");
+    return { kind: clause.kind };
+  }
+  const parsed = parseExpression(
+    { expressionId: "g1/clause/0/0/actions/0", expressionNodeId: "expression", ...clause },
+    new Set(),
+    0,
+  );
+  if (parsed.kind === "and" || parsed.kind === "or" || parsed.kind === "not") {
+    throw new Error("Search logical clause cannot contain operands");
+  }
+  const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...result } = parsed;
   return result;
 }
 
-export function visitSearchExpression(
-  expression: SearchExpressionSpec,
-  visit: (expression: SearchExpressionSpec) => void,
-): void {
-  visit(expression);
-  if (expression.kind === "and" || expression.kind === "or") {
-    expression.operands.forEach((operand) => visitSearchExpression(operand, visit));
-  } else if (expression.kind === "not") {
-    visitSearchExpression(expression.operand, visit);
+export function parseSearchExpressionDraft(value: unknown, depth = 0): SearchExpressionDraft {
+  if (depth > 64) {
+    throw new Error("Search Expression nesting is too deep");
   }
+  const draft = object(value, "Search Expression draft");
+  if (draft.kind === "and" || draft.kind === "or") {
+    exact(draft, ["kind", "operands"], "Search logical Expression draft");
+    const operands = array(draft.operands, "Search logical operands", (operand) =>
+      parseSearchExpressionDraft(operand, depth + 1),
+    );
+    if (operands.length === 0) {
+      throw new Error("Search logical Expression has no operands");
+    }
+    return { kind: draft.kind, operands };
+  }
+  if (draft.kind === "not") {
+    exact(draft, ["kind", "operand"], "Search NOT Expression draft");
+    return { kind: "not", operand: parseSearchExpressionDraft(draft.operand, depth + 1) };
+  }
+  return parseSearchClause(draft) as Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
+}
+
+export function searchClauseFromSpec(expression: SearchExpressionSpec): SearchClause {
+  if (expression.kind === "and" || expression.kind === "or" || expression.kind === "not") {
+    return { kind: expression.kind };
+  }
+  const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...clause } = expression;
+  return clause;
 }
 
 function parseExpression(value: unknown, identities: Set<string>, depth: number): SearchExpressionSpec {
@@ -69,6 +103,7 @@ function parseExpression(value: unknown, identities: Set<string>, depth: number)
     throw new Error("Search Expression nesting is too deep");
   }
   const expression = object(value, "Search Expression");
+  const expressionId = requireFactActionId(expression.expressionId, "Search Expression identity");
   const expressionNodeId = nonempty(expression.expressionNodeId, "Search Expression Node identity");
   if (identities.has(expressionNodeId)) {
     throw new Error(`Search Expression repeats a Node identity: ${expressionNodeId}`);
@@ -92,40 +127,65 @@ function parseExpression(value: unknown, identities: Set<string>, depth: number)
     "Search Expression kind",
   );
   if (kind === "and" || kind === "or") {
-    exact(expression, ["expressionNodeId", "kind", "operands"], "Search logical Expression");
+    exact(expression, ["expressionId", "expressionNodeId", "kind", "operands"], "Search logical Expression");
     const operands = array(expression.operands, "Search logical operands", (operand) =>
       parseExpression(operand, identities, depth + 1),
     );
     if (operands.length === 0) {
       throw new Error("Search logical Expression has no operands");
     }
-    return { expressionNodeId, kind, operands };
+    return { expressionId, expressionNodeId, kind, operands };
   }
   if (kind === "not") {
-    exact(expression, ["expressionNodeId", "kind", "operand"], "Search NOT Expression");
-    return { expressionNodeId, kind, operand: parseExpression(expression.operand, identities, depth + 1) };
+    exact(expression, ["expressionId", "expressionNodeId", "kind", "operand"], "Search NOT Expression");
+    return {
+      expressionId,
+      expressionNodeId,
+      kind,
+      operand: parseExpression(expression.operand, identities, depth + 1),
+    };
   }
+  return parseLeafExpression(expression, { expressionId, expressionNodeId }, kind);
+}
+
+function parseLeafExpression(
+  expression: Record<string, unknown>,
+  identity: Readonly<{ expressionId: FactActionId; expressionNodeId: string }>,
+  kind: Exclude<SearchExpressionSpec["kind"], "and" | "or" | "not">,
+): SearchExpressionSpec {
   if (kind === "supertag") {
-    exact(expression, ["expressionNodeId", "kind", "supertagId"], "Search Supertag Expression");
-    return { expressionNodeId, kind, supertagId: nonempty(expression.supertagId, "Search Supertag identity") };
+    exact(expression, ["expressionId", "expressionNodeId", "kind", "supertagId"], "Search Supertag Expression");
+    return {
+      ...identity,
+      kind,
+      supertagId: nonempty(expression.supertagId, "Search Supertag identity"),
+    };
   }
   if (kind === "text") {
-    exact(expression, ["expressionNodeId", "kind", "text"], "Search text Expression");
-    return { expressionNodeId, kind, text: nonempty(expression.text, "Search text") };
+    exact(expression, ["expressionId", "expressionNodeId", "kind", "text"], "Search text Expression");
+    return { ...identity, kind, text: nonempty(expression.text, "Search text") };
   }
   if (kind === "field-defined") {
-    exact(expression, ["expressionNodeId", "kind", "fieldDefinitionId", "defined"], "Search Field Defined Expression");
+    exact(
+      expression,
+      ["expressionId", "expressionNodeId", "kind", "fieldDefinitionId", "defined"],
+      "Search Field Defined Expression",
+    );
     return {
-      expressionNodeId,
+      ...identity,
       kind,
       fieldDefinitionId: nonempty(expression.fieldDefinitionId, "Search Field Definition identity"),
       defined: booleanValue(expression.defined, "Search Field Defined value"),
     };
   }
   if (kind === "field-value") {
-    exact(expression, ["expressionNodeId", "kind", "fieldDefinitionId", "value"], "Search Field value Expression");
+    exact(
+      expression,
+      ["expressionId", "expressionNodeId", "kind", "fieldDefinitionId", "value"],
+      "Search Field value Expression",
+    );
     return {
-      expressionNodeId,
+      ...identity,
       kind,
       fieldDefinitionId: nonempty(expression.fieldDefinitionId, "Search Field Definition identity"),
       value: parseFieldValue(expression.value),
@@ -134,13 +194,13 @@ function parseExpression(value: unknown, identities: Set<string>, depth: number)
   if (kind === "date-compare") {
     exact(
       expression,
-      ["expressionNodeId", "kind", "fieldDefinitionId", "operator", "date"],
+      ["expressionId", "expressionNodeId", "kind", "fieldDefinitionId", "operator", "date"],
       "Search Date comparison Expression",
     );
     const date = stringValue(expression.date, "Search comparison Date");
     assertDate(date);
     return {
-      expressionNodeId,
+      ...identity,
       kind,
       fieldDefinitionId: nonempty(expression.fieldDefinitionId, "Search Field Definition identity"),
       operator: enumValue(expression.operator, ["lt", "gt"] as const, "Search Date comparison operator"),
@@ -148,12 +208,12 @@ function parseExpression(value: unknown, identities: Set<string>, depth: number)
     };
   }
   if (kind === "descendant-of" || kind === "child-of") {
-    exact(expression, ["expressionNodeId", "kind", "target"], "Search scope Expression");
-    return { expressionNodeId, kind, target: parseScopeTarget(expression.target) };
+    exact(expression, ["expressionId", "expressionNodeId", "kind", "target"], "Search scope Expression");
+    return { ...identity, kind, target: parseScopeTarget(expression.target) };
   }
-  exact(expression, ["expressionNodeId", "kind", "targetNodeId"], "Search links-to Expression");
+  exact(expression, ["expressionId", "expressionNodeId", "kind", "targetNodeId"], "Search links-to Expression");
   return {
-    expressionNodeId,
+    ...identity,
     kind,
     targetNodeId: nonempty(expression.targetNodeId, "Search links-to target Node identity"),
   };

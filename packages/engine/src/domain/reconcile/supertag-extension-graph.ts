@@ -1,6 +1,6 @@
 import { stableStringCompare } from "../fact/index.js";
 
-export type SupertagExtensionGraph = Readonly<{
+type SupertagExtensionGraph = Readonly<{
   instanceSupertags: Readonly<Record<string, readonly string[]>>;
   conflicts: Readonly<Record<string, readonly string[]>>;
   lineage(supertagId: string): readonly string[];

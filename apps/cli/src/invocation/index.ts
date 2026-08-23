@@ -2,7 +2,7 @@ import { CliError } from "../outcome/index.js";
 import type { CommandDefinition } from "../catalog/index.js";
 import { ParsedArgs } from "./context.js";
 export { ParsedArgs, validateGlobalsFor } from "./context.js";
-export type { CommandContext, WorkspacePersistence } from "./context.js";
+export type { CommandContext } from "./context.js";
 
 /**
  * Invocation decoding: argv in, syntactically valid typed input out. No
@@ -10,7 +10,7 @@ export type { CommandContext, WorkspacePersistence } from "./context.js";
  * pipeline stages. Usage failures are typed `CliError`s, never strings.
  */
 
-export const GLOBAL_OPTIONS = [
+const GLOBAL_OPTIONS = [
   "--home",
   "--workspace",
   "--actor",

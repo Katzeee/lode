@@ -4,9 +4,8 @@ import {
   engineErrorCode,
   engineEventKind,
   viewRowSourceKind,
-  workspaceRunState,
 } from "./protocol-enums/engine.js";
-import { contributionMutationKind } from "./protocol-enums/fact.js";
+import { factActionKind } from "./protocol-enums/fact.js";
 import { hardDeleteBlocker } from "./protocol-enums/maintenance.js";
 import {
   anchorAffinity,
@@ -40,7 +39,7 @@ type AnyEnumCodec = ProtocolEnumCodec<number, string>;
 export const protocolEnumCodecs = new Map<string, AnyEnumCodec>([
   ["lode.AnchorAffinity", anchorAffinity],
   ["lode.AnchorFallback", anchorFallback],
-  ["lode.ContributionMutationKind", contributionMutationKind],
+  ["lode.FactActionKind", factActionKind],
   ["lode.EditIntent", editIntent],
   ["lode.EngineErrorCode", engineErrorCode],
   ["lode.EngineEventKind", engineEventKind],
@@ -64,5 +63,4 @@ export const protocolEnumCodecs = new Map<string, AnyEnumCodec>([
   ["lode.ViewSortDirection", viewSortDirection],
   ["lode.SearchDateComparisonOperator", searchDateComparisonOperator],
   ["lode.ViewRowReference.SourceKind", viewRowSourceKind],
-  ["lode.WorkspaceRunState", workspaceRunState],
 ]);

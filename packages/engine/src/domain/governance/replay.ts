@@ -1,4 +1,4 @@
-import { compareFacts, type Fact } from "../fact/index.js";
+import { compareCausalOrder, type Fact } from "../fact/index.js";
 import type { ActorId, GovernanceAction, PeerId, TransitEnvelope } from "../fact/index.js";
 
 /**
@@ -6,10 +6,8 @@ import type { ActorId, GovernanceAction, PeerId, TransitEnvelope } from "../fact
  * fold over governance Facts in the deterministic total order (Lamport, then
  * Replica, then sequence) — the same result on every replica regardless of
  * merge order. Facts whose authorization or epoch is stale are skipped: they
- * stay in the journal as evidence but have no governance effect. A second
- * workspace-establish is the one fatal input: it means two independently
- * created journals for one Workspace merged, which nothing downstream can
- * reconcile quietly.
+ * stay in the authority as evidence but have no governance effect. Concurrent
+ * establishment is resolved by the same order; only its first Fact takes effect.
  */
 
 export type AdmittedPeer = Readonly<{
@@ -28,24 +26,9 @@ export type GovernanceState = Readonly<{
   peers: ReadonlyMap<PeerId, AdmittedPeer>;
 }>;
 
-export const UNGOVERNED_STATE: GovernanceState = {
-  established: false,
-  ownerActorId: null,
-  members: new Set(),
-  epoch: -1,
-  peers: new Map(),
-};
-
-export class DuplicateEstablishError extends Error {
-  constructor(factId: string) {
-    super(`Workspace already has an establish governance Fact: ${factId}`);
-    this.name = "DuplicateEstablishError";
-  }
-}
-
 export function projectGovernance(facts: readonly Fact[]): GovernanceState {
   const builder = new GovernanceStateBuilder();
-  for (const fact of [...facts].sort(compareFacts)) {
+  for (const fact of [...facts].sort(compareCausalOrder)) {
     if (fact.body.kind !== "governance") {
       continue;
     }
@@ -76,7 +59,7 @@ class GovernanceStateBuilder {
     if (fact.body.kind !== "governance") {
       throw new Error("Governance replay received a non-governance Fact");
     }
-    this.applyAction(fact.body.actorId, fact.body.action, fact.id);
+    this.applyAction(fact.body.actorId, fact.body.action);
   }
 
   state(): GovernanceState {
@@ -89,11 +72,11 @@ class GovernanceStateBuilder {
     };
   }
 
-  private applyAction(actorId: ActorId, action: GovernanceAction, factId: string): void {
+  private applyAction(actorId: ActorId, action: GovernanceAction): void {
     switch (action.kind) {
       case "workspace-establish":
         if (this.established) {
-          throw new DuplicateEstablishError(factId);
+          return;
         }
         this.established = true;
         this.ownerActorId = action.ownerActorId;

@@ -1,62 +1,39 @@
-import { compareFacts, isSupertagMutation, type ContributionFact, type SupertagMutation } from "../fact/index.js";
+import { compareCausalOrder, isSupertagAction, type FactAction } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { supertagRelationAddress, supertagRelationEffect } from "./supertag-review.js";
 
 export function supertagCandidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
+  const groups = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isSupertagMutation(mutation)) {
+    if (!isSupertagAction(fact.action)) {
       continue;
     }
-    if (
-      mutation.kind === "supertag-template-field-attach" ||
-      mutation.kind === "supertag-template-field-existing-attach" ||
-      mutation.kind === "supertag-template-field-detach" ||
-      mutation.kind === "supertag-template-field-discoverability-set" ||
-      mutation.kind === "supertag-optional-field-contribution-attach" ||
-      mutation.kind === "supertag-optional-field-contribution-detach"
-    ) {
-      continue;
-    }
-    const address = supertagRelationAddress(mutation);
+    const address = supertagRelationAddress(fact.action, fact.id);
     const group = groups.get(address) ?? [];
     group.push(fact);
     groups.set(address, group);
   }
-  return [...groups.values()].flatMap((facts): readonly HunkCandidate[] => candidateForGroup(facts, generation));
-}
-
-function candidateForGroup(
-  facts: readonly ContributionFact[],
-  generation: ScopedProjectionGeneration,
-): readonly HunkCandidate[] {
-  const last = facts.at(-1)!;
-  const supertagFact = supertagMutationFact(last);
-  const effect = supertagRelationEffect(supertagFact, generation);
-  return effect.originIndex === effect.reviewIndex
-    ? []
-    : [
-        {
-          diffSpace: {
-            kind: effect.relation === "application" ? "supertag-application" : "supertag-template",
-            identity: supertagRelationAddress(supertagFact.body.mutation),
+  return [...groups.values()].flatMap((facts): readonly HunkCandidate[] => {
+    const last = [...facts].sort(compareCausalOrder).at(-1);
+    if (!last || !isSupertagAction(last.action)) {
+      return [];
+    }
+    const effect = supertagRelationEffect(last, generation);
+    return effect.originIndex === effect.reviewIndex
+      ? []
+      : [
+          {
+            diffSpace: {
+              kind: effect.relation === "application" ? "supertag-application" : "supertag-template",
+              identity: supertagRelationAddress(last.action, last.id),
+            },
+            targets: facts.map((fact) => fact.id),
+            bridges: [],
           },
-          targets: [...facts].sort(compareFacts).map((fact) => fact.id),
-          bridges: [],
-        },
-      ];
-}
-
-type SupertagMutationFact = ContributionFact & Readonly<{ body: Readonly<{ mutation: SupertagMutation }> }>;
-
-function supertagMutationFact(fact: ContributionFact): SupertagMutationFact {
-  if (!isSupertagMutation(fact.body.mutation)) {
-    throw new Error("Supertag Review group contains a non-Supertag Mutation");
-  }
-  return fact as SupertagMutationFact;
+        ];
+  });
 }

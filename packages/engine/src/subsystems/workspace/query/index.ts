@@ -1,9 +1,9 @@
 import type { EngineQuery, EngineQueryValue } from "@lode/sdk";
 import type { FactSnapshot } from "../../../domain/fact/index.js";
+import type { ProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 import type {
   ProjectionIdentityReader,
-  ProjectionGenerationReader,
   ProjectionSectionPageReader,
   ReviewReadModelReader,
   ProjectionSupertagInstancesReader,
@@ -22,7 +22,6 @@ import { queryDebugNode } from "./debug-node.js";
 import { queryTrashEvidence } from "./trash-evidence.js";
 
 type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
-  ProjectionGenerationReader &
   ProjectionSectionPageReader &
   ReviewReadModelReader &
   ProjectionSupertagInstancesReader &
@@ -30,13 +29,21 @@ type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
 
 type WorkspaceQueryAuthority = Pick<
   FactAuthorityPort,
-  "facts" | "historyImpacts" | "receipt" | "receiptsForChannel" | "relatedFacts" | "replicaId"
+  | "facts"
+  | "factsOwningActions"
+  | "historyImpacts"
+  | "receipt"
+  | "receiptsForChannel"
+  | "relatedFacts"
+  | "relatedFactsOwningActions"
+  | "replicaId"
 >;
 
 type WorkspaceQueryContext = Readonly<{
   workspaceId: string;
   facts: WorkspaceQueryAuthority;
   snapshot: FactSnapshot;
+  generation: ProjectionGeneration;
   projections: WorkspaceQueryProjectionReader;
   generationId: string;
   projectionFailure: string | null;
@@ -55,17 +62,17 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
     case "supertag-instances":
       return querySupertagInstances(query, context.generationId, context.projections);
     case "backlinks":
-      return queryBacklinks(query, context.generationId, context.projections);
+      return Promise.resolve(queryBacklinks(query, context.generation));
     case "search-results":
-      return querySearchResults(query, context.generationId, context.projections);
+      return Promise.resolve(querySearchResults(query, context.generation));
     case "view-rows":
-      return queryViewRows(query, context.generationId, context.projections);
+      return Promise.resolve(queryViewRows(query, context.generation));
     case "outline":
-      return queryOutline(query, context.generationId, context.projections);
+      return Promise.resolve(queryOutline(query, context.generation));
     case "debug-node":
-      return queryDebugNode(query, context.generationId, context.projections);
+      return Promise.resolve(queryDebugNode(query, context.generation));
     case "trash-evidence":
-      return queryTrashEvidence(query, context.generationId, context.snapshot, context.projections);
+      return Promise.resolve(queryTrashEvidence(query, context.snapshot, context.generation));
     case "hard-delete-preview":
       return hardDeletePreview(
         context.workspaceId,
@@ -86,7 +93,7 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
         context.reviewCapabilityKey,
       );
     case "history":
-      return queryWorkspaceHistory(query, context.snapshot, context.facts, context.projections, context.generationId);
+      return queryWorkspaceHistory(query, context.snapshot, context.facts);
     case "invocation":
       return queryWorkspaceInvocation(
         query,

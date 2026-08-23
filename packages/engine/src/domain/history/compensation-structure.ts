@@ -1,10 +1,10 @@
 import {
-  compareFacts,
-  isFieldContentDeletionMutation,
-  isNodeMutation,
-  isOccurrenceMutation,
-  type ContributionFact,
-  type SequenceAnchor,
+  compareCausalOrder,
+  fieldDefinitionEndpointOccurrenceId,
+  isNodeAction,
+  isPlacementAction,
+  type AuthoredAction,
+  type FactAction,
 } from "../fact/index.js";
 import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
@@ -13,60 +13,63 @@ import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compens
 import { compensateNodeOwner } from "./compensation-owner.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
-export function compensateStructureMutation(
-  target: ContributionFact,
+export function compensateStructureAction(
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep | null {
-  const mutation = target.body.mutation;
-  if (isFieldContentDeletionMutation(mutation)) {
-    return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
+  const authoredAction = target.action;
+  if (authoredAction.kind === "field-value-remove") {
+    return compensateOccurrenceDelete(authoredAction.valuePlacementId, projection, counterfactual);
   }
-  if (isNodeMutation(mutation)) {
-    switch (mutation.kind) {
+  if (authoredAction.kind === "materialized-field-clear") {
+    return compensateMaterializedFieldClear(authoredAction, projection, counterfactual);
+  }
+  if (isNodeAction(authoredAction)) {
+    switch (authoredAction.kind) {
+      case "workspace-bootstrap":
+        return noCompensation();
       case "node-create":
       case "node-restore":
         return compensateNodeCreate(target, targetIds, activeFacts, projection);
-      case "node-delete":
-        return compensateNodeDelete(target, targetIds, activeFacts, projection);
-      case "node-owner-set":
-        return compensateNodeOwner(target, activeFacts, projection);
-      case "intrinsic-node-type-declare":
-        return noCompensation();
+      case "original-promote":
+        return compensateNodeOwner(target, activeFacts, projection, counterfactual);
+      case "node-trash":
+        return compensateNodeTrash(target, targetIds, activeFacts, projection, counterfactual);
     }
   }
-  if (isOccurrenceMutation(mutation)) {
-    switch (mutation.kind) {
-      case "occurrence-create":
-      case "occurrence-restore":
+  if (isPlacementAction(authoredAction)) {
+    switch (authoredAction.kind) {
+      case "placement-create":
         return compensateOccurrenceCreate(target, targetIds, activeFacts, projection);
-      case "occurrence-delete":
-        return compensateOccurrenceDelete(target, targetIds, activeFacts, projection);
-      case "occurrence-move":
-        return compensateMove(target, activeFacts, projection);
+      case "placement-remove":
+        return compensateOccurrenceDelete(authoredAction.placementId, projection, counterfactual);
+      case "placement-move":
+        return compensateMove(target, activeFacts, projection, counterfactual);
     }
   }
   return null;
 }
 
-export function compensateNodeCreate(
-  target: ContributionFact,
+function compensateNodeCreate(
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
+  const authoredAction = target.action;
   const location =
-    mutation.kind === "node-create" || mutation.kind === "node-restore"
-      ? nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId)
+    authoredAction.kind === "node-create" || authoredAction.kind === "node-restore"
+      ? nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)
       : "absent";
   const ownedByDetachedRelation =
-    (mutation.kind === "node-create" || mutation.kind === "node-restore") &&
+    (authoredAction.kind === "node-create" || authoredAction.kind === "node-restore") &&
     location === "absent" &&
-    projection.nodeOwners[mutation.nodeId] != null;
+    projection.nodeOwners[authoredAction.nodeId] != null;
   if (
-    (mutation.kind !== "node-create" && mutation.kind !== "node-restore") ||
+    (authoredAction.kind !== "node-create" && authoredAction.kind !== "node-restore") ||
     (location !== "active" && !ownedByDetachedRelation)
   ) {
     return noCompensation();
@@ -80,171 +83,178 @@ export function compensateNodeCreate(
   if (reverseDependencies.length > 0) {
     return { kind: "stale", reason: "Deleting the created Node would remove later work" };
   }
-  if (mutation.kind === "node-restore") {
-    return { kind: "ready", mutations: [{ kind: "node-delete", nodeId: mutation.nodeId }] };
+  if (authoredAction.kind === "node-restore") {
+    return { kind: "ready", actions: [{ kind: "node-trash", nodeId: authoredAction.nodeId }] };
   }
-  const ownerNodeId = projection.nodeOwners[mutation.nodeId];
-  const trashNodeId = projection.workspaceSystemNodes.trash;
-  const candidates = Object.values(projection.occurrences).filter((candidate) => candidate.nodeId === mutation.nodeId);
-  const occurrence = candidates.find((candidate) => candidate.parentNodeId === ownerNodeId) ?? candidates[0];
-  if (!ownerNodeId || !trashNodeId || !occurrence) {
-    return { kind: "stale", reason: "Created Node has no owning structure to move into Trash" };
-  }
-  return {
-    kind: "ready",
-    mutations: [
-      { kind: "node-delete", nodeId: mutation.nodeId },
-      {
-        kind: "node-owner-set",
-        nodeId: mutation.nodeId,
-        ownerNodeId: trashNodeId,
-        previousOwnerNodeId: ownerNodeId,
-      },
-      {
-        kind: "occurrence-move",
-        occurrenceId: occurrence.occurrenceId,
-        parentNodeId: trashNodeId,
-        anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-      },
-    ],
-  };
+  return { kind: "ready", actions: [{ kind: "node-trash", nodeId: authoredAction.nodeId }] };
 }
 
-export function compensateNodeDelete(
-  target: ContributionFact,
+function compensateNodeTrash(
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
+  const authoredAction = target.action;
   if (
-    mutation.kind !== "node-delete" ||
-    nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId) !== "trash"
+    authoredAction.kind !== "node-trash" ||
+    nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId) !== "trash"
   ) {
     return noCompensation();
   }
   const independentDelete = activeFacts.some(
     (fact) =>
       !targetIds.has(fact.id) &&
-      fact.body.mutation.kind === "node-delete" &&
-      fact.body.mutation.nodeId === mutation.nodeId &&
+      fact.action.kind === "node-trash" &&
+      fact.action.nodeId === authoredAction.nodeId &&
       !activeFacts.some(
-        (restore) => restore.body.mutation.kind === "node-restore" && restore.body.mutation.deletionFactId === fact.id,
+        (restore) => restore.action.kind === "node-restore" && restore.action.nodeId === authoredAction.nodeId,
       ),
+  );
+  const ownerNodeId = counterfactual.nodeOwners[authoredAction.nodeId];
+  const occurrence = Object.values(counterfactual.occurrences).find(
+    (candidate) => candidate.nodeId === authoredAction.nodeId && candidate.parentNodeId === ownerNodeId,
   );
   return independentDelete
     ? { kind: "stale", reason: "Node has an independent uncompensated deletion" }
-    : {
-        kind: "ready",
-        mutations: [{ kind: "node-restore", nodeId: mutation.nodeId, deletionFactId: target.id }],
-      };
+    : ownerNodeId == null || occurrence === undefined
+      ? { kind: "stale", reason: "Node has no restorable Original Occurrence" }
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: "node-restore",
+              nodeId: authoredAction.nodeId,
+              placementId: occurrence.occurrenceId,
+              parentNodeId: ownerNodeId,
+              anchor: occurrenceAnchor(counterfactual, occurrence.occurrenceId),
+            },
+          ],
+        };
 }
 
-export function compensateOccurrenceCreate(
-  target: ContributionFact,
+function compensateOccurrenceCreate(
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  const nodeId = mutation.kind === "occurrence-create" ? mutation.nodeId : undefined;
+  const authoredAction = target.action;
   if (
-    (mutation.kind !== "occurrence-create" && mutation.kind !== "occurrence-restore") ||
-    !projection.occurrences[mutation.occurrenceId] ||
+    authoredAction.kind !== "placement-create" ||
+    !projection.occurrences[authoredAction.placementId] ||
     hasIndependentOccurrenceWork(target, targetIds, activeFacts) ||
-    (nodeId !== undefined &&
-      activeFacts.some(
-        (fact) =>
-          targetIds.has(fact.id) && fact.body.mutation.kind === "node-create" && fact.body.mutation.nodeId === nodeId,
-      ))
+    activeFacts.some(
+      (fact) =>
+        targetIds.has(fact.id) && fact.action.kind === "node-create" && fact.action.nodeId === authoredAction.nodeId,
+    )
   ) {
     return noCompensation();
   }
   return {
     kind: "ready",
-    mutations: [
+    actions: [
       {
-        kind: "occurrence-delete",
-        occurrenceId: mutation.occurrenceId,
-        previousParentNodeId: projection.occurrences[mutation.occurrenceId]?.parentNodeId,
-        previousAnchor: occurrenceAnchor(projection, mutation.occurrenceId),
+        kind: "placement-remove",
+        placementId: authoredAction.placementId,
       },
     ],
   };
 }
 
-export function compensateOccurrenceDelete(
-  target: ContributionFact,
-  targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+function compensateOccurrenceDelete(
+  occurrenceId: string,
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep {
-  const mutation = occurrenceDeletion(target);
-  if (!mutation || projection.occurrences[mutation.occurrenceId]) {
+  if (projection.occurrences[occurrenceId]) {
     return noCompensation();
   }
-  const independentDelete = activeFacts.some(
-    (fact) =>
-      !targetIds.has(fact.id) &&
-      occurrenceDeletion(fact)?.occurrenceId === mutation.occurrenceId &&
-      !activeFacts.some(
-        (restore) =>
-          restore.body.mutation.kind === "occurrence-restore" && restore.body.mutation.deletionFactId === fact.id,
-      ),
-  );
-  if (independentDelete || mutation.previousAnchor === undefined) {
+  const previous = counterfactual.occurrences[occurrenceId];
+  if (previous === undefined) {
     return { kind: "stale", reason: "Occurrence deletion cannot be safely restored" };
   }
-  const previousParent = mutation.previousParentNodeId;
-  if (!previousParent || !projection.nodes[previousParent]) {
+  if (!projection.nodes[previous.parentNodeId]) {
     return { kind: "stale", reason: "Occurrence deletion previous parent no longer exists" };
   }
   return {
     kind: "ready",
-    mutations: [
+    actions: [
       {
-        kind: "occurrence-restore",
-        occurrenceId: mutation.occurrenceId,
-        deletionFactId: target.id,
-        parentNodeId: previousParent,
-        anchor: mutation.previousAnchor,
+        kind: "placement-create",
+        placementId: occurrenceId,
+        nodeId: previous.nodeId,
+        parentNodeId: previous.parentNodeId,
+        anchor: occurrenceAnchor(counterfactual, occurrenceId),
       },
     ],
   };
 }
 
-function occurrenceDeletion(fact: ContributionFact): Readonly<{
-  occurrenceId: string;
-  previousParentNodeId?: string | null;
-  previousAnchor?: SequenceAnchor;
-}> | null {
-  const mutation = fact.body.mutation;
-  if (mutation.kind === "occurrence-delete") {
-    return mutation;
-  }
-  if (mutation.kind === "field-value-delete") {
-    return { ...mutation, occurrenceId: mutation.valueOccurrenceId };
-  }
-  return mutation.kind === "materialized-field-delete"
-    ? { ...mutation, occurrenceId: mutation.fieldOccurrenceId }
-    : null;
-}
-
-export function compensateMove(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
+function compensateMaterializedFieldClear(
+  action: Extract<FactAction["action"], { kind: "materialized-field-clear" }>,
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "occurrence-move") {
+  const previousOccurrenceIds = materializedFieldOccurrenceIds(
+    counterfactual,
+    action.ownerNodeId,
+    action.fieldDefinitionId,
+  );
+  const missingOccurrenceIds = previousOccurrenceIds.filter((occurrenceId) => !projection.occurrences[occurrenceId]);
+  if (missingOccurrenceIds.length === 0) {
     return noCompensation();
   }
-  const occurrence = projection.occurrences[mutation.occurrenceId];
+  const actions: AuthoredAction[] = [];
+  for (const occurrenceId of missingOccurrenceIds) {
+    const previous = counterfactual.occurrences[occurrenceId];
+    if (!previous || !projection.nodes[previous.parentNodeId]) {
+      return { kind: "stale", reason: "Materialized Field cannot be safely restored" };
+    }
+    actions.push({
+      kind: "placement-create",
+      placementId: occurrenceId,
+      nodeId: previous.nodeId,
+      parentNodeId: previous.parentNodeId,
+      anchor: occurrenceAnchor(counterfactual, occurrenceId),
+    });
+  }
+  return { kind: "ready", actions };
+}
+
+function materializedFieldOccurrenceIds(
+  projection: ScopedProjection,
+  ownerNodeId: string,
+  fieldDefinitionId: string,
+): readonly string[] {
+  return Object.values(projection.occurrences)
+    .filter((occurrence) => {
+      if (occurrence.parentNodeId !== ownerNodeId) {
+        return false;
+      }
+      const endpoint = projection.occurrences[fieldDefinitionEndpointOccurrenceId(occurrence.occurrenceId)];
+      return endpoint?.nodeId === fieldDefinitionId && endpoint.parentNodeId === occurrence.nodeId;
+    })
+    .map((occurrence) => occurrence.occurrenceId);
+}
+
+function compensateMove(
+  target: FactAction,
+  activeFacts: readonly FactAction[],
+  projection: ScopedProjection,
+  counterfactual: ScopedProjection,
+): CompensationStep {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "placement-move") {
+    return noCompensation();
+  }
+  const occurrence = projection.occurrences[authoredAction.placementId];
   const laterRestore = activeFacts.some(
     (fact) =>
-      compareFacts(target, fact) < 0 &&
-      fact.body.mutation.kind === "occurrence-restore" &&
-      fact.body.mutation.occurrenceId === mutation.occurrenceId,
+      compareCausalOrder(target, fact) < 0 &&
+      fact.action.kind === "placement-create" &&
+      fact.action.placementId === authoredAction.placementId,
   );
   if (laterRestore) {
     return noCompensation();
@@ -252,29 +262,27 @@ export function compensateMove(
   const winner = activeFacts
     .filter(
       (fact) =>
-        fact.body.mutation.kind === "occurrence-move" &&
-        fact.body.mutation.occurrenceId === mutation.occurrenceId &&
-        fact.body.mutation.parentNodeId === occurrence?.parentNodeId,
+        fact.action.kind === "placement-move" &&
+        fact.action.placementId === authoredAction.placementId &&
+        fact.action.parentNodeId === occurrence?.parentNodeId,
     )
-    .sort(compareFacts)
+    .sort(compareCausalOrder)
     .at(-1);
-  if (winner?.id !== target.id || !occurrence || occurrence.parentNodeId !== mutation.parentNodeId) {
+  if (winner?.id !== target.id || !occurrence || occurrence.parentNodeId !== authoredAction.parentNodeId) {
     return noCompensation();
   }
-  if (mutation.previousAnchor === undefined || mutation.previousParentNodeId === undefined) {
-    return { kind: "stale", reason: "Move lacks its stable previous placement" };
-  }
-  if (!projection.nodes[mutation.previousParentNodeId]) {
+  const previous = counterfactual.occurrences[authoredAction.placementId];
+  if (!previous || !projection.nodes[previous.parentNodeId]) {
     return { kind: "stale", reason: "Move previous parent no longer exists" };
   }
   return {
     kind: "ready",
-    mutations: [
+    actions: [
       {
-        kind: "occurrence-move",
-        occurrenceId: mutation.occurrenceId,
-        parentNodeId: mutation.previousParentNodeId,
-        anchor: mutation.previousAnchor,
+        kind: "placement-move",
+        placementId: authoredAction.placementId,
+        parentNodeId: previous.parentNodeId,
+        anchor: occurrenceAnchor(counterfactual, authoredAction.placementId),
       },
     ],
   };

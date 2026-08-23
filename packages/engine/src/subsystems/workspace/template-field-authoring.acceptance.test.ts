@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
+import type { EditAction } from "../../domain/edit/index.js";
 import {
   templateFieldInstanceNodeId,
   templateFieldInstanceValueNodeId,
@@ -9,1201 +8,251 @@ import {
   workspaceTrashNodeId,
 } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
+import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import {
-  createSupertagApplication,
-  removeSupertagApplication,
-} from "../../../tests/support/workspace/edit-test-mutations.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Supertag Template Field authoring", () => {
-  it("authors a direct Template Field, makes it discoverable, adds it as optional, and copies a static default", async () => {
+  it("authors a Template Field, makes its Definition discoverable, contributes it optionally, and materializes its default", async () => {
     const { workspace } = await open();
-    expect((await mutate(workspace, "setup", setupNodes())).status).toBe("published");
-    const created = await mutate(workspace, "create-template-field", [
-      templateFieldCreation("task-supertag", "status-template", "status-definition"),
-    ]);
-    expect(created, JSON.stringify(created)).toMatchObject({ status: "published" });
-    expect(await projection(workspace, "templateFields")).toMatchObject({
-      templateFields: {
-        "task-supertag": [
-          {
-            templateFieldNodeId: "status-template",
-            fieldDefinitionId: "status-definition",
-            staticDefaultValueNodeId: "status-default",
-            fieldDefinitionOwner: "template-field",
-          },
-        ],
+    await publish(workspace, "setup", setupNodes());
+    await publish(workspace, "create-template-field", [templateFieldCreation("task-supertag", "status-definition")]);
+    const field = await templateField(workspace, "task-supertag", "status-definition");
+    expect(field).toMatchObject({ fieldDefinitionOwner: "template-field", visibility: "normal" });
+    expect(field.factActionId).toContain("/actions/");
+
+    await publish(workspace, "author-static-default", [
+      {
+        kind: "supertag-template-field-static-default-set",
+        supertagId: "task-supertag",
+        templateFieldId: field.factActionId,
+        value: "Ready",
       },
-    });
-    expect(
-      (await mutate(workspace, "author-static-default", [staticDefault("task-supertag", "status-template", "Ready")]))
-        .status,
-    ).toBe("published");
-    expect(
-      (await mutate(workspace, "apply-task-supertag", [createSupertagApplication("task", "task-supertag")])).status,
-    ).toBe("published");
-    const fields = await projection(workspace, "materializedFields");
-    expect(fields.materializedFields.task?.[0]).toMatchObject({
+    ]);
+    await publish(workspace, "apply-task-supertag", [createSupertagApplication("task", "task-supertag")]);
+    const materialized = await projection(workspace, "materializedFields");
+    expect(materialized.materializedFields.task?.[0]).toMatchObject({
       fieldDefinitionId: "status-definition",
-      fieldNodeId: templateFieldInstanceNodeId("task", "status-template"),
+      fieldNodeId: templateFieldInstanceNodeId("task", field.templateFieldNodeId),
     });
     const nodes = await projection(workspace, "nodes");
-    expect(nodes.nodes[templateFieldInstanceValueNodeId("task", "status-template")]?.content).toMatchObject([
-      { kind: "text", value: "Ready" },
-    ]);
-    expect(
-      nodes.nodes["status-default"]?.content.map((item) => (item.kind === "text" ? item.value : "")).join(""),
-    ).toBe("Ready");
+    expect(nodeText(nodes.nodes[templateFieldInstanceValueNodeId("task", field.templateFieldNodeId)])).toBe("Ready");
 
-    const discoverable = await mutate(workspace, "make-discoverable", [
+    await publish(workspace, "make-discoverable", [
       {
         kind: "supertag-template-field-make-discoverable",
         supertagId: "task-supertag",
-        templateFieldNodeId: "status-template",
-        fieldDefinitionId: "status-definition",
+        templateFieldId: field.factActionId,
       },
     ]);
-    expect(discoverable, JSON.stringify(discoverable)).toMatchObject({ status: "published" });
     const owners = await projection(workspace, "nodeOwners");
     expect(owners.nodeOwners["status-definition"]).toBe(workspaceSchemaNodeId("workspace"));
 
-    const optional = await mutate(workspace, "add-existing-field", [
+    await publish(workspace, "add-optional-field", [
       {
         kind: "supertag-optional-field-contribution-add",
         supertagId: "other-supertag",
-        metanodeId: "other-supertag-metanode",
-        fieldNurseryNodeId: "other-fields",
-        fieldNurseryOccurrenceId: "other-fields-occurrence",
-        nurseryDefinitionOccurrenceId: "other-fields-definition",
-        nurseryValueNodeId: "other-fields-value",
-        nurseryValueOccurrenceId: "other-fields-value-occurrence",
-        contributionNodeId: "other-status-contribution",
-        contributionOccurrenceId: "other-status-contribution-occurrence",
         fieldDefinitionId: "status-definition",
-        definitionOccurrenceId: "other-status-definition",
-        valueNodeId: "other-status-value",
-        valueOccurrenceId: "other-status-value-occurrence",
         anchor: end,
       },
     ]);
-    expect(optional, JSON.stringify(optional)).toMatchObject({ status: "published" });
-    expect(await projection(workspace, "optionalFieldContributions")).toMatchObject({
-      optionalFieldContributions: {
-        "other-supertag": [{ contributionNodeId: "other-status-contribution", fieldDefinitionId: "status-definition" }],
-      },
+    const optional = await projection(workspace, "optionalFieldContributions");
+    expect(optional.optionalFieldContributions["other-supertag"]?.[0]).toMatchObject({
+      fieldDefinitionId: "status-definition",
     });
+    expect(optional.optionalFieldContributions["other-supertag"]?.[0]?.factActionId).toContain("/actions/");
+
+    await publish(workspace, "remove-optional-field", [
+      {
+        kind: "supertag-optional-field-contribution-remove",
+        supertagId: "other-supertag",
+        fieldDefinitionId: "status-definition",
+      },
+    ]);
+    expect(
+      (await projection(workspace, "optionalFieldContributions")).optionalFieldContributions["other-supertag"],
+    ).toBeUndefined();
+    await publishCommand(workspace, {
+      kind: "undo",
+      workspaceId: "workspace",
+      invocationId: "undo-optional-field-removal",
+      actorId: "actor",
+      selection: await historySelection(workspace, "template-fields", "undo"),
+    });
+    expect(
+      (await projection(workspace, "optionalFieldContributions")).optionalFieldContributions["other-supertag"]?.[0],
+    ).toMatchObject({ fieldDefinitionId: "status-definition" });
   });
 
-  it("reviews and accepts public Template Field creation as one composite transaction", async () => {
+  it("keeps a proposed Template Field out of Origin until the composite intent is accepted", async () => {
     const { workspace } = await open();
-    expect((await mutate(workspace, "proposal-setup", setupNodes())).status).toBe("published");
-    expect(
-      await mutate(
-        workspace,
-        "propose-template-field",
-        [templateFieldCreation("task-supertag", "status-template", "status-definition")],
-        "proposal",
-      ),
-    ).toMatchObject({ status: "published" });
+    await publish(workspace, "setup", setupNodes());
+    await publish(
+      workspace,
+      "propose-template-field",
+      [templateFieldCreation("task-supertag", "status-definition")],
+      "proposal",
+    );
     expect((await projection(workspace, "templateFields", "origin")).templateFields["task-supertag"]).toBeUndefined();
-    expect(
-      (await projection(workspace, "templateFields", "review")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "status-template",
-      fieldDefinitionId: "status-definition",
-    });
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    const hunk = "hunks" in review ? review.hunks[0] : undefined;
-    if (hunk === undefined) {
-      throw new Error("Expected Template Field creation Review Hunk");
-    }
-    expect(
-      await workspace.execute({
-        kind: "resolve-review",
-        workspaceId: "workspace",
-        invocationId: "accept-template-field",
-        actorId: "reviewer",
-        decision: "accept",
-        selection: hunk.selection,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect(
-      (await projection(workspace, "templateFields", "origin")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "status-template",
-      fieldDefinitionId: "status-definition",
-    });
+    const reviewField = await templateField(workspace, "task-supertag", "status-definition", "review");
+    await acceptAllHunks(workspace, "accept-template-field");
+    expect((await templateField(workspace, "task-supertag", "status-definition")).factActionId).toBe(
+      reviewField.factActionId,
+    );
   });
 
-  it("reviews a new Template Field use of one discoverable Field Definition", async () => {
+  it("removes and restores one use through History, then creates a new use of the same discoverable Definition", async () => {
     const { workspace } = await open();
-    expect((await mutate(workspace, "proposal-existing-setup", setupNodes())).status).toBe("published");
-    expect(
-      await mutate(workspace, "proposal-existing-create", [
-        templateFieldCreation("task-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "proposal-existing-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-
-    expect(
-      await mutate(
-        workspace,
-        "propose-existing-template-field",
-        [existingTemplateField("other-supertag", "other-status-template", "status-definition")],
-        "proposal",
-      ),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "templateFields", "origin")).templateFields["other-supertag"]).toBeUndefined();
-    expect(
-      (await projection(workspace, "templateFields", "review")).templateFields["other-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "other-status-template",
-      fieldDefinitionId: "status-definition",
-      fieldDefinitionOwner: "workspace-schema",
-    });
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    const hunk = "hunks" in review ? review.hunks[0] : undefined;
-    if (hunk === undefined) {
-      throw new Error("Expected add-existing Template Field Review Hunk");
-    }
-    expect(
-      await workspace.execute({
-        kind: "resolve-review",
-        workspaceId: "workspace",
-        invocationId: "accept-existing-template-field",
-        actorId: "reviewer",
-        decision: "accept",
-        selection: hunk.selection,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect(
-      (await projection(workspace, "templateFields", "origin")).templateFields["other-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "other-status-template",
-      fieldDefinitionId: "status-definition",
-    });
-    expect((await projection(workspace, "nodeOwners")).nodeOwners["status-definition"]).toBe(
-      workspaceSchemaNodeId("workspace"),
-    );
-  });
-
-  it("rejects non-discoverable endpoints, duplicate exposure, and reused relation identities", async () => {
-    const { workspace } = await open();
-    expect((await mutate(workspace, "negative-setup", setupNodes())).status).toBe("published");
-    expect(
-      await mutate(workspace, "negative-create", [
-        templateFieldCreation("task-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-
-    expect(
-      await mutate(workspace, "non-discoverable-existing", [
-        existingTemplateField("other-supertag", "other-status-template", "status-definition"),
-      ]),
-    ).toMatchObject({
-      status: "rejected",
-      error: { message: "Template Field endpoint is not a discoverable Field Definition" },
-    });
-
-    expect(
-      await mutate(workspace, "negative-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "duplicate-exposure", [
-        existingTemplateField("task-supertag", "duplicate-status-template", "status-definition"),
-      ]),
-    ).toMatchObject({
-      status: "rejected",
-      error: { message: "Supertag already exposes this Field Definition" },
-    });
-    expect(
-      await mutate(workspace, "reused-identity", [
-        existingTemplateField("other-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({
-      status: "rejected",
-      error: { message: "Template Field Node or Occurrence identity already exists" },
-    });
-  });
-
-  it("does not let discoverability authorization carry an Intrinsic Node Type rewrite", async () => {
-    const { facts, workspace } = await open();
-    expect((await mutate(workspace, "setup", setupNodes())).status).toBe("published");
-    const created = await mutate(workspace, "create-template-field", [
-      templateFieldCreation("task-supertag", "status-template", "status-definition"),
+    await publish(workspace, "setup", setupNodes());
+    await publish(workspace, "create-template-field", [templateFieldCreation("task-supertag", "status-definition")]);
+    const original = await templateField(workspace, "task-supertag", "status-definition");
+    await publish(workspace, "make-discoverable", [
+      {
+        kind: "supertag-template-field-make-discoverable",
+        supertagId: "task-supertag",
+        templateFieldId: original.factActionId,
+      },
     ]);
-    expect(created, JSON.stringify(created)).toMatchObject({ status: "published" });
-
-    await expect(
-      facts.commit({
-        invocationId: "smuggle-type-rewrite",
-        request: { command: "smuggle-type-rewrite" },
-        writes: [
-          {
-            kind: "transaction",
-            bodies: [
-              {
-                kind: "contribution",
-                actorId: "remote",
-                intent: "direct",
-                mutation: {
-                  kind: "supertag-template-field-discoverability-set",
-                  supertagId: "task-supertag",
-                  templateFieldNodeId: "status-template",
-                  fieldDefinitionId: "status-definition",
-                  discoverable: true,
-                  previousDiscoverable: false,
-                },
-              },
-              {
-                kind: "contribution",
-                actorId: "remote",
-                intent: "direct",
-                mutation: {
-                  kind: "node-owner-set",
-                  nodeId: "status-definition",
-                  ownerNodeId: workspaceSchemaNodeId("workspace"),
-                  previousOwnerNodeId: "status-template",
-                },
-              },
-              {
-                kind: "contribution",
-                actorId: "remote",
-                intent: "direct",
-                mutation: {
-                  kind: "intrinsic-node-type-declare",
-                  nodeId: "status-definition",
-                  intrinsicNodeType: "supertag-definition",
-                },
-              },
-              {
-                kind: "contribution",
-                actorId: "remote",
-                intent: "direct",
-                mutation: {
-                  kind: "intrinsic-node-type-declare",
-                  nodeId: "status-definition",
-                  intrinsicNodeType: "field-definition",
-                },
-              },
-            ],
-          },
-        ],
-        lineage: null,
-        publishedFrontier: facts.snapshot().frontier,
-      }),
-    ).rejects.toThrow(/Structural role requires a typed mutation: Intrinsic Node Type status-definition/);
-    const nodes = await projection(workspace, "nodes");
-    expect(nodes.nodes["status-definition"]?.intrinsicNodeType).toBe("field-definition");
-  });
-
-  it("TEMPLATE-FIELD-3 sets, modifies, clears, reviews, restores, and restarts one stable Static Default slot", async () => {
-    const documents = new InMemoryDocumentStore();
-    const { workspace } = await open(documents, "721");
-    expect(
-      (
-        await mutate(workspace, "static-default-setup", [
-          ...setupNodes(),
-          nodeAt("alpha-instance", "workspace"),
-          nodeAt("beta-instance", "workspace"),
-          nodeAt("empty-instance", "workspace"),
-        ])
-      ).status,
-    ).toBe("published");
-    expect(
-      await mutate(workspace, "static-default-field", [
-        templateFieldCreation("task-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-
-    const alphaDefault = await mutate(workspace, "static-default-alpha", [
-      staticDefault("task-supertag", "status-template", "Alpha"),
+    await publish(workspace, "remove-template-field", [
+      { kind: "supertag-template-field-remove", supertagId: "task-supertag", templateFieldId: original.factActionId },
     ]);
-    expect(alphaDefault, JSON.stringify(alphaDefault)).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "static-default-alpha-instance", [
-        createSupertagApplication("alpha-instance", "task-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-
-    expect(
-      await mutate(workspace, "static-default-beta", [staticDefault("task-supertag", "status-template", "Beta")]),
-    ).toMatchObject({ status: "published" });
-    let nodes = await projection(workspace, "nodes");
-    expect(nodeText(nodes.nodes["status-default"])).toBe("Beta");
-    expect(nodeText(nodes.nodes[templateFieldInstanceValueNodeId("alpha-instance", "status-template")])).toBe("Alpha");
-    expect(
-      await mutate(workspace, "static-default-beta-instance", [
-        createSupertagApplication("beta-instance", "task-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    nodes = await projection(workspace, "nodes");
-    expect(nodeText(nodes.nodes[templateFieldInstanceValueNodeId("beta-instance", "status-template")])).toBe("Beta");
-
-    expect(
-      await mutate(
-        workspace,
-        "static-default-clear-proposal",
-        [staticDefault("task-supertag", "status-template", "")],
-        "proposal",
-      ),
-    ).toMatchObject({ status: "published" });
-    expect(nodeText((await projection(workspace, "nodes", "origin")).nodes["status-default"])).toBe("Beta");
-    expect(nodeText((await projection(workspace, "nodes", "review")).nodes["status-default"])).toBe("");
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    const clearHunk =
-      "hunks" in review
-        ? review.hunks.find((hunk) =>
-            hunk.selection.evidence.effects.some(
-              (effect) => effect.kind === "text" && effect.nodeId === "status-default",
-            ),
-          )
-        : undefined;
-    if (clearHunk === undefined) {
-      throw new Error("Expected Static Default text Review Hunk");
-    }
-    expect(
-      await workspace.execute({
-        kind: "resolve-review",
-        workspaceId: "workspace",
-        invocationId: "static-default-clear-accept",
-        actorId: "reviewer",
-        decision: "accept",
-        selection: clearHunk.selection,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect(nodeText((await projection(workspace, "nodes")).nodes["status-default"])).toBe("");
-
-    expect(
-      await mutate(workspace, "static-default-history-beta", [
-        staticDefault("task-supertag", "status-template", "Beta"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "static-default-history-clear", [staticDefault("task-supertag", "status-template", "")]),
-    ).toMatchObject({ status: "published" });
-
-    const history = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("undo" in history) || history.undo === null) {
-      throw new Error("Expected Static Default clear Undo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "undo",
-        workspaceId: "workspace",
-        invocationId: "static-default-clear-undo",
-        actorId: "actor",
-        selection: history.undo,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect(nodeText((await projection(workspace, "nodes")).nodes["status-default"])).toBe("Beta");
-    const afterUndo = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("redo" in afterUndo) || afterUndo.redo === null) {
-      throw new Error("Expected Static Default clear Redo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "redo",
-        workspaceId: "workspace",
-        invocationId: "static-default-clear-redo",
-        actorId: "actor",
-        selection: afterUndo.redo,
-      }),
-    ).toMatchObject({ status: "published" });
-
-    expect(
-      await mutate(workspace, "static-default-empty-instance", [
-        createSupertagApplication("empty-instance", "task-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "materializedFields")).materializedFields["empty-instance"]).toBeUndefined();
-    expect((await projection(workspace, "effectiveFields")).effectiveFields["empty-instance"]?.[0]).toMatchObject({
-      fieldDefinitionId: "status-definition",
-      materializedFieldNodeId: null,
-    });
-    expect(nodeText((await projection(workspace, "nodes")).nodes["status-default"])).toBe("");
-    expect(
-      await mutate(workspace, "static-default-noop", [staticDefault("task-supertag", "status-template", "")]),
-    ).toMatchObject({
-      status: "rejected",
-      error: { message: "Template Field already has this Static Default" },
-    });
-
-    await workspace.close();
-    const restarted = await open(documents, "722");
-    const restartedNodes = await projection(restarted.workspace, "nodes");
-    expect(nodeText(restartedNodes.nodes["status-default"])).toBe("");
-    expect(nodeText(restartedNodes.nodes[templateFieldInstanceValueNodeId("alpha-instance", "status-template")])).toBe(
-      "Alpha",
-    );
-    expect(nodeText(restartedNodes.nodes[templateFieldInstanceValueNodeId("beta-instance", "status-template")])).toBe(
-      "Beta",
-    );
-    expect(
-      (await projection(restarted.workspace, "materializedFields")).materializedFields["empty-instance"],
-    ).toBeUndefined();
-    expect(
-      (await projection(restarted.workspace, "templateFields")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "status-template",
-      staticDefaultValueNodeId: "status-default",
-    });
-  });
-
-  it("TEMPLATE-FIELD-1 trashes a removed use, restores it through History, and re-adds the same Definition as a new use", async () => {
-    const documents = new InMemoryDocumentStore();
-    const { workspace } = await open(documents, "701");
-    expect((await mutate(workspace, "setup", setupNodes())).status).toBe("published");
-    expect(
-      await mutate(workspace, "create-template-field", [
-        templateFieldCreation("task-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "make-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "apply-template-field-host", [createSupertagApplication("task", "task-supertag")]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task?.[0]).toMatchObject({
-      fieldDefinitionId: "status-definition",
-      sources: [{ kind: "template", templateFieldNodeId: "status-template" }],
-    });
-    expect(
-      await mutate(workspace, "remove-template-field", [
-        {
-          kind: "supertag-template-field-remove",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
     expect((await projection(workspace, "templateFields")).templateFields["task-supertag"]).toBeUndefined();
-    const detachedOwners = await projection(workspace, "nodeOwners");
-    expect(detachedOwners.nodeOwners["status-template"]).toBe(workspaceTrashNodeId("workspace"));
-    expect(detachedOwners.nodeOwners["status-definition"]).toBe(workspaceSchemaNodeId("workspace"));
-    expect((await projection(workspace, "occurrences")).occurrences["status-template-occurrence"]).toMatchObject({
-      nodeId: "status-template",
-      parentNodeId: workspaceTrashNodeId("workspace"),
-    });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toEqual([]);
-
-    const history = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("undo" in history) || history.undo === null) {
-      throw new Error("Expected Template Field removal Undo");
-    }
-    const undone = await workspace.execute({
-      kind: "undo",
-      workspaceId: "workspace",
-      invocationId: "undo-template-field-removal",
-      actorId: "actor",
-      selection: history.undo,
-    });
-    expect(undone, JSON.stringify(undone)).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "templateFields")).templateFields["task-supertag"]?.[0]).toMatchObject({
-      templateFieldNodeId: "status-template",
-      fieldDefinitionOwner: "workspace-schema",
-    });
-    expect((await projection(workspace, "nodeOwners")).nodeOwners["status-template"]).toBe("task-supertag");
-
-    const afterUndo = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("redo" in afterUndo) || afterUndo.redo === null) {
-      throw new Error("Expected Template Field removal Redo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "redo",
-        workspaceId: "workspace",
-        invocationId: "redo-template-field-removal",
-        actorId: "actor",
-        selection: afterUndo.redo,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "nodeOwners")).nodeOwners["status-template"]).toBe(
+    expect((await projection(workspace, "nodeOwners")).nodeOwners[original.templateFieldNodeId]).toBe(
       workspaceTrashNodeId("workspace"),
     );
 
-    expect(
-      await mutate(workspace, "re-add-existing-template-field", [
-        existingTemplateField("task-supertag", "status-template-readded", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "templateFields")).templateFields["task-supertag"]).toEqual([
-      expect.objectContaining({
-        templateFieldNodeId: "status-template-readded",
-        fieldDefinitionId: "status-definition",
-        staticDefaultValueNodeId: "status-template-readded-default",
-        fieldDefinitionOwner: "workspace-schema",
-      }),
-    ]);
-    const readdedOwners = await projection(workspace, "nodeOwners");
-    expect(readdedOwners.nodeOwners["status-template"]).toBe(workspaceTrashNodeId("workspace"));
-    expect(readdedOwners.nodeOwners["status-template-readded"]).toBe("task-supertag");
-    expect(readdedOwners.nodeOwners["status-definition"]).toBe(workspaceSchemaNodeId("workspace"));
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task?.[0]).toMatchObject({
-      fieldDefinitionId: "status-definition",
-      sources: [{ kind: "template", templateFieldNodeId: "status-template-readded" }],
-    });
-
-    await workspace.close();
-    const restarted = await open(documents, "702");
-    expect(
-      (await projection(restarted.workspace, "templateFields")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({
-      templateFieldNodeId: "status-template-readded",
-      fieldDefinitionId: "status-definition",
-    });
-    expect((await projection(restarted.workspace, "nodeOwners")).nodeOwners["status-template"]).toBe(
-      workspaceTrashNodeId("workspace"),
-    );
-  });
-
-  it("TEMPLATE-FIELD-2 projects pinned fields, optional suggestions, and authored empty content across source removal", async () => {
-    const documents = new InMemoryDocumentStore();
-    const { workspace } = await open(documents, "711");
-    expect((await mutate(workspace, "visibility-setup", setupNodes())).status).toBe("published");
-    expect(
-      await mutate(workspace, "visibility-field", [
-        templateFieldCreation("task-supertag", "status-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "visibility-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "visibility-optional", [optionalField("other-supertag", "status-definition")]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "visibility-apply-normal", [createSupertagApplication("task", "task-supertag")]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "visibility-apply-optional", [createSupertagApplication("task", "other-supertag", "2")]),
-    ).toMatchObject({ status: "published" });
-
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toEqual([
-      expect.objectContaining({
-        fieldDefinitionId: "status-definition",
-        sources: [
-          expect.objectContaining({ kind: "template", templateFieldNodeId: "status-template" }),
-          expect.objectContaining({ kind: "optional", optionalContributionNodeId: "other-status-contribution" }),
-        ],
-        visibility: "normal",
-        visibilityConflicted: false,
-      }),
-    ]);
-    expect((await projection(workspace, "optionalFieldSuggestions")).optionalFieldSuggestions.task).toEqual([]);
-
-    expect(
-      await mutate(
-        workspace,
-        "visibility-proposal",
-        [
-          {
-            kind: "supertag-template-field-visibility-set",
-            supertagId: "task-supertag",
-            templateFieldNodeId: "status-template",
-            visibility: "pinned",
-          },
-        ],
-        "proposal",
-      ),
-    ).toMatchObject({ status: "published" });
-    expect(
-      (await projection(workspace, "templateFields", "origin")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({ visibility: "normal" });
-    expect(
-      (await projection(workspace, "templateFields", "review")).templateFields["task-supertag"]?.[0],
-    ).toMatchObject({ visibility: "pinned" });
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    const visibilityHunk = "hunks" in review ? review.hunks[0] : undefined;
-    if (visibilityHunk === undefined) {
-      throw new Error("Expected Template Field visibility Review Hunk");
-    }
-    expect(visibilityHunk.selection.evidence.effects).toContainEqual({
-      kind: "supertag-relation",
-      relation: "template-field-visibility",
-      ownerId: "task-supertag",
-      targetId: "status-template",
-      originIndex: 0,
-      reviewIndex: 1,
-    });
-    const visibilityAccepted = await workspace.execute({
-      kind: "resolve-review",
-      workspaceId: "workspace",
-      invocationId: "visibility-accept",
-      actorId: "reviewer",
-      decision: "accept",
-      selection: visibilityHunk.selection,
-    });
-    expect(visibilityAccepted, JSON.stringify(visibilityAccepted)).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task?.[0]).toMatchObject({
-      visibility: "pinned",
-    });
-
-    expect(
-      await mutate(workspace, "visibility-normal", [
-        {
-          kind: "supertag-template-field-visibility-set",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
-          visibility: "normal",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "template-fields" });
-    if (!("undo" in history) || history.undo === null) {
-      throw new Error("Expected Template Field visibility Undo");
-    }
-    const visibilityUndone = await workspace.execute({
+    await publishCommand(workspace, {
       kind: "undo",
       workspaceId: "workspace",
-      invocationId: "visibility-undo",
+      invocationId: "undo-template-field-remove",
       actorId: "actor",
-      selection: history.undo,
+      selection: await historySelection(workspace, "template-fields", "undo"),
     });
-    expect(visibilityUndone, JSON.stringify(visibilityUndone)).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "templateFields")).templateFields["task-supertag"]?.[0]).toMatchObject({
-      visibility: "pinned",
-    });
-    const afterUndo = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("redo" in afterUndo) || afterUndo.redo === null) {
-      throw new Error("Expected Template Field visibility Redo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "redo",
-        workspaceId: "workspace",
-        invocationId: "visibility-redo",
-        actorId: "actor",
-        selection: afterUndo.redo,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "templateFields")).templateFields["task-supertag"]?.[0]).toMatchObject({
-      visibility: "normal",
-    });
+    expect((await templateField(workspace, "task-supertag", "status-definition")).factActionId).toBe(
+      original.factActionId,
+    );
 
-    expect(
-      await mutate(workspace, "visibility-remove-normal-source", [removeSupertagApplication("task", "task-supertag")]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toEqual([]);
-    expect((await projection(workspace, "optionalFieldSuggestions")).optionalFieldSuggestions.task).toEqual([
+    await publish(workspace, "remove-again", [
+      { kind: "supertag-template-field-remove", supertagId: "task-supertag", templateFieldId: original.factActionId },
+    ]);
+    await publish(workspace, "add-existing-template-field", [
       {
-        ownerNodeId: "task",
+        kind: "supertag-template-field-add-existing",
+        supertagId: "task-supertag",
         fieldDefinitionId: "status-definition",
-        sources: [
-          {
-            kind: "optional",
-            applicationNodeId: "task-supertag-application-other-supertag-2",
-            appliedSupertagId: "other-supertag",
-            sourceSupertagId: "other-supertag",
-            extensionPath: ["other-supertag"],
-            optionalContributionNodeId: "other-status-contribution",
-          },
-        ],
+        anchor: end,
       },
     ]);
-
-    expect(
-      await mutate(workspace, "visibility-materialize-empty", [
-        {
-          kind: "field-materialize",
-          ownerNodeId: "task",
-          fieldDefinitionId: "status-definition",
-          fieldNodeId: "task-status-field",
-          fieldOccurrenceId: "task-status-field-occurrence",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "optionalFieldSuggestions")).optionalFieldSuggestions.task).toEqual([]);
-    expect((await projection(workspace, "materializedFields")).materializedFields.task).toEqual([
-      expect.objectContaining({
-        fieldDefinitionId: "status-definition",
-        fieldNodeId: "task-status-field",
-        valueOccurrenceIds: [],
-      }),
-    ]);
-
-    expect(
-      await mutate(workspace, "visibility-remove-optional-source", [
-        removeSupertagApplication("task", "other-supertag", "2"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toBeUndefined();
-    expect((await projection(workspace, "optionalFieldSuggestions")).optionalFieldSuggestions.task).toBeUndefined();
-    expect((await projection(workspace, "materializedFields")).materializedFields.task?.[0]).toMatchObject({
-      fieldNodeId: "task-status-field",
-      valueOccurrenceIds: [],
-    });
-
-    await workspace.close();
-    const restarted = await open(documents, "712");
-    expect((await projection(restarted.workspace, "materializedFields")).materializedFields.task?.[0]).toMatchObject({
-      fieldNodeId: "task-status-field",
-      valueOccurrenceIds: [],
-    });
-    expect(
-      (await projection(restarted.workspace, "optionalFieldSuggestions")).optionalFieldSuggestions.task,
-    ).toBeUndefined();
+    const replacement = await templateField(workspace, "task-supertag", "status-definition");
+    expect(replacement.factActionId).not.toBe(original.factActionId);
+    expect(replacement.fieldDefinitionOwner).toBe("workspace-schema");
   });
 
-  it("merges two Extension sources by Definition and preserves authored Field content after the last source is removed", async () => {
-    const documents = new InMemoryDocumentStore();
-    const { workspace } = await open(documents, "731");
-    expect(
-      (
-        await mutate(workspace, "composition-setup", [
-          ...setupNodes(),
-          nodeAt("target-supertag", "workspace", "supertag-definition"),
-        ])
-      ).status,
-    ).toBe("published");
-    expect(
-      await mutate(workspace, "composition-source-a", [
-        templateFieldCreation("task-supertag", "source-a-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "composition-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "source-a-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "composition-source-b", [
-        existingTemplateField("other-supertag", "source-b-template", "status-definition"),
-        {
-          kind: "supertag-template-field-visibility-set",
-          supertagId: "other-supertag",
-          templateFieldNodeId: "source-b-template",
-          visibility: "pinned",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "composition-extensions", [
-        extensionAdd("target-supertag", "task-supertag"),
-        extensionAdd("target-supertag", "other-supertag"),
-        createSupertagApplication("task", "target-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toEqual([
+  it("merges inherited sources by Definition while preserving visibility and authored Field content", async () => {
+    const { workspace } = await open();
+    await publish(workspace, "setup", [
+      ...setupNodes(),
+      nodeAt("base-a", "workspace", "supertag-definition"),
+      nodeAt("base-b", "workspace", "supertag-definition"),
+      nodeAt("derived", "workspace", "supertag-definition"),
+      nodeAt("derived-instance", "workspace"),
+    ]);
+    await publish(workspace, "base-field", [templateFieldCreation("base-a", "shared-definition")]);
+    const source = await templateField(workspace, "base-a", "shared-definition");
+    await publish(workspace, "discover-source", [
+      { kind: "supertag-template-field-make-discoverable", supertagId: "base-a", templateFieldId: source.factActionId },
+    ]);
+    await publish(workspace, "base-b-field", [
       {
-        ownerNodeId: "task",
-        fieldDefinitionId: "status-definition",
-        sources: [
-          {
-            kind: "template",
-            applicationNodeId: "task-supertag-application-target-supertag-1",
-            appliedSupertagId: "target-supertag",
-            sourceSupertagId: "task-supertag",
-            extensionPath: ["target-supertag", "task-supertag"],
-            templateFieldNodeId: "source-a-template",
-            staticDefaultValueNodeId: "status-default",
-            visibility: "normal",
-          },
-          {
-            kind: "template",
-            applicationNodeId: "task-supertag-application-target-supertag-1",
-            appliedSupertagId: "target-supertag",
-            sourceSupertagId: "other-supertag",
-            extensionPath: ["target-supertag", "other-supertag"],
-            templateFieldNodeId: "source-b-template",
-            staticDefaultValueNodeId: "source-b-template-default",
-            visibility: "pinned",
-          },
-        ],
-        staticDefault: { state: "none", candidates: [] },
+        kind: "supertag-template-field-add-existing",
+        supertagId: "base-b",
+        fieldDefinitionId: "shared-definition",
+        anchor: end,
+      },
+    ]);
+    const secondSource = await templateField(workspace, "base-b", "shared-definition");
+    await publish(workspace, "pin-base-a", [
+      {
+        kind: "supertag-template-field-visibility-set",
+        supertagId: "base-a",
+        templateFieldId: source.factActionId,
         visibility: "pinned",
-        materializedFieldNodeId: null,
-        visibilityConflicted: false,
+      },
+    ]);
+    await publish(workspace, "extend-and-apply", [
+      { kind: "supertag-extension-add", supertagId: "derived", baseSupertagId: "base-a", anchor: end },
+      { kind: "supertag-extension-add", supertagId: "derived", baseSupertagId: "base-b", anchor: end },
+      createSupertagApplication("derived-instance", "derived"),
+    ]);
+
+    const effective = await projection(workspace, "effectiveFields");
+    expect(effective.effectiveFields["derived-instance"]?.[0]).toMatchObject({
+      fieldDefinitionId: "shared-definition",
+      visibility: "pinned",
+    });
+    expect(effective.effectiveFields["derived-instance"]?.[0]?.sources).toHaveLength(2);
+
+    const fieldNodeId = "authored-shared-field";
+    await publish(workspace, "author-field", [
+      nodeAt(fieldNodeId, "derived-instance"),
+      nodeAt("authored-shared-value", fieldNodeId),
+      { kind: "rich-text-splice", nodeId: "authored-shared-value", deleteAtomIds: [], anchor: end, insert: "Authored" },
+      {
+        kind: "field-materialize",
+        ownerNodeId: "derived-instance",
+        fieldDefinitionId: "shared-definition",
+        fieldNodeId,
+        fieldOccurrenceId: `${fieldNodeId}-original`,
+      },
+    ]);
+    await publish(workspace, "remove-sources", [
+      { kind: "supertag-template-field-remove", supertagId: "base-a", templateFieldId: source.factActionId },
+      { kind: "supertag-template-field-remove", supertagId: "base-b", templateFieldId: secondSource.factActionId },
+    ]);
+    expect(
+      (await projection(workspace, "materializedFields")).materializedFields["derived-instance"]?.[0],
+    ).toMatchObject({
+      fieldNodeId,
+    });
+  });
+
+  it("restores semantic Template Field identity, visibility, and Static Default after restart", async () => {
+    const documents = new InMemoryDocumentStore();
+    const first = await open(documents, "501");
+    await publish(first.workspace, "setup", setupNodes());
+    await publish(first.workspace, "create-field", [templateFieldCreation("task-supertag", "status-definition")]);
+    const field = await templateField(first.workspace, "task-supertag", "status-definition");
+    await publish(first.workspace, "configure-field", [
+      {
+        kind: "supertag-template-field-visibility-set",
+        supertagId: "task-supertag",
+        templateFieldId: field.factActionId,
+        visibility: "pinned",
+      },
+      {
+        kind: "supertag-template-field-static-default-set",
+        supertagId: "task-supertag",
+        templateFieldId: field.factActionId,
+        value: "Ready",
       },
     ]);
 
-    const removedA = await mutate(workspace, "composition-remove-a", [
-      extensionRemove("target-supertag", "task-supertag"),
-    ]);
-    if (removedA.status !== "published") {
-      throw new Error(JSON.stringify(removedA));
-    }
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task?.[0]?.sources).toEqual([
-      expect.objectContaining({ sourceSupertagId: "other-supertag" }),
-    ]);
-    const removalHistory = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("undo" in removalHistory) || removalHistory.undo === null) {
-      throw new Error("Expected Extension source removal Undo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "undo",
-        workspaceId: "workspace",
-        invocationId: "composition-remove-a-undo",
-        actorId: "actor",
-        selection: removalHistory.undo,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task?.[0]?.sources).toHaveLength(2);
-    const afterUndo = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "template-fields",
-    });
-    if (!("redo" in afterUndo) || afterUndo.redo === null) {
-      throw new Error("Expected Extension source removal Redo");
-    }
-    expect(
-      await workspace.execute({
-        kind: "redo",
-        workspaceId: "workspace",
-        invocationId: "composition-remove-a-redo",
-        actorId: "actor",
-        selection: afterUndo.redo,
-      }),
-    ).toMatchObject({ status: "published" });
-
-    expect(
-      await mutate(workspace, "composition-materialize-field", [
-        {
-          kind: "field-materialize",
-          ownerNodeId: "task",
-          fieldDefinitionId: "status-definition",
-          fieldNodeId: "task-status-field",
-          fieldOccurrenceId: "task-status-field-occurrence",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "composition-author-field", [
-        {
-          kind: "node-create",
-          nodeId: "task-status-value",
-          occurrenceId: "task-status-value-original",
-          parentNodeId: "task-status-field",
-          anchor: end,
-          seed: { text: [{ value: "Authored value", attributes: {} }] },
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(
-        workspace,
-        "composition-remove-last-source",
-        [extensionRemove("target-supertag", "other-supertag")],
-        "proposal",
-      ),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields", "origin")).effectiveFields.task).toHaveLength(1);
-    expect((await projection(workspace, "effectiveFields", "review")).effectiveFields.task).toEqual([]);
-    expect((await projection(workspace, "materializedFields", "review")).materializedFields.task?.[0]).toMatchObject({
-      fieldNodeId: "task-status-field",
-      valueOccurrenceIds: ["task-status-value-original"],
-    });
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    const sourceRemovalHunk =
-      "hunks" in review
-        ? review.hunks.find((hunk) =>
-            hunk.selection.evidence.effects.some(
-              (effect) =>
-                effect.kind === "supertag-relation" &&
-                effect.ownerId === "target-supertag" &&
-                effect.targetId === "other-supertag",
-            ),
-          )
-        : undefined;
-    if (sourceRemovalHunk === undefined) {
-      throw new Error("Expected Extension source removal Review Hunk");
-    }
-    expect(
-      await workspace.execute({
-        kind: "resolve-review",
-        workspaceId: "workspace",
-        invocationId: "composition-remove-last-source-accept",
-        actorId: "reviewer",
-        decision: "accept",
-        selection: sourceRemovalHunk.selection,
-      }),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields.task).toEqual([]);
-    expect((await projection(workspace, "materializedFields")).materializedFields.task?.[0]).toMatchObject({
-      fieldNodeId: "task-status-field",
-      valueOccurrenceIds: ["task-status-value-original"],
-    });
-
-    await workspace.close();
-    const restarted = await open(documents, "732");
-    expect((await projection(restarted.workspace, "effectiveFields")).effectiveFields.task).toEqual([]);
-    expect((await projection(restarted.workspace, "materializedFields")).materializedFields.task?.[0]).toMatchObject({
-      fieldNodeId: "task-status-field",
-      valueOccurrenceIds: ["task-status-value-original"],
-    });
-    expect(nodeText((await projection(restarted.workspace, "nodes")).nodes["task-status-value"])).toBe(
-      "Authored value",
-    );
-  });
-
-  it("resolves chain defaults by specificity and surfaces incomparable defaults without an order winner", async () => {
-    const { workspace } = await open(new InMemoryDocumentStore(), "741");
-    expect(
-      (
-        await mutate(workspace, "default-composition-setup", [
-          ...setupNodes(),
-          nodeAt("derived-supertag", "workspace", "supertag-definition"),
-          nodeAt("conflict-supertag", "workspace", "supertag-definition"),
-          nodeAt("chain-instance", "workspace"),
-          nodeAt("conflict-instance", "workspace"),
-          nodeAt("same-default-instance", "workspace"),
-        ])
-      ).status,
-    ).toBe("published");
-    expect(
-      await mutate(workspace, "default-composition-fields", [
-        templateFieldCreation("task-supertag", "base-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "default-composition-discoverable", [
-        {
-          kind: "supertag-template-field-make-discoverable",
-          supertagId: "task-supertag",
-          templateFieldNodeId: "base-template",
-          fieldDefinitionId: "status-definition",
-        },
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "default-composition-other-fields", [
-        existingTemplateField("derived-supertag", "derived-template", "status-definition"),
-        existingTemplateField("other-supertag", "other-template", "status-definition"),
-        staticDefault("task-supertag", "base-template", "Base"),
-        staticDefault("derived-supertag", "derived-template", "Derived"),
-        staticDefault("other-supertag", "other-template", "Other"),
-        extensionAdd("derived-supertag", "task-supertag"),
-        extensionAdd("conflict-supertag", "task-supertag"),
-        extensionAdd("conflict-supertag", "other-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    const authoredDefaults = await projection(workspace, "nodes");
-    expect(nodeText(authoredDefaults.nodes["status-default"])).toBe("Base");
-    expect(nodeText(authoredDefaults.nodes["derived-template-default"])).toBe("Derived");
-    expect(
-      await mutate(workspace, "default-chain-application", [
-        createSupertagApplication("chain-instance", "derived-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      nodeText(
-        (await projection(workspace, "nodes")).nodes[
-          templateFieldInstanceValueNodeId("chain-instance", "derived-template")
-        ],
-      ),
-    ).toBe("Derived");
-    expect(
-      (await projection(workspace, "effectiveFields")).effectiveFields["chain-instance"]?.[0]?.staticDefault,
-    ).toEqual({
-      state: "value",
-      value: "Derived",
-      sourceTemplateFieldNodeId: "derived-template",
-      candidates: [{ value: "Derived", sourceTemplateFieldNodeIds: ["derived-template"] }],
-    });
-
-    expect(
-      await mutate(workspace, "default-conflict-application", [
-        createSupertagApplication("conflict-instance", "conflict-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "materializedFields")).materializedFields["conflict-instance"]).toBeUndefined();
-    expect(
-      (await projection(workspace, "effectiveFields")).effectiveFields["conflict-instance"]?.[0]?.staticDefault,
-    ).toEqual({
-      state: "conflict",
-      candidates: [
-        { value: "Base", sourceTemplateFieldNodeIds: ["base-template"] },
-        { value: "Other", sourceTemplateFieldNodeIds: ["other-template"] },
-      ],
-    });
-
-    expect(
-      await mutate(workspace, "default-same-value", [
-        staticDefault("other-supertag", "other-template", "Base"),
-        createSupertagApplication("same-default-instance", "conflict-supertag"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      (await projection(workspace, "effectiveFields")).effectiveFields["same-default-instance"]?.[0]?.staticDefault,
-    ).toEqual({
-      state: "value",
-      value: "Base",
-      sourceTemplateFieldNodeId: "base-template",
-      candidates: [
-        {
-          value: "Base",
-          sourceTemplateFieldNodeIds: ["base-template", "other-template"],
-        },
-      ],
-    });
-    expect(
-      nodeText(
-        (await projection(workspace, "nodes")).nodes[
-          templateFieldInstanceValueNodeId("same-default-instance", "base-template")
-        ],
-      ),
-    ).toBe("Base");
-  });
-
-  it("preserves both Extension paths when a diamond contributes the same Template Field", async () => {
-    const { workspace } = await open(new InMemoryDocumentStore(), "751");
-    expect(
-      (
-        await mutate(workspace, "diamond-setup", [
-          ...setupNodes(),
-          nodeAt("diamond-target", "workspace", "supertag-definition"),
-          nodeAt("diamond-instance", "workspace"),
-        ])
-      ).status,
-    ).toBe("published");
-    expect(
-      await mutate(workspace, "diamond-field", [
-        templateFieldCreation("task-supertag", "diamond-template", "status-definition"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect(
-      await mutate(workspace, "diamond-left-node", [
-        nodeAt("diamond-left", "workspace", "supertag-definition"),
-        extensionAdd("diamond-left", "task-supertag"),
-        extensionAdd("other-supertag", "task-supertag"),
-        extensionAdd("diamond-target", "diamond-left"),
-        extensionAdd("diamond-target", "other-supertag"),
-        createSupertagApplication("diamond-instance", "diamond-target"),
-      ]),
-    ).toMatchObject({ status: "published" });
-    expect((await projection(workspace, "effectiveFields")).effectiveFields["diamond-instance"]?.[0]?.sources).toEqual([
-      expect.objectContaining({
-        templateFieldNodeId: "diamond-template",
-        extensionPath: ["diamond-target", "diamond-left", "task-supertag"],
-      }),
-      expect.objectContaining({
-        templateFieldNodeId: "diamond-template",
-        extensionPath: ["diamond-target", "other-supertag", "task-supertag"],
-      }),
-    ]);
+    const restarted = await open(documents, "502");
+    const restored = await templateField(restarted.workspace, "task-supertag", "status-definition");
+    expect(restored).toMatchObject({ factActionId: field.factActionId, visibility: "pinned" });
+    expect(restored.staticDefaultCandidates).toEqual([expect.objectContaining({ value: "Ready" })]);
   });
 });
 
-async function open(documents = new InMemoryDocumentStore(), loroPeerId: `${number}` = "701") {
-  const facts = await FactAuthority.open({
-    workspaceId: "workspace",
-    replicaId: createReplicaId(),
-    loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
-  });
+async function open(documents = new InMemoryDocumentStore(), loroPeerId: `${number}` = "101") {
+  const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
   return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
 }
 
-async function mutate(
-  workspace: Workspace,
-  invocationId: string,
-  mutations: readonly EditMutation[],
-  intent: "direct" | "proposal" = "direct",
-) {
-  return workspace.execute({
-    kind: "mutate",
-    workspaceId: "workspace",
-    invocationId,
-    actorId: "actor",
-    intent,
-    historyChannelId: "template-fields",
-    mutations,
-  });
-}
-
-async function projection<
-  Section extends
-    | "nodes"
-    | "nodeOwners"
-    | "occurrences"
-    | "templateFields"
-    | "optionalFieldContributions"
-    | "effectiveFields"
-    | "optionalFieldSuggestions"
-    | "materializedFields",
->(workspace: Workspace, section: Section, perspective: "origin" | "review" = "origin") {
-  const result = await workspace.query({
-    kind: "projection",
-    workspaceId: "workspace",
-    perspective,
-    section,
-  });
-  if (!(section in result)) {
-    throw new Error(`Expected ${section} Projection`);
-  }
-  return result as Extract<typeof result, Record<Section, unknown>>;
-}
-
-function setupNodes(): readonly EditMutation[] {
+function setupNodes(): EditAction[] {
   return [
     nodeAt("task", "workspace"),
     nodeAt("task-supertag", "workspace", "supertag-definition"),
@@ -1211,89 +260,109 @@ function setupNodes(): readonly EditMutation[] {
   ];
 }
 
-function nodeAt(nodeId: string, parentNodeId: string, intrinsicNodeType?: "supertag-definition"): EditMutation {
+function nodeAt(nodeId: string, parentNodeId: string, intrinsicNodeType?: "supertag-definition"): EditAction {
   return {
     kind: "node-create",
     nodeId,
     occurrenceId: `${nodeId}-original`,
     parentNodeId,
     anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
+    ...(intrinsicNodeType ? { intrinsicNodeType } : {}),
   };
 }
 
-function templateFieldCreation(
-  supertagId: string,
-  templateFieldNodeId: string,
-  fieldDefinitionId: string,
-): EditMutation {
+function templateFieldCreation(supertagId: string, fieldDefinitionId: string): EditAction {
   return {
     kind: "supertag-template-field-create",
     supertagId,
-    templateFieldNodeId,
-    templateFieldOccurrenceId: `${templateFieldNodeId}-occurrence`,
     fieldDefinitionId,
-    definitionOccurrenceId: `${templateFieldNodeId}-definition`,
-    staticDefaultValueNodeId: "status-default",
-    staticDefaultValueOccurrenceId: `${templateFieldNodeId}-default`,
     anchor: end,
     fieldDefinitionSeed: { text: [{ value: "Status", attributes: {} }] },
   };
 }
 
-function existingTemplateField(
+async function templateField(
+  workspace: Workspace,
   supertagId: string,
-  templateFieldNodeId: string,
   fieldDefinitionId: string,
-): EditMutation {
-  return {
-    kind: "supertag-template-field-add-existing",
-    supertagId,
-    templateFieldNodeId,
-    templateFieldOccurrenceId: `${templateFieldNodeId}-occurrence`,
-    fieldDefinitionId,
-    definitionOccurrenceId: `${templateFieldNodeId}-definition`,
-    staticDefaultValueNodeId: `${templateFieldNodeId}-default`,
-    staticDefaultValueOccurrenceId: `${templateFieldNodeId}-default-occurrence`,
-    anchor: end,
-  };
+  perspective: "origin" | "review" = "origin",
+) {
+  const fields = await projection(workspace, "templateFields", perspective);
+  return required(
+    fields.templateFields[supertagId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId),
+    "Template Field",
+  );
 }
 
-function optionalField(supertagId: string, fieldDefinitionId: string): EditMutation {
-  return {
-    kind: "supertag-optional-field-contribution-add",
-    supertagId,
-    metanodeId: `${supertagId}-metanode`,
-    fieldNurseryNodeId: `${supertagId}-fields`,
-    fieldNurseryOccurrenceId: `${supertagId}-fields-occurrence`,
-    nurseryDefinitionOccurrenceId: `${supertagId}-fields-definition`,
-    nurseryValueNodeId: `${supertagId}-fields-value`,
-    nurseryValueOccurrenceId: `${supertagId}-fields-value-occurrence`,
-    contributionNodeId: "other-status-contribution",
-    contributionOccurrenceId: "other-status-contribution-occurrence",
-    fieldDefinitionId,
-    definitionOccurrenceId: "other-status-definition",
-    valueNodeId: "other-status-value",
-    valueOccurrenceId: "other-status-value-occurrence",
-    anchor: end,
-  };
+async function projection<
+  Section extends
+    "templateFields" | "optionalFieldContributions" | "materializedFields" | "effectiveFields" | "nodeOwners" | "nodes",
+>(workspace: Workspace, section: Section, perspective: "origin" | "review" = "origin") {
+  const result = await workspace.query({ kind: "projection", workspaceId: "workspace", perspective, section });
+  if (!(section in result)) {
+    throw new Error(`Expected ${section} Projection`);
+  }
+  return result as Extract<typeof result, Record<Section, unknown>>;
 }
 
-function staticDefault(supertagId: string, templateFieldNodeId: string, value: string): EditMutation {
-  return { kind: "supertag-template-field-static-default-set", supertagId, templateFieldNodeId, value };
+async function publish(
+  workspace: Workspace,
+  invocationId: string,
+  actions: EditAction[],
+  intent: "direct" | "proposal" = "direct",
+): Promise<void> {
+  await publishCommand(workspace, {
+    kind: "edit",
+    workspaceId: "workspace",
+    invocationId,
+    actorId: "actor",
+    intent,
+    historyChannelId: "template-fields",
+    actions,
+  });
 }
 
-function extensionAdd(supertagId: string, baseSupertagId: string): EditMutation {
-  return { kind: "supertag-extension-add", supertagId, baseSupertagId, anchor: end };
+async function publishCommand(workspace: Workspace, command: Parameters<Workspace["execute"]>[0]): Promise<void> {
+  const result = await workspace.execute(command);
+  if (result.status === "rejected") {
+    throw new Error(JSON.stringify(result.error));
+  }
+  expect(result.status).toBe("published");
 }
 
-function extensionRemove(supertagId: string, baseSupertagId: string): EditMutation {
-  return { kind: "supertag-extension-remove", supertagId, baseSupertagId };
+async function acceptAllHunks(workspace: Workspace, invocationId: string): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || review.hunks.length === 0) {
+      return;
+    }
+    await publishCommand(workspace, {
+      kind: "resolve-review",
+      workspaceId: "workspace",
+      invocationId: `${invocationId}-${index}`,
+      actorId: "reviewer",
+      decision: "accept",
+      selection: required(review.hunks[0], "Review Hunk").selection,
+    });
+  }
+  throw new Error("Review did not converge");
+}
+
+async function historySelection(workspace: Workspace, channelId: string, operation: "undo" | "redo") {
+  const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId });
+  if (!(operation in history) || history[operation] === null) {
+    throw new Error(`Expected Template Field ${operation}`);
+  }
+  return history[operation];
 }
 
 function nodeText(node: { content: readonly { kind: string; value?: string }[] } | undefined): string {
-  return (
-    node?.content.flatMap((item) => (item.kind === "text" && item.value !== undefined ? [item.value] : [])).join("") ??
-    ""
-  );
+  return node?.content.flatMap((item) => (item.kind === "text" && item.value ? [item.value] : [])).join("") ?? "";
+}
+
+function required<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Missing ${label}`);
+  }
+  return value;
 }

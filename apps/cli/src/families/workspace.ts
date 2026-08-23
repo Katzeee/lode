@@ -61,7 +61,7 @@ const workspaceCreate: CommandDefinition = {
 
 const workspaceAdopt: CommandDefinition = {
   path: ["workspace", "adopt"],
-  summary: "Adopt a remote workspace by pulling its journal from an exchange endpoint.",
+  summary: "Adopt a remote workspace by pulling its authoritative Fact document from an exchange endpoint.",
   positionals: [
     ["endpoint", "Remote peer-exchange endpoint"],
     ["workspace", "Workspace id to adopt"],

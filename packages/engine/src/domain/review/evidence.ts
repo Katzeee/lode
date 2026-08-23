@@ -1,5 +1,11 @@
 import { pendingProposalActivation } from "../activation/index.js";
-import { compareFacts, stableStringCompare, type ContributionFact, type FactSnapshot } from "../fact/index.js";
+import {
+  compareCausalOrder,
+  stableStringCompare,
+  type FactAction,
+  type FactActionId,
+  type FactSnapshot,
+} from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { associatedReviewImpacts, normalizedReviewEffects } from "./review-plan.js";
 import type { DecisionEvidence } from "./types.js";
@@ -7,14 +13,14 @@ import type { DecisionEvidence } from "./types.js";
 export function evidenceForTargets(
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
-  targetIds: readonly string[],
+  targetIds: readonly FactActionId[],
   context = createReviewEvidenceContext(snapshot),
 ): DecisionEvidence | null {
-  const closure = proposalClosure(targetIds, context.pending, context.supportByContribution);
+  const closure = proposalClosure(targetIds, context.pending, context.supportByAction);
   const targets = closure
     .map((id) => context.pending.get(id))
-    .filter((fact): fact is ContributionFact => fact !== undefined)
-    .sort(compareFacts);
+    .filter((fact): fact is FactAction => fact !== undefined)
+    .sort(compareCausalOrder);
   if (targets.length !== closure.length) {
     return null;
   }
@@ -33,8 +39,8 @@ export function evidenceForTargets(
 }
 
 export type ReviewEvidenceContext = Readonly<{
-  pending: ReadonlyMap<string, ContributionFact>;
-  supportByContribution: ReadonlyMap<string, readonly string[]>;
+  pending: ReadonlyMap<FactActionId, FactAction>;
+  supportByAction: ReadonlyMap<FactActionId, readonly FactActionId[]>;
 }>;
 
 export function createReviewEvidenceContext(snapshot: FactSnapshot): ReviewEvidenceContext {
@@ -42,17 +48,17 @@ export function createReviewEvidenceContext(snapshot: FactSnapshot): ReviewEvide
 }
 
 function proposalClosure(
-  targetIds: readonly string[],
-  pending: ReadonlyMap<string, ContributionFact>,
-  supportByContribution: ReadonlyMap<string, readonly string[]>,
-): readonly string[] {
-  const transactionMembers = new Map<string, string[]>();
+  targetIds: readonly FactActionId[],
+  pending: ReadonlyMap<FactActionId, FactAction>,
+  supportByAction: ReadonlyMap<FactActionId, readonly FactActionId[]>,
+): readonly FactActionId[] {
+  const actionsFromSameFact = new Map<string, FactActionId[]>();
   for (const fact of pending.values()) {
-    const members = transactionMembers.get(fact.transaction.transactionId) ?? [];
+    const members = actionsFromSameFact.get(fact.factId) ?? [];
     members.push(fact.id);
-    transactionMembers.set(fact.transaction.transactionId, members);
+    actionsFromSameFact.set(fact.factId, members);
   }
-  const closure = new Set<string>();
+  const closure = new Set<FactActionId>();
   const queue = [...targetIds];
   while (queue.length > 0) {
     const id = queue.shift()!;
@@ -61,8 +67,8 @@ function proposalClosure(
       continue;
     }
     closure.add(id);
-    queue.push(...(transactionMembers.get(fact.transaction.transactionId) ?? []));
-    queue.push(...(supportByContribution.get(id) ?? []));
+    queue.push(...(actionsFromSameFact.get(fact.factId) ?? []));
+    queue.push(...(supportByAction.get(id) ?? []));
   }
   return [...closure].sort(stableStringCompare);
 }

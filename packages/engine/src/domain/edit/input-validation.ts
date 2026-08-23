@@ -1,27 +1,18 @@
-import {
-  parseFieldDefinitionConfigurationCreate,
-  parseFieldDefinitionEndpointConfigure,
-} from "./field-definition-configuration-input-validation.js";
+import { parseFieldDefinitionConfigure } from "./field-definition-configuration-input-validation.js";
 import { inputObject } from "./input-validation-primitives.js";
 import {
   parseSearchExpressionCreate,
-  parseSearchExpressionUpdate,
-  parseSharedDefaultViewDefinitionCreate,
-  parseSharedDefaultViewDefinitionRemove,
-  parseSharedDefaultViewDefinitionOptionsUpdate,
+  parseSearchExpressionEdit,
+  parseViewEdit,
   parseSupertagApplicationCreate,
+  parseSupertagApplicationRemove,
 } from "./relation-input-validation.js";
 import { parseStructuralEdit } from "./structural-input-validation.js";
-import type { EditMutation } from "./types.js";
-import {
-  parseCodeNodeConfigure,
-  parseDebugNodeOpen,
-  parseFieldValueCreate,
-  parseSharedDefaultViewDefinitionSortByNameCreate,
-  parseUrlNodeCreate,
-} from "./breadth-input-validation.js";
+import type { EditAction } from "./types.js";
+import { parseCodeNodeConfigure, parseFieldValueCreate, parseUrlNodeCreate } from "./breadth-input-validation.js";
 import {
   parseSupertagOptionalFieldContributionAdd,
+  parseSupertagOptionalFieldContributionRemove,
   parseSupertagTemplateFieldAddExisting,
   parseSupertagTemplateFieldCreate,
   parseSupertagTemplateFieldMakeDiscoverable,
@@ -31,11 +22,9 @@ import {
 } from "./template-field-input-validation.js";
 import { parseTypedFieldValueEdit } from "./typed-field-value-input-validation.js";
 
-export function parseEditMutation(value: unknown): EditMutation {
+export function parseEditAction(value: unknown): EditAction {
   const edit = inputObject(value);
   switch (edit.kind) {
-    case "debug-node-open":
-      return parseDebugNodeOpen(edit);
     case "field-value-create":
       return parseFieldValueCreate(edit);
     case "field-number-value-set":
@@ -48,10 +37,10 @@ export function parseEditMutation(value: unknown): EditMutation {
       return parseUrlNodeCreate(edit);
     case "code-node-configure":
       return parseCodeNodeConfigure(edit);
-    case "shared-default-view-definition-sort-by-name-create":
-      return parseSharedDefaultViewDefinitionSortByNameCreate(edit);
     case "supertag-application-create":
       return parseSupertagApplicationCreate(edit);
+    case "supertag-remove":
+      return parseSupertagApplicationRemove(edit);
     case "supertag-template-field-create":
       return parseSupertagTemplateFieldCreate(edit);
     case "supertag-template-field-add-existing":
@@ -66,25 +55,39 @@ export function parseEditMutation(value: unknown): EditMutation {
       return parseSupertagTemplateFieldVisibilitySet(edit);
     case "supertag-optional-field-contribution-add":
       return parseSupertagOptionalFieldContributionAdd(edit);
+    case "supertag-optional-field-contribution-remove":
+      return parseSupertagOptionalFieldContributionRemove(edit);
     case "search-expression-create":
       return parseSearchExpressionCreate(edit);
-    case "search-expression-update":
-      return parseSearchExpressionUpdate(edit);
-    case "shared-default-view-definition-create":
-      return parseSharedDefaultViewDefinitionCreate(edit);
-    case "shared-default-view-definition-remove":
-      return parseSharedDefaultViewDefinitionRemove(edit);
-    case "shared-default-view-definition-options-update":
-      return parseSharedDefaultViewDefinitionOptionsUpdate(edit);
-    case "field-datatype-configuration-create":
-    case "field-cardinality-configuration-create":
-    case "field-optionality-configuration-create":
-    case "field-initialization-expression-configuration-create":
-      return parseFieldDefinitionConfigurationCreate(edit);
+    case "search-expression-add":
+    case "search-expression-configure":
+    case "search-expression-move":
+    case "search-expression-remove":
+      return parseSearchExpressionEdit(edit);
+    case "shared-default-view-create":
+    case "shared-default-view-remove":
+    case "view-mode-set":
+    case "view-column-add":
+    case "view-column-remove":
+    case "view-column-move":
+    case "view-sort-add":
+    case "view-sort-configure":
+    case "view-sort-remove":
+    case "view-sort-by-node-name":
+    case "view-group-add":
+    case "view-group-remove":
+    case "view-filter-create":
+    case "view-filter-remove":
+    case "view-filter-expression-add":
+    case "view-filter-expression-configure":
+    case "view-filter-expression-move":
+    case "view-filter-expression-remove":
+      return parseViewEdit(edit);
     case "field-datatype-configure":
     case "field-cardinality-configure":
     case "field-optionality-configure":
-      return parseFieldDefinitionEndpointConfigure(edit);
+    case "field-initialization-expression-configure":
+      return parseFieldDefinitionConfigure(edit);
     default:
       return parseStructuralEdit(edit);
   }

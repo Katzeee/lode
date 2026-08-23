@@ -1,11 +1,11 @@
-import type { EditMutation } from "@lode/sdk";
+import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
+import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { readOptionalContributions, readTemplateFields } from "./supertag-field.js";
-import { optionalContributionMutations } from "./supertag-field-mutations.js";
+import { optionalContributionActions } from "./supertag-field-actions.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const BOOLEAN_ENUM = ["true", "false"] as const;
@@ -50,7 +50,11 @@ const fieldRemove: CommandDefinition = {
         );
       }
       const { result, data } = await executeWrite(context, "supertag.field.remove", [
-        { kind: "node-delete", nodeId: contribution.contributionNodeId },
+        {
+          kind: "supertag-optional-field-contribution-remove",
+          supertagId: supertag.nodeId,
+          fieldDefinitionId: contribution.fieldDefinitionId,
+        },
       ]);
       return writeResult(data, result, {
         extra: { target: supertag.descriptor, field: field.descriptor },
@@ -61,7 +65,7 @@ const fieldRemove: CommandDefinition = {
       {
         kind: "supertag-template-field-remove",
         supertagId: supertag.nodeId,
-        templateFieldNodeId: use.templateFieldNodeId,
+        templateFieldId: use.factActionId,
       },
     ]);
     return writeResult(data, result, {
@@ -127,7 +131,7 @@ function visibilitySet(action: string, visibility: "pinned" | "normal", verb: st
       {
         kind: "supertag-template-field-visibility-set",
         supertagId: supertag.nodeId,
-        templateFieldNodeId: use.templateFieldNodeId,
+        templateFieldId: use.factActionId,
         visibility,
       },
     ]);
@@ -177,7 +181,7 @@ const fieldSetOptional: CommandDefinition = {
     const contribution = (await readOptionalContributions(context, supertag.nodeId)).find(
       (candidate) => candidate.fieldDefinitionId === field.nodeId,
     );
-    const mutations: EditMutation[] = [];
+    const actions: EditAction[] = [];
     if (makeOptional) {
       if (templateUse === undefined) {
         throw new CliError(
@@ -185,12 +189,18 @@ const fieldSetOptional: CommandDefinition = {
           `Field ${field.descriptor.ref} is not a template field of ${supertag.descriptor.ref}.`,
         );
       }
-      mutations.push({
+      actions.push({
         kind: "supertag-template-field-remove",
         supertagId: supertag.nodeId,
-        templateFieldNodeId: templateUse.templateFieldNodeId,
+        templateFieldId: templateUse.factActionId,
       });
-      mutations.push(...optionalContributionMutations(context.requestId, supertag.nodeId, field.nodeId, {}));
+      if (templateUse.fieldDefinitionOwner !== "workspace-schema") {
+        throw new CliError(
+          "unsupported",
+          `Field ${field.descriptor.ref} must be made discoverable before it can become optional.`,
+        );
+      }
+      actions.push(...optionalContributionActions(supertag.nodeId, field.nodeId));
     } else {
       if (contribution === undefined) {
         throw new CliError(
@@ -198,20 +208,19 @@ const fieldSetOptional: CommandDefinition = {
           `Field ${field.descriptor.ref} is not an optional contribution of ${supertag.descriptor.ref}.`,
         );
       }
-      mutations.push({ kind: "node-delete", nodeId: contribution.contributionNodeId });
-      mutations.push({
+      actions.push({
+        kind: "supertag-optional-field-contribution-remove",
+        supertagId: supertag.nodeId,
+        fieldDefinitionId: contribution.fieldDefinitionId,
+      });
+      actions.push({
         kind: "supertag-template-field-add-existing",
         supertagId: supertag.nodeId,
-        templateFieldNodeId: identity(context.requestId, "template-field"),
-        templateFieldOccurrenceId: identity(context.requestId, "template-field-occurrence"),
         fieldDefinitionId: field.nodeId,
-        definitionOccurrenceId: identity(context.requestId, "definition-occurrence"),
-        staticDefaultValueNodeId: identity(context.requestId, "default-node"),
-        staticDefaultValueOccurrenceId: identity(context.requestId, "default-occurrence"),
         anchor: end,
       });
     }
-    const { result, data } = await executeWrite(context, "supertag.field.set-optional", mutations);
+    const { result, data } = await executeWrite(context, "supertag.field.set-optional", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, field: field.descriptor },
       view: writeView(

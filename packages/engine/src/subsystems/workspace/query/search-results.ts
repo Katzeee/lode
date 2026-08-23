@@ -1,15 +1,13 @@
 import type { SearchResultsQueryRequest, SearchResultsResult } from "@lode/sdk";
 import { stableStringCompare } from "../../../domain/fact/index.js";
 import { evaluateSearchExpression, searchResultRowKey } from "../../../domain/query/index.js";
-import { nodeLocation } from "../../../domain/reconcile/index.js";
-import type { ProjectionGenerationReader } from "../projection/index.js";
+import { nodeLocation, type ProjectionGeneration } from "../../../domain/reconcile/index.js";
 
-export async function querySearchResults(
+export function querySearchResults(
   query: SearchResultsQueryRequest,
-  generationId: string,
-  projections: ProjectionGenerationReader,
-): Promise<SearchResultsResult> {
-  const generation = await projections.load(generationId);
+  generation: ProjectionGeneration,
+): SearchResultsResult {
+  const generationId = generation.identity.generationId;
   const projection = generation[query.perspective];
   const available =
     projection.nodes[query.searchNodeId]?.intrinsicNodeType === "search" &&

@@ -1,34 +1,34 @@
-import { canonicalJson, compareFacts, type ContributionFact } from "../fact/index.js";
+import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
 import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import type { FieldMaterializationDecisionEffect } from "./types.js";
-import { associatedNodeScope, fieldContentDeletionScopes, reviewScope } from "./review-scope.js";
+import { associatedNodeScope, fieldContentRemovalScopes, reviewScope } from "./review-scope.js";
 
-const FIELD_MATERIALIZATION_MUTATION_KINDS = ["field-materialize", "materialized-field-delete"] as const;
+const FIELD_MATERIALIZATION_ACTION_KINDS = ["field-materialize", "materialized-field-clear"] as const;
 
 export const fieldMaterializationReviewFamily = {
   key: "field-materialization",
-  mutationKinds: FIELD_MATERIALIZATION_MUTATION_KINDS,
-  scopes(fact) {
-    const mutation = fact.body.mutation;
-    if (!isFieldMaterializationMutation(mutation)) {
-      throw new Error("Field materialization Review family received another Mutation family");
+  actionKinds: FIELD_MATERIALIZATION_ACTION_KINDS,
+  scopes(fact, context) {
+    const action = fact.action;
+    if (!isFieldMaterializationAction(action)) {
+      throw new Error("Field materialization Review family received another AuthoredAction family");
     }
-    if (mutation.kind === "materialized-field-delete") {
-      return fieldContentDeletionScopes(mutation);
+    if (action.kind === "materialized-field-clear") {
+      return fieldContentRemovalScopes(action, context);
     }
     return [
-      reviewScope("materialized-field", mutation.ownerNodeId, mutation.fieldDefinitionId),
-      associatedNodeScope(mutation.ownerNodeId),
-      associatedNodeScope(mutation.fieldDefinitionId),
-      associatedNodeScope(mutation.fieldNodeId),
+      reviewScope("materialized-field", action.ownerNodeId, action.fieldDefinitionId),
+      associatedNodeScope(action.ownerNodeId),
+      associatedNodeScope(action.fieldDefinitionId),
+      associatedNodeScope(action.fieldNodeId),
     ];
   },
   candidates: ({ generation, pending }) => materializedFieldCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (!isFieldMaterializationMutation(mutation)) {
-      throw new Error("Field materialization Review family received another Mutation family");
+    const action = fact.action;
+    if (!isFieldMaterializationAction(action)) {
+      throw new Error("Field materialization Review family received another AuthoredAction family");
     }
     const effect = fieldMaterializationEffect(fact, generation);
     return effect.originFieldNodeId === effect.reviewFieldNodeId
@@ -40,11 +40,11 @@ export const fieldMaterializationReviewFamily = {
   },
   addImpacts(impacts, targets) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (mutation.kind === "field-materialize") {
-        impacts.add(materializedFieldAddress(mutation.ownerNodeId, mutation.fieldDefinitionId));
-        impacts.add(mutation.fieldNodeId);
-        impacts.add(mutation.fieldOccurrenceId);
+      const action = fact.action;
+      if (action.kind === "field-materialize") {
+        impacts.add(materializedFieldAddress(action.ownerNodeId, action.fieldDefinitionId));
+        impacts.add(action.fieldNodeId);
+        impacts.add(action.fieldOccurrenceId);
       }
     }
   },
@@ -52,15 +52,15 @@ export const fieldMaterializationReviewFamily = {
 
 function materializedFieldCandidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
+  const groups = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isFieldMaterializationMutation(mutation)) {
+    const action = fact.action;
+    if (!isFieldMaterializationAction(action)) {
       continue;
     }
-    const address = materializedFieldAddress(mutation.ownerNodeId, mutation.fieldDefinitionId);
+    const address = materializedFieldAddress(action.ownerNodeId, action.fieldDefinitionId);
     const group = groups.get(address) ?? [];
     group.push(fact);
     groups.set(address, group);
@@ -72,7 +72,7 @@ function materializedFieldCandidates(
       : [
           {
             diffSpace: { kind: "materialized-field" as const, identity: address },
-            targets: [...facts].sort(compareFacts).map((fact) => fact.id),
+            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
             bridges: [],
           },
         ];
@@ -80,19 +80,19 @@ function materializedFieldCandidates(
 }
 
 function fieldMaterializationEffect(
-  fact: ContributionFact,
+  fact: FactAction,
   generation: ScopedProjectionGeneration,
 ): FieldMaterializationDecisionEffect {
-  const mutation = fact.body.mutation;
-  if (!isFieldMaterializationMutation(mutation)) {
-    throw new Error("Field materialization effect requires a Field materialization Mutation");
+  const action = fact.action;
+  if (!isFieldMaterializationAction(action)) {
+    throw new Error("Field materialization effect requires a Field materialization AuthoredAction");
   }
-  const origin = materializedField(generation.origin, mutation.ownerNodeId, mutation.fieldDefinitionId);
-  const review = materializedField(generation.review, mutation.ownerNodeId, mutation.fieldDefinitionId);
+  const origin = materializedField(generation.origin, action.ownerNodeId, action.fieldDefinitionId);
+  const review = materializedField(generation.review, action.ownerNodeId, action.fieldDefinitionId);
   return {
     kind: "field-materialization",
-    ownerNodeId: mutation.ownerNodeId,
-    fieldDefinitionId: mutation.fieldDefinitionId,
+    ownerNodeId: action.ownerNodeId,
+    fieldDefinitionId: action.fieldDefinitionId,
     originFieldNodeId: origin?.fieldNodeId ?? null,
     reviewFieldNodeId: review?.fieldNodeId ?? null,
     originFieldOccurrenceId: origin?.fieldOccurrenceId ?? null,
@@ -108,13 +108,10 @@ function materializedField(projection: ScopedProjection, ownerNodeId: string, fi
   return projection.materializedFields[ownerNodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId);
 }
 
-function isFieldMaterializationMutation(
-  mutation: ContributionFact["body"]["mutation"],
-): mutation is Extract<
-  ContributionFact["body"]["mutation"],
-  { kind: (typeof FIELD_MATERIALIZATION_MUTATION_KINDS)[number] }
-> {
-  return FIELD_MATERIALIZATION_MUTATION_KINDS.includes(
-    mutation.kind as (typeof FIELD_MATERIALIZATION_MUTATION_KINDS)[number],
+function isFieldMaterializationAction(
+  action: FactAction["action"],
+): action is Extract<FactAction["action"], { kind: (typeof FIELD_MATERIALIZATION_ACTION_KINDS)[number] }> {
+  return FIELD_MATERIALIZATION_ACTION_KINDS.includes(
+    action.kind as (typeof FIELD_MATERIALIZATION_ACTION_KINDS)[number],
   );
 }

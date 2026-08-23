@@ -2,7 +2,7 @@ import type { ActorId } from "./types.js";
 
 /**
  * Governance Fact vocabulary: workspace establish, Actor membership, and Peer
- * admission ride the same Fact journal as content. Byte-valued fields are
+ * admission ride the same Fact authority as content. Byte-valued fields are
  * base64 strings so Facts stay canonical-JSON serializable. Actor and Peer
  * identities encode their own public keys, so membership records carry ids
  * only; the transit key itself never appears — only per-peer envelopes sealed

@@ -89,7 +89,7 @@ describe("supertag and reference families through the product CLI", () => {
       ).toEqual([]);
 
       const wrongRemove = await run(["supertag", "remove", "Urgent", "--to", "Quarterly plan"]);
-      expect(wrongRemove.envelope).toMatchObject({ error: { code: "target-not-found" } });
+      expect(wrongRemove.envelope).toMatchObject({ error: { code: "invalid-value" } });
       const optionalRejected = await run([
         "--request-id",
         "f4",

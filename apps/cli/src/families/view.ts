@@ -1,16 +1,15 @@
-import type { EditMutation, ViewOptionsSpec, ViewType } from "@lode/sdk";
+import type { EditAction, SharedDefaultViewDefinition, ViewOptionsSpec, ViewType } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { descriptor, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
+import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { registerViewPresentationCommands } from "./view-presentation.js";
 import { registerViewOptionCommands } from "./view-options.js";
 
 /**
- * View family: the shared default View authority. Mode writes select the
- * View Type; column/filter/sort/group writes compose one options update with
- * stable option identities so unchanged options keep theirs.
+ * View family: the shared default View authority. Each command emits the
+ * semantic View edit that corresponds to the user's operation.
  */
 
 export function registerViewCommands(catalog: CommandCatalog): void {
@@ -27,6 +26,7 @@ const end = { after: null, before: null, affinity: "after", fallback: "end" } as
 type HostView = Readonly<{
   hostNodeId: string;
   hostLabel: string;
+  viewId: SharedDefaultViewDefinition["viewId"];
   viewDefinitionNodeId: string;
   options: ViewOptionsSpec;
 }>;
@@ -44,67 +44,43 @@ export async function readHostView(
     workspaceId,
     context.perspective,
     "sharedDefaultViewDefinitions",
-  )) as Record<string, readonly { viewDefinitionNodeId: string; options: ViewOptionsSpec }[]>;
+  )) as Record<string, readonly SharedDefaultViewDefinition[]>;
   const current = (definitions[host.nodeId] ?? []).at(0);
   return current === undefined
     ? null
     : {
         hostNodeId: host.nodeId,
         hostLabel: host.label,
+        viewId: current.viewId,
         viewDefinitionNodeId: current.viewDefinitionNodeId,
         options: current.options,
       };
 }
 
-export async function writeOptions(
+export async function writeViewActions(
   context: Parameters<ProductCommandRun>[0],
   hostToken: string,
   action: string,
-  compose: (current: ViewOptionsSpec) => ViewOptionsSpec,
+  build: (current: HostView) => readonly EditAction[],
 ) {
   const workspaceId = workspaceIdOf(context);
   const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
     "node",
     "search",
   ]);
-  const mutations: EditMutation[] = [];
-  let viewDefinitionNodeId = identity(context.requestId, "view-definition");
   const existing = await readHostView(context, hostToken);
   if (existing === null) {
-    const metanodes = (await context.session.readProjection(workspaceId, context.perspective, "metanodes")) as Record<
-      string,
-      string
-    >;
-    mutations.push({
-      kind: "shared-default-view-definition-create",
-      hostNodeId: host.nodeId,
-      metanodeId: metanodes[host.nodeId] ?? `${host.nodeId}-metanode`,
-      attachmentNodeId: `${viewDefinitionNodeId}-attachment`,
-      attachmentOccurrenceId: `${viewDefinitionNodeId}-attachment-occurrence`,
-      relationDefinitionOccurrenceId: `${viewDefinitionNodeId}-attachment-definition`,
-      viewDefinitionNodeId,
-      viewDefinitionOccurrenceId: `${viewDefinitionNodeId}-occurrence`,
-      viewType: "outline",
-      anchor: end,
-    });
-  } else {
-    viewDefinitionNodeId = existing.viewDefinitionNodeId;
+    throw new CliError("unsupported", `Node ${host.descriptor.ref} has no shared default View.`);
   }
-  const options = compose(
-    existing === null ? { columns: [], filter: null, sort: null, group: null } : existing.options,
-  );
-  mutations.push({
-    kind: "shared-default-view-definition-options-update",
-    hostNodeId: host.nodeId,
-    viewDefinitionNodeId,
-    options,
-  });
-  const { result, data } = await executeWrite(context, action, mutations);
+  const { result, data } = await executeWrite(context, action, build(existing));
   return writeResult(data, result, {
-    extra: { target: descriptor(workspaceId, "view", viewDefinitionNodeId, `${host.label} view`), on: host.descriptor },
+    extra: {
+      target: descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
+      on: host.descriptor,
+    },
     view: writeView(
       "Updated view",
-      descriptor(workspaceId, "view", viewDefinitionNodeId, `${host.label} view`),
+      descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
       `on ${host.label}`,
     ),
   });
@@ -172,13 +148,19 @@ const viewColumnAdd: CommandDefinition = {
     const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
       "field",
     ]);
-    return writeOptions(context, args.requiredOption("--on"), "view.column.add", (current) => {
-      if (current.columns.some((column) => column.fieldDefinitionId === field.nodeId)) {
+    return writeViewActions(context, args.requiredOption("--on"), "view.column.add", (current) => {
+      if (current.options.columns.some((column) => column.fieldDefinitionId === field.nodeId)) {
         throw new CliError("invalid-value", `Column for ${field.descriptor.ref} already exists.`);
       }
-      const columnNodeId =
-        current.columns.length === 0 ? `view-column:v1:${field.nodeId}` : `view-column:v1:${field.nodeId}`;
-      return { ...current, columns: [...current.columns, { columnNodeId, fieldDefinitionId: field.nodeId }] };
+      return [
+        {
+          kind: "view-column-add",
+          hostNodeId: current.hostNodeId,
+          viewId: current.viewId,
+          fieldDefinitionId: field.nodeId,
+          anchor: end,
+        },
+      ];
     });
   },
 };
@@ -196,10 +178,14 @@ const viewColumnRemove: CommandDefinition = {
     const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
       "field",
     ]);
-    return writeOptions(context, args.requiredOption("--on"), "view.column.remove", (current) => ({
-      ...current,
-      columns: current.columns.filter((column) => column.fieldDefinitionId !== field.nodeId),
-    }));
+    return writeViewActions(context, args.requiredOption("--on"), "view.column.remove", (current) => [
+      {
+        kind: "view-column-remove",
+        hostNodeId: current.hostNodeId,
+        viewId: current.viewId,
+        fieldDefinitionId: field.nodeId,
+      },
+    ]);
   },
 };
 
@@ -235,20 +221,24 @@ const viewColumnMove: CommandDefinition = {
       throw new CliError("usage", "view column move needs --before or --after.");
     }
     const anchor = await resolveNodeTarget(context.session, workspaceId, context.perspective, anchorToken, ["field"]);
-    return writeOptions(context, args.requiredOption("--on"), "view.column.move", (current) => {
-      const columns = [...current.columns];
-      const from = columns.findIndex((column) => column.fieldDefinitionId === field.nodeId);
-      const to = columns.findIndex((column) => column.fieldDefinitionId === anchor.nodeId);
-      if (from < 0 || to < 0) {
+    return writeViewActions(context, args.requiredOption("--on"), "view.column.move", (current) => {
+      const moved = current.options.columns.find((column) => column.fieldDefinitionId === field.nodeId);
+      const target = current.options.columns.find((column) => column.fieldDefinitionId === anchor.nodeId);
+      if (moved === undefined || target === undefined) {
         throw new CliError("target-not-found", "Both columns must already exist in the View.");
       }
-      const [moved] = columns.splice(from, 1);
-      if (moved === undefined) {
-        throw new CliError("target-not-found", "Column disappeared during composition.");
-      }
-      const target = columns.findIndex((column) => column.fieldDefinitionId === anchor.nodeId);
-      columns.splice(args.option("--after") !== undefined ? target + 1 : target, 0, moved);
-      return { ...current, columns };
+      return [
+        {
+          kind: "view-column-move",
+          hostNodeId: current.hostNodeId,
+          viewId: current.viewId,
+          columnId: moved.columnId,
+          anchor:
+            args.option("--after") !== undefined
+              ? { after: target.columnId, before: null, affinity: "after", fallback: "end" }
+              : { after: null, before: target.columnId, affinity: "before", fallback: "start" },
+        },
+      ];
     });
   },
 };

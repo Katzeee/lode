@@ -18,7 +18,7 @@ const referenceRemove: CommandDefinition = {
     const inline = await findInlineReference(context, token);
     if (inline !== null) {
       const { result, data } = await executeWrite(context, "reference.remove", [
-        { kind: "inline-reference-delete", inlineReferenceId: inline.inlineReferenceId },
+        { kind: "inline-reference-remove", inlineReferenceId: inline.inlineReferenceId },
       ]);
       return writeResult(data, result, {
         extra: { target: inline.descriptor },

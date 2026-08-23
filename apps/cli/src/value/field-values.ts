@@ -11,7 +11,7 @@ export const FIELD_DATATYPES = ["plain", "options", "options-from-supertag", "nu
 
 export type FieldDatatype = (typeof FIELD_DATATYPES)[number];
 
-export type ParsedFieldValue =
+type ParsedFieldValue =
   | Readonly<{ kind: "plain"; text: string }>
   | Readonly<{ kind: "number"; value: number }>
   | Readonly<{ kind: "checkbox"; value: boolean }>
@@ -58,8 +58,4 @@ export function datatypeOfEndpoint(endpointNodeId: string | null | undefined): F
   }
   const prefix = "system-field-datatype:v1:";
   return endpointNodeId.startsWith(prefix) ? (endpointNodeId.slice(prefix.length) as FieldDatatype) : null;
-}
-
-export function datatypeEndpoint(datatype: FieldDatatype): string {
-  return `system-field-datatype:v1:${datatype}`;
 }

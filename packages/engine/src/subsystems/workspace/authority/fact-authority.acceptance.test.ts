@@ -1,139 +1,90 @@
-import { LoroDoc } from "loro-crdt";
 import { describe, expect, it } from "vitest";
+import { LoroDoc } from "loro-crdt";
 
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import {
-  admitAuthorityRecordShapes,
-  canonicalDigest,
-  canonicalJson,
-  makeFact,
-  requestDigest,
-  unsignedFact,
-  type AuthorityRecord,
-  type Fact,
-} from "../../../domain/fact/index.js";
-import type { DocumentStore, LoadedDocumentBytes } from "../../persistence/document-store.js";
-import { AuthorityFaultError, InvocationConflictError, ProjectionUnavailableError } from "./errors.js";
-import { FactAuthority, createReplicaId } from "./fact-authority.js";
-import { FACT_AUTHORITY_JOURNAL_DOCUMENT_ID } from "./authority-journal.js";
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "../../persistence/document-store.js";
+import { InvocationConflictError, ProjectionUnavailableError } from "./errors.js";
+import { FactAuthority } from "./fact-authority.js";
+import { FACT_AUTHORITY_DOCUMENT_ID } from "./loro-fact-store.js";
+import { localReceiptsDocumentId } from "./local-receipt-store.js";
 import { FactReplication } from "../fact-replication.js";
 import { syncPair } from "../../../../tests/support/sync.js";
 
-const REPLICA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+const REPLICA_A = "101";
+const REPLICA_B = "202";
 const request = { command: "create-node", nodeId: "node" } as const;
-const body = {
-  kind: "contribution" as const,
-  actorId: "actor",
-  intent: "direct" as const,
-  mutation: { kind: "node-create" as const, nodeId: "node" },
-};
+const body = edit("node");
 
-async function open(documents: DocumentStore, replicaId = REPLICA_A, peerId: `${number}` = "101") {
-  return FactAuthority.open({
-    workspaceId: "workspace",
-    replicaId,
-    loroPeerId: peerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecordShapes,
-  });
+function edit(nodeId: string) {
+  return {
+    kind: "edit" as const,
+    actorId: "actor",
+    intent: "direct" as const,
+    actions: [
+      {
+        kind: "node-create" as const,
+        nodeId,
+        ownerNodeId: "workspace",
+        originalPlacement: null,
+      },
+    ] as const,
+  };
 }
 
-async function seed(documents: DocumentStore, records: readonly AuthorityRecord[]): Promise<void> {
-  await documents.appendUpdate(FACT_AUTHORITY_JOURNAL_DOCUMENT_ID, new TextEncoder().encode(canonicalJson(records)));
+async function open(documents: DocumentStore, peerId: `${number}` = "101") {
+  return FactAuthority.open({
+    workspaceId: "workspace",
+    loroPeerId: peerId,
+    documents,
+  });
 }
 
 describe("production Fact authority store", () => {
-  it("AUTH-2 immutable idempotent records fail closed on conflicts", async () => {
-    const documents = new InMemoryDocumentStore();
-    const first = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      sequence: 1,
-      observed: {},
-      lamport: 1,
-      body,
-    });
-    const unsigned = {
-      ...unsignedFact(first),
-      body: { ...body, mutation: { kind: "node-create" as const, nodeId: "other" } },
-    };
-    const conflict = { ...unsigned, contentDigest: canonicalDigest(unsigned), attribution: null };
-    await seed(documents, [
-      { recordKind: "fact", fact: first },
-      { recordKind: "fact", fact: first },
-      { recordKind: "fact", fact: conflict },
-    ]);
-
-    const store = await open(documents);
-    expect(store.admission().kind).toBe("fault");
-    expect(() => store.snapshot()).toThrow(AuthorityFaultError);
-  });
-
-  it("AUTH-5 admission distinguishes pending gaps from authority faults", async () => {
-    const documents = new InMemoryDocumentStore();
-    const second = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_B,
-      sequence: 2,
-      observed: { [REPLICA_B]: 1 },
-      lamport: 2,
-      body: { ...body, mutation: { kind: "node-create", nodeId: "late" } },
-    });
-    await seed(documents, [{ recordKind: "fact", fact: second }]);
-    const store = await open(documents);
-
-    expect(store.admission()).toMatchObject({
-      kind: "pending",
-      pendingTransactionIds: [second.transaction.transactionId],
-      snapshot: { facts: [], frontier: {} },
-      fault: null,
-    });
-
-    const local = await store.commit({
-      invocationId: "local-while-remote-transaction-is-incomplete",
-      request: { command: "local" },
-      writes: [body],
-      lineage: null,
-      publishedFrontier: {},
-    });
-    expect(store.admission()).toMatchObject({
-      kind: "pending",
-      snapshot: {
-        facts: [{ id: local.receipt.factIds[0] }],
-        frontier: { [REPLICA_A]: 1 },
-      },
-    });
-  });
-
-  it("CMD-2 fact batch ledger receipt and frontier commit atomically", async () => {
+  it("CMD-2 edit Fact batch, receipt, and frontier commit atomically", async () => {
     const durable = new RecordingDocumentStore();
-    const store = await open(durable, REPLICA_A, "101");
+    const store = await open(durable, "101");
     const result = await store.commit({
       invocationId: "invocation",
       request,
       writes: [
         {
-          kind: "transaction",
-          bodies: [body, { ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
+          ...body,
+          actions: [
+            ...body.actions,
+            { kind: "node-create", nodeId: "node-2", ownerNodeId: "workspace", originalPlacement: null },
+          ],
         },
       ],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
 
     expect(result.created).toBe(true);
-    expect(result.receipt.factIds).toHaveLength(2);
-    expect(result.receipt.committedFrontier).toEqual({ [REPLICA_A]: 2 });
-    expect(store.snapshot().facts).toHaveLength(2);
-    expect(store.snapshot().facts.map((fact) => fact.transaction)).toEqual([
-      { transactionId: `t1/workspace/${REPLICA_A}/1`, index: 0, size: 2 },
-      { transactionId: `t1/workspace/${REPLICA_A}/1`, index: 1, size: 2 },
-    ]);
+    expect(result.receipt.factIds).toHaveLength(1);
+    expect(result.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
+    expect(store.snapshot().facts).toHaveLength(1);
     expect(durable.appendCount).toBe(1);
-    const reopened = await open(durable, REPLICA_A, "102");
-    expect(reopened.snapshot().facts).toHaveLength(2);
+    const persisted = await durable.load(FACT_AUTHORITY_DOCUMENT_ID);
+    const authorityUpdate = persisted?.updates[0];
+    if (!authorityUpdate) {
+      throw new Error("Expected one durable authority update");
+    }
+    const authorityDocument = new LoroDoc();
+    authorityDocument.import(authorityUpdate);
+    const factRecords = authorityDocument.getList("facts");
+    expect(factRecords.length).toBe(1);
+    expect(factRecords.get(0)).toEqual({
+      kind: "edit",
+      actorId: "actor",
+      intent: "direct",
+      actions: [
+        { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+        { kind: "node-create", nodeId: "node-2", ownerNodeId: "workspace", originalPlacement: null },
+      ],
+    });
+    const reopened = await open(durable, "101");
+    expect(reopened.snapshot().facts).toHaveLength(1);
     expect(reopened.receipt("invocation")).toEqual(result.receipt);
   });
 
@@ -146,6 +97,7 @@ describe("production Fact authority store", () => {
         request,
         writes: [body],
         lineage: null,
+        inverse: [],
         publishedFrontier: {},
       }),
     ).rejects.toThrow("injected append failure");
@@ -158,18 +110,16 @@ describe("production Fact authority store", () => {
     const sourceDocuments = new FailingAuthoritySnapshotStore();
     const source = await FactAuthority.open({
       workspaceId: "workspace",
-      replicaId: REPLICA_A,
       loroPeerId: "101",
-      authorityJournal: sourceDocuments,
-      factReplication: sourceDocuments,
+      documents: sourceDocuments,
       snapshotInterval: 1,
-      admitRecords: admitAuthorityRecordShapes,
     });
     const first = await source.commit({
       invocationId: "compaction-failed",
       request,
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
     expect(first.created).toBe(true);
@@ -180,12 +130,13 @@ describe("production Fact authority store", () => {
     await source.commit({
       invocationId: "compaction-retry",
       request: { ...request, nodeId: "second" },
-      writes: [{ ...body, mutation: { kind: "node-create", nodeId: "second" } }],
+      writes: [edit("second")],
       lineage: null,
+      inverse: [],
       publishedFrontier: first.receipt.committedFrontier,
     });
-    expect((await sourceDocuments.load(FACT_AUTHORITY_JOURNAL_DOCUMENT_ID))?.updates).toHaveLength(0);
-    const destination = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
+    expect((await sourceDocuments.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(0);
+    const destination = await open(new InMemoryDocumentStore(), "202");
     await syncPair(new FactReplication(source.replication), new FactReplication(destination.replication));
     expect(destination.snapshot().facts).toHaveLength(2);
   });
@@ -198,6 +149,7 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
     const retry = await store.commit({
@@ -205,6 +157,7 @@ describe("production Fact authority store", () => {
       request: { nodeId: "node", command: "create-node" },
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
 
@@ -216,6 +169,7 @@ describe("production Fact authority store", () => {
         request: { ...request, nodeId: "other" },
         writes: [body],
         lineage: null,
+        inverse: [],
         publishedFrontier: first.receipt.committedFrontier,
       }),
     ).rejects.toBeInstanceOf(InvocationConflictError);
@@ -228,6 +182,7 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     } as const;
 
@@ -246,14 +201,16 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
     await expect(
       store.commit({
         invocationId: "second",
         request: { ...request, nodeId: "node-2" },
-        writes: [{ ...body, mutation: { kind: "node-create", nodeId: "node-2" } }],
+        writes: [edit("node-2")],
         lineage: null,
+        inverse: [],
         publishedFrontier: {},
       }),
     ).rejects.toBeInstanceOf(ProjectionUnavailableError);
@@ -261,7 +218,7 @@ describe("production Fact authority store", () => {
     expect(first.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
   });
 
-  it("restart and real Loro sync preserve admitted Facts and local receipts", async () => {
+  it("restart preserves separate Fact and receipt documents while sync exports only Facts", async () => {
     const documentsA = new InMemoryDocumentStore();
     const storeA = await open(documentsA);
     const committed = await storeA.commit({
@@ -269,82 +226,81 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
-    const restarted = await open(documentsA, REPLICA_A, "101");
+    const restarted = await open(documentsA, "101");
     expect(restarted.receipt("invocation")).toEqual(committed.receipt);
     expect(restarted.snapshot()).toEqual(storeA.snapshot());
+    expect(await documentsA.listIds()).toEqual([FACT_AUTHORITY_DOCUMENT_ID, localReceiptsDocumentId(REPLICA_A)]);
 
-    const storeB = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
+    const storeB = await open(new InMemoryDocumentStore(), "202");
     await storeB.replication.importUpdate(await storeA.replication.exportUpdate());
     expect(storeB.snapshot()).toEqual(storeA.snapshot());
     expect(storeB.receipt("invocation")).toBeNull();
   });
 
+  it("local receipt retention can end without deleting authoritative Facts", async () => {
+    const documents = new InMemoryDocumentStore();
+    const store = await open(documents);
+    await store.commit({
+      invocationId: "expires-locally",
+      request,
+      writes: [body],
+      lineage: null,
+      inverse: [],
+      publishedFrontier: {},
+    });
+
+    await documents.delete(localReceiptsDocumentId(REPLICA_A));
+    const reopened = await open(documents, "101");
+
+    expect(reopened.snapshot().facts).toHaveLength(1);
+    expect(reopened.receipt("expires-locally")).toBeNull();
+  });
+
   it("direct sync import preserves locally committed Facts without an earlier export", async () => {
-    const local = await open(new InMemoryDocumentStore(), REPLICA_A, "101");
+    const local = await open(new InMemoryDocumentStore(), "101");
     await local.commit({
       invocationId: "local",
       request: { side: "local" },
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
-    const remote = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
+    const remote = await open(new InMemoryDocumentStore(), "202");
     await remote.commit({
       invocationId: "remote",
       request: { side: "remote" },
-      writes: [{ ...body, mutation: { kind: "node-create", nodeId: "remote" } }],
+      writes: [edit("remote")],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
 
     await local.replication.importUpdate(await remote.replication.exportUpdate());
 
     expect(local.snapshot().facts).toHaveLength(2);
-    expect(local.admission().kind).toBe("ready");
   });
 
-  it("replica identities are 128-bit lowercase base32 values", () => {
-    expect(createReplicaId()).toMatch(/^[a-z2-7]{26}$/);
-  });
-
-  it("receipt-only records do not advance the logical Fact frontier", async () => {
-    const documents = new InMemoryDocumentStore();
-    await seed(documents, [
-      {
-        recordKind: "receipt",
-        receipt: {
-          workspaceId: "workspace",
-          replicaId: REPLICA_A,
-          invocationId: "receipt-only",
-          requestDigest: requestDigest(request),
-          factIds: [`g1/workspace/${REPLICA_A}/1`],
-          committedFrontier: { [REPLICA_A]: 1 },
-          lineage: null,
-        },
-      },
-    ]);
-    const store = await open(documents);
-    expect(store.snapshot()).toEqual({ facts: [], frontier: {} });
-    expect(store.receipt("receipt-only")?.factIds).toEqual([`g1/workspace/${REPLICA_A}/1`]);
-  });
-
-  it("SYNC-3 workspace replica sequence and admission events are isolated", async () => {
-    const first = await open(new InMemoryDocumentStore(), REPLICA_A, "101");
-    const second = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
+  it("SYNC-3 workspace replica sequences are isolated", async () => {
+    const first = await open(new InMemoryDocumentStore(), "101");
+    const second = await open(new InMemoryDocumentStore(), "202");
     const left = await first.commit({
       invocationId: "left",
       request: { side: "left" },
       writes: [body],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
     const right = await second.commit({
       invocationId: "right",
       request: { side: "right" },
-      writes: [{ ...body, mutation: { kind: "node-create", nodeId: "right" } }],
+      writes: [edit("right")],
       lineage: null,
+      inverse: [],
       publishedFrontier: {},
     });
     expect(left.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
@@ -355,24 +311,22 @@ describe("production Fact authority store", () => {
     const documents = new InMemoryDocumentStore();
     const store = await FactAuthority.open({
       workspaceId: "workspace",
-      replicaId: REPLICA_A,
       loroPeerId: "101",
-      authorityJournal: documents,
-      factReplication: documents,
+      documents: documents,
       snapshotInterval: 16,
-      admitRecords: admitAuthorityRecordShapes,
     });
     for (let index = 0; index < 40; index += 1) {
       await store.commit({
         invocationId: `offline-${index}`,
         request: { index },
-        writes: [{ ...body, mutation: { kind: "node-create", nodeId: `offline-${index}` } }],
+        writes: [edit(`offline-${index}`)],
         lineage: null,
+        inverse: [],
         publishedFrontier: store.snapshot().frontier,
       });
     }
     const restarted = await open(documents);
-    const remote = await open(new InMemoryDocumentStore(), REPLICA_B, "202");
+    const remote = await open(new InMemoryDocumentStore(), "202");
     await remote.replication.importUpdate(await restarted.replication.exportUpdate());
     expect(restarted.snapshot().facts).toHaveLength(40);
     expect(remote.snapshot()).toEqual(restarted.snapshot());
@@ -382,108 +336,33 @@ describe("production Fact authority store", () => {
     const documents = new InMemoryDocumentStore();
     const store = await FactAuthority.open({
       workspaceId: "workspace",
-      replicaId: REPLICA_A,
       loroPeerId: "101",
-      authorityJournal: documents,
-      factReplication: documents,
+      documents: documents,
       snapshotInterval: 4,
-      admitRecords: admitAuthorityRecordShapes,
     });
     for (let index = 0; index < 9; index += 1) {
       await store.commit({
         invocationId: `compact-${index}`,
         request: { index },
-        writes: [{ ...body, mutation: { kind: "node-create", nodeId: `compact-${index}` } }],
+        writes: [edit(`compact-${index}`)],
         lineage: null,
+        inverse: [],
         publishedFrontier: store.snapshot().frontier,
       });
     }
 
-    expect((await documents.load(FACT_AUTHORITY_JOURNAL_DOCUMENT_ID))?.updates).toHaveLength(1);
+    expect((await documents.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(1);
     const restarted = await open(documents);
     expect(restarted.snapshot().facts).toHaveLength(9);
-  });
-
-  it("Admission gap 与 receipt-only update", async () => {
-    const documents = new InMemoryDocumentStore();
-    const first = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_B,
-      sequence: 1,
-      observed: {},
-      lamport: 1,
-      body,
-    });
-    const second = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_B,
-      sequence: 2,
-      observed: { [REPLICA_B]: 1 },
-      lamport: 2,
-      body,
-    });
-    await seed(documents, [
-      { recordKind: "fact", fact: second },
-      {
-        recordKind: "receipt",
-        receipt: {
-          workspaceId: "workspace",
-          replicaId: REPLICA_A,
-          invocationId: "receipt-only-gap",
-          requestDigest: requestDigest(request),
-          factIds: [`g1/workspace/${REPLICA_A}/1`],
-          committedFrontier: { [REPLICA_A]: 1 },
-          lineage: null,
-        },
-      },
-    ]);
-    const store = await open(documents, REPLICA_A, "101");
-    expect(store.admission()).toMatchObject({ kind: "pending", snapshot: { frontier: {} } });
-    expect(store.receipt("receipt-only-gap")).not.toBeNull();
-
-    const remote = new LoroDoc();
-    remote.setPeerId("202");
-    remote
-      .getMap<string>("facts")
-      .set(`${first.id}/${first.contentDigest}`, canonicalJson({ recordKind: "fact", fact: first }));
-    remote.commit({ message: "fill-admission-gap" });
-    await store.replication.importUpdate(remote.export({ mode: "update" }));
-
-    expect(store.admission()).toMatchObject({
-      kind: "ready",
-      snapshot: { frontier: { [REPLICA_B]: 2 } },
-    });
-  });
-
-  it("Version 与 corruption", async () => {
-    const documents = new InMemoryDocumentStore();
-    const valid = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      sequence: 1,
-      observed: {},
-      lamport: 1,
-      body,
-    });
-    const unsigned = { ...unsignedFact(valid), schemaVersion: valid.schemaVersion + 1 };
-    const unsupported = {
-      ...unsigned,
-      contentDigest: canonicalDigest(unsigned),
-      attribution: null,
-    } as unknown as Fact;
-    await seed(documents, [{ recordKind: "fact", fact: unsupported }]);
-    const admission = (await open(documents)).admission();
-    expect(admission.kind).toBe("fault");
-    expect(admission.fault).toContain("Unsupported Fact version");
   });
 });
 
 class RecordingDocumentStore extends InMemoryDocumentStore {
   appendCount = 0;
 
-  override appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
+  override appendUpdates(updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
     this.appendCount += 1;
-    return super.appendUpdate(id, bytes);
+    return super.appendUpdates(updates);
   }
 }
 
@@ -504,6 +383,10 @@ class FailingDocumentStore implements DocumentStore {
     return Promise.reject(new Error("injected append failure"));
   }
 
+  appendUpdates(_updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    return Promise.reject(new Error("injected append failure"));
+  }
+
   writeSnapshot(_id: string, _bytes: Uint8Array): Promise<void> {
     return Promise.resolve();
   }
@@ -513,7 +396,7 @@ class FailingAuthoritySnapshotStore extends InMemoryDocumentStore {
   failAuthoritySnapshot = true;
 
   override writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
-    if (id === FACT_AUTHORITY_JOURNAL_DOCUMENT_ID && this.failAuthoritySnapshot) {
+    if (id === FACT_AUTHORITY_DOCUMENT_ID && this.failAuthoritySnapshot) {
       return Promise.reject(new Error("injected authority snapshot failure"));
     }
     return super.writeSnapshot(id, bytes);

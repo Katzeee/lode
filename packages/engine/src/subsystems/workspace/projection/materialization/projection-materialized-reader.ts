@@ -10,7 +10,7 @@ import {
 } from "./projection-materialized-dataset.js";
 import { MaterializedGenerationCorruptError } from "./store/errors.js";
 
-export async function loadProjectionGeneration(
+export async function restoreProjectionGeneration(
   generation: MaterializedGenerationRead<ProjectionIdentity>,
 ): Promise<ProjectionGeneration> {
   const entries = (

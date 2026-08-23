@@ -1,6 +1,6 @@
-import type { ContributionFact, FactSnapshot } from "../fact/index.js";
+import type { FactAction, FactSnapshot } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
-import { pendingProposalFacts } from "../activation/index.js";
+import { pendingProposalActions } from "../activation/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { childSequenceParent } from "./structure-space.js";
 
@@ -11,7 +11,7 @@ export function mergeLocalStructureCandidates(
 ): readonly HunkCandidate[] {
   const result: HunkCandidate[] = [];
   const bySpace = new Map<string, HunkCandidate>();
-  const pending = pendingProposalFacts(snapshot);
+  const pending = pendingProposalActions(snapshot);
   const affectedBySpace = affectedOccurrences(candidates, pending);
   for (const candidate of candidates) {
     if (candidate.diffSpace.kind !== "child-sequence") {
@@ -37,7 +37,7 @@ export function mergeLocalStructureCandidates(
 
 function affectedOccurrences(
   candidates: readonly HunkCandidate[],
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): ReadonlyMap<string, Set<string>> {
   const result = new Map<string, Set<string>>();
   for (const candidate of candidates) {
@@ -47,9 +47,9 @@ function affectedOccurrences(
     const key = `${candidate.diffSpace.kind}/${candidate.diffSpace.identity}`;
     const affected = result.get(key) ?? new Set<string>();
     for (const target of candidate.targets) {
-      const mutation = pending.get(target)?.body.mutation;
-      if (mutation && "occurrenceId" in mutation) {
-        affected.add(mutation.occurrenceId);
+      const action = pending.get(target)?.action;
+      if (action && "placementId" in action) {
+        affected.add(action.placementId);
       }
     }
     result.set(key, affected);
@@ -59,7 +59,7 @@ function affectedOccurrences(
 
 function structureRegion(
   candidate: HunkCandidate,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
   affected: ReadonlySet<string>,
   generation: ScopedProjectionGeneration,
 ): number {
@@ -77,11 +77,11 @@ function structureRegion(
   return Math.min(...positions);
 }
 
-function targetOccurrence(candidate: HunkCandidate, pending: ReadonlyMap<string, ContributionFact>): string | null {
+function targetOccurrence(candidate: HunkCandidate, pending: ReadonlyMap<FactAction["id"], FactAction>): string | null {
   for (const target of candidate.targets) {
-    const mutation = pending.get(target)?.body.mutation;
-    if (mutation && "occurrenceId" in mutation) {
-      return mutation.occurrenceId;
+    const action = pending.get(target)?.action;
+    if (action && "placementId" in action) {
+      return action.placementId;
     }
   }
   return null;

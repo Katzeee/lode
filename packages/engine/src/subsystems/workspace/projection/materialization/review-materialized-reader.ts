@@ -1,4 +1,4 @@
-import type { ProjectionIdentity } from "../../../../domain/fact/index.js";
+import type { FactActionId, ProjectionIdentity } from "../../../../domain/fact/index.js";
 import type { MaterializedGenerationRead } from "./store/bounded-materialized-store.js";
 import { reviewMaterializedDataset } from "./materialized-review-read-model.js";
 
@@ -13,7 +13,7 @@ export async function readReviewScopes(
   const page = await generation.page(reviewMaterializedDataset("scopes"), after, limit);
   const scopes = page.entries.map((entry) => ({
     identity: entry.descriptor.identity,
-    contributionIds: entry.value,
+    factActionIds: entry.value,
   }));
   return {
     identity: generation.identity,
@@ -24,13 +24,13 @@ export async function readReviewScopes(
 
 export async function readReviewSupport(
   generation: MaterializedGenerationRead<ProjectionIdentity>,
-  contributionIds: readonly string[],
+  factActionIds: readonly FactActionId[],
 ) {
-  const selected = await generation.exact(reviewMaterializedDataset("support"), contributionIds);
+  const selected = await generation.exact(reviewMaterializedDataset("support"), factActionIds);
   return {
     identity: generation.identity,
     entries: selected.map((entry) => ({
-      identity: entry.descriptor.identity,
+      identity: entry.descriptor.identity as FactActionId,
       supportIds: entry.value,
     })),
   };

@@ -9,6 +9,7 @@ import type {
   FieldDefinitionConfiguration as ProtocolFieldDefinitionConfiguration,
   TemplateField as ProtocolTemplateField,
   TemplateFieldVisibilityCandidate as ProtocolTemplateFieldVisibilityCandidate,
+  TemplateFieldStaticDefaultCandidate as ProtocolTemplateFieldStaticDefaultCandidate,
   OptionalFieldContribution as ProtocolOptionalFieldContribution,
 } from "@lode/protocol/dto/projection";
 import { ProjectionPageSchema } from "@lode/protocol/proto";
@@ -25,6 +26,7 @@ import type {
   ViewOptionsSpec,
 } from "./model.js";
 import type { ConflictIssue } from "./review.js";
+import type { FactActionId } from "./fact-identities.js";
 import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
 import type {
   ProjectionSection,
@@ -62,6 +64,14 @@ export type TypedFieldValue = TypedFieldValueBase &
   (
     Readonly<{ state: "empty" | "invalid"; value: null }> | Readonly<{ state: "value"; value: TypedFieldSemanticValue }>
   );
+export type ProjectedFieldInitializationExpression = FieldInitializationExpression &
+  Readonly<{
+    expressionNodeId: string;
+    expressionOccurrenceId: string;
+    sourceFieldDefinitionOccurrenceId: string;
+    contextNodeId: string;
+    contextOccurrenceId: string;
+  }>;
 type FieldDefinitionConfigurationBase = Omit<ProtocolDto<ProtocolFieldDefinitionConfiguration>, "configuration">;
 export type FieldDefinitionConfiguration =
   | (FieldDefinitionConfigurationBase &
@@ -69,24 +79,32 @@ export type FieldDefinitionConfiguration =
   | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinalityNodeId: string }>)
   | (FieldDefinitionConfigurationBase & Readonly<{ kind: "optionality"; optionalityNodeId: string }>)
   | (FieldDefinitionConfigurationBase &
-      Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>);
+      Readonly<{ kind: "initialization-expression"; expression: ProjectedFieldInitializationExpression }>);
 export type TemplateNodeInstance = Omit<ProtocolDto<ProtocolTemplateNodeInstance>, "state"> &
   Readonly<{ state: TemplateNodeState }>;
 export type TemplateFieldVisibilityCandidate = Omit<
   ProtocolDto<ProtocolTemplateFieldVisibilityCandidate>,
-  "visibility"
+  "factActionId" | "visibility"
 > &
-  Readonly<{ visibility: TemplateFieldVisibility }>;
+  Readonly<{ factActionId: FactActionId; visibility: TemplateFieldVisibility }>;
+export type TemplateFieldStaticDefaultCandidate = Omit<
+  ProtocolDto<ProtocolTemplateFieldStaticDefaultCandidate>,
+  "factActionId"
+> &
+  Readonly<{ factActionId: FactActionId }>;
 export type TemplateField = Omit<
   ProtocolDto<ProtocolTemplateField>,
-  "fieldDefinitionOwner" | "visibility" | "visibilityCandidates"
+  "factActionId" | "fieldDefinitionOwner" | "visibility" | "visibilityCandidates" | "staticDefaultCandidates"
 > &
   Readonly<{
+    factActionId: FactActionId;
     fieldDefinitionOwner: TemplateFieldDefinitionOwner;
     visibility: TemplateFieldVisibility;
     visibilityCandidates: readonly TemplateFieldVisibilityCandidate[];
+    staticDefaultCandidates: readonly TemplateFieldStaticDefaultCandidate[];
   }>;
-export type OptionalFieldContribution = ProtocolDto<ProtocolOptionalFieldContribution>;
+export type OptionalFieldContribution = Omit<ProtocolDto<ProtocolOptionalFieldContribution>, "factActionId"> &
+  Readonly<{ factActionId: FactActionId }>;
 export type EffectiveTemplateFieldSource = Readonly<{
   kind: "template";
   applicationNodeId: string;
@@ -165,7 +183,7 @@ export type SupertagApplication = Readonly<{
   applicationOccurrenceId: string;
   relationDefinitionOccurrenceId: string;
   definitionOccurrenceId: string;
-  contributionId: string;
+  factActionId: string;
 }>;
 
 export type ConflictProjection = Readonly<{
@@ -193,20 +211,14 @@ export type SearchProjection = Readonly<{
 
 export type SharedDefaultViewDefinition = Omit<
   ProtocolDto<ProtocolSharedDefaultViewDefinition>,
-  "viewType" | "sortByNameAscending" | "options"
+  "viewId" | "viewType" | "options" | "modeActionIds" | "optionsActionIds"
 > &
   Readonly<{
+    viewId: FactActionId;
     viewType: ViewType;
     options: ViewOptionsSpec;
-    modeContributionIds: readonly string[];
-    sortByNameAscending: null | Readonly<{
-      sortOrderFieldNodeId: string;
-      sortOrderFieldOccurrenceId: string;
-      sortFieldNodeId: string;
-      sortFieldOccurrenceId: string;
-      nodeNameOccurrenceId: string;
-      ascendingOccurrenceId: string;
-    }>;
+    modeActionIds: readonly FactActionId[];
+    optionsActionIds: readonly FactActionId[];
   }>;
 export type ViewProjection = Readonly<{
   sharedDefaultViewDefinitions: Readonly<Record<string, readonly SharedDefaultViewDefinition[]>>;

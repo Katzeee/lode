@@ -117,10 +117,8 @@ const fieldRemove: CommandDefinition = {
     );
     const { result, data } = await executeWrite(context, "field.remove", [
       {
-        kind: "field-value-delete",
-        ownerNodeId: state.ownerNodeId,
-        fieldDefinitionId: state.fieldDefinitionId,
-        valueOccurrenceId: value.occurrenceId,
+        kind: "field-value-remove",
+        valuePlacementId: value.occurrenceId,
       },
     ]);
     return writeResult(data, result, {

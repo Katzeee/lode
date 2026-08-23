@@ -10,7 +10,7 @@ import type {
   HistoryCommand as ProtocolHistoryCommand,
   HistoryQueryRequest as ProtocolHistoryQueryRequest,
   InvocationQuery as ProtocolInvocationQuery,
-  MutationCommand as ProtocolMutationCommand,
+  EditCommand as ProtocolEditCommand,
   OutcomeUnknownResult as ProtocolOutcomeUnknownResult,
   ProjectionQuery as ProtocolProjectionQuery,
   PublishedResult as ProtocolPublishedResult,
@@ -37,9 +37,10 @@ import type {
   TrashEvidenceQueryRequest as ProtocolTrashEvidenceQueryRequest,
   TrashEvidence as ProtocolTrashEvidence,
 } from "@lode/protocol/dto/engine";
-import type { EditMutation } from "./edit.js";
+import type { EditAction } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
 import type { HardDeletePreview, HardDeleteSelection } from "./maintenance.js";
+import type { FactActionId, FactId } from "./fact-identities.js";
 import type {
   AuthorityReceipt,
   ProtocolDto,
@@ -62,26 +63,35 @@ import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
 
 type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 
-export type MutationCommand = Omit<WithKind<ProtocolMutationCommand, "mutate">, "intent" | "mutations"> &
-  Readonly<{ intent: EditIntent; mutations: readonly EditMutation[] }>;
+export type EditCommand = Omit<WithKind<ProtocolEditCommand, "edit">, "intent" | "actions"> &
+  Readonly<{ intent: EditIntent; actions: readonly EditAction[] }>;
 export type ReviewCommand = Omit<WithKind<ProtocolResolveReviewCommand, "resolve-review">, "decision" | "selection"> &
   Readonly<{ decision: ResolutionDecision; selection: ReviewSelection }>;
 export type AdjudicateResolutionCommand = Omit<
   WithKind<ProtocolAdjudicateResolutionCommand, "adjudicate-resolution">,
-  "decision"
+  "decision" | "proposalFactIds" | "resolutionIds"
 > &
-  Readonly<{ decision: ResolutionDecision }>;
+  Readonly<{
+    decision: ResolutionDecision;
+    proposalFactIds: readonly FactId[];
+    resolutionIds: readonly FactId[];
+  }>;
+type AcknowledgeDeletionCommand = Omit<
+  WithKind<ProtocolAcknowledgeDeletionCommand, "acknowledge-deletion">,
+  "deletionActionIds"
+> &
+  Readonly<{ deletionActionIds: readonly FactActionId[] }>;
 export type HistoryCommand = Omit<WithKind<ProtocolHistoryCommand, "undo" | "redo">, "selection"> &
   Readonly<{ selection: HistorySelection }>;
 type HardDeleteCommand = Omit<WithKind<ProtocolHardDeleteCommand, "hard-delete">, "selection"> &
   Readonly<{ selection: HardDeleteSelection }>;
 
 export type EngineCommand =
-  | MutationCommand
+  | EditCommand
   | ReviewCommand
   | AdjudicateResolutionCommand
   | HistoryCommand
-  | WithKind<ProtocolAcknowledgeDeletionCommand, "acknowledge-deletion">
+  | AcknowledgeDeletionCommand
   | WithKind<ProtocolRetireReplicaCommand, "retire-replica">
   | HardDeleteCommand;
 
@@ -158,8 +168,8 @@ export type TrashEvidenceQueryRequest = Omit<
   "perspective"
 > &
   Readonly<{ perspective: ProjectionPerspective }>;
-export type TrashEvidenceResult = Omit<ProtocolDto<ProtocolTrashEvidence>, "perspective" | "previousAnchor"> &
-  Readonly<{ perspective: ProjectionPerspective; previousAnchor: SequenceAnchor | null }>;
+export type TrashEvidenceResult = Omit<ProtocolDto<ProtocolTrashEvidence>, "perspective" | "anchor"> &
+  Readonly<{ perspective: ProjectionPerspective; anchor: SequenceAnchor | null }>;
 export type DebugNodeResult = Omit<
   ProtocolDto<ProtocolDebugNodeResult>,
   "perspective" | "node" | "ownerNodeId" | "metanodeId" | "materializedFields" | "url" | "codeLanguage"

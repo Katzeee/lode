@@ -1,4 +1,4 @@
-import { createDesktopClient, describeError } from "@lode/desktop-client";
+import { createDesktopClient } from "@lode/desktop-client";
 import { parseEngineCommand, parseEngineQuery } from "@lode/sdk";
 
 /**
@@ -6,8 +6,6 @@ import { parseEngineCommand, parseEngineQuery } from "@lode/sdk";
  * the formal contract. These are not product commands, are excluded from
  * product help and acceptance, and may print raw Engine JSON.
  */
-
-export { describeError };
 
 export async function runDiagnosticCli(
   argv: readonly string[],

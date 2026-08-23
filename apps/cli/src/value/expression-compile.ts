@@ -1,51 +1,31 @@
-import type { SearchExpressionSpec } from "@lode/sdk";
+import type { SearchExpressionDraft, SearchExpressionSpec } from "@lode/sdk";
 import type { ExpressionAst } from "./expression.js";
 
-/**
- * Compiles an AST into an identity-bearing spec. Unchanged subtrees reuse
- * the existing spec's identity; identical repeated subexpressions reuse in
- * existing order; fresh subtrees take ids derived from the request id.
- */
-export function compileSpec(
-  ast: ExpressionAst,
-  existing: SearchExpressionSpec | null,
-  nextIdentity: () => string,
-): SearchExpressionSpec {
-  const matched = matchSpec(ast, existing);
-  if (matched !== null) {
-    return matched;
-  }
-  return compileFresh(ast, nextIdentity);
-}
-
-function compileFresh(ast: ExpressionAst, nextIdentity: () => string): SearchExpressionSpec {
-  const expressionNodeId = nextIdentity();
+/** Compiles the CLI expression language into the semantic draft accepted by Search and View edits. */
+export function compileDraft(ast: ExpressionAst): SearchExpressionDraft {
   switch (ast.kind) {
     case "and":
     case "or":
       return {
-        expressionNodeId,
         kind: ast.kind,
-        operands: ast.operands.map((operand) => compileFresh(operand, nextIdentity)),
+        operands: ast.operands.map(compileDraft),
       };
     case "not":
-      return { expressionNodeId, kind: "not", operand: compileFresh(ast.operand, nextIdentity) };
+      return { kind: "not", operand: compileDraft(ast.operand) };
     case "supertag":
-      return { expressionNodeId, kind: "supertag", supertagId: ast.target };
+      return { kind: "supertag", supertagId: ast.target };
     case "text":
-      return { expressionNodeId, kind: "text", text: ast.text };
+      return { kind: "text", text: ast.text };
     case "field-defined":
-      return { expressionNodeId, kind: "field-defined", fieldDefinitionId: ast.target, defined: ast.defined };
+      return { kind: "field-defined", fieldDefinitionId: ast.target, defined: ast.defined };
     case "field-value":
       return {
-        expressionNodeId,
         kind: "field-value",
         fieldDefinitionId: ast.target,
         value: { kind: "text", value: ast.scalar },
       };
     case "date-compare":
       return {
-        expressionNodeId,
         kind: "date-compare",
         fieldDefinitionId: ast.target,
         operator: ast.operator,
@@ -54,7 +34,6 @@ function compileFresh(ast: ExpressionAst, nextIdentity: () => string): SearchExp
     case "child-of":
     case "descendant-of":
       return {
-        expressionNodeId,
         kind: ast.kind,
         target:
           ast.target === "parent" || ast.target === "grandparent"
@@ -62,67 +41,7 @@ function compileFresh(ast: ExpressionAst, nextIdentity: () => string): SearchExp
             : ({ kind: "node", nodeId: ast.target } as const),
       };
     case "links-to":
-      return { expressionNodeId, kind: "links-to", targetNodeId: ast.target };
-  }
-}
-
-function matchSpec(ast: ExpressionAst, existing: SearchExpressionSpec | null): SearchExpressionSpec | null {
-  if (existing === null) {
-    return null;
-  }
-  const same = <T>(left: T, right: T): boolean => JSON.stringify(left) === JSON.stringify(right);
-  switch (ast.kind) {
-    case "and":
-    case "or": {
-      if (existing.kind !== ast.kind || existing.operands.length !== ast.operands.length) {
-        return null;
-      }
-      const operands = ast.operands.map((operand, index) => matchSpec(operand, existing.operands[index] ?? null));
-      return operands.every((candidate) => candidate !== null) ? { ...existing, operands } : null;
-    }
-    case "not": {
-      if (existing.kind !== "not") {
-        return null;
-      }
-      const operand = matchSpec(ast.operand, existing.operand);
-      return operand === null ? null : { ...existing, operand };
-    }
-    case "supertag":
-      return existing.kind === "supertag" && existing.supertagId === ast.target ? existing : null;
-    case "text":
-      return existing.kind === "text" && existing.text === ast.text ? existing : null;
-    case "field-defined":
-      return existing.kind === "field-defined" &&
-        existing.fieldDefinitionId === ast.target &&
-        existing.defined === ast.defined
-        ? existing
-        : null;
-    case "field-value":
-      return existing.kind === "field-value" &&
-        existing.fieldDefinitionId === ast.target &&
-        same(existing.value, { kind: "text", value: ast.scalar })
-        ? existing
-        : null;
-    case "date-compare":
-      return existing.kind === "date-compare" &&
-        existing.fieldDefinitionId === ast.target &&
-        existing.operator === ast.operator &&
-        existing.date === ast.date
-        ? existing
-        : null;
-    case "child-of":
-    case "descendant-of": {
-      if (existing.kind !== ast.kind) {
-        return null;
-      }
-      const target =
-        ast.target === "parent" || ast.target === "grandparent"
-          ? ({ kind: ast.target } as const)
-          : ({ kind: "node", nodeId: ast.target } as const);
-      return same(existing.target, target) ? existing : null;
-    }
-    case "links-to":
-      return existing.kind === "links-to" && existing.targetNodeId === ast.target ? existing : null;
+      return { kind: "links-to", targetNodeId: ast.target };
   }
 }
 
@@ -254,5 +173,3 @@ export async function resolveAst(
       return ast;
   }
 }
-
-export type SpecCompiler = (ast: ExpressionAst) => SearchExpressionSpec;

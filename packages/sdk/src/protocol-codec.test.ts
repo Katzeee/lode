@@ -3,7 +3,6 @@ import {
   file_lode_daemon,
   file_lode_edit,
   file_lode_engine,
-  file_lode_fact,
   file_lode_history,
   file_lode_maintenance,
   file_lode_model,
@@ -26,7 +25,6 @@ import {
 } from "./protocol-codec.js";
 import type { EngineCommand, EngineEvent, EngineQueryResult, WriteResult } from "./contract.js";
 import { protocolEnumCodecs } from "./protocol-enum-codecs.js";
-import { fromContributionMutation, toContributionMutation } from "./protocol-fact-codec.js";
 
 describe("generated protobuf SDK codec", () => {
   it("has an ergonomic adapter for every protocol-owned enum", () => {
@@ -35,7 +33,6 @@ describe("generated protobuf SDK codec", () => {
         file_lode_daemon,
         file_lode_edit,
         file_lode_engine,
-        file_lode_fact,
         file_lode_history,
         file_lode_maintenance,
         file_lode_model,
@@ -48,13 +45,13 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips commands without a JSON payload contract", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "invocation",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
+      actions: [
         {
           kind: "node-create",
           nodeId: "node",
@@ -70,22 +67,17 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips an existing Field Definition as a new Template Field use", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "add-existing-template-field",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "template",
-      mutations: [
+      actions: [
         {
           kind: "supertag-template-field-add-existing",
           supertagId: "task-supertag",
-          templateFieldNodeId: "new-template-use",
-          templateFieldOccurrenceId: "new-template-use-occurrence",
           fieldDefinitionId: "status-definition",
-          definitionOccurrenceId: "new-template-use-definition",
-          staticDefaultValueNodeId: "new-template-use-default",
-          staticDefaultValueOccurrenceId: "new-template-use-default-occurrence",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
       ],
@@ -94,51 +86,29 @@ describe("generated protobuf SDK codec", () => {
     expect(decodeEngineCommand(encodeEngineCommand(command))).toEqual(command);
   });
 
-  it("round-trips the narrower Fact for attaching an existing Field Definition", () => {
-    const mutation = {
-      kind: "supertag-template-field-existing-attach",
-      supertagId: "task-supertag",
-      templateFieldNodeId: "new-template-use",
-      templateFieldOccurrenceId: "new-template-use-occurrence",
-      fieldDefinitionId: "status-definition",
-      definitionOccurrenceId: "new-template-use-definition",
-      staticDefaultValueNodeId: "new-template-use-default",
-      staticDefaultValueOccurrenceId: "new-template-use-default-occurrence",
-      anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-    } as const;
-
-    expect(fromContributionMutation(toContributionMutation(mutation))).toEqual(mutation);
-  });
-
-  it("round-trips Template Field visibility edits, causal Facts, and optional suggestions", () => {
+  it("round-trips Template Field visibility edits and optional suggestions", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "pin-template-field",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "template",
-      mutations: [
+      actions: [
         {
           kind: "supertag-template-field-visibility-set",
           supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
+          templateFieldId: "g1/workspace/replica/1/actions/0",
           visibility: "pinned",
+        },
+        {
+          kind: "supertag-optional-field-contribution-remove",
+          supertagId: "task-supertag",
+          fieldDefinitionId: "status-definition",
         },
       ],
     };
     expect(decodeEngineCommand(encodeEngineCommand(command))).toEqual(command);
-
-    const mutation = {
-      kind: "supertag-template-field-visibility-configure",
-      supertagId: "task-supertag",
-      templateFieldNodeId: "status-template",
-      fieldDefinitionId: "status-definition",
-      visibility: "pinned",
-      previousVisibility: "normal",
-      observedVisibilityFactIds: ["replica:1"],
-    } as const;
-    expect(fromContributionMutation(toContributionMutation(mutation))).toEqual(mutation);
 
     const query = {
       kind: "projection",
@@ -263,13 +233,15 @@ describe("generated protobuf SDK codec", () => {
               staticDefaultValueNodeId: "status-default",
               staticDefaultValueOccurrenceId: "status-default-occurrence",
               fieldDefinitionOwner: "workspace-schema",
-              contributionId: "replica:1",
+              factActionId: "g1/workspace/1/1/actions/0",
               visibility: "pinned",
               visibilityCandidates: [
-                { visibility: "normal" as const, contributionId: "replica:1" },
-                { visibility: "pinned" as const, contributionId: "replica:2" },
+                { visibility: "normal" as const, factActionId: "g1/workspace/1/1/actions/0" },
+                { visibility: "pinned" as const, factActionId: "g1/workspace/1/2/actions/0" },
               ],
               visibilityConflicted: true,
+              staticDefaultCandidates: [],
+              staticDefaultConflicted: false,
             },
           ],
         },
@@ -282,17 +254,17 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips a Template Field Static Default set or clear edit", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "set-template-field-static-default",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "template",
-      mutations: [
+      actions: [
         {
           kind: "supertag-template-field-static-default-set",
           supertagId: "task-supertag",
-          templateFieldNodeId: "status-template",
+          templateFieldId: "g1/workspace/replica/1/actions/0",
           value: "",
         },
       ],
@@ -321,7 +293,7 @@ describe("generated protobuf SDK codec", () => {
     expect(decodeEngineEvent(encodeEngineEvent(event))).toEqual(event);
   });
 
-  it("round-trips prepared History compensation evidence independently from edit mutations", () => {
+  it("round-trips an opaque History selection without exposing local inverse actions", () => {
     const query = { kind: "history", workspaceId: "workspace", channelId: "desktop" } as const;
     const selection = {
       token: "token",
@@ -330,89 +302,7 @@ describe("generated protobuf SDK codec", () => {
       targetInvocationId: "target",
       headInvocationId: "target",
       headOrdinal: 1,
-      frontier: { replica: 2 },
-      evidence: {
-        targetInvocationId: "target",
-        targetFactIds: ["replica:1"],
-        compensations: [
-          {
-            kind: "node-owner-set",
-            nodeId: "relation",
-            ownerNodeId: null,
-            previousOwnerNodeId: "metanode",
-          },
-          {
-            kind: "search-expression-detach",
-            searchNodeId: "search",
-            expressionNodeId: "expression",
-            expressionOccurrenceId: "expression-occurrence",
-            definitionOccurrenceId: "definition-occurrence",
-            expression: {
-              expressionNodeId: "expression",
-              kind: "supertag",
-              supertagId: "supertag",
-            },
-          },
-          {
-            kind: "shared-default-view-definition-detach",
-            hostNodeId: "host",
-            attachmentNodeId: "view-attachment",
-            attachmentOccurrenceId: "view-attachment-occurrence",
-            relationDefinitionOccurrenceId: "view-attachment-definition",
-            viewDefinitionNodeId: "view-definition",
-            viewDefinitionOccurrenceId: "view-definition-occurrence",
-            detachedValueNodeId: "detached-view-value",
-            detachedValueOccurrenceId: "detached-view-value-occurrence",
-          },
-          {
-            kind: "shared-default-view-definition-sort-by-name-set",
-            hostNodeId: "host",
-            viewDefinitionNodeId: "view-definition",
-            sortOrderFieldNodeId: "sort-order",
-            sortOrderFieldOccurrenceId: "sort-order-occurrence",
-            sortFieldNodeId: "sort-field",
-            sortFieldOccurrenceId: "sort-field-occurrence",
-            nodeNameOccurrenceId: "sort-node-name-occurrence",
-            ascendingOccurrenceId: "sort-ascending-occurrence",
-            enabled: false,
-            previousEnabled: true,
-          },
-          {
-            kind: "shared-default-view-definition-options-set",
-            hostNodeId: "host",
-            viewDefinitionNodeId: "view-definition",
-            options: {
-              columns: [{ columnNodeId: "column", fieldDefinitionId: "field" }],
-              filter: {
-                filterNodeId: "filter",
-                expression: { expressionNodeId: "filter-expression", kind: "text", text: "active" },
-              },
-              sort: { sortNodeId: "sort", fieldDefinitionId: "field", direction: "descending" },
-              group: { groupNodeId: "group", fieldDefinitionId: "field" },
-            },
-            previousOptions: { columns: [], filter: null, sort: null, group: null },
-            observedOptionsFactIds: ["replica:2"],
-          },
-          {
-            kind: "field-optionality-configure",
-            fieldDefinitionId: "field",
-            configurationNodeId: "optionality",
-            configurationOccurrenceId: "optionality-occurrence",
-            optionalityNodeId: "system-field-optionality:v1:no",
-            previousOptionalityNodeId: "system-field-optionality:v1:yes",
-            observedValueFactIds: ["replica:1"],
-          },
-          {
-            kind: "text-splice",
-            nodeId: "node",
-            deleteAtomIds: ["replica:1#0"],
-            deletedAtoms: [{ id: "replica:1#0", value: "old", attributes: { bold: true } }],
-            anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-            insert: "new",
-            attributes: {},
-          },
-        ],
-      },
+      targetFactIds: ["g1/workspace/101/1"],
     } as const;
     const result: EngineQueryResult<typeof query> = {
       status: "ok",
@@ -424,13 +314,13 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips Inline Reference content, Alias edits, and Backlinks without opaque payloads", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "inline-reference",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
+      actions: [
         {
           kind: "inline-reference-create",
           inlineReferenceId: "inline-1",
@@ -479,7 +369,7 @@ describe("generated protobuf SDK codec", () => {
                 targetNodeId: "target",
                 aliasNodeId: "alias",
                 targetStatus: "active",
-                contributionId: "replica:1",
+                factActionId: "g1/workspace/1/1/actions/0",
               },
             ],
           },
@@ -521,34 +411,26 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips Search expressions, their Projection, and derived result References", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "search-expression",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
+      actions: [
         {
           kind: "search-expression-create",
           searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "supertag-expression",
-          expressionOccurrenceId: "supertag-expression-occurrence",
-          definitionOccurrenceId: "supertag-expression-definition",
           expression: {
-            expressionNodeId: "supertag-expression",
             kind: "and",
             operands: [
               {
-                expressionNodeId: "supertag-clause",
                 kind: "supertag",
                 supertagId: "supertag",
               },
               {
-                expressionNodeId: "not-clause",
                 kind: "not",
                 operand: {
-                  expressionNodeId: "excluded-text",
                   kind: "text",
                   text: "archived",
                 },
@@ -558,16 +440,20 @@ describe("generated protobuf SDK codec", () => {
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
-          kind: "search-expression-update",
+          kind: "search-expression-configure",
           searchNodeId: "search",
+          expressionId: "g1/workspace/1/1/actions/0",
+          clause: { kind: "or" },
+        },
+        {
+          kind: "search-expression-add",
+          searchNodeId: "search",
+          parentExpressionId: "g1/workspace/1/1/actions/0",
           expression: {
-            expressionNodeId: "supertag-expression",
-            kind: "or",
-            operands: [
-              { expressionNodeId: "title-clause", kind: "text", text: "current" },
-              { expressionNodeId: "supertag-clause", kind: "supertag", supertagId: "supertag" },
-            ],
+            kind: "not",
+            operand: { kind: "field-defined", fieldDefinitionId: "field", defined: true },
           },
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
       ],
     };
@@ -598,11 +484,22 @@ describe("generated protobuf SDK codec", () => {
             expressionOccurrenceId: "supertag-expression-occurrence",
             definitionOccurrenceId: "supertag-expression-definition",
             expression: {
+              expressionId: "g1/workspace/1/1/actions/0",
               expressionNodeId: "supertag-expression",
               kind: "or",
               operands: [
-                { expressionNodeId: "title-clause", kind: "text", text: "current" },
-                { expressionNodeId: "supertag-clause", kind: "supertag", supertagId: "supertag" },
+                {
+                  expressionId: "g1/workspace/1/1/actions/1",
+                  expressionNodeId: "title-clause",
+                  kind: "text",
+                  text: "current",
+                },
+                {
+                  expressionId: "g1/workspace/1/1/actions/2",
+                  expressionNodeId: "supertag-clause",
+                  kind: "supertag",
+                  supertagId: "supertag",
+                },
               ],
             },
           },
@@ -638,52 +535,71 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips shared default View Definitions and rows without turning Search results into Occurrences", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "view-definition",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
+      actions: [
         {
-          kind: "shared-default-view-definition-create",
+          kind: "shared-default-view-create",
           hostNodeId: "search",
-          metanodeId: "search-configuration",
-          attachmentNodeId: "search-view-attachment",
-          attachmentOccurrenceId: "search-view-attachment-occurrence",
-          relationDefinitionOccurrenceId: "search-view-attachment-definition",
-          viewDefinitionNodeId: "search-view",
-          viewDefinitionOccurrenceId: "search-view-occurrence",
           viewType: "table",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
-          kind: "shared-default-view-definition-mode-set",
-          viewDefinitionNodeId: "search-view",
+          kind: "view-mode-set",
+          hostNodeId: "search",
+          viewId: "g1/workspace/1/1/actions/0",
           viewType: "outline",
         },
         {
-          kind: "shared-default-view-definition-options-update",
+          kind: "view-column-add",
           hostNodeId: "search",
-          viewDefinitionNodeId: "search-view",
-          options: {
-            columns: [{ columnNodeId: "column", fieldDefinitionId: "field" }],
-            filter: {
-              filterNodeId: "filter",
-              expression: { expressionNodeId: "filter-expression", kind: "text", text: "active" },
-            },
-            sort: { sortNodeId: "sort", fieldDefinitionId: "field", direction: "descending" },
-            group: { groupNodeId: "group", fieldDefinitionId: "field" },
-          },
+          viewId: "g1/workspace/1/1/actions/0",
+          fieldDefinitionId: "field",
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
-          kind: "shared-default-view-definition-remove",
+          kind: "view-filter-create",
           hostNodeId: "search",
-          attachmentNodeId: "search-view-attachment",
-          attachmentOccurrenceId: "search-view-attachment-occurrence",
-          relationDefinitionOccurrenceId: "search-view-attachment-definition",
-          viewDefinitionNodeId: "search-view",
-          viewDefinitionOccurrenceId: "search-view-occurrence",
+          viewId: "g1/workspace/1/1/actions/0",
+          expression: { kind: "text", text: "active" },
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+        },
+        {
+          kind: "view-filter-expression-configure",
+          hostNodeId: "search",
+          viewId: "g1/workspace/1/1/actions/0",
+          filterId: "g1/workspace/1/2/actions/0",
+          expressionId: "g1/workspace/1/2/actions/1",
+          clause: { kind: "text", text: "current" },
+        },
+        {
+          kind: "view-filter-expression-add",
+          hostNodeId: "search",
+          viewId: "g1/workspace/1/1/actions/0",
+          filterId: "g1/workspace/1/2/actions/0",
+          parentExpressionId: "g1/workspace/1/2/actions/1",
+          expression: {
+            kind: "or",
+            operands: [
+              { kind: "text", text: "current" },
+              { kind: "text", text: "active" },
+            ],
+          },
+          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+        },
+        {
+          kind: "view-sort-by-node-name",
+          hostNodeId: "search",
+          viewId: "g1/workspace/1/1/actions/0",
+          direction: "descending",
+        },
+        {
+          kind: "shared-default-view-remove",
+          hostNodeId: "search",
         },
       ],
     };
@@ -712,32 +628,42 @@ describe("generated protobuf SDK codec", () => {
           search: [
             {
               hostNodeId: "search",
+              viewId: "g1/workspace/1/1/actions/0",
               attachmentNodeId: "search-view-attachment",
               attachmentOccurrenceId: "search-view-attachment-occurrence",
               relationDefinitionOccurrenceId: "search-view-attachment-definition",
               viewDefinitionNodeId: "search-view",
               viewDefinitionOccurrenceId: "search-view-occurrence",
               viewType: "table",
-              modeContributionIds: ["replica:5"],
+              modeActionIds: ["g1/workspace/1/2/actions/0"],
               options: {
-                columns: [{ columnNodeId: "column", fieldDefinitionId: "field" }],
+                columns: [
+                  { columnId: "g1/workspace/1/3/actions/0", columnNodeId: "column", fieldDefinitionId: "field" },
+                ],
                 filter: {
+                  filterId: "g1/workspace/1/4/actions/0",
                   filterNodeId: "filter",
-                  expression: { expressionNodeId: "filter-expression", kind: "text", text: "active" },
+                  expression: {
+                    expressionId: "g1/workspace/1/4/actions/1",
+                    expressionNodeId: "filter-expression",
+                    kind: "text",
+                    text: "active",
+                  },
                 },
-                sort: { sortNodeId: "sort", fieldDefinitionId: "field", direction: "descending" },
-                group: { groupNodeId: "group", fieldDefinitionId: "field" },
+                sort: {
+                  sortId: "g1/workspace/1/5/actions/0",
+                  sortNodeId: "sort",
+                  fieldDefinitionId: "field",
+                  direction: "descending",
+                },
+                group: {
+                  groupId: "g1/workspace/1/6/actions/0",
+                  groupNodeId: "group",
+                  fieldDefinitionId: "field",
+                },
               },
-              optionsContributionIds: ["replica:6"],
+              optionsActionIds: ["g1/workspace/1/3/actions/0"],
               optionsConflicted: false,
-              sortByNameAscending: {
-                sortOrderFieldNodeId: "sort-order",
-                sortOrderFieldOccurrenceId: "sort-order-occ",
-                sortFieldNodeId: "sort-field",
-                sortFieldOccurrenceId: "sort-field-occ",
-                nodeNameOccurrenceId: "node-name-occ",
-                ascendingOccurrenceId: "ascending-occ",
-              },
             },
           ],
         },
@@ -782,13 +708,28 @@ describe("generated protobuf SDK codec", () => {
         next: null,
         available: true,
         options: {
-          columns: [{ columnNodeId: "column", fieldDefinitionId: "field" }],
+          columns: [{ columnId: "g1/workspace/1/3/actions/0", columnNodeId: "column", fieldDefinitionId: "field" }],
           filter: {
+            filterId: "g1/workspace/1/4/actions/0",
             filterNodeId: "filter",
-            expression: { expressionNodeId: "filter-expression", kind: "text", text: "active" },
+            expression: {
+              expressionId: "g1/workspace/1/4/actions/1",
+              expressionNodeId: "filter-expression",
+              kind: "text",
+              text: "active",
+            },
           },
-          sort: { sortNodeId: "sort", fieldDefinitionId: "field", direction: "descending" },
-          group: { groupNodeId: "group", fieldDefinitionId: "field" },
+          sort: {
+            sortId: "g1/workspace/1/5/actions/0",
+            sortNodeId: "sort",
+            fieldDefinitionId: "field",
+            direction: "descending",
+          },
+          group: {
+            groupId: "g1/workspace/1/6/actions/0",
+            groupNodeId: "group",
+            fieldDefinitionId: "field",
+          },
         },
         optionsConflicted: false,
       },
@@ -806,42 +747,32 @@ describe("generated protobuf SDK codec", () => {
       contextNodeId: "above",
       contextOccurrenceId: "above-occurrence",
     } as const;
+    const authoredExpression = {
+      kind: "find-field-values",
+      sourceFieldDefinitionId: "field",
+    } as const;
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "field-configuration",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "field",
-      mutations: [
+      actions: [
         {
-          kind: "field-datatype-configuration-create",
+          kind: "field-datatype-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "datatype",
-          configurationOccurrenceId: "datatype-occurrence",
-          definitionOccurrenceId: "datatype-definition-occurrence",
-          valueOccurrenceId: "datatype-value-occurrence",
           datatypeNodeId: "system-field-datatype:v1:plain",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
-          kind: "field-initialization-expression-configuration-create",
+          kind: "field-initialization-expression-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "initialization",
-          configurationOccurrenceId: "initialization-occurrence",
-          definitionOccurrenceId: "initialization-definition-occurrence",
-          expression,
-          anchor: { after: "datatype-occurrence", before: null, affinity: "after", fallback: "end" },
+          expression: authoredExpression,
         },
         {
-          kind: "field-optionality-configuration-create",
+          kind: "field-optionality-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "optionality",
-          configurationOccurrenceId: "optionality-occurrence",
-          definitionOccurrenceId: "optionality-definition-occurrence",
-          valueOccurrenceId: "optionality-value-occurrence",
           optionalityNodeId: "system-field-optionality:v1:no",
-          anchor: { after: "initialization-occurrence", before: null, affinity: "after", fallback: "end" },
         },
       ],
     };
@@ -873,7 +804,7 @@ describe("generated protobuf SDK codec", () => {
               configurationNodeId: "datatype",
               configurationOccurrenceId: "datatype-occurrence",
               definitionNodeId: "system-field-configuration-definition:v1:datatype",
-              contributionId: "replica:1",
+              factActionId: "g1/workspace/1/1/actions/0",
               datatypeNodeId: "system-field-datatype:v1:plain",
               optionsSupertagId: null,
             },
@@ -882,7 +813,7 @@ describe("generated protobuf SDK codec", () => {
               configurationNodeId: "initialization",
               configurationOccurrenceId: "initialization-occurrence",
               definitionNodeId: "system-field-configuration-definition:v1:initialization-expression",
-              contributionId: "replica:2",
+              factActionId: "g1/workspace/1/2/actions/0",
               expression,
             },
             {
@@ -890,7 +821,7 @@ describe("generated protobuf SDK codec", () => {
               configurationNodeId: "optionality",
               configurationOccurrenceId: "optionality-occurrence",
               definitionNodeId: "system-field-configuration-definition:v1:optionality",
-              contributionId: "replica:3",
+              factActionId: "replica:3",
               optionalityNodeId: "system-field-optionality:v1:no",
             },
           ],
@@ -912,7 +843,7 @@ describe("generated protobuf SDK codec", () => {
           {
             id: "hunk",
             diffSpace: { kind: "field-definition-configuration", identity: "optionality" },
-            proposalContributionIds: ["replica:3"],
+            proposalActionIds: ["g1/workspace/101/3/actions/0"],
             neutralBridgeAtomIds: [],
             linkedHunkIds: [],
             selection: {
@@ -921,13 +852,13 @@ describe("generated protobuf SDK codec", () => {
               frontier: { replica: 3 },
               generationId: "generation",
               evidence: {
-                proposalTargets: ["replica:3"],
+                proposalTargets: ["g1/workspace/101/3/actions/0"],
                 supportClosure: [],
                 effects: [
                   {
                     kind: "field-definition-configuration",
                     fieldDefinitionId: "field",
-                    configurationNodeId: "optionality",
+                    configurationKind: "optionality",
                     origin: {
                       kind: "optionality",
                       optionalityNodeId: "system-field-optionality:v1:yes",
@@ -954,14 +885,13 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips the breadth-first node, field, View Sort, Outline, and Debug contracts", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "breadth",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "breadth",
-      mutations: [
-        { kind: "debug-node-open", hostNodeId: "host", metanodeId: "meta" },
+      actions: [
         {
           kind: "field-value-create",
           ownerNodeId: "host",
@@ -995,15 +925,10 @@ describe("generated protobuf SDK codec", () => {
           language: "JavaScript",
         },
         {
-          kind: "shared-default-view-definition-sort-by-name-create",
+          kind: "view-sort-by-node-name",
           hostNodeId: "host",
-          viewDefinitionNodeId: "view",
-          sortOrderFieldNodeId: "sort-order",
-          sortOrderFieldOccurrenceId: "sort-order-occ",
-          sortFieldNodeId: "sort-field",
-          sortFieldOccurrenceId: "sort-field-occ",
-          nodeNameOccurrenceId: "node-name-occ",
-          ascendingOccurrenceId: "ascending-occ",
+          viewId: "g1/workspace/1/1/actions/0",
+          direction: "ascending",
         },
       ],
     };
@@ -1052,7 +977,15 @@ describe("generated protobuf SDK codec", () => {
         node: {
           nodeId: "node",
           intrinsicNodeType: null,
-          content: [{ kind: "text", id: "replica:1#0", value: "Node", attributes: {}, contributionId: "replica:1" }],
+          content: [
+            {
+              kind: "text",
+              id: "g1/workspace/101/1/actions/0#0",
+              value: "Node",
+              attributes: {},
+              factActionId: "g1/workspace/101/1/actions/0",
+            },
+          ],
         },
         ownerNodeId: "workspace",
         metanodeId: "meta",
@@ -1066,15 +999,15 @@ describe("generated protobuf SDK codec", () => {
     expect(decodeEngineQueryResult(encodeEngineQueryResult(debugQuery, debugResult), debugQuery)).toEqual(debugResult);
   });
 
-  it("rejects fields outside the generated mutation schema", () => {
+  it("rejects fields outside the generated action schema", () => {
     const command = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "invocation",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [{ kind: "node-delete", nodeId: "node", future: true }],
+      actions: [{ kind: "node-delete", nodeId: "node", future: true }],
     } as const;
 
     expect(() => encodeEngineCommand(command as never)).toThrow("Unknown input field: future");
@@ -1082,24 +1015,18 @@ describe("generated protobuf SDK codec", () => {
 
   it("round-trips typed Field configuration, edits, and Projection", () => {
     const command: EngineCommand = {
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "typed-fields",
       actorId: "actor",
       intent: "direct",
       historyChannelId: "desktop",
-      mutations: [
+      actions: [
         {
-          kind: "field-datatype-configuration-create",
+          kind: "field-datatype-configure",
           fieldDefinitionId: "options-field",
-          configurationNodeId: "options-config",
-          configurationOccurrenceId: "options-config-occurrence",
-          definitionOccurrenceId: "options-definition-occurrence",
-          valueOccurrenceId: "options-datatype-occurrence",
           datatypeNodeId: "system-field-datatype:v1:options-from-supertag",
           optionsSupertagId: "project",
-          optionsSupertagOccurrenceId: "options-source-occurrence",
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
         },
         {
           kind: "field-number-value-set",

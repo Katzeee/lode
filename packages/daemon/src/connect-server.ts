@@ -17,9 +17,7 @@ import {
   IdentityService,
   ListWorkspacesResultSchema,
   QueryResultSchema,
-  RecoverWorkspaceAuthorityResultSchema,
   WorkspaceGovernanceService,
-  WorkspaceRunState,
   WorkspaceSummarySchema,
   WorkspaceSyncResultSchema,
   WriteResultSchema,
@@ -28,7 +26,6 @@ import {
   type EngineCommand,
   type EngineEvent as ProtocolEngineEvent,
   type EngineQuery,
-  type WorkspaceRequest,
   type WorkspaceSyncRequest,
 } from "@lode/protocol/proto";
 import {
@@ -102,11 +99,6 @@ export function createLodeServer(
       router.service(IdentityService, identityRoutes(engine, unaryAdapter(accessToken)));
       router.service(WorkspaceGovernanceService, governanceRoutes(engine, unaryAdapter(accessToken)));
       router.service(EngineWorkspaceService, {
-        recoverWorkspaceAuthority: unary(accessToken, async (request: WorkspaceRequest) =>
-          create(RecoverWorkspaceAuthorityResultSchema, {
-            recovered: await engine.workspaces.recoverAuthority(request.workspaceId),
-          }),
-        ),
         listWorkspaces: unary(accessToken, async () =>
           create(ListWorkspacesResultSchema, {
             workspaces: (await engine.workspaces.listWorkspaces()).map(toProtocolSummary),
@@ -163,11 +155,10 @@ export function createLodeServer(
   };
 }
 
-function toProtocolSummary(summary: { workspaceId: string; label: string; state: "active" | "authority-fault" }) {
+function toProtocolSummary(summary: { workspaceId: string; label: string }) {
   return create(WorkspaceSummarySchema, {
     workspaceId: summary.workspaceId,
     label: summary.label,
-    state: summary.state === "authority-fault" ? WorkspaceRunState.AUTHORITY_FAULT : WorkspaceRunState.ACTIVE,
   });
 }
 

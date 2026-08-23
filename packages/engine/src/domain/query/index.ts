@@ -1,6 +1,1 @@
-export {
-  evaluateSearchExpression,
-  evaluateSearchExpressionSpec,
-  matchesSearchExpressionSpec,
-  searchResultRowKey,
-} from "./search-evaluator.js";
+export { evaluateSearchExpression, matchesSearchExpressionSpec, searchResultRowKey } from "./search-evaluator.js";

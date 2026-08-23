@@ -1,23 +1,23 @@
-import type { EditMutation } from "../../../domain/edit/index.js";
-import type { Mutation, ProjectionPerspective } from "../../../domain/fact/index.js";
+import type { EditAction } from "../../../domain/edit/index.js";
+import type { FactAction, ProjectionPerspective } from "../../../domain/fact/index.js";
 import type { ScopedProjection, ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../projection/index.js";
-import { planEditGenerationRead, planMutationGenerationRead, type GenerationReadPlan } from "./read-plan.js";
+import { planEditGenerationRead, planFactActionGenerationRead, type GenerationReadPlan } from "./read-plan.js";
 import { readResolvedProjection } from "./projection-reader.js";
 import { resolveGenerationRead } from "./scope-resolver.js";
 
-export function readMutationGeneration(
+export function readFactActionGeneration(
   store: ProjectionSnapshotReader,
   generationId: string,
-  mutations: readonly Mutation[],
+  facts: readonly FactAction[],
 ): Promise<ScopedProjectionGeneration> {
-  return readScopedGeneration(store, generationId, planMutationGenerationRead(mutations));
+  return readScopedGeneration(store, generationId, planFactActionGenerationRead(facts));
 }
 
 export function readEditGeneration(
   store: ProjectionSnapshotReader,
   generationId: string,
-  edits: readonly EditMutation[],
+  edits: readonly EditAction[],
 ): Promise<ScopedProjectionGeneration> {
   return readScopedGeneration(store, generationId, planEditGenerationRead(edits));
 }

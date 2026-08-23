@@ -1,60 +1,72 @@
 import type {
-  FieldMaterializeMutation as ProtocolFieldMaterializeMutation,
-  FieldValueDeleteMutation as ProtocolFieldValueDeleteMutation,
-  MaterializedFieldDeleteMutation as ProtocolMaterializedFieldDeleteMutation,
-  NodeCreateMutation as ProtocolNodeCreateMutation,
-  NodeDeleteMutation as ProtocolNodeDeleteMutation,
-  NodeRestoreMutation as ProtocolNodeRestoreMutation,
-  DeclareIntrinsicNodeTypeMutation as ProtocolDeclareIntrinsicNodeTypeMutation,
-  OccurrenceCreateMutation as ProtocolOccurrenceCreateMutation,
-  OccurrenceDeleteMutation as ProtocolOccurrenceDeleteMutation,
-  OccurrenceMoveMutation as ProtocolOccurrenceMoveMutation,
-  OccurrenceRestoreMutation as ProtocolOccurrenceRestoreMutation,
-  ReferencePromoteMutation as ProtocolReferencePromoteMutation,
-  SupertagApplicationCreateMutation as ProtocolSupertagApplicationCreateMutation,
-  SupertagExtensionAddMutation as ProtocolSupertagExtensionAddMutation,
-  SupertagExtensionRemoveMutation as ProtocolSupertagExtensionRemoveMutation,
-  SupertagRemoveMutation as ProtocolSupertagRemoveMutation,
-  SupertagTemplateNodeAddMutation as ProtocolSupertagTemplateNodeAddMutation,
-  SupertagTemplateNodeRemoveMutation as ProtocolSupertagTemplateNodeRemoveMutation,
-  TemplateNodeDetachMutation as ProtocolTemplateNodeDetachMutation,
-  TextMarkMutation as ProtocolTextMarkMutation,
-  TextSpliceMutation as ProtocolTextSpliceMutation,
-  InlineReferenceCreateMutation as ProtocolInlineReferenceCreateMutation,
-  InlineReferenceDeleteMutation as ProtocolInlineReferenceDeleteMutation,
-  InlineReferenceAliasAttachMutation as ProtocolInlineReferenceAliasAttachMutation,
-  InlineReferenceAliasDetachMutation as ProtocolInlineReferenceAliasDetachMutation,
-  InlineReferenceAliasCreateMutation as ProtocolInlineReferenceAliasCreateMutation,
-  SearchExpressionCreateMutation as ProtocolSearchExpressionCreateMutation,
-  SearchExpressionUpdateMutation as ProtocolSearchExpressionUpdateMutation,
-  SharedDefaultViewDefinitionCreateMutation as ProtocolSharedDefaultViewDefinitionCreateMutation,
-  SharedDefaultViewDefinitionRemoveMutation as ProtocolSharedDefaultViewDefinitionRemoveMutation,
-  SharedDefaultViewDefinitionModeSetMutation as ProtocolSharedDefaultViewDefinitionModeSetMutation,
-  SharedDefaultViewDefinitionOptionsUpdateMutation as ProtocolSharedDefaultViewDefinitionOptionsUpdateMutation,
-  FieldDatatypeConfigureMutation as ProtocolFieldDatatypeConfigureMutation,
-  FieldCardinalityConfigureMutation as ProtocolFieldCardinalityConfigureMutation,
-  FieldOptionalityConfigureMutation as ProtocolFieldOptionalityConfigureMutation,
-  FieldDatatypeConfigurationCreateMutation as ProtocolFieldDatatypeConfigurationCreateMutation,
-  FieldCardinalityConfigurationCreateMutation as ProtocolFieldCardinalityConfigurationCreateMutation,
-  FieldOptionalityConfigurationCreateMutation as ProtocolFieldOptionalityConfigurationCreateMutation,
-  FieldInitializationExpressionConfigurationCreateMutation as ProtocolFieldInitializationExpressionConfigurationCreateMutation,
-  DebugNodeOpenMutation as ProtocolDebugNodeOpenMutation,
-  FieldValueCreateMutation as ProtocolFieldValueCreateMutation,
-  UrlNodeCreateMutation as ProtocolUrlNodeCreateMutation,
-  CodeNodeConfigureMutation as ProtocolCodeNodeConfigureMutation,
-  SharedDefaultViewDefinitionSortByNameCreateMutation as ProtocolSharedDefaultViewDefinitionSortByNameCreateMutation,
-  SupertagTemplateFieldCreateMutation as ProtocolSupertagTemplateFieldCreateMutation,
-  SupertagTemplateFieldAddExistingMutation as ProtocolSupertagTemplateFieldAddExistingMutation,
-  SupertagTemplateFieldMakeDiscoverableMutation as ProtocolSupertagTemplateFieldMakeDiscoverableMutation,
-  SupertagTemplateFieldRemoveMutation as ProtocolSupertagTemplateFieldRemoveMutation,
-  SupertagOptionalFieldContributionAddMutation as ProtocolSupertagOptionalFieldContributionAddMutation,
-  SupertagTemplateFieldVisibilitySetMutation as ProtocolSupertagTemplateFieldVisibilitySetMutation,
-  SupertagTemplateFieldStaticDefaultSetMutation as ProtocolSupertagTemplateFieldStaticDefaultSetMutation,
-  FieldNumberValueSetMutation as ProtocolFieldNumberValueSetMutation,
-  FieldDateValueSetMutation as ProtocolFieldDateValueSetMutation,
-  FieldCheckboxValueSetMutation as ProtocolFieldCheckboxValueSetMutation,
-  FieldOptionsFromSupertagValueSetMutation as ProtocolFieldOptionsFromSupertagValueSetMutation,
-  TypedFieldValueClearMutation as ProtocolTypedFieldValueClearMutation,
+  FieldMaterializeAction as ProtocolFieldMaterializeAction,
+  FieldValueRemoveAction as ProtocolFieldValueRemoveAction,
+  MaterializedFieldClearAction as ProtocolMaterializedFieldClearAction,
+  NodeCreateAction as ProtocolNodeCreateAction,
+  NodeDeleteAction as ProtocolNodeDeleteAction,
+  NodeRestoreAction as ProtocolNodeRestoreAction,
+  OccurrenceCreateAction as ProtocolOccurrenceCreateAction,
+  OccurrenceDeleteAction as ProtocolOccurrenceDeleteAction,
+  OccurrenceMoveAction as ProtocolOccurrenceMoveAction,
+  OccurrenceRestoreAction as ProtocolOccurrenceRestoreAction,
+  ReferencePromoteAction as ProtocolReferencePromoteAction,
+  SupertagApplicationCreateAction as ProtocolSupertagApplicationCreateAction,
+  SupertagExtensionAddAction as ProtocolSupertagExtensionAddAction,
+  SupertagExtensionRemoveAction as ProtocolSupertagExtensionRemoveAction,
+  SupertagRemoveAction as ProtocolSupertagRemoveAction,
+  TemplateMemberAddAction as ProtocolTemplateMemberAddAction,
+  TemplateMemberRemoveAction as ProtocolTemplateMemberRemoveAction,
+  TemplateNodeDetachAction as ProtocolTemplateNodeDetachAction,
+  RichTextMarkAction as ProtocolRichTextMarkAction,
+  RichTextSpliceAction as ProtocolRichTextSpliceAction,
+  InlineReferenceCreateAction as ProtocolInlineReferenceCreateAction,
+  InlineReferenceRemoveAction as ProtocolInlineReferenceRemoveAction,
+  InlineAliasAttachAction as ProtocolInlineAliasAttachAction,
+  InlineAliasDetachAction as ProtocolInlineAliasDetachAction,
+  InlineReferenceAliasCreateAction as ProtocolInlineReferenceAliasCreateAction,
+  SearchExpressionCreateAction as ProtocolSearchExpressionCreateAction,
+  SearchExpressionAddAction as ProtocolSearchExpressionAddAction,
+  SearchExpressionConfigureAction as ProtocolSearchExpressionConfigureAction,
+  SearchExpressionMoveAction as ProtocolSearchExpressionMoveAction,
+  SearchExpressionRemoveAction as ProtocolSearchExpressionRemoveAction,
+  SharedDefaultViewCreateAction as ProtocolSharedDefaultViewCreateAction,
+  SharedDefaultViewRemoveAction as ProtocolSharedDefaultViewRemoveAction,
+  ViewModeSetAction as ProtocolViewModeSetAction,
+  ViewColumnAddAction as ProtocolViewColumnAddAction,
+  ViewColumnRemoveAction as ProtocolViewColumnRemoveAction,
+  ViewColumnMoveAction as ProtocolViewColumnMoveAction,
+  ViewSortAddAction as ProtocolViewSortAddAction,
+  ViewSortConfigureAction as ProtocolViewSortConfigureAction,
+  ViewSortRemoveAction as ProtocolViewSortRemoveAction,
+  ViewSortByNodeNameAction as ProtocolViewSortByNodeNameAction,
+  ViewGroupAddAction as ProtocolViewGroupAddAction,
+  ViewGroupRemoveAction as ProtocolViewGroupRemoveAction,
+  ViewFilterCreateAction as ProtocolViewFilterCreateAction,
+  ViewFilterRemoveAction as ProtocolViewFilterRemoveAction,
+  ViewFilterExpressionAddAction as ProtocolViewFilterExpressionAddAction,
+  ViewFilterExpressionConfigureAction as ProtocolViewFilterExpressionConfigureAction,
+  ViewFilterExpressionMoveAction as ProtocolViewFilterExpressionMoveAction,
+  ViewFilterExpressionRemoveAction as ProtocolViewFilterExpressionRemoveAction,
+  FieldDatatypeConfigureAction as ProtocolFieldDatatypeConfigureAction,
+  FieldCardinalityConfigureAction as ProtocolFieldCardinalityConfigureAction,
+  FieldOptionalityConfigureAction as ProtocolFieldOptionalityConfigureAction,
+  FieldInitializationExpressionConfigureAction as ProtocolFieldInitializationExpressionConfigureAction,
+  FieldValueCreateAction as ProtocolFieldValueCreateAction,
+  UrlNodeCreateAction as ProtocolUrlNodeCreateAction,
+  CodeNodeConfigureAction as ProtocolCodeNodeConfigureAction,
+  SupertagTemplateFieldCreateAction as ProtocolSupertagTemplateFieldCreateAction,
+  SupertagTemplateFieldAddExistingAction as ProtocolSupertagTemplateFieldAddExistingAction,
+  SupertagTemplateFieldMakeDiscoverableAction as ProtocolSupertagTemplateFieldMakeDiscoverableAction,
+  SupertagTemplateFieldRemoveAction as ProtocolSupertagTemplateFieldRemoveAction,
+  SupertagOptionalFieldContributionAddAction as ProtocolSupertagOptionalFieldContributionAddAction,
+  SupertagOptionalFieldContributionRemoveAction as ProtocolSupertagOptionalFieldContributionRemoveAction,
+  SupertagTemplateFieldVisibilitySetAction as ProtocolSupertagTemplateFieldVisibilitySetAction,
+  SupertagTemplateFieldStaticDefaultSetAction as ProtocolSupertagTemplateFieldStaticDefaultSetAction,
+  FieldNumberValueSetAction as ProtocolFieldNumberValueSetAction,
+  FieldDateValueSetAction as ProtocolFieldDateValueSetAction,
+  FieldCheckboxValueSetAction as ProtocolFieldCheckboxValueSetAction,
+  FieldOptionsFromSupertagValueSetAction as ProtocolFieldOptionsFromSupertagValueSetAction,
+  TypedFieldValueClearAction as ProtocolTypedFieldValueClearAction,
 } from "@lode/protocol/dto/edit";
 import type {
   JsonValue,
@@ -66,37 +78,30 @@ import type {
   TextAtomId,
   ViewType,
   FieldInitializationExpression,
-  SearchExpressionSpec,
-  ViewOptionsSpec,
+  SearchExpressionDraft,
+  SearchClause,
+  ViewSortDirection,
   TemplateFieldVisibility,
 } from "./model.js";
 
 type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 
-type NodeCreateMutation = Omit<
-  WithKind<ProtocolNodeCreateMutation, "node-create">,
+type NodeCreateAction = Omit<
+  WithKind<ProtocolNodeCreateAction, "node-create">,
   "anchor" | "seed" | "intrinsicNodeType"
 > &
   Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed; intrinsicNodeType?: IntrinsicNodeType }>;
-type NodeRestoreMutation = Omit<WithKind<ProtocolNodeRestoreMutation, "node-restore">, "anchor"> &
+type NodeRestoreAction = Omit<WithKind<ProtocolNodeRestoreAction, "node-restore">, "anchor"> &
   Readonly<{ anchor: SequenceAnchor }>;
-type SupertagApplicationCreateMutation = Omit<
-  WithKind<ProtocolSupertagApplicationCreateMutation, "supertag-application-create">,
-  "anchor" | "seed"
+type SupertagApplicationCreateAction = Omit<
+  WithKind<ProtocolSupertagApplicationCreateAction, "supertag-application-create">,
+  "anchor"
 > &
-  Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed }>;
-type TemplateNodeDetachMutation = Omit<
-  WithKind<ProtocolTemplateNodeDetachMutation, "template-node-detach">,
-  "anchor" | "sourceSupertagIds" | "sourceApplicationSupertagIds" | "sourceTemplateOccurrenceIds"
-> &
-  Readonly<{
-    anchor: SequenceAnchor;
-    sourceSupertagIds?: readonly string[];
-    sourceApplicationSupertagIds?: readonly string[];
-    sourceTemplateOccurrenceIds?: readonly string[];
-  }>;
-type TextSpliceMutation = Omit<
-  WithKind<ProtocolTextSpliceMutation, "text-splice">,
+  Readonly<{ anchor: SequenceAnchor }>;
+type TemplateNodeDetachAction = Omit<WithKind<ProtocolTemplateNodeDetachAction, "template-node-detach">, "anchor"> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type RichTextSpliceAction = Omit<
+  WithKind<ProtocolRichTextSpliceAction, "rich-text-splice">,
   "anchor" | "deleteAtomIds" | "attributes"
 > &
   Readonly<{
@@ -104,192 +109,194 @@ type TextSpliceMutation = Omit<
     deleteAtomIds: readonly TextAtomId[];
     attributes?: Readonly<Record<string, JsonValue>>;
   }>;
-type TextMarkMutation = Omit<WithKind<ProtocolTextMarkMutation, "text-mark">, "atomIds" | "value"> &
+type RichTextMarkAction = Omit<WithKind<ProtocolRichTextMarkAction, "rich-text-mark">, "atomIds" | "value"> &
   Readonly<{ atomIds: readonly TextAtomId[]; value: PreviousValue }>;
-type InlineReferenceCreateMutation = Omit<
-  WithKind<ProtocolInlineReferenceCreateMutation, "inline-reference-create">,
+type InlineReferenceCreateAction = Omit<
+  WithKind<ProtocolInlineReferenceCreateAction, "inline-reference-create">,
   "anchor"
 > &
   Readonly<{ anchor: SequenceAnchor }>;
-type InlineReferenceAliasCreateMutation = Omit<
-  WithKind<ProtocolInlineReferenceAliasCreateMutation, "inline-reference-alias-create">,
+type InlineReferenceAliasCreateAction = Omit<
+  WithKind<ProtocolInlineReferenceAliasCreateAction, "inline-reference-alias-create">,
   "seed"
 > &
   Readonly<{ seed?: NodeSeed }>;
-type SearchExpressionCreateMutation = Omit<
-  WithKind<ProtocolSearchExpressionCreateMutation, "search-expression-create">,
-  "anchor" | "seed" | "expression"
+type SearchExpressionCreateAction = Omit<
+  WithKind<ProtocolSearchExpressionCreateAction, "search-expression-create">,
+  "anchor" | "expression"
 > &
-  Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed; expression: SearchExpressionSpec }>;
-type SearchExpressionUpdateMutation = Omit<
-  WithKind<ProtocolSearchExpressionUpdateMutation, "search-expression-update">,
+  Readonly<{ anchor: SequenceAnchor; expression: SearchExpressionDraft }>;
+type SearchExpressionAddAction = Omit<
+  WithKind<ProtocolSearchExpressionAddAction, "search-expression-add">,
+  "anchor" | "expression"
+> &
+  Readonly<{ anchor: SequenceAnchor; expression: SearchExpressionDraft }>;
+type SearchExpressionConfigureAction = Omit<
+  WithKind<ProtocolSearchExpressionConfigureAction, "search-expression-configure">,
+  "clause"
+> &
+  Readonly<{ clause: SearchClause }>;
+type SearchExpressionMoveAction = Omit<
+  WithKind<ProtocolSearchExpressionMoveAction, "search-expression-move">,
+  "anchor"
+> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type SearchExpressionRemoveAction = WithKind<ProtocolSearchExpressionRemoveAction, "search-expression-remove">;
+type SharedDefaultViewCreateAction = Omit<
+  WithKind<ProtocolSharedDefaultViewCreateAction, "shared-default-view-create">,
+  "anchor" | "viewType"
+> &
+  Readonly<{ anchor: SequenceAnchor; viewType: ViewType }>;
+type ViewModeSetAction = Omit<WithKind<ProtocolViewModeSetAction, "view-mode-set">, "viewType"> &
+  Readonly<{ viewType: ViewType }>;
+type SharedDefaultViewRemoveAction = WithKind<ProtocolSharedDefaultViewRemoveAction, "shared-default-view-remove">;
+type ViewColumnAddAction = Omit<WithKind<ProtocolViewColumnAddAction, "view-column-add">, "anchor"> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type ViewColumnMoveAction = Omit<WithKind<ProtocolViewColumnMoveAction, "view-column-move">, "anchor"> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type ViewSortAddAction = Omit<WithKind<ProtocolViewSortAddAction, "view-sort-add">, "direction"> &
+  Readonly<{ direction: ViewSortDirection }>;
+type ViewSortConfigureAction = Omit<WithKind<ProtocolViewSortConfigureAction, "view-sort-configure">, "direction"> &
+  Readonly<{ direction: ViewSortDirection }>;
+type ViewSortByNodeNameAction = Omit<
+  WithKind<ProtocolViewSortByNodeNameAction, "view-sort-by-node-name">,
+  "direction"
+> &
+  Readonly<{ direction: ViewSortDirection }>;
+type ViewFilterCreateAction = Omit<
+  WithKind<ProtocolViewFilterCreateAction, "view-filter-create">,
+  "anchor" | "expression"
+> &
+  Readonly<{ anchor: SequenceAnchor; expression: SearchExpressionDraft }>;
+type ViewFilterExpressionAddAction = Omit<
+  WithKind<ProtocolViewFilterExpressionAddAction, "view-filter-expression-add">,
+  "anchor" | "expression"
+> &
+  Readonly<{ anchor: SequenceAnchor; expression: SearchExpressionDraft }>;
+type ViewFilterExpressionConfigureAction = Omit<
+  WithKind<ProtocolViewFilterExpressionConfigureAction, "view-filter-expression-configure">,
+  "clause"
+> &
+  Readonly<{ clause: SearchClause }>;
+type ViewFilterExpressionMoveAction = Omit<
+  WithKind<ProtocolViewFilterExpressionMoveAction, "view-filter-expression-move">,
+  "anchor"
+> &
+  Readonly<{ anchor: SequenceAnchor }>;
+type FieldDatatypeConfigureAction = Omit<
+  WithKind<ProtocolFieldDatatypeConfigureAction, "field-datatype-configure">,
+  "optionsSupertagId"
+> &
+  Readonly<{ optionsSupertagId?: string }>;
+type FieldCardinalityConfigureAction = WithKind<ProtocolFieldCardinalityConfigureAction, "field-cardinality-configure">;
+type FieldOptionalityConfigureAction = WithKind<ProtocolFieldOptionalityConfigureAction, "field-optionality-configure">;
+type FieldInitializationExpressionConfigureAction = Omit<
+  WithKind<ProtocolFieldInitializationExpressionConfigureAction, "field-initialization-expression-configure">,
   "expression"
 > &
-  Readonly<{ expression: SearchExpressionSpec }>;
-type SharedDefaultViewDefinitionCreateMutation = Omit<
-  WithKind<ProtocolSharedDefaultViewDefinitionCreateMutation, "shared-default-view-definition-create">,
-  "anchor" | "seed" | "viewType"
-> &
-  Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed; viewType: ViewType }>;
-type SharedDefaultViewDefinitionModeSetMutation = Omit<
-  WithKind<ProtocolSharedDefaultViewDefinitionModeSetMutation, "shared-default-view-definition-mode-set">,
-  "viewType" | "previousViewType" | "observedModeFactIds"
-> &
-  Readonly<{ viewType: ViewType }>;
-type SharedDefaultViewDefinitionOptionsUpdateMutation = Omit<
-  WithKind<ProtocolSharedDefaultViewDefinitionOptionsUpdateMutation, "shared-default-view-definition-options-update">,
-  "options"
-> &
-  Readonly<{ options: ViewOptionsSpec }>;
-type SharedDefaultViewDefinitionRemoveMutation = WithKind<
-  ProtocolSharedDefaultViewDefinitionRemoveMutation,
-  "shared-default-view-definition-remove"
->;
-type FieldDatatypeConfigureMutation = Omit<
-  WithKind<ProtocolFieldDatatypeConfigureMutation, "field-datatype-configure">,
-  "optionsSupertagId" | "optionsSupertagOccurrenceId"
-> &
-  Readonly<{ optionsSupertagId?: string; optionsSupertagOccurrenceId?: string }>;
-type FieldCardinalityConfigureMutation = Omit<
-  WithKind<ProtocolFieldCardinalityConfigureMutation, "field-cardinality-configure">,
-  never
->;
-type FieldOptionalityConfigureMutation = Omit<
-  WithKind<ProtocolFieldOptionalityConfigureMutation, "field-optionality-configure">,
-  never
->;
-type FieldDatatypeConfigurationCreateMutation = Omit<
-  WithKind<ProtocolFieldDatatypeConfigurationCreateMutation, "field-datatype-configuration-create">,
-  "anchor" | "seed" | "optionsSupertagId" | "optionsSupertagOccurrenceId"
-> &
-  Readonly<{
-    anchor: SequenceAnchor;
-    seed?: NodeSeed;
-    optionsSupertagId?: string;
-    optionsSupertagOccurrenceId?: string;
-  }>;
-type FieldCardinalityConfigurationCreateMutation = Omit<
-  WithKind<ProtocolFieldCardinalityConfigurationCreateMutation, "field-cardinality-configuration-create">,
-  "anchor" | "seed"
-> &
-  Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed }>;
-type FieldOptionalityConfigurationCreateMutation = Omit<
-  WithKind<ProtocolFieldOptionalityConfigurationCreateMutation, "field-optionality-configuration-create">,
-  "anchor" | "seed"
-> &
-  Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed }>;
-type FieldInitializationExpressionConfigurationCreateMutation = Omit<
-  WithKind<
-    ProtocolFieldInitializationExpressionConfigurationCreateMutation,
-    "field-initialization-expression-configuration-create"
-  >,
-  "expression" | "anchor" | "seed"
-> &
-  Readonly<{ expression: FieldInitializationExpression; anchor: SequenceAnchor; seed?: NodeSeed }>;
+  Readonly<{ expression: FieldInitializationExpression }>;
 
-type FieldValueCreateMutation = Omit<
-  WithKind<ProtocolFieldValueCreateMutation, "field-value-create">,
-  "anchor" | "seed"
-> &
+type FieldValueCreateAction = Omit<WithKind<ProtocolFieldValueCreateAction, "field-value-create">, "anchor" | "seed"> &
   Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed }>;
-type TypedFieldValueClearMutation = Omit<
-  WithKind<ProtocolTypedFieldValueClearMutation, "typed-field-value-clear">,
+type TypedFieldValueClearAction = Omit<
+  WithKind<ProtocolTypedFieldValueClearAction, "typed-field-value-clear">,
   "emptyValueNodeId" | "emptyValueOccurrenceId"
 > &
   Readonly<{ emptyValueNodeId?: string; emptyValueOccurrenceId?: string }>;
-type UrlNodeCreateMutation = Omit<WithKind<ProtocolUrlNodeCreateMutation, "url-node-create">, "anchor" | "seed"> &
+type UrlNodeCreateAction = Omit<WithKind<ProtocolUrlNodeCreateAction, "url-node-create">, "anchor" | "seed"> &
   Readonly<{ anchor: SequenceAnchor; seed?: NodeSeed }>;
-type SupertagTemplateFieldCreateMutation = Omit<
-  WithKind<ProtocolSupertagTemplateFieldCreateMutation, "supertag-template-field-create">,
+type SupertagTemplateFieldCreateAction = Omit<
+  WithKind<ProtocolSupertagTemplateFieldCreateAction, "supertag-template-field-create">,
   "anchor" | "fieldDefinitionSeed"
 > &
   Readonly<{ anchor: SequenceAnchor; fieldDefinitionSeed?: NodeSeed }>;
-type SupertagTemplateFieldAddExistingMutation = Omit<
-  WithKind<ProtocolSupertagTemplateFieldAddExistingMutation, "supertag-template-field-add-existing">,
+type SupertagTemplateFieldAddExistingAction = Omit<
+  WithKind<ProtocolSupertagTemplateFieldAddExistingAction, "supertag-template-field-add-existing">,
   "anchor"
 > &
   Readonly<{ anchor: SequenceAnchor }>;
-type SupertagOptionalFieldContributionAddMutation = Omit<
-  WithKind<ProtocolSupertagOptionalFieldContributionAddMutation, "supertag-optional-field-contribution-add">,
+type SupertagOptionalFieldContributionAddAction = Omit<
+  WithKind<ProtocolSupertagOptionalFieldContributionAddAction, "supertag-optional-field-contribution-add">,
   "anchor"
 > &
   Readonly<{ anchor: SequenceAnchor }>;
 
-type SupertagTemplateFieldVisibilitySetMutation = Omit<
-  WithKind<ProtocolSupertagTemplateFieldVisibilitySetMutation, "supertag-template-field-visibility-set">,
+type SupertagTemplateFieldVisibilitySetAction = Omit<
+  WithKind<ProtocolSupertagTemplateFieldVisibilitySetAction, "supertag-template-field-visibility-set">,
   "visibility"
 > &
   Readonly<{ visibility: TemplateFieldVisibility }>;
 
-export type EditMutation =
-  | NodeCreateMutation
-  | WithKind<ProtocolReferencePromoteMutation, "reference-promote">
-  | WithKind<ProtocolNodeDeleteMutation, "node-delete">
-  | NodeRestoreMutation
-  | (Omit<WithKind<ProtocolOccurrenceCreateMutation, "occurrence-create">, "anchor"> &
+export type EditAction =
+  | NodeCreateAction
+  | WithKind<ProtocolReferencePromoteAction, "reference-promote">
+  | WithKind<ProtocolNodeDeleteAction, "node-delete">
+  | NodeRestoreAction
+  | (Omit<WithKind<ProtocolOccurrenceCreateAction, "occurrence-create">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolOccurrenceDeleteMutation, "occurrence-delete">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolOccurrenceRestoreMutation, "occurrence-restore">, "anchor"> &
+  | WithKind<ProtocolOccurrenceDeleteAction, "occurrence-delete">
+  | (Omit<WithKind<ProtocolOccurrenceRestoreAction, "occurrence-restore">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolOccurrenceMoveMutation, "occurrence-move">, "anchor" | "previousAnchor"> &
-      Readonly<{ anchor: SequenceAnchor; previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolDeclareIntrinsicNodeTypeMutation, "intrinsic-node-type-declare">, "intrinsicNodeType"> &
-      Readonly<{ intrinsicNodeType: IntrinsicNodeType }>)
-  | SupertagApplicationCreateMutation
-  | (Omit<WithKind<ProtocolSupertagRemoveMutation, "supertag-remove">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagExtensionAddMutation, "supertag-extension-add">, "anchor"> &
+  | (Omit<WithKind<ProtocolOccurrenceMoveAction, "occurrence-move">, "anchor"> & Readonly<{ anchor: SequenceAnchor }>)
+  | SupertagApplicationCreateAction
+  | WithKind<ProtocolSupertagRemoveAction, "supertag-remove">
+  | (Omit<WithKind<ProtocolSupertagExtensionAddAction, "supertag-extension-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagExtensionRemoveMutation, "supertag-extension-remove">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagTemplateNodeAddMutation, "supertag-template-node-add">, "anchor"> &
+  | WithKind<ProtocolSupertagExtensionRemoveAction, "supertag-extension-remove">
+  | (Omit<WithKind<ProtocolTemplateMemberAddAction, "template-member-add">, "anchor"> &
       Readonly<{ anchor: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolSupertagTemplateNodeRemoveMutation, "supertag-template-node-remove">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | TemplateNodeDetachMutation
-  | WithKind<ProtocolFieldMaterializeMutation, "field-materialize">
-  | (Omit<WithKind<ProtocolFieldValueDeleteMutation, "field-value-delete">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | (Omit<WithKind<ProtocolMaterializedFieldDeleteMutation, "materialized-field-delete">, "previousAnchor"> &
-      Readonly<{ previousAnchor?: SequenceAnchor }>)
-  | TextSpliceMutation
-  | TextMarkMutation
-  | InlineReferenceCreateMutation
-  | WithKind<ProtocolInlineReferenceDeleteMutation, "inline-reference-delete">
-  | WithKind<ProtocolInlineReferenceAliasAttachMutation, "inline-reference-alias-attach">
-  | WithKind<ProtocolInlineReferenceAliasDetachMutation, "inline-reference-alias-detach">
-  | InlineReferenceAliasCreateMutation
-  | SearchExpressionCreateMutation
-  | SearchExpressionUpdateMutation
-  | SharedDefaultViewDefinitionCreateMutation
-  | SharedDefaultViewDefinitionRemoveMutation
-  | SharedDefaultViewDefinitionModeSetMutation
-  | SharedDefaultViewDefinitionOptionsUpdateMutation
-  | FieldDatatypeConfigureMutation
-  | FieldCardinalityConfigureMutation
-  | FieldOptionalityConfigureMutation
-  | FieldDatatypeConfigurationCreateMutation
-  | FieldCardinalityConfigurationCreateMutation
-  | FieldOptionalityConfigurationCreateMutation
-  | FieldInitializationExpressionConfigurationCreateMutation
-  | WithKind<ProtocolDebugNodeOpenMutation, "debug-node-open">
-  | FieldValueCreateMutation
-  | WithKind<ProtocolFieldNumberValueSetMutation, "field-number-value-set">
-  | WithKind<ProtocolFieldDateValueSetMutation, "field-date-value-set">
-  | WithKind<ProtocolFieldCheckboxValueSetMutation, "field-checkbox-value-set">
-  | WithKind<ProtocolFieldOptionsFromSupertagValueSetMutation, "field-options-from-supertag-value-set">
-  | TypedFieldValueClearMutation
-  | UrlNodeCreateMutation
-  | WithKind<ProtocolCodeNodeConfigureMutation, "code-node-configure">
-  | WithKind<
-      ProtocolSharedDefaultViewDefinitionSortByNameCreateMutation,
-      "shared-default-view-definition-sort-by-name-create"
-    >
-  | SupertagTemplateFieldCreateMutation
-  | SupertagTemplateFieldAddExistingMutation
-  | WithKind<ProtocolSupertagTemplateFieldMakeDiscoverableMutation, "supertag-template-field-make-discoverable">
-  | WithKind<ProtocolSupertagTemplateFieldRemoveMutation, "supertag-template-field-remove">
-  | SupertagOptionalFieldContributionAddMutation
-  | SupertagTemplateFieldVisibilitySetMutation
-  | WithKind<ProtocolSupertagTemplateFieldStaticDefaultSetMutation, "supertag-template-field-static-default-set">;
+  | WithKind<ProtocolTemplateMemberRemoveAction, "template-member-remove">
+  | TemplateNodeDetachAction
+  | WithKind<ProtocolFieldMaterializeAction, "field-materialize">
+  | WithKind<ProtocolFieldValueRemoveAction, "field-value-remove">
+  | WithKind<ProtocolMaterializedFieldClearAction, "materialized-field-clear">
+  | RichTextSpliceAction
+  | RichTextMarkAction
+  | InlineReferenceCreateAction
+  | WithKind<ProtocolInlineReferenceRemoveAction, "inline-reference-remove">
+  | WithKind<ProtocolInlineAliasAttachAction, "inline-alias-attach">
+  | WithKind<ProtocolInlineAliasDetachAction, "inline-alias-detach">
+  | InlineReferenceAliasCreateAction
+  | SearchExpressionCreateAction
+  | SearchExpressionAddAction
+  | SearchExpressionConfigureAction
+  | SearchExpressionMoveAction
+  | SearchExpressionRemoveAction
+  | SharedDefaultViewCreateAction
+  | SharedDefaultViewRemoveAction
+  | ViewModeSetAction
+  | ViewColumnAddAction
+  | WithKind<ProtocolViewColumnRemoveAction, "view-column-remove">
+  | ViewColumnMoveAction
+  | ViewSortAddAction
+  | ViewSortConfigureAction
+  | WithKind<ProtocolViewSortRemoveAction, "view-sort-remove">
+  | ViewSortByNodeNameAction
+  | WithKind<ProtocolViewGroupAddAction, "view-group-add">
+  | WithKind<ProtocolViewGroupRemoveAction, "view-group-remove">
+  | ViewFilterCreateAction
+  | WithKind<ProtocolViewFilterRemoveAction, "view-filter-remove">
+  | ViewFilterExpressionAddAction
+  | ViewFilterExpressionConfigureAction
+  | ViewFilterExpressionMoveAction
+  | WithKind<ProtocolViewFilterExpressionRemoveAction, "view-filter-expression-remove">
+  | FieldDatatypeConfigureAction
+  | FieldCardinalityConfigureAction
+  | FieldOptionalityConfigureAction
+  | FieldInitializationExpressionConfigureAction
+  | FieldValueCreateAction
+  | WithKind<ProtocolFieldNumberValueSetAction, "field-number-value-set">
+  | WithKind<ProtocolFieldDateValueSetAction, "field-date-value-set">
+  | WithKind<ProtocolFieldCheckboxValueSetAction, "field-checkbox-value-set">
+  | WithKind<ProtocolFieldOptionsFromSupertagValueSetAction, "field-options-from-supertag-value-set">
+  | TypedFieldValueClearAction
+  | UrlNodeCreateAction
+  | WithKind<ProtocolCodeNodeConfigureAction, "code-node-configure">
+  | SupertagTemplateFieldCreateAction
+  | SupertagTemplateFieldAddExistingAction
+  | WithKind<ProtocolSupertagTemplateFieldMakeDiscoverableAction, "supertag-template-field-make-discoverable">
+  | WithKind<ProtocolSupertagTemplateFieldRemoveAction, "supertag-template-field-remove">
+  | SupertagOptionalFieldContributionAddAction
+  | WithKind<ProtocolSupertagOptionalFieldContributionRemoveAction, "supertag-optional-field-contribution-remove">
+  | SupertagTemplateFieldVisibilitySetAction
+  | WithKind<ProtocolSupertagTemplateFieldStaticDefaultSetAction, "supertag-template-field-static-default-set">;

@@ -31,12 +31,9 @@ export class GovernancePreconditionError extends Error {
   }
 }
 
-export type WorkspaceRunState = "active" | "authority-fault";
-
 export type WorkspaceSummary = Readonly<{
   workspaceId: string;
   label: string;
-  state: WorkspaceRunState;
 }>;
 
 export type ActorSummary = Readonly<{
@@ -114,7 +111,6 @@ export type EngineGovernance = Readonly<{
 }>;
 
 export type EngineWorkspaces = Readonly<{
-  recoverAuthority(workspaceId: string): Promise<boolean>;
   listWorkspaces(): Promise<readonly WorkspaceSummary[]>;
   createWorkspace(input: Readonly<{ workspaceId: string; label: string; ownerActorId: string }>): Promise<void>;
   adoptWorkspace(
@@ -155,10 +151,7 @@ export type EngineApplicationMethodCoverage = AssertTrue<
     : false
 >;
 export type EngineWorkspaceMethodCoverage = AssertTrue<
-  SameMembers<
-    ProtocolWorkspaceMethod,
-    "recoverWorkspaceAuthority" | "listWorkspaces" | "createWorkspace" | "adoptWorkspace"
-  >
+  SameMembers<ProtocolWorkspaceMethod, "listWorkspaces" | "createWorkspace" | "adoptWorkspace">
 >;
 export type EngineLifecycleMethodCoverage = AssertTrue<SameMembers<ProtocolLifecycleMethod, "close">>;
 export type EngineIdentityMethodCoverage = AssertTrue<

@@ -1,9 +1,9 @@
-import type { ProjectionIdentity, ProjectionPerspective } from "../../../../domain/fact/index.js";
+import type { FactActionId, ProjectionIdentity, ProjectionPerspective } from "../../../../domain/fact/index.js";
 import type { ReviewReadModel } from "../../../../domain/review/index.js";
 import type { ProjectionGeneration, ProjectionSectionName } from "../../../../domain/reconcile/index.js";
 import type { ProjectionShardBatch, ProjectionSliceName, ProjectionSlicePage } from "./projection-slices.js";
 
-export type ProjectionPublisher = Readonly<{
+type ProjectionPublisher = Readonly<{
   publish(generation: ProjectionGeneration, review: ReviewReadModel): Promise<void>;
 }>;
 
@@ -12,13 +12,9 @@ export type ProjectionStoreRestore =
   | Readonly<{ kind: "invalid"; reason: string }>
   | Readonly<{ kind: "found"; generation: ProjectionGeneration }>;
 
-export type ProjectionRestorer = Readonly<{
+type ProjectionRestorer = Readonly<{
   restore(generationId: string): Promise<ProjectionStoreRestore>;
   storedIdentities(): Promise<readonly ProjectionIdentity[]>;
-}>;
-
-export type ProjectionGenerationReader = Readonly<{
-  load(generationId: string): Promise<ProjectionGeneration>;
 }>;
 
 export type ProjectionIdentityReader = Readonly<{
@@ -52,17 +48,17 @@ export type ReviewReadModelReader = Readonly<{
   ): Promise<
     Readonly<{
       identity: ProjectionIdentity;
-      scopes: readonly Readonly<{ identity: string; contributionIds: readonly string[] }>[];
+      scopes: readonly Readonly<{ identity: string; factActionIds: readonly FactActionId[] }>[];
       next: string | null;
     }>
   >;
   reviewSupport(
     generationId: string,
-    contributionIds: readonly string[],
+    factActionIds: readonly FactActionId[],
   ): Promise<
     Readonly<{
       identity: ProjectionIdentity;
-      entries: readonly Readonly<{ identity: string; supportIds: readonly string[] }>[];
+      entries: readonly Readonly<{ identity: FactActionId; supportIds: readonly FactActionId[] }>[];
     }>
   >;
 }>;
@@ -77,8 +73,7 @@ export type ProjectionSupertagInstancesReader = Readonly<{
   ): Promise<Readonly<{ identity: ProjectionIdentity; nodeIds: readonly string[]; next: string | null }>>;
 }>;
 
-export type ProjectionReader = ProjectionGenerationReader &
-  ProjectionIdentityReader &
+export type ProjectionReader = ProjectionIdentityReader &
   ProjectionSnapshotReader &
   ProjectionSectionPageReader &
   ReviewReadModelReader &

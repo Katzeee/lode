@@ -1,105 +1,144 @@
 import {
-  canonicalJson,
-  compareFacts,
-  factObserves,
-  SEARCH_EXPRESSION_DEFINITION_NODE_ID,
+  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   SEARCH_INTRINSIC_NODE_TYPE,
   stableStringCompare,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
-  visitSearchExpression,
-  type ContributionFact,
+  type FactAction,
+  type FactActionId,
+  type SearchClause,
+  type SearchExpressionSpec,
 } from "../fact/index.js";
 import { nodeLocation } from "./node-graph.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import type { SearchExpression } from "./projection-types.js";
-import { projectTuple } from "./tuple.js";
+import { searchExpressionStates, type SearchExpressionState } from "./search-expression-graph.js";
 import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
 
 export function projectSearchExpressions(
   workspaceNodeId: string,
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   nodes: ReadonlyMap<string, MutableNode>,
-  occurrences: ReadonlyMap<string, MutableOccurrence>,
+  _occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
-  metanodes: Readonly<Record<string, string>>,
+  _metanodes: Readonly<Record<string, string>>,
   workspaceSystemNodes: WorkspaceSystemNodes,
 ): Readonly<Record<string, SearchExpression>> {
   const graph = { nodes: Object.fromEntries(nodes), nodeOwners, workspaceSystemNodes };
-  const events = new Map<string, ContributionFact[]>();
-  for (const fact of active) {
-    if (
-      fact.body.mutation.kind === "search-expression-attach" ||
-      fact.body.mutation.kind === "search-expression-detach"
-    ) {
-      const values = events.get(fact.body.mutation.searchNodeId) ?? [];
-      values.push(fact);
-      events.set(fact.body.mutation.searchNodeId, values);
-    }
-  }
-  const candidates = new Map<string, SearchExpression[]>();
-  for (const [searchNodeId, facts] of events) {
-    const maxima = facts.filter(
-      (candidate) => !facts.some((other) => other.id !== candidate.id && factObserves(other, candidate)),
-    );
-    const unique = [...new Map(maxima.map((fact) => [canonicalJson(fact.body.mutation), fact])).values()].sort(
-      compareFacts,
-    );
-    const fact = unique.length === 1 ? unique[0] : undefined;
-    const mutation = fact?.body.mutation;
-    if (mutation?.kind !== "search-expression-attach") {
-      continue;
-    }
-    const metanodeId = metanodes[mutation.searchNodeId];
-    const expressionOccurrence = occurrences.get(mutation.expressionOccurrenceId);
-    const tuple = projectTuple(mutation.expressionNodeId, occurrences, childOccurrences, nodeOwners);
-    const definitionEndpoint = tuple.endpoints[0];
-    if (
-      metanodeId === undefined ||
-      nodes.get(mutation.searchNodeId)?.intrinsicNodeType !== SEARCH_INTRINSIC_NODE_TYPE ||
-      expressionOccurrence?.nodeId !== mutation.expressionNodeId ||
-      expressionOccurrence.parentNodeId !== metanodeId ||
-      tuple.ownerNodeId !== metanodeId ||
-      tuple.endpoints.length !== 1 ||
-      definitionEndpoint?.occurrenceId !== mutation.definitionOccurrenceId ||
-      definitionEndpoint.nodeId !== SEARCH_EXPRESSION_DEFINITION_NODE_ID ||
-      definitionEndpoint.isOwning ||
-      nodeLocation(workspaceNodeId, graph, mutation.searchNodeId) !== "active" ||
-      nodeLocation(workspaceNodeId, graph, mutation.expressionNodeId) !== "active" ||
-      !validSearchExpression(mutation.expression, workspaceNodeId, graph, nodes)
-    ) {
-      continue;
-    }
-    const values = candidates.get(searchNodeId) ?? [];
-    values.push({
-      expressionNodeId: mutation.expressionNodeId,
-      expressionOccurrenceId: mutation.expressionOccurrenceId,
-      definitionOccurrenceId: mutation.definitionOccurrenceId,
-      expression: mutation.expression,
-    });
-    candidates.set(searchNodeId, values);
-  }
+  const states = searchExpressionStates(active);
+  const searchNodeIds = [...new Set(states.map((state) => state.addition.action.expressionHostId))]
+    .filter((id) => nodes.get(id)?.intrinsicNodeType === SEARCH_INTRINSIC_NODE_TYPE)
+    .sort(stableStringCompare);
   return Object.fromEntries(
-    [...candidates]
-      .sort(([left], [right]) => stableStringCompare(left, right))
-      .flatMap(([searchNodeId, values]) => {
-        const unique = values.filter(
-          (candidate, index) =>
-            values.findIndex(
-              (value) =>
-                value.expressionNodeId === candidate.expressionNodeId &&
-                canonicalJson(value.expression) === canonicalJson(candidate.expression),
-            ) === index,
-        );
-        const expression = unique.length === 1 ? unique[0] : undefined;
-        return expression === undefined ? [] : ([[searchNodeId, expression]] as const);
-      }),
+    searchNodeIds.flatMap((searchNodeId) => {
+      if (nodeLocation(workspaceNodeId, graph, searchNodeId) !== "active") {
+        return [];
+      }
+      const projected = projectSearchExpressionForHost(
+        searchNodeId,
+        states,
+        childOccurrences,
+        workspaceNodeId,
+        graph,
+        nodes,
+      );
+      return projected ? [[searchNodeId, projected] as const] : [];
+    }),
   );
 }
 
+export function projectSearchExpressionForHost(
+  hostId: string,
+  states: readonly SearchExpressionState[],
+  childOccurrences: ReadonlyMap<string, readonly string[]>,
+  workspaceNodeId: string,
+  graph: Readonly<{
+    nodes: Readonly<Record<string, unknown>>;
+    nodeOwners: Readonly<Record<string, string | null>>;
+    workspaceSystemNodes: WorkspaceSystemNodes;
+  }>,
+  nodes: ReadonlyMap<string, MutableNode>,
+): SearchExpression | null {
+  const roots = states.filter(
+    (state) => state.addition.action.expressionHostId === hostId && state.parentExpressionId === null && usable(state),
+  );
+  if (roots.length !== 1) {
+    return null;
+  }
+  const root = roots[0];
+  if (!root) {
+    return null;
+  }
+  const expression = buildExpression(root, states, childOccurrences, new Set());
+  return !expression || !validSearchExpression(expression, workspaceNodeId, graph, nodes)
+    ? null
+    : {
+        expressionNodeId: root.identity.expressionNodeId,
+        expressionOccurrenceId: root.identity.expressionOccurrenceId,
+        definitionOccurrenceId: root.identity.definitionOccurrenceId,
+        expression,
+      };
+}
+
+function buildExpression(
+  state: SearchExpressionState,
+  states: readonly SearchExpressionState[],
+  childOccurrences: ReadonlyMap<string, readonly string[]>,
+  visited: Set<FactActionId>,
+): SearchExpressionSpec | null {
+  if (!usable(state) || visited.has(state.addition.id) || !state.clause) {
+    return null;
+  }
+  visited.add(state.addition.id);
+  const children = states
+    .filter((candidate) => candidate.parentExpressionId === state.addition.id && usable(candidate))
+    .sort((left, right) => {
+      const order = childOccurrences.get(state.identity.expressionNodeId) ?? [];
+      return order.indexOf(left.identity.expressionOccurrenceId) - order.indexOf(right.identity.expressionOccurrenceId);
+    });
+  const resolved = children.map((child) => buildExpression(child, states, childOccurrences, visited));
+  if (resolved.some((child) => child === null)) {
+    return null;
+  }
+  const operands = resolved as SearchExpressionSpec[];
+  const clause = state.clause;
+  if (clause.kind === "and" || clause.kind === "or") {
+    return operands.length > 0
+      ? {
+          expressionId: state.addition.id,
+          expressionNodeId: state.identity.expressionNodeId,
+          kind: clause.kind,
+          operands,
+        }
+      : null;
+  }
+  if (clause.kind === "not") {
+    const operand = operands.length === 1 ? operands[0] : undefined;
+    return operand
+      ? {
+          expressionId: state.addition.id,
+          expressionNodeId: state.identity.expressionNodeId,
+          kind: clause.kind,
+          operand,
+        }
+      : null;
+  }
+  if (operands.length > 0) {
+    return null;
+  }
+  return {
+    expressionId: state.addition.id,
+    expressionNodeId: state.identity.expressionNodeId,
+    ...clause,
+  } as SearchExpressionSpec;
+}
+
+function usable(state: SearchExpressionState): boolean {
+  return !state.removed && !state.positionConflicted && state.clause !== null;
+}
+
 function validSearchExpression(
-  expression: SearchExpression["expression"],
+  expression: SearchExpressionSpec,
   workspaceNodeId: string,
   graph: Readonly<{
     nodes: Readonly<Record<string, unknown>>;
@@ -109,29 +148,10 @@ function validSearchExpression(
   nodes: ReadonlyMap<string, MutableNode>,
 ): boolean {
   let valid = true;
-  visitSearchExpression(expression, (candidate) => {
-    let nodeId: string | undefined;
-    let intrinsicNodeType: "supertag-definition" | "field-definition" | undefined;
-    if (candidate.kind === "supertag") {
-      nodeId = candidate.supertagId;
-      intrinsicNodeType = SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE;
-    } else if (
-      candidate.kind === "field-defined" ||
-      candidate.kind === "field-value" ||
-      candidate.kind === "date-compare"
-    ) {
-      nodeId = candidate.fieldDefinitionId;
-      intrinsicNodeType = FIELD_DEFINITION_INTRINSIC_NODE_TYPE;
-      if (candidate.kind === "field-value" && candidate.value.kind === "node") {
-        valid &&= nodeLocation(workspaceNodeId, graph, candidate.value.nodeId) === "active";
-      }
-    } else if (
-      (candidate.kind === "descendant-of" || candidate.kind === "child-of") &&
-      candidate.target.kind === "node"
-    ) {
-      nodeId = candidate.target.nodeId;
-    } else if (candidate.kind === "links-to") {
-      nodeId = candidate.targetNodeId;
+  visit(expression, (clause) => {
+    const [nodeId, intrinsicNodeType] = supportTarget(clause);
+    if (clause.kind === "field-value" && clause.value.kind === "node") {
+      valid &&= nodeLocation(workspaceNodeId, graph, clause.value.nodeId) === "active";
     }
     if (nodeId !== undefined) {
       valid &&= nodeLocation(workspaceNodeId, graph, nodeId) === "active";
@@ -141,4 +161,28 @@ function validSearchExpression(
     }
   });
   return valid;
+}
+
+function visit(expression: SearchExpressionSpec, visitor: (clause: SearchExpressionSpec) => void): void {
+  visitor(expression);
+  if (expression.kind === "and" || expression.kind === "or") {
+    expression.operands.forEach((child) => visit(child, visitor));
+  } else if (expression.kind === "not") {
+    visit(expression.operand, visitor);
+  }
+}
+
+function supportTarget(
+  clause: SearchClause,
+): readonly [string | undefined, "supertag-definition" | "field-definition" | undefined] {
+  if (clause.kind === "supertag") {
+    return [clause.supertagId, SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE];
+  }
+  if (clause.kind === "field-defined" || clause.kind === "field-value" || clause.kind === "date-compare") {
+    return [clause.fieldDefinitionId, FIELD_DEFINITION_INTRINSIC_NODE_TYPE];
+  }
+  if ((clause.kind === "descendant-of" || clause.kind === "child-of") && clause.target.kind === "node") {
+    return [clause.target.nodeId, undefined];
+  }
+  return clause.kind === "links-to" ? [clause.targetNodeId, undefined] : [undefined, undefined];
 }

@@ -1,14 +1,22 @@
 import { SearchDateComparisonOperator } from "@lode/protocol/dto/model";
-import type { SearchExpressionSpec, SearchFieldValue, SearchScopeTarget } from "./model.js";
+import type {
+  SearchClause,
+  SearchExpressionDraft,
+  SearchExpressionSpec,
+  SearchFieldValue,
+  SearchScopeTarget,
+} from "./model.js";
 import { required } from "./protocol-shape-codec.js";
+import { factActionId } from "./fact-identities.js";
 
 export function toSearchExpressionSpec(expression: SearchExpressionSpec): Record<string, unknown> {
   const value = expressionToProtocol(expression);
-  return { expressionNodeId: expression.expressionNodeId, expression: value };
+  return { expressionId: expression.expressionId, expressionNodeId: expression.expressionNodeId, expression: value };
 }
 
 export function fromSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   const expression = required(value as Record<string, unknown> | null, "Search Expression");
+  const expressionId = factActionId(expression.expressionId, "Search Expression identity");
   const expressionNodeId = expression.expressionNodeId as string;
   const selected = required(
     expression.expression as { $case: string; value: unknown } | null,
@@ -17,22 +25,24 @@ export function fromSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   const fields = selected.value as Record<string, unknown>;
   if (selected.$case === "all" || selected.$case === "any") {
     return {
+      expressionId,
       expressionNodeId,
       kind: selected.$case === "all" ? "and" : "or",
       operands: (fields.values as readonly unknown[]).map(fromSearchExpressionSpec),
     };
   }
   if (selected.$case === "negated") {
-    return { expressionNodeId, kind: "not", operand: fromSearchExpressionSpec(fields.operand) };
+    return { expressionId, expressionNodeId, kind: "not", operand: fromSearchExpressionSpec(fields.operand) };
   }
   if (selected.$case === "supertag") {
-    return { expressionNodeId, kind: "supertag", supertagId: fields.supertagId as string };
+    return { expressionId, expressionNodeId, kind: "supertag", supertagId: fields.supertagId as string };
   }
   if (selected.$case === "text") {
-    return { expressionNodeId, kind: "text", text: fields.text as string };
+    return { expressionId, expressionNodeId, kind: "text", text: fields.text as string };
   }
   if (selected.$case === "fieldDefined") {
     return {
+      expressionId,
       expressionNodeId,
       kind: "field-defined",
       fieldDefinitionId: fields.fieldDefinitionId as string,
@@ -41,6 +51,7 @@ export function fromSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   }
   if (selected.$case === "fieldValue") {
     return {
+      expressionId,
       expressionNodeId,
       kind: "field-value",
       fieldDefinitionId: fields.fieldDefinitionId as string,
@@ -49,6 +60,7 @@ export function fromSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   }
   if (selected.$case === "dateCompare") {
     return {
+      expressionId,
       expressionNodeId,
       kind: "date-compare",
       fieldDefinitionId: fields.fieldDefinitionId as string,
@@ -61,12 +73,33 @@ export function fromSearchExpressionSpec(value: unknown): SearchExpressionSpec {
   }
   if (selected.$case === "descendantOf" || selected.$case === "childOf") {
     return {
+      expressionId,
       expressionNodeId,
       kind: selected.$case === "descendantOf" ? "descendant-of" : "child-of",
       target: scopeTargetFromProtocol(fields.target),
     };
   }
-  return { expressionNodeId, kind: "links-to", targetNodeId: fields.targetNodeId as string };
+  return { expressionId, expressionNodeId, kind: "links-to", targetNodeId: fields.targetNodeId as string };
+}
+
+export function toSearchExpressionDraft(expression: SearchExpressionDraft): Record<string, unknown> {
+  return { expression: draftToProtocol(expression) };
+}
+
+export function fromSearchExpressionDraft(value: unknown): SearchExpressionDraft {
+  const message = required(value as Record<string, unknown> | null, "Search Expression draft");
+  return draftFromSelected(
+    required(message.expression as { $case: string; value: unknown } | null, "Search draft clause"),
+  );
+}
+
+export function toSearchClause(clause: SearchClause): Record<string, unknown> {
+  return { clause: clauseToProtocol(clause) };
+}
+
+export function fromSearchClause(value: unknown): SearchClause {
+  const message = required(value as Record<string, unknown> | null, "Search clause");
+  return clauseFromSelected(required(message.clause as { $case: string; value: unknown } | null, "Search clause"));
 }
 
 function expressionToProtocol(expression: SearchExpressionSpec): { $case: string; value: unknown } {
@@ -120,6 +153,60 @@ function expressionToProtocol(expression: SearchExpressionSpec): { $case: string
     return { $case: "linksTo", value: { targetNodeId: expression.targetNodeId } };
   }
   throw new Error("Unsupported Search Expression clause");
+}
+
+function draftToProtocol(expression: SearchExpressionDraft): { $case: string; value: unknown } {
+  if (expression.kind === "and" || expression.kind === "or") {
+    return {
+      $case: expression.kind === "and" ? "all" : "any",
+      value: { values: expression.operands.map(toSearchExpressionDraft) },
+    };
+  }
+  if (expression.kind === "not") {
+    return { $case: "negated", value: { operand: toSearchExpressionDraft(expression.operand) } };
+  }
+  return clauseToProtocol(expression);
+}
+
+function draftFromSelected(selected: { $case: string; value: unknown }): SearchExpressionDraft {
+  const fields = selected.value as Record<string, unknown>;
+  if (selected.$case === "all" || selected.$case === "any") {
+    return {
+      kind: selected.$case === "all" ? "and" : "or",
+      operands: (fields.values as readonly unknown[]).map(fromSearchExpressionDraft),
+    };
+  }
+  if (selected.$case === "negated") {
+    return { kind: "not", operand: fromSearchExpressionDraft(fields.operand) };
+  }
+  return clauseFromSelected(selected) as Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
+}
+
+function clauseToProtocol(clause: SearchClause): { $case: string; value: unknown } {
+  if (clause.kind === "and" || clause.kind === "or" || clause.kind === "not") {
+    return {
+      $case: clause.kind === "and" ? "all" : clause.kind === "or" ? "any" : "negated",
+      value: {},
+    };
+  }
+  return expressionToProtocol({
+    expressionId: "g1/clause/0/0/actions/0",
+    expressionNodeId: "",
+    ...clause,
+  } as SearchExpressionSpec);
+}
+
+function clauseFromSelected(selected: { $case: string; value: unknown }): SearchClause {
+  if (selected.$case === "all" || selected.$case === "any" || selected.$case === "negated") {
+    return { kind: selected.$case === "all" ? "and" : selected.$case === "any" ? "or" : "not" };
+  }
+  const decoded = fromSearchExpressionSpec({
+    expressionId: "g1/clause/0/0/actions/0",
+    expressionNodeId: "",
+    expression: selected,
+  });
+  const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...clause } = decoded;
+  return clause;
 }
 
 function fieldValueToProtocol(value: SearchFieldValue): Record<string, unknown> {

@@ -6,14 +6,14 @@ import {
   WriteResult as ProtocolWriteResult,
 } from "@lode/protocol/dto/engine";
 import {
-  EditMutationSchema,
+  EditActionSchema,
   EngineCommandSchema,
   EngineEventSchema,
   EngineQuerySchema,
   QueryResultSchema,
   WriteResultSchema,
 } from "@lode/protocol/proto";
-import type { EditMutation } from "./edit.js";
+import type { EditAction } from "./edit.js";
 import type { HistoryQuery } from "./history.js";
 import type {
   EngineCommand,
@@ -31,14 +31,14 @@ import type { ConflictIssue, ReviewQuery } from "./review.js";
 import { fromProjectionPage, toProjectionPage } from "./protocol-projection-codec.js";
 import {
   commandKind,
-  mutationKind,
+  actionKind,
   protocolCommandCase,
-  protocolMutationCase,
+  protocolActionCase,
   protocolQueryCase,
   protocolWriteResultCase,
   queryKind,
   writeResultStatus,
-  type ProtocolMutationCase,
+  type ProtocolActionCase,
 } from "./protocol-cases.js";
 import {
   fromInvocationOutcome,
@@ -60,7 +60,12 @@ import {
   toHistorySelection,
 } from "./protocol-history-codec.js";
 import { fromDebugNodeResult, toDebugNodeResult } from "./protocol-debug-node-codec.js";
-import { fromSearchExpressionSpec, toSearchExpressionSpec } from "./protocol-search-expression-codec.js";
+import {
+  fromSearchClause,
+  fromSearchExpressionDraft,
+  toSearchClause,
+  toSearchExpressionDraft,
+} from "./protocol-search-expression-codec.js";
 import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 
 export function encodeEngineCommand(command: EngineCommand): Uint8Array {
@@ -74,8 +79,8 @@ export function decodeEngineCommand(bytes: Uint8Array): EngineCommand {
   >;
   const selected = required(message.command, "Engine command");
   const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  if (selected.$case === "mutate") {
-    decoded.mutations = selected.value.mutations.map(fromEditMutation);
+  if (selected.$case === "edit") {
+    decoded.actions = selected.value.actions.map(fromEditAction);
   } else if (selected.$case === "resolveReview") {
     decoded.selection = fromReviewSelection(selected.value.selection);
   } else if (selected.$case === "undo" || selected.$case === "redo") {
@@ -189,8 +194,8 @@ function commandValue(
   command: EngineCommand,
 ): NonNullable<Parameters<typeof ProtocolEngineCommand.fromPartial>[0]["command"]> {
   const value = toProtocolValue(command) as Record<string, unknown>;
-  if (command.kind === "mutate") {
-    value.mutations = command.mutations.map(toEditMutation);
+  if (command.kind === "edit") {
+    value.actions = command.actions.map(toEditAction);
   } else if (command.kind === "resolve-review") {
     value.selection = toReviewSelection(command.selection);
   } else if (command.kind === "undo" || command.kind === "redo") {
@@ -199,43 +204,49 @@ function commandValue(
   return { $case: protocolCommandCase(command.kind), value };
 }
 
-function toEditMutation(mutation: EditMutation): Record<string, unknown> {
-  assertMutationFields(mutation);
-  const value = toProtocolValue(mutation) as Record<string, unknown>;
-  if (mutation.kind === "field-initialization-expression-configuration-create") {
-    const { kind: _kind, ...expression } = mutation.expression;
+function toEditAction(action: EditAction): Record<string, unknown> {
+  assertActionFields(action);
+  const value = toProtocolValue(action) as Record<string, unknown>;
+  if (action.kind === "field-initialization-expression-configure") {
+    const { kind: _kind, ...expression } = action.expression;
     value.expression = expression;
-  } else if (mutation.kind === "search-expression-create" || mutation.kind === "search-expression-update") {
-    value.expression = toSearchExpressionSpec(mutation.expression);
-  } else if (mutation.kind === "shared-default-view-definition-options-update") {
-    value.options = toViewOptionsSpec(mutation.options);
+  } else if (action.kind === "search-expression-create") {
+    value.expression = toSearchExpressionDraft(action.expression);
+  } else if (action.kind === "search-expression-configure" || action.kind === "view-filter-expression-configure") {
+    value.clause = toSearchClause(action.clause);
+  } else if (action.kind === "search-expression-add" || action.kind === "view-filter-expression-add") {
+    value.expression = toSearchExpressionDraft(action.expression);
+  } else if (action.kind === "view-filter-create") {
+    value.expression = toSearchExpressionDraft(action.expression);
   }
-  return { mutation: { $case: protocolMutationCase(mutation.kind), value } };
+  return { action: { $case: protocolActionCase(action.kind), value } };
 }
 
-function fromEditMutation(value: unknown): EditMutation {
-  const mutation = required(
-    (value as { mutation?: { $case: ProtocolMutationCase; value: unknown } | null }).mutation,
-    "Edit mutation",
+function fromEditAction(value: unknown): EditAction {
+  const action = required(
+    (value as { action?: { $case: ProtocolActionCase; value: unknown } | null }).action,
+    "Edit action",
   );
-  const decoded = fromProtocolValue(mutation.value) as Record<string, unknown>;
-  if (mutation.$case === "fieldInitializationExpressionConfigurationCreate") {
+  const decoded = fromProtocolValue(action.value) as Record<string, unknown>;
+  if (action.$case === "fieldInitializationExpressionConfigure") {
     const expression = required(
       decoded.expression as Record<string, unknown> | null,
       "Field initialization expression",
     );
     decoded.expression = { kind: "find-field-values", ...expression };
-  } else if (mutation.$case === "searchExpressionCreate" || mutation.$case === "searchExpressionUpdate") {
-    decoded.expression = fromSearchExpressionSpec(decoded.expression);
-  } else if (mutation.$case === "sharedDefaultViewDefinitionOptionsUpdate") {
-    decoded.options = fromViewOptionsSpec(decoded.options);
+  } else if (action.$case === "searchExpressionCreate") {
+    decoded.expression = fromSearchExpressionDraft(decoded.expression);
+  } else if (action.$case === "searchExpressionConfigure" || action.$case === "viewFilterExpressionConfigure") {
+    decoded.clause = fromSearchClause(decoded.clause);
+  } else if (action.$case === "searchExpressionAdd" || action.$case === "viewFilterExpressionAdd") {
+    decoded.expression = fromSearchExpressionDraft(decoded.expression);
+  } else if (action.$case === "viewFilterCreate") {
+    decoded.expression = fromSearchExpressionDraft(decoded.expression);
   }
   for (const key of [
     "seed",
     "fieldDefinitionSeed",
     "intrinsicNodeType",
-    "previousParentNodeId",
-    "previousAnchor",
     "optionsSupertagId",
     "optionsSupertagOccurrenceId",
     "emptyValueNodeId",
@@ -245,23 +256,14 @@ function fromEditMutation(value: unknown): EditMutation {
       delete decoded[key];
     }
   }
-  for (const key of ["sourceSupertagIds", "sourceApplicationSupertagIds", "sourceTemplateOccurrenceIds"] as const) {
-    if (Array.isArray(decoded[key]) && decoded[key].length === 0) {
-      delete decoded[key];
-    }
-  }
-  if (mutation.$case === "sharedDefaultViewDefinitionModeSet") {
-    delete decoded.previousViewType;
-    delete decoded.observedModeFactIds;
-  }
-  return { ...decoded, kind: mutationKind(mutation.$case) } as EditMutation;
+  return { ...decoded, kind: actionKind(action.$case) } as EditAction;
 }
 
-function assertMutationFields(mutation: EditMutation): void {
-  const $case = protocolMutationCase(mutation.kind);
-  const field = EditMutationSchema.oneofs[0]?.fields.find((candidate) => candidate.localName === $case);
+function assertActionFields(action: EditAction): void {
+  const $case = protocolActionCase(action.kind);
+  const field = EditActionSchema.oneofs[0]?.fields.find((candidate) => candidate.localName === $case);
   const allowed = new Set(["kind", ...(field?.message?.fields.map((candidate) => candidate.localName) ?? [])]);
-  const unknown = Object.keys(mutation).find((key) => !allowed.has(key));
+  const unknown = Object.keys(action).find((key) => !allowed.has(key));
   if (unknown) {
     throw new Error(`Unknown input field: ${unknown}`);
   }

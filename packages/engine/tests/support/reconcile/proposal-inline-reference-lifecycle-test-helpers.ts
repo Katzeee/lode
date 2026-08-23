@@ -1,13 +1,13 @@
-import type { Mutation } from "../../../src/domain/fact/index.js";
+import type { AuthoredAction } from "../../../src/domain/fact/index.js";
 import { base, end, type Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 
 export const inlineReferenceProposalLifecycleCases = {
   "inline-reference-create": inlineReferenceCreateCase,
-  "inline-reference-delete": inlineReferenceDeleteCase,
-  "inline-reference-alias-attach": inlineReferenceAliasAttachCase,
-  "inline-reference-alias-detach": inlineReferenceAliasDetachCase,
+  "inline-reference-remove": inlineReferenceRemoveCase,
+  "inline-alias-attach": inlineAliasAttachCase,
+  "inline-alias-detach": inlineAliasDetachCase,
 } as const;
 
 function inlineReferenceCreateCase(): ProposalLifecycleCase {
@@ -21,28 +21,25 @@ function inlineReferenceCreateCase(): ProposalLifecycleCase {
   });
 }
 
-function inlineReferenceDeleteCase(): ProposalLifecycleCase {
+function inlineReferenceRemoveCase(): ProposalLifecycleCase {
   const facts = inlineReferenceBase(true);
   return lifecycle(facts, {
-    kind: "inline-reference-delete",
+    kind: "inline-reference-remove",
     inlineReferenceId: "inline-reference",
-    previousHostNodeId: "node",
-    previousTargetNodeId: "target",
-    previousAnchor: end,
   });
 }
 
-function inlineReferenceAliasAttachCase(): ProposalLifecycleCase {
+function inlineAliasAttachCase(): ProposalLifecycleCase {
   return lifecycle(inlineAliasBase(false), {
-    kind: "inline-reference-alias-attach",
+    kind: "inline-alias-attach",
     inlineReferenceId: "inline-reference",
     aliasNodeId: "inline-alias",
   });
 }
 
-function inlineReferenceAliasDetachCase(): ProposalLifecycleCase {
+function inlineAliasDetachCase(): ProposalLifecycleCase {
   return lifecycle(inlineAliasBase(true), {
-    kind: "inline-reference-alias-detach",
+    kind: "inline-alias-detach",
     inlineReferenceId: "inline-reference",
     aliasNodeId: "inline-alias",
   });
@@ -65,21 +62,10 @@ function inlineReferenceBase(withReference: boolean): Facts {
 
 function inlineAliasBase(withAlias: boolean): Facts {
   const facts = inlineReferenceBase(true);
-  facts.addTransaction([
-    { kind: "node-create", nodeId: "node-configuration" },
-    { kind: "metanode-attach", hostNodeId: "node", metanodeId: "node-configuration" },
-    { kind: "node-create", nodeId: "inline-alias" },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "inline-alias-occurrence",
-      nodeId: "inline-alias",
-      parentNodeId: "node-configuration",
-      anchor: end,
-    },
-  ]);
+  facts.addTransaction([{ kind: "node-create", nodeId: "inline-alias", ownerNodeId: "node", originalPlacement: null }]);
   if (withAlias) {
     facts.add({
-      kind: "inline-reference-alias-attach",
+      kind: "inline-alias-attach",
       inlineReferenceId: "inline-reference",
       aliasNodeId: "inline-alias",
     });
@@ -87,6 +73,6 @@ function inlineAliasBase(withAlias: boolean): Facts {
   return facts;
 }
 
-function lifecycle(facts: Facts, mutation: Mutation): ProposalLifecycleCase {
-  return { kind: mutation.kind, facts, proposal: facts.add(mutation, "proposal") };
+function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+  return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

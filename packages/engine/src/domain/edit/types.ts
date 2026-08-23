@@ -1,110 +1,92 @@
-import type {
-  Mutation,
-  IntrinsicNodeType,
-  NodeSeed,
-  SearchExpressionSpec,
-  SequenceAnchor,
-  ViewOptionsSpec,
-  ViewType,
-} from "../fact/index.js";
-import type {
-  CodeNodeConfigureEdit,
-  DebugNodeOpenEdit,
-  FieldValueCreateEdit,
-  SharedDefaultViewDefinitionSortByNameCreateEdit,
-  UrlNodeCreateEdit,
-} from "./breadth-edit-types.js";
+import type { AuthoredAction, IntrinsicNodeType, NodeSeed, SequenceAnchor } from "../fact/index.js";
+import type { CodeNodeConfigureEdit, FieldValueCreateEdit, UrlNodeCreateEdit } from "./breadth-edit-types.js";
 import type {
   AddExistingSupertagTemplateFieldEdit,
   AddSupertagOptionalFieldContributionEdit,
+  RemoveSupertagOptionalFieldContributionEdit,
   CreateSupertagTemplateFieldEdit,
   MakeSupertagTemplateFieldDiscoverableEdit,
   RemoveSupertagTemplateFieldEdit,
   SetSupertagTemplateFieldStaticDefaultEdit,
   SetSupertagTemplateFieldVisibilityEdit,
 } from "./template-field-edit-types.js";
-import type {
-  ConfigureFieldDefinitionEndpointEdit,
-  CreateFieldDefinitionConfigurationEdit,
-} from "./field-definition-configuration-edit-types.js";
+import type { ConfigureFieldDefinitionEdit } from "./field-definition-configuration-edit-types.js";
 import type { TypedFieldValueEdit } from "./typed-field-value-edit-types.js";
-export type {
-  ConfigureFieldDefinitionEndpointEdit,
-  CreateFieldDefinitionConfigurationEdit,
-} from "./field-definition-configuration-edit-types.js";
+import type {
+  AddSearchExpressionEdit,
+  ConfigureSearchExpressionEdit,
+  CreateSearchExpressionEdit,
+  CreateSharedDefaultViewDefinitionEdit,
+  MoveSearchExpressionEdit,
+  RemoveSearchExpressionEdit,
+  RemoveSharedDefaultViewDefinitionEdit,
+  ViewColumnEdit,
+  ViewFilterEdit,
+  ViewGroupEdit,
+  ViewModeEdit,
+  ViewSortEdit,
+} from "./search-view-edit-types.js";
+export type { ConfigureFieldDefinitionEdit } from "./field-definition-configuration-edit-types.js";
 
-const MUTATION_EDIT_ACCESS = {
+const ACTION_EDIT_ACCESS = {
+  "workspace-bootstrap": "internal",
   "node-create": "composite",
-  "node-delete": "composite",
+  "node-trash": "internal",
   "node-restore": "composite",
-  "occurrence-create": "direct",
-  "occurrence-delete": "direct",
-  "occurrence-restore": "direct",
-  "occurrence-move": "direct",
-  "node-owner-set": "internal",
-  "metanode-attach": "internal",
-  "intrinsic-node-type-declare": "direct",
-  "supertag-apply": "internal",
-  "supertag-remove": "direct",
+  "original-promote": "internal",
+  "placement-create": "internal",
+  "placement-remove": "internal",
+  "placement-move": "internal",
+  "supertag-application-add": "internal",
+  "supertag-membership-remove": "internal",
   "supertag-extension-add": "direct",
   "supertag-extension-remove": "direct",
-  "supertag-template-node-add": "direct",
-  "supertag-template-node-remove": "direct",
-  "supertag-template-field-attach": "internal",
-  "supertag-template-field-existing-attach": "internal",
-  "supertag-template-field-detach": "internal",
-  "supertag-template-field-discoverability-set": "internal",
-  "supertag-template-field-visibility-configure": "internal",
-  "supertag-optional-field-contribution-attach": "internal",
-  "supertag-optional-field-contribution-detach": "internal",
+  "template-member-add": "direct",
+  "template-member-remove": "direct",
+  "template-field-add": "internal",
+  "template-field-remove": "internal",
+  "template-field-restore": "internal",
+  "template-field-visibility-set": "internal",
+  "template-field-static-default-set": "internal",
+  "optional-field-contribution-add": "internal",
+  "optional-field-contribution-remove": "internal",
   "template-node-detach": "direct",
   "field-materialize": "direct",
-  "field-value-delete": "direct",
-  "materialized-field-delete": "direct",
-  "field-datatype-configure": "composite",
-  "field-cardinality-configure": "composite",
-  "field-optionality-configure": "composite",
-  "field-initialization-expression-configure": "internal",
-  "text-splice": "direct",
-  "text-mark": "direct",
+  "field-value-remove": "direct",
+  "materialized-field-clear": "direct",
+  "field-configuration-set": "internal",
+  "field-definition-make-discoverable": "internal",
+  "field-definition-return-to-template-field": "internal",
+  "rich-text-splice": "direct",
+  "rich-text-mark": "direct",
   "inline-reference-create": "direct",
-  "inline-reference-delete": "direct",
-  "inline-reference-alias-attach": "direct",
-  "inline-reference-alias-detach": "direct",
-  "search-expression-attach": "internal",
-  "search-expression-detach": "internal",
-  "shared-default-view-definition-attach": "internal",
-  "shared-default-view-definition-detach": "internal",
-  "shared-default-view-definition-mode-set": "direct",
-  "shared-default-view-definition-sort-by-name-set": "internal",
-  "shared-default-view-definition-options-set": "internal",
-} as const satisfies Readonly<Record<Mutation["kind"], "direct" | "composite" | "internal">>;
+  "inline-reference-remove": "direct",
+  "inline-alias-attach": "direct",
+  "inline-alias-detach": "direct",
+  "search-expression-add": "internal",
+  "search-expression-configure": "internal",
+  "search-expression-move": "internal",
+  "search-expression-remove": "internal",
+  "search-expression-restore": "internal",
+  "shared-default-view-add": "internal",
+  "shared-default-view-remove": "composite",
+  "shared-default-view-restore": "internal",
+  "view-mode-set": "internal",
+  "view-column-add": "internal",
+  "view-column-remove": "internal",
+  "view-column-move": "internal",
+  "view-sort-add": "internal",
+  "view-sort-configure": "internal",
+  "view-sort-remove": "internal",
+  "view-sort-restore": "internal",
+  "view-group-add": "internal",
+  "view-group-remove": "internal",
+  "view-filter-add": "internal",
+  "view-filter-remove": "internal",
+  "view-filter-restore": "internal",
+} as const satisfies Readonly<Record<AuthoredAction["kind"], "direct" | "composite" | "internal">>;
 
-export const PREPARED_MUTATION_EVIDENCE_KEYS = [
-  "deletedAtoms",
-  "observedValueFactIds",
-  "observedModeFactIds",
-  "previous",
-  "previousAnchor",
-  "previousOwnerNodeId",
-  "previousDatatypeNodeId",
-  "previousCardinalityNodeId",
-  "previousOptionalityNodeId",
-  "previousExpression",
-  "previousParentNodeId",
-  "previousHostNodeId",
-  "previousViewType",
-  "previousVisibility",
-  "previousOptions",
-  "observedOptionsFactIds",
-  "observedVisibilityFactIds",
-  "previousTargetNodeId",
-  "sourceApplicationSupertagIds",
-  "sourceSupertagIds",
-  "sourceTemplateOccurrenceIds",
-] as const;
-
-export type CreateNodeEdit = Readonly<{
+type CreateNodeEdit = Readonly<{
   kind: "node-create";
   nodeId: string;
   occurrenceId: string;
@@ -114,40 +96,61 @@ export type CreateNodeEdit = Readonly<{
   intrinsicNodeType?: IntrinsicNodeType;
 }>;
 
-export type DeleteNodeEdit = Readonly<{
+type DeleteNodeEdit = Readonly<{
   kind: "node-delete";
   nodeId: string;
 }>;
 
-export type RestoreNodeEdit = Readonly<{
+type RestoreNodeEdit = Readonly<{
   kind: "node-restore";
   nodeId: string;
-  deletionFactId: string;
   occurrenceId: string;
-  ownerNodeId: string;
   parentNodeId: string;
   anchor: SequenceAnchor;
 }>;
 
-export type PromoteReferenceEdit = Readonly<{
+type PromoteReferenceEdit = Readonly<{
   kind: "reference-promote";
   occurrenceId: string;
 }>;
 
-export type CreateSupertagApplicationEdit = Readonly<{
+type OccurrenceEdit =
+  | Readonly<{
+      kind: "occurrence-create";
+      occurrenceId: string;
+      nodeId: string;
+      parentNodeId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{ kind: "occurrence-delete"; occurrenceId: string }>
+  | Readonly<{
+      kind: "occurrence-restore";
+      occurrenceId: string;
+      nodeId: string;
+      parentNodeId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "occurrence-move";
+      occurrenceId: string;
+      parentNodeId: string;
+      anchor: SequenceAnchor;
+    }>;
+
+type CreateSupertagApplicationEdit = Readonly<{
   kind: "supertag-application-create";
   hostNodeId: string;
-  metanodeId: string;
   supertagId: string;
-  applicationNodeId: string;
-  applicationOccurrenceId: string;
-  relationDefinitionOccurrenceId: string;
-  definitionOccurrenceId: string;
   anchor: SequenceAnchor;
-  seed?: NodeSeed;
 }>;
 
-export type CreateInlineReferenceAliasEdit = Readonly<{
+type RemoveSupertagApplicationEdit = Readonly<{
+  kind: "supertag-remove";
+  hostNodeId: string;
+  supertagId: string;
+}>;
+
+type CreateInlineReferenceAliasEdit = Readonly<{
   kind: "inline-reference-alias-create";
   inlineReferenceId: string;
   hostNodeId: string;
@@ -155,72 +158,19 @@ export type CreateInlineReferenceAliasEdit = Readonly<{
   seed?: NodeSeed;
 }>;
 
-export type CreateSearchExpressionEdit = Readonly<{
-  kind: "search-expression-create";
-  searchNodeId: string;
-  metanodeId: string;
-  expressionNodeId: string;
-  expressionOccurrenceId: string;
-  definitionOccurrenceId: string;
-  expression: SearchExpressionSpec;
-  anchor: SequenceAnchor;
-  seed?: NodeSeed;
-}>;
+type DirectEditActionKind = {
+  [Kind in AuthoredAction["kind"]]: (typeof ACTION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
+}[AuthoredAction["kind"]];
 
-export type UpdateSearchExpressionEdit = Readonly<{
-  kind: "search-expression-update";
-  searchNodeId: string;
-  expression: SearchExpressionSpec;
-}>;
+type DirectAuthoredActionEdit = Extract<AuthoredAction, { kind: DirectEditActionKind }>;
 
-export type CreateSharedDefaultViewDefinitionEdit = Readonly<{
-  kind: "shared-default-view-definition-create";
-  hostNodeId: string;
-  metanodeId: string;
-  attachmentNodeId: string;
-  attachmentOccurrenceId: string;
-  relationDefinitionOccurrenceId: string;
-  viewDefinitionNodeId: string;
-  viewDefinitionOccurrenceId: string;
-  viewType: ViewType;
-  anchor: SequenceAnchor;
-  seed?: NodeSeed;
-}>;
-
-export type RemoveSharedDefaultViewDefinitionEdit = Readonly<{
-  kind: "shared-default-view-definition-remove";
-  hostNodeId: string;
-  attachmentNodeId: string;
-  attachmentOccurrenceId: string;
-  relationDefinitionOccurrenceId: string;
-  viewDefinitionNodeId: string;
-  viewDefinitionOccurrenceId: string;
-}>;
-
-export type UpdateSharedDefaultViewDefinitionOptionsEdit = Readonly<{
-  kind: "shared-default-view-definition-options-update";
-  hostNodeId: string;
-  viewDefinitionNodeId: string;
-  options: ViewOptionsSpec;
-}>;
-
-type PreparedEvidence = (typeof PREPARED_MUTATION_EVIDENCE_KEYS)[number];
-type DirectEditMutationKind = {
-  [Kind in Mutation["kind"]]: (typeof MUTATION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
-}[Mutation["kind"]];
-
-type UnpreparedMutation<M extends Mutation> = M extends Mutation ? Readonly<Omit<M, PreparedEvidence>> : never;
-
-type UnpreparedMutations<M extends Mutation> = M extends Mutation ? UnpreparedMutation<M> : never;
-
-type FactMutationEdit = UnpreparedMutations<Extract<Mutation, { kind: DirectEditMutationKind }>>;
-
-export type EditMutation =
-  | FactMutationEdit
+export type EditAction =
+  | DirectAuthoredActionEdit
   | CreateNodeEdit
   | DeleteNodeEdit
   | RestoreNodeEdit
   | CreateSupertagApplicationEdit
+  | RemoveSupertagApplicationEdit
   | CreateSupertagTemplateFieldEdit
   | AddExistingSupertagTemplateFieldEdit
   | MakeSupertagTemplateFieldDiscoverableEdit
@@ -228,27 +178,35 @@ export type EditMutation =
   | SetSupertagTemplateFieldStaticDefaultEdit
   | SetSupertagTemplateFieldVisibilityEdit
   | AddSupertagOptionalFieldContributionEdit
+  | RemoveSupertagOptionalFieldContributionEdit
   | PromoteReferenceEdit
+  | OccurrenceEdit
   | CreateInlineReferenceAliasEdit
   | CreateSearchExpressionEdit
-  | UpdateSearchExpressionEdit
+  | AddSearchExpressionEdit
+  | ConfigureSearchExpressionEdit
+  | MoveSearchExpressionEdit
+  | RemoveSearchExpressionEdit
   | CreateSharedDefaultViewDefinitionEdit
   | RemoveSharedDefaultViewDefinitionEdit
-  | UpdateSharedDefaultViewDefinitionOptionsEdit
-  | CreateFieldDefinitionConfigurationEdit
-  | ConfigureFieldDefinitionEndpointEdit
-  | DebugNodeOpenEdit
+  | ViewModeEdit
+  | ViewColumnEdit
+  | ViewSortEdit
+  | ViewGroupEdit
+  | ViewFilterEdit
+  | ConfigureFieldDefinitionEdit
   | FieldValueCreateEdit
   | UrlNodeCreateEdit
   | CodeNodeConfigureEdit
-  | SharedDefaultViewDefinitionSortByNameCreateEdit
   | TypedFieldValueEdit;
 type ExpandableEdit = Exclude<
-  EditMutation,
+  EditAction,
   | PromoteReferenceEdit
+  | OccurrenceEdit
   | DeleteNodeEdit
   | RestoreNodeEdit
   | CreateSupertagApplicationEdit
+  | RemoveSupertagApplicationEdit
   | CreateSupertagTemplateFieldEdit
   | AddExistingSupertagTemplateFieldEdit
   | MakeSupertagTemplateFieldDiscoverableEdit
@@ -256,64 +214,41 @@ type ExpandableEdit = Exclude<
   | SetSupertagTemplateFieldStaticDefaultEdit
   | SetSupertagTemplateFieldVisibilityEdit
   | AddSupertagOptionalFieldContributionEdit
+  | RemoveSupertagOptionalFieldContributionEdit
   | CreateInlineReferenceAliasEdit
   | CreateSearchExpressionEdit
-  | UpdateSearchExpressionEdit
+  | AddSearchExpressionEdit
+  | ConfigureSearchExpressionEdit
+  | MoveSearchExpressionEdit
+  | RemoveSearchExpressionEdit
   | CreateSharedDefaultViewDefinitionEdit
   | RemoveSharedDefaultViewDefinitionEdit
-  | UpdateSharedDefaultViewDefinitionOptionsEdit
-  | CreateFieldDefinitionConfigurationEdit
-  | ConfigureFieldDefinitionEndpointEdit
-  | DebugNodeOpenEdit
+  | ViewModeEdit
+  | ViewColumnEdit
+  | ViewSortEdit
+  | ViewGroupEdit
+  | ViewFilterEdit
+  | ConfigureFieldDefinitionEdit
   | FieldValueCreateEdit
   | UrlNodeCreateEdit
   | CodeNodeConfigureEdit
-  | SharedDefaultViewDefinitionSortByNameCreateEdit
   | TypedFieldValueEdit
 >;
 
-export function isFactMutationEdit(mutation: Mutation): mutation is FactMutationEdit {
-  return MUTATION_EDIT_ACCESS[mutation.kind] === "direct";
+export function isDirectAuthoredActionEdit(action: AuthoredAction): action is DirectAuthoredActionEdit {
+  return ACTION_EDIT_ACCESS[action.kind] === "direct";
 }
 
-export type MutationWrite =
-  | Readonly<{ kind: "single"; mutation: Mutation }>
-  | Readonly<{ kind: "atomic"; mutations: readonly [Mutation, ...Mutation[]] }>;
-
-export function singleMutationWrite(mutation: Mutation): MutationWrite {
-  return { kind: "single", mutation };
-}
-
-export function atomicMutationWrite(mutations: readonly [Mutation, ...Mutation[]]): MutationWrite {
-  return { kind: "atomic", mutations };
-}
-
-export function mutationWriteMembers(write: MutationWrite): readonly [Mutation, ...Mutation[]] {
-  return write.kind === "single" ? [write.mutation] : write.mutations;
-}
-
-export function expandEditMutation(edit: ExpandableEdit): MutationWrite {
+export function expandEditAction(edit: ExpandableEdit): readonly [AuthoredAction, ...AuthoredAction[]] {
   if (edit.kind !== "node-create") {
-    return singleMutationWrite(edit);
+    return [edit];
   }
-  const { occurrenceId, parentNodeId, anchor, intrinsicNodeType, ...identity } = edit;
-  return atomicMutationWrite([
-    identity,
+  const { occurrenceId, parentNodeId, anchor, ...node } = edit;
+  return [
     {
-      kind: "node-owner-set",
-      nodeId: edit.nodeId,
+      ...node,
       ownerNodeId: parentNodeId,
-      previousOwnerNodeId: null,
+      originalPlacement: { placementId: occurrenceId, anchor },
     },
-    {
-      kind: "occurrence-create",
-      occurrenceId,
-      nodeId: edit.nodeId,
-      parentNodeId,
-      anchor,
-    },
-    ...(intrinsicNodeType === undefined
-      ? []
-      : ([{ kind: "intrinsic-node-type-declare", nodeId: edit.nodeId, intrinsicNodeType }] as const)),
-  ]);
+  ];
 }

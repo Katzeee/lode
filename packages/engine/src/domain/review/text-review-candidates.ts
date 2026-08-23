@@ -1,9 +1,10 @@
 import {
-  compareFacts,
-  contributionFactsOfKind,
-  contributionFactsOfKinds,
+  compareCausalOrder,
+  factActionsOfKind,
+  factActionsOfKinds,
+  factActionsFromFacts,
   factObserves,
-  type ContributionFact,
+  type FactAction,
   type Fact,
   type TextAtomId,
 } from "../fact/index.js";
@@ -14,15 +15,15 @@ import { hasTextEffect, textEffect } from "./text-review-effect.js";
 export function textCandidates(
   snapshot: Readonly<{ facts: readonly Fact[] }>,
   generation: ScopedProjectionGeneration,
-  allPending: ReadonlyMap<string, ContributionFact>,
+  allPending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const pending = contributionFactsOfKinds([...allPending.values()], ["text-splice", "text-mark"]);
-  const byNode = new Map<string, ContributionFact[]>();
+  const pending = factActionsOfKinds([...allPending.values()], ["rich-text-splice", "rich-text-mark"]);
+  const byNode = new Map<string, FactAction[]>();
   for (const fact of pending) {
-    const mutation = fact.body.mutation;
-    const nodeFacts = byNode.get(mutation.nodeId) ?? [];
+    const action = fact.action;
+    const nodeFacts = byNode.get(action.nodeId) ?? [];
     nodeFacts.push(fact);
-    byNode.set(mutation.nodeId, nodeFacts);
+    byNode.set(action.nodeId, nodeFacts);
   }
   const result: HunkCandidate[] = [];
   for (const [nodeId, nodeFacts] of byNode) {
@@ -54,12 +55,15 @@ export function textCandidates(
   return result;
 }
 
-function overlappingMarkGroups(facts: readonly ContributionFact[]): readonly ContributionFact[][] {
-  const marks = contributionFactsOfKind(facts, "text-mark");
+function overlappingMarkGroups(facts: readonly FactAction[]): readonly FactAction[][] {
+  const marks = factActionsOfKind(facts, "rich-text-mark");
   const remaining = new Set(marks.map((fact) => fact.id));
-  const groups: ContributionFact[][] = [];
+  const groups: FactAction[][] = [];
   while (remaining.size > 0) {
-    const firstId = remaining.values().next().value as string;
+    const firstId = remaining.values().next().value;
+    if (firstId === undefined) {
+      break;
+    }
     const groupIds = new Set([firstId]);
     remaining.delete(firstId);
     let expanded = true;
@@ -69,15 +73,12 @@ function overlappingMarkGroups(facts: readonly ContributionFact[]): readonly Con
         if (!remaining.has(candidate.id)) {
           continue;
         }
-        const mutation = candidate.body.mutation;
+        const action = candidate.action;
         const overlaps = marks.some((member) => {
           if (!groupIds.has(member.id)) {
             return false;
           }
-          return (
-            member.body.mutation.key === mutation.key &&
-            member.body.mutation.atomIds.some((id) => mutation.atomIds.includes(id))
-          );
+          return member.action.key === action.key && member.action.atomIds.some((id) => action.atomIds.includes(id));
         });
         if (overlaps) {
           groupIds.add(candidate.id);
@@ -86,25 +87,23 @@ function overlappingMarkGroups(facts: readonly ContributionFact[]): readonly Con
         }
       }
     }
-    groups.push(marks.filter((fact) => groupIds.has(fact.id)).sort(compareFacts));
+    groups.push(marks.filter((fact) => groupIds.has(fact.id)).sort(compareCausalOrder));
   }
   return groups.filter((group) => group.length > 1);
 }
 
 function textContinuityGroups(
-  facts: readonly ContributionFact[],
+  facts: readonly FactAction[],
   snapshot: Readonly<{ facts: readonly Fact[] }>,
   generation: ScopedProjectionGeneration,
   nodeId: string,
-): readonly Readonly<{ targets: readonly ContributionFact[]; bridges: readonly TextAtomId[] }>[] {
+): readonly Readonly<{ targets: readonly FactAction[]; bridges: readonly TextAtomId[] }>[] {
   const atoms = textAtoms(generation.review.nodes[nodeId]);
   const pendingIds = new Set(facts.map((fact) => fact.id));
   const indexed = facts
     .map((fact) => ({
       fact,
-      positions: atoms
-        .map((atom, index) => (atom.contributionId === fact.id ? index : -1))
-        .filter((index) => index >= 0),
+      positions: atoms.map((atom, index) => (atom.factActionId === fact.id ? index : -1)).filter((index) => index >= 0),
     }))
     .filter(({ positions, fact }) => positions.length > 0 || hasTextEffect(textEffect(nodeId, [fact], generation)))
     .sort(
@@ -114,8 +113,8 @@ function textContinuityGroups(
   if (!first) {
     return [];
   }
-  const factsById = new Map(snapshot.facts.map((fact) => [fact.id, fact]));
-  const groups: { targets: ContributionFact[]; bridges: TextAtomId[] }[] = [];
+  const factsById = new Map(factActionsFromFacts(snapshot.facts).map((fact) => [fact.id, fact]));
+  const groups: { targets: FactAction[]; bridges: TextAtomId[] }[] = [];
   let current = {
     targets: [first.fact],
     bridges: bridgesWithin(first, atoms, pendingIds, factsById),
@@ -129,11 +128,10 @@ function textContinuityGroups(
       throw new Error("Text continuity group lost its left Proposal target");
     }
     const bridges = between.filter(
-      (atom) =>
-        !pendingIds.has(atom.contributionId) && isNeutralBridge(atom.contributionId, left, entry.fact, factsById),
+      (atom) => !pendingIds.has(atom.factActionId) && isNeutralBridge(atom.factActionId, left, entry.fact, factsById),
     );
     const canJoin = between.every(
-      (atom) => pendingIds.has(atom.contributionId) || bridges.some((bridge) => bridge.id === atom.id),
+      (atom) => pendingIds.has(atom.factActionId) || bridges.some((bridge) => bridge.id === atom.id),
     );
     if (canJoin) {
       current.targets.push(entry.fact);
@@ -152,10 +150,10 @@ function textContinuityGroups(
 }
 
 function bridgesWithin(
-  entry: Readonly<{ fact: ContributionFact; positions: readonly number[] }>,
-  atoms: readonly Readonly<{ id: TextAtomId; contributionId: string }>[],
-  pendingIds: ReadonlySet<string>,
-  factsById: ReadonlyMap<string, Fact>,
+  entry: Readonly<{ fact: FactAction; positions: readonly number[] }>,
+  atoms: readonly Readonly<{ id: TextAtomId; factActionId: FactAction["id"] }>[],
+  pendingIds: ReadonlySet<FactAction["id"]>,
+  factsById: ReadonlyMap<FactAction["id"], FactAction>,
 ): TextAtomId[] {
   const start = entry.positions[0];
   const end = entry.positions.at(-1);
@@ -166,22 +164,17 @@ function bridgesWithin(
     .slice(start + 1, end)
     .filter(
       (atom) =>
-        !pendingIds.has(atom.contributionId) && isNeutralBridge(atom.contributionId, entry.fact, entry.fact, factsById),
+        !pendingIds.has(atom.factActionId) && isNeutralBridge(atom.factActionId, entry.fact, entry.fact, factsById),
     )
     .map((atom) => atom.id);
 }
 
 function isNeutralBridge(
-  directContributionId: string,
-  left: ContributionFact,
-  right: ContributionFact,
-  factsById: ReadonlyMap<string, Fact>,
+  directActionId: FactAction["id"],
+  left: FactAction,
+  right: FactAction,
+  factsById: ReadonlyMap<FactAction["id"], FactAction>,
 ): boolean {
-  const direct = factsById.get(directContributionId);
-  return (
-    direct?.body.kind === "contribution" &&
-    direct.body.intent === "direct" &&
-    !factObserves(left, direct) &&
-    !factObserves(right, direct)
-  );
+  const direct = factsById.get(directActionId);
+  return direct?.intent === "direct" && !factObserves(left, direct) && !factObserves(right, direct);
 }

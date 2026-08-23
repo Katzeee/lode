@@ -1,14 +1,14 @@
 import type { DebugNodeQueryRequest, DebugNodeResult } from "@lode/sdk";
 import { CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID, URL_DEFINITION_NODE_ID } from "../../../domain/fact/index.js";
-import type { MaterializedField, ProjectedNode, Projection } from "../../../domain/reconcile/index.js";
-import type { ProjectionGenerationReader } from "../projection/index.js";
+import type {
+  MaterializedField,
+  ProjectedNode,
+  Projection,
+  ProjectionGeneration,
+} from "../../../domain/reconcile/index.js";
 
-export async function queryDebugNode(
-  query: DebugNodeQueryRequest,
-  generationId: string,
-  projections: ProjectionGenerationReader,
-): Promise<DebugNodeResult> {
-  const generation = await projections.load(generationId);
+export function queryDebugNode(query: DebugNodeQueryRequest, generation: ProjectionGeneration): DebugNodeResult {
+  const generationId = generation.identity.generationId;
   const projection = generation[query.perspective];
   const node = projection.nodes[query.nodeId] ?? null;
   const metanodeId = projection.metanodes[query.nodeId] ?? null;

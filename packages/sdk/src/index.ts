@@ -1,6 +1,6 @@
 export * from "./contract.js";
 export * from "./edit.js";
-export * from "./fact.js";
+export type { FactActionId, FactId } from "./fact-identities.js";
 export * from "./history.js";
 export * from "./maintenance.js";
 export * from "./model.js";

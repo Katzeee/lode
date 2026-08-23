@@ -1,123 +1,78 @@
-import type { SequenceAnchor } from "./types.js";
+import type { NodeSeed } from "./node-create-types.js";
+import type { FactActionId, SequenceAnchor } from "./types.js";
 
 export type TemplateFieldVisibility = "normal" | "pinned";
 
-export type SupertagMutation =
+export type SupertagAction =
   | Readonly<{
-      kind: "supertag-apply";
+      kind: "supertag-application-add";
       hostNodeId: string;
       supertagId: string;
-      applicationNodeId: string;
-      applicationOccurrenceId: string;
-      relationDefinitionOccurrenceId: string;
-      definitionOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "supertag-remove";
+      kind: "supertag-membership-remove";
       hostNodeId: string;
       supertagId: string;
-      applicationNodeId: string;
-      applicationOccurrenceId: string;
-      relationDefinitionOccurrenceId: string;
-      definitionOccurrenceId: string;
-      detachedValueNodeId: string;
-      detachedValueOccurrenceId: string;
-      previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{ kind: "supertag-extension-add"; supertagId: string; baseSupertagId: string; anchor: SequenceAnchor }>
   | Readonly<{
       kind: "supertag-extension-remove";
       supertagId: string;
       baseSupertagId: string;
-      previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "supertag-template-node-add";
+      kind: "template-member-add";
       supertagId: string;
       templateNodeId: string;
-      templateOccurrenceId: string;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "supertag-template-node-remove";
+      kind: "template-member-remove";
       supertagId: string;
       templateNodeId: string;
-      templateOccurrenceId: string;
-      previousAnchor?: SequenceAnchor;
     }>
-  | SupertagTemplateFieldMutation
-  | SupertagOptionalFieldContributionMutation;
+  | TemplateFieldAction
+  | OptionalFieldContributionAction;
 
-export type SupertagTemplateFieldMutation =
+type TemplateFieldAction =
   | Readonly<{
-      kind: "supertag-template-field-attach";
+      kind: "template-field-add";
       supertagId: string;
-      templateFieldNodeId: string;
-      templateFieldOccurrenceId: string;
-      fieldDefinitionId: string;
-      definitionOccurrenceId: string;
-      staticDefaultValueNodeId: string;
-      staticDefaultValueOccurrenceId: string;
+      fieldDefinition:
+        | Readonly<{ kind: "new"; fieldDefinitionId: string; seed?: NodeSeed }>
+        | Readonly<{ kind: "existing"; fieldDefinitionId: string }>;
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "supertag-template-field-existing-attach";
+      kind: "template-field-remove";
       supertagId: string;
-      templateFieldNodeId: string;
-      templateFieldOccurrenceId: string;
       fieldDefinitionId: string;
-      definitionOccurrenceId: string;
-      staticDefaultValueNodeId: string;
-      staticDefaultValueOccurrenceId: string;
-      anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "supertag-template-field-detach";
-      supertagId: string;
-      templateFieldNodeId: string;
-      templateFieldOccurrenceId: string;
-      fieldDefinitionId: string;
-      definitionOccurrenceId: string;
-      staticDefaultValueNodeId: string;
-      staticDefaultValueOccurrenceId: string;
-      previousAnchor?: SequenceAnchor;
+      kind: "template-field-restore";
+      templateFieldId: FactActionId;
     }>
   | Readonly<{
-      kind: "supertag-template-field-discoverability-set";
-      supertagId: string;
-      templateFieldNodeId: string;
-      fieldDefinitionId: string;
-      discoverable: boolean;
-      previousDiscoverable?: boolean;
-    }>
-  | Readonly<{
-      kind: "supertag-template-field-visibility-configure";
-      supertagId: string;
-      templateFieldNodeId: string;
-      fieldDefinitionId: string;
+      kind: "template-field-visibility-set";
+      templateFieldId: FactActionId;
       visibility: TemplateFieldVisibility;
-      previousVisibility?: TemplateFieldVisibility;
-      observedVisibilityFactIds?: readonly string[];
+    }>
+  | Readonly<{
+      kind: "template-field-static-default-set";
+      templateFieldId: FactActionId;
+      value: string;
     }>;
 
-type OptionalFieldContributionBase = Readonly<{
-  supertagId: string;
-  fieldNurseryNodeId: string;
-  fieldNurseryOccurrenceId: string;
-  nurseryDefinitionOccurrenceId: string;
-  nurseryValueNodeId: string;
-  nurseryValueOccurrenceId: string;
-  contributionNodeId: string;
-  contributionOccurrenceId: string;
-  fieldDefinitionId: string;
-  definitionOccurrenceId: string;
-  valueNodeId: string;
-  valueOccurrenceId: string;
-}>;
-
-export type SupertagOptionalFieldContributionMutation =
-  | (OptionalFieldContributionBase &
-      Readonly<{ kind: "supertag-optional-field-contribution-attach"; anchor: SequenceAnchor }>)
-  | (OptionalFieldContributionBase &
-      Readonly<{ kind: "supertag-optional-field-contribution-detach"; previousAnchor?: SequenceAnchor }>);
+type OptionalFieldContributionAction =
+  | Readonly<{
+      kind: "optional-field-contribution-add";
+      supertagId: string;
+      fieldDefinitionId: string;
+      anchor: SequenceAnchor;
+    }>
+  | Readonly<{
+      kind: "optional-field-contribution-remove";
+      supertagId: string;
+      fieldDefinitionId: string;
+    }>;

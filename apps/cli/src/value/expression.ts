@@ -184,5 +184,3 @@ function describeToken(token: Token | undefined): string {
   }
   return token.kind === "symbol" ? token.value : token.value;
 }
-
-export { compileSpec } from "./expression-compile.js";

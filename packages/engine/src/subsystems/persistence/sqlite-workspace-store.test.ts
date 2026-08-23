@@ -28,6 +28,28 @@ describe("SqliteWorkspaceStore — content sub-doc streams", () => {
     expect(loaded?.updateBytes.map((b) => [...b])).toEqual([[4], [5]]);
   });
 
+  it("rolls back every document when one update in an atomic append fails", async () => {
+    const database = await openSqliteDatabase(filePath);
+    await database.exec(`
+      CREATE TRIGGER reject_receipts
+      BEFORE INSERT ON content_updates
+      WHEN NEW.sub_doc = 'receipts'
+      BEGIN
+        SELECT RAISE(ABORT, 'injected receipt failure');
+      END;
+    `);
+    await database.close();
+
+    await expect(
+      store.appendUpdates([
+        { subDoc: "facts", updateBytes: new Uint8Array([1]) },
+        { subDoc: "receipts", updateBytes: new Uint8Array([2]) },
+      ]),
+    ).rejects.toThrow("injected receipt failure");
+    await expect(store.loadDocBytes("facts")).resolves.toBeNull();
+    await expect(store.loadDocBytes("receipts")).resolves.toBeNull();
+  });
+
   it("loads the latest snapshot plus remaining updates", async () => {
     await store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([1]) });
     await store.appendUpdate({ subDoc: "tree", updateBytes: new Uint8Array([2]) });

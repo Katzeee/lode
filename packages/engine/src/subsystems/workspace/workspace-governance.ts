@@ -4,12 +4,10 @@ import { GovernanceAuthorizationError, GovernancePreconditionError } from "@lode
 import { isActorId, isPeerId, sealToPublicKey } from "../../crypto/index.js";
 import { projectGovernance, syncAdmittedPeers, type GovernanceState } from "../../domain/governance/index.js";
 import {
-  workspaceGenesisMutations,
+  workspaceGenesisActions,
   type FactBody,
   type FactSnapshot,
-  type FactWrite,
   type GovernanceAction,
-  type Mutation,
   type TransitEnvelope,
   type WorkspaceId,
 } from "../../domain/fact/index.js";
@@ -17,20 +15,19 @@ import type { FactAuthorityPort } from "./authority/authority-contract.js";
 import type { PeerIdentityCapability } from "../identity/capability.js";
 
 /**
- * Signed workspace governance operations. Every operation commits governance
- * Facts through the workspace authority under the acting Actor's attribution
- * signature; transit material is derived locally — sealed to the target Peer,
+ * Workspace governance operations commit Facts under the acting Actor identity;
+ * transit material is derived locally — sealed to the target Peer,
  * or opened from this Home's own envelope when re-wrapping for someone else.
  */
 
-export type GovernanceAuthority = Pick<FactAuthorityPort, "commit" | "snapshot" | "admission" | "replicaId">;
+export type GovernanceAuthority = Pick<FactAuthorityPort, "commit" | "snapshot" | "replicaId">;
 
-export type PeerAdmissionMaterial = Readonly<{
+type PeerAdmissionMaterial = Readonly<{
   peerId: string;
   peerKxPublicKey: string;
 }>;
 
-export class GovernanceError extends GovernancePreconditionError {
+class GovernanceError extends GovernancePreconditionError {
   constructor(message: string) {
     super(message);
     this.name = "GovernanceError";
@@ -43,7 +40,7 @@ export function governanceStateOf(snapshot: FactSnapshot): GovernanceState {
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-/** Creates a governed workspace journal: establish, first Peer, genesis, label. */
+/** Creates a governed workspace authority: establish, first Peer, genesis, label. */
 export async function establishGovernedWorkspace(
   identity: PeerIdentityCapability,
   facts: GovernanceAuthority,
@@ -52,17 +49,13 @@ export async function establishGovernedWorkspace(
 ): Promise<void> {
   const state = governedState(facts);
   if (state.established) {
-    throw new GovernanceError("Workspace journal is already governed");
+    throw new GovernanceError("Workspace authority is already governed");
   }
   const peerId = identity.peerId();
   const exchangePublicKey = identity.exchangePublicKey();
   const transitKey = randomBytes(32);
-  const [firstGenesis, ...restGenesis] = workspaceGenesisMutations(workspaceId);
-  const genesisBodies: readonly [FactBody, ...FactBody[]] = [
-    contribution(input.ownerActorId, firstGenesis),
-    ...restGenesis.map((mutation) => contribution(input.ownerActorId, mutation)),
-  ];
-  const writes: readonly FactWrite[] = [
+  const genesisActions = workspaceGenesisActions(workspaceId);
+  const writes: readonly FactBody[] = [
     governanceBody(input.ownerActorId, { kind: "workspace-establish", ownerActorId: input.ownerActorId }),
     governanceBody(input.ownerActorId, {
       kind: "peer-admit",
@@ -71,18 +64,19 @@ export async function establishGovernedWorkspace(
       envelope: sealTransitKey(transitKey, exchangePublicKey),
       epoch: 0,
     }),
-    { kind: "transaction", bodies: genesisBodies },
+    { kind: "edit", actorId: input.ownerActorId, intent: "direct", actions: genesisActions },
     {
-      kind: "transaction",
-      bodies: [
-        contribution(input.ownerActorId, {
-          kind: "text-splice",
+      kind: "edit",
+      actorId: input.ownerActorId,
+      intent: "direct",
+      actions: [
+        {
+          kind: "rich-text-splice",
           nodeId: workspaceId,
           deleteAtomIds: [],
-          deletedAtoms: [],
           anchor: end,
           insert: input.label,
-        }),
+        },
       ] as const,
     },
   ];
@@ -239,28 +233,23 @@ function commitSigned(
   input: Readonly<{
     invocationId: string;
     request: unknown;
-    writes: readonly FactWrite[];
+    writes: readonly FactBody[];
   }>,
 ): Promise<unknown> {
-  const admission = facts.admission();
-  if (admission.kind === "fault") {
-    throw new GovernanceError(admission.fault ?? "Workspace authority is faulted");
-  }
+  const snapshot = facts.snapshot();
   return facts.commit({
     invocationId: input.invocationId,
     request: input.request,
     writes: input.writes,
     lineage: null,
-    publishedFrontier: admission.snapshot.frontier,
+    inverse: [],
+    publishedFrontier: snapshot.frontier,
   });
 }
 
 function governedState(facts: GovernanceAuthority): GovernanceState {
-  const admission = facts.admission();
-  if (admission.kind === "fault") {
-    throw new GovernanceError(admission.fault ?? "Workspace authority is faulted");
-  }
-  return governanceStateOf(admission.snapshot);
+  const snapshot = facts.snapshot();
+  return governanceStateOf(snapshot);
 }
 
 function requireEstablished(facts: GovernanceAuthority): GovernanceState {
@@ -295,10 +284,6 @@ function governanceInvocation(workspaceId: WorkspaceId, action: string, requestI
 
 function governanceBody(actorId: string, action: GovernanceAction): FactBody {
   return { kind: "governance", actorId, action };
-}
-
-function contribution(actorId: string, mutation: Mutation): FactBody {
-  return { kind: "contribution", actorId, intent: "direct", mutation };
 }
 
 function sealTransitKey(key: Uint8Array, peerKxPublicKey: Uint8Array): TransitEnvelope {

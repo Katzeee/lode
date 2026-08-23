@@ -1,4 +1,4 @@
-import type { DocumentStore, LoadedDocumentBytes } from "./document-store.js";
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "./document-store.js";
 
 export class InMemoryDocumentStore implements DocumentStore {
   private readonly snapshots = new Map<string, Uint8Array>();
@@ -29,11 +29,28 @@ export class InMemoryDocumentStore implements DocumentStore {
     return Promise.resolve(ids);
   }
 
-  appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
-    const updates = this.updates.get(id) ?? [];
-    updates.push(Uint8Array.from(bytes));
-    this.updates.set(id, updates);
-    return Promise.resolve(updates.length);
+  async appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
+    const [sequence] = await this.appendUpdates([{ id, bytes }]);
+    if (sequence === undefined) {
+      throw new Error("Document update did not produce a sequence");
+    }
+    return sequence;
+  }
+
+  appendUpdates(inputs: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    const staged = new Map([...this.updates].map(([id, updates]) => [id, [...updates]]));
+    const sequences: number[] = [];
+    for (const { id, bytes } of inputs) {
+      const updates = staged.get(id) ?? [];
+      updates.push(Uint8Array.from(bytes));
+      staged.set(id, updates);
+      sequences.push(updates.length);
+    }
+    this.updates.clear();
+    for (const [id, updates] of staged) {
+      this.updates.set(id, updates);
+    }
+    return Promise.resolve(sequences);
   }
 
   writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {

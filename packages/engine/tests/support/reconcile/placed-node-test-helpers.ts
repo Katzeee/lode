@@ -1,65 +1,67 @@
 import {
   fieldDefinitionEndpointOccurrenceId,
-  type Fact,
-  type Mutation,
+  type FactAction,
+  type AuthoredAction,
   type IntrinsicNodeType,
 } from "../../../src/domain/fact/index.js";
 
 type PlacedNodeFacts = Readonly<{
-  add(mutation: Mutation, intent?: "direct" | "proposal"): Fact;
-  addTransaction(mutations: readonly Mutation[], intent?: "direct" | "proposal"): readonly Fact[];
+  add(authoredAction: AuthoredAction, intent?: "direct" | "proposal"): FactAction;
+  addTransaction(actions: readonly AuthoredAction[], intent?: "direct" | "proposal"): readonly FactAction[];
 }>;
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-export function withInitialOwnerRelations(mutations: readonly Mutation[]): readonly Mutation[] {
-  const explicit = new Set(
-    mutations.flatMap((mutation) =>
-      mutation.kind === "node-owner-set" && mutation.previousOwnerNodeId === null ? [mutation.nodeId] : [],
+export function withInitialNodeRelations(actions: readonly AuthoredAction[]): readonly AuthoredAction[] {
+  const initialPlacements = new Map(
+    actions.flatMap((authoredAction) =>
+      authoredAction.kind === "placement-create" ? [[authoredAction.nodeId, authoredAction] as const] : [],
     ),
   );
-  return mutations.flatMap((mutation): readonly Mutation[] => {
-    if (mutation.kind !== "node-create" || explicit.has(mutation.nodeId)) {
-      return [mutation];
+  const foldedPlacementIds = new Set<string>();
+  const folded = actions.map((authoredAction): AuthoredAction => {
+    if (authoredAction.kind !== "node-create" || authoredAction.originalPlacement !== null) {
+      return authoredAction;
     }
-    const metanodeHost = mutations.find(
-      (candidate) => candidate.kind === "metanode-attach" && candidate.metanodeId === mutation.nodeId,
-    );
-    const placement = mutations.find(
-      (candidate) => candidate.kind === "occurrence-create" && candidate.nodeId === mutation.nodeId,
-    );
-    const ownerNodeId =
-      metanodeHost?.kind === "metanode-attach"
-        ? metanodeHost.hostNodeId
-        : placement?.kind === "occurrence-create"
-          ? placement.parentNodeId
-          : null;
-    return ownerNodeId === null
-      ? [mutation]
-      : [mutation, { kind: "node-owner-set", nodeId: mutation.nodeId, ownerNodeId, previousOwnerNodeId: null }];
+    const placement = initialPlacements.get(authoredAction.nodeId);
+    const ownerNodeId = placement?.kind === "placement-create" ? placement.parentNodeId : authoredAction.ownerNodeId;
+    if (placement) {
+      foldedPlacementIds.add(placement.placementId);
+    }
+    return {
+      ...authoredAction,
+      ownerNodeId,
+      originalPlacement: placement ? { placementId: placement.placementId, anchor: placement.anchor } : null,
+    };
   });
+  return folded.filter(
+    (authoredAction) =>
+      authoredAction.kind !== "placement-create" || !foldedPlacementIds.has(authoredAction.placementId),
+  );
 }
 
-export function withFieldDefinitionEndpoints(mutations: readonly Mutation[]): readonly Mutation[] {
+export function withFieldDefinitionEndpoints(actions: readonly AuthoredAction[]): readonly AuthoredAction[] {
   const explicitOccurrences = new Set(
-    mutations.flatMap((mutation) => (mutation.kind === "occurrence-create" ? [mutation.occurrenceId] : [])),
+    actions.flatMap((authoredAction) =>
+      authoredAction.kind === "placement-create" ? [authoredAction.placementId] : [],
+    ),
   );
-  return mutations.flatMap((mutation): readonly Mutation[] => {
-    if (mutation.kind !== "field-materialize") {
-      return [mutation];
+  return actions.flatMap((authoredAction): readonly AuthoredAction[] => {
+    if (authoredAction.kind !== "field-materialize") {
+      return [authoredAction];
     }
-    const occurrenceId = fieldDefinitionEndpointOccurrenceId(mutation.fieldOccurrenceId);
+    const occurrenceId = fieldDefinitionEndpointOccurrenceId(authoredAction.fieldOccurrenceId);
     return explicitOccurrences.has(occurrenceId)
-      ? [mutation]
+      ? [authoredAction]
       : [
           {
-            kind: "occurrence-create",
-            occurrenceId,
-            nodeId: mutation.fieldDefinitionId,
-            parentNodeId: mutation.fieldNodeId,
+            kind: "placement-create",
+            placementId: occurrenceId,
+            nodeId: authoredAction.fieldDefinitionId,
+            parentNodeId: authoredAction.fieldNodeId,
             anchor: { after: null, before: null, affinity: "before", fallback: "start" },
           },
-          mutation,
+          authoredAction,
         ];
   });
 }
@@ -70,11 +72,18 @@ export function addPlacedNode(
   intent: "direct" | "proposal" = "direct",
   parentNodeId = "workspace",
   occurrenceId = `${nodeId}-original`,
+  intrinsicNodeType?: IntrinsicNodeType,
 ): void {
   facts.addTransaction(
-    withInitialOwnerRelations([
-      { kind: "node-create", nodeId },
-      { kind: "occurrence-create", occurrenceId, nodeId, parentNodeId, anchor: end },
+    withInitialNodeRelations([
+      {
+        kind: "node-create",
+        nodeId,
+        ownerNodeId: parentNodeId,
+        originalPlacement: null,
+        ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
+      },
+      { kind: "placement-create", placementId: occurrenceId, nodeId, parentNodeId, anchor: end },
     ]),
     intent,
   );
@@ -86,6 +95,14 @@ export function addDefinitionNode(
   intrinsicNodeType: IntrinsicNodeType,
   intent: "direct" | "proposal" = "direct",
 ): void {
-  addPlacedNode(facts, nodeId, intent);
-  facts.add({ kind: "intrinsic-node-type-declare", nodeId, intrinsicNodeType }, intent);
+  facts.add(
+    {
+      kind: "node-create",
+      nodeId,
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: `${nodeId}-original`, anchor: end },
+      intrinsicNodeType,
+    },
+    intent,
+  );
 }

@@ -11,7 +11,7 @@ export function readCommandGeneration(
   snapshot: FactSnapshot,
   plan: WorkspaceCommandReadPlan,
 ): Promise<ScopedProjectionGeneration> {
-  return plan.kind === "mutations"
-    ? readEditGeneration(store, generationId, plan.mutations)
+  return plan.kind === "edits"
+    ? readEditGeneration(store, generationId, plan.actions)
     : readFactGeneration(store, generationId, snapshot);
 }

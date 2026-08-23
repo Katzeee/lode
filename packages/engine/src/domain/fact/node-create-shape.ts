@@ -1,4 +1,13 @@
 import { assertJsonValue, assertKeys, assertObject, requireStringAllowEmpty } from "../../decoding/index.js";
+import type { NodeSeed } from "./node-create-types.js";
+
+export function parseNodeSeed(value: unknown): NodeSeed {
+  assertOptionalNodeSeed(value);
+  if (value === undefined) {
+    throw new Error("Node seed is required");
+  }
+  return value as NodeSeed;
+}
 
 export function assertOptionalNodeSeed(value: unknown): void {
   if (value === undefined) {

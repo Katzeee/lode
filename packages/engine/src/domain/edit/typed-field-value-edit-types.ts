@@ -1,4 +1,4 @@
-export type TypedFieldIdentity = Readonly<{
+type TypedFieldIdentity = Readonly<{
   ownerNodeId: string;
   fieldDefinitionId: string;
   fieldNodeId: string;

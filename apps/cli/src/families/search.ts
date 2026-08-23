@@ -1,16 +1,16 @@
-import type { EditMutation, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
+import type { EditAction, SearchExpressionDraft, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
 import { parseExpression } from "../value/expression.js";
-import { compileSpec, renderSpec, resolveAst } from "../value/expression-compile.js";
+import { compileDraft, renderExpression, renderSpec, resolveAst } from "../value/expression-compile.js";
 
 /**
  * Search family: persistent Search Nodes over the shared evaluator. The CLI
  * owns only the expression language — parsing, target resolution, and
- * identity planning that reuses unchanged subtree identities on edit.
+ * semantic compilation. Expression identities are assigned by the Fact authority.
  */
 
 export function registerSearchCommands(catalog: CommandCatalog): void {
@@ -27,16 +27,14 @@ const WHERE = { name: "--where", description: "Filter expression", value: { kind
 async function compileExpression(
   context: Parameters<ProductCommandRun>[0],
   raw: string,
-  existing: SearchExpressionSpec | null,
-): Promise<SearchExpressionSpec> {
+): Promise<Readonly<{ draft: SearchExpressionDraft; rendered: string }>> {
   const workspaceId = workspaceIdOf(context);
   const ast = parseExpression(raw);
   const resolved = await resolveAst(ast, async (token, role) => {
     const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, token, [role]);
     return target.nodeId;
   });
-  let counter = 0;
-  return compileSpec(resolved, existing, () => identity(context.requestId, `expr-${(counter += 1)}`));
+  return { draft: compileDraft(resolved), rendered: renderExpression(resolved) };
 }
 
 const searchCreate: CommandDefinition = {
@@ -50,14 +48,9 @@ const searchCreate: CommandDefinition = {
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
     const name = args.positional("name");
-    const expression = await compileExpression(context, args.requiredOption("--where"), null);
+    const expression = await compileExpression(context, args.requiredOption("--where"));
     const searchNodeId = identity(context.requestId, "search");
-    const expressionNodeId = identity(context.requestId, "expression");
-    const metanodes = (await context.session.readProjection(workspaceId, context.perspective, "metanodes")) as Record<
-      string,
-      string
-    >;
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "node-create",
         nodeId: searchNodeId,
@@ -70,19 +63,15 @@ const searchCreate: CommandDefinition = {
       {
         kind: "search-expression-create",
         searchNodeId,
-        metanodeId: metanodes[searchNodeId] ?? `${searchNodeId}-metanode`,
-        expressionNodeId,
-        expressionOccurrenceId: `${expressionNodeId}-occurrence`,
-        definitionOccurrenceId: `${expressionNodeId}-definition`,
-        expression: { ...expression, expressionNodeId },
+        expression: expression.draft,
         anchor: end,
       },
     ];
-    const { result, data } = await executeWrite(context, "search.create", mutations);
+    const { result, data } = await executeWrite(context, "search.create", actions);
     const resource = descriptor(workspaceId, "search", searchNodeId, name);
     return writeResult(data, result, {
-      extra: { target: resource, expression: renderSpec(expression) },
-      view: writeView("Created", resource, `matching ${renderSpec(expression)}`),
+      extra: { target: resource, expression: expression.rendered },
+      view: writeView("Created", resource, `matching ${expression.rendered}`),
     });
   },
 };
@@ -135,7 +124,7 @@ const searchShow: CommandDefinition = {
 
 const searchEdit: CommandDefinition = {
   path: ["search", "edit"],
-  summary: "Replace a Search Node's expression, reusing unchanged identities.",
+  summary: "Replace a Search Node's expression.",
   positionals: [["search", "Search target"]],
   options: [{ ...WHERE, required: true }],
   kind: "write",
@@ -159,14 +148,18 @@ const searchEdit: CommandDefinition = {
     if (current === undefined) {
       throw new CliError("unsupported", `Search ${target.descriptor.ref} has no expression in this projection.`);
     }
-    const compiled = await compileExpression(context, args.requiredOption("--where"), current.expression);
-    const expression = { ...compiled, expressionNodeId: current.expressionNodeId };
+    const expression = await compileExpression(context, args.requiredOption("--where"));
     const { result, data } = await executeWrite(context, "search.edit", [
-      { kind: "search-expression-update", searchNodeId: target.nodeId, expression },
+      {
+        kind: "search-expression-remove",
+        searchNodeId: target.nodeId,
+        expressionId: current.expression.expressionId,
+      },
+      { kind: "search-expression-create", searchNodeId: target.nodeId, expression: expression.draft, anchor: end },
     ]);
     return writeResult(data, result, {
-      extra: { target: target.descriptor, expression: renderSpec(expression) },
-      view: writeView("Updated", target.descriptor, `to ${renderSpec(expression)}`),
+      extra: { target: target.descriptor, expression: expression.rendered },
+      view: writeView("Updated", target.descriptor, `to ${expression.rendered}`),
     });
   },
 };

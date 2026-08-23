@@ -3,8 +3,66 @@ syntax = "proto3";
 package lode;
 
 import "google/protobuf/wrappers.proto";
-import "lode/fact.proto";
 import "lode/model.proto";
+
+enum FactActionKind {
+  FACT_ACTION_KIND_UNSPECIFIED = 0;
+  FACT_ACTION_KIND_NODE_CREATE = 1;
+  FACT_ACTION_KIND_NODE_TRASH = 2;
+  FACT_ACTION_KIND_NODE_RESTORE = 3;
+  FACT_ACTION_KIND_PLACEMENT_CREATE = 4;
+  FACT_ACTION_KIND_PLACEMENT_REMOVE = 5;
+  FACT_ACTION_KIND_WORKSPACE_BOOTSTRAP = 6;
+  FACT_ACTION_KIND_PLACEMENT_MOVE = 7;
+  FACT_ACTION_KIND_SUPERTAG_APPLICATION_ADD = 8;
+  FACT_ACTION_KIND_SUPERTAG_MEMBERSHIP_REMOVE = 9;
+  FACT_ACTION_KIND_SUPERTAG_EXTENSION_ADD = 10;
+  FACT_ACTION_KIND_SUPERTAG_EXTENSION_REMOVE = 11;
+  FACT_ACTION_KIND_TEMPLATE_MEMBER_ADD = 12;
+  FACT_ACTION_KIND_TEMPLATE_MEMBER_REMOVE = 13;
+  FACT_ACTION_KIND_TEMPLATE_NODE_DETACH = 14;
+  FACT_ACTION_KIND_FIELD_MATERIALIZE = 15;
+  FACT_ACTION_KIND_FIELD_VALUE_REMOVE = 16;
+  FACT_ACTION_KIND_MATERIALIZED_FIELD_CLEAR = 17;
+  FACT_ACTION_KIND_RICH_TEXT_SPLICE = 18;
+  FACT_ACTION_KIND_RICH_TEXT_MARK = 19;
+  FACT_ACTION_KIND_INLINE_REFERENCE_CREATE = 20;
+  FACT_ACTION_KIND_INLINE_REFERENCE_REMOVE = 21;
+  FACT_ACTION_KIND_INLINE_ALIAS_ATTACH = 22;
+  FACT_ACTION_KIND_INLINE_ALIAS_DETACH = 23;
+  FACT_ACTION_KIND_SEARCH_EXPRESSION_ADD = 24;
+  FACT_ACTION_KIND_SEARCH_EXPRESSION_CONFIGURE = 25;
+  FACT_ACTION_KIND_SHARED_DEFAULT_VIEW_ADD = 26;
+  FACT_ACTION_KIND_VIEW_MODE_SET = 27;
+  FACT_ACTION_KIND_FIELD_CONFIGURATION_SET = 28;
+  FACT_ACTION_KIND_SHARED_DEFAULT_VIEW_REMOVE = 29;
+  FACT_ACTION_KIND_SHARED_DEFAULT_VIEW_RESTORE = 30;
+  FACT_ACTION_KIND_TEMPLATE_FIELD_ADD = 31;
+  FACT_ACTION_KIND_TEMPLATE_FIELD_REMOVE = 32;
+  FACT_ACTION_KIND_TEMPLATE_FIELD_RESTORE = 33;
+  FACT_ACTION_KIND_TEMPLATE_FIELD_VISIBILITY_SET = 34;
+  FACT_ACTION_KIND_TEMPLATE_FIELD_STATIC_DEFAULT_SET = 35;
+  FACT_ACTION_KIND_OPTIONAL_FIELD_CONTRIBUTION_ADD = 36;
+  FACT_ACTION_KIND_OPTIONAL_FIELD_CONTRIBUTION_REMOVE = 37;
+  FACT_ACTION_KIND_VIEW_COLUMN_ADD = 38;
+  FACT_ACTION_KIND_ORIGINAL_PROMOTE = 39;
+  FACT_ACTION_KIND_FIELD_DEFINITION_MAKE_DISCOVERABLE = 40;
+  FACT_ACTION_KIND_FIELD_DEFINITION_RETURN_TO_TEMPLATE_FIELD = 41;
+  FACT_ACTION_KIND_SEARCH_EXPRESSION_MOVE = 42;
+  FACT_ACTION_KIND_SEARCH_EXPRESSION_REMOVE = 43;
+  FACT_ACTION_KIND_SEARCH_EXPRESSION_RESTORE = 44;
+  FACT_ACTION_KIND_VIEW_COLUMN_REMOVE = 45;
+  FACT_ACTION_KIND_VIEW_COLUMN_MOVE = 46;
+  FACT_ACTION_KIND_VIEW_SORT_ADD = 47;
+  FACT_ACTION_KIND_VIEW_SORT_CONFIGURE = 48;
+  FACT_ACTION_KIND_VIEW_SORT_REMOVE = 49;
+  FACT_ACTION_KIND_VIEW_SORT_RESTORE = 50;
+  FACT_ACTION_KIND_VIEW_GROUP_ADD = 51;
+  FACT_ACTION_KIND_VIEW_GROUP_REMOVE = 52;
+  FACT_ACTION_KIND_VIEW_FILTER_ADD = 53;
+  FACT_ACTION_KIND_VIEW_FILTER_REMOVE = 54;
+  FACT_ACTION_KIND_VIEW_FILTER_RESTORE = 55;
+}
 
 enum ResolutionDecision {
   RESOLUTION_DECISION_UNSPECIFIED = 0;
@@ -15,9 +73,12 @@ enum ResolutionDecision {
 enum SupertagRelationKind {
   SUPERTAG_RELATION_KIND_UNSPECIFIED = 0;
   SUPERTAG_RELATION_KIND_APPLICATION = 1;
-  SUPERTAG_RELATION_KIND_EXTENSION = 3;
-  SUPERTAG_RELATION_KIND_TEMPLATE_NODE = 4;
-  SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_VISIBILITY = 5;
+  SUPERTAG_RELATION_KIND_EXTENSION = 2;
+  SUPERTAG_RELATION_KIND_TEMPLATE_NODE = 3;
+  SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_VISIBILITY = 4;
+  SUPERTAG_RELATION_KIND_TEMPLATE_FIELD = 5;
+  SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_STATIC_DEFAULT = 6;
+  SUPERTAG_RELATION_KIND_OPTIONAL_FIELD = 7;
 }
 
 enum DiffSpaceKind {
@@ -28,10 +89,11 @@ enum DiffSpaceKind {
   DIFF_SPACE_KIND_OWNER = 4;
   DIFF_SPACE_KIND_SUPERTAG_APPLICATION = 5;
   DIFF_SPACE_KIND_SUPERTAG_TEMPLATE = 6;
-  DIFF_SPACE_KIND_MATERIALIZED_FIELD = 8;
-  DIFF_SPACE_KIND_INLINE_REFERENCE = 9;
-  DIFF_SPACE_KIND_VIEW_DEFINITION = 10;
-  DIFF_SPACE_KIND_FIELD_DEFINITION_CONFIGURATION = 11;
+  DIFF_SPACE_KIND_MATERIALIZED_FIELD = 7;
+  DIFF_SPACE_KIND_INLINE_REFERENCE = 8;
+  DIFF_SPACE_KIND_VIEW_DEFINITION = 9;
+  DIFF_SPACE_KIND_FIELD_DEFINITION_CONFIGURATION = 10;
+  DIFF_SPACE_KIND_SEARCH_EXPRESSION = 11;
 }
 
 enum RecoveryAction {
@@ -126,18 +188,31 @@ message InlineReferenceDecisionEffect {
   InlineReferenceDecisionState review = 3;
 }
 
+message SearchExpressionDecisionState {
+  bool present = 1;
+  google.protobuf.StringValue host_id = 2;
+  google.protobuf.StringValue parent_expression_id = 3;
+  SequenceAnchor anchor = 4;
+  SearchClause clause = 5;
+}
+
+message SearchExpressionDecisionEffect {
+  string expression_id = 1;
+  SearchExpressionDecisionState origin = 2;
+  SearchExpressionDecisionState review = 3;
+}
+
 message ViewDefinitionDecisionState {
   string host_node_id = 1;
   string attachment_node_id = 2;
   string attachment_occurrence_id = 3;
   ViewType view_type = 4;
-  bool sort_by_name_ascending = 5;
-  ViewOptionsSpec options = 6;
-  bool options_conflicted = 7;
+  ViewOptionsSpec options = 5;
+  bool options_conflicted = 6;
 }
 
 message ViewDefinitionDecisionEffect {
-  string view_definition_node_id = 1;
+  string view_id = 1;
   ViewDefinitionDecisionState origin = 2;
   ViewDefinitionDecisionState review = 3;
 }
@@ -153,7 +228,7 @@ message FieldDefinitionConfigurationDecisionState {
 
 message FieldDefinitionConfigurationDecisionEffect {
   string field_definition_id = 1;
-  string configuration_node_id = 2;
+  string configuration_kind = 2;
   FieldDefinitionConfigurationDecisionState origin = 3;
   FieldDefinitionConfigurationDecisionState review = 4;
 }
@@ -166,10 +241,11 @@ message DecisionEffect {
     OwnerDecisionEffect owner = 4;
     IntrinsicNodeTypeDecisionEffect intrinsic_node_type = 5;
     SupertagRelationDecisionEffect supertag_relation = 6;
-    FieldMaterializationDecisionEffect field_materialization = 8;
-    InlineReferenceDecisionEffect inline_reference = 9;
-    ViewDefinitionDecisionEffect view_definition = 10;
-    FieldDefinitionConfigurationDecisionEffect field_definition_configuration = 11;
+    FieldMaterializationDecisionEffect field_materialization = 7;
+    InlineReferenceDecisionEffect inline_reference = 8;
+    ViewDefinitionDecisionEffect view_definition = 9;
+    FieldDefinitionConfigurationDecisionEffect field_definition_configuration = 10;
+    SearchExpressionDecisionEffect search_expression = 11;
   }
 }
 
@@ -198,7 +274,7 @@ message DiffSpace {
 message ReviewHunk {
   string id = 1;
   DiffSpace diff_space = 2;
-  repeated string proposal_contribution_ids = 3;
+  repeated string proposal_action_ids = 3;
   repeated string neutral_bridge_atom_ids = 4;
   repeated string linked_hunk_ids = 5;
   ReviewSelection selection = 6;
@@ -221,18 +297,18 @@ message ResolutionConflictCandidate {
 
 message UnsupportedDirectIntentConflict {
   string identity = 1;
-  string contribution_id = 2;
-  ContributionMutationKind mutation_kind = 3;
+  string fact_action_id = 2;
+  FactActionKind action_kind = 3;
   string actor_id = 4;
   string replica_id = 5;
   map<string, uint64> observed_frontier = 6;
-  repeated string missing_support_contribution_ids = 7;
+  repeated string missing_support_action_ids = 7;
   repeated string required_node_ids = 8;
   repeated RecoveryAction recovery_actions = 9;
 }
 
 message IntrinsicNodeTypeConflictCandidate {
-  string contribution_id = 1;
+  string fact_action_id = 1;
   IntrinsicNodeType intrinsic_node_type = 2;
   string actor_id = 3;
   string replica_id = 4;
@@ -247,12 +323,12 @@ message IntrinsicNodeTypeConflict {
 
 message ResolutionConflict {
   string identity = 1;
-  repeated string proposal_contribution_ids = 2;
+  repeated string proposal_fact_ids = 2;
   repeated ResolutionConflictCandidate candidates = 3;
 }
 
 message PlacementConflictCandidate {
-  string contribution_id = 1;
+  string fact_action_id = 1;
   string parent_node_id = 2;
   SequenceAnchor anchor = 3;
   string actor_id = 4;
@@ -267,6 +343,21 @@ message PlacementConflict {
   repeated PlacementConflictCandidate candidates = 4;
 }
 
+message OriginalConflictCandidate {
+  string fact_action_id = 1;
+  string placement_id = 2;
+  string actor_id = 3;
+  string replica_id = 4;
+  map<string, uint64> observed_frontier = 5;
+}
+
+message OriginalConflict {
+  string identity = 1;
+  string node_id = 2;
+  string canonical_placement_id = 3;
+  repeated OriginalConflictCandidate candidates = 4;
+}
+
 message SupertagExtensionCycleConflict {
   string identity = 1;
   repeated string supertag_ids = 2;
@@ -279,6 +370,7 @@ message ConflictIssue {
     ResolutionConflict resolution_conflict = 3;
     PlacementConflict placement_conflict = 4;
     SupertagExtensionCycleConflict supertag_extension_cycle = 5;
+    OriginalConflict original_conflict = 6;
   }
 }
 

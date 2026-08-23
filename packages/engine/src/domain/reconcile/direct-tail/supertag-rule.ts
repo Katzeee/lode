@@ -1,41 +1,25 @@
-import type { SupertagMutation } from "../../fact/index.js";
+import type { SupertagAction } from "../../fact/index.js";
 import type { Projection } from "../projection-types.js";
 
-export function canApplySupertagDirectTail(projection: Projection, mutation: SupertagMutation): boolean {
-  switch (mutation.kind) {
-    case "supertag-apply":
-    case "supertag-remove":
-      return hasNodes(projection, mutation.hostNodeId, mutation.supertagId, mutation.applicationNodeId);
-    case "supertag-template-node-add":
-    case "supertag-template-node-remove":
-      return hasNodes(projection, mutation.supertagId, mutation.templateNodeId);
-    case "supertag-template-field-discoverability-set":
-    case "supertag-template-field-visibility-configure":
-      return hasNodes(projection, mutation.supertagId, mutation.templateFieldNodeId, mutation.fieldDefinitionId);
-    case "supertag-template-field-attach":
-    case "supertag-template-field-existing-attach":
-    case "supertag-template-field-detach":
-      return hasNodes(
-        projection,
-        mutation.supertagId,
-        mutation.templateFieldNodeId,
-        mutation.fieldDefinitionId,
-        mutation.staticDefaultValueNodeId,
-      );
-    case "supertag-optional-field-contribution-attach":
-    case "supertag-optional-field-contribution-detach":
-      return hasNodes(
-        projection,
-        mutation.supertagId,
-        mutation.fieldNurseryNodeId,
-        mutation.nurseryValueNodeId,
-        mutation.contributionNodeId,
-        mutation.fieldDefinitionId,
-        mutation.valueNodeId,
-      );
+export function canApplySupertagDirectTail(projection: Projection, action: SupertagAction): boolean {
+  switch (action.kind) {
+    case "supertag-application-add":
+    case "supertag-membership-remove":
+      return hasNodes(projection, action.hostNodeId, action.supertagId);
+    case "template-member-add":
+    case "template-member-remove":
+      return hasNodes(projection, action.supertagId, action.templateNodeId);
+    case "template-field-add":
+    case "template-field-remove":
+    case "template-field-restore":
+    case "template-field-visibility-set":
+    case "template-field-static-default-set":
+    case "optional-field-contribution-add":
+    case "optional-field-contribution-remove":
+      return false;
     case "supertag-extension-add":
     case "supertag-extension-remove":
-      return hasNodes(projection, mutation.supertagId, mutation.baseSupertagId);
+      return hasNodes(projection, action.supertagId, action.baseSupertagId);
   }
 }
 

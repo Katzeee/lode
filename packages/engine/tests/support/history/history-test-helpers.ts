@@ -1,42 +1,43 @@
 import {
   frontierOf,
-  factTransactionId,
+  factActions,
   makeFact,
   type AuthorityReceipt,
   type EditIntent,
   type Fact,
+  type FactId,
+  type FactAction,
   type FactSnapshot,
-  type Mutation,
-  workspaceGenesisMutations,
-  workspaceTrashNodeId,
+  type AuthoredAction,
+  workspaceGenesisActions,
 } from "../../../src/domain/fact/index.js";
 import {
   CURRENT_PROJECTION_VERSIONS,
-  occurrenceAnchor,
   rebuildGeneration,
   type ProjectionGeneration,
 } from "../../../src/domain/reconcile/index.js";
 import { nextHistoryLineage } from "../../../src/domain/history/state.js";
-import { withInitialOwnerRelations } from "../reconcile/placed-node-test-helpers.js";
+import { planCompensation } from "../../../src/domain/history/compensation.js";
+import { withInitialNodeRelations } from "../reconcile/placed-node-test-helpers.js";
 
-export const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const REPLICA = "101";
 export const end = {
   after: null,
   before: null,
   affinity: "after",
   fallback: "end",
 } as const;
-export const versions = CURRENT_PROJECTION_VERSIONS;
+const versions = CURRENT_PROJECTION_VERSIONS;
 
 export class HistoryFixture {
   readonly facts: Fact[] = [];
   readonly receipts: AuthorityReceipt[] = [];
 
   constructor() {
-    this.transaction(workspaceGenesisMutations("workspace"));
+    this.transaction(workspaceGenesisActions("workspace"));
   }
 
-  fact(mutation: Mutation, intent: EditIntent = "direct"): Fact {
+  fact(authoredAction: AuthoredAction, intent: EditIntent = "direct"): FactAction {
     const sequence = this.facts.length + 1;
     const fact = makeFact({
       workspaceId: "workspace",
@@ -44,13 +45,17 @@ export class HistoryFixture {
       sequence,
       observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
       lamport: sequence,
-      body: { kind: "contribution", actorId: "actor", intent, mutation },
+      body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
     });
     this.facts.push(fact);
-    return fact;
+    const action = factActions(fact)[0];
+    if (!action) {
+      throw new Error("History fixture edit has no FactAction");
+    }
+    return action;
   }
 
-  resolve(targets: readonly string[], decision: "accept" | "reject"): Fact {
+  resolve(proposalFactIds: readonly FactId[], decision: "accept" | "reject"): Fact {
     const sequence = this.facts.length + 1;
     const fact = makeFact({
       workspaceId: "workspace",
@@ -63,7 +68,7 @@ export class HistoryFixture {
         adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision,
-        proposalContributionIds: targets,
+        proposalFactIds,
       },
     });
     this.facts.push(fact);
@@ -72,13 +77,13 @@ export class HistoryFixture {
 
   step(input: {
     invocationId: string;
-    mutations: readonly Mutation[];
+    actions: readonly AuthoredAction[];
     intent?: EditIntent;
     channelId?: string;
     operation?: "normal" | "undo" | "redo";
     targetStepId?: string | null;
   }): AuthorityReceipt {
-    const created = this.transaction(input.mutations, input.intent);
+    const created = this.transaction(input.actions, input.intent);
     const channelId = input.channelId ?? "channel";
     const lineage = nextHistoryLineage(
       this.receipts,
@@ -86,125 +91,59 @@ export class HistoryFixture {
       input.operation ?? "normal",
       input.targetStepId ?? null,
     );
+    const inverse = this.inverseForStep(created);
     const receipt: AuthorityReceipt = {
       workspaceId: "workspace",
       replicaId: REPLICA,
       invocationId: input.invocationId,
       requestDigest: `digest-${input.invocationId}`,
-      factIds: created.map((fact) => fact.id),
+      factIds: [...new Set(created.map((fact) => fact.factId))],
       committedFrontier: frontierOf(this.facts),
       lineage,
+      inverse,
     };
     this.receipts.push(receipt);
     return receipt;
   }
 
-  addTransaction(mutations: readonly Mutation[], intent: EditIntent = "direct"): readonly Fact[] {
-    return this.transaction(mutations, intent);
-  }
-
-  private transaction(mutations: readonly Mutation[], intent: EditIntent = "direct"): readonly Fact[] {
-    const ownedMutations = this.withTrashLifecycleRelations(withInitialOwnerRelations(mutations));
-    const firstSequence = this.facts.length + 1;
-    const transactionId = factTransactionId("workspace", REPLICA, firstSequence);
-    const created = ownedMutations.map((mutation, index) => {
-      const sequence = firstSequence + index;
-      return makeFact({
-        workspaceId: "workspace",
-        replicaId: REPLICA,
-        sequence,
-        observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
-        lamport: sequence,
-        transaction: { transactionId, index, size: ownedMutations.length },
-        body: { kind: "contribution", actorId: "actor", intent, mutation },
-      });
-    });
-    this.facts.push(...created);
-    return created;
-  }
-
-  private withTrashLifecycleRelations(mutations: readonly Mutation[]): readonly Mutation[] {
-    if (!mutations.some((mutation) => mutation.kind === "node-delete")) {
-      return mutations;
+  private inverseForStep(created: readonly FactAction[]): AuthorityReceipt["inverse"] {
+    const compensation = planCompensation(created, this.snapshot(), this.generation());
+    if (compensation.kind !== "ready") {
+      return [];
     }
-    const projection = this.facts.length === 0 ? null : this.generation().review;
-    const owners = new Map<string, string | null>(Object.entries(projection?.nodeOwners ?? {}));
-    const placements = new Map(
-      Object.values(projection?.occurrences ?? {}).map((occurrence) => [
-        occurrence.occurrenceId,
-        {
-          nodeId: occurrence.nodeId,
-          parentNodeId: occurrence.parentNodeId,
-          anchor: projection ? occurrenceAnchor(projection, occurrence.occurrenceId) : end,
-        },
-      ]),
+    const [first, ...rest] = compensation.actions;
+    return first ? [{ intent: created[0]?.intent ?? "direct", actions: [first, ...rest] }] : [];
+  }
+
+  addTransaction(actions: readonly AuthoredAction[], intent: EditIntent = "direct"): readonly FactAction[] {
+    return this.transaction(actions, intent);
+  }
+
+  inverseActions(invocationId: string): readonly AuthoredAction[] {
+    return (
+      this.receipts
+        .find((receipt) => receipt.invocationId === invocationId)
+        ?.inverse.flatMap((batch) => batch.actions) ?? []
     );
-    const trashNodeId = workspaceTrashNodeId("workspace");
-    const result: Mutation[] = [];
-    for (const mutation of mutations) {
-      result.push(mutation);
-      if (mutation.kind === "node-owner-set") {
-        owners.set(mutation.nodeId, mutation.ownerNodeId);
-        continue;
-      }
-      if (mutation.kind === "occurrence-create") {
-        placements.set(mutation.occurrenceId, {
-          nodeId: mutation.nodeId,
-          parentNodeId: mutation.parentNodeId,
-          anchor: mutation.anchor,
-        });
-        continue;
-      }
-      if (mutation.kind === "occurrence-move") {
-        const placement = placements.get(mutation.occurrenceId);
-        if (placement) {
-          placements.set(mutation.occurrenceId, {
-            ...placement,
-            parentNodeId: mutation.parentNodeId,
-            anchor: mutation.anchor,
-          });
-        }
-        continue;
-      }
-      if (mutation.kind !== "node-delete") {
-        continue;
-      }
-      const hasExplicitTrashMove = mutations.some(
-        (candidate) =>
-          candidate.kind === "node-owner-set" &&
-          candidate.nodeId === mutation.nodeId &&
-          candidate.ownerNodeId === trashNodeId &&
-          candidate.previousOwnerNodeId !== null,
-      );
-      if (hasExplicitTrashMove) {
-        continue;
-      }
-      const ownerNodeId = owners.get(mutation.nodeId);
-      const candidates = [...placements].filter(([, placement]) => placement.nodeId === mutation.nodeId);
-      const selected = candidates.find(([, placement]) => placement.parentNodeId === ownerNodeId) ?? candidates[0];
-      if (!ownerNodeId || !selected) {
-        continue;
-      }
-      const [occurrenceId, placement] = selected;
-      const ownerChange: Mutation = {
-        kind: "node-owner-set",
-        nodeId: mutation.nodeId,
-        ownerNodeId: trashNodeId,
-        previousOwnerNodeId: ownerNodeId,
-      };
-      const placementChange: Mutation = {
-        kind: "occurrence-move",
-        occurrenceId,
-        parentNodeId: trashNodeId,
-        anchor: end,
-        previousParentNodeId: placement.parentNodeId,
-        previousAnchor: placement.anchor,
-      };
-      result.push(ownerChange, placementChange);
-      owners.set(mutation.nodeId, trashNodeId);
-      placements.set(occurrenceId, { ...placement, parentNodeId: trashNodeId, anchor: end });
+  }
+
+  private transaction(actions: readonly AuthoredAction[], intent: EditIntent = "direct"): readonly FactAction[] {
+    const ownedActions = withInitialNodeRelations(actions);
+    const [first, ...rest] = ownedActions;
+    if (!first) {
+      return [];
     }
-    return result;
+    const sequence = this.facts.length + 1;
+    const fact = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA,
+      sequence,
+      observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
+      lamport: sequence,
+      body: { kind: "edit", actorId: "actor", intent, actions: [first, ...rest] },
+    });
+    this.facts.push(fact);
+    return factActions(fact);
   }
 
   snapshot(): FactSnapshot {
@@ -219,19 +158,11 @@ export class HistoryFixture {
 export function baseFixture(): HistoryFixture {
   const fixture = new HistoryFixture();
   fixture.addTransaction([
-    { kind: "node-create", nodeId: "node" },
     {
-      kind: "node-owner-set",
+      kind: "node-create",
       nodeId: "node",
       ownerNodeId: "workspace",
-      previousOwnerNodeId: null,
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: "occurrence",
-      nodeId: "node",
-      parentNodeId: "workspace",
-      anchor: end,
+      originalPlacement: { placementId: "occurrence", anchor: end },
     },
   ]);
   return fixture;

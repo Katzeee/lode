@@ -2,8 +2,10 @@ import {
   parseJsonValue as json,
   parseSequenceAnchor as sequenceAnchor,
   parseTextAtomId,
+  parseSearchClause,
   isIntrinsicNodeType,
   parseViewOptionsSpec,
+  requireFactActionId,
   type PreviousValue,
 } from "../../../domain/fact/index.js";
 import type { DecisionEffect, PlacementRelation } from "../../../domain/review/index.js";
@@ -69,6 +71,9 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   if (kind === "inline-reference") {
     return inlineReferenceEffect(effect);
   }
+  if (kind === "search-expression") {
+    return searchExpressionEffect(effect);
+  }
   if (kind === "view-definition") {
     return viewDefinitionEffect(effect);
   }
@@ -105,6 +110,31 @@ export function parseDecisionEffect(value: unknown): DecisionEffect {
   throw new Error(`Unknown Decision effect kind: ${kind}`);
 }
 
+function searchExpressionEffect(effect: Record<string, unknown>): DecisionEffect {
+  exact(effect, ["kind", "expressionId", "origin", "review"], "Search Expression Decision effect");
+  return {
+    kind: "search-expression",
+    expressionId: requireFactActionId(effect.expressionId, "Search Expression identity"),
+    origin: effect.origin === null ? null : searchExpressionState(effect.origin),
+    review: effect.review === null ? null : searchExpressionState(effect.review),
+  };
+}
+
+function searchExpressionState(value: unknown) {
+  const state = object(value, "Search Expression state");
+  exact(state, ["present", "hostId", "parentExpressionId", "anchor", "clause"], "Search Expression state");
+  return {
+    present: boolean(state.present, "Search Expression presence"),
+    hostId: nullableString(state.hostId, "Search Expression host"),
+    parentExpressionId:
+      state.parentExpressionId === null
+        ? null
+        : requireFactActionId(state.parentExpressionId, "parent Search Expression identity"),
+    anchor: state.anchor === null ? null : sequenceAnchor(state.anchor),
+    clause: state.clause === null ? null : parseSearchClause(state.clause),
+  };
+}
+
 function inlineReferenceEffect(effect: Record<string, unknown>): DecisionEffect {
   exact(effect, ["kind", "inlineReferenceId", "origin", "review"], "Inline Reference Decision effect");
   return {
@@ -116,10 +146,10 @@ function inlineReferenceEffect(effect: Record<string, unknown>): DecisionEffect 
 }
 
 function viewDefinitionEffect(effect: Record<string, unknown>): DecisionEffect {
-  exact(effect, ["kind", "viewDefinitionNodeId", "origin", "review"], "View Definition Decision effect");
+  exact(effect, ["kind", "viewId", "origin", "review"], "View Definition Decision effect");
   return {
     kind: "view-definition",
-    viewDefinitionNodeId: nonempty(effect.viewDefinitionNodeId, "View Definition Node identity"),
+    viewId: requireFactActionId(effect.viewId, "View identity"),
     origin: effect.origin === null ? null : viewDefinitionState(effect.origin),
     review: effect.review === null ? null : viewDefinitionState(effect.review),
   };
@@ -129,15 +159,7 @@ function viewDefinitionState(value: unknown) {
   const state = object(value, "View Definition state");
   exact(
     state,
-    [
-      "hostNodeId",
-      "attachmentNodeId",
-      "attachmentOccurrenceId",
-      "viewType",
-      "sortByNameAscending",
-      "options",
-      "optionsConflicted",
-    ],
+    ["hostNodeId", "attachmentNodeId", "attachmentOccurrenceId", "viewType", "options", "optionsConflicted"],
     "View Definition state",
   );
   return {
@@ -145,7 +167,6 @@ function viewDefinitionState(value: unknown) {
     attachmentNodeId: nonempty(state.attachmentNodeId, "View attachment Node identity"),
     attachmentOccurrenceId: nonempty(state.attachmentOccurrenceId, "View attachment Occurrence identity"),
     viewType: oneOf(state.viewType, ["outline", "table"] as const, "View type"),
-    sortByNameAscending: boolean(state.sortByNameAscending, "View name sort"),
     options: parseViewOptionsSpec(state.options),
     optionsConflicted: boolean(state.optionsConflicted, "View options conflict state"),
   };
@@ -173,7 +194,15 @@ function supertagRelationEffect(effect: Record<string, unknown>): DecisionEffect
     kind: "supertag-relation",
     relation: oneOf(
       effect.relation,
-      ["application", "extension", "template-node", "template-field-visibility"] as const,
+      [
+        "application",
+        "extension",
+        "template-node",
+        "template-field",
+        "template-field-visibility",
+        "template-field-static-default",
+        "optional-field",
+      ] as const,
       "Supertag relation kind",
     ),
     ownerId: nonempty(effect.ownerId, "Supertag relation owner"),

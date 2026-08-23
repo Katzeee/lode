@@ -38,9 +38,9 @@ afterEach(async () => {
 });
 
 describe("Workspace durable inventory", () => {
-  it("rejects an established journal that omits the Workspace genesis", () => {
+  it("rejects established authority that omits the Workspace genesis", () => {
     const owner = `actor_${"0".repeat(64)}`;
-    const replicaId = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const replicaId = "101";
     const establishment = makeFact({
       workspaceId: "workspace",
       replicaId,
@@ -67,20 +67,18 @@ describe("Workspace durable inventory", () => {
     const engine = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     try {
       const owner = await createWorkspaceAs(engine, "ws-personal", "Personal");
-      expect(await engine.api.workspaces.listWorkspaces()).toEqual([
-        { workspaceId: "ws-personal", label: "Personal", state: "active" },
-      ]);
+      expect(await engine.api.workspaces.listWorkspaces()).toEqual([{ workspaceId: "ws-personal", label: "Personal" }]);
       await expect(
         engine.api.application.execute({
-          kind: "mutate",
+          kind: "edit",
           workspaceId: "ws-personal",
           invocationId: "rename-workspace",
           actorId: owner,
           intent: "direct",
           historyChannelId: "test",
-          mutations: [
+          actions: [
             {
-              kind: "text-splice",
+              kind: "rich-text-splice",
               nodeId: "ws-personal",
               deleteAtomIds: [],
               anchor: { after: null, before: null, affinity: "after", fallback: "end" },
@@ -90,17 +88,17 @@ describe("Workspace durable inventory", () => {
         }),
       ).resolves.toMatchObject({ status: "published" });
       expect(await engine.api.workspaces.listWorkspaces()).toEqual([
-        { workspaceId: "ws-personal", label: "Personal Updated", state: "active" },
+        { workspaceId: "ws-personal", label: "Personal Updated" },
       ]);
       await expect(
         engine.api.application.execute({
-          kind: "mutate",
+          kind: "edit",
           workspaceId: "ws-personal",
           invocationId: "catalog-boot",
           actorId: owner,
           intent: "direct",
           historyChannelId: "test",
-          mutations: [
+          actions: [
             {
               kind: "node-create",
               nodeId: "node",
@@ -120,7 +118,7 @@ describe("Workspace durable inventory", () => {
     const restarted = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     try {
       expect(await restarted.api.workspaces.listWorkspaces()).toEqual([
-        { workspaceId: "ws-personal", label: "Personal Updated", state: "active" },
+        { workspaceId: "ws-personal", label: "Personal Updated" },
       ]);
       expect(
         await restarted.api.application.query({
@@ -147,9 +145,7 @@ describe("Workspace durable inventory", () => {
       await expect(
         engine.api.workspaces.createWorkspace({ workspaceId: "ghost", label: "Other", ownerActorId: "actor_x" }),
       ).rejects.toThrow("already exists");
-      expect(await engine.api.workspaces.listWorkspaces()).toEqual([
-        { workspaceId: "ghost", label: "Ghost", state: "active" },
-      ]);
+      expect(await engine.api.workspaces.listWorkspaces()).toEqual([{ workspaceId: "ghost", label: "Ghost" }]);
       expect(await readdir(join(dataRoot, "workspaces"))).toContain("workspace-Z2hvc3Q.sqlite");
       await expect(readFile(join(dataRoot, "workspace-catalog.json"), "utf8")).rejects.toMatchObject({
         code: "ENOENT",
@@ -194,12 +190,12 @@ describe("Workspace durable inventory", () => {
     const staging = await first.api.stage("adopted");
     await new SyncExchange(staging.sync, new InMemoryReplicaPeer(source.api.replica("adopted").sync)).sync();
     await expect(staging.promote()).resolves.toEqual({ workspaceId: "adopted", label: "Adopted" });
-    expect(await first.api.list()).toEqual([{ workspaceId: "adopted", label: "Adopted", state: "active" }]);
+    expect(await first.api.list()).toEqual([{ workspaceId: "adopted", label: "Adopted" }]);
     await first.lifecycle.stop();
 
     const restarted = buildWorkspaceSubsystem(dataRoot);
     await restarted.lifecycle.start();
-    expect(await restarted.api.list()).toEqual([{ workspaceId: "adopted", label: "Adopted", state: "active" }]);
+    expect(await restarted.api.list()).toEqual([{ workspaceId: "adopted", label: "Adopted" }]);
     await restarted.lifecycle.stop();
     await source.lifecycle.stop();
   }, 30_000);
@@ -226,9 +222,7 @@ describe("Workspace durable inventory", () => {
 
     const restarted = buildWorkspaceSubsystem(dataRoot);
     await restarted.lifecycle.start();
-    expect(await restarted.api.list()).toEqual([
-      { workspaceId: "concurrent-promotion", label: "Interrupted", state: "active" },
-    ]);
+    expect(await restarted.api.list()).toEqual([{ workspaceId: "concurrent-promotion", label: "Interrupted" }]);
     await restarted.lifecycle.stop();
     await source.lifecycle.stop();
   }, 30_000);

@@ -1,11 +1,11 @@
-import type { Fact, Mutation } from "../fact/index.js";
+import type { Fact, AuthoredAction } from "../fact/index.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
 import type { ProjectionArtifactKey, ProjectionStage, ProjectionStageKey } from "./projection-plan-dag.js";
 
-export type ProjectionRule = ProjectionStage<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey> &
+type ProjectionRule = ProjectionStage<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey> &
   Readonly<{
     factScope: "tail" | "history" | "rebuild";
-    invalidatedBy: readonly Mutation["kind"][];
+    invalidatedBy: readonly AuthoredAction["kind"][];
   }>;
 
 const PROJECTION_STAGE_ARTIFACTS = {
@@ -14,7 +14,6 @@ const PROJECTION_STAGE_ARTIFACTS = {
   configuration: "metanodes",
   occurrence: "authoredStructure",
   content: "contentNodes",
-  owner: "nodeOwners",
   "node-graph": "nodeGraphStructure",
   "supertag-relations": "supertagRelations",
   "field-definition": "fieldDefinitionConfigurations",
@@ -42,7 +41,7 @@ type ProjectionRuleContext<
 export function projectionRule<
   const Key extends ProjectionStageKey,
   const Dependencies extends readonly ProjectionStageKey[],
-  const Invalidations extends readonly Mutation["kind"][],
+  const Invalidations extends readonly AuthoredAction["kind"][],
 >(definition: {
   key: Key;
   dependencies: Dependencies;
@@ -92,7 +91,7 @@ export function projectionReplayPolicyFor(
 }
 
 type CompleteInvalidation<Rules extends readonly ProjectionRule[]> =
-  Exclude<Mutation["kind"], Rules[number]["invalidatedBy"][number]> extends never ? unknown : never;
+  Exclude<AuthoredAction["kind"], Rules[number]["invalidatedBy"][number]> extends never ? unknown : never;
 
 export function projectionInvalidationFor<const Rules extends readonly ProjectionRule[]>(
   rules: Rules & CompleteInvalidation<Rules>,
@@ -100,19 +99,21 @@ export function projectionInvalidationFor<const Rules extends readonly Projectio
   return (facts) => {
     const invalidated = new Set<ProjectionStageKey>();
     for (const fact of facts) {
-      if (fact.body.kind !== "contribution" || fact.body.intent === "proposal") {
+      if (fact.body.kind !== "edit" || fact.body.intent === "proposal") {
         for (const rule of rules) {
           invalidated.add(rule.key);
         }
         continue;
       }
-      const mutationKind = fact.body.mutation.kind;
-      const owners = rules.filter((rule) => rule.invalidatedBy.includes(mutationKind));
-      if (owners.length === 0) {
-        throw new Error(`Mutation ${mutationKind} has no Projection invalidation owner`);
-      }
-      for (const owner of owners) {
-        invalidated.add(owner.key);
+      for (const authoredAction of fact.body.actions) {
+        const mutationKind = authoredAction.kind;
+        const owners = rules.filter((rule) => rule.invalidatedBy.includes(mutationKind));
+        if (owners.length === 0) {
+          throw new Error(`AuthoredAction ${mutationKind} has no Projection invalidation owner`);
+        }
+        for (const owner of owners) {
+          invalidated.add(owner.key);
+        }
       }
     }
     return invalidated;

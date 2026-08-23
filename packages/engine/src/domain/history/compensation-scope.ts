@@ -1,4 +1,10 @@
-import { mutationRelations, type ContributionFact, type Fact, type Mutation } from "../fact/index.js";
+import {
+  factActionsFromFacts,
+  actionRelations,
+  type FactAction,
+  type Fact,
+  type AuthoredAction,
+} from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 
 type HistoryScope = {
@@ -6,45 +12,49 @@ type HistoryScope = {
   occurrences: Set<string>;
   supertags: Set<string>;
   fields: Set<string>;
-  factIds: Set<string>;
+  actionIds: Set<string>;
   inlineReferences: Set<string>;
 };
 
 export function scopedHistoryFacts(
   facts: readonly Fact[],
-  targets: readonly ContributionFact[],
+  targets: readonly FactAction[],
   projection: ScopedProjection,
 ): readonly Fact[] {
   const scope = emptyScope();
-  const selected = new Set(targets.map((target) => target.id));
-  targets.forEach((target) => addMutation(scope, target.body.mutation));
+  const selectedActions = new Set(targets.map((target) => target.id));
+  const selectedFacts = new Set(targets.map((target) => target.factId));
+  const actions = factActionsFromFacts(facts);
+  targets.forEach((target) => addAction(scope, target.action));
   addTemplateScope(scope, projection);
   let changed = true;
   while (changed) {
     changed = false;
     for (const fact of facts) {
-      if (selected.has(fact.id)) {
+      if (selectedFacts.has(fact.id)) {
         continue;
       }
       if (fact.body.kind === "resolution") {
-        if (fact.body.proposalContributionIds.some((target) => selected.has(target))) {
-          selected.add(fact.id);
+        if (fact.body.proposalFactIds.some((target) => selectedFacts.has(target))) {
+          selectedFacts.add(fact.id);
           changed = true;
         }
+      }
+    }
+    for (const action of actions) {
+      if (selectedActions.has(action.id)) {
         continue;
       }
-      if (fact.body.kind === "maintenance" || fact.body.kind === "governance") {
-        continue;
-      }
-      if (scope.factIds.has(fact.id) || mutationTouches(scope, fact.body.mutation)) {
-        selected.add(fact.id);
-        addMutation(scope, fact.body.mutation);
+      if (scope.actionIds.has(action.id) || actionTouches(scope, action.action)) {
+        selectedActions.add(action.id);
+        selectedFacts.add(action.factId);
+        addAction(scope, action.action);
         addTemplateScope(scope, projection);
         changed = true;
       }
     }
   }
-  return facts.filter((fact) => selected.has(fact.id));
+  return facts.filter((fact) => selectedFacts.has(fact.id));
 }
 
 function emptyScope(): HistoryScope {
@@ -53,7 +63,7 @@ function emptyScope(): HistoryScope {
     occurrences: new Set(),
     supertags: new Set(),
     fields: new Set(),
-    factIds: new Set(),
+    actionIds: new Set(),
     inlineReferences: new Set(),
   };
 }
@@ -78,24 +88,24 @@ function addTemplateScope(scope: HistoryScope, projection: ScopedProjection): vo
   }
 }
 
-function addMutation(scope: HistoryScope, mutation: Mutation): void {
-  const relations = mutationRelations(mutation);
+function addAction(scope: HistoryScope, authoredAction: AuthoredAction): void {
+  const relations = actionRelations(authoredAction);
   relations.nodeIds.forEach((id) => scope.nodes.add(id));
   relations.occurrenceIds.forEach((id) => scope.occurrences.add(id));
   relations.supertagIds.forEach((id) => scope.supertags.add(id));
   relations.fieldDefinitionIds.forEach((id) => scope.fields.add(id));
-  relations.factIds.forEach((id) => scope.factIds.add(id));
+  relations.actionIds.forEach((id) => scope.actionIds.add(id));
   relations.inlineReferenceIds.forEach((id) => scope.inlineReferences.add(id));
 }
 
-function mutationTouches(scope: HistoryScope, mutation: Mutation): boolean {
-  const relations = mutationRelations(mutation);
+function actionTouches(scope: HistoryScope, authoredAction: AuthoredAction): boolean {
+  const relations = actionRelations(authoredAction);
   return (
     relations.nodeIds.some((id) => scope.nodes.has(id)) ||
     relations.occurrenceIds.some((id) => scope.occurrences.has(id)) ||
     relations.supertagIds.some((id) => scope.supertags.has(id)) ||
     relations.fieldDefinitionIds.some((id) => scope.fields.has(id)) ||
-    relations.factIds.some((id) => scope.factIds.has(id)) ||
+    relations.actionIds.some((id) => scope.actionIds.has(id)) ||
     relations.inlineReferenceIds.some((id) => scope.inlineReferences.has(id))
   );
 }

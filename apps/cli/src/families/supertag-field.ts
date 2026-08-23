@@ -1,4 +1,4 @@
-import type { EditMutation, TemplateField } from "@lode/sdk";
+import type { EditAction, TemplateField } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
@@ -8,12 +8,12 @@ import { registerSupertagFieldDefaultCommands } from "./supertag-field-default.j
 import { registerSupertagFieldPlacementCommands } from "./supertag-field-placement.js";
 import {
   cardinalityConfiguration,
-  definitionConfigurationMutations,
+  datatypeConfiguration,
   optionalityConfiguration,
-  optionalContributionMutations,
+  optionalContributionActions,
   requiredEndpoint,
-  templateFieldCreateMutation,
-} from "./supertag-field-mutations.js";
+  templateFieldCreateAction,
+} from "./supertag-field-actions.js";
 
 /**
  * Supertag field family: Template Field authoring in Tana's vocabulary —
@@ -121,29 +121,17 @@ const fieldAddNew: CommandDefinition = {
       );
     }
     const fieldDefinitionId = identity(context.requestId, "field-definition");
-    const mutations: EditMutation[] = [
-      templateFieldCreateMutation(context.requestId, supertag.nodeId, fieldDefinitionId, name),
-    ];
+    const actions: EditAction[] = [templateFieldCreateAction(supertag.nodeId, fieldDefinitionId, name)];
     if (datatype !== undefined) {
-      mutations.push(
-        ...definitionConfigurationMutations(context.requestId, fieldDefinitionId, datatype, optionsSupertagId),
-      );
+      actions.push(datatypeConfiguration(fieldDefinitionId, datatype, optionsSupertagId));
     }
     if (args.option("--cardinality") === "list") {
-      mutations.push(
-        cardinalityConfiguration(context.requestId, fieldDefinitionId, "system-field-cardinality:v1:list"),
-      );
+      actions.push(cardinalityConfiguration(fieldDefinitionId, "system-field-cardinality:v1:list"));
     }
     if (args.option("--required") !== undefined) {
-      mutations.push(
-        optionalityConfiguration(
-          context.requestId,
-          fieldDefinitionId,
-          requiredEndpoint(args.option("--required") === "true"),
-        ),
-      );
+      actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
     }
-    const { result, data } = await executeWrite(context, "supertag.field.add-new", mutations);
+    const { result, data } = await executeWrite(context, "supertag.field.add-new", actions);
     const resource = descriptor(workspaceId, "field", fieldDefinitionId, name);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, field: resource },
@@ -189,22 +177,17 @@ const fieldAddExisting: CommandDefinition = {
       ["field"],
     );
     const optional = args.option("--optional") === "true";
-    const mutations: readonly EditMutation[] = optional
-      ? optionalContributionMutations(context.requestId, supertag.nodeId, field.nodeId, {})
+    const actions: readonly EditAction[] = optional
+      ? optionalContributionActions(supertag.nodeId, field.nodeId)
       : [
           {
             kind: "supertag-template-field-add-existing",
             supertagId: supertag.nodeId,
-            templateFieldNodeId: identity(context.requestId, "template-field"),
-            templateFieldOccurrenceId: identity(context.requestId, "template-field-occurrence"),
             fieldDefinitionId: field.nodeId,
-            definitionOccurrenceId: identity(context.requestId, "definition-occurrence"),
-            staticDefaultValueNodeId: identity(context.requestId, "default-node"),
-            staticDefaultValueOccurrenceId: identity(context.requestId, "default-occurrence"),
             anchor: end,
           },
         ];
-    const { result, data } = await executeWrite(context, "supertag.field.add-existing", mutations);
+    const { result, data } = await executeWrite(context, "supertag.field.add-existing", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, field: field.descriptor },
       view: writeView("Added field", field.descriptor, `to ${supertag.label}`),

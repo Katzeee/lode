@@ -1,4 +1,4 @@
-import { compareFacts, frontierCovers, frontierEquals, type FactSnapshot } from "../fact/index.js";
+import { compareCausalOrder, frontierCovers, frontierEquals, type FactSnapshot } from "../fact/index.js";
 import { advanceDirectProjection } from "./incremental-projection.js";
 import { invalidatedProjectionStages, PROJECTION_PLAN } from "./projection-plan.js";
 import { projectWithPlan } from "./projection-plan-api.js";
@@ -15,7 +15,7 @@ export function rebuildGeneration(
 ): ProjectionGeneration {
   assertSupportedProjectionVersions(versions);
   const origin = projectWithPlan(workspaceId, snapshot, "origin", versions);
-  const review = projectWithPlan(workspaceId, snapshot, "review", versions);
+  const review = projectWithPlan(workspaceId, snapshot, "review", versions, origin.planCache);
   if (
     origin.projection.identity.generationId !== review.projection.identity.generationId ||
     !frontierEquals(origin.projection.identity.frontier, review.projection.identity.frontier)
@@ -45,7 +45,7 @@ export function advanceGeneration(
   const changed = nextSnapshot.facts.filter((fact) => !previousIds.has(fact.id));
   const invalidated = invalidatedProjectionStages(changed);
   const selectedStages = new Set(PROJECTION_PLAN.downstream(invalidated));
-  if (changed.some((fact) => fact.body.kind === "contribution")) {
+  if (changed.some((fact) => fact.body.kind === "edit")) {
     selectedStages.add("activation");
   }
   if (
@@ -63,15 +63,18 @@ export function advanceGeneration(
       versions,
       selectedStages,
     );
-    const review = advanceDirectProjection(
-      workspaceId,
-      previousGeneration.review,
-      previousGeneration.planCaches.review,
-      nextSnapshot,
-      changed,
-      versions,
-      selectedStages,
-    );
+    const review = origin
+      ? advanceDirectProjection(
+          workspaceId,
+          previousGeneration.review,
+          previousGeneration.planCaches.review,
+          nextSnapshot,
+          changed,
+          versions,
+          selectedStages,
+          origin.planCache,
+        )
+      : null;
     if (origin && review) {
       return {
         identity: origin.projection.identity,
@@ -91,7 +94,7 @@ export function snapshotAtFrontier(snapshot: FactSnapshot, frontier: Readonly<Re
   return {
     facts: snapshot.facts
       .filter((fact) => fact.coordinate.dot.sequence <= (frontier[fact.coordinate.dot.replicaId] ?? 0))
-      .sort(compareFacts),
+      .sort(compareCausalOrder),
     frontier,
   };
 }

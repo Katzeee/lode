@@ -2,7 +2,7 @@ export type EngineSubsystemControl = Readonly<{
   stopRequested: boolean;
 }>;
 
-export type EngineSubsystemHooks = Readonly<{
+type EngineSubsystemHooks = Readonly<{
   init?(): void | Promise<void>;
   start?(): void | Promise<void>;
   stop?(): void | Promise<void>;

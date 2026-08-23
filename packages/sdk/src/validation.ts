@@ -1,28 +1,11 @@
 import type { EngineCommand, EngineQuery } from "./contract.js";
-import { COMMAND_KINDS, DECISION_EFFECT_KINDS, MUTATION_KINDS, QUERY_KINDS } from "./protocol-cases.js";
+import { ACTION_KINDS, COMMAND_KINDS, DECISION_EFFECT_KINDS, QUERY_KINDS } from "./protocol-cases.js";
 import { editIntent } from "./protocol-enums/engine.js";
 import { projectionPerspective } from "./protocol-enums/projection.js";
 import { resolutionDecision } from "./protocol-enums/review.js";
 import { PROJECTION_PAGE_SECTIONS } from "./projection.js";
 import { validateHardDeleteSelection } from "./maintenance-validation.js";
-
-const PREPARED_EVIDENCE = [
-  "deletedAtoms",
-  "observedConfigFactIds",
-  "observedInitializationFactIds",
-  "observedModeFactIds",
-  "previous",
-  "previousAnchor",
-  "previousConfig",
-  "previousOwnerNodeId",
-  "previousParentNodeId",
-  "previousHostNodeId",
-  "previousViewType",
-  "previousTargetNodeId",
-  "sourceApplicationSupertagIds",
-  "sourceSupertagIds",
-  "sourceTemplateOccurrenceIds",
-] as const;
+import { factActionIds, factIds } from "./fact-identities.js";
 
 export function parseEngineCommand(value: unknown): EngineCommand {
   const command = record(value, "Engine command");
@@ -30,34 +13,22 @@ export function parseEngineCommand(value: unknown): EngineCommand {
   const kind = enumString(command.kind, COMMAND_KINDS, "Engine command kind");
   nonempty(command.invocationId, "Invocation identity");
   nonempty(command.actorId, "Actor identity");
-  if (kind === "mutate") {
-    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "intent", "historyChannelId", "mutations"]);
+  if (kind === "edit") {
+    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "intent", "historyChannelId", "actions"]);
     enumString(command.intent, editIntent.values, "Edit intent");
     nonempty(command.historyChannelId, "History channel");
-    if (!Array.isArray(command.mutations) || command.mutations.length === 0) {
-      throw new Error("Edit command requires a non-empty mutation batch");
+    if (!Array.isArray(command.actions) || command.actions.length === 0) {
+      throw new Error("Edit command requires a non-empty action batch");
     }
-    for (const value of command.mutations) {
-      const mutation = record(value, "Edit mutation");
-      enumString(mutation.kind, MUTATION_KINDS, "Edit mutation kind");
-      const evidence = PREPARED_EVIDENCE.find((key) => key in mutation);
-      if (evidence) {
-        throw new Error(`Prepared Fact evidence is not accepted by the edit interface: ${evidence}`);
-      }
+    for (const value of command.actions) {
+      const action = record(value, "Edit action");
+      enumString(action.kind, ACTION_KINDS, "Edit action kind");
     }
   } else if (kind === "adjudicate-resolution") {
-    exact(command, [
-      "kind",
-      "workspaceId",
-      "invocationId",
-      "actorId",
-      "decision",
-      "proposalContributionIds",
-      "resolutionIds",
-    ]);
+    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "decision", "proposalFactIds", "resolutionIds"]);
     enumString(command.decision, resolutionDecision.values, "Resolution decision");
-    identities(command.proposalContributionIds, "Proposal targets");
-    identities(command.resolutionIds, "Resolution targets");
+    factIds(command.proposalFactIds, "Proposal targets");
+    factIds(command.resolutionIds, "Resolution targets");
   } else if (kind === "resolve-review") {
     exact(command, ["kind", "workspaceId", "invocationId", "actorId", "decision", "selection"]);
     enumString(command.decision, resolutionDecision.values, "Resolution decision");
@@ -66,13 +37,13 @@ export function parseEngineCommand(value: unknown): EngineCommand {
     exact(command, ["kind", "workspaceId", "invocationId", "actorId", "selection"]);
     historySelection(command.selection, kind);
   } else if (kind === "acknowledge-deletion") {
-    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "nodeId", "deletionFactIds"]);
+    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "nodeId", "deletionActionIds"]);
     nonempty(command.nodeId, "Deleted Node identity");
-    identities(command.deletionFactIds, "Deletion Fact identities");
+    factActionIds(command.deletionActionIds, "Deletion action identities");
   } else if (kind === "retire-replica") {
     exact(command, ["kind", "workspaceId", "invocationId", "actorId", "replicaId"]);
     const replicaId = nonempty(command.replicaId, "Retired Replica identity");
-    if (!/^[a-z2-7]{26}$/.test(replicaId)) {
+    if (!/^(?:0|[1-9]\d*)$/.test(replicaId)) {
       throw new Error("Retired Replica identity is invalid");
     }
   } else if (kind === "hard-delete") {
@@ -153,6 +124,8 @@ function reviewSelection(value: unknown): void {
   const selection = record(value, "Review selection");
   nonempty(selection.token, "Review token");
   const evidence = record(selection.evidence, "Review evidence");
+  factActionIds(evidence.proposalTargets, "Review proposal targets");
+  factActionIds(evidence.supportClosure, "Review support closure", false);
   if (!Array.isArray(evidence.effects)) {
     throw new Error("Review effects must be an array");
   }
@@ -167,10 +140,7 @@ function historySelection(value: unknown, operation: "undo" | "redo"): void {
   if (selection.operation !== operation) {
     throw new Error("History selection operation does not match command");
   }
-  const evidence = record(selection.evidence, "History evidence");
-  if (!Array.isArray(evidence.compensations)) {
-    throw new Error("History compensations must be an array");
-  }
+  factIds(selection.targetFactIds, "History target Facts");
 }
 
 function paginationValues(value: Record<string, unknown>, maximum: number, label: string): void {
@@ -183,25 +153,6 @@ function paginationValues(value: Record<string, unknown>, maximum: number, label
   ) {
     throw new Error(`${label} page limit must be between 1 and ${maximum}`);
   }
-}
-
-function identities(value: unknown, label: string): readonly string[] {
-  const result = identityArray(value, label);
-  if (result.length === 0) {
-    throw new Error(`${label} must be a non-empty identity array`);
-  }
-  return result;
-}
-
-function identityArray(value: unknown, label: string): readonly string[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an identity array`);
-  }
-  const result = value.map((item) => nonempty(item, label));
-  if (new Set(result).size !== result.length) {
-    throw new Error(`${label} contains duplicate identities`);
-  }
-  return result;
 }
 
 function exact(value: Record<string, unknown>, allowed: readonly string[]): void {

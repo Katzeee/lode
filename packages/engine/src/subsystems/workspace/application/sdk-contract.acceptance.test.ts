@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
-import { admitAuthorityRecords } from "../../../domain/admission/index.js";
 import {
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
   workspaceTrashNodeId,
 } from "../../../domain/fact/index.js";
-import { FactAuthority, createReplicaId } from "../authority/fact-authority.js";
+import { FactAuthority } from "../authority/fact-authority.js";
 import { Workspace } from "../workspace.js";
 import {
   createTransportEngineApplication,
@@ -25,29 +24,38 @@ import {
 } from "@lode/sdk";
 import { createEngineTransportServer } from "../../../../tests/support/application-transport.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../../domain/reconcile/index.js";
-import { createSupertagApplication } from "../../../../tests/support/workspace/edit-test-mutations.js";
+import { createSupertagApplication } from "../../../../tests/support/workspace/edit-test-actions.js";
 import { buildEngineSubsystems } from "../../index.js";
 import { createEventSubsystemDefinition } from "../../event/event-subsystem.js";
 import { parseEngineQuery } from "./input-validation.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-function nodeAtWorkspace(nodeId: string) {
-  return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
+function nodeAtWorkspace(nodeId: string, intrinsicNodeType?: "supertag-definition" | "field-definition") {
+  return [nodeAt(nodeId, "workspace", `${nodeId}-original`, intrinsicNodeType)];
 }
 
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
-  return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor: end };
+function nodeAt(
+  nodeId: string,
+  parentNodeId: string,
+  occurrenceId: string,
+  intrinsicNodeType?: "supertag-definition" | "field-definition",
+) {
+  return {
+    kind: "node-create" as const,
+    nodeId,
+    occurrenceId,
+    parentNodeId,
+    anchor: end,
+    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
+  };
 }
 
 async function setup() {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId: "101",
-    authorityJournal: new InMemoryDocumentStore(),
-    factReplication: new InMemoryDocumentStore(),
-    admitRecords: admitAuthorityRecords,
+    documents: new InMemoryDocumentStore(),
   });
   const event = createEventSubsystemDefinition();
   const events = buildEngineSubsystems([event] as const, ({ event: capability }) => capability);
@@ -100,13 +108,13 @@ async function setup() {
 }
 
 const command = {
-  kind: "mutate",
+  kind: "edit",
   workspaceId: "workspace",
   invocationId: "invocation",
   actorId: "actor",
   intent: "direct",
   historyChannelId: "surface",
-  mutations: [
+  actions: [
     {
       kind: "node-create",
       occurrenceId: "node-original",
@@ -125,26 +133,18 @@ describe("transport-neutral SDK contract", () => {
 
   it("Supertag Search is a bounded serialized query with stable cursors", async () => {
     const { serialized } = await setup();
-    expect(
-      (
-        await serialized.execute({
-          ...command,
-          invocationId: "supertag-instances-setup",
-          mutations: [
-            ...nodeAtWorkspace("anime"),
-            {
-              kind: "intrinsic-node-type-declare",
-              nodeId: "anime",
-              intrinsicNodeType: "supertag-definition",
-            },
-            ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
-              ...nodeAtWorkspace(nodeId),
-              createSupertagApplication(nodeId, "anime"),
-            ]),
-          ],
-        })
-      ).status,
-    ).toBe("published");
+    const setupResult = await serialized.execute({
+      ...command,
+      invocationId: "supertag-instances-setup",
+      actions: [
+        ...nodeAtWorkspace("anime", "supertag-definition"),
+        ...["a", "b", "c", "d", "e"].flatMap((nodeId) => [
+          ...nodeAtWorkspace(nodeId),
+          createSupertagApplication(nodeId, "anime"),
+        ]),
+      ],
+    });
+    expect(setupResult.status).toBe("published");
 
     const first = await serialized.query({
       kind: "supertag-instances",
@@ -178,7 +178,7 @@ describe("transport-neutral SDK contract", () => {
         await serialized.execute({
           ...command,
           invocationId: "delete-search-supertag",
-          mutations: [{ kind: "node-delete", nodeId: "anime" }],
+          actions: [{ kind: "node-delete", nodeId: "anime" }],
         })
       ).status,
     ).toBe("published");
@@ -209,20 +209,14 @@ describe("transport-neutral SDK contract", () => {
         await serialized.execute({
           ...command,
           invocationId: "serialized-template-setup",
-          mutations: [
-            nodeAt("note-supertag", "workspace", "note-supertag-original"),
-            {
-              kind: "intrinsic-node-type-declare",
-              nodeId: "note-supertag",
-              intrinsicNodeType: "supertag-definition",
-            },
-            nodeAt("guidance", "note-supertag", "note-supertag-guidance-template-occurrence"),
+          actions: [
+            nodeAt("note-supertag", "workspace", "note-supertag-original", "supertag-definition"),
+            nodeAt("guidance", "workspace", "guidance-original"),
             nodeAt("note", "workspace", "note-occurrence"),
             {
-              kind: "supertag-template-node-add",
+              kind: "template-member-add",
               supertagId: "note-supertag",
               templateNodeId: "guidance",
-              templateOccurrenceId: "note-supertag-guidance-template-occurrence",
               anchor: end,
             },
             createSupertagApplication("note", "note-supertag"),
@@ -238,7 +232,7 @@ describe("transport-neutral SDK contract", () => {
         await serialized.execute({
           ...command,
           invocationId: "serialized-template-detach",
-          mutations: [
+          actions: [
             {
               kind: "template-node-detach",
               ownerNodeId: "note",
@@ -281,16 +275,10 @@ describe("transport-neutral SDK contract", () => {
         await serialized.execute({
           ...command,
           invocationId: "serialized-field-setup",
-          mutations: [
+          actions: [
             nodeAt("owner", "workspace", "owner-occurrence"),
-            nodeAt("supertag", "workspace", "supertag-original"),
-            nodeAt("field-definition", "workspace", "field-definition-original"),
-            { kind: "intrinsic-node-type-declare", nodeId: "supertag", intrinsicNodeType: "supertag-definition" },
-            {
-              kind: "intrinsic-node-type-declare",
-              nodeId: "field-definition",
-              intrinsicNodeType: "field-definition",
-            },
+            nodeAt("supertag", "workspace", "supertag-original", "supertag-definition"),
+            nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
             nodeAt("field-node", "owner", "field-occurrence"),
             nodeAt("value", "field-node", "value-occurrence"),
             createSupertagApplication("owner", "supertag"),
@@ -305,22 +293,17 @@ describe("transport-neutral SDK contract", () => {
         })
       ).status,
     ).toBe("published");
-    expect(
-      (
-        await serialized.execute({
-          ...command,
-          invocationId: "serialized-value-delete",
-          mutations: [
-            {
-              kind: "field-value-delete",
-              ownerNodeId: "owner",
-              fieldDefinitionId: "field-definition",
-              valueOccurrenceId: "value-occurrence",
-            },
-          ],
-        })
-      ).status,
-    ).toBe("published");
+    const valueDeletion = await serialized.execute({
+      ...command,
+      invocationId: "serialized-value-delete",
+      actions: [
+        {
+          kind: "field-value-remove",
+          valuePlacementId: "value-occurrence",
+        },
+      ],
+    });
+    expect(valueDeletion.status).toBe("published");
     expect(
       await serialized.query({
         kind: "projection",
@@ -360,13 +343,11 @@ describe("transport-neutral SDK contract", () => {
       await serialized.execute({
         ...command,
         invocationId: "reject-open-field-delete-shape",
-        mutations: [
+        actions: [
           {
-            kind: "materialized-field-delete",
+            kind: "materialized-field-clear",
             ownerNodeId: "owner",
             fieldDefinitionId: "field-definition",
-            fieldNodeId: "field-node",
-            fieldOccurrenceId: "field-occurrence",
             unknown: true,
           } as never,
         ],
@@ -380,12 +361,11 @@ describe("transport-neutral SDK contract", () => {
     const deletion = await serialized.execute({
       ...command,
       invocationId: "serialized-delete",
-      mutations: [{ kind: "node-delete", nodeId: "node" }],
+      actions: [{ kind: "node-delete", nodeId: "node" }],
     });
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
       throw new Error("Expected serialized deletion");
     }
-    const deletionFactIds = [deletion.receipt.factIds[0]];
     let preview = await serialized.query({
       kind: "hard-delete-preview",
       workspaceId: "workspace",
@@ -400,6 +380,7 @@ describe("transport-neutral SDK contract", () => {
       totalAffectedInvocations: 2,
       truncated: false,
     });
+    const deletionActionIds = preview.value.selection.deletionActionIds;
 
     expect(
       (
@@ -409,7 +390,7 @@ describe("transport-neutral SDK contract", () => {
           invocationId: "serialized-ack",
           actorId: "maintainer",
           nodeId: "node",
-          deletionFactIds,
+          deletionActionIds,
         })
       ).status,
     ).toBe("published");
@@ -437,18 +418,18 @@ describe("transport-neutral SDK contract", () => {
 
   it("wire and in-process invalid inputs reject before any authority record is written", async () => {
     const { direct, facts } = await setup();
-    const initialFactIds = facts.admission().snapshot.facts.map(({ id }) => id);
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     expect(
       await direct.execute({
         ...command,
         invocationId: "bare-node-identity",
-        mutations: [{ kind: "node-create", nodeId: "bare" }],
+        actions: [{ kind: "node-create", nodeId: "bare", ownerNodeId: "workspace", originalPlacement: null }],
       } as never),
     ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     const invalid = {
       ...command,
       invocationId: "",
-      mutations: [{ kind: "future-mutation", futureSemantic: true }],
+      actions: [{ kind: "future-action", futureSemantic: true }],
     };
     expect(await direct.execute(invalid as never)).toMatchObject({
       status: "rejected",
@@ -458,7 +439,7 @@ describe("transport-neutral SDK contract", () => {
     const wireInvalid = {
       ...command,
       invocationId: "",
-      mutations: [{ kind: "node-delete", nodeId: "node" }],
+      actions: [{ kind: "node-delete", nodeId: "node" }],
     } as const;
     const response = decodeWriteResult(await server.execute(encodeEngineCommand(wireInvalid)));
     expect(response).toMatchObject({
@@ -475,16 +456,16 @@ describe("transport-neutral SDK contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    expect(facts.admission().snapshot.facts.map(({ id }) => id)).toEqual(initialFactIds);
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
   });
 
   it("pre-send encoding failures and raw malformed envelopes are typed invalid input", async () => {
     const { direct, serialized, facts } = await setup();
-    const initialFactIds = facts.admission().snapshot.facts.map(({ id }) => id);
+    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     const invalid = {
       ...command,
-      mutations: [
+      actions: [
         {
           kind: "node-create",
           nodeId: "invalid",
@@ -506,7 +487,7 @@ describe("transport-neutral SDK contract", () => {
       const response = decodeWriteResult(await server.execute(malformedBytes));
       expect(response).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
     }
-    expect(facts.admission().snapshot.facts.map(({ id }) => id)).toEqual(initialFactIds);
+    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
   });
 

@@ -2,7 +2,7 @@ import type { ProjectedNode } from "@lode/sdk";
 
 import { CliError } from "../outcome/index.js";
 
-export const TARGET_KINDS = [
+const TARGET_KINDS = [
   "workspace",
   "node",
   "occurrence",

@@ -1,15 +1,15 @@
-import { compareFacts, type ContributionFact, type Mutation } from "../fact/index.js";
+import { compareCausalOrder, type FactAction, type AuthoredAction } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
 
 export function normalizeCompensationTargets(
-  targets: readonly ContributionFact[],
+  targets: readonly FactAction[],
   projection: ScopedProjection,
-): readonly ContributionFact[] {
-  const result: ContributionFact[] = [];
-  const grouped = new Map<string, ContributionFact[]>();
+): readonly FactAction[] {
+  const result: FactAction[] = [];
+  const grouped = new Map<string, FactAction[]>();
   for (const target of targets) {
-    const key = compensationOwner(target.body.mutation);
+    const key = compensationOwner(target.action);
     if (!key) {
       result.push(target);
       continue;
@@ -21,14 +21,11 @@ export function normalizeCompensationTargets(
   for (const group of grouped.values()) {
     result.push(...normalizeOwnerChanges(group, projection));
   }
-  return result.sort(compareFacts);
+  return result.sort(compareCausalOrder);
 }
 
-function normalizeOwnerChanges(
-  group: readonly ContributionFact[],
-  projection: ScopedProjection,
-): readonly ContributionFact[] {
-  const ordered = [...group].sort(compareFacts);
+function normalizeOwnerChanges(group: readonly FactAction[], projection: ScopedProjection): readonly FactAction[] {
+  const ordered = [...group].sort(compareCausalOrder);
   const lifecycle = lifecycleRepresentatives(ordered, projection);
   if (lifecycle) {
     return lifecycle;
@@ -38,88 +35,58 @@ function normalizeOwnerChanges(
   if (!first || !last) {
     return [];
   }
-  const firstMutation = first.body.mutation;
-  const lastMutation = last.body.mutation;
-  return [
-    {
-      ...last,
-      body: { ...last.body, mutation: restoreFirstPrevious(firstMutation, lastMutation) },
-    },
-  ];
-}
-
-function restoreFirstPrevious(first: Mutation, last: Mutation): Mutation {
-  if (first.kind === "text-mark" && last.kind === "text-mark") {
-    return { ...last, previous: first.previous };
-  }
-  if (first.kind === "occurrence-move" && last.kind === "occurrence-move") {
-    return {
-      ...last,
-      previousParentNodeId: first.previousParentNodeId,
-      previousAnchor: first.previousAnchor,
-    };
-  }
-  return first.kind === "node-owner-set" && last.kind === "node-owner-set"
-    ? { ...last, previousOwnerNodeId: first.previousOwnerNodeId }
-    : last;
+  return [last];
 }
 
 function lifecycleRepresentatives(
-  ordered: readonly ContributionFact[],
+  ordered: readonly FactAction[],
   projection: ScopedProjection,
-): readonly ContributionFact[] | null {
-  const mutation = ordered[0]?.body.mutation;
-  if (!mutation) {
+): readonly FactAction[] | null {
+  const authoredAction = ordered[0]?.action;
+  if (!authoredAction) {
     return null;
   }
-  if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
-    const location = nodeLocation(projection.identity.workspaceNodeId, projection, mutation.nodeId);
-    const active = location === "active" || (location === "absent" && projection.nodeOwners[mutation.nodeId] != null);
-    const wanted = active ? ["node-create", "node-restore"] : ["node-delete"];
-    const matching = ordered.filter((fact) => wanted.includes(fact.body.mutation.kind));
+  if (
+    authoredAction.kind === "node-create" ||
+    authoredAction.kind === "node-trash" ||
+    authoredAction.kind === "node-restore"
+  ) {
+    const location = nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId);
+    const active =
+      location === "active" || (location === "absent" && projection.nodeOwners[authoredAction.nodeId] != null);
+    const wanted = active ? ["node-create", "node-restore"] : ["node-trash"];
+    const matching = ordered.filter((fact) => wanted.includes(fact.action.kind));
     return active ? matching.slice(-1) : matching;
   }
-  if (
-    mutation.kind === "occurrence-create" ||
-    mutation.kind === "occurrence-delete" ||
-    mutation.kind === "occurrence-restore"
-  ) {
-    const wanted = projection.occurrences[mutation.occurrenceId]
-      ? ["occurrence-create", "occurrence-restore"]
-      : ["occurrence-delete"];
-    const matching = ordered.filter((fact) => wanted.includes(fact.body.mutation.kind));
-    return projection.occurrences[mutation.occurrenceId] ? matching.slice(-1) : matching;
+  if (authoredAction.kind === "placement-create" || authoredAction.kind === "placement-remove") {
+    const wanted = projection.occurrences[authoredAction.placementId] ? ["placement-create"] : ["placement-remove"];
+    const matching = ordered.filter((fact) => wanted.includes(fact.action.kind));
+    return projection.occurrences[authoredAction.placementId] ? matching.slice(-1) : matching;
   }
   return null;
 }
 
-function compensationOwner(mutation: Mutation): string | null {
-  if (mutation.kind === "node-create" || mutation.kind === "node-delete" || mutation.kind === "node-restore") {
-    return `node-lifecycle/${mutation.nodeId}`;
-  }
+function compensationOwner(authoredAction: AuthoredAction): string | null {
   if (
-    mutation.kind === "occurrence-create" ||
-    mutation.kind === "occurrence-delete" ||
-    mutation.kind === "occurrence-restore"
+    authoredAction.kind === "node-create" ||
+    authoredAction.kind === "node-trash" ||
+    authoredAction.kind === "node-restore"
   ) {
-    return `occurrence-lifecycle/${mutation.occurrenceId}`;
+    return `node-lifecycle/${authoredAction.nodeId}`;
   }
-  if (mutation.kind === "text-mark") {
-    return `mark/${mutation.nodeId}/${mutation.key}/${[...mutation.atomIds].sort().join("|")}`;
+  if (authoredAction.kind === "placement-create" || authoredAction.kind === "placement-remove") {
+    return `placement-lifecycle/${authoredAction.placementId}`;
   }
-  if (mutation.kind === "occurrence-move") {
-    return `move/${mutation.occurrenceId}`;
+  if (authoredAction.kind === "rich-text-mark") {
+    return `mark/${authoredAction.nodeId}/${authoredAction.key}/${[...authoredAction.atomIds].sort().join("|")}`;
   }
-  if (mutation.kind === "node-owner-set") {
-    return `owner/${mutation.nodeId}`;
+  if (authoredAction.kind === "placement-move") {
+    return `move/${authoredAction.placementId}`;
   }
-  if (mutation.kind === "intrinsic-node-type-declare") {
-    return `intrinsic-node-type/${mutation.nodeId}`;
+  if (authoredAction.kind === "supertag-application-add" || authoredAction.kind === "supertag-membership-remove") {
+    return `supertag-membership/${authoredAction.hostNodeId}/${authoredAction.supertagId}`;
   }
-  if (mutation.kind === "supertag-apply" || mutation.kind === "supertag-remove") {
-    return `supertag-application/${mutation.applicationNodeId}`;
-  }
-  return mutation.kind === "supertag-extension-add" || mutation.kind === "supertag-extension-remove"
-    ? `supertag-extension/${mutation.supertagId}/${mutation.baseSupertagId}`
+  return authoredAction.kind === "supertag-extension-add" || authoredAction.kind === "supertag-extension-remove"
+    ? `supertag-extension/${authoredAction.supertagId}/${authoredAction.baseSupertagId}`
     : null;
 }

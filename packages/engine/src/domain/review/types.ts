@@ -1,5 +1,5 @@
 import type {
-  ContributionId,
+  FactActionId,
   FactFrontier,
   PreviousValue,
   IntrinsicNodeType,
@@ -9,6 +9,7 @@ import type {
   ViewOptionsSpec,
   ViewType,
   FieldInitializationExpression,
+  SearchClause,
 } from "../fact/index.js";
 import type { InlineReferenceTargetStatus } from "../reconcile/index.js";
 
@@ -25,7 +26,7 @@ export type TextDecisionEffect = Readonly<{
   }>[];
 }>;
 
-export type StructureDecisionEffect = Readonly<{
+type StructureDecisionEffect = Readonly<{
   kind: "structure";
   occurrenceId: string;
   originPresent: boolean;
@@ -43,7 +44,7 @@ export type PlacementRelation = Readonly<{
   beforeEndpoint: "before" | "after" | "missing" | null;
 }>;
 
-export type LifecycleDecisionEffect = Readonly<{
+type LifecycleDecisionEffect = Readonly<{
   kind: "lifecycle";
   identity: string;
   origin: boolean | null;
@@ -57,7 +58,7 @@ export type OwnerDecisionEffect = Readonly<{
   review: string | null;
 }>;
 
-export type IntrinsicNodeTypeDecisionEffect = Readonly<{
+type IntrinsicNodeTypeDecisionEffect = Readonly<{
   kind: "intrinsic-node-type";
   identity: string;
   origin: IntrinsicNodeType | null;
@@ -66,7 +67,14 @@ export type IntrinsicNodeTypeDecisionEffect = Readonly<{
 
 export type SupertagRelationDecisionEffect = Readonly<{
   kind: "supertag-relation";
-  relation: "application" | "extension" | "template-node" | "template-field-visibility";
+  relation:
+    | "application"
+    | "extension"
+    | "template-node"
+    | "template-field"
+    | "template-field-visibility"
+    | "template-field-static-default"
+    | "optional-field";
   ownerId: string;
   targetId: string;
   originIndex: number | null;
@@ -103,16 +111,30 @@ export type ViewDefinitionDecisionState = Readonly<{
   attachmentNodeId: string;
   attachmentOccurrenceId: string;
   viewType: ViewType;
-  sortByNameAscending: boolean;
   options: ViewOptionsSpec;
   optionsConflicted: boolean;
 }>;
 
 export type ViewDefinitionDecisionEffect = Readonly<{
   kind: "view-definition";
-  viewDefinitionNodeId: string;
+  viewId: FactActionId;
   origin: ViewDefinitionDecisionState | null;
   review: ViewDefinitionDecisionState | null;
+}>;
+
+export type SearchExpressionDecisionState = Readonly<{
+  present: boolean;
+  hostId: string | null;
+  parentExpressionId: FactActionId | null;
+  anchor: SequenceAnchor | null;
+  clause: SearchClause | null;
+}>;
+
+export type SearchExpressionDecisionEffect = Readonly<{
+  kind: "search-expression";
+  expressionId: FactActionId;
+  origin: SearchExpressionDecisionState | null;
+  review: SearchExpressionDecisionState | null;
 }>;
 
 export type FieldDefinitionConfigurationDecisionState =
@@ -124,7 +146,7 @@ export type FieldDefinitionConfigurationDecisionState =
 export type FieldDefinitionConfigurationDecisionEffect = Readonly<{
   kind: "field-definition-configuration";
   fieldDefinitionId: string;
-  configurationNodeId: string;
+  configurationKind: FieldDefinitionConfigurationDecisionState["kind"];
   origin: FieldDefinitionConfigurationDecisionState | null;
   review: FieldDefinitionConfigurationDecisionState | null;
 }>;
@@ -138,12 +160,13 @@ export type DecisionEffect =
   | SupertagRelationDecisionEffect
   | FieldMaterializationDecisionEffect
   | InlineReferenceDecisionEffect
+  | SearchExpressionDecisionEffect
   | ViewDefinitionDecisionEffect
   | FieldDefinitionConfigurationDecisionEffect;
 
 export type DecisionEvidence = Readonly<{
-  proposalTargets: readonly ContributionId[];
-  supportClosure: readonly ContributionId[];
+  proposalTargets: readonly FactActionId[];
+  supportClosure: readonly FactActionId[];
   effects: readonly DecisionEffect[];
   associatedImpactIds: readonly string[];
   rulesVersion: string;
@@ -170,11 +193,12 @@ export type ReviewHunk = Readonly<{
       | "supertag-template"
       | "materialized-field"
       | "inline-reference"
+      | "search-expression"
       | "view-definition"
       | "field-definition-configuration";
     identity: string;
   }>;
-  proposalContributionIds: readonly ContributionId[];
+  proposalActionIds: readonly FactActionId[];
   neutralBridgeAtomIds: readonly TextAtomId[];
   linkedHunkIds: readonly string[];
   selection: ReviewSelection;

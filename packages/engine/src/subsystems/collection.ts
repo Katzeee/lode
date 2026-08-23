@@ -38,7 +38,7 @@ export class EngineSubsystemLifecycleError extends Error {
   }
 }
 
-export class EngineSubsystemCollection {
+class EngineSubsystemCollection {
   private startPromise: Promise<void> | undefined;
   private stopPromise: Promise<void> | undefined;
   private rollbackFailure: EngineSubsystemLifecycleError | undefined;

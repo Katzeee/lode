@@ -1,46 +1,52 @@
-import { compareFacts, type ContributionFact, type FactSnapshot, type ProjectionPerspective } from "../fact/index.js";
-import { deriveActiveContributions, deriveSupport } from "../activation/index.js";
+import {
+  compareCausalOrder,
+  factActionsFromFacts,
+  type FactAction,
+  type FactSnapshot,
+  type ProjectionPerspective,
+} from "../fact/index.js";
+import { deriveActivation, deriveSupport } from "../activation/index.js";
 import type { ProjectionPlanCache } from "./projection-types.js";
 
-export function activeContributions(
+export function activeFactActions(
   snapshot: FactSnapshot,
   perspective: ProjectionPerspective,
-): Readonly<{ facts: readonly ContributionFact[]; cache: ProjectionPlanCache }> {
-  const { facts, activation } = deriveActiveContributions(snapshot.facts, perspective);
+): Readonly<{ actions: readonly FactAction[]; cache: ProjectionPlanCache }> {
+  const allActions = factActionsFromFacts(snapshot.facts);
+  const activation = deriveActivation(snapshot.facts, perspective, allActions);
+  const actions = allActions.filter((action) => activation.activeActionIds.has(action.id)).sort(compareCausalOrder);
   return {
-    facts,
+    actions,
     cache: {
-      activeContributionIds: facts.map((fact) => fact.id),
-      supportByContribution: Object.fromEntries(activation.supportByContribution),
-      supportPasses: activation.convergencePasses,
+      activeActionIds: actions.map((action) => action.id),
+      supportByAction: Object.fromEntries(activation.supportByAction),
     },
   };
 }
 
-export function activeFactsFromCache(
+export function activeActionsFromCache(
   snapshot: FactSnapshot,
   previous: ProjectionPlanCache,
-  tail: readonly ContributionFact[],
-): readonly ContributionFact[] {
-  const ids = new Set([...previous.activeContributionIds, ...tail.map((fact) => fact.id)]);
-  return snapshot.facts
-    .filter((fact): fact is ContributionFact => fact.body.kind === "contribution" && ids.has(fact.id))
-    .sort(compareFacts);
+  tail: readonly FactAction[],
+): readonly FactAction[] {
+  const ids = new Set([...previous.activeActionIds, ...tail.map((fact) => fact.id)]);
+  return factActionsFromFacts(snapshot.facts)
+    .filter((fact) => ids.has(fact.id))
+    .sort(compareCausalOrder);
 }
 
 export function incrementalPlanCache(
   previous: ProjectionPlanCache,
-  tail: readonly ContributionFact[],
+  tail: readonly FactAction[],
   snapshot: FactSnapshot,
 ): ProjectionPlanCache {
-  const active = activeFactsFromCache(snapshot, previous, tail);
+  const active = activeActionsFromCache(snapshot, previous, tail);
   const support = deriveSupport(active, new Set(active.map((fact) => fact.id)));
   return {
-    activeContributionIds: [...previous.activeContributionIds, ...tail.map((fact) => fact.id)],
-    supportByContribution: {
-      ...previous.supportByContribution,
+    activeActionIds: [...previous.activeActionIds, ...tail.map((fact) => fact.id)],
+    supportByAction: {
+      ...previous.supportByAction,
       ...Object.fromEntries(tail.map((fact) => [fact.id, support.get(fact.id) ?? []])),
     },
-    supportPasses: previous.supportPasses,
   };
 }

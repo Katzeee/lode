@@ -5,10 +5,9 @@ package lode;
 import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
 
-// Signed workspace governance: Actor membership, Peer admission, transit
-// rotation, ownership transfer, and Workspace adoption. All RPCs run on the
-// daemon's local control plane; the acting Actor's attribution signature is
-// produced inside the Engine from the unlocked vault.
+// Workspace governance: Actor membership, Peer admission, transit rotation,
+// ownership transfer, and Workspace adoption. All RPCs run on the daemon's
+// local control plane, which requires the acting Actor to be unlocked.
 service WorkspaceGovernanceService {
   rpc Summary(GovernanceSummaryRequest) returns (GovernanceSummary);
   rpc AdmitActor(AdmitActorRequest) returns (google.protobuf.Empty);

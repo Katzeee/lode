@@ -13,19 +13,15 @@ export type WorkspaceStaging = Readonly<{
   discard(): Promise<void>;
 }>;
 
-export async function createWorkspaceStaging(
-  workspaceId: string,
-  stagedStorage: WorkspaceStorageStage,
-  signFact: (digest: string, actorId: string) => string,
-) {
-  const workspace = await createWorkspaceFromStorage(stagedStorage.storage, { eventSink: silentEvents, signFact });
+export async function createWorkspaceStaging(workspaceId: string, stagedStorage: WorkspaceStorageStage) {
+  const workspace = await createWorkspaceFromStorage(stagedStorage.storage, { eventSink: silentEvents });
   const replica = createWorkspaceReplica(workspace);
 
   return {
     workspace,
     replica,
     promote: async () => {
-      validateWorkspaceSnapshot(workspaceId, workspace.facts.admission().snapshot);
+      validateWorkspaceSnapshot(workspaceId, workspace.facts.snapshot());
       await workspace.close();
       return stagedStorage.promote();
     },

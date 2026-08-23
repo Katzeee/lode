@@ -1,17 +1,4 @@
-import type {
-  ContributionBody,
-  FactTransactionPlan,
-  FactFrontier,
-  HistoryChannelId,
-  InvocationId,
-  Mutation,
-} from "../fact/index.js";
-
-export type HistoryEvidence = Readonly<{
-  targetInvocationId: InvocationId;
-  targetFactIds: readonly string[];
-  compensations: readonly Mutation[];
-}>;
+import type { FactId, HistoryChannelId, InvocationId, ReceiptInverseBatch } from "../fact/index.js";
 
 export type HistorySelection = Readonly<{
   token: string;
@@ -20,8 +7,7 @@ export type HistorySelection = Readonly<{
   targetInvocationId: InvocationId;
   headInvocationId: InvocationId | null;
   headOrdinal: number;
-  frontier: FactFrontier;
-  evidence: HistoryEvidence;
+  targetFactIds: readonly FactId[];
 }>;
 
 export type HistoryQuery = Readonly<{
@@ -33,7 +19,7 @@ export type HistoryQuery = Readonly<{
 export type HistoryPlan =
   | Readonly<{
       kind: "ready";
-      write: FactTransactionPlan<ContributionBody>;
+      writes: readonly ReceiptInverseBatch[];
       targetInvocationId: InvocationId;
     }>
   | Readonly<{ kind: "unavailable"; reason: string }>

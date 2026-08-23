@@ -1,4 +1,4 @@
-import type { EditMutation, OutlineResult } from "@lode/sdk";
+import type { EditAction, OutlineResult } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView, type CommandResult, type HumanView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -70,7 +70,7 @@ const nodeCreate: CommandDefinition = {
       args.option("--after"),
     );
     const nodeId = identity(context.requestId, "node");
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "node-create",
         nodeId,
@@ -80,7 +80,7 @@ const nodeCreate: CommandDefinition = {
         seed: { text: [{ value: text, attributes: {} }] },
       },
     ];
-    const { result, data } = await executeWrite(context, "node.create", mutations);
+    const { result, data } = await executeWrite(context, "node.create", actions);
     const resource = descriptor(workspaceId, "node", nodeId, text);
     return writeResult(data, result, {
       extra: { target: resource },

@@ -1,4 +1,5 @@
 import { array, exact, nonempty, object } from "../../decoding/index.js";
+import { requireFactActionId } from "../fact/index.js";
 import type {
   MaterializedField,
   OptionalFieldContribution,
@@ -62,10 +63,12 @@ function templateField(value: unknown): TemplateField {
       "staticDefaultValueNodeId",
       "staticDefaultValueOccurrenceId",
       "fieldDefinitionOwner",
-      "contributionId",
+      "factActionId",
       "visibility",
       "visibilityCandidates",
       "visibilityConflicted",
+      "staticDefaultCandidates",
+      "staticDefaultConflicted",
     ],
     "Template Field",
   );
@@ -78,6 +81,9 @@ function templateField(value: unknown): TemplateField {
   if (typeof item.visibilityConflicted !== "boolean") {
     throw new Error("Template Field visibility conflict flag is invalid");
   }
+  if (typeof item.staticDefaultConflicted !== "boolean") {
+    throw new Error("Template Field static default conflict flag is invalid");
+  }
   return {
     supertagId: identity(item.supertagId),
     templateFieldNodeId: identity(item.templateFieldNodeId),
@@ -87,17 +93,36 @@ function templateField(value: unknown): TemplateField {
     staticDefaultValueNodeId: identity(item.staticDefaultValueNodeId),
     staticDefaultValueOccurrenceId: identity(item.staticDefaultValueOccurrenceId),
     fieldDefinitionOwner: item.fieldDefinitionOwner,
-    contributionId: identity(item.contributionId),
+    factActionId: requireFactActionId(item.factActionId, "Supertag application action identity"),
     visibility: item.visibility,
     visibilityCandidates: array(item.visibilityCandidates, "Template Field visibility candidates", (candidateValue) => {
       const candidate = object(candidateValue, "Template Field visibility candidate");
-      exact(candidate, ["visibility", "contributionId"], "Template Field visibility candidate");
+      exact(candidate, ["visibility", "factActionId"], "Template Field visibility candidate");
       if (candidate.visibility !== "normal" && candidate.visibility !== "pinned") {
         throw new Error("Template Field visibility candidate is invalid");
       }
-      return { visibility: candidate.visibility, contributionId: identity(candidate.contributionId) };
+      return {
+        visibility: candidate.visibility,
+        factActionId: requireFactActionId(candidate.factActionId, "Template Field visibility action identity"),
+      };
     }),
     visibilityConflicted: item.visibilityConflicted,
+    staticDefaultCandidates: array(
+      item.staticDefaultCandidates,
+      "Template Field static default candidates",
+      (candidateValue) => {
+        const candidate = object(candidateValue, "Template Field static default candidate");
+        exact(candidate, ["value", "factActionId"], "Template Field static default candidate");
+        if (typeof candidate.value !== "string") {
+          throw new Error("Template Field static default candidate value is invalid");
+        }
+        return {
+          value: candidate.value,
+          factActionId: requireFactActionId(candidate.factActionId, "Template Field static default action identity"),
+        };
+      },
+    ),
+    staticDefaultConflicted: item.staticDefaultConflicted,
   };
 }
 
@@ -118,7 +143,7 @@ function optionalFieldContribution(value: unknown): OptionalFieldContribution {
       "definitionOccurrenceId",
       "valueNodeId",
       "valueOccurrenceId",
-      "contributionId",
+      "factActionId",
     ],
     "Optional Field Contribution",
   );
@@ -135,7 +160,7 @@ function optionalFieldContribution(value: unknown): OptionalFieldContribution {
     definitionOccurrenceId: identity(item.definitionOccurrenceId),
     valueNodeId: identity(item.valueNodeId),
     valueOccurrenceId: identity(item.valueOccurrenceId),
-    contributionId: identity(item.contributionId),
+    factActionId: requireFactActionId(item.factActionId, "Optional Field action identity"),
   };
 }
 
@@ -150,7 +175,7 @@ function supertagApplication(value: unknown): SupertagApplication {
       "applicationOccurrenceId",
       "relationDefinitionOccurrenceId",
       "definitionOccurrenceId",
-      "contributionId",
+      "factActionId",
     ],
     "Supertag Application",
   );
@@ -161,7 +186,7 @@ function supertagApplication(value: unknown): SupertagApplication {
     applicationOccurrenceId: identity(item.applicationOccurrenceId),
     relationDefinitionOccurrenceId: identity(item.relationDefinitionOccurrenceId),
     definitionOccurrenceId: identity(item.definitionOccurrenceId),
-    contributionId: identity(item.contributionId),
+    factActionId: requireFactActionId(item.factActionId, "Materialized Field action identity"),
   };
 }
 

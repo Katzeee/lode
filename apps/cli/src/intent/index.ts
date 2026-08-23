@@ -1,15 +1,14 @@
-import type { EditMutation, WriteResult } from "@lode/sdk";
+import type { EditAction, WriteResult } from "@lode/sdk";
 
 import { CliError, engineWriteFailure, type CommandResult, type HumanView } from "../outcome/index.js";
 import type { CommandContext } from "../invocation/index.js";
-import type { DesktopSession } from "../session/index.js";
 
 /**
  * CLI write-intent conventions: one user action is one Engine invocation on
  * the stable `cli` History channel, identified by the invocation's request id
- * so retries with the same request deduplicate engine-side. Relation
- * identities derive from the request id, keeping a retried invocation
- * byte-identical.
+ * so retries with the same request deduplicate engine-side. User-provided
+ * Node identities derive from the request id, keeping retries byte-identical;
+ * semantic relation identities belong to the Fact authority.
  */
 
 export const CLI_HISTORY_CHANNEL = "cli";
@@ -44,16 +43,16 @@ export type WriteOutcomeData = Readonly<{
 export async function executeWrite(
   context: CommandContext,
   action: string,
-  mutations: readonly EditMutation[],
+  actions: readonly EditAction[],
 ): Promise<Readonly<{ result: WriteResult; data: WriteOutcomeData }>> {
   const command = {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: workspaceIdOf(context),
     invocationId: invocationId(context.requestId),
     actorId: actorIdOf(context),
     intent: context.intent,
     historyChannelId: CLI_HISTORY_CHANNEL,
-    mutations,
+    actions,
   } as const;
   const result = await context.session.application.execute(command);
   const data: WriteOutcomeData = { intent: context.intent, requestId: context.requestId, action };
@@ -103,20 +102,7 @@ export function invocationId(requestId: string): string {
   return `cli/${requestId}`;
 }
 
-/** Derives a retry-stable identity for a CLI-authored relation. */
+/** Derives a retry-stable identity for a CLI-authored Node. */
 export function identity(requestId: string, role: string): string {
   return `${requestId}/${role}`;
-}
-
-export function requirePublished(result: WriteResult): void {
-  if (result.status === "rejected") {
-    throw engineWriteFailure(result);
-  }
-}
-
-export function ensureSession(session: DesktopSession): DesktopSession {
-  if (session === undefined) {
-    throw new CliError("internal", "Session was not initialized");
-  }
-  return session;
 }

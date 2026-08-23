@@ -1,163 +1,113 @@
-import {
-  canonicalJson,
-  compareFacts,
-  isFieldDefinitionConfigMutation,
-  type ContributionFact,
-  type Mutation,
-} from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import { canonicalJson, isFieldDefinitionAction, type AuthoredAction, type FactAction } from "../fact/index.js";
+import type { FieldDefinitionConfiguration, ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateFieldDefinitionConfiguration(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
+  target: FactAction,
+  projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep | null {
-  const mutation = target.body.mutation;
-  if (!isFieldDefinitionConfigMutation(mutation)) {
+  if (!isFieldDefinitionAction(target.action)) {
     return null;
   }
-  const hasPrevious =
-    mutation.kind === "field-datatype-configure"
-      ? mutation.previousDatatypeNodeId != null
-      : mutation.kind === "field-cardinality-configure"
-        ? mutation.previousCardinalityNodeId != null
-        : mutation.kind === "field-optionality-configure"
-          ? mutation.previousOptionalityNodeId != null
-          : mutation.previousExpression != null;
-  if (!hasPrevious) {
+  const action = target.action;
+  if (action.kind === "field-configuration-set") {
     return noCompensation();
   }
-  const changedLater = activeFacts.some((fact) => {
-    const candidate = fact.body.mutation;
-    return (
-      compareFacts(target, fact) < 0 &&
-      isFieldDefinitionConfigMutation(candidate) &&
-      candidate.kind === mutation.kind &&
-      candidate.configurationNodeId === mutation.configurationNodeId
+  if (action.kind === "field-definition-return-to-template-field") {
+    return {
+      kind: "ready",
+      actions: [{ kind: "field-definition-make-discoverable", fieldDefinitionId: action.fieldDefinitionId }],
+    };
+  }
+  const previousOwner = Object.values(counterfactual.templateFields)
+    .flat()
+    .find(
+      (field) =>
+        field.fieldDefinitionId === action.fieldDefinitionId && field.fieldDefinitionOwner === "template-field",
     );
-  });
-  if (changedLater) {
+  if (previousOwner === undefined || hasOtherUses(projection, action.fieldDefinitionId, previousOwner.factActionId)) {
     return noCompensation();
   }
-  let compensation: Mutation;
-  if (mutation.kind === "field-datatype-configure") {
-    if (mutation.previousDatatypeNodeId == null) {
-      return noCompensation();
-    }
-    compensation = {
-      ...mutation,
-      datatypeNodeId: mutation.previousDatatypeNodeId,
-      previousDatatypeNodeId: mutation.datatypeNodeId,
-      observedValueFactIds: [target.id],
-    };
-  } else if (mutation.kind === "field-cardinality-configure") {
-    if (mutation.previousCardinalityNodeId == null) {
-      return noCompensation();
-    }
-    compensation = {
-      ...mutation,
-      cardinalityNodeId: mutation.previousCardinalityNodeId,
-      previousCardinalityNodeId: mutation.cardinalityNodeId,
-      observedValueFactIds: [target.id],
-    };
-  } else if (mutation.kind === "field-optionality-configure") {
-    if (mutation.previousOptionalityNodeId == null) {
-      return noCompensation();
-    }
-    compensation = {
-      ...mutation,
-      optionalityNodeId: mutation.previousOptionalityNodeId,
-      previousOptionalityNodeId: mutation.optionalityNodeId,
-      observedValueFactIds: [target.id],
-    };
-  } else {
-    if (mutation.previousExpression == null) {
-      return noCompensation();
-    }
-    compensation = {
-      ...mutation,
-      expression: mutation.previousExpression,
-      previousExpression: mutation.expression,
-      observedValueFactIds: [target.id],
-    };
-  }
-  return { kind: "ready", mutations: [compensation] };
+  return {
+    kind: "ready",
+    actions: [
+      {
+        kind: "field-definition-return-to-template-field",
+        fieldDefinitionId: action.fieldDefinitionId,
+        templateFieldId: previousOwner.factActionId,
+      },
+    ],
+  };
 }
 
 export function fieldDefinitionConfigurationCompensations(
   current: ScopedProjectionGeneration["origin"],
   counterfactual: ScopedProjectionGeneration["origin"],
-  planned: readonly Mutation[],
-): readonly Mutation[] {
-  const result: Mutation[] = [];
+  planned: readonly AuthoredAction[],
+): readonly AuthoredAction[] {
+  const result: AuthoredAction[] = [];
   for (const [fieldDefinitionId, configurations] of Object.entries(counterfactual.fieldDefinitionConfigurations)) {
     for (const configuration of configurations) {
       const previous = current.fieldDefinitionConfigurations[fieldDefinitionId]?.find(
-        (candidate) => candidate.configurationNodeId === configuration.configurationNodeId,
+        (candidate) => candidate.kind === configuration.kind,
       );
       if (
         previous === undefined ||
-        previous.contributionId === configuration.contributionId ||
-        sameConfigurationState(previous, configuration) ||
+        sameConfigurationValue(previous, configuration) ||
         planned.some(
-          (mutation) =>
-            isFieldDefinitionConfigMutation(mutation) &&
-            mutation.configurationNodeId === configuration.configurationNodeId,
+          (action) =>
+            action.kind === "field-configuration-set" &&
+            action.fieldDefinitionId === fieldDefinitionId &&
+            action.configuration.kind === configuration.kind,
         )
       ) {
         continue;
       }
-      if (configuration.kind === "datatype" && previous.kind === "datatype") {
-        result.push({
-          kind: "field-datatype-configure",
-          fieldDefinitionId,
-          configurationNodeId: configuration.configurationNodeId,
-          configurationOccurrenceId: configuration.configurationOccurrenceId,
-          datatypeNodeId: configuration.datatypeNodeId,
-          previousDatatypeNodeId: previous.datatypeNodeId,
-          observedValueFactIds: [previous.contributionId],
-        });
-      } else if (configuration.kind === "cardinality" && previous.kind === "cardinality") {
-        result.push({
-          kind: "field-cardinality-configure",
-          fieldDefinitionId,
-          configurationNodeId: configuration.configurationNodeId,
-          configurationOccurrenceId: configuration.configurationOccurrenceId,
-          cardinalityNodeId: configuration.cardinalityNodeId,
-          previousCardinalityNodeId: previous.cardinalityNodeId,
-          observedValueFactIds: [previous.contributionId],
-        });
-      } else if (configuration.kind === "optionality" && previous.kind === "optionality") {
-        result.push({
-          kind: "field-optionality-configure",
-          fieldDefinitionId,
-          configurationNodeId: configuration.configurationNodeId,
-          configurationOccurrenceId: configuration.configurationOccurrenceId,
-          optionalityNodeId: configuration.optionalityNodeId,
-          previousOptionalityNodeId: previous.optionalityNodeId,
-          observedValueFactIds: [previous.contributionId],
-        });
-      } else if (configuration.kind === "initialization-expression" && previous.kind === "initialization-expression") {
-        result.push({
-          kind: "field-initialization-expression-configure",
-          fieldDefinitionId,
-          configurationNodeId: configuration.configurationNodeId,
-          configurationOccurrenceId: configuration.configurationOccurrenceId,
-          expression: configuration.expression,
-          previousExpression: previous.expression,
-          observedValueFactIds: [previous.contributionId],
-        });
-      }
+      result.push({
+        kind: "field-configuration-set",
+        fieldDefinitionId,
+        configuration: configurationValue(configuration),
+      });
     }
   }
   return result;
 }
 
-function sameConfigurationState(
-  left: ScopedProjectionGeneration["origin"]["fieldDefinitionConfigurations"][string][number],
-  right: ScopedProjectionGeneration["origin"]["fieldDefinitionConfigurations"][string][number],
-): boolean {
-  const { contributionId: _leftContributionId, ...leftState } = left;
-  const { contributionId: _rightContributionId, ...rightState } = right;
-  return canonicalJson(leftState) === canonicalJson(rightState);
+function hasOtherUses(projection: ScopedProjection, fieldDefinitionId: string, templateFieldId: string): boolean {
+  return (
+    Object.values(projection.templateFields)
+      .flat()
+      .some((field) => field.fieldDefinitionId === fieldDefinitionId && field.factActionId !== templateFieldId) ||
+    Object.values(projection.optionalFieldContributions)
+      .flat()
+      .some((field) => field.fieldDefinitionId === fieldDefinitionId)
+  );
+}
+
+function configurationValue(configuration: FieldDefinitionConfiguration) {
+  if (configuration.kind === "datatype") {
+    return {
+      kind: "datatype" as const,
+      datatypeNodeId: configuration.datatypeNodeId,
+      ...(configuration.optionsSupertagId === null ? {} : { optionsSupertagId: configuration.optionsSupertagId }),
+    };
+  }
+  if (configuration.kind === "cardinality") {
+    return { kind: "cardinality" as const, cardinalityNodeId: configuration.cardinalityNodeId };
+  }
+  if (configuration.kind === "optionality") {
+    return { kind: "optionality" as const, optionalityNodeId: configuration.optionalityNodeId };
+  }
+  return {
+    kind: "initialization-expression" as const,
+    expression: {
+      kind: configuration.expression.kind,
+      sourceFieldDefinitionId: configuration.expression.sourceFieldDefinitionId,
+    },
+  };
+}
+
+function sameConfigurationValue(left: FieldDefinitionConfiguration, right: FieldDefinitionConfiguration): boolean {
+  return canonicalJson(configurationValue(left)) === canonicalJson(configurationValue(right));
 }

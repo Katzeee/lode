@@ -1,8 +1,8 @@
 import {
-  compareFacts,
+  compareCausalOrder,
   fieldDefinitionEndpointOccurrenceId,
   stableStringCompare,
-  type ContributionFact,
+  type FactAction,
 } from "../fact/index.js";
 import type { MaterializedField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
@@ -10,7 +10,7 @@ import { appendUnique, materializedFieldRecord } from "./supertag-relation-recor
 import { projectTuple } from "./tuple.js";
 
 export function projectMaterializedFields(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   existingNodeIds: ReadonlySet<string>,
   fieldDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
@@ -32,7 +32,7 @@ export function projectMaterializedFields(
     compareCandidateGroups(left, right, occurrences, childOccurrences),
   )) {
     const available = ownerCandidates
-      .sort((left, right) => compareFacts(left.fact, right.fact))
+      .sort((left, right) => compareCausalOrder(left.fact, right.fact))
       .filter(
         (candidate) => !claimedNodes.has(candidate.fieldNodeId) && !claimedOccurrences.has(candidate.fieldOccurrenceId),
       );
@@ -63,7 +63,7 @@ export function projectMaterializedFields(
 }
 
 function collectCandidates(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   existingNodeIds: ReadonlySet<string>,
   fieldDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
@@ -72,36 +72,36 @@ function collectCandidates(
 ): ReadonlyMap<string, MaterializationCandidate[]> {
   const candidates = new Map<string, MaterializationCandidate[]>();
   for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "field-materialize") {
+    const authoredAction = fact.action;
+    if (authoredAction.kind !== "field-materialize") {
       continue;
     }
-    const occurrence = occurrences.get(mutation.fieldOccurrenceId);
-    const tuple = projectTuple(mutation.fieldNodeId, occurrences, childOccurrences, nodeOwners);
+    const occurrence = occurrences.get(authoredAction.fieldOccurrenceId);
+    const tuple = projectTuple(authoredAction.fieldNodeId, occurrences, childOccurrences, nodeOwners);
     const definitionEndpoint = tuple.endpoints[0];
     if (
-      !existingNodeIds.has(mutation.ownerNodeId) ||
-      !existingNodeIds.has(mutation.fieldNodeId) ||
-      !fieldDefinitionIds.has(mutation.fieldDefinitionId) ||
-      occurrence?.nodeId !== mutation.fieldNodeId ||
-      occurrence.parentNodeId !== mutation.ownerNodeId ||
-      tuple.ownerNodeId !== mutation.ownerNodeId ||
-      definitionEndpoint?.occurrenceId !== fieldDefinitionEndpointOccurrenceId(mutation.fieldOccurrenceId) ||
-      definitionEndpoint.nodeId !== mutation.fieldDefinitionId ||
-      nodeOwners[mutation.fieldDefinitionId] === mutation.fieldNodeId
+      !existingNodeIds.has(authoredAction.ownerNodeId) ||
+      !existingNodeIds.has(authoredAction.fieldNodeId) ||
+      !fieldDefinitionIds.has(authoredAction.fieldDefinitionId) ||
+      occurrence?.nodeId !== authoredAction.fieldNodeId ||
+      occurrence.parentNodeId !== authoredAction.ownerNodeId ||
+      tuple.ownerNodeId !== authoredAction.ownerNodeId ||
+      definitionEndpoint?.occurrenceId !== fieldDefinitionEndpointOccurrenceId(authoredAction.fieldOccurrenceId) ||
+      definitionEndpoint.nodeId !== authoredAction.fieldDefinitionId ||
+      nodeOwners[authoredAction.fieldDefinitionId] === authoredAction.fieldNodeId
     ) {
       continue;
     }
-    const key = `${encodeURIComponent(mutation.ownerNodeId)}/${encodeURIComponent(mutation.fieldDefinitionId)}`;
+    const key = `${encodeURIComponent(authoredAction.ownerNodeId)}/${encodeURIComponent(authoredAction.fieldDefinitionId)}`;
     const values = candidates.get(key) ?? [];
-    values.push({ fact, ...mutation });
+    values.push({ fact, ...authoredAction });
     candidates.set(key, values);
   }
   return candidates;
 }
 
 type MaterializationCandidate = Readonly<{
-  fact: ContributionFact;
+  fact: FactAction;
   ownerNodeId: string;
   fieldDefinitionId: string;
   fieldNodeId: string;

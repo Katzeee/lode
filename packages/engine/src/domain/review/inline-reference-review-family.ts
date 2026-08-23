@@ -1,55 +1,52 @@
-import { canonicalJson, compareFacts, type ContributionFact } from "../fact/index.js";
+import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
 import { locateInlineReference, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { InlineReferenceDecisionEffect, InlineReferenceDecisionState } from "./types.js";
 
-const INLINE_REFERENCE_MUTATION_KINDS = [
+const INLINE_REFERENCE_ACTION_KINDS = [
   "inline-reference-create",
-  "inline-reference-delete",
-  "inline-reference-alias-attach",
-  "inline-reference-alias-detach",
+  "inline-reference-remove",
+  "inline-alias-attach",
+  "inline-alias-detach",
 ] as const;
 
 export const inlineReferenceReviewFamily = {
   key: "inline-reference",
-  mutationKinds: INLINE_REFERENCE_MUTATION_KINDS,
+  actionKinds: INLINE_REFERENCE_ACTION_KINDS,
   scopes(fact) {
-    const mutation = fact.body.mutation;
-    if (!isInlineReferenceMutation(mutation)) {
-      throw new Error("Inline Reference Review family received another Mutation family");
+    const action = fact.action;
+    if (!isInlineReferenceAction(action)) {
+      throw new Error("Inline Reference Review family received another AuthoredAction family");
     }
     return [
-      reviewScope("inline-reference", mutation.inlineReferenceId),
-      ...(mutation.kind === "inline-reference-create"
-        ? [associatedNodeScope(mutation.hostNodeId), associatedNodeScope(mutation.targetNodeId)]
-        : mutation.kind === "inline-reference-delete"
-          ? [
-              ...(mutation.previousHostNodeId ? [associatedNodeScope(mutation.previousHostNodeId)] : []),
-              ...(mutation.previousTargetNodeId ? [associatedNodeScope(mutation.previousTargetNodeId)] : []),
-            ]
-          : [associatedNodeScope(mutation.aliasNodeId)]),
+      reviewScope("inline-reference", action.inlineReferenceId),
+      ...(action.kind === "inline-reference-create"
+        ? [associatedNodeScope(action.hostNodeId), associatedNodeScope(action.targetNodeId)]
+        : action.kind === "inline-reference-remove"
+          ? []
+          : [associatedNodeScope(action.aliasNodeId)]),
     ];
   },
   candidates: ({ generation, pending }) => inlineReferenceCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const mutation = fact.body.mutation;
-    if (!isInlineReferenceMutation(mutation)) {
-      throw new Error("Inline Reference Review family received another Mutation family");
+    const action = fact.action;
+    if (!isInlineReferenceAction(action)) {
+      throw new Error("Inline Reference Review family received another AuthoredAction family");
     }
-    const effect = inlineReferenceEffect(mutation.inlineReferenceId, generation);
+    const effect = inlineReferenceEffect(action.inlineReferenceId, generation);
     return canonicalJson(effect.origin) === canonicalJson(effect.review)
       ? null
-      : { identity: `inline-reference/${mutation.inlineReferenceId}`, effect };
+      : { identity: `inline-reference/${action.inlineReferenceId}`, effect };
   },
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
-      const mutation = fact.body.mutation;
-      if (!isInlineReferenceMutation(mutation)) {
+      const action = fact.action;
+      if (!isInlineReferenceAction(action)) {
         continue;
       }
-      impacts.add(mutation.inlineReferenceId);
-      const effect = inlineReferenceEffect(mutation.inlineReferenceId, generation);
+      impacts.add(action.inlineReferenceId);
+      const effect = inlineReferenceEffect(action.inlineReferenceId, generation);
       for (const state of [effect.origin, effect.review]) {
         if (state) {
           impacts.add(state.hostNodeId);
@@ -65,17 +62,17 @@ export const inlineReferenceReviewFamily = {
 
 function inlineReferenceCandidates(
   generation: ScopedProjectionGeneration,
-  pending: ReadonlyMap<string, ContributionFact>,
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const groups = new Map<string, ContributionFact[]>();
+  const groups = new Map<string, FactAction[]>();
   for (const fact of pending.values()) {
-    const mutation = fact.body.mutation;
-    if (!isInlineReferenceMutation(mutation)) {
+    const action = fact.action;
+    if (!isInlineReferenceAction(action)) {
       continue;
     }
-    const values = groups.get(mutation.inlineReferenceId) ?? [];
+    const values = groups.get(action.inlineReferenceId) ?? [];
     values.push(fact);
-    groups.set(mutation.inlineReferenceId, values);
+    groups.set(action.inlineReferenceId, values);
   }
   return [...groups].flatMap(([inlineReferenceId, facts]) => {
     const effect = inlineReferenceEffect(inlineReferenceId, generation);
@@ -84,7 +81,7 @@ function inlineReferenceCandidates(
       : [
           {
             diffSpace: { kind: "inline-reference" as const, identity: inlineReferenceId },
-            targets: [...facts].sort(compareFacts).map((fact) => fact.id),
+            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
             bridges: [],
           },
         ];
@@ -119,15 +116,11 @@ function stateFor(
       };
 }
 
-function isInlineReferenceMutation(mutation: ContributionFact["body"]["mutation"]): mutation is Extract<
-  ContributionFact["body"]["mutation"],
+function isInlineReferenceAction(action: FactAction["action"]): action is Extract<
+  FactAction["action"],
   {
-    kind:
-      | "inline-reference-create"
-      | "inline-reference-delete"
-      | "inline-reference-alias-attach"
-      | "inline-reference-alias-detach";
+    kind: "inline-reference-create" | "inline-reference-remove" | "inline-alias-attach" | "inline-alias-detach";
   }
 > {
-  return INLINE_REFERENCE_MUTATION_KINDS.includes(mutation.kind as (typeof INLINE_REFERENCE_MUTATION_KINDS)[number]);
+  return INLINE_REFERENCE_ACTION_KINDS.includes(action.kind as (typeof INLINE_REFERENCE_ACTION_KINDS)[number]);
 }

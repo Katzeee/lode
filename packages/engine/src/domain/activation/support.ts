@@ -1,88 +1,125 @@
 import {
-  compareFacts,
-  isFieldContentDeletionMutation,
-  isSupertagMutation,
-  isTemplateMutation,
-  type ContributionFact,
+  compareCausalOrder,
+  factObserves,
+  factActionsFromFacts,
+  isFieldContentRemovalAction,
+  isSupertagAction,
+  isTemplateAction,
+  type FactAction,
+  type FactActionId,
   type Fact,
   type ResolutionFact,
-  type SupertagMutation,
+  type SupertagAction,
   type ProjectionPerspective,
 } from "../fact/index.js";
-import { eligibleForPerspective, resolutionsByContribution } from "./activation-perspective.js";
-import { addSupertagMutationSupport, type SupertagSupportContext } from "./supertag-support.js";
+import { eligibleForPerspective, resolutionsByAction } from "./activation-perspective.js";
+import { addSupertagActionSupport, type SupertagSupportContext } from "./supertag-support.js";
 import { addGeneratedOccurrenceSupport, addTemplateNodeSupport } from "./generated-relation-support.js";
-import { addIfPresent, effectiveCandidate } from "./support-candidate.js";
+import { addCandidate } from "./support-candidate.js";
 import { addFieldContentDeletionSupport } from "./field-content-support.js";
-import { registerNodeExistence } from "./support-node-existence.js";
-import { addCoreMutationSupport } from "./core-mutation-support.js";
-import { addTransactionSupport } from "./transaction-support.js";
+import { addCoreActionSupport } from "./core-action-support.js";
+import { intrinsicNodeTypeSupportKey } from "./supertag-support.js";
+import { indexSemanticValueFacts, semanticValueKey } from "./semantic-value-support.js";
 
-export type Activation = Readonly<{
-  activeContributionIds: ReadonlySet<string>;
-  supportByContribution: ReadonlyMap<string, readonly string[]>;
-  resolutionByContribution: ReadonlyMap<string, readonly ResolutionFact[]>;
-  convergencePasses: number;
+type Activation = Readonly<{
+  activeActionIds: ReadonlySet<FactActionId>;
+  supportByAction: ReadonlyMap<FactActionId, readonly FactActionId[]>;
+  resolutionByAction: ReadonlyMap<FactActionId, readonly ResolutionFact[]>;
 }>;
 
-export function deriveActivation(facts: readonly Fact[], mode: ProjectionPerspective): Activation {
-  const ordered = [...facts].sort(compareFacts);
-  const contributions = ordered.filter((fact): fact is ContributionFact => fact.body.kind === "contribution");
-  const resolutions = resolutionsByContribution(ordered);
+export function deriveActivation(
+  facts: readonly Fact[],
+  mode: ProjectionPerspective,
+  suppliedActions?: readonly FactAction[],
+): Activation {
+  const ordered = [...facts].sort(compareCausalOrder);
+  const actions = suppliedActions ?? factActionsFromFacts(ordered);
+  const resolutions = resolutionsByAction(ordered, actions);
+  const eligibleByFact = new Map<string, boolean>();
+  for (const action of actions) {
+    const eligible = eligibleForPerspective(action, resolutions.get(action.id), mode);
+    eligibleByFact.set(action.factId, (eligibleByFact.get(action.factId) ?? true) && eligible);
+  }
   const initiallyEligible = new Set(
-    contributions.filter((fact) => eligibleForPerspective(fact, resolutions.get(fact.id), mode)).map((fact) => fact.id),
+    actions.filter((action) => eligibleByFact.get(action.factId)).map((action) => action.id),
   );
-  const supportByContribution = deriveSupport(contributions, initiallyEligible);
+  const supportByAction = deriveSupport(actions, initiallyEligible);
   const active = new Set(initiallyEligible);
 
   let convergencePasses = 0;
   let changed = true;
   while (changed) {
     convergencePasses += 1;
-    if (convergencePasses > contributions.length + 1) {
-      throw new Error("Support closure exceeded its finite contribution bound");
+    if (convergencePasses > actions.length + 1) {
+      throw new Error("Support closure exceeded its finite action bound");
     }
     changed = false;
-    for (const contributionId of [...active]) {
-      const supports = supportByContribution.get(contributionId) ?? [];
+    for (const action of actions) {
+      if (!active.has(action.id)) {
+        continue;
+      }
+      const supports = supportByAction.get(action.id) ?? [];
       if (supports.some((supportId) => !active.has(supportId))) {
-        active.delete(contributionId);
+        actions.filter((member) => member.factId === action.factId).forEach((member) => active.delete(member.id));
         changed = true;
       }
     }
   }
 
   return {
-    activeContributionIds: active,
-    supportByContribution,
-    resolutionByContribution: resolutions,
-    convergencePasses,
+    activeActionIds: active,
+    supportByAction,
+    resolutionByAction: resolutions,
   };
 }
 
 export function deriveSupport(
-  contributions: readonly ContributionFact[],
-  eligibleContributionIds: ReadonlySet<string> = new Set(contributions.map((fact) => fact.id)),
-): ReadonlyMap<string, readonly string[]> {
-  const ordered = [...contributions].sort(compareFacts);
+  actions: readonly FactAction[],
+  eligibleActionIds: ReadonlySet<FactActionId> = new Set(actions.map((fact) => fact.id)),
+): ReadonlyMap<FactActionId, readonly FactActionId[]> {
+  const ordered = [...actions].sort(compareCausalOrder);
+  let viable = new Set<FactActionId>();
+  for (let pass = 0; pass <= ordered.length; pass += 1) {
+    const derived = deriveSupportPass(ordered, eligibleActionIds, viable);
+    if (derived.viable.size === viable.size) {
+      return derived.supportByAction;
+    }
+    viable = derived.viable;
+  }
+  throw new Error("Support derivation exceeded its finite action bound");
+}
+
+function deriveSupportPass(
+  ordered: readonly FactAction[],
+  eligibleActionIds: ReadonlySet<FactActionId>,
+  previouslyViable: ReadonlySet<FactActionId>,
+): Readonly<{
+  supportByAction: Map<FactActionId, readonly FactActionId[]>;
+  viable: Set<FactActionId>;
+}> {
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
-  const supertagApplicationSupport = new Map<string, ContributionFact[]>();
-  const supertagTemplateOccurrenceSupport = new Map<string, ContributionFact[]>();
+  const supertagApplicationSupport = new Map<string, FactAction[]>();
+  const supertagTemplateOccurrenceSupport = new Map<string, FactAction[]>();
+  const templateFieldSupport = new Map<string, FactAction[]>();
+  const optionalFieldSupport = new Map<string, FactAction[]>();
   const intrinsicNodeTypeSupport = new Map<string, string[]>();
   const occurrenceLifecycleFacts = indexOccurrenceLifecycleFacts(ordered);
   const inlineReferenceSupport = new Map<string, string[]>();
   const inlineAliasSupport = new Map<string, string[]>();
-  const viable = new Set<string>();
+  const semanticValueSupport = indexSemanticValueFacts(ordered);
+  const viable = new Set(previouslyViable);
   const existence = existenceSupport(nodeExistenceSupport, occurrenceExistenceSupport, viable);
   const supertagSupport = createSupertagSupport(
     nodeExistenceSupport,
     viable,
     supertagApplicationSupport,
     supertagTemplateOccurrenceSupport,
+    templateFieldSupport,
+    optionalFieldSupport,
     intrinsicNodeTypeSupport,
   );
-  const result = new Map<string, readonly string[]>();
+  const result = new Map<FactActionId, readonly FactActionId[]>();
   const context = {
     nodeExistenceSupport,
     occurrenceExistenceSupport,
@@ -92,58 +129,113 @@ export function deriveSupport(
     occurrenceLifecycleFacts,
     inlineReferenceSupport,
     inlineAliasSupport,
+    semanticValueSupport,
   };
 
-  registerNodeExistence(ordered, nodeExistenceSupport, eligibleContributionIds, viable);
+  registerIdentityProducers(
+    ordered,
+    nodeExistenceSupport,
+    occurrenceExistenceSupport,
+    inlineReferenceSupport,
+    inlineAliasSupport,
+    intrinsicNodeTypeSupport,
+  );
 
   for (const fact of ordered) {
-    const support = contributionSupport(fact, context);
+    const support = actionSupport(fact, context);
     result.set(fact.id, [...support]);
-    markViable(fact.id, support, eligibleContributionIds, viable);
+    markViable(fact.id, support, eligibleActionIds, viable);
   }
-  addTransactionSupport(ordered, result);
-  return result;
+  return { supportByAction: result, viable };
 }
 
-function contributionSupport(
-  fact: ContributionFact,
+function registerIdentityProducers(
+  actions: readonly FactAction[],
+  nodes: Map<string, string[]>,
+  occurrences: Map<string, string[]>,
+  inlineReferences: Map<string, string[]>,
+  inlineAliases: Map<string, string[]>,
+  intrinsicNodeTypes: Map<string, string[]>,
+): void {
+  for (const action of actions) {
+    const authoredAction = action.action;
+    if (authoredAction.kind === "workspace-bootstrap") {
+      addCandidate(nodes, authoredAction.workspaceNodeId, action.id);
+    } else if (authoredAction.kind === "node-create") {
+      addCandidate(nodes, authoredAction.nodeId, action.id);
+      if (authoredAction.originalPlacement !== null) {
+        addCandidate(occurrences, authoredAction.originalPlacement.placementId, action.id);
+      }
+      if (authoredAction.intrinsicNodeType !== undefined) {
+        addCandidate(
+          intrinsicNodeTypes,
+          intrinsicNodeTypeSupportKey(authoredAction.nodeId, authoredAction.intrinsicNodeType),
+          action.id,
+        );
+      }
+    } else if (authoredAction.kind === "placement-create") {
+      addCandidate(occurrences, authoredAction.placementId, action.id);
+    } else if (authoredAction.kind === "template-field-add" && authoredAction.fieldDefinition.kind === "new") {
+      addCandidate(nodes, authoredAction.fieldDefinition.fieldDefinitionId, action.id);
+      addCandidate(
+        intrinsicNodeTypes,
+        intrinsicNodeTypeSupportKey(authoredAction.fieldDefinition.fieldDefinitionId, "field-definition"),
+        action.id,
+      );
+    } else if (authoredAction.kind === "inline-reference-create") {
+      addCandidate(inlineReferences, authoredAction.inlineReferenceId, action.id);
+    } else if (authoredAction.kind === "inline-alias-attach") {
+      addCandidate(inlineAliases, `${authoredAction.inlineReferenceId}/${authoredAction.aliasNodeId}`, action.id);
+    }
+  }
+}
+
+function actionSupport(
+  fact: FactAction,
   context: Readonly<{
     nodeExistenceSupport: Map<string, string[]>;
     occurrenceExistenceSupport: Map<string, string[]>;
-    viable: Set<string>;
+    viable: Set<FactActionId>;
     existence: ReturnType<typeof existenceSupport>;
     supertagSupport: SupertagSupportContext;
-    occurrenceLifecycleFacts: ReadonlyMap<string, readonly ContributionFact[]>;
+    occurrenceLifecycleFacts: ReadonlyMap<string, readonly FactAction[]>;
     inlineReferenceSupport: Map<string, string[]>;
     inlineAliasSupport: Map<string, string[]>;
+    semanticValueSupport: ReadonlyMap<string, readonly FactAction[]>;
   }>,
-): Set<string> {
-  const { occurrenceExistenceSupport, existence, supertagSupport } = context;
-  const mutation = fact.body.mutation;
-  const support = new Set<string>();
-  if (isSupertagMutation(mutation)) {
-    addSupertagContributionSupport(support, mutation, fact, supertagSupport, occurrenceExistenceSupport);
-  } else if (isTemplateMutation(mutation)) {
-    addTemplateNodeSupport(support, mutation, fact, supertagSupport, existence);
-  } else if (isFieldContentDeletionMutation(mutation)) {
-    addFieldContentDeletionSupport(support, mutation, existence);
-  } else {
-    addCoreMutationSupport(support, mutation, fact, context);
+): Set<FactActionId> {
+  const { existence, supertagSupport } = context;
+  const authoredAction = fact.action;
+  const support = new Set<FactActionId>();
+  const semanticKey = semanticValueKey(authoredAction);
+  if (semanticKey !== null) {
+    for (const candidate of context.semanticValueSupport.get(semanticKey) ?? []) {
+      if (candidate.id !== fact.id && factObserves(fact, candidate)) {
+        support.add(candidate.id);
+      }
+    }
   }
-  addGeneratedOccurrenceSupport(support, mutation, fact, context.occurrenceLifecycleFacts);
+  if (isSupertagAction(authoredAction)) {
+    addSupertagContributionSupport(support, authoredAction, fact, supertagSupport);
+  } else if (isTemplateAction(authoredAction)) {
+    addTemplateNodeSupport(support, authoredAction, fact, supertagSupport, existence);
+  } else if (isFieldContentRemovalAction(authoredAction)) {
+    addFieldContentDeletionSupport(support, authoredAction, existence);
+  } else {
+    addCoreActionSupport(support, authoredAction, context);
+  }
+  addGeneratedOccurrenceSupport(support, authoredAction, fact, context.occurrenceLifecycleFacts);
   return support;
 }
 
-function indexOccurrenceLifecycleFacts(
-  facts: readonly ContributionFact[],
-): ReadonlyMap<string, readonly ContributionFact[]> {
-  const result = new Map<string, ContributionFact[]>();
+function indexOccurrenceLifecycleFacts(facts: readonly FactAction[]): ReadonlyMap<string, readonly FactAction[]> {
+  const result = new Map<string, FactAction[]>();
   for (const fact of facts) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "occurrence-create" && mutation.kind !== "occurrence-delete") {
+    const authoredAction = fact.action;
+    if (authoredAction.kind !== "placement-create" && authoredAction.kind !== "placement-remove") {
       continue;
     }
-    const key = `${mutation.kind}/${mutation.occurrenceId}`;
+    const key = `${authoredAction.kind}/${authoredAction.placementId}`;
     const candidates = result.get(key) ?? [];
     candidates.push(fact);
     result.set(key, candidates);
@@ -153,18 +245,11 @@ function indexOccurrenceLifecycleFacts(
 
 function addSupertagContributionSupport(
   support: Set<string>,
-  mutation: SupertagMutation,
-  fact: ContributionFact,
+  authoredAction: SupertagAction,
+  fact: FactAction,
   supertagSupport: SupertagSupportContext,
-  occurrenceExistence: Map<string, string[]>,
 ): void {
-  addSupertagMutationSupport(support, mutation, fact, supertagSupport);
-  if (mutation.kind === "supertag-template-node-add") {
-    addIfPresent(
-      support,
-      effectiveCandidate(occurrenceExistence, mutation.templateOccurrenceId, supertagSupport.viable),
-    );
-  }
+  addSupertagActionSupport(support, authoredAction, fact, supertagSupport);
 }
 
 function existenceSupport(nodes: Map<string, string[]>, occurrences: Map<string, string[]>, viable: Set<string>) {
@@ -174,11 +259,21 @@ function existenceSupport(nodes: Map<string, string[]>, occurrences: Map<string,
 function createSupertagSupport(
   nodes: Map<string, string[]>,
   viable: Set<string>,
-  applications: Map<string, ContributionFact[]>,
-  templateOccurrences: Map<string, ContributionFact[]>,
+  applications: Map<string, FactAction[]>,
+  templateOccurrences: Map<string, FactAction[]>,
+  templateFields: Map<string, FactAction[]>,
+  optionalFields: Map<string, FactAction[]>,
   intrinsicNodeTypeDeclarations: Map<string, string[]>,
 ): SupertagSupportContext {
-  return { nodes, viable, applications, templateOccurrences, intrinsicNodeTypeDeclarations };
+  return {
+    nodes,
+    viable,
+    applications,
+    templateOccurrences,
+    templateFields,
+    optionalFields,
+    intrinsicNodeTypeDeclarations,
+  };
 }
 
 function markViable(

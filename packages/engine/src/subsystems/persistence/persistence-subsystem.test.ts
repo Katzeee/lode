@@ -33,16 +33,16 @@ describe("PersistenceSubsystem", () => {
     expect(text(await identity.vault.read())).toBe("vault");
 
     const staged = await api.workspaceStorage.stage("workspace/with a special id");
-    await staged.storage.authorityJournal.writeSnapshot("state", bytes("authority"));
+    await staged.storage.facts.writeSnapshot("state", bytes("authority"));
     await staged.storage.projection.writeSnapshot("state", bytes("projection"));
-    expect(text((await staged.storage.authorityJournal.load("state"))?.snapshot ?? null)).toBe("authority");
+    expect(text((await staged.storage.facts.load("state"))?.snapshot ?? null)).toBe("authority");
     expect(text((await staged.storage.projection.load("state"))?.snapshot ?? null)).toBe("projection");
     expect(await api.workspaceStorage.list()).toEqual([]);
 
     await staged.promote();
     expect(await api.workspaceStorage.list()).toEqual(["workspace/with a special id"]);
     const reopened = await api.workspaceStorage.open("workspace/with a special id");
-    expect(text((await reopened.authorityJournal.load("state"))?.snapshot ?? null)).toBe("authority");
+    expect(text((await reopened.facts.load("state"))?.snapshot ?? null)).toBe("authority");
     expect(text((await reopened.projection.load("state"))?.snapshot ?? null)).toBe("projection");
     await Promise.all([reopened.release(), reopened.release()]);
     await lifecycle.stop();

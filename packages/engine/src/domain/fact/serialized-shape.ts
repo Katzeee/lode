@@ -8,6 +8,7 @@ import {
   safeInteger,
 } from "../../decoding/index.js";
 import { isReplicaId } from "./fact.js";
+import { isFactActionId } from "./identities.js";
 import type { FactFrontier, JsonValue, SequenceAnchor, TextAtomId } from "./types.js";
 
 export function parseJsonValue(value: unknown): JsonValue {
@@ -48,8 +49,14 @@ export function parseSequenceAnchor(value: unknown): SequenceAnchor {
 export function parseTextAtomId(value: unknown): TextAtomId {
   const candidate = nonempty(value, "Atom identity");
   const separator = candidate.lastIndexOf("#");
+  const actionId = candidate.slice(0, separator);
   const suffix = candidate.slice(separator + 1);
-  if (separator < 1 || !/^\d+$/.test(suffix) || !Number.isSafeInteger(Number(suffix))) {
+  if (
+    separator < 1 ||
+    !isFactActionId(actionId) ||
+    !/^(?:0|[1-9]\d*)$/.test(suffix) ||
+    !Number.isSafeInteger(Number(suffix))
+  ) {
     throw new Error("Atom identity is invalid");
   }
   return candidate as TextAtomId;

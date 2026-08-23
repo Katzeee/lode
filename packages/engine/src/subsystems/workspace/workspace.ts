@@ -22,14 +22,14 @@ import type { EventSink } from "../event/index.js";
 import type { WorkspaceStorage } from "../persistence/index.js";
 import { validateWorkspaceSnapshot } from "./workspace-validation.js";
 
-export type WorkspaceOptions = Readonly<{
+type WorkspaceOptions = Readonly<{
   workspaceId: string;
   facts: ReplicatedFactAuthorityPort;
   versions: ProjectionVersions;
   reviewCapabilityKey?: string;
   projection?: WorkspaceProjectionOptions;
   /**
-   * Seed an untitled genesis transaction into an empty journal. Only for
+   * Seed an untitled genesis Fact into an empty authority. Only for
    * ungoverned engine-local contexts; production hosts own genesis through
    * governed creation (attributed to the owner Actor) or staged adoption.
    */
@@ -65,11 +65,11 @@ export class Workspace {
     if (options.seedGenesis !== false) {
       await ensureWorkspaceGenesis(options.workspaceId, options.facts);
     }
-    const admission = options.facts.admission();
+    const snapshot = options.facts.snapshot();
     const events = new WorkspaceEventPublisher(options.workspaceId, options.eventSink);
     const projection = await WorkspaceProjection.open(
       options.workspaceId,
-      admission.snapshot,
+      snapshot,
       options.versions,
       options.projection,
       (event) => events.publish(event.kind, event.frontier, event.generationId),
@@ -80,16 +80,13 @@ export class Workspace {
     return this.options.workspaceId;
   }
   get label(): string {
-    return validateWorkspaceSnapshot(this.workspaceId, this.options.facts.admission().snapshot).label;
+    return validateWorkspaceSnapshot(this.workspaceId, this.options.facts.snapshot()).label;
   }
   get facts(): FactAuthorityPort {
     return this.options.facts;
   }
   get replicationDocument(): SyncableDoc {
     return this.options.facts.replication;
-  }
-  get authorityFaulted(): boolean {
-    return this.options.facts.admission().kind === "fault";
   }
   async execute(command: EngineCommand): Promise<WriteResult> {
     let accepted: AcceptedEngineCommand;
@@ -118,6 +115,7 @@ export class Workspace {
       workspaceId: this.options.workspaceId,
       facts: this.options.facts,
       snapshot: this.projection.publishedSnapshot,
+      generation: this.projection.currentGeneration,
       projections: this.projection.reader,
       generationId: this.projection.identity.generationId,
       projectionFailure: this.projection.failure,
@@ -129,13 +127,6 @@ export class Workspace {
       return;
     }
     return this.serial.run(() => this.authority.reconcileAdvance());
-  }
-
-  async recoverAuthority(): Promise<void> {
-    if (this.stopped) {
-      throw new Error("Workspace is closed");
-    }
-    return this.serial.run(() => this.authority.recover());
   }
 
   async close(): Promise<void> {

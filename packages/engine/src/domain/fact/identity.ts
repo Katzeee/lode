@@ -1,17 +1,13 @@
-export const FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX = "field-definition-endpoint-occ:v1:";
-export const DETACHED_SUPERTAG_VALUE_NODE_PREFIX = "detached-supertag-value:v1:";
-export const DETACHED_SUPERTAG_VALUE_OCCURRENCE_PREFIX = "detached-supertag-value-occ:v1:";
-export const DETACHED_VIEW_VALUE_NODE_PREFIX = "detached-view-value:v1:";
-export const DETACHED_VIEW_VALUE_OCCURRENCE_PREFIX = "detached-view-value-occ:v1:";
-export const TEMPLATE_INSTANCE_NODE_PREFIX = "template-instance:v1:";
-export const TEMPLATE_INSTANCE_OCCURRENCE_PREFIX = "template-instance-occ:v1:";
-export const WORKSPACE_TRASH_NODE_PREFIX = "workspace-trash:v1:";
-export const WORKSPACE_TRASH_OCCURRENCE_PREFIX = "workspace-trash-occ:v1:";
-export const WORKSPACE_SCHEMA_NODE_PREFIX = "workspace-schema:v1:";
-export const TEMPLATE_FIELD_INSTANCE_NODE_PREFIX = "template-field-instance:v1:";
-export const TEMPLATE_FIELD_INSTANCE_OCCURRENCE_PREFIX = "template-field-instance-occ:v1:";
-export const TEMPLATE_FIELD_INSTANCE_VALUE_NODE_PREFIX = "template-field-instance-value:v1:";
-export const TEMPLATE_FIELD_INSTANCE_VALUE_OCCURRENCE_PREFIX = "template-field-instance-value-occ:v1:";
+const FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX = "field-definition-endpoint-occ:v1:";
+const TEMPLATE_INSTANCE_NODE_PREFIX = "template-instance:v1:";
+const TEMPLATE_INSTANCE_OCCURRENCE_PREFIX = "template-instance-occ:v1:";
+const WORKSPACE_TRASH_NODE_PREFIX = "workspace-trash:v1:";
+const WORKSPACE_TRASH_OCCURRENCE_PREFIX = "workspace-trash-occ:v1:";
+const WORKSPACE_SCHEMA_NODE_PREFIX = "workspace-schema:v1:";
+const TEMPLATE_FIELD_INSTANCE_NODE_PREFIX = "template-field-instance:v1:";
+const TEMPLATE_FIELD_INSTANCE_OCCURRENCE_PREFIX = "template-field-instance-occ:v1:";
+const TEMPLATE_FIELD_INSTANCE_VALUE_NODE_PREFIX = "template-field-instance-value:v1:";
+const TEMPLATE_FIELD_INSTANCE_VALUE_OCCURRENCE_PREFIX = "template-field-instance-value-occ:v1:";
 export const SYSTEM_DEFINITION_CATALOG_NODE_ID = "system-definition-catalog:v1";
 export const NODE_SUPERTAGS_DEFINITION_NODE_ID = "system-field-definition:v1:node-supertags";
 export const SEARCH_EXPRESSION_DEFINITION_NODE_ID = "system-field-definition:v1:search-expression";
@@ -68,22 +64,6 @@ export function workspaceSchemaNodeId(workspaceNodeId: string): string {
 
 export function fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId: string): string {
   return `${FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX}${encodeURIComponent(fieldOccurrenceId)}`;
-}
-
-export function detachedSupertagValueNodeId(applicationNodeId: string): string {
-  return `${DETACHED_SUPERTAG_VALUE_NODE_PREFIX}${encodeURIComponent(applicationNodeId)}`;
-}
-
-export function detachedSupertagValueOccurrenceId(applicationNodeId: string): string {
-  return `${DETACHED_SUPERTAG_VALUE_OCCURRENCE_PREFIX}${encodeURIComponent(applicationNodeId)}`;
-}
-
-export function detachedViewValueNodeId(attachmentNodeId: string): string {
-  return `${DETACHED_VIEW_VALUE_NODE_PREFIX}${encodeURIComponent(attachmentNodeId)}`;
-}
-
-export function detachedViewValueOccurrenceId(attachmentNodeId: string): string {
-  return `${DETACHED_VIEW_VALUE_OCCURRENCE_PREFIX}${encodeURIComponent(attachmentNodeId)}`;
 }
 
 export function templateInstanceNodeId(ownerNodeId: string, templateNodeId: string): string {

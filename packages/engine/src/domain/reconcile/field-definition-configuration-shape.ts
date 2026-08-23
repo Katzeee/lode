@@ -1,4 +1,5 @@
 import { exact, nonempty, object } from "../../decoding/index.js";
+import { requireFactActionId } from "../fact/index.js";
 import type { FieldDefinitionConfiguration } from "./projection-types.js";
 
 export function parseFieldDefinitionConfiguration(value: unknown): FieldDefinitionConfiguration {
@@ -7,7 +8,7 @@ export function parseFieldDefinitionConfiguration(value: unknown): FieldDefiniti
     configurationNodeId: nonempty(item.configurationNodeId, "Field configuration Node identity"),
     configurationOccurrenceId: nonempty(item.configurationOccurrenceId, "Field configuration Occurrence identity"),
     definitionNodeId: nonempty(item.definitionNodeId, "Field configuration Definition Node identity"),
-    contributionId: nonempty(item.contributionId, "Field configuration Contribution identity"),
+    factActionId: requireFactActionId(item.factActionId, "Field configuration FactAction identity"),
   };
   if (item.kind === "datatype") {
     if (typeof item.datatypeNodeId !== "string" || item.datatypeNodeId.length === 0) {
@@ -22,7 +23,7 @@ export function parseFieldDefinitionConfiguration(value: unknown): FieldDefiniti
         "definitionNodeId",
         "datatypeNodeId",
         "optionsSupertagId",
-        "contributionId",
+        "factActionId",
       ],
       "Field Datatype configuration",
     );
@@ -46,7 +47,7 @@ export function parseFieldDefinitionConfiguration(value: unknown): FieldDefiniti
         "configurationOccurrenceId",
         "definitionNodeId",
         "cardinalityNodeId",
-        "contributionId",
+        "factActionId",
       ],
       "Field Cardinality configuration",
     );
@@ -67,7 +68,7 @@ export function parseFieldDefinitionConfiguration(value: unknown): FieldDefiniti
         "configurationNodeId",
         "configurationOccurrenceId",
         "definitionNodeId",
-        "contributionId",
+        "factActionId",
         "optionalityNodeId",
       ],
       "Field Optionality configuration",
@@ -83,7 +84,7 @@ export function parseFieldDefinitionConfiguration(value: unknown): FieldDefiniti
   }
   exact(
     item,
-    ["kind", "configurationNodeId", "configurationOccurrenceId", "definitionNodeId", "expression", "contributionId"],
+    ["kind", "configurationNodeId", "configurationOccurrenceId", "definitionNodeId", "expression", "factActionId"],
     "Field Initialization Expression configuration",
   );
   return {

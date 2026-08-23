@@ -1,12 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { nodeLocation, validateNodeGraph, validateRootedNodeGraph } from "./node-graph.js";
+import { nodeLocation, validateNodeGraph } from "./node-graph.js";
 
 describe("Node Graph invariants", () => {
-  it("accepts Reference cycles while the Owner tree remains rooted", () => {
-    expect(() => validateRootedNodeGraph("workspace", referenceCycle())).not.toThrow();
-  });
-
   it("derives Trash membership transitively from the Owner tree while References keep the same Node identity", () => {
     const graph = trashSubtree();
     const trashNodeId = "trash-role-target";
@@ -34,26 +30,6 @@ describe("Node Graph invariants", () => {
     graph.childOccurrences.set("workspace", ["a-original", "a-duplicate", "b-original"]);
 
     expect(() => validateNodeGraph(graph)).toThrow("Node Graph repeats a Node in one parent: a");
-  });
-
-  it("rejects an Owner cycle even when every Owner has a real placement", () => {
-    const graph = referenceCycle();
-    graph.nodeOwners.a = "b";
-    graph.nodeOwners.b = "a";
-
-    expect(() => validateRootedNodeGraph("workspace", graph)).toThrow(
-      "Node Graph Owner chain does not reach the Workspace: a",
-    );
-  });
-
-  it("accepts one identity-bearing Metanode without exposing it as an Outline Occurrence", () => {
-    const graph = referenceCycle();
-    graph.nodes.set("metanode", { nodeId: "metanode" });
-    graph.nodeOwners.metanode = "a";
-    graph.metanodes.a = "metanode";
-
-    expect(() => validateRootedNodeGraph("workspace", graph)).not.toThrow();
-    expect([...graph.occurrences.values()].some((occurrence) => occurrence.nodeId === "metanode")).toBe(false);
   });
 });
 

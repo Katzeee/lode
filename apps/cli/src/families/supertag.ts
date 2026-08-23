@@ -1,6 +1,6 @@
-import type { EditMutation } from "@lode/sdk";
+import type { EditAction } from "@lode/sdk";
 
-import { CliError, okOutcome, writeView } from "../outcome/index.js";
+import { okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, labelOf, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
@@ -11,7 +11,7 @@ import type { TemplateField } from "@lode/sdk";
 /**
  * Supertag family: definitions, applications, and extensions. Applications
  * and template uses are read from the projection before composing the formal
- * mutations, so callers pass Supertag and Node targets, never relation ids.
+ * actions, so callers pass Supertag and Node targets, never relation ids.
  */
 
 export function registerSupertagCommands(catalog: CommandCatalog): void {
@@ -48,7 +48,7 @@ const supertagCreate: CommandDefinition = {
         ? workspaceId
         : (await resolveNodeTarget(context.session, workspaceId, context.perspective, under, ["node"])).nodeId;
     const supertagId = identity(context.requestId, "supertag");
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "node-create",
         nodeId: supertagId,
@@ -59,7 +59,7 @@ const supertagCreate: CommandDefinition = {
         seed: { text: [{ value: name, attributes: {} }] },
       },
     ];
-    const { result, data } = await executeWrite(context, "supertag.create", mutations);
+    const { result, data } = await executeWrite(context, "supertag.create", actions);
     const resource = descriptor(workspaceId, "supertag", supertagId, name);
     return writeResult(data, result, { extra: { target: resource }, view: writeView("Created", resource) });
   },
@@ -164,26 +164,15 @@ const supertagApply: CommandDefinition = {
       args.requiredOption("--to"),
       ["node"],
     );
-    const metanodes = (await context.session.readProjection(workspaceId, context.perspective, "metanodes")) as Record<
-      string,
-      string
-    >;
-    const metanodeId = metanodes[host.nodeId] ?? `${host.nodeId}-metanode`;
-    const applicationNodeId = identity(context.requestId, "application");
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "supertag-application-create",
         hostNodeId: host.nodeId,
-        metanodeId,
         supertagId: supertag.nodeId,
-        applicationNodeId,
-        applicationOccurrenceId: `${applicationNodeId}-occurrence`,
-        relationDefinitionOccurrenceId: `${applicationNodeId}-relation-definition`,
-        definitionOccurrenceId: `${applicationNodeId}-definition`,
         anchor: end,
       },
     ];
-    const { result, data } = await executeWrite(context, "supertag.apply", mutations);
+    const { result, data } = await executeWrite(context, "supertag.apply", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, to: host.descriptor },
       view: writeView("Applied", supertag.descriptor, `to ${host.label}`),
@@ -217,38 +206,14 @@ const supertagRemove: CommandDefinition = {
       args.requiredOption("--to"),
       ["node"],
     );
-    const applications = (await context.session.readProjection(
-      workspaceId,
-      context.perspective,
-      "supertagApplications",
-    )) as Record<
-      string,
-      readonly {
-        supertagId: string;
-        applicationNodeId: string;
-        applicationOccurrenceId: string;
-        relationDefinitionOccurrenceId: string;
-        definitionOccurrenceId: string;
-      }[]
-    >;
-    const application = (applications[host.nodeId] ?? []).find((entry) => entry.supertagId === supertag.nodeId);
-    if (application === undefined) {
-      throw new CliError("target-not-found", `Node ${host.descriptor.ref} does not apply ${supertag.descriptor.ref}.`);
-    }
-    const mutations: readonly EditMutation[] = [
+    const actions: readonly EditAction[] = [
       {
         kind: "supertag-remove",
         hostNodeId: host.nodeId,
         supertagId: supertag.nodeId,
-        applicationNodeId: application.applicationNodeId,
-        applicationOccurrenceId: application.applicationOccurrenceId,
-        relationDefinitionOccurrenceId: application.relationDefinitionOccurrenceId,
-        definitionOccurrenceId: application.definitionOccurrenceId,
-        detachedValueNodeId: `detached-supertag-value:v1:${encodeURIComponent(application.applicationNodeId)}`,
-        detachedValueOccurrenceId: `detached-supertag-value-occ:v1:${encodeURIComponent(application.applicationNodeId)}`,
       },
     ];
-    const { result, data } = await executeWrite(context, "supertag.remove", mutations);
+    const { result, data } = await executeWrite(context, "supertag.remove", actions);
     return writeResult(data, result, {
       extra: { target: supertag.descriptor, to: host.descriptor },
       view: writeView("Removed", supertag.descriptor, `from ${host.label}`),

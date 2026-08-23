@@ -160,7 +160,7 @@ export async function readNodeUniverse(
   return { nodes: nodes, owners: owners };
 }
 
-export type ProjectedOccurrenceLike = Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>;
+type ProjectedOccurrenceLike = Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>;
 
 export type ResolvedOccurrenceTarget = Readonly<{
   occurrenceId: string;

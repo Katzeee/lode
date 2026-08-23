@@ -121,8 +121,7 @@ function openWorkspaceStorage(physical: PhysicalWorkspaceStorage, registry: Stor
 function workspaceStorage(physical: PhysicalWorkspaceStorage, release: () => Promise<void>): WorkspaceStorage {
   return {
     workspaceId: physical.workspaceId,
-    authorityJournal: scoped(physical, "authority-journal"),
-    factReplication: scoped(physical, "fact-replication"),
+    facts: scoped(physical, "facts"),
     projection: scoped(physical, "projection"),
     metadata: scoped(physical, "metadata"),
     release,

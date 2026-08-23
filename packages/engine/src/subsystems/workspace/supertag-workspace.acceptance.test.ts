@@ -1,23 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
+import type { EditAction } from "../../domain/edit/index.js";
 import {
-  detachedSupertagValueNodeId,
-  detachedSupertagValueOccurrenceId,
+  factActionsFromFacts,
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   NODE_SUPERTAGS_DEFINITION_NODE_ID,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
+  requireFactActionId,
   workspaceTrashNodeId,
   type IntrinsicNodeType,
 } from "../../domain/fact/index.js";
+import {
+  supertagApplicationProjectionIdentity,
+  type SupertagApplicationProjectionIdentity,
+} from "../../domain/reconcile/supertag-application-graph.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import {
   createSupertagApplication,
   removeSupertagApplication,
-} from "../../../tests/support/workspace/edit-test-mutations.js";
+} from "../../../tests/support/workspace/edit-test-actions.js";
 import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -32,6 +35,13 @@ describe("Supertag product model", () => {
     await first.workspace.close();
     const restarted = await open(documents, "202");
     await expectApplications(restarted.workspace, ["project-supertag", "work-supertag"]);
+    const removedApplication = await readApplication(restarted.workspace, "task", "project-supertag");
+    if (removedApplication === undefined) {
+      throw new Error("Expected the Project Supertag Application");
+    }
+    const removedIdentity = supertagApplicationProjectionIdentity(
+      requireFactActionId(removedApplication.factActionId, "removed Application action"),
+    );
     expect(
       await mutate(restarted.workspace, "remove-one-supertag-source", [
         removeSupertagApplication("task", "project-supertag"),
@@ -39,29 +49,14 @@ describe("Supertag product model", () => {
     ).toMatchObject({ status: "published" });
     await expectApplications(restarted.workspace, ["work-supertag"]);
 
-    const removedApplicationNodeId = "task-supertag-application-project-supertag-1";
-    const detachedValueNodeId = detachedSupertagValueNodeId(removedApplicationNodeId);
-    const detachedValueOccurrenceId = detachedSupertagValueOccurrenceId(removedApplicationNodeId);
-    const removedStructure = await readApplicationStructure(restarted.workspace, removedApplicationNodeId);
+    const removedStructure = await readApplicationStructure(restarted.workspace, removedIdentity);
     expect(removedStructure).toEqual({ nodeExists: true, ownerNodeId: null, occurrenceExists: false });
-    expect(await readApplicationEndpoints(restarted.workspace, removedApplicationNodeId)).toEqual({
-      childOccurrenceIds: [`${removedApplicationNodeId}-relation-definition-occurrence`, detachedValueOccurrenceId],
-      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, detachedValueNodeId],
-      detachedValueOwnerNodeId: removedApplicationNodeId,
+    expect(await readApplicationEndpoints(restarted.workspace, removedIdentity)).toEqual({
+      childOccurrenceIds: [removedIdentity.relationDefinitionOccurrenceId, removedIdentity.detachedValueOccurrenceId],
+      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, removedIdentity.detachedValueNodeId],
+      detachedValueOwnerNodeId: removedIdentity.applicationNodeId,
       originalDefinitionOccurrenceExists: false,
     });
-    expect(
-      await mutate(restarted.workspace, "corrupt-removed-supertag-application", [
-        {
-          kind: "occurrence-delete",
-          occurrenceId: `${removedApplicationNodeId}-relation-definition-occurrence`,
-        },
-      ]),
-    ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-    expect(await readApplicationEndpoints(restarted.workspace, removedApplicationNodeId)).toMatchObject({
-      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, detachedValueNodeId],
-    });
-
     const removalHistory = await restarted.workspace.query({
       kind: "history",
       workspaceId: "workspace",
@@ -81,12 +76,21 @@ describe("Supertag product model", () => {
       throw new Error(JSON.stringify(undoResult));
     }
     await expectApplications(restarted.workspace, ["project-supertag", "work-supertag"]);
-    expect(await readApplicationStructure(restarted.workspace, removedApplicationNodeId)).toEqual({
+    expect(await readApplicationStructure(restarted.workspace, removedIdentity)).toEqual(removedStructure);
+    const restoredApplication = await readApplication(restarted.workspace, "task", "project-supertag");
+    if (restoredApplication === undefined) {
+      throw new Error("Expected Undo to create a new Project Supertag Application");
+    }
+    expect(restoredApplication.factActionId).not.toBe(removedApplication.factActionId);
+    const restoredIdentity = supertagApplicationProjectionIdentity(
+      requireFactActionId(restoredApplication.factActionId, "restored Application action"),
+    );
+    expect(await readApplicationStructure(restarted.workspace, restoredIdentity)).toEqual({
       nodeExists: true,
-      ownerNodeId: "task-metanode",
+      ownerNodeId: "metanode:v1:task",
       occurrenceExists: true,
     });
-    expect(await readApplicationEndpoints(restarted.workspace, removedApplicationNodeId)).toMatchObject({
+    expect(await readApplicationEndpoints(restarted.workspace, restoredIdentity)).toMatchObject({
       childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, "project-supertag"],
       originalDefinitionOccurrenceExists: true,
     });
@@ -111,42 +115,38 @@ describe("Supertag product model", () => {
       ).status,
     ).toBe("published");
     await expectApplications(restarted.workspace, ["work-supertag"]);
-    expect(await readApplicationStructure(restarted.workspace, removedApplicationNodeId)).toEqual(removedStructure);
-    expect(await readApplicationEndpoints(restarted.workspace, removedApplicationNodeId)).toMatchObject({
-      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, detachedValueNodeId],
-      detachedValueOwnerNodeId: removedApplicationNodeId,
+    expect(await readApplicationStructure(restarted.workspace, removedIdentity)).toEqual(removedStructure);
+    expect(await readApplicationStructure(restarted.workspace, restoredIdentity)).toEqual(removedStructure);
+    expect(await readApplicationEndpoints(restarted.workspace, restoredIdentity)).toMatchObject({
+      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, restoredIdentity.detachedValueNodeId],
+      detachedValueOwnerNodeId: restoredIdentity.applicationNodeId,
     });
 
     await restarted.workspace.close();
     const detachedRestart = await open(documents, "303");
     await expectApplications(detachedRestart.workspace, ["work-supertag"]);
-    expect(await readApplicationStructure(detachedRestart.workspace, removedApplicationNodeId)).toEqual(
-      removedStructure,
-    );
-    expect(await readApplicationEndpoints(detachedRestart.workspace, removedApplicationNodeId)).toMatchObject({
-      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, detachedValueNodeId],
-      detachedValueOwnerNodeId: removedApplicationNodeId,
-    });
+    expect(await readApplicationStructure(detachedRestart.workspace, removedIdentity)).toEqual(removedStructure);
+    expect(await readApplicationStructure(detachedRestart.workspace, restoredIdentity)).toEqual(removedStructure);
 
     expect(
       (
         await mutate(detachedRestart.workspace, "reapply-project-supertag", [
-          createSupertagApplication("task", "project-supertag", "2"),
+          createSupertagApplication("task", "project-supertag"),
         ])
       ).status,
     ).toBe("published");
     await expectApplications(detachedRestart.workspace, ["work-supertag", "project-supertag"]);
-    expect(await readApplicationStructure(detachedRestart.workspace, removedApplicationNodeId)).toEqual(
-      removedStructure,
+    expect(await readApplicationStructure(detachedRestart.workspace, removedIdentity)).toEqual(removedStructure);
+    const reappliedApplication = await readApplication(detachedRestart.workspace, "task", "project-supertag");
+    if (reappliedApplication === undefined) {
+      throw new Error("Expected the reapplied Project Supertag Application");
+    }
+    const reappliedIdentity = supertagApplicationProjectionIdentity(
+      requireFactActionId(reappliedApplication.factActionId, "reapplied Application action"),
     );
-    expect(await readApplicationEndpoints(detachedRestart.workspace, removedApplicationNodeId)).toMatchObject({
-      childNodeIds: [NODE_SUPERTAGS_DEFINITION_NODE_ID, detachedValueNodeId],
-    });
-    expect(
-      await readApplicationStructure(detachedRestart.workspace, "task-supertag-application-project-supertag-2"),
-    ).toEqual({
+    expect(await readApplicationStructure(detachedRestart.workspace, reappliedIdentity)).toEqual({
       nodeExists: true,
-      ownerNodeId: "task-metanode",
+      ownerNodeId: "metanode:v1:task",
       occurrenceExists: true,
     });
   });
@@ -168,17 +168,11 @@ describe("Supertag product model", () => {
     if (deletion.status !== "published") {
       throw new Error("Expected Definition deletion to publish");
     }
-    const deletionFactId = opened.facts
-      .facts(deletion.receipt.factIds)
-      .find(
-        (fact) =>
-          fact.body.kind === "contribution" &&
-          fact.body.mutation.kind === "node-delete" &&
-          fact.body.mutation.nodeId === "project-supertag",
-      )?.id;
-    if (!deletionFactId) {
-      throw new Error("Expected Definition deletion Fact identity");
-    }
+    expect(
+      factActionsFromFacts(opened.facts.facts(deletion.receipt.factIds)).some(
+        (fact) => fact.action.kind === "node-trash" && fact.action.nodeId === "project-supertag",
+      ),
+    ).toBe(true);
     expect(await readNodePlacement(opened.workspace, "project-supertag")).toMatchObject({ state: "trash" });
 
     expect(
@@ -199,9 +193,7 @@ describe("Supertag product model", () => {
           {
             kind: "node-restore",
             nodeId: "project-supertag",
-            deletionFactId,
             occurrenceId: "project-supertag-original",
-            ownerNodeId: "workspace",
             parentNodeId: "workspace",
             anchor: end,
           },
@@ -372,11 +364,8 @@ describe("Supertag product model", () => {
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return {
     facts,
@@ -387,17 +376,17 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
 async function mutate(
   workspace: Workspace,
   invocationId: string,
-  mutations: readonly EditMutation[],
+  actions: readonly EditAction[],
   intent: "direct" | "proposal" = "direct",
 ) {
   return workspace.execute({
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "desktop",
-    mutations,
+    actions,
   });
 }
 
@@ -418,6 +407,19 @@ async function expectApplications(
   expect(result.supertagApplications[hostNodeId]?.map(({ supertagId }) => supertagId)).toEqual(expectedSupertagIds);
 }
 
+async function readApplication(workspace: Workspace, hostNodeId: string, supertagId: string) {
+  const result = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    perspective: "origin",
+    section: "supertagApplications",
+  });
+  if (!("supertagApplications" in result)) {
+    throw new Error("Expected Supertag Applications Projection");
+  }
+  return result.supertagApplications[hostNodeId]?.find((application) => application.supertagId === supertagId);
+}
+
 async function readNodePlacement(workspace: Workspace, nodeId: string, perspective: "origin" | "review" = "origin") {
   const [nodes, owners] = await Promise.all([
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective, section: "nodes" }),
@@ -436,7 +438,7 @@ async function readNodePlacement(workspace: Workspace, nodeId: string, perspecti
     : undefined;
 }
 
-async function readApplicationStructure(workspace: Workspace, applicationNodeId: string) {
+async function readApplicationStructure(workspace: Workspace, identity: SupertagApplicationProjectionIdentity) {
   const [nodes, owners, occurrences] = await Promise.all([
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "nodes" }),
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "nodeOwners" }),
@@ -446,13 +448,13 @@ async function readApplicationStructure(workspace: Workspace, applicationNodeId:
     throw new Error("Expected Supertag Application structure");
   }
   return {
-    nodeExists: nodes.nodes[applicationNodeId] !== undefined,
-    ownerNodeId: owners.nodeOwners[applicationNodeId],
-    occurrenceExists: occurrences.occurrences[`${applicationNodeId}-occurrence`] !== undefined,
+    nodeExists: nodes.nodes[identity.applicationNodeId] !== undefined,
+    ownerNodeId: owners.nodeOwners[identity.applicationNodeId],
+    occurrenceExists: occurrences.occurrences[identity.applicationOccurrenceId] !== undefined,
   };
 }
 
-async function readApplicationEndpoints(workspace: Workspace, applicationNodeId: string) {
+async function readApplicationEndpoints(workspace: Workspace, identity: SupertagApplicationProjectionIdentity) {
   const [owners, occurrences, children] = await Promise.all([
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "nodeOwners" }),
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "occurrences" }),
@@ -466,14 +468,12 @@ async function readApplicationEndpoints(workspace: Workspace, applicationNodeId:
   if (!("nodeOwners" in owners) || !("occurrences" in occurrences) || !("childOccurrences" in children)) {
     throw new Error("Expected Supertag Application endpoint structure");
   }
-  const detachedValueNodeId = detachedSupertagValueNodeId(applicationNodeId);
-  const childOccurrenceIds = children.childOccurrences[applicationNodeId] ?? [];
+  const childOccurrenceIds = children.childOccurrences[identity.applicationNodeId] ?? [];
   return {
     childOccurrenceIds,
     childNodeIds: childOccurrenceIds.map((occurrenceId) => occurrences.occurrences[occurrenceId]?.nodeId),
-    detachedValueOwnerNodeId: owners.nodeOwners[detachedValueNodeId],
-    originalDefinitionOccurrenceExists:
-      occurrences.occurrences[`${applicationNodeId}-definition-occurrence`] !== undefined,
+    detachedValueOwnerNodeId: owners.nodeOwners[identity.detachedValueNodeId],
+    originalDefinitionOccurrenceExists: occurrences.occurrences[identity.definitionOccurrenceId] !== undefined,
   };
 }
 
@@ -490,7 +490,7 @@ async function readExtensions(workspace: Workspace, perspective: "origin" | "rev
   return result.supertagExtensions;
 }
 
-function supertagProgram(): readonly EditMutation[] {
+function supertagProgram(): readonly EditAction[] {
   return [
     ...nodeAtWorkspace("task"),
     ...definitionAtWorkspace("project-supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE),
@@ -500,11 +500,11 @@ function supertagProgram(): readonly EditMutation[] {
   ];
 }
 
-function nodeAtWorkspace(nodeId: string): readonly EditMutation[] {
+function nodeAtWorkspace(nodeId: string): readonly EditAction[] {
   return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
 }
 
-function definitionAtWorkspace(nodeId: string, intrinsicNodeType: IntrinsicNodeType): readonly EditMutation[] {
+function definitionAtWorkspace(nodeId: string, intrinsicNodeType: IntrinsicNodeType): readonly EditAction[] {
   return [
     {
       kind: "node-create",
@@ -517,6 +517,6 @@ function definitionAtWorkspace(nodeId: string, intrinsicNodeType: IntrinsicNodeT
   ];
 }
 
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditMutation {
+function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string): EditAction {
   return { kind: "node-create", nodeId, occurrenceId, parentNodeId, anchor: end };
 }

@@ -52,7 +52,7 @@ export async function readCliPreferences(configFile: string): Promise<CliPrefere
   };
 }
 
-export function syncEndpointsFile(homePath: string): string {
+function syncEndpointsFile(homePath: string): string {
   return join(homePath, "sync-endpoints.json");
 }
 
@@ -77,7 +77,7 @@ export async function setSyncEndpoint(homePath: string, workspaceId: string, end
   await rename(temporary, target);
 }
 
-export function workspaceActorsFile(homePath: string): string {
+function workspaceActorsFile(homePath: string): string {
   return join(homePath, "workspace-actors.json");
 }
 

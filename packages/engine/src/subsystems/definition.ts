@@ -7,7 +7,7 @@ export type EngineSubsystemReference<Capability> = Readonly<{
 
 export type EngineSubsystemDependencies = Readonly<Record<string, EngineSubsystemReference<unknown>>>;
 
-export type DependencyCapabilities<Dependencies extends EngineSubsystemDependencies> = Readonly<{
+type DependencyCapabilities<Dependencies extends EngineSubsystemDependencies> = Readonly<{
   [Role in keyof Dependencies]: Dependencies[Role] extends EngineSubsystemReference<infer Capability>
     ? Capability
     : never;
@@ -34,7 +34,7 @@ export type AnyEngineSubsystemDefinition = Readonly<{
   create(dependencies: never, control: EngineSubsystemControl): EngineSubsystemProduct<unknown>;
 }>;
 
-export type DefinitionCapability<Definition> =
+type DefinitionCapability<Definition> =
   Definition extends Readonly<{
     create(dependencies: never, control: EngineSubsystemControl): EngineSubsystemProduct<infer Capability>;
   }>

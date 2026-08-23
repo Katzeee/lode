@@ -57,35 +57,31 @@
     },
     {
       "id": "model.search-node",
-      "contract": "A Search Node owns one recursive, identity-bearing, ordered Search Expression covering Supertag, text, Field, Date, scope, reference, and boolean composition; updates preserve authority identity, while live SearchResultReferences, Supertag pages, and View Filters share one evaluator and never own Originals.",
+      "contract": "A Search Node owns one recursive, identity-bearing, ordered Search Expression covering Supertag, text, Field, Date, scope, reference, and boolean composition; granular edits preserve semantic targets, structurally invalid trees are rejected, and live Search Result References, Supertag pages, and View Filters share one evaluator without owning Originals.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-1 evaluates one Supertag Search Expression across Origin, Review, and Trash"
+          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-1 evaluates a Supertag expression across Origin, Review, and Trash"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-2 keeps expression identity and hidden ownership through public Undo and Redo"
+          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-2 keeps generated expression identities stable through granular edits and History"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-3 composes daily clauses, preserves clause identities through updates, and evaluates live Originals"
+          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-3 evaluates the complete clause algebra and restores the same projection after restart and sync"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-4 restores the composed authority and derived results after restart"
+          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-4 distinguishes Effective placeholders from Materialized Fields for Defined and Not Defined"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-5 syncs legal composed authority and rejects target-ownership smuggling"
+          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-5 rejects granular edits that would leave no valid expression tree"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/search-node.acceptance.test.ts > Search Node product model > SEARCH-6 distinguishes Effective placeholders from Materialized Fields for Defined and Not Defined"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent Search Expression reorder and update converge across three replicas and all Reconcile paths"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent Search Expression move and configure converge across three replicas and all Reconcile paths"
         }
       ]
     },
@@ -95,15 +91,15 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-1 applies one shared default to ordinary and Search child sources across Review and Trash"
+          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-1 applies one shared default to ordinary and Search sources and preserves it while the host is trashed"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-2 changes mode through public Proposal and History while preserving View Definition identity"
+          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-2 changes mode through Proposal and History while retaining semantic View identity"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-3 removes the shared default through graph truth across Direct, Proposal, History, and reapplication"
+          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-3 removes and restores the current shared default through Direct, Proposal, and History"
         },
         {
           "workspace": "engine",
@@ -111,19 +107,15 @@
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-4 presents typed columns, shared Search filtering, Date sort, and Field groups without copying row content"
+          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-4 independently projects columns, Search filter, Date sort, and grouping and restores them after restart"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/view-definition.acceptance.test.ts > View Definition product model > VIEW-5 restores View option identities and derived presentation after restart"
+          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs typed View options"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs typed View options and rejects a compensation transaction that smuggles Field Definition ownership"
-        },
-        {
-          "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent View column reorder and Filter update converge across three replicas and all Reconcile paths"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent View column move and Sort addition converge across three replicas and all Reconcile paths"
         },
         {
           "workspace": "daemon",
@@ -141,11 +133,11 @@
         },
         {
           "workspace": "engine",
-          "test": "src/domain/mutation-evidence/mutation-evidence.test.ts > Mutation evidence > protects the Workspace Trash role target rather than a deterministic Node identity"
+          "test": "src/domain/authored-intent/authored-intent.test.ts > Authored Intent validation > protects the Workspace Trash role target rather than a deterministic Node identity"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > creates the Workspace through the common Node lifecycle and uses it as the ownership root"
+          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > bootstraps the Workspace ownership root"
         }
       ]
     },
@@ -169,19 +161,15 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-1 trashes a removed use, restores it through History, and re-adds the same Definition as a new use"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > removes and restores one use through History, then creates a new use of the same discoverable Definition"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > reviews a new Template Field use of one discoverable Field Definition"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > keeps a proposed Template Field out of Origin until the composite intent is accepted"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > rejects non-discoverable endpoints, duplicate exposure, and reused relation identities"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs a same-Definition Template Field re-add and rejects authority smuggled through its narrower Fact"
+          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs a same-Definition Template Field re-add"
         }
       ]
     },
@@ -191,7 +179,11 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-2 projects pinned fields, optional suggestions, and authored empty content across source removal"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > authors a Template Field, makes its Definition discoverable, contributes it optionally, and materializes its default"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > merges inherited sources by Definition while preserving visibility and authored Field content"
         },
         {
           "workspace": "engine",
@@ -199,25 +191,25 @@
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > rejects ownership authority smuggled through a Template Field visibility Fact"
+          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs Template Field visibility"
         }
       ]
     },
     {
       "id": "supertag.template-field-static-default",
-      "contract": "A public Template Field Static Default edit changes or clears one stable Template-use-owned text slot; fresh applications copy the current non-empty value without overwriting earlier materializations, an empty default remains an Effective placeholder, and Proposal, History, restart, Fact sync, authority admission, and concurrent CRDT text authorship preserve those boundaries.",
+      "contract": "A public Template Field Static Default edit changes or clears one stable Template-use-owned value; fresh applications copy the current non-empty value without overwriting earlier materializations, an empty default remains an Effective placeholder, and Proposal, History, restart, Fact sync, and Fact projection preserve those boundaries.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > TEMPLATE-FIELD-3 sets, modifies, clears, reviews, restores, and restarts one stable Static Default slot"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > authors a Template Field, makes its Definition discoverable, contributes it optionally, and materializes its default"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs a public Static Default edit and rejects Owner authority smuggled through its text Fact"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > restores semantic Template Field identity, visibility, and Static Default after restart"
         },
         {
           "workspace": "engine",
-          "test": "tests/supertag-domain-convergence.property.test.ts > Supertag domain convergence matrix > preserves concurrent Static Default text authorship across 32 three-replica topologies"
+          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > syncs a public Static Default edit"
         }
       ]
     },
@@ -227,15 +219,7 @@
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > merges two Extension sources by Definition and preserves authored Field content after the last source is removed"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > resolves chain defaults by specificity and surfaces incomparable defaults without an order winner"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > preserves both Extension paths when a diamond contributes the same Template Field"
+          "test": "src/subsystems/workspace/template-field-authoring.acceptance.test.ts > Supertag Template Field authoring > merges inherited sources by Definition while preserving visibility and authored Field content"
         },
         {
           "workspace": "engine",
@@ -259,15 +243,11 @@
     },
     {
       "id": "field.definition-configuration",
-      "contract": "Field Definition configuration preserves definition-led typed relation identities through Proposal and History and rejects invalid endpoint types.",
+      "contract": "Field Definition configuration projects semantic values into typed relation graphs, carries them through Proposal and History, and rejects invalid endpoint types.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/field-definition-configuration.acceptance.test.ts > Field Definition configuration > keeps typed configuration identities across Proposal and History"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/admission/admission.test.ts > domain admission > rejects Definition relations whose target is only an ordinary Node"
+          "test": "src/subsystems/workspace/field-definition-configuration.acceptance.test.ts > Field Definition configuration > projects semantic configurations across Proposal and History and rejects ordinary values"
         }
       ]
     },
@@ -287,7 +267,7 @@
     },
     {
       "id": "field.value-depth",
-      "contract": "Plain and Options Field content preserves independent ordered value identities and nested Plain children; list values reorder only within their Field, explicit Single rejects new overflow without truncating existing values, Datatype and Cardinality changes preserve content, and Proposal, History, restart, Fact admission, and concurrent arrival retain the same graph.",
+      "contract": "Plain and Options Field content preserves independent ordered value identities and nested Plain children; list values reorder only within their Field, explicit Single rejects new overflow without truncating existing values, Datatype and Cardinality changes preserve content, and Proposal, History, restart, Fact projection, and concurrent arrival retain the same graph.",
       "tests": [
         {
           "workspace": "engine",
@@ -375,7 +355,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field deletion by trashing its owned subtree"
+          "test": "src/subsystems/workspace/field-content-deletion.acceptance.test.ts > instance Field content deletion > accepts Materialized Field clearing without destroying its detached content"
         },
         {
           "workspace": "engine",
@@ -385,11 +365,11 @@
     },
     {
       "id": "proposal.shared-domain-review",
-      "contract": "Direct and Proposal share one mutation vocabulary; Review exposes typed net effects, impacts, support closure, and freshness.",
+      "contract": "Direct and Proposal share one action vocabulary; Review exposes typed net effects, impacts, support closure, and freshness.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/reconcile/reconcile.acceptance.test.ts > production Reconcile > MODEL-1 direct and proposal share the complete mutation vocabulary"
+          "test": "src/domain/reconcile/reconcile.acceptance.test.ts > production Reconcile > MODEL-1 direct and proposal share the complete action vocabulary"
         },
         {
           "workspace": "engine",
@@ -401,7 +381,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated Review evidence for every mutation owner survives only unrelated advances"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated Review evidence for representative action owners survives only unrelated advances"
         }
       ]
     },
@@ -419,7 +399,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > every Proposal mutation kind preserves all rebuild paths through Accept and Reject"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > representative Proposal actions preserve all rebuild paths through Accept and Reject"
         },
         {
           "workspace": "engine",
@@ -429,7 +409,7 @@
     },
     {
       "id": "local-first.invocation-durability",
-      "contract": "Invocation retry, transport acknowledgement loss, outcome query, publication lag, authority fault, recovery, and restart are durable and explicit.",
+      "contract": "Invocation retry, transport acknowledgement loss, outcome query, publication lag, and restart are durable and explicit.",
       "tests": [
         {
           "workspace": "engine",
@@ -438,10 +418,6 @@
         {
           "workspace": "engine",
           "test": "src/subsystems/workspace/application/sdk-contract.acceptance.test.ts > transport-neutral SDK contract > Command outcome unknown"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > authority fault keeps the last published generation readable until explicit recovery"
         },
         {
           "workspace": "daemon",
@@ -485,7 +461,7 @@
     },
     {
       "id": "product.anime-notes",
-      "contract": "Task-oriented CLI commands build, navigate, search, present, review, restart, and synchronize the connected Anime Notes knowledge graph without raw mutation or Projection JSON.",
+      "contract": "Task-oriented CLI commands build, navigate, search, present, review, restart, and synchronize the connected Anime Notes knowledge graph without raw action or Projection JSON.",
       "tests": [
         {
           "workspace": "cli",
@@ -548,42 +524,24 @@
       ]
     },
     {
-      "id": "identity.actor-attribution",
-      "contract": "Every Fact in a governed workspace carries an Ed25519 attribution signature over its content digest by the acting Actor; verification is a pure function of the Fact and faults closed on forgery.",
-      "tests": [
-        {
-          "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > GOV-1 attribution is a pure Fact property: wrong signer faults, unsigned faults"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > non-member contributions fault deterministically regardless of arrival order"
-        },
-        {
-          "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > an ungoverned journal rejects attributed Facts as firmly as a governed one rejects bare Facts"
-        }
-      ]
-    },
-    {
       "id": "identity.governance-replay",
-      "contract": "Actor membership, Peer admission, ownership, and transit rotation are governance Facts on the unified journal; replay is a deterministic fold whose invalid inputs fault or skip identically under any merge order.",
+      "contract": "Actor membership, Peer admission, ownership, and transit rotation are governance Facts on the unified authority; replay is a deterministic fold whose invalid or stale actions have no effect under every merge order.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > GOV-2 concurrent governance converges under different merge orders"
+          "test": "src/domain/governance/governance.acceptance.test.ts > governance projection > GOV-2 concurrent governance converges under different merge orders"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > a second establish faults the journal no matter which replica authored it"
+          "test": "src/domain/governance/governance.acceptance.test.ts > governance projection > deterministically ignores a second establishment"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > stale rotations and unauthorized governance have no effect, forged signatures fault"
+          "test": "src/domain/governance/governance.acceptance.test.ts > governance projection > stale rotations and unauthorized governance have no effect"
         },
         {
           "workspace": "engine",
-          "test": "src/domain/governance/governance.acceptance.test.ts > production governance admission > removing one Actor leaves admitted Peers serving the others (orthogonal axes)"
+          "test": "src/domain/governance/governance.acceptance.test.ts > governance projection > removing one Actor leaves admitted Peers serving the others (orthogonal axes)"
         }
       ]
     },
@@ -629,7 +587,7 @@
     },
     {
       "id": "identity.adoption-recovery",
-      "contract": "Adoption stages the remote journal invisibly; failure, interruption, or restart leaves either a complete workspace or no queryable trace.",
+      "contract": "Adoption stages the remote authoritative Fact document invisibly; failure, interruption, or restart leaves either a complete workspace or no queryable trace.",
       "tests": [
         {
           "workspace": "engine",

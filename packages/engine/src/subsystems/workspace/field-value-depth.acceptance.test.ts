@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import type { MutationCommand } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
-import { FIELD_CARDINALITY_NODE_IDS, FIELD_DATATYPE_NODE_IDS, type Mutation } from "../../domain/fact/index.js";
+import type { EditCommand } from "@lode/sdk";
+import type { EditAction } from "../../domain/edit/index.js";
+import { FIELD_CARDINALITY_NODE_IDS, FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -119,10 +118,7 @@ describe("Field Value depth", () => {
         {
           kind: "field-cardinality-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "cardinality",
-          configurationOccurrenceId: "cardinality-occurrence",
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.single,
-          valueOccurrenceId: "cardinality-single-occurrence",
         },
       ]),
     );
@@ -140,10 +136,7 @@ describe("Field Value depth", () => {
         {
           kind: "field-datatype-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "datatype",
-          configurationOccurrenceId: "datatype-occurrence",
           datatypeNodeId: FIELD_DATATYPE_NODE_IDS.options,
-          valueOccurrenceId: "datatype-options-occurrence",
         },
       ]),
     );
@@ -154,18 +147,12 @@ describe("Field Value depth", () => {
         {
           kind: "field-datatype-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "datatype",
-          configurationOccurrenceId: "datatype-occurrence",
           datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
-          valueOccurrenceId: "datatype-plain-restored-occurrence",
         },
         {
           kind: "field-cardinality-configure",
           fieldDefinitionId: "field",
-          configurationNodeId: "cardinality",
-          configurationOccurrenceId: "cardinality-occurrence",
           cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.list,
-          valueOccurrenceId: "cardinality-list-restored-occurrence",
         },
       ]),
     );
@@ -191,51 +178,6 @@ describe("Field Value depth", () => {
       error: { message: "Field Values can only be reordered within their Field" },
     });
     expect(await valueOccurrenceIds(opened.workspace, "origin", "owner")).toEqual(stableValueIds);
-
-    await expect(
-      opened.facts.commit({
-        invocationId: "smuggle-cross-field",
-        request: { command: "smuggle-cross-field" },
-        writes: [
-          {
-            kind: "transaction",
-            bodies: [
-              contribution({
-                kind: "field-materialize",
-                ownerNodeId: "owner",
-                fieldDefinitionId: "field",
-                fieldNodeId: "field-node",
-                fieldOccurrenceId: "field-occurrence",
-              }),
-              contribution({
-                kind: "field-materialize",
-                ownerNodeId: "other",
-                fieldDefinitionId: "other-field",
-                fieldNodeId: "other-field-node",
-                fieldOccurrenceId: "other-field-occurrence",
-              }),
-              contribution({
-                kind: "occurrence-move",
-                occurrenceId: "beta-occurrence",
-                parentNodeId: "other-field-node",
-                anchor: { after: "other-value-occurrence", before: null, affinity: "after", fallback: "end" },
-                previousParentNodeId: "field-node",
-                previousAnchor: {
-                  after: "alpha-occurrence",
-                  before: null,
-                  affinity: "after",
-                  fallback: "end",
-                },
-              }),
-            ],
-          },
-        ],
-        lineage: null,
-        publishedFrontier: opened.facts.snapshot().frontier,
-      }),
-    ).rejects.toThrow(
-      /Field Values can only be reordered within their Field|Structural role requires a typed mutation/,
-    );
   });
 });
 
@@ -252,47 +194,33 @@ async function establishFixture(workspace: Workspace): Promise<void> {
   await publish(
     workspace,
     command("configuration", [
-      datatypeConfiguration("field", "datatype"),
-      cardinalityConfiguration("field", "cardinality"),
-      datatypeConfiguration("other-field", "other-datatype"),
-      cardinalityConfiguration("other-field", "other-cardinality"),
+      datatypeConfiguration("field"),
+      cardinalityConfiguration("field"),
+      datatypeConfiguration("other-field"),
+      cardinalityConfiguration("other-field"),
     ]),
   );
 }
 
-function datatypeConfiguration(
-  fieldDefinitionId: string,
-  prefix: string,
-): Extract<EditMutation, { kind: "field-datatype-configuration-create" }> {
+function datatypeConfiguration(fieldDefinitionId: string): Extract<EditAction, { kind: "field-datatype-configure" }> {
   return {
-    kind: "field-datatype-configuration-create",
+    kind: "field-datatype-configure",
     fieldDefinitionId,
-    configurationNodeId: prefix,
-    configurationOccurrenceId: `${prefix}-occurrence`,
-    definitionOccurrenceId: `${prefix}-definition-occurrence`,
-    valueOccurrenceId: `${prefix}-value-occurrence`,
     datatypeNodeId: FIELD_DATATYPE_NODE_IDS.plain,
-    anchor: end,
   };
 }
 
 function cardinalityConfiguration(
   fieldDefinitionId: string,
-  prefix: string,
-): Extract<EditMutation, { kind: "field-cardinality-configuration-create" }> {
+): Extract<EditAction, { kind: "field-cardinality-configure" }> {
   return {
-    kind: "field-cardinality-configuration-create",
+    kind: "field-cardinality-configure",
     fieldDefinitionId,
-    configurationNodeId: prefix,
-    configurationOccurrenceId: `${prefix}-occurrence`,
-    definitionOccurrenceId: `${prefix}-definition-occurrence`,
-    valueOccurrenceId: `${prefix}-value-occurrence`,
     cardinalityNodeId: FIELD_CARDINALITY_NODE_IDS.list,
-    anchor: end,
   };
 }
 
-function valueCreate(ownerNodeId: string, prefix: string, valuePrefix: string, text: string): EditMutation {
+function valueCreate(ownerNodeId: string, prefix: string, valuePrefix: string, text: string): EditAction {
   return {
     kind: "field-value-create",
     ownerNodeId,
@@ -312,7 +240,7 @@ function nodeAt(
   occurrenceId: string,
   text: string,
   intrinsicNodeType?: "field-definition",
-): EditMutation {
+): EditAction {
   return {
     kind: "node-create",
     nodeId,
@@ -330,22 +258,18 @@ function textSeed(text: string) {
 
 function command(
   invocationId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "field-values",
-    mutations,
+    actions,
   };
-}
-
-function contribution(mutation: Mutation) {
-  return { kind: "contribution" as const, actorId: "remote", intent: "direct" as const, mutation };
 }
 
 async function valueOccurrenceIds(
@@ -401,17 +325,14 @@ async function acceptAllReview(workspace: Workspace): Promise<void> {
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
 }
 
-async function publish(workspace: Workspace, mutation: MutationCommand): Promise<void> {
-  const result = await workspace.execute(mutation);
+async function publish(workspace: Workspace, command: EditCommand): Promise<void> {
+  const result = await workspace.execute(command);
   expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
 }
 

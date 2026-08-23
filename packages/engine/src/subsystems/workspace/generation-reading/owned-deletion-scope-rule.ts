@@ -1,4 +1,8 @@
-import type { Mutation, ProjectionPerspective } from "../../../domain/fact/index.js";
+import {
+  fieldDefinitionEndpointOccurrenceId,
+  type AuthoredAction,
+  type ProjectionPerspective,
+} from "../../../domain/fact/index.js";
 import type { ProjectedOccurrence } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../projection/index.js";
 import { readIndex } from "./index-reader.js";
@@ -10,7 +14,7 @@ export async function includeOwnedDeletionScope(
   store: ProjectionSnapshotReader,
   generationId: string,
   perspective: ProjectionPerspective,
-  mutations: readonly Mutation[],
+  actions: readonly AuthoredAction[],
   initialOccurrences: Record<string, ProjectedOccurrence>,
   nodeOwners: Record<string, string | null>,
   scope: GenerationReadScope,
@@ -19,7 +23,7 @@ export async function includeOwnedDeletionScope(
     store,
     generationId,
     perspective,
-    deletionOwnershipRoots(mutations, initialOccurrences, nodeOwners),
+    deletionOwnershipRoots(actions, initialOccurrences, nodeOwners),
   );
   Object.assign(nodeOwners, ownedNodeOwners);
   const ownedNodeIds = Object.keys(ownedNodeOwners);
@@ -38,36 +42,45 @@ export async function includeOwnedDeletionScope(
 }
 
 function deletionOwnershipRoots(
-  mutations: readonly Mutation[],
+  actions: readonly AuthoredAction[],
   occurrences: Record<string, ProjectedOccurrence>,
   nodeOwners: Record<string, string | null>,
 ): ReadonlySet<string> {
   const roots = new Set<string>();
-  for (const mutation of mutations) {
-    if (mutation.kind === "node-delete") {
-      roots.add(mutation.nodeId);
+  for (const authoredAction of actions) {
+    if (authoredAction.kind === "node-trash") {
+      roots.add(authoredAction.nodeId);
       continue;
     }
-    const occurrenceId = deletedOccurrenceId(mutation);
-    const occurrence = occurrenceId ? occurrences[occurrenceId] : undefined;
-    if (occurrence && nodeOwners[occurrence.nodeId] === occurrence.parentNodeId) {
-      roots.add(occurrence.nodeId);
+    for (const occurrenceId of deletedOccurrenceIds(authoredAction, occurrences)) {
+      const occurrence = occurrences[occurrenceId];
+      if (occurrence && nodeOwners[occurrence.nodeId] === occurrence.parentNodeId) {
+        roots.add(occurrence.nodeId);
+      }
     }
   }
   return roots;
 }
 
-function deletedOccurrenceId(mutation: Mutation): string | null {
-  if (mutation.kind === "occurrence-delete") {
-    return mutation.occurrenceId;
+function deletedOccurrenceIds(
+  authoredAction: AuthoredAction,
+  occurrences: Readonly<Record<string, ProjectedOccurrence>>,
+): readonly string[] {
+  if (authoredAction.kind === "placement-remove") {
+    return [authoredAction.placementId];
   }
-  if (mutation.kind === "materialized-field-delete") {
-    return mutation.fieldOccurrenceId;
+  if (authoredAction.kind === "materialized-field-clear") {
+    return Object.values(occurrences)
+      .filter((occurrence) => {
+        if (occurrence.parentNodeId !== authoredAction.ownerNodeId) {
+          return false;
+        }
+        const endpoint = occurrences[fieldDefinitionEndpointOccurrenceId(occurrence.occurrenceId)];
+        return endpoint?.nodeId === authoredAction.fieldDefinitionId && endpoint.parentNodeId === occurrence.nodeId;
+      })
+      .map((occurrence) => occurrence.occurrenceId);
   }
-  if (mutation.kind === "supertag-template-node-remove") {
-    return mutation.templateOccurrenceId;
-  }
-  return mutation.kind === "field-value-delete" ? mutation.valueOccurrenceId : null;
+  return authoredAction.kind === "field-value-remove" ? [authoredAction.valuePlacementId] : [];
 }
 
 function includeOccurrenceScope(scope: GenerationReadScope, occurrences: Record<string, ProjectedOccurrence>): void {

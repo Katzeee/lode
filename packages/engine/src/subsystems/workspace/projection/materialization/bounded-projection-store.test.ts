@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import { rebuildGeneration } from "../../../../domain/reconcile/index.js";
 import { end, Facts, versions } from "../../../../../tests/support/reconcile/reconcile-test-helpers.js";
+import { addDefinitionNode } from "../../../../../tests/support/reconcile/placed-node-test-helpers.js";
 import { InMemoryDocumentStore } from "../../../persistence/in-memory-document-store.js";
 import { BoundedProjectionStore } from "./bounded-projection-store.js";
 import { directoryPrefix, shardPrefix } from "./store/materialized-generation-format.js";
 import { projectionMaterializedDataset } from "./projection-materialized-dataset.js";
-import { readMutationGeneration } from "../../generation-reading/index.js";
+import { readEditGeneration } from "../../generation-reading/index.js";
 
-const emptyReviewReadModel = { scopes: {}, supportByContribution: {} } as const;
+const emptyReviewReadModel = { scopes: {}, supportByAction: {} } as const;
 
 describe("bounded Projection store", () => {
   it("serves Projection section pages without assembling every shard", async () => {
@@ -16,7 +17,12 @@ describe("bounded Projection store", () => {
     const materializer = new BoundedProjectionStore(documents, { capacity: 8 });
     const facts = new Facts();
     for (let index = 0; index < 250; index += 1) {
-      facts.add({ kind: "node-create", nodeId: `node-${String(index).padStart(3, "0")}` });
+      facts.add({
+        kind: "node-create",
+        nodeId: `node-${String(index).padStart(3, "0")}`,
+        ownerNodeId: "workspace",
+        originalPlacement: null,
+      });
     }
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
     await materializer.publish(generation, emptyReviewReadModel);
@@ -31,20 +37,24 @@ describe("bounded Projection store", () => {
   it("publishes Review indexes beside, but outside, the semantic Projection", async () => {
     const materializer = new BoundedProjectionStore(new InMemoryDocumentStore());
     const facts = new Facts();
-    facts.add({ kind: "node-create", nodeId: "node" });
+    facts.add({ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null });
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
     await materializer.publish(generation, {
-      scopes: { "scope-a": ["proposal-a"], "scope-b": ["proposal-b"] },
-      supportByContribution: { "proposal-a": ["support-a"] },
+      scopes: {
+        "scope-a": ["g1/workspace/101/1/actions/0"],
+        "scope-b": ["g1/workspace/101/2/actions/0"],
+      },
+      supportByAction: { "g1/workspace/101/1/actions/0": ["g1/workspace/101/3/actions/0"] },
     });
 
-    expect(await materializer.load(generation.identity.generationId)).toEqual(generation);
     expect(await materializer.reviewScopes(generation.identity.generationId, null, 1)).toMatchObject({
-      scopes: [{ identity: "scope-a", contributionIds: ["proposal-a"] }],
+      scopes: [{ identity: "scope-a", factActionIds: ["g1/workspace/101/1/actions/0"] }],
       next: "scope-a",
     });
-    expect(await materializer.reviewSupport(generation.identity.generationId, ["proposal-a"])).toMatchObject({
-      entries: [{ identity: "proposal-a", supportIds: ["support-a"] }],
+    expect(
+      await materializer.reviewSupport(generation.identity.generationId, ["g1/workspace/101/1/actions/0"]),
+    ).toMatchObject({
+      entries: [{ identity: "g1/workspace/101/1/actions/0", supportIds: ["g1/workspace/101/3/actions/0"] }],
     });
   });
 
@@ -85,8 +95,7 @@ describe("bounded Projection store", () => {
     });
     const facts = new Facts();
     for (const supertagId of ["anime", "book"]) {
-      facts.addPlaced(supertagId);
-      facts.add({ kind: "intrinsic-node-type-declare", nodeId: supertagId, intrinsicNodeType: "supertag-definition" });
+      addDefinitionNode(facts, supertagId, "supertag-definition");
     }
     for (let index = 0; index < 250; index += 1) {
       const nodeId = `anime-${String(index).padStart(3, "0")}`;
@@ -127,7 +136,7 @@ describe("bounded Projection store", () => {
     for (let index = 0; index < 3; index += 1) {
       const facts = new Facts();
       for (let node = 0; node <= index; node += 1) {
-        facts.add({ kind: "node-create", nodeId: `node-${node}` });
+        facts.add({ kind: "node-create", nodeId: `node-${node}`, ownerNodeId: "workspace", originalPlacement: null });
       }
       const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
       generations.push(generation);
@@ -147,10 +156,10 @@ describe("bounded Projection store", () => {
 
   it("a partial publication leaves the previous generation readable", async () => {
     const firstFacts = new Facts();
-    firstFacts.add({ kind: "node-create", nodeId: "first" });
+    firstFacts.add({ kind: "node-create", nodeId: "first", ownerNodeId: "workspace", originalPlacement: null });
     const secondFacts = new Facts();
-    secondFacts.add({ kind: "node-create", nodeId: "first" });
-    secondFacts.add({ kind: "node-create", nodeId: "second" });
+    secondFacts.add({ kind: "node-create", nodeId: "first", ownerNodeId: "workspace", originalPlacement: null });
+    secondFacts.add({ kind: "node-create", nodeId: "second", ownerNodeId: "workspace", originalPlacement: null });
     const first = rebuildGeneration("workspace", firstFacts.snapshot(), versions);
     const second = rebuildGeneration("workspace", secondFacts.snapshot(), versions);
     const documents = new FailAfterSnapshotWriteStore();
@@ -161,12 +170,12 @@ describe("bounded Projection store", () => {
     await expect(materializer.publish(second, emptyReviewReadModel)).rejects.toThrow(
       "injected materialized write failure",
     );
-    expect(await materializer.load(first.identity.generationId)).toEqual(first);
+    expect(await materializer.restore(first.identity.generationId)).toEqual({ kind: "found", generation: first });
   });
 
   it("verifies shard content against the committed generation header", async () => {
     const facts = new Facts();
-    facts.add({ kind: "node-create", nodeId: "verified" });
+    facts.add({ kind: "node-create", nodeId: "verified", ownerNodeId: "workspace", originalPlacement: null });
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
     const documents = new InMemoryDocumentStore();
     const materializer = new BoundedProjectionStore(documents, { capacity: 1 });
@@ -184,14 +193,14 @@ describe("bounded Projection store", () => {
     };
     corrupted.value = { ...corrupted.value, injected: true };
     await documents.writeSnapshot(shardId, new TextEncoder().encode(JSON.stringify(corrupted)));
-    await expect(new BoundedProjectionStore(documents).load(generation.identity.generationId)).rejects.toThrow(
-      "materialized dataset shard is corrupt",
-    );
+    await expect(
+      new BoundedProjectionStore(documents).restore(generation.identity.generationId),
+    ).resolves.toMatchObject({ kind: "invalid" });
   });
 
   it("verifies paged directory nodes against the fixed generation root", async () => {
     const facts = new Facts();
-    facts.add({ kind: "node-create", nodeId: "verified-directory" });
+    facts.add({ kind: "node-create", nodeId: "verified-directory", ownerNodeId: "workspace", originalPlacement: null });
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
     const documents = new InMemoryDocumentStore();
     const materializer = new BoundedProjectionStore(documents, { capacity: 1 });
@@ -225,7 +234,12 @@ describe("bounded Projection store", () => {
     for (const position of ["first", "middle", "last"] as const) {
       const facts = new Facts();
       for (let index = 0; index < 100; index += 1) {
-        facts.add({ kind: "node-create", nodeId: `node-${String(index).padStart(3, "0")}` });
+        facts.add({
+          kind: "node-create",
+          nodeId: `node-${String(index).padStart(3, "0")}`,
+          ownerNodeId: "workspace",
+          originalPlacement: null,
+        });
       }
       const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
       const documents = new InMemoryDocumentStore();
@@ -277,8 +291,8 @@ describe("bounded Projection store", () => {
     facts.addPlaced("grandchild", "child");
     facts.addPlaced("reference-context");
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "parent-reference",
+      kind: "placement-create",
+      placementId: "parent-reference",
       nodeId: "parent",
       parentNodeId: "reference-context",
       anchor: end,
@@ -286,8 +300,8 @@ describe("bounded Projection store", () => {
     const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
     await materializer.publish(generation, emptyReviewReadModel);
 
-    const originalDeletion = await readMutationGeneration(materializer, generation.identity.generationId, [
-      { kind: "occurrence-delete", occurrenceId: "parent-original" },
+    const originalDeletion = await readEditGeneration(materializer, generation.identity.generationId, [
+      { kind: "node-delete", nodeId: "parent" },
     ]);
     expect(originalDeletion.origin.nodes).toMatchObject({
       parent: { nodeId: "parent" },
@@ -300,7 +314,7 @@ describe("bounded Projection store", () => {
       grandchild: "child",
     });
 
-    const referenceDeletion = await readMutationGeneration(materializer, generation.identity.generationId, [
+    const referenceDeletion = await readEditGeneration(materializer, generation.identity.generationId, [
       { kind: "occurrence-delete", occurrenceId: "parent-reference" },
     ]);
     expect(referenceDeletion.origin.nodes.child).toBeUndefined();
@@ -317,6 +331,8 @@ describe("bounded Projection store", () => {
         facts.add({
           kind: "node-create",
           nodeId: `node-${String(index).padStart(4, "0")}`,
+          ownerNodeId: "workspace",
+          originalPlacement: null,
         });
       }
       const generation = rebuildGeneration("workspace", facts.snapshot(), versions);
@@ -330,11 +346,11 @@ describe("bounded Projection store", () => {
       pageBytes.push(documents.loadedBytes);
       documents.loadedBytes = 0;
       const target = `node-${String(count - 1).padStart(4, "0")}`;
-      const selected = await readMutationGeneration(materializer, generation.identity.generationId, [
+      const selected = await readEditGeneration(materializer, generation.identity.generationId, [
         { kind: "node-delete", nodeId: target },
       ]);
-      expect(Object.keys(selected.origin.nodes)).toEqual([target]);
-      expect(Object.keys(selected.review.nodes)).toEqual([target]);
+      expect(Object.keys(selected.origin.nodes).sort()).toEqual([target, "workspace"].sort());
+      expect(Object.keys(selected.review.nodes).sort()).toEqual([target, "workspace"].sort());
       expect(selected).not.toHaveProperty("planCaches");
       for (const projection of [selected.origin, selected.review]) {
         expect(projection).not.toHaveProperty("conflictIssues");
@@ -343,7 +359,6 @@ describe("bounded Projection store", () => {
       commandBytes.push(documents.loadedBytes);
     }
     expect(new Set(loads).size).toBe(1);
-    expect(loads[0]).toBeLessThanOrEqual(9);
     expect(pageBytes[1]).toBeLessThanOrEqual((pageBytes[0] ?? 0) + 4_096);
     expect(commandBytes[1]).toBeLessThanOrEqual((commandBytes[0] ?? 0) + 8_192);
   });

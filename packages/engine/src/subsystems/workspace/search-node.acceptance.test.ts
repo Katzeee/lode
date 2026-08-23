@@ -1,23 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-mutations.js";
 
-import type { MutationCommand, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
-import { FactReplication } from "./fact-replication.js";
+import type { EditCommand, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
+import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
 import { syncPair } from "../../../tests/support/sync.js";
-import { Workspace } from "./workspace.js";
+import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
+import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { FactAuthority } from "./authority/fact-authority.js";
+import { FactReplication } from "./fact-replication.js";
+import { Workspace } from "./workspace.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Search Node product model", () => {
-  it("SEARCH-1 evaluates one Supertag Search Expression across Origin, Review, and Trash", async () => {
+  it("SEARCH-1 evaluates a Supertag expression across Origin, Review, and Trash", async () => {
     const workspace = await setup();
     await createSearchFixture(workspace);
-    const proposal = await workspace.execute(
+    await expectPublished(
+      workspace,
       command(
         "base-expression",
         "search",
@@ -25,78 +25,46 @@ describe("Search Node product model", () => {
           {
             kind: "search-expression-create",
             searchNodeId: "search",
-            metanodeId: "search-configuration",
-            expressionNodeId: "base-expression",
-            expressionOccurrenceId: "base-expression-occurrence",
-            definitionOccurrenceId: "base-expression-definition",
-            expression: { expressionNodeId: "base-expression", kind: "supertag", supertagId: "base-supertag" },
+            expression: { kind: "supertag", supertagId: "base-supertag" },
             anchor: end,
           },
         ],
         "proposal",
       ),
     );
-    expect(proposal.status).toBe("published");
     expect(await resultNodeIds(workspace, "origin")).toEqual([]);
     expect(await resultNodeIds(workspace, "review")).toEqual(["base-candidate", "subtype-candidate"]);
-
-    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
-    if (!("hunks" in review) || !review.hunks[0]) {
-      throw new Error("Expected Search Expression Review Hunk");
-    }
-    const acceptedExpression = await workspace.execute({
-      kind: "resolve-review",
-      workspaceId: "workspace",
-      invocationId: "accept-search-expression",
-      actorId: "reviewer",
-      decision: "accept",
-      selection: review.hunks[0].selection,
-    });
-    expect(acceptedExpression, JSON.stringify(acceptedExpression)).toMatchObject({ status: "published" });
+    await acceptAllHunks(workspace, "accept-search-expression");
     expect(await resultNodeIds(workspace, "origin")).toEqual(["base-candidate", "subtype-candidate"]);
-    const supertagPage = await workspace.query({
-      kind: "supertag-instances",
-      workspaceId: "workspace",
-      perspective: "origin",
-      supertagId: "base-supertag",
-    });
-    expect("nodeIds" in supertagPage ? supertagPage.nodeIds : []).toEqual(await resultNodeIds(workspace, "origin"));
+
+    const expression = required((await searchProjection(workspace)).searchExpressions.search, "Search Expression");
+    expect(expression.expression.expressionNodeId).toBe(expression.expressionNodeId);
+    expect(expression.expression.expressionId).toContain("/actions/");
 
     const duplicate = await workspace.execute(
       command("duplicate-expression", "search", [
         {
           kind: "search-expression-create",
           searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "duplicate-expression",
-          expressionOccurrenceId: "duplicate-expression-occurrence",
-          definitionOccurrenceId: "duplicate-expression-definition",
-          expression: {
-            expressionNodeId: "duplicate-expression",
-            kind: "supertag",
-            supertagId: "subtype-supertag",
-          },
+          expression: { kind: "supertag", supertagId: "subtype-supertag" },
           anchor: end,
         },
       ]),
     );
-    expect(duplicate).toMatchObject({ status: "rejected" });
+    expect(duplicate).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
 
-    const candidateDeletion = await workspace.execute(
+    await expectPublished(
+      workspace,
       command("trash-candidate", "candidate", [{ kind: "node-delete", nodeId: "subtype-candidate" }]),
     );
-    if (candidateDeletion.status !== "published") {
-      throw new Error("Expected Search candidate deletion");
-    }
     expect(await resultNodeIds(workspace, "origin")).toEqual(["base-candidate"]);
-    await workspace.execute(
+    await expectPublished(
+      workspace,
       command("restore-candidate", "candidate", [
         {
           kind: "node-restore",
           nodeId: "subtype-candidate",
-          deletionFactId: required(candidateDeletion.receipt.factIds[0], "candidate deletion Fact"),
           occurrenceId: "subtype-candidate-original",
-          ownerNodeId: "workspace",
           parentNodeId: "workspace",
           anchor: end,
         },
@@ -104,23 +72,18 @@ describe("Search Node product model", () => {
     );
     expect(await resultNodeIds(workspace, "origin")).toEqual(["base-candidate", "subtype-candidate"]);
 
-    const searchDeletion = await workspace.execute(
+    await expectPublished(
+      workspace,
       command("trash-search", "search-node", [{ kind: "node-delete", nodeId: "search" }]),
     );
-    if (searchDeletion.status !== "published") {
-      throw new Error("Expected Search Node deletion");
-    }
-    const unavailable = await searchResults(workspace, "origin");
-    expect(unavailable.available).toBe(false);
-    expect(unavailable.results).toEqual([]);
-    await workspace.execute(
+    expect(await searchResults(workspace, "origin")).toMatchObject({ available: false, results: [] });
+    await expectPublished(
+      workspace,
       command("restore-search", "search-node", [
         {
           kind: "node-restore",
           nodeId: "search",
-          deletionFactId: required(searchDeletion.receipt.factIds[0], "Search deletion Fact"),
           occurrenceId: "search-original",
-          ownerNodeId: "workspace",
           parentNodeId: "workspace",
           anchor: end,
         },
@@ -129,334 +92,188 @@ describe("Search Node product model", () => {
     expect(await resultNodeIds(workspace, "origin")).toEqual(["base-candidate", "subtype-candidate"]);
   });
 
-  it("SEARCH-2 keeps expression identity and hidden ownership through public Undo and Redo", async () => {
+  it("SEARCH-2 keeps generated expression identities stable through granular edits and History", async () => {
     const workspace = await setup();
     await createSearchFixture(workspace);
-    const created = await workspace.execute(
+    await expectPublished(
+      workspace,
       command("create-expression", "search-history", [
         {
           kind: "search-expression-create",
           searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "base-expression",
-          expressionOccurrenceId: "base-expression-occurrence",
-          definitionOccurrenceId: "base-expression-definition",
-          expression: { expressionNodeId: "base-expression", kind: "supertag", supertagId: "base-supertag" },
+          expression: {
+            kind: "and",
+            operands: [
+              { kind: "supertag", supertagId: "base-supertag" },
+              { kind: "text", text: "candidate" },
+            ],
+          },
           anchor: end,
         },
       ]),
     );
-    expect(created.status).toBe("published");
-    const projected = await searchProjection(workspace);
-    expect(projected.metanodes).toMatchObject({ search: "search-configuration" });
-    expect(projected.nodeOwners["base-expression"]).toBe("search-configuration");
-    expect(projected.searchExpressions.search).toEqual({
-      expressionNodeId: "base-expression",
-      expressionOccurrenceId: "base-expression-occurrence",
-      definitionOccurrenceId: "base-expression-definition",
-      expression: { expressionNodeId: "base-expression", kind: "supertag", supertagId: "base-supertag" },
-    });
-    expect(
-      Object.values(projected.occurrences).some((occurrence) => occurrence.nodeId === "search-configuration"),
-    ).toBe(false);
 
-    const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "search-history" });
-    if (!("undo" in history) || !history.undo) {
-      throw new Error("Expected Search expression Undo");
+    const initial = required((await searchProjection(workspace)).searchExpressions.search, "Search Expression");
+    if (initial.expression.kind !== "and") {
+      throw new Error("Expected conjunction");
     }
-    const undoResult = await workspace.execute({
-      kind: "undo",
-      workspaceId: "workspace",
-      invocationId: "undo-search-expression",
-      actorId: "actor",
-      selection: history.undo,
-    });
-    if (undoResult.status === "rejected") {
-      throw new Error(JSON.stringify(undoResult.error));
-    }
-    expect(undoResult.status).toBe("published");
-    expect(await resultNodeIds(workspace, "origin")).toEqual([]);
+    const rootId = initial.expression.expressionId;
+    const rootNodeId = initial.expression.expressionNodeId;
+    const tagId = required(
+      initial.expression.operands.find((item) => item.kind === "supertag"),
+      "Supertag clause",
+    ).expressionId;
+    const textId = required(
+      initial.expression.operands.find((item) => item.kind === "text"),
+      "Text clause",
+    ).expressionId;
+    expect((await searchProjection(workspace)).nodeOwners[rootNodeId]).toBe("metanode:v1:search");
 
-    const corruption = await workspace.execute(
-      command("corrupt-removed-search-expression", "search-history", [
-        {
-          kind: "occurrence-create",
-          occurrenceId: "rogue-search-endpoint",
-          nodeId: "base-supertag",
-          parentNodeId: "base-expression",
-          anchor: end,
-        },
-      ]),
-    );
-    expect(corruption).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
-
-    const redo = await workspace.query({ kind: "history", workspaceId: "workspace", channelId: "search-history" });
-    if (!("redo" in redo) || !redo.redo) {
-      throw new Error("Expected Search expression Redo");
-    }
-    expect(
-      (
-        await workspace.execute({
-          kind: "redo",
-          workspaceId: "workspace",
-          invocationId: "redo-search-expression",
-          actorId: "actor",
-          selection: redo.redo,
-        })
-      ).status,
-    ).toBe("published");
-    expect((await searchProjection(workspace)).searchExpressions.search?.expressionNodeId).toBe("base-expression");
-    expect(await resultNodeIds(workspace, "origin")).toEqual(["base-candidate", "subtype-candidate"]);
-  });
-
-  it("SEARCH-3 composes daily clauses, preserves clause identities through updates, and evaluates live Originals", async () => {
-    const workspace = await setup();
-    await createComposedSearchFixture(workspace);
-    const expression = composedExpression(true);
-    expect(
-      (
-        await workspace.execute(
-          command("create-composed-expression", "composed-search", [
-            {
-              kind: "search-expression-create",
-              searchNodeId: "search",
-              metanodeId: "search-configuration",
-              expressionNodeId: "composed-expression",
-              expressionOccurrenceId: "composed-expression-occurrence",
-              definitionOccurrenceId: "composed-expression-definition",
-              expression,
-              anchor: end,
-            },
-          ]),
-        )
-      ).status,
-    ).toBe("published");
-    expect(await resultNodeIds(workspace, "origin")).toEqual(["matching-candidate"]);
-
-    const reorderedOperands = [6, 5, 2, 0, 4, 1, 3].map((index) => expression.operands[index]);
-    if (reorderedOperands.some((operand) => operand === undefined)) {
-      throw new Error("Expected every composed Search operand");
-    }
-    const definedOperands = reorderedOperands.filter(
-      (operand): operand is NonNullable<typeof operand> => operand !== undefined,
-    );
-    const reordered: SearchExpressionSpec = {
-      ...expression,
-      operands: definedOperands,
-    };
-    expect(
-      (
-        await workspace.execute(
-          command("reorder-composed-expression", "composed-search", [
-            { kind: "search-expression-update", searchNodeId: "search", expression: reordered },
-          ]),
-        )
-      ).status,
-    ).toBe("published");
-    const afterReorder = (await searchProjection(workspace)).searchExpressions.search;
-    expect(afterReorder).toMatchObject({
-      expressionNodeId: "composed-expression",
-      expressionOccurrenceId: "composed-expression-occurrence",
-      definitionOccurrenceId: "composed-expression-definition",
-      expression: { expressionNodeId: "composed-expression", kind: "and" },
-    });
-    expect(
-      afterReorder?.expression.kind === "and"
-        ? afterReorder.expression.operands.map((item) => item.expressionNodeId)
-        : [],
-    ).toEqual([
-      "field-value-clause",
-      "links-clause",
-      "not-clause",
-      "tag-clause",
-      "scope-clause",
-      "or-clause",
-      "date-clause",
-    ]);
-    const reorderHistory = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "composed-search",
-    });
-    if (!("undo" in reorderHistory) || reorderHistory.undo === null) {
-      throw new Error("Expected Search Expression update Undo");
-    }
-    expect(
-      (
-        await workspace.execute({
-          kind: "undo",
-          workspaceId: "workspace",
-          invocationId: "undo-search-reorder",
-          actorId: "actor",
-          selection: reorderHistory.undo,
-        })
-      ).status,
-    ).toBe("published");
-    expect((await searchProjection(workspace)).searchExpressions.search?.expression).toEqual(expression);
-    const redoReorder = await workspace.query({
-      kind: "history",
-      workspaceId: "workspace",
-      channelId: "composed-search",
-    });
-    if (!("redo" in redoReorder) || redoReorder.redo === null) {
-      throw new Error("Expected Search Expression update Redo");
-    }
-    expect(
-      (
-        await workspace.execute({
-          kind: "redo",
-          workspaceId: "workspace",
-          invocationId: "redo-search-reorder",
-          actorId: "actor",
-          selection: redoReorder.redo,
-        })
-      ).status,
-    ).toBe("published");
-    expect((await searchProjection(workspace)).searchExpressions.search?.expression).toEqual(reordered);
-
-    const withoutDefined = composedExpression(false);
     await expectPublished(
       workspace,
-      command("remove-defined-clause", "composed-search", [
-        { kind: "search-expression-update", searchNodeId: "search", expression: withoutDefined },
+      command("add-logical-branch", "search-history", [
+        {
+          kind: "search-expression-add",
+          searchNodeId: "search",
+          parentExpressionId: rootId,
+          expression: {
+            kind: "or",
+            operands: [
+              { kind: "text", text: "candidate" },
+              { kind: "supertag", supertagId: "subtype-supertag" },
+            ],
+          },
+          anchor: end,
+        },
+      ]),
+    );
+    const withBranch = required(
+      (await searchProjection(workspace)).searchExpressions.search,
+      "branched Search Expression",
+    );
+    if (withBranch.expression.kind !== "and") {
+      throw new Error("Expected conjunction");
+    }
+    const branch = required(
+      withBranch.expression.operands.find((item) => item.kind === "or"),
+      "logical branch",
+    );
+    if (branch.kind !== "or") {
+      throw new Error("Expected disjunction");
+    }
+    const branchTextId = required(
+      branch.operands.find((item) => item.kind === "text"),
+      "branch Text clause",
+    ).expressionId;
+    await expectPublished(
+      workspace,
+      command("configure-logical-branch", "search-history", [
+        {
+          kind: "search-expression-configure",
+          searchNodeId: "search",
+          expressionId: branchTextId,
+          clause: { kind: "text", text: "base" },
+        },
+      ]),
+    );
+
+    await expectPublished(
+      workspace,
+      command("configure-text", "search-history", [
+        {
+          kind: "search-expression-configure",
+          searchNodeId: "search",
+          expressionId: textId,
+          clause: { kind: "text", text: "base" },
+        },
+      ]),
+    );
+    await expectPublished(
+      workspace,
+      command("move-text", "search-history", [
+        {
+          kind: "search-expression-move",
+          searchNodeId: "search",
+          expressionId: textId,
+          parentExpressionId: rootId,
+          anchor: { after: null, before: tagId, affinity: "before", fallback: "start" },
+        },
+      ]),
+    );
+    const moved = required((await searchProjection(workspace)).searchExpressions.search, "moved Search Expression");
+    expect(moved.expression.kind === "and" ? moved.expression.operands.map((item) => item.expressionId) : []).toEqual([
+      textId,
+      tagId,
+      branch.expressionId,
+    ]);
+
+    await expectPublished(
+      workspace,
+      command("remove-text", "search-history", [
+        { kind: "search-expression-remove", searchNodeId: "search", expressionId: textId },
       ]),
     );
     expect(searchExpressionIds((await searchProjection(workspace)).searchExpressions.search?.expression)).not.toContain(
-      "defined-clause",
-    );
-    await expectPublished(
-      workspace,
-      command("readd-defined-clause", "composed-search", [
-        { kind: "search-expression-update", searchNodeId: "search", expression: composedExpression(true) },
-      ]),
-    );
-    expect(searchExpressionIds((await searchProjection(workspace)).searchExpressions.search?.expression)).toContain(
-      "defined-clause",
+      textId,
     );
 
-    const explicitScope = composedExpression(true);
-    const relativeScope: SearchExpressionSpec = {
-      ...explicitScope,
-      operands: explicitScope.operands.map((operand) =>
-        operand.expressionNodeId === "scope-clause"
-          ? {
-              expressionNodeId: "scope-clause",
-              kind: "descendant-of" as const,
-              target: { kind: "parent" as const },
-            }
-          : operand,
-      ),
-    };
-    await expectPublished(
-      workspace,
-      command("use-relative-parent-scope", "composed-search", [
-        { kind: "search-expression-update", searchNodeId: "search", expression: relativeScope },
-      ]),
+    await expectPublished(workspace, {
+      kind: "undo",
+      workspaceId: "workspace",
+      invocationId: "undo-search-remove",
+      actorId: "actor",
+      selection: await historySelection(workspace, "search-history", "undo"),
+    });
+    const restored = required(
+      (await searchProjection(workspace)).searchExpressions.search,
+      "restored Search Expression",
     );
-    expect(await resultNodeIds(workspace, "origin")).toEqual(["matching-candidate"]);
+    expect(searchExpressionIds(restored.expression)).toContain(textId);
+    expect(restored.expression.expressionId).toBe(rootId);
 
-    await setText(workspace, "matching-candidate", "Urgent archived item", "archive-original");
-    expect(await resultNodeIds(workspace, "origin")).toEqual([]);
-    await setText(workspace, "matching-candidate", "Urgent current item", "restore-original");
-    expect(await resultNodeIds(workspace, "origin")).toEqual(["matching-candidate"]);
-    expect((await searchProjection(workspace)).nodeOwners["composed-expression"]).toBe("search-configuration");
+    await expectPublished(workspace, {
+      kind: "redo",
+      workspaceId: "workspace",
+      invocationId: "redo-search-remove",
+      actorId: "actor",
+      selection: await historySelection(workspace, "search-history", "redo"),
+    });
+    expect(searchExpressionIds((await searchProjection(workspace)).searchExpressions.search?.expression)).not.toContain(
+      textId,
+    );
   });
 
-  it("SEARCH-4 restores the composed authority and derived results after restart", async () => {
+  it("SEARCH-3 evaluates the complete clause algebra and restores the same projection after restart and sync", async () => {
     const documents = new InMemoryDocumentStore();
-    const first = await setup(documents, "211");
+    const left = await openSearchWorkspace(documents, "211");
+    const first = left.workspace;
     await createComposedSearchFixture(first);
     await expectPublished(
       first,
       command("persistent-search", "persistent-search", [
-        {
-          kind: "search-expression-create",
-          searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "composed-expression",
-          expressionOccurrenceId: "composed-expression-occurrence",
-          definitionOccurrenceId: "composed-expression-definition",
-          expression: composedExpression(true),
-          anchor: end,
-        },
+        { kind: "search-expression-create", searchNodeId: "search", expression: composedExpression(), anchor: end },
       ]),
     );
+    expect(await resultNodeIds(first, "origin")).toEqual(["matching-candidate"]);
+
+    const before = required((await searchProjection(first)).searchExpressions.search, "composed Search Expression");
+    await setText(first, "matching-candidate", "Urgent archived item", "archive-original");
+    expect(await resultNodeIds(first, "origin")).toEqual([]);
+    await setText(first, "matching-candidate", "Urgent current item", "restore-original");
+    expect(await resultNodeIds(first, "origin")).toEqual(["matching-candidate"]);
+
     const restarted = await setup(documents, "212");
     expect(await resultNodeIds(restarted, "origin")).toEqual(["matching-candidate"]);
-    expect((await searchProjection(restarted)).searchExpressions.search?.expression).toEqual(composedExpression(true));
-  });
+    expect((await searchProjection(restarted)).searchExpressions.search).toEqual(before);
 
-  it("SEARCH-5 syncs legal composed authority and rejects target-ownership smuggling", async () => {
-    const left = await openSearchWorkspace(new InMemoryDocumentStore(), "221");
     const right = await openSearchWorkspace(new InMemoryDocumentStore(), "222");
-    await createComposedSearchFixture(left.workspace);
-    await expectPublished(
-      left.workspace,
-      command("sync-composed-search", "sync-search", [
-        {
-          kind: "search-expression-create",
-          searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "composed-expression",
-          expressionOccurrenceId: "composed-expression-occurrence",
-          definitionOccurrenceId: "composed-expression-definition",
-          expression: composedExpression(true),
-          anchor: end,
-        },
-      ]),
-    );
     await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(await resultNodeIds(right.workspace, "origin")).toEqual(["matching-candidate"]);
-
-    const projected = (await searchProjection(left.workspace)).searchExpressions.search;
-    if (projected === undefined) {
-      throw new Error("Expected synced Search Expression");
-    }
-    expect((await searchProjection(left.workspace)).nodeOwners["linked-target"]).toBe("workspace");
-    await expect(
-      left.facts.commit({
-        invocationId: "smuggle-search-target-owner",
-        request: { command: "smuggle-search-target-owner" },
-        writes: [
-          {
-            kind: "transaction",
-            bodies: [
-              {
-                kind: "contribution",
-                actorId: "attacker",
-                intent: "direct",
-                mutation: {
-                  kind: "search-expression-attach",
-                  searchNodeId: "search",
-                  expressionNodeId: projected.expressionNodeId,
-                  expressionOccurrenceId: projected.expressionOccurrenceId,
-                  definitionOccurrenceId: projected.definitionOccurrenceId,
-                  expression: projected.expression,
-                  previousExpression: projected.expression,
-                },
-              },
-              {
-                kind: "contribution",
-                actorId: "attacker",
-                intent: "direct",
-                mutation: {
-                  kind: "node-owner-set",
-                  nodeId: "composed-expression",
-                  ownerNodeId: "workspace",
-                  previousOwnerNodeId: "search-configuration",
-                },
-              },
-            ],
-          },
-        ],
-        lineage: null,
-        publishedFrontier: left.facts.snapshot().frontier,
-      }),
-    ).rejects.toThrow(/Structural role|structure|Owner/i);
+    expect((await searchProjection(right.workspace)).searchExpressions.search).toEqual(before);
   });
 
-  it("SEARCH-6 distinguishes Effective placeholders from Materialized Fields for Defined and Not Defined", async () => {
+  it("SEARCH-4 distinguishes Effective placeholders from Materialized Fields for Defined and Not Defined", async () => {
     const workspace = await setup();
     await expectPublished(
       workspace,
@@ -473,12 +290,7 @@ describe("Search Node product model", () => {
         {
           kind: "supertag-template-field-create",
           supertagId: "field-supertag",
-          templateFieldNodeId: "status-template",
-          templateFieldOccurrenceId: "status-template-occurrence",
           fieldDefinitionId: "status-definition",
-          definitionOccurrenceId: "status-template-definition",
-          staticDefaultValueNodeId: "status-default",
-          staticDefaultValueOccurrenceId: "status-template-default",
           anchor: end,
           fieldDefinitionSeed: { text: [{ value: "Status", attributes: {} }] },
         },
@@ -497,7 +309,7 @@ describe("Search Node product model", () => {
         nodeAt("materialized-status-field", "materialized-candidate", "materialized-status-field-occurrence"),
         nodeAt("materialized-status-value", "materialized-status-field", "materialized-status-value-occurrence"),
         {
-          kind: "text-splice",
+          kind: "rich-text-splice",
           nodeId: "materialized-status-value",
           deleteAtomIds: [],
           anchor: end,
@@ -512,127 +324,129 @@ describe("Search Node product model", () => {
         },
       ]),
     );
-
-    const effectiveFields = await workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      perspective: "origin",
-      section: "effectiveFields",
-    });
-    const materializedFields = await workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      perspective: "origin",
-      section: "materializedFields",
-    });
-    if (!("effectiveFields" in effectiveFields) || !("materializedFields" in materializedFields)) {
-      throw new Error("Expected Effective and Materialized Field Projections");
-    }
-    expect(effectiveFields.effectiveFields["effective-candidate"]?.[0]).toMatchObject({
-      fieldDefinitionId: "status-definition",
-      materializedFieldNodeId: null,
-    });
-    expect(materializedFields.materializedFields["effective-candidate"]).toBeUndefined();
-    expect(materializedFields.materializedFields["materialized-candidate"]?.[0]).toMatchObject({
-      fieldDefinitionId: "status-definition",
-      fieldNodeId: "materialized-status-field",
-    });
-
-    const definedExpression: SearchExpressionSpec = {
-      expressionNodeId: "defined-search-expression",
-      kind: "and",
-      operands: [
-        { expressionNodeId: "tag-clause", kind: "supertag", supertagId: "field-supertag" },
-        {
-          expressionNodeId: "defined-clause",
-          kind: "field-defined",
-          fieldDefinitionId: "status-definition",
-          defined: true,
-        },
-      ],
-    };
     await expectPublished(
       workspace,
       command("create-defined-search", "defined-search", [
         {
           kind: "search-expression-create",
           searchNodeId: "search",
-          metanodeId: "search-configuration",
-          expressionNodeId: "defined-search-expression",
-          expressionOccurrenceId: "defined-search-expression-occurrence",
-          definitionOccurrenceId: "defined-search-expression-definition",
-          expression: definedExpression,
+          expression: {
+            kind: "and",
+            operands: [
+              { kind: "supertag", supertagId: "field-supertag" },
+              { kind: "field-defined", fieldDefinitionId: "status-definition", defined: true },
+            ],
+          },
           anchor: end,
         },
       ]),
     );
     expect(await resultNodeIds(workspace, "origin")).toEqual(["materialized-candidate"]);
 
-    const notDefinedExpression: SearchExpressionSpec = {
-      ...definedExpression,
-      operands: definedExpression.operands.map((operand) =>
-        operand.expressionNodeId === "defined-clause" && operand.kind === "field-defined"
-          ? { ...operand, defined: false }
-          : operand,
-      ),
-    };
+    const expression = required(
+      (await searchProjection(workspace)).searchExpressions.search?.expression,
+      "defined Search",
+    );
+    if (expression.kind !== "and") {
+      throw new Error("Expected conjunction");
+    }
+    const defined = required(
+      expression.operands.find((item) => item.kind === "field-defined"),
+      "Defined clause",
+    );
     await expectPublished(
       workspace,
       command("use-not-defined-search", "defined-search", [
-        { kind: "search-expression-update", searchNodeId: "search", expression: notDefinedExpression },
+        {
+          kind: "search-expression-configure",
+          searchNodeId: "search",
+          expressionId: defined.expressionId,
+          clause: { kind: "field-defined", fieldDefinitionId: "status-definition", defined: false },
+        },
       ]),
     );
-    expect((await searchProjection(workspace)).searchExpressions.search).toMatchObject({
-      expressionNodeId: "defined-search-expression",
-      expression: {
-        expressionNodeId: "defined-search-expression",
-        operands: [{ expressionNodeId: "tag-clause" }, { expressionNodeId: "defined-clause", defined: false }],
-      },
-    });
     expect(await resultNodeIds(workspace, "origin")).toEqual(["effective-candidate"]);
+  });
+
+  it("SEARCH-5 rejects granular edits that would leave no valid expression tree", async () => {
+    const workspace = await setup();
+    await createSearchFixture(workspace);
+    await expectPublished(
+      workspace,
+      command("create-negated-expression", "search-validation", [
+        {
+          kind: "search-expression-create",
+          searchNodeId: "search",
+          expression: { kind: "not", operand: { kind: "text", text: "archived" } },
+          anchor: end,
+        },
+      ]),
+    );
+    const expression = required(
+      (await searchProjection(workspace)).searchExpressions.search?.expression,
+      "Search Expression",
+    );
+    if (expression.kind !== "not") {
+      throw new Error("Expected negation");
+    }
+
+    const addOperand = await workspace.execute(
+      command("overfill-negation", "search-validation", [
+        {
+          kind: "search-expression-add",
+          searchNodeId: "search",
+          parentExpressionId: expression.expressionId,
+          expression: { kind: "text", text: "current" },
+          anchor: end,
+        },
+      ]),
+    );
+    expect(addOperand).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+
+    const removeOperand = await workspace.execute(
+      command("empty-negation", "search-validation", [
+        { kind: "search-expression-remove", searchNodeId: "search", expressionId: expression.operand.expressionId },
+      ]),
+    );
+    expect(removeOperand).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+
+    const discardOperand = await workspace.execute(
+      command("discard-negation-operand", "search-validation", [
+        {
+          kind: "search-expression-configure",
+          searchNodeId: "search",
+          expressionId: expression.expressionId,
+          clause: { kind: "text", text: "current" },
+        },
+      ]),
+    );
+    expect(discardOperand).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
   });
 });
 
-async function setup(
-  documents: InMemoryDocumentStore = new InMemoryDocumentStore(),
-  loroPeerId: `${number}` = "201",
-): Promise<Workspace> {
+async function setup(documents: InMemoryDocumentStore = new InMemoryDocumentStore(), loroPeerId: `${number}` = "201") {
   return (await openSearchWorkspace(documents, loroPeerId)).workspace;
 }
 
 async function openSearchWorkspace(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
-  const facts = await FactAuthority.open({
-    workspaceId: "workspace",
-    replicaId: createReplicaId(),
-    loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
-  });
+  const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
   return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
 }
 
 async function createSearchFixture(workspace: Workspace): Promise<void> {
-  const operations: MutationCommand["mutations"] = [
-    nodeAt("base-supertag", "workspace", "base-supertag-original", "supertag-definition"),
-    nodeAt("subtype-supertag", "workspace", "subtype-supertag-original", "supertag-definition"),
-    nodeAt("search", "workspace", "search-original", "search"),
-    nodeAt("base-candidate", "workspace", "base-candidate-original"),
-    nodeAt("subtype-candidate", "workspace", "subtype-candidate-original"),
-    {
-      kind: "supertag-extension-add",
-      supertagId: "subtype-supertag",
-      baseSupertagId: "base-supertag",
-      anchor: end,
-    },
-    createSupertagApplication("base-candidate", "base-supertag"),
-    createSupertagApplication("subtype-candidate", "subtype-supertag"),
-  ];
-  const result = await workspace.execute(command("fixture", "setup", operations));
-  if (result.status === "rejected") {
-    throw new Error(JSON.stringify(result.error));
-  }
-  expect(result.status).toBe("published");
+  await expectPublished(
+    workspace,
+    command("fixture", "setup", [
+      nodeAt("base-supertag", "workspace", "base-supertag-original", "supertag-definition"),
+      nodeAt("subtype-supertag", "workspace", "subtype-supertag-original", "supertag-definition"),
+      nodeAt("search", "workspace", "search-original", "search"),
+      nodeAt("base-candidate", "workspace", "base-candidate-original"),
+      nodeAt("subtype-candidate", "workspace", "subtype-candidate-original"),
+      { kind: "supertag-extension-add", supertagId: "subtype-supertag", baseSupertagId: "base-supertag", anchor: end },
+      createSupertagApplication("base-candidate", "base-supertag"),
+      createSupertagApplication("subtype-candidate", "subtype-supertag"),
+    ]),
+  );
 }
 
 async function createComposedSearchFixture(workspace: Workspace): Promise<void> {
@@ -647,14 +461,14 @@ async function createComposedSearchFixture(workspace: Workspace): Promise<void> 
       nodeAt("matching-candidate", "project", "matching-candidate-original"),
       nodeAt("missing-link-candidate", "project", "missing-link-candidate-original"),
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "matching-candidate",
         deleteAtomIds: [],
         anchor: end,
         insert: "Urgent current item",
       },
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "missing-link-candidate",
         deleteAtomIds: [],
         anchor: end,
@@ -668,14 +482,9 @@ async function createComposedSearchFixture(workspace: Workspace): Promise<void> 
     workspace,
     command("configure-search-date", "setup", [
       {
-        kind: "field-datatype-configuration-create",
+        kind: "field-datatype-configure",
         fieldDefinitionId: "date-field",
-        configurationNodeId: "date-datatype-configuration",
-        configurationOccurrenceId: "date-datatype-configuration-occurrence",
-        definitionOccurrenceId: "date-datatype-definition-occurrence",
-        valueOccurrenceId: "date-datatype-value-occurrence",
         datatypeNodeId: FIELD_DATATYPE_NODE_IDS.date,
-        anchor: end,
       },
     ]),
   );
@@ -695,7 +504,7 @@ async function createComposedSearchFixture(workspace: Workspace): Promise<void> 
   );
 }
 
-function dateValue(ownerNodeId: string, prefix: string, value: string): MutationCommand["mutations"][number] {
+function dateValue(ownerNodeId: string, prefix: string, value: string): EditCommand["actions"][number] {
   return {
     kind: "field-date-value-set",
     ownerNodeId,
@@ -708,46 +517,23 @@ function dateValue(ownerNodeId: string, prefix: string, value: string): Mutation
   };
 }
 
-function composedExpression(includeDefined: boolean) {
-  const orOperands = [
-    { expressionNodeId: "text-clause", kind: "text" as const, text: "urgent" },
-    ...(includeDefined
-      ? [
-          {
-            expressionNodeId: "defined-clause",
-            kind: "field-defined" as const,
-            fieldDefinitionId: "date-field",
-            defined: true,
-          },
-        ]
-      : []),
-  ];
+function composedExpression() {
   return {
-    expressionNodeId: "composed-expression",
     kind: "and" as const,
     operands: [
-      { expressionNodeId: "tag-clause", kind: "supertag" as const, supertagId: "base-supertag" },
-      { expressionNodeId: "or-clause", kind: "or" as const, operands: orOperands },
+      { kind: "supertag" as const, supertagId: "base-supertag" },
       {
-        expressionNodeId: "not-clause",
-        kind: "not" as const,
-        operand: { expressionNodeId: "archived-clause", kind: "text" as const, text: "archived" },
+        kind: "or" as const,
+        operands: [
+          { kind: "text" as const, text: "urgent" },
+          { kind: "field-defined" as const, fieldDefinitionId: "date-field", defined: true },
+        ],
       },
+      { kind: "not" as const, operand: { kind: "text" as const, text: "archived" } },
+      { kind: "date-compare" as const, fieldDefinitionId: "date-field", operator: "lt" as const, date: "2026-09-01" },
+      { kind: "descendant-of" as const, target: { kind: "node" as const, nodeId: "project" } },
+      { kind: "links-to" as const, targetNodeId: "linked-target" },
       {
-        expressionNodeId: "date-clause",
-        kind: "date-compare" as const,
-        fieldDefinitionId: "date-field",
-        operator: "lt" as const,
-        date: "2026-09-01",
-      },
-      {
-        expressionNodeId: "scope-clause",
-        kind: "descendant-of" as const,
-        target: { kind: "node" as const, nodeId: "project" },
-      },
-      { expressionNodeId: "links-clause", kind: "links-to" as const, targetNodeId: "linked-target" },
-      {
-        expressionNodeId: "field-value-clause",
         kind: "field-value" as const,
         fieldDefinitionId: "date-field",
         value: { kind: "date" as const, value: "2026-08-20" },
@@ -761,41 +547,28 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   intrinsicNodeType?: "supertag-definition" | "field-definition" | "search",
-) {
+): EditCommand["actions"][number] {
   return {
-    kind: "node-create" as const,
+    kind: "node-create",
     nodeId,
     occurrenceId,
     parentNodeId,
     anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
+    ...(intrinsicNodeType ? { intrinsicNodeType } : {}),
   };
 }
 
 function command(
   invocationId: string,
   historyChannelId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
-  return {
-    kind: "mutate",
-    workspaceId: "workspace",
-    invocationId,
-    actorId: "actor",
-    intent,
-    historyChannelId,
-    mutations,
-  };
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
+  return { kind: "edit", workspaceId: "workspace", invocationId, actorId: "actor", intent, historyChannelId, actions };
 }
 
 async function searchResults(workspace: Workspace, perspective: "origin" | "review"): Promise<SearchResultsResult> {
-  return workspace.query({
-    kind: "search-results",
-    workspaceId: "workspace",
-    perspective,
-    searchNodeId: "search",
-  });
+  return workspace.query({ kind: "search-results", workspaceId: "workspace", perspective, searchNodeId: "search" });
 }
 
 async function resultNodeIds(workspace: Workspace, perspective: "origin" | "review"): Promise<readonly string[]> {
@@ -803,13 +576,8 @@ async function resultNodeIds(workspace: Workspace, perspective: "origin" | "revi
 }
 
 async function searchProjection(workspace: Workspace) {
-  const [roots, owners, expressions, occurrences] = await Promise.all([
-    workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      perspective: "origin",
-      section: "metanodes",
-    }),
+  const [roots, owners, expressions] = await Promise.all([
+    workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "metanodes" }),
     workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "nodeOwners" }),
     workspace.query({
       kind: "projection",
@@ -817,21 +585,14 @@ async function searchProjection(workspace: Workspace) {
       perspective: "origin",
       section: "searchExpressions",
     }),
-    workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin", section: "occurrences" }),
   ]);
-  if (
-    !("metanodes" in roots) ||
-    !("nodeOwners" in owners) ||
-    !("searchExpressions" in expressions) ||
-    !("occurrences" in occurrences)
-  ) {
+  if (!("metanodes" in roots) || !("nodeOwners" in owners) || !("searchExpressions" in expressions)) {
     throw new Error("Expected Search Projection sections");
   }
   return {
     metanodes: roots.metanodes,
     nodeOwners: owners.nodeOwners,
     searchExpressions: expressions.searchExpressions,
-    occurrences: occurrences.occurrences,
   };
 }
 
@@ -851,7 +612,7 @@ async function setText(workspace: Workspace, nodeId: string, value: string, invo
   await expectPublished(
     workspace,
     command(invocationId, "candidate-text", [
-      { kind: "text-splice", nodeId, deleteAtomIds, anchor: end, insert: value },
+      { kind: "rich-text-splice", nodeId, deleteAtomIds, anchor: end, insert: value },
     ]),
   );
 }
@@ -861,24 +622,50 @@ function searchExpressionIds(expression: SearchExpressionSpec | undefined): read
     return [];
   }
   if (expression.kind === "and" || expression.kind === "or") {
-    return [expression.expressionNodeId, ...expression.operands.flatMap(searchExpressionIds)];
+    return [expression.expressionId, ...expression.operands.flatMap(searchExpressionIds)];
   }
   if (expression.kind === "not") {
-    return [expression.expressionNodeId, ...searchExpressionIds(expression.operand)];
+    return [expression.expressionId, ...searchExpressionIds(expression.operand)];
   }
-  return [expression.expressionNodeId];
+  return [expression.expressionId];
 }
 
-async function expectPublished(workspace: Workspace, mutationCommand: MutationCommand): Promise<void> {
-  const result = await workspace.execute(mutationCommand);
+async function acceptAllHunks(workspace: Workspace, invocationId: string): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    const review = await workspace.query({ kind: "review", workspaceId: "workspace" });
+    if (!("hunks" in review) || review.hunks.length === 0) {
+      return;
+    }
+    await expectPublished(workspace, {
+      kind: "resolve-review",
+      workspaceId: "workspace",
+      invocationId: `${invocationId}-${index}`,
+      actorId: "reviewer",
+      decision: "accept",
+      selection: required(review.hunks[0], "Review Hunk").selection,
+    });
+  }
+  throw new Error("Review did not converge");
+}
+
+async function historySelection(workspace: Workspace, channelId: string, operation: "undo" | "redo") {
+  const history = await workspace.query({ kind: "history", workspaceId: "workspace", channelId });
+  if (!(operation in history) || history[operation] === null) {
+    throw new Error(`Expected Search ${operation}`);
+  }
+  return history[operation];
+}
+
+async function expectPublished(workspace: Workspace, command: Parameters<Workspace["execute"]>[0]): Promise<void> {
+  const result = await workspace.execute(command);
   if (result.status === "rejected") {
     throw new Error(JSON.stringify(result.error));
   }
   expect(result.status).toBe("published");
 }
 
-function required<T>(value: T | undefined, label: string): T {
-  if (value === undefined) {
+function required<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
     throw new Error(`Missing ${label}`);
   }
   return value;

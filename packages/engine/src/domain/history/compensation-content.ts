@@ -1,62 +1,68 @@
 import {
   canonicalJson,
-  compareFacts,
-  isTextMutation,
-  type ContributionFact,
+  compareCausalOrder,
+  isTextAction,
+  type FactAction,
   type JsonValue,
-  type Mutation,
+  type AuthoredAction,
   type TextAtomId,
 } from "../fact/index.js";
 import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
-export function compensateContentMutation(
-  target: ContributionFact,
+export function compensateContentAction(
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
+  inverseHints: readonly AuthoredAction[],
 ): CompensationStep | null {
-  const mutation = target.body.mutation;
-  if (!isTextMutation(mutation)) {
+  const authoredAction = target.action;
+  if (!isTextAction(authoredAction)) {
     return null;
   }
-  switch (mutation.kind) {
-    case "text-splice":
-      return compensateTextSplice(target, activeFacts, projection);
-    case "text-mark":
-      return compensateTextMark(target, targetIds, activeFacts, projection);
+  switch (authoredAction.kind) {
+    case "rich-text-splice":
+      return compensateTextSplice(target, activeFacts, projection, counterfactual);
+    case "rich-text-mark":
+      return compensateTextMark(target, targetIds, activeFacts, projection, counterfactual, inverseHints);
   }
 }
 
 function compensateTextSplice(
-  target: ContributionFact,
-  activeFacts: readonly ContributionFact[],
+  target: FactAction,
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "text-splice") {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "rich-text-splice") {
     return noCompensation();
   }
-  const node = projection.nodes[mutation.nodeId];
+  const node = projection.nodes[authoredAction.nodeId];
   const atoms = textAtoms(node);
   const content = node?.content ?? [];
-  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, mutation.nodeId)) {
+  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
     return noCompensation();
   }
-  const inserted = atoms.filter((atom) => atom.contributionId === target.id);
-  const deleted = mutation.deletedAtoms ?? [];
+  const inserted = atoms.filter((atom) => atom.factActionId === target.id);
+  const deleted = authoredAction.deleteAtomIds.flatMap((id) => {
+    const atom = textAtoms(counterfactual.nodes[authoredAction.nodeId]).find((candidate) => candidate.id === id);
+    return atom === undefined ? [] : [atom];
+  });
   let deletedStillAbsent = deleted.filter(
     (atom) =>
       !atoms.some((current) => current.id === atom.id) &&
       !activeFacts.some(
         (fact) =>
           fact.id !== target.id &&
-          fact.body.mutation.kind === "text-splice" &&
-          fact.body.mutation.nodeId === mutation.nodeId &&
-          fact.body.mutation.deleteAtomIds.includes(atom.id),
+          fact.action.kind === "rich-text-splice" &&
+          fact.action.nodeId === authoredAction.nodeId &&
+          fact.action.deleteAtomIds.includes(atom.id),
       ),
   );
-  const insertedIds = [...mutation.insert].map((_, index): TextAtomId => `${target.id}#${index}`);
+  const insertedIds = [...authoredAction.insert].map((_, index): TextAtomId => `${target.id}#${index}`);
   if (deleted.length > 0 && deleted.length === insertedIds.length) {
     const liveInsertedIds = new Set(inserted.map((atom) => atom.id));
     deletedStillAbsent = deletedStillAbsent.filter((_atom, index) => {
@@ -68,11 +74,11 @@ function compensateTextSplice(
     insertedIds.length > 0 &&
     inserted.length === 0 &&
     activeFacts.some((fact) => {
-      const candidate = fact.body.mutation;
+      const candidate = fact.action;
       return (
-        compareFacts(target, fact) < 0 &&
-        candidate.kind === "text-splice" &&
-        candidate.nodeId === mutation.nodeId &&
+        compareCausalOrder(target, fact) < 0 &&
+        candidate.kind === "rich-text-splice" &&
+        candidate.nodeId === authoredAction.nodeId &&
         candidate.insert.length > 0 &&
         insertedIds.every((id) => candidate.deleteAtomIds.includes(id))
       );
@@ -84,7 +90,7 @@ function compensateTextSplice(
     return noCompensation();
   }
   const anchor = currentTextAnchor(
-    mutation.anchor,
+    authoredAction.anchor,
     inserted.map((atom) => atom.id),
     content,
   );
@@ -95,18 +101,10 @@ function compensateTextSplice(
   }
   return {
     kind: "ready",
-    mutations: orderedGroups.map((group, index) => ({
-      kind: "text-splice",
-      nodeId: mutation.nodeId,
+    actions: orderedGroups.map((group, index) => ({
+      kind: "rich-text-splice",
+      nodeId: authoredAction.nodeId,
       deleteAtomIds: index === 0 ? inserted.map((atom) => atom.id) : [],
-      deletedAtoms:
-        index === 0
-          ? inserted.map(({ id, value, attributes: atomAttributes }) => ({
-              id,
-              value,
-              attributes: atomAttributes,
-            }))
-          : [],
       anchor,
       insert: group.text,
       attributes: group.attributes,
@@ -115,7 +113,7 @@ function compensateTextSplice(
 }
 
 function currentTextAnchor(
-  original: Extract<Mutation, { kind: "text-splice" }>["anchor"],
+  original: Extract<AuthoredAction, { kind: "rich-text-splice" }>["anchor"],
   targetIds: readonly string[],
   atoms: readonly Readonly<{ id: string }>[],
 ) {
@@ -156,7 +154,7 @@ function restoreGroups(
 }
 
 function anchorPrepends(
-  anchor: Extract<Mutation, { kind: "text-splice" }>["anchor"],
+  anchor: Extract<AuthoredAction, { kind: "rich-text-splice" }>["anchor"],
   atoms: readonly Readonly<{ id: string }>[],
 ): boolean {
   const after = anchor.after !== null && atoms.some((atom) => atom.id === anchor.after);
@@ -168,49 +166,75 @@ function anchorPrepends(
 }
 
 function compensateTextMark(
-  target: ContributionFact,
+  target: FactAction,
   targetIds: ReadonlySet<string>,
-  activeFacts: readonly ContributionFact[],
+  activeFacts: readonly FactAction[],
   projection: ScopedProjection,
+  counterfactual: ScopedProjection,
+  inverseHints: readonly AuthoredAction[],
 ): CompensationStep {
-  const mutation = target.body.mutation;
-  if (mutation.kind !== "text-mark") {
+  const authoredAction = target.action;
+  if (authoredAction.kind !== "rich-text-mark") {
     return noCompensation();
   }
-  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, mutation.nodeId)) {
+  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
     return noCompensation();
   }
   const independentlyMarked = new Set(
     activeFacts.flatMap((fact) => {
-      const candidate = fact.body.mutation;
+      const candidate = fact.action;
       return !targetIds.has(fact.id) &&
-        compareFacts(target, fact) < 0 &&
-        candidate.kind === "text-mark" &&
-        candidate.nodeId === mutation.nodeId &&
-        candidate.key === mutation.key
-        ? candidate.atomIds.filter((id) => mutation.atomIds.includes(id))
+        compareCausalOrder(target, fact) < 0 &&
+        candidate.kind === "rich-text-mark" &&
+        candidate.nodeId === authoredAction.nodeId &&
+        candidate.key === authoredAction.key
+        ? candidate.atomIds.filter((id) => authoredAction.atomIds.includes(id))
         : [];
     }),
   );
-  if (mutation.previous === undefined) {
-    return { kind: "stale", reason: "Text mark lacks its previous value" };
-  }
-  const liveIds = mutation.atomIds.filter(
-    (id) => !independentlyMarked.has(id) && textAtoms(projection.nodes[mutation.nodeId]).some((atom) => atom.id === id),
+  const liveIds = authoredAction.atomIds.filter(
+    (id) =>
+      !independentlyMarked.has(id) && textAtoms(projection.nodes[authoredAction.nodeId]).some((atom) => atom.id === id),
   );
+  const inverseHint = inverseHints.find(
+    (candidate) =>
+      candidate.kind === "rich-text-mark" &&
+      candidate.nodeId === authoredAction.nodeId &&
+      candidate.key === authoredAction.key &&
+      canonicalJson([...candidate.atomIds].sort()) === canonicalJson([...authoredAction.atomIds].sort()),
+  );
+  const previousValues = liveIds.map((id) =>
+    inverseHint?.kind === "rich-text-mark"
+      ? inverseHint.value
+      : previousValue(
+          textAtoms(counterfactual.nodes[authoredAction.nodeId]).find((atom) => atom.id === id)?.attributes[
+            authoredAction.key
+          ],
+        ),
+  );
+  const previous = previousValues[0];
+  if (previous === undefined) {
+    return noCompensation();
+  }
+  if (previousValues.some((value) => canonicalJson(value) !== canonicalJson(previous))) {
+    return { kind: "stale", reason: "Text mark targets do not share one previous value" };
+  }
   return liveIds.length === 0
     ? noCompensation()
     : {
         kind: "ready",
-        mutations: [
+        actions: [
           {
-            kind: "text-mark",
-            nodeId: mutation.nodeId,
+            kind: "rich-text-mark",
+            nodeId: authoredAction.nodeId,
             atomIds: liveIds,
-            key: mutation.key,
-            value: mutation.previous,
-            previous: mutation.value,
+            key: authoredAction.key,
+            value: previous,
           },
         ],
       };
+}
+
+function previousValue(value: JsonValue | undefined) {
+  return value === undefined ? ({ kind: "unset" } as const) : ({ kind: "set", value } as const);
 }

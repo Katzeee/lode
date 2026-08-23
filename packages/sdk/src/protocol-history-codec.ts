@@ -1,26 +1,12 @@
 import type { HistoryQuery, HistorySelection } from "./history.js";
-import { fromContributionMutation, toContributionMutation } from "./protocol-fact-codec.js";
-import { fromProtocolValue, required, toProtocolValue } from "./protocol-shape-codec.js";
+import { fromProtocolValue, toProtocolValue } from "./protocol-shape-codec.js";
 
 export function toHistorySelection(selection: HistorySelection): Record<string, unknown> {
-  const value = toProtocolValue(selection) as Record<string, unknown>;
-  value.evidence = {
-    ...(toProtocolValue(selection.evidence) as Record<string, unknown>),
-    compensations: selection.evidence.compensations.map(toContributionMutation),
-  };
-  return value;
+  return toProtocolValue(selection) as Record<string, unknown>;
 }
 
 export function fromHistorySelection(value: unknown): HistorySelection {
-  const rawSelection = value as Record<string, unknown>;
-  const rawEvidence = required(rawSelection.evidence as Record<string, unknown> | null, "History evidence");
-  const selection = fromProtocolValue(value) as Record<string, unknown>;
-  const evidence = required(selection.evidence as Record<string, unknown> | null, "History evidence");
-  selection.evidence = {
-    ...evidence,
-    compensations: (rawEvidence.compensations as readonly unknown[]).map(fromContributionMutation),
-  };
-  return selection as HistorySelection;
+  return fromProtocolValue(value) as HistorySelection;
 }
 
 export function toHistoryQuery(value: HistoryQuery): Record<string, unknown> {

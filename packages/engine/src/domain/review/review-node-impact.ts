@@ -10,10 +10,10 @@ export function addNodeReviewImpacts(
   for (const occurrenceId of occurrenceIdsForNode(generation, nodeId)) {
     impacts.add(occurrenceId);
   }
-  const originIds = new Set(textAtoms(generation.origin.nodes[nodeId]).map((atom) => atom.contributionId));
+  const originIds = new Set(textAtoms(generation.origin.nodes[nodeId]).map((atom) => atom.factActionId));
   for (const atom of textAtoms(generation.review.nodes[nodeId])) {
-    if (!originIds.has(atom.contributionId)) {
-      impacts.add(atom.contributionId);
+    if (!originIds.has(atom.factActionId)) {
+      impacts.add(atom.factActionId);
     }
   }
 }

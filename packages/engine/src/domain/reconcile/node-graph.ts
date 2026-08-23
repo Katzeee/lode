@@ -1,4 +1,11 @@
-import type { InlineReferenceId, JsonValue, IntrinsicNodeType, SequenceAnchor, TextAtomId } from "../fact/index.js";
+import type {
+  FactActionId,
+  InlineReferenceId,
+  JsonValue,
+  IntrinsicNodeType,
+  SequenceAnchor,
+  TextAtomId,
+} from "../fact/index.js";
 import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
 import type { Metanodes } from "./metanodes.js";
 
@@ -7,23 +14,23 @@ export type TextAtom = Readonly<{
   id: TextAtomId;
   value: string;
   attributes: Readonly<Record<string, JsonValue>>;
-  contributionId: string;
+  factActionId: FactActionId;
 }>;
 
 export type InlineReferenceTargetStatus = "active" | "trash" | "unavailable";
 
-export type ProjectedInlineReference = Readonly<{
+type ProjectedInlineReference = Readonly<{
   kind: "inline-reference";
   id: InlineReferenceId;
   targetNodeId: string;
   aliasNodeId: string | null;
   targetStatus: InlineReferenceTargetStatus;
-  contributionId: string;
+  factActionId: FactActionId;
 }>;
 
-export type NodeContentItem = TextAtom | ProjectedInlineReference;
+type NodeContentItem = TextAtom | ProjectedInlineReference;
 
-export function isTextAtom(item: NodeContentItem): item is TextAtom {
+function isTextAtom(item: NodeContentItem): item is TextAtom {
   return item.kind === "text";
 }
 
@@ -31,7 +38,7 @@ export function textAtoms(node: Pick<ProjectedNode, "content"> | undefined): rea
   return node?.content.filter(isTextAtom) ?? [];
 }
 
-export type InlineReferenceLocation = Readonly<{
+type InlineReferenceLocation = Readonly<{
   hostNodeId: string;
   reference: ProjectedInlineReference;
   anchor: SequenceAnchor;
@@ -82,7 +89,7 @@ export type NodeGraph = Readonly<{
   metanodes: Metanodes;
 }>;
 
-export type NodeLocation = "active" | "trash" | "absent";
+type NodeLocation = "active" | "trash" | "absent";
 
 type NodeLocationGraph = Readonly<{
   nodes: Readonly<Record<string, unknown>>;
@@ -117,10 +124,6 @@ export function isActiveNode(workspaceNodeId: string, graph: NodeLocationGraph, 
   return nodeLocation(workspaceNodeId, graph, nodeId) === "active";
 }
 
-export function isNodeInTrash(workspaceNodeId: string, graph: NodeLocationGraph, nodeId: string): boolean {
-  return nodeLocation(workspaceNodeId, graph, nodeId) === "trash";
-}
-
 export function isPresentNodeOutsideTrash(workspaceNodeId: string, graph: NodeLocationGraph, nodeId: string): boolean {
   return nodeLocation(workspaceNodeId, graph, nodeId) === "active";
 }
@@ -130,26 +133,12 @@ type NodeGraphState = Readonly<{
   occurrences: ReadonlyMap<string, Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>>;
   childOccurrences: ReadonlyMap<string, readonly string[]>;
   nodeOwners: Readonly<Record<string, string | null>>;
-  metanodes: Metanodes;
 }>;
 
 export function validateNodeGraph(graph: NodeGraphState): void {
   validateIdentities(graph);
   validateOccurrenceIndex(graph);
   validateKnownOwners(graph);
-}
-
-export function validateRootedNodeGraph(
-  workspaceNodeId: string,
-  graph: NodeGraphState,
-  detachedRootNodeIds: ReadonlySet<string> = new Set(),
-): void {
-  validateNodeGraph(graph);
-  if (!graph.nodes.has(workspaceNodeId)) {
-    throw new Error("Node Graph has no Workspace Node");
-  }
-  validateRootedOwnership(workspaceNodeId, graph, detachedRootNodeIds);
-  validateMetanodeOwners(graph);
 }
 
 function validateIdentities(graph: NodeGraphState): void {
@@ -214,59 +203,5 @@ function validateKnownOwners(graph: NodeGraphState): void {
     if (ownerNodeId !== null && !graph.nodes.has(ownerNodeId)) {
       throw new Error(`Node Graph Owner is absent: ${nodeId}`);
     }
-  }
-}
-
-function validateMetanodeOwners(graph: NodeGraphState): void {
-  for (const [hostNodeId, rootNodeId] of Object.entries(graph.metanodes)) {
-    if (!graph.nodes.has(hostNodeId) || !graph.nodes.has(rootNodeId) || graph.nodeOwners[rootNodeId] !== hostNodeId) {
-      throw new Error(`Node Graph Metanode attachment is invalid: ${hostNodeId}`);
-    }
-  }
-}
-
-function validateRootedOwnership(
-  workspaceNodeId: string,
-  graph: NodeGraphState,
-  detachedRootNodeIds: ReadonlySet<string>,
-): void {
-  for (const nodeId of graph.nodes.keys()) {
-    if (!Object.hasOwn(graph.nodeOwners, nodeId)) {
-      throw new Error(`Node Graph Node has no Owner: ${nodeId}`);
-    }
-    const ownerNodeId = graph.nodeOwners[nodeId];
-    if (nodeId === workspaceNodeId) {
-      if (ownerNodeId !== null) {
-        throw new Error("Node Graph Workspace Owner must be null");
-      }
-      continue;
-    }
-    if (detachedRootNodeIds.has(nodeId) && ownerNodeId === null) {
-      continue;
-    }
-    if (ownerNodeId === null || ownerNodeId === undefined || !graph.nodes.has(ownerNodeId)) {
-      throw new Error(`Node Graph Owner is absent: ${nodeId}`);
-    }
-    validateOwnerPath(workspaceNodeId, nodeId, graph.nodeOwners, detachedRootNodeIds);
-  }
-}
-
-function validateOwnerPath(
-  workspaceNodeId: string,
-  nodeId: string,
-  nodeOwners: Readonly<Record<string, string | null>>,
-  detachedRootNodeIds: ReadonlySet<string>,
-): void {
-  const visited = new Set<string>();
-  let cursor: string | null | undefined = nodeId;
-  while (cursor !== workspaceNodeId) {
-    if (cursor !== null && cursor !== undefined && detachedRootNodeIds.has(cursor) && nodeOwners[cursor] === null) {
-      return;
-    }
-    if (cursor === null || cursor === undefined || visited.has(cursor)) {
-      throw new Error(`Node Graph Owner chain does not reach the Workspace: ${nodeId}`);
-    }
-    visited.add(cursor);
-    cursor = nodeOwners[cursor];
   }
 }

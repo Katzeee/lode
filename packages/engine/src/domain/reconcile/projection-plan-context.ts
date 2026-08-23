@@ -1,4 +1,4 @@
-import type { ContributionFact, FactSnapshot, ProjectionIdentity, ProjectionPerspective } from "../fact/index.js";
+import type { FactAction, FactSnapshot, ProjectionIdentity, ProjectionPerspective } from "../fact/index.js";
 import type { ProjectionReplayPolicy } from "./projection-rule.js";
 import { projectionIdentity } from "./projection-identity.js";
 import type { Projection, ProjectionPlanCache, ProjectionSections, ProjectionVersions } from "./projection-types.js";
@@ -11,20 +11,21 @@ import {
 import type { SupertagRelations } from "./supertag-relations.js";
 import type { NodeGraphStructure } from "./node-graph-structure.js";
 
-export type ProjectionActivation = Readonly<{
-  active: readonly ContributionFact[];
-  allActive: readonly ContributionFact[];
+type ProjectionActivation = Readonly<{
+  active: readonly FactAction[];
+  allActive: readonly FactAction[];
   planCache: ProjectionPlanCache;
 }>;
 
 export type ProjectionPlanContext = {
   readonly snapshot: FactSnapshot;
   readonly perspective: ProjectionPerspective;
-  readonly activeTail: readonly ContributionFact[];
+  readonly activeTail: readonly FactAction[];
   readonly incremental: boolean;
   readonly requiresAllActive: boolean;
   readonly replayAllActive: boolean;
   readonly previousPlanCache: ProjectionPlanCache;
+  readonly originPlanCache: ProjectionPlanCache | null;
   readonly identity: ProjectionIdentity;
   readonly workspaceNodeId: string;
   activation: ProjectionActivation;
@@ -33,7 +34,6 @@ export type ProjectionPlanContext = {
   authoredStructure: AuthoredStructure;
   metanodes: ProjectionSections["metanodes"];
   templateStructure: TemplateStructureProjection;
-  nodeOwners: ProjectionSections["nodeOwners"];
   nodeGraphStructure: NodeGraphStructure;
   supertagRelations: SupertagRelations;
   searchExpressions: ProjectionSections["searchExpressions"];
@@ -48,6 +48,7 @@ export function emptyProjectionPlanContext(
   snapshot: FactSnapshot,
   perspective: ProjectionPerspective,
   versions: ProjectionVersions,
+  originPlanCache: ProjectionPlanCache | null = null,
 ): ProjectionPlanContext {
   return {
     snapshot,
@@ -61,14 +62,13 @@ export function emptyProjectionPlanContext(
     activation: {
       active: [],
       allActive: [],
-      planCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+      planCache: { activeActionIds: [], supportByAction: {} },
     },
     storedNodes: new Map(),
     contentNodes: new Map(),
     authoredStructure: { occurrences: new Map(), childOccurrences: new Map() },
     metanodes: {},
     templateStructure: { occurrences: new Map(), childOccurrences: new Map(), instances: [] },
-    nodeOwners: {},
     nodeGraphStructure: {
       occurrences: new Map(),
       childOccurrences: new Map(),
@@ -82,7 +82,8 @@ export function emptyProjectionPlanContext(
     fieldDefinitionConfigurations: {},
     conflictIssues: {},
     projection: null,
-    previousPlanCache: { activeContributionIds: [], supportByContribution: {}, supportPasses: 0 },
+    previousPlanCache: { activeActionIds: [], supportByAction: {} },
+    originPlanCache,
   };
 }
 
@@ -91,9 +92,10 @@ export function incrementalProjectionPlanContext(
   previous: Projection,
   previousCache: ProjectionPlanCache,
   snapshot: FactSnapshot,
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   versions: ProjectionVersions,
   replayPolicy: ProjectionReplayPolicy,
+  originPlanCache: ProjectionPlanCache | null = null,
 ): ProjectionPlanContext {
   const stripped = {
     nodes: new Map(Object.entries(previous.nodes).map(([id, node]) => [id, { ...node, content: [...node.content] }])),
@@ -127,7 +129,6 @@ export function incrementalProjectionPlanContext(
       childOccurrences: effectiveChildren,
       instances: [...previous.templateNodeInstances],
     },
-    nodeOwners: { ...previous.nodeOwners },
     nodeGraphStructure: {
       occurrences: stripped.occurrences,
       childOccurrences: effectiveChildren,
@@ -153,6 +154,7 @@ export function incrementalProjectionPlanContext(
     conflictIssues: previous.conflictIssues,
     projection: null,
     previousPlanCache: previousCache,
+    originPlanCache,
   };
 }
 

@@ -1,4 +1,5 @@
-import { array, exact, nonempty, object, stringArray } from "../../decoding/index.js";
+import { array, exact, nonempty, object } from "../../decoding/index.js";
+import { requireFactActionIds } from "../fact/index.js";
 import type { ProjectedOccurrence, TemplateNodeInstance } from "./projection-types.js";
 
 export function projectedOccurrence(value: unknown): ProjectedOccurrence {
@@ -26,7 +27,7 @@ export function templateNodeInstance(value: unknown): TemplateNodeInstance {
       "instanceOccurrenceId",
       "state",
       "sources",
-      "detachmentContributionIds",
+      "detachmentActionIds",
     ],
     "Template Node instance",
   );
@@ -48,6 +49,6 @@ export function templateNodeInstance(value: unknown): TemplateNodeInstance {
         templateOccurrenceId: nonempty(source.templateOccurrenceId, "Template Occurrence"),
       };
     }),
-    detachmentContributionIds: stringArray(item.detachmentContributionIds),
+    detachmentActionIds: requireFactActionIds(item.detachmentActionIds, "Template Node detachment actions", false),
   };
 }

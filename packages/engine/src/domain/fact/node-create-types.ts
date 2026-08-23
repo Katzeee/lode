@@ -1,8 +1,13 @@
-import type { JsonValue } from "./types.js";
+import type { JsonValue, SequenceAnchor } from "./types.js";
 
 export type NodeSeed = Readonly<{
   text: readonly Readonly<{
     value: string;
     attributes: Readonly<Record<string, JsonValue>>;
   }>[];
+}>;
+
+export type OriginalPlacement = Readonly<{
+  placementId: string;
+  anchor: SequenceAnchor;
 }>;

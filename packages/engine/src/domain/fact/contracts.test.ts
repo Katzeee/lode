@@ -3,19 +3,19 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalDigest,
   canonicalJson,
-  admitAuthorityRecordShapes,
+  buildFactSnapshot,
   factId,
   makeFact,
-  requestDigest,
-  unsignedFact,
-  type AuthorityRecord,
-  type Fact,
+  parseFactBody,
+  validateReceipts,
+  type AuthorityReceipt,
 } from "./index.js";
+import { uniqueFacts } from "../../../tests/support/facts.js";
 
-const REPLICA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
-const REPLICA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
+const REPLICA_A = "101";
+const REPLICA_B = "202";
 
-function contribution(sequence: number, overrides: Partial<Parameters<typeof makeFact>[0]> = {}) {
+function editFact(sequence: number, overrides: Partial<Parameters<typeof makeFact>[0]> = {}) {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA_A,
@@ -23,10 +23,17 @@ function contribution(sequence: number, overrides: Partial<Parameters<typeof mak
     observed: sequence === 1 ? {} : { [REPLICA_A]: sequence - 1 },
     lamport: sequence,
     body: {
-      kind: "contribution",
+      kind: "edit",
       actorId: "actor",
       intent: "proposal",
-      mutation: { kind: "node-create", nodeId: `node-${sequence}` },
+      actions: [
+        {
+          kind: "node-create",
+          nodeId: `node-${sequence}`,
+          ownerNodeId: "workspace",
+          originalPlacement: null,
+        },
+      ],
     },
     ...overrides,
   });
@@ -34,31 +41,19 @@ function contribution(sequence: number, overrides: Partial<Parameters<typeof mak
 
 describe("production Fact contracts", () => {
   it("AUTH-1 facts are the only domain authority", () => {
-    const fact = contribution(1);
-    const receipt = {
-      workspaceId: "workspace",
-      replicaId: REPLICA_A,
-      invocationId: "invocation",
-      requestDigest: requestDigest({ command: "create" }),
-      factIds: [fact.id],
-      committedFrontier: { [REPLICA_A]: 1 },
-      lineage: null,
-    } as const;
-    const admission = admitAuthorityRecordShapes("workspace", [
-      { recordKind: "fact", fact },
-      { recordKind: "receipt", receipt },
-    ]);
+    const fact = editFact(1);
+    const interpretation = buildFactSnapshot("workspace", uniqueFacts([fact]));
 
-    expect(admission.snapshot).toEqual({
+    expect(interpretation).toEqual({
       facts: [fact],
       frontier: { [REPLICA_A]: 1 },
     });
-    expect(admission.snapshot).not.toHaveProperty("receipt");
-    expect(admission.snapshot).not.toHaveProperty("projection");
+    expect(interpretation).not.toHaveProperty("receipt");
+    expect(interpretation).not.toHaveProperty("projection");
   });
 
-  it("AUTH-3 contribution intent and attribution remain immutable", () => {
-    const proposal = contribution(1);
+  it("AUTH-3 editFact intent and Actor identity remain immutable", () => {
+    const proposal = editFact(1);
     const resolution = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
@@ -70,137 +65,19 @@ describe("production Fact contracts", () => {
         adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "accept",
-        proposalContributionIds: [proposal.id],
+        proposalFactIds: [proposal.id],
       },
     });
-    const admission = admitAuthorityRecordShapes("workspace", [
-      { recordKind: "fact", fact: proposal },
-      { recordKind: "fact", fact: resolution },
-    ]);
-
-    expect(admission.kind).toBe("ready");
-    expect(admission.snapshot.facts[0]?.body).toEqual(proposal.body);
-    expect(admission.snapshot.facts[0]?.body).toMatchObject({
+    const interpretation = buildFactSnapshot("workspace", uniqueFacts([proposal, resolution]));
+    expect(interpretation.facts[0]?.body).toEqual(proposal.body);
+    expect(interpretation.facts[0]?.body).toMatchObject({
       intent: "proposal",
       actorId: "actor",
     });
   });
 
-  it("VER-1 unsupported Fact versions fail closed", () => {
-    const supported = contribution(1);
-    const unsupported = { ...supported, schemaVersion: supported.schemaVersion + 1 } as unknown as Fact;
-    const admission = admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: unsupported }]);
-
-    expect(admission.kind).toBe("fault");
-    expect(admission.fault).toContain("Unsupported Fact version");
-  });
-
-  it("untrusted authority JSON rejects unknown variants enums and malformed receipts", () => {
-    const base = contribution(1);
-    const bodies: unknown[] = [
-      {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: { kind: "totally-unknown" },
-      },
-      {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "text-splice",
-          nodeId: "node",
-          deleteAtomIds: [],
-          deletedAtoms: [],
-          anchor: { after: null, before: null, affinity: "sideways", fallback: "middle" },
-          insert: "x",
-        },
-      },
-    ];
-    for (const body of bodies) {
-      const unsigned = { ...unsignedFact(base), body };
-      const fact = { ...unsigned, contentDigest: canonicalDigest(unsigned) };
-      expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact }]).kind).toBe("fault");
-    }
-
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        {
-          recordKind: "receipt",
-          receipt: {
-            workspaceId: "workspace",
-            replicaId: REPLICA_A,
-            invocationId: "invocation",
-            requestDigest: "digest",
-            factIds: [7],
-            committedFrontier: { [REPLICA_A]: "future" },
-            lineage: { operation: "maybe" },
-          },
-        },
-      ]).kind,
-    ).toBe("fault");
-  });
-
-  it("closed supertags reject forward fields forged text evidence and invalid numeric ledgers", () => {
-    const base = contribution(1);
-    const forwardUnsigned = {
-      ...unsignedFact(base),
-      body: {
-        ...base.body,
-        futureSemantic: true,
-      },
-    };
-    const forward = {
-      ...forwardUnsigned,
-      contentDigest: canonicalDigest(forwardUnsigned),
-    };
-    expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forward }]).kind).toBe("fault");
-
-    const forgedUnsigned = {
-      ...unsignedFact(base),
-      body: {
-        kind: "contribution" as const,
-        actorId: "actor",
-        intent: "direct" as const,
-        mutation: {
-          kind: "text-splice" as const,
-          nodeId: "node",
-          deleteAtomIds: ["atom-a"],
-          deletedAtoms: [{ id: "atom-b", value: "forged", attributes: {} }],
-          anchor: {
-            after: null,
-            before: null,
-            affinity: "after" as const,
-            fallback: "end" as const,
-          },
-          insert: "",
-        },
-      },
-    };
-    const forged = { ...forgedUnsigned, contentDigest: canonicalDigest(forgedUnsigned) };
-    expect(admitAuthorityRecordShapes("workspace", [{ recordKind: "fact", fact: forged }]).kind).toBe("fault");
-
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        {
-          recordKind: "receipt",
-          receipt: {
-            workspaceId: "workspace",
-            replicaId: REPLICA_A,
-            invocationId: "bad-number",
-            requestDigest: "digest",
-            factIds: [],
-            committedFrontier: { [REPLICA_A]: Number.NaN },
-            lineage: null,
-          },
-        },
-      ]).kind,
-    ).toBe("fault");
-  });
-
   it("receipt batches and History lineage are exact non-empty authority ledger units", () => {
-    const first = contribution(1);
+    const first = editFact(1);
     const baseReceipt = {
       workspaceId: "workspace",
       replicaId: REPLICA_A,
@@ -209,72 +86,36 @@ describe("production Fact contracts", () => {
       factIds: [first.id],
       committedFrontier: { [REPLICA_A]: 1 },
       lineage: null,
+      inverse: [],
     } as const;
-    const factRecord = { recordKind: "fact", fact: first } as const;
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        factRecord,
+    const invalidReceipts: readonly (readonly AuthorityReceipt[])[] = [
+      [{ ...baseReceipt, committedFrontier: { [REPLICA_A]: 1, [REPLICA_B]: 999 } }],
+      [{ ...baseReceipt, factIds: [], committedFrontier: {} }],
+      [
         {
-          recordKind: "receipt",
-          receipt: {
-            ...baseReceipt,
-            committedFrontier: { [REPLICA_A]: 1, [REPLICA_B]: 999 },
+          ...baseReceipt,
+          factIds: [first.id, factId("workspace", REPLICA_A, 3)],
+          committedFrontier: { [REPLICA_A]: 3 },
+        },
+      ],
+      [
+        {
+          ...baseReceipt,
+          lineage: {
+            channelId: "desktop",
+            ordinal: 2,
+            parentStepId: "missing",
+            operation: "normal",
+            targetStepId: null,
           },
         },
-      ]).kind,
-    ).toBe("fault");
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        {
-          recordKind: "receipt",
-          receipt: { ...baseReceipt, factIds: [], committedFrontier: {} },
-        },
-      ]).kind,
-    ).toBe("fault");
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        {
-          recordKind: "receipt",
-          receipt: {
-            ...baseReceipt,
-            factIds: [first.id, factId("workspace", REPLICA_A, 3)],
-            committedFrontier: { [REPLICA_A]: 3 },
-          },
-        },
-      ]).kind,
-    ).toBe("fault");
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        factRecord,
-        {
-          recordKind: "receipt",
-          receipt: {
-            ...baseReceipt,
-            lineage: {
-              channelId: "desktop",
-              ordinal: 2,
-              parentStepId: "missing",
-              operation: "normal",
-              targetStepId: null,
-            },
-          },
-        },
-      ]).kind,
-    ).toBe("fault");
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        factRecord,
-        { recordKind: "receipt", receipt: baseReceipt },
-        {
-          recordKind: "receipt",
-          receipt: {
-            ...baseReceipt,
-            invocationId: "overlap",
-            requestDigest: "another-digest",
-          },
-        },
-      ]).kind,
-    ).toBe("fault");
+      ],
+      [baseReceipt, { ...baseReceipt, invocationId: "overlap", requestDigest: "another-digest" }],
+    ];
+    for (const receipts of invalidReceipts) {
+      expect(() => validateReceipts("workspace", receipts, [first])).toThrow();
+    }
+    expect(() => validateReceipts("workspace", [baseReceipt], [])).toThrow("missing Fact");
   });
 
   it("canonical request bytes and Fact identities are deterministic", () => {
@@ -283,55 +124,37 @@ describe("production Fact contracts", () => {
     expect(factId("workspace", REPLICA_A, 7)).toBe(`g1/workspace/${REPLICA_A}/7`);
   });
 
-  it("duplicate records are idempotent and conflicting content faults", () => {
-    const original = contribution(1);
-    const duplicate: AuthorityRecord = { recordKind: "fact", fact: original };
-    expect(admitAuthorityRecordShapes("workspace", [duplicate, duplicate]).snapshot.facts).toEqual([original]);
-
-    const alteredUnsigned = {
-      ...unsignedFact(original),
-      body: {
-        kind: "contribution" as const,
-        actorId: "actor",
-        intent: "proposal" as const,
-        mutation: { kind: "node-create" as const, nodeId: "different" },
-      },
+  it("decodes the exact authority body and provenance identities at the Fact boundary", () => {
+    const body = {
+      kind: "edit",
+      actorId: "actor",
+      intent: "direct",
+      actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
     };
-    const altered = { ...alteredUnsigned, contentDigest: canonicalDigest(alteredUnsigned), attribution: null };
-    const conflicted = admitAuthorityRecordShapes("workspace", [duplicate, { recordKind: "fact", fact: altered }]);
-    expect(conflicted.kind).toBe("fault");
-    expect(conflicted.fault).toContain("FactId content conflict");
-  });
-
-  it("causal references require actual observation rather than lexical admission order", () => {
-    const proposal = contribution(1);
-    const unseenResolution = makeFact({
-      workspaceId: "workspace",
-      replicaId: "bbbbbbbbbbbbbbbbbbbbbbbbbb",
-      sequence: 1,
-      observed: {},
-      lamport: 1,
-      body: {
+    expect(parseFactBody(body)).toEqual(body);
+    expect(() => parseFactBody({ ...body, workspaceId: "workspace" })).toThrow("unknown field");
+    expect(() =>
+      parseFactBody({
         kind: "resolution",
-        adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "accept",
-        proposalContributionIds: [proposal.id],
-      },
-    });
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        { recordKind: "fact", fact: proposal },
-        { recordKind: "fact", fact: unseenResolution },
-      ]).kind,
-    ).toBe("fault");
-
-    const invalidSecond = contribution(2, { observed: {}, lamport: 1 });
-    expect(
-      admitAuthorityRecordShapes("workspace", [
-        { recordKind: "fact", fact: proposal },
-        { recordKind: "fact", fact: invalidSecond },
-      ]).kind,
-    ).toBe("fault");
+        proposalFactIds: ["g1/workspace/101/1"],
+        adjudicatesResolutionIds: ["not-a-fact-id"],
+      }),
+    ).toThrow("Fact identity");
+    expect(() =>
+      parseFactBody({
+        ...body,
+        actions: [
+          {
+            kind: "rich-text-splice",
+            nodeId: "node",
+            deleteAtomIds: ["arbitrary#0"],
+            anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+            insert: "",
+          },
+        ],
+      }),
+    ).toThrow("Atom identity is invalid");
   });
 });

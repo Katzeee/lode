@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
+import type { EditAction } from "../../domain/edit/index.js";
 import {
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
@@ -10,13 +9,13 @@ import {
   type ProjectionPerspective,
 } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import {
   createSupertagApplication,
   removeSupertagApplication,
-} from "../../../tests/support/workspace/edit-test-mutations.js";
+} from "../../../tests/support/workspace/edit-test-actions.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
@@ -36,16 +35,22 @@ describe("ordinary Supertag Template Nodes", () => {
           },
           {
             kind: "node-create",
-            nodeId: "workspace-guidance",
-            occurrenceId: "workspace-guidance-template-occurrence",
-            parentNodeId: "workspace-supertag",
+            occurrenceId: "workspace-template-library-original",
+            nodeId: "workspace-template-library",
+            parentNodeId: "workspace",
             anchor: end,
           },
           {
-            kind: "supertag-template-node-add",
+            kind: "node-create",
+            nodeId: "workspace-guidance",
+            occurrenceId: "workspace-guidance-original",
+            parentNodeId: "workspace-template-library",
+            anchor: end,
+          },
+          {
+            kind: "template-member-add",
             supertagId: "workspace-supertag",
             templateNodeId: "workspace-guidance",
-            templateOccurrenceId: "workspace-guidance-template-occurrence",
             anchor: end,
           },
           createSupertagApplication("workspace", "workspace-supertag"),
@@ -102,9 +107,7 @@ describe("ordinary Supertag Template Nodes", () => {
           {
             kind: "node-restore",
             nodeId: instanceNodeId,
-            deletionFactId,
             occurrenceId: instanceOccurrenceId,
-            ownerNodeId: "note",
             parentNodeId: "note",
             anchor: end,
           },
@@ -120,18 +123,24 @@ describe("ordinary Supertag Template Nodes", () => {
     const first = await open(documents, "301");
     expect((await mutate(first, "setup", setupProgram())).status).toBe("published");
 
-    const templateOccurrenceId = "note-supertag-guidance-template-occurrence";
-    const templateOccurrence = (await section(first, "origin", "occurrences")).occurrences[templateOccurrenceId];
+    const occurrences = (await section(first, "origin", "occurrences")).occurrences;
+    const templateOccurrenceId = (await section(first, "origin", "childOccurrences")).childOccurrences[
+      "note-supertag"
+    ]?.find((occurrenceId) => occurrences[occurrenceId]?.nodeId === "guidance");
+    if (!templateOccurrenceId) {
+      throw new Error("Expected projected Template member Occurrence");
+    }
+    const templateOccurrence = occurrences[templateOccurrenceId];
     expect(templateOccurrence).toMatchObject({
       occurrenceId: templateOccurrenceId,
       nodeId: "guidance",
       parentNodeId: "note-supertag",
-      derived: false,
+      derived: true,
     });
     expect((await section(first, "origin", "childOccurrences")).childOccurrences["note-supertag"]).toContain(
       templateOccurrenceId,
     );
-    expect((await section(first, "origin", "nodeOwners")).nodeOwners.guidance).toBe("note-supertag");
+    expect((await section(first, "origin", "nodeOwners")).nodeOwners.guidance).toBe("workspace");
 
     const linked = await templateInstance(first, "origin");
     expect(linked).toMatchObject({
@@ -144,7 +153,7 @@ describe("ordinary Supertag Template Nodes", () => {
         {
           supertagId: "note-supertag",
           appliedSupertagId: "note-supertag",
-          templateOccurrenceId: "note-supertag-guidance-template-occurrence",
+          templateOccurrenceId,
         },
       ],
     });
@@ -155,7 +164,7 @@ describe("ordinary Supertag Template Nodes", () => {
       (
         await mutate(first, "evolve-template", [
           {
-            kind: "text-splice",
+            kind: "rich-text-splice",
             nodeId: "guidance",
             deleteAtomIds: [],
             anchor: end,
@@ -180,7 +189,7 @@ describe("ordinary Supertag Template Nodes", () => {
             anchor: end,
           },
           {
-            kind: "text-splice",
+            kind: "rich-text-splice",
             nodeId: detachedNodeId,
             deleteAtomIds: [],
             anchor: end,
@@ -196,20 +205,17 @@ describe("ordinary Supertag Template Nodes", () => {
     });
     expect(await nodeText(first, detachedNodeId)).toBe("Guidance v2 — local");
 
-    expect(
-      (
-        await mutate(first, "evolve-after-detach", [
-          {
-            kind: "text-splice",
-            nodeId: "guidance",
-            deleteAtomIds: [],
-            anchor: end,
-            insert: " upstream",
-          },
-          removeSupertagApplication("note", "note-supertag"),
-        ])
-      ).status,
-    ).toBe("published");
+    const evolved = await mutate(first, "evolve-after-detach", [
+      {
+        kind: "rich-text-splice",
+        nodeId: "guidance",
+        deleteAtomIds: [],
+        anchor: end,
+        insert: " upstream",
+      },
+      removeSupertagApplication("note", "note-supertag"),
+    ]);
+    expect(evolved, JSON.stringify(evolved)).toMatchObject({ status: "published" });
     expect(await nodeText(first, "guidance")).toBe("Guidance v2 upstream");
     expect(await nodeText(first, detachedNodeId)).toBe("Guidance v2 — local");
     expect(await templateInstance(first, "origin")).toMatchObject({
@@ -230,8 +236,8 @@ describe("ordinary Supertag Template Nodes", () => {
 
   it("keeps a Template Occurrence as a Reference when the Node is owned elsewhere", async () => {
     const opened = await open(new InMemoryDocumentStore(), "351");
-    const program = setupProgram().flatMap((mutation): readonly EditMutation[] =>
-      mutation.kind === "node-create" && mutation.nodeId === "guidance"
+    const program = setupProgram().flatMap((edit): readonly EditAction[] =>
+      edit.kind === "node-create" && edit.nodeId === "guidance"
         ? [
             {
               kind: "node-create",
@@ -241,15 +247,20 @@ describe("ordinary Supertag Template Nodes", () => {
               anchor: end,
             },
           ]
-        : [mutation],
+        : [edit],
     );
     expect((await mutate(opened, "reference-template", program)).status).toBe("published");
 
     const occurrences = (await section(opened, "origin", "occurrences")).occurrences;
     expect(occurrences["guidance-original-occurrence"]?.nodeId).toBe("guidance");
-    expect(occurrences["note-supertag-guidance-template-occurrence"]).toMatchObject({
+    expect(
+      Object.values(occurrences).find(
+        (occurrence) => occurrence.nodeId === "guidance" && occurrence.parentNodeId === "note-supertag",
+      ),
+    ).toMatchObject({
       nodeId: "guidance",
       parentNodeId: "note-supertag",
+      derived: true,
     });
     expect((await section(opened, "origin", "nodeOwners")).nodeOwners.guidance).toBe("workspace");
   });
@@ -273,7 +284,7 @@ describe("ordinary Supertag Template Nodes", () => {
               anchor: end,
             },
             {
-              kind: "text-splice",
+              kind: "rich-text-splice",
               nodeId: instanceNodeId,
               deleteAtomIds: [],
               anchor: end,
@@ -346,16 +357,20 @@ describe("ordinary Supertag Template Nodes", () => {
     ).toBe("published");
     const instances = await templateInstances(opened, "origin");
     expect(instances).toHaveLength(1);
+    const templateOccurrenceId = instances[0]?.sources[0]?.templateOccurrenceId;
+    if (!templateOccurrenceId) {
+      throw new Error("Expected inherited Template source Occurrence");
+    }
     expect(instances[0]?.sources).toEqual([
       {
         supertagId: "note-supertag",
         appliedSupertagId: "note-supertag",
-        templateOccurrenceId: "note-supertag-guidance-template-occurrence",
+        templateOccurrenceId,
       },
       {
         supertagId: "note-supertag",
         appliedSupertagId: "derived-supertag",
-        templateOccurrenceId: "note-supertag-guidance-template-occurrence",
+        templateOccurrenceId,
       },
     ]);
     const occurrenceId = templateInstanceOccurrenceId("note", "guidance");
@@ -368,7 +383,7 @@ describe("ordinary Supertag Template Nodes", () => {
   });
 });
 
-function setupProgram(): readonly EditMutation[] {
+function setupProgram(): readonly EditAction[] {
   return [
     {
       kind: "node-create",
@@ -381,8 +396,8 @@ function setupProgram(): readonly EditMutation[] {
     {
       kind: "node-create",
       nodeId: "guidance",
-      occurrenceId: "note-supertag-guidance-template-occurrence",
-      parentNodeId: "note-supertag",
+      occurrenceId: "guidance-original",
+      parentNodeId: "workspace",
       anchor: end,
     },
     {
@@ -393,17 +408,16 @@ function setupProgram(): readonly EditMutation[] {
       anchor: end,
     },
     {
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "guidance",
       deleteAtomIds: [],
       anchor: end,
       insert: "Guidance",
     },
     {
-      kind: "supertag-template-node-add",
+      kind: "template-member-add",
       supertagId: "note-supertag",
       templateNodeId: "guidance",
-      templateOccurrenceId: "note-supertag-guidance-template-occurrence",
       anchor: end,
     },
     createSupertagApplication("note", "note-supertag"),
@@ -413,28 +427,25 @@ function setupProgram(): readonly EditMutation[] {
 async function mutate(
   opened: Awaited<ReturnType<typeof open>>,
   invocationId: string,
-  mutations: readonly EditMutation[],
+  actions: readonly EditAction[],
   intent: "direct" | "proposal" = "direct",
 ) {
   return opened.workspace.execute({
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "desktop",
-    mutations,
+    actions,
   });
 }
 
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return {
     facts,

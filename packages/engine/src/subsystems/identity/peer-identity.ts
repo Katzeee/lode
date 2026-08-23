@@ -50,7 +50,7 @@ export async function loadOrCreatePeerMaterial(store: BlobStore): Promise<PeerMa
   return material;
 }
 
-export function createPeerMaterial(): PeerMaterial {
+function createPeerMaterial(): PeerMaterial {
   const identity = generateSigningKeyPair();
   const exchange = generateExchangeKeyPair();
   return { peerId: peerIdFromPublicKey(identity.publicKey), identity, exchange };

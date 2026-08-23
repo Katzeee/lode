@@ -16,7 +16,7 @@ describe("production Reconcile", () => {
   it("PROJ-1 projection is deterministic for one snapshot and versions", () => {
     const facts = base();
     facts.add({
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
@@ -34,7 +34,7 @@ describe("production Reconcile", () => {
     const facts = base();
     const proposal = facts.add(
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
         anchor: end,
@@ -58,7 +58,7 @@ describe("production Reconcile", () => {
     const before = facts.snapshot();
     const generation = rebuildGeneration("workspace", before, versions);
     facts.add({
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
@@ -72,15 +72,15 @@ describe("production Reconcile", () => {
   it("incremental reconciliation falls back when a later arrival precedes prior facts in neutral order", () => {
     const baseFact = makeFact({
       workspaceId: "workspace",
-      replicaId: "mmmmmmmmmmmmmmmmmmmmmmmmmm",
+      replicaId: "707",
       sequence: 1,
       observed: {},
       lamport: 1,
       body: {
-        kind: "contribution",
+        kind: "edit",
         actorId: "actor",
         intent: "direct",
-        mutation: { kind: "node-create", nodeId: "node" },
+        actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
       },
     });
     const textFact = (replicaId: string, insert: string) =>
@@ -91,20 +91,22 @@ describe("production Reconcile", () => {
         observed: { [baseFact.coordinate.dot.replicaId]: 1 },
         lamport: 2,
         body: {
-          kind: "contribution",
+          kind: "edit",
           actorId: "actor",
           intent: "direct",
-          mutation: {
-            kind: "text-splice",
-            nodeId: "node",
-            deleteAtomIds: [],
-            anchor: end,
-            insert,
-          },
+          actions: [
+            {
+              kind: "rich-text-splice",
+              nodeId: "node",
+              deleteAtomIds: [],
+              anchor: end,
+              insert,
+            },
+          ],
         },
       });
-    const priorFact = textFact("zzzzzzzzzzzzzzzzzzzzzzzzzz", "A");
-    const lateEarlierFact = textFact("aaaaaaaaaaaaaaaaaaaaaaaaaa", "B");
+    const priorFact = textFact("808", "A");
+    const lateEarlierFact = textFact("101", "B");
     const before = {
       facts: [baseFact, priorFact],
       frontier: frontierOf([baseFact, priorFact]),
@@ -132,19 +134,19 @@ describe("production Reconcile", () => {
           return {
             facts,
             tail: () => {
-              facts.add({ kind: "node-create", nodeId: "node" });
+              facts.add({ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null });
             },
           };
         },
       },
       {
-        name: "node-delete",
+        name: "node-trash",
         prepare: () => {
           const facts = base();
           return {
             facts,
             tail: () => {
-              facts.add({ kind: "node-delete", nodeId: "node" });
+              facts.add({ kind: "node-trash", nodeId: "node" });
             },
           };
         },
@@ -153,25 +155,31 @@ describe("production Reconcile", () => {
         name: "node-restore",
         prepare: () => {
           const facts = base();
-          const deletion = facts.add({ kind: "node-delete", nodeId: "node" });
+          facts.add({ kind: "node-trash", nodeId: "node" });
           return {
             facts,
             tail: () => {
-              facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: deletion.id });
+              facts.add({
+                kind: "node-restore",
+                nodeId: "node",
+                placementId: "occurrence",
+                parentNodeId: "workspace",
+                anchor: end,
+              });
             },
           };
         },
       },
       {
-        name: "occurrence-create",
+        name: "placement-create",
         prepare: () => {
           const facts = base();
           return {
             facts,
             tail: () => {
               facts.add({
-                kind: "occurrence-create",
-                occurrenceId: "second",
+                kind: "placement-create",
+                placementId: "second",
                 nodeId: "node",
                 parentNodeId: "workspace",
                 anchor: end,
@@ -181,39 +189,35 @@ describe("production Reconcile", () => {
         },
       },
       {
-        name: "occurrence-delete",
+        name: "placement-remove",
         prepare: () => {
           const facts = base();
           return {
             facts,
             tail: () => {
               facts.add({
-                kind: "occurrence-delete",
-                occurrenceId: "occurrence",
-                previousParentNodeId: "workspace",
-                previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
+                kind: "placement-remove",
+                placementId: "occurrence",
               });
             },
           };
         },
       },
       {
-        name: "occurrence-restore",
+        name: "placement-create",
         prepare: () => {
           const facts = base();
-          const deletion = facts.add({
-            kind: "occurrence-delete",
-            occurrenceId: "occurrence",
-            previousParentNodeId: "workspace",
-            previousAnchor: { after: null, before: null, affinity: "after", fallback: "start" },
+          facts.add({
+            kind: "placement-remove",
+            placementId: "occurrence",
           });
           return {
             facts,
             tail: () => {
               facts.add({
-                kind: "occurrence-restore",
-                occurrenceId: "occurrence",
-                deletionFactId: deletion.id,
+                kind: "placement-create",
+                placementId: "occurrence",
+                nodeId: "node",
                 parentNodeId: "workspace",
                 anchor: end,
               });
@@ -222,25 +226,18 @@ describe("production Reconcile", () => {
         },
       },
       {
-        name: "occurrence-move",
+        name: "placement-move",
         prepare: () => {
           const facts = base();
-          facts.add({ kind: "node-create", nodeId: "parent" });
+          facts.add({ kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null });
           return {
             facts,
             tail: () => {
               facts.add({
-                kind: "occurrence-move",
-                occurrenceId: "occurrence",
+                kind: "placement-move",
+                placementId: "occurrence",
                 parentNodeId: "parent",
                 anchor: end,
-                previousParentNodeId: "workspace",
-                previousAnchor: {
-                  after: null,
-                  before: "parent",
-                  affinity: "before",
-                  fallback: "start",
-                },
               });
             },
           };
@@ -258,7 +255,7 @@ describe("production Reconcile", () => {
     }
   });
 
-  it("MODEL-1 direct and proposal share the complete mutation vocabulary", () => {
+  it("MODEL-1 direct and proposal share the complete action vocabulary", () => {
     const direct = fullSurface("direct");
     const proposal = fullSurface("proposal");
     const directProjection = projectSnapshot("workspace", direct.snapshot(), "origin", versions);
@@ -271,17 +268,17 @@ describe("production Reconcile", () => {
 
   it("MODEL-2 node and occurrence ownership preserves transclusion", () => {
     const facts = base();
-    facts.add({ kind: "node-create", nodeId: "reference-parent" });
+    facts.add({ kind: "node-create", nodeId: "reference-parent", ownerNodeId: "workspace", originalPlacement: null });
     facts.add({
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
       insert: "shared",
     });
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "reference",
+      kind: "placement-create",
+      placementId: "reference",
       nodeId: "node",
       parentNodeId: "reference-parent",
       anchor: end,
@@ -297,15 +294,15 @@ describe("production Reconcile", () => {
   it("MODEL-3 stored structure stays valid across projection cycles", () => {
     const facts = base();
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "self-reference",
+      kind: "placement-create",
+      placementId: "self-reference",
       nodeId: "node",
       parentNodeId: "node",
       anchor: end,
     });
     facts.add({
-      kind: "occurrence-move",
-      occurrenceId: "occurrence",
+      kind: "placement-move",
+      placementId: "occurrence",
       parentNodeId: "node",
       anchor: end,
     });
@@ -315,52 +312,58 @@ describe("production Reconcile", () => {
     expect(projection.occurrences["self-reference"]?.parentNodeId).toBe("node");
   });
 
-  it("MODEL-4 lifecycle restore is explicit and deletion-aware", () => {
+  it("MODEL-4 restore causally clears every observed deletion", () => {
     const facts = base();
-    const deletion = facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
       workspaceTrashNodeId("workspace"),
     );
 
-    facts.add({ kind: "node-restore", nodeId: "node", deletionFactId: deletion.id });
+    facts.add({
+      kind: "node-restore",
+      nodeId: "node",
+      placementId: "occurrence",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodes.node).toBeDefined();
-    facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
     expect(projectSnapshot("workspace", facts.snapshot(), "origin", versions).nodeOwners.node).toBe(
       workspaceTrashNodeId("workspace"),
     );
 
     const occurrenceFacts = base();
-    const firstDelete = occurrenceFacts.add({
-      kind: "occurrence-delete",
-      occurrenceId: "occurrence",
+    occurrenceFacts.add({
+      kind: "placement-remove",
+      placementId: "occurrence",
     });
     occurrenceFacts.add({
-      kind: "occurrence-delete",
-      occurrenceId: "occurrence",
+      kind: "placement-remove",
+      placementId: "occurrence",
     });
     occurrenceFacts.add({
-      kind: "occurrence-restore",
-      occurrenceId: "occurrence",
-      deletionFactId: firstDelete.id,
+      kind: "placement-create",
+      placementId: "occurrence",
+      nodeId: "node",
       parentNodeId: "workspace",
       anchor: end,
     });
     occurrenceFacts.add({
-      kind: "occurrence-create",
-      occurrenceId: "occurrence",
+      kind: "placement-create",
+      placementId: "occurrence",
       nodeId: "node",
       parentNodeId: "workspace",
       anchor: end,
     });
     expect(
       projectSnapshot("workspace", occurrenceFacts.snapshot(), "origin", versions).occurrences.occurrence,
-    ).toBeUndefined();
+    ).toBeDefined();
   });
 
   it("derives the Workspace Trash target from its canonical role Occurrence", () => {
     const facts = new Facts("custom-trash-node");
     facts.addPlaced("node");
-    facts.add({ kind: "node-delete", nodeId: "node" });
+    facts.add({ kind: "node-trash", nodeId: "node" });
 
     const projection = projectSnapshot("workspace", facts.snapshot(), "origin", versions);
     expect(projection.workspaceSystemNodes).toEqual({
@@ -376,8 +379,8 @@ describe("production Reconcile", () => {
     const facts = new Facts();
     facts.addPlaced("relation");
     facts.add({
-      kind: "occurrence-create",
-      occurrenceId: "datatype-reference",
+      kind: "placement-create",
+      placementId: "datatype-reference",
       nodeId: FIELD_DATATYPE_NODE_IDS.plain,
       parentNodeId: "relation",
       anchor: end,

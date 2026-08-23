@@ -1,45 +1,44 @@
 import { describe, expect, it } from "vitest";
 
-import { admitAuthorityRecords } from "../src/domain/admission/index.js";
-import { canonicalJson, makeFact, type Fact, type FactFrontier, type Mutation } from "../src/domain/fact/index.js";
+import { buildFactSnapshot, factActionId } from "../src/domain/fact/index.js";
+import {
+  canonicalJson,
+  makeFact,
+  type Fact,
+  type FactFrontier,
+  type AuthoredAction,
+} from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
   rebuildGeneration,
   CURRENT_PROJECTION_VERSIONS as versions,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
+import { uniqueFacts } from "./support/facts.js";
 
-const moveReplicaB = "bbbbbbbbbbbbbbbbbbbbbbbbbb";
-const moveReplicaC = "cccccccccccccccccccccccccc";
-const unrelatedReplica = "dddddddddddddddddddddddddd";
-const previousAnchor = {
-  after: "parent-c-occurrence",
-  before: null,
-  affinity: "after",
-  fallback: "end",
-} as const;
-
+const moveReplicaB = "202";
+const moveReplicaC = "303";
+const unrelatedReplica = "404";
 describe("Placement Conflict convergence", () => {
   it("preserves both cross-parent move intents across 32 arrival and replay topologies", () => {
     const base = fixture();
-    const baseSnapshot = admitted(base.values);
+    const baseSnapshot = snapshotOf(base.values);
     const frontier = baseSnapshot.frontier;
     const moveB = remoteMove(moveReplicaB, frontier, "parent-b");
     const moveC = remoteMove(moveReplicaC, frontier, "parent-c");
     const unrelated = remoteFact(unrelatedReplica, frontier, {
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "unrelated",
       deleteAtomIds: [],
-      deletedAtoms: [],
       anchor: end,
       insert: "x",
     });
-    const expectedSnapshot = admitted([...base.values, moveB, moveC, unrelated]);
+    const expectedSnapshot = snapshotOf([...base.values, moveB, moveC, unrelated]);
     const expected = rebuildGeneration("workspace", expectedSnapshot, versions);
     const expectedSummary = summary(expected);
 
     for (let seed = 1; seed <= 32; seed += 1) {
-      const snapshot = admitted(shuffle([...base.values, moveB, moveC, unrelated, moveB], seed));
+      const snapshot = snapshotOf(shuffle([...base.values, moveB, moveC, unrelated, moveB], seed));
       const full = rebuildGeneration("workspace", snapshot, versions);
       expect(summary(full)).toBe(expectedSummary);
       const issue = Object.values(full.origin.conflictIssues)[0];
@@ -47,8 +46,8 @@ describe("Placement Conflict convergence", () => {
         kind: "placement-conflict",
         occurrenceId: "value-occurrence",
         candidates: [
-          { contributionId: moveB.id, parentNodeId: "parent-b" },
-          { contributionId: moveC.id, parentNodeId: "parent-c" },
+          { factActionId: factActionId(moveB.id, 0), parentNodeId: "parent-b" },
+          { factActionId: factActionId(moveC.id, 0), parentNodeId: "parent-c" },
         ],
       });
       expect(full.review.conflictIssues).toEqual(full.origin.conflictIssues);
@@ -60,6 +59,82 @@ describe("Placement Conflict convergence", () => {
     const before = rebuildGeneration("workspace", baseSnapshot, versions);
     const incremental = advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before);
     expect(summary(incremental)).toBe(expectedSummary);
+  });
+
+  it("keeps concurrent Original promotions explicit while projecting one canonical graph", () => {
+    const base = fixture();
+    base.add({
+      kind: "node-create",
+      nodeId: "supertag-a",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
+      intrinsicNodeType: "supertag-definition",
+    });
+    base.add({
+      kind: "node-create",
+      nodeId: "supertag-b",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
+      intrinsicNodeType: "supertag-definition",
+    });
+    base.add({
+      kind: "placement-create",
+      placementId: "value-reference-b",
+      nodeId: "value",
+      parentNodeId: "parent-b",
+      anchor: end,
+    });
+    base.add({
+      kind: "placement-create",
+      placementId: "value-reference-c",
+      nodeId: "value",
+      parentNodeId: "parent-c",
+      anchor: end,
+    });
+    const snapshot = snapshotOf(base.values);
+    const promoteB = remoteFact(moveReplicaB, snapshot.frontier, {
+      kind: "original-promote",
+      nodeId: "value",
+      placementId: "value-reference-b",
+    });
+    const promoteC = remoteFact(moveReplicaC, snapshot.frontier, {
+      kind: "original-promote",
+      nodeId: "value",
+      placementId: "value-reference-c",
+    });
+
+    for (let seed = 1; seed <= 16; seed += 1) {
+      const generation = rebuildGeneration(
+        "workspace",
+        snapshotOf(shuffle([...base.values, promoteB, promoteC], seed)),
+        versions,
+      );
+      const issue = Object.values(generation.origin.conflictIssues).find(
+        (candidate) => candidate.kind === "original-conflict",
+      );
+      expect(issue).toMatchObject({
+        kind: "original-conflict",
+        nodeId: "value",
+        candidates: [
+          { factActionId: factActionId(promoteB.id, 0), placementId: "value-reference-b" },
+          { factActionId: factActionId(promoteC.id, 0), placementId: "value-reference-c" },
+        ],
+      });
+      expect(generation.review.conflictIssues).toEqual(generation.origin.conflictIssues);
+    }
+
+    const conflictSnapshot = snapshotOf([...base.values, promoteB, promoteC]);
+    const before = rebuildGeneration("workspace", conflictSnapshot, versions);
+    const extension = remoteFact(unrelatedReplica, conflictSnapshot.frontier, {
+      kind: "supertag-extension-add",
+      supertagId: "supertag-a",
+      baseSupertagId: "supertag-b",
+      anchor: end,
+    });
+    const finalSnapshot = snapshotOf([...conflictSnapshot.facts, extension]);
+    expect(
+      advanceGeneration("workspace", conflictSnapshot, finalSnapshot, versions, before).origin.conflictIssues,
+    ).toEqual(rebuildGeneration("workspace", finalSnapshot, versions).origin.conflictIssues);
   });
 });
 
@@ -75,35 +150,27 @@ function fixture(): Facts {
 
 function remoteMove(replicaId: string, observed: FactFrontier, parentNodeId: string): Fact {
   return remoteFact(replicaId, observed, {
-    kind: "occurrence-move",
-    occurrenceId: "value-occurrence",
+    kind: "placement-move",
+    placementId: "value-occurrence",
     parentNodeId,
     anchor: end,
-    previousParentNodeId: "workspace",
-    previousAnchor,
   });
 }
 
-function remoteFact(replicaId: string, observed: FactFrontier, mutation: Mutation): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, authoredAction: AuthoredAction): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,
     sequence: 1,
     observed,
     lamport: Object.values(observed).reduce((maximum, value) => Math.max(maximum, value), 0) + 1,
-    body: { kind: "contribution", actorId: replicaId, intent: "direct", mutation },
+    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
-function admitted(facts: readonly Fact[]) {
-  const admission = admitAuthorityRecords(
-    "workspace",
-    facts.map((fact) => ({ recordKind: "fact" as const, fact })),
-  );
-  if (admission.kind === "fault") {
-    throw new Error(admission.fault ?? "Placement fixture admission failed");
-  }
-  return admission.snapshot;
+function snapshotOf(facts: readonly Fact[]) {
+  const snapshot = buildFactSnapshot("workspace", uniqueFacts(facts));
+  return snapshot;
 }
 
 function summary(result: ReturnType<typeof rebuildGeneration> | null): string {

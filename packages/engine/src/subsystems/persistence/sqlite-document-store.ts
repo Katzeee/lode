@@ -1,4 +1,4 @@
-import type { DocumentStore, LoadedDocumentBytes } from "./document-store.js";
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "./document-store.js";
 import type { SqliteWorkspaceStore } from "./sqlite-workspace-store.js";
 
 export class SqliteDocumentStore implements DocumentStore {
@@ -15,6 +15,10 @@ export class SqliteDocumentStore implements DocumentStore {
 
   appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
     return this.store.appendUpdate({ subDoc: id, updateBytes: bytes });
+  }
+
+  appendUpdates(updates: readonly DocumentUpdate[]): Promise<readonly number[]> {
+    return this.store.appendUpdates(updates.map(({ id, bytes }) => ({ subDoc: id, updateBytes: bytes })));
   }
 
   async writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {

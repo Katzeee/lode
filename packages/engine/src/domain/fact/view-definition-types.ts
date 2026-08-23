@@ -1,57 +1,92 @@
-import type { FactId } from "./types.js";
-import type { ViewOptionsSpec } from "./view-options-spec.js";
+import type { FactActionId, SequenceAnchor } from "./types.js";
 
 export type ViewType = "outline" | "table";
+export type ViewSortDirection = "ascending" | "descending";
 
-export type SharedDefaultViewDefinitionAttachMutation = Readonly<{
-  kind: "shared-default-view-definition-attach";
+type SharedDefaultViewAddAction = Readonly<{
+  kind: "shared-default-view-add";
   hostNodeId: string;
-  attachmentNodeId: string;
-  attachmentOccurrenceId: string;
-  relationDefinitionOccurrenceId: string;
-  viewDefinitionNodeId: string;
-  viewDefinitionOccurrenceId: string;
-}>;
-
-export type SharedDefaultViewDefinitionDetachMutation = Readonly<{
-  kind: "shared-default-view-definition-detach";
-  hostNodeId: string;
-  attachmentNodeId: string;
-  attachmentOccurrenceId: string;
-  relationDefinitionOccurrenceId: string;
-  viewDefinitionNodeId: string;
-  viewDefinitionOccurrenceId: string;
-  detachedValueNodeId: string;
-  detachedValueOccurrenceId: string;
-}>;
-
-export type SharedDefaultViewDefinitionModeSetMutation = Readonly<{
-  kind: "shared-default-view-definition-mode-set";
-  viewDefinitionNodeId: string;
   viewType: ViewType;
-  previousViewType?: ViewType | null;
-  observedModeFactIds?: readonly FactId[];
+  anchor: SequenceAnchor;
 }>;
 
-export type SharedDefaultViewDefinitionSortByNameSetMutation = Readonly<{
-  kind: "shared-default-view-definition-sort-by-name-set";
+type SharedDefaultViewRemoveAction = Readonly<{
+  kind: "shared-default-view-remove";
   hostNodeId: string;
-  viewDefinitionNodeId: string;
-  sortOrderFieldNodeId: string;
-  sortOrderFieldOccurrenceId: string;
-  sortFieldNodeId: string;
-  sortFieldOccurrenceId: string;
-  nodeNameOccurrenceId: string;
-  ascendingOccurrenceId: string;
-  enabled: boolean;
-  previousEnabled: boolean;
 }>;
 
-export type SharedDefaultViewDefinitionOptionsSetMutation = Readonly<{
-  kind: "shared-default-view-definition-options-set";
-  hostNodeId: string;
-  viewDefinitionNodeId: string;
-  options: ViewOptionsSpec;
-  previousOptions?: ViewOptionsSpec;
-  observedOptionsFactIds?: readonly FactId[];
+type SharedDefaultViewRestoreAction = Readonly<{
+  kind: "shared-default-view-restore";
+  viewId: FactActionId;
 }>;
+
+type ViewModeSetAction = Readonly<{
+  kind: "view-mode-set";
+  viewId: FactActionId;
+  viewType: ViewType;
+}>;
+
+type ViewColumnAddAction = Readonly<{
+  kind: "view-column-add";
+  viewId: FactActionId;
+  fieldDefinitionId: string;
+  anchor: SequenceAnchor;
+}>;
+
+type ViewColumnRemoveAction = Readonly<{
+  kind: "view-column-remove";
+  viewId: FactActionId;
+  fieldDefinitionId: string;
+}>;
+
+type ViewColumnMoveAction = Readonly<{
+  kind: "view-column-move";
+  columnId: FactActionId;
+  anchor: SequenceAnchor;
+}>;
+
+type ViewSortAddAction = Readonly<{
+  kind: "view-sort-add";
+  viewId: FactActionId;
+  fieldDefinitionId: string;
+  direction: ViewSortDirection;
+}>;
+
+type ViewSortConfigureAction = Readonly<{
+  kind: "view-sort-configure";
+  sortId: FactActionId;
+  fieldDefinitionId: string;
+  direction: ViewSortDirection;
+}>;
+
+type ViewSortRemoveAction = Readonly<{ kind: "view-sort-remove"; viewId: FactActionId }>;
+type ViewSortRestoreAction = Readonly<{ kind: "view-sort-restore"; sortId: FactActionId }>;
+
+type ViewGroupAddAction = Readonly<{
+  kind: "view-group-add";
+  viewId: FactActionId;
+  fieldDefinitionId: string;
+}>;
+
+type ViewGroupRemoveAction = Readonly<{ kind: "view-group-remove"; viewId: FactActionId }>;
+type ViewFilterAddAction = Readonly<{ kind: "view-filter-add"; viewId: FactActionId }>;
+type ViewFilterRemoveAction = Readonly<{ kind: "view-filter-remove"; viewId: FactActionId }>;
+type ViewFilterRestoreAction = Readonly<{ kind: "view-filter-restore"; filterId: FactActionId }>;
+
+export type ViewAction =
+  | SharedDefaultViewAddAction
+  | SharedDefaultViewRemoveAction
+  | SharedDefaultViewRestoreAction
+  | ViewModeSetAction
+  | ViewColumnAddAction
+  | ViewColumnRemoveAction
+  | ViewColumnMoveAction
+  | ViewSortAddAction
+  | ViewSortConfigureAction
+  | ViewSortRemoveAction
+  | ViewSortRestoreAction
+  | ViewGroupAddAction
+  | ViewGroupRemoveAction
+  | ViewFilterAddAction
+  | ViewFilterRemoveAction
+  | ViewFilterRestoreAction;

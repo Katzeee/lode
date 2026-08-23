@@ -1,6 +1,6 @@
 import type { EngineCommand } from "@lode/sdk";
 
-type Mutation = Extract<EngineCommand, { kind: "mutate" }>["mutations"][number];
+type Action = Extract<EngineCommand, { kind: "edit" }>["actions"][number];
 
 const end = {
   after: null,
@@ -9,7 +9,7 @@ const end = {
   fallback: "end",
 } as const;
 
-export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mutation[] {
+export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Action[] {
   return [
     ...outline(workspaceNodeId),
     ...(
@@ -23,8 +23,8 @@ export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mut
         ["quick-note", "Quick note"],
         ["review-note", "Review note"],
       ] as const
-    ).map(([nodeId, insert]): Mutation => ({
-      kind: "text-splice",
+    ).map(([nodeId, insert]): Action => ({
+      kind: "rich-text-splice",
       nodeId,
       deleteAtomIds: [],
       anchor: end,
@@ -49,7 +49,7 @@ export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Mut
   ];
 }
 
-function outline(workspaceNodeId: string): readonly Mutation[] {
+function outline(workspaceNodeId: string): readonly Action[] {
   const placements = [
     ["root", "root-occurrence", workspaceNodeId],
     ["definition-library", "definition-library-occurrence", "root"],
@@ -75,21 +75,15 @@ function outline(workspaceNodeId: string): readonly Mutation[] {
   );
 }
 
-export function reviewApplicationProposal(): readonly Mutation[] {
+export function reviewApplicationProposal(): readonly Action[] {
   return [supertagApplication("quick-note", "review")];
 }
 
-function supertagApplication(nodeId: string, supertagId: string): Mutation {
-  const applicationNodeId = `${nodeId}-${supertagId}-application`;
+function supertagApplication(nodeId: string, supertagId: string): Action {
   return {
     kind: "supertag-application-create",
     hostNodeId: nodeId,
     supertagId,
-    metanodeId: `${nodeId}-metanode`,
-    applicationNodeId,
-    applicationOccurrenceId: `${applicationNodeId}-occurrence`,
-    definitionOccurrenceId: `${applicationNodeId}-definition-occurrence`,
-    relationDefinitionOccurrenceId: `${applicationNodeId}-relation-definition-occurrence`,
     anchor: end,
   };
 }
@@ -101,7 +95,7 @@ function materializedField(
   valueOccurrenceId: string,
   valueNodeId: string,
   valueText?: string,
-): readonly Mutation[] {
+): readonly Action[] {
   const fieldOccurrenceId = `${fieldNodeId}-occurrence`;
   return [
     nodeAt(fieldNodeId, ownerNodeId, fieldOccurrenceId),
@@ -124,7 +118,7 @@ function nodeAt(
   occurrenceId: string,
   text?: string,
   intrinsicNodeType?: "supertag-definition" | "field-definition",
-): Mutation {
+): Action {
   return {
     kind: "node-create",
     nodeId,
@@ -142,7 +136,7 @@ function nodeAt(
   };
 }
 
-function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): Mutation {
+function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): Action {
   return {
     kind: "occurrence-create",
     occurrenceId,

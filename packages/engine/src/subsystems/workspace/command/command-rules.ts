@@ -1,24 +1,23 @@
 import type {
   AcceptedEngineCommand,
+  AcceptedAdjudicationCommand,
   AcceptedHistoryCommand,
-  AcceptedMutationCommand,
+  AcceptedEditCommand,
   AcceptedReviewCommand,
 } from "../application/input-validation.js";
-import type { AdjudicateResolutionCommand } from "@lode/sdk";
-import type { ActorId, EditIntent, FactWrite } from "../../../domain/fact/index.js";
-import type { MutationWrite } from "../../../domain/edit/index.js";
+import type { ActorId, EditIntent, FactBody } from "../../../domain/fact/index.js";
 import { nextHistoryLineage, validateHistorySelection } from "../../../domain/history/index.js";
 import { validateReviewSelection } from "../../../domain/review/index.js";
 import { resolutionAdjudicationProblem } from "../../../domain/conflict/index.js";
-import { prepareEdits } from "../mutation-planning/index.js";
+import { prepareEdits, prepareReceiptInverse, type AuthoredActionBatch } from "../edit-planning/index.js";
 import { rejectedResult } from "../workspace-results.js";
 import type { BoundWorkspaceCommand, WorkspaceCommandPlanningContext } from "./command-rule.js";
 import { bindMaintenanceCommand } from "./maintenance.js";
 
 export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorkspaceCommand {
   switch (command.kind) {
-    case "mutate":
-      return bindMutationCommand(command);
+    case "edit":
+      return bindEditCommand(command);
     case "resolve-review":
     case "adjudicate-resolution":
       return bindReviewCommand(command);
@@ -34,40 +33,42 @@ export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorks
   }
 }
 
-function bindMutationCommand(command: AcceptedMutationCommand): BoundWorkspaceCommand {
+function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
   return {
     readPlan: {
-      kind: "mutations",
-      mutations: command.mutations,
+      kind: "edits",
+      actions: command.actions,
       historyChannelId: command.historyChannelId,
     },
-    plan({ workspaceId, snapshot, generation, receipts }) {
-      const writes = prepareEdits(
+    plan({ workspaceId, snapshot, generation, receipts, maintenanceAuthority }) {
+      const prepared = prepareEdits(
         workspaceId,
         command.actorId,
-        command.mutations,
+        command.actions,
         generation,
         command.intent,
         snapshot,
+        maintenanceAuthority.replicaId,
       );
       return {
-        writes: writes.map((write) => contributionWrite(write, command.actorId, command.intent)),
+        writes: prepared.writes.map((write) => editFactBody(write, command.actorId, command.intent)),
         lineage: nextHistoryLineage(receipts, command.historyChannelId, "normal", null),
+        inverse: prepared.inverse,
       };
     },
   };
 }
 
-function bindReviewCommand(command: AcceptedReviewCommand | AdjudicateResolutionCommand): BoundWorkspaceCommand {
+function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudicationCommand): BoundWorkspaceCommand {
   return {
-    readPlan: {
-      kind: "facts",
-      factIds:
-        command.kind === "resolve-review"
-          ? command.selection.evidence.supportClosure
-          : [...command.proposalContributionIds, ...command.resolutionIds],
-      historyChannelId: null,
-    },
+    readPlan:
+      command.kind === "resolve-review"
+        ? { kind: "action-ids", actionIds: command.selection.evidence.supportClosure, historyChannelId: null }
+        : {
+            kind: "facts",
+            factIds: [...command.proposalFactIds, ...command.resolutionIds],
+            historyChannelId: null,
+          },
     plan(context) {
       return command.kind === "resolve-review"
         ? planReviewResolution(command, context)
@@ -90,15 +91,15 @@ function planReviewResolution(
     reviewCapabilityKey,
   );
   return validation.kind === "valid"
-    ? { writes: [validation.resolution], lineage: null }
+    ? { writes: [validation.resolution], lineage: null, inverse: [] }
     : rejectedResult("stale-selection", validation.reason, generation.identity.generationId);
 }
 
 function planResolutionAdjudication(
-  command: AdjudicateResolutionCommand,
+  command: AcceptedAdjudicationCommand,
   { snapshot, generation }: WorkspaceCommandPlanningContext,
 ) {
-  const problem = resolutionAdjudicationProblem(snapshot, command.proposalContributionIds, command.resolutionIds);
+  const problem = resolutionAdjudicationProblem(snapshot, command.proposalFactIds, command.resolutionIds);
   return problem
     ? rejectedResult("stale-selection", problem, generation.identity.generationId)
     : {
@@ -107,11 +108,12 @@ function planResolutionAdjudication(
             kind: "resolution" as const,
             actorId: command.actorId,
             decision: command.decision,
-            proposalContributionIds: command.proposalContributionIds,
+            proposalFactIds: command.proposalFactIds,
             adjudicatesResolutionIds: command.resolutionIds,
           },
         ],
         lineage: null,
+        inverse: [],
       };
 }
 
@@ -120,11 +122,11 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
   return {
     readPlan: {
       kind: "facts",
-      factIds: selection.evidence.targetFactIds,
+      factIds: selection.targetFactIds,
       historyChannelId: selection.channelId,
     },
-    plan({ snapshot, generation, receipts }) {
-      const validation = validateHistorySelection(selection, command.actorId, receipts, snapshot, generation);
+    plan({ workspaceId, snapshot, generation, receipts, maintenanceAuthority }) {
+      const validation = validateHistorySelection(selection, receipts, snapshot, generation);
       if (validation.kind !== "ready") {
         return rejectedResult(
           validation.kind === "stale" ? "stale-selection" : "history-unavailable",
@@ -132,21 +134,31 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
           generation.identity.generationId,
         );
       }
+      const inverse = prepareReceiptInverse(
+        workspaceId,
+        command.actorId,
+        validation.writes,
+        generation,
+        snapshot,
+        maintenanceAuthority.replicaId,
+      );
       return {
-        writes: [validation.write],
+        writes: validation.writes.map((batch) => ({
+          kind: "edit" as const,
+          actorId: command.actorId,
+          intent: batch.intent,
+          actions: batch.actions,
+        })),
         lineage: nextHistoryLineage(receipts, selection.channelId, command.kind, validation.targetInvocationId),
+        inverse,
       };
     },
   };
 }
 
-function contributionWrite(write: MutationWrite, actorId: ActorId, intent: EditIntent): FactWrite {
-  if (write.kind === "single") {
-    return { kind: "contribution", actorId, intent, mutation: write.mutation };
-  }
-  const [first, ...rest] = write.mutations;
-  const body = (mutation: typeof first) => ({ kind: "contribution", actorId, intent, mutation }) as const;
-  return { kind: "transaction", bodies: [body(first), ...rest.map(body)] };
+function editFactBody(write: AuthoredActionBatch, actorId: ActorId, intent: EditIntent): FactBody {
+  const [first, ...rest] = write;
+  return { kind: "edit", actorId, intent, actions: [first, ...rest] };
 }
 
 function assertNever(value: never): never {

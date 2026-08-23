@@ -1,5 +1,6 @@
 import type {
   FieldInitializationExpression,
+  FactActionId,
   ProjectionIdentity,
   ProjectionPerspective,
   ViewType,
@@ -21,15 +22,7 @@ export type {
   StaticDefaultCandidate,
 } from "./effective-field-types.js";
 
-export type {
-  InlineReferenceTargetStatus,
-  NodeContentItem,
-  NodeGraph,
-  ProjectedInlineReference,
-  ProjectedNode,
-  ProjectedOccurrence,
-  TextAtom,
-} from "./node-graph.js";
+export type { InlineReferenceTargetStatus, ProjectedNode, ProjectedOccurrence, TextAtom } from "./node-graph.js";
 
 export type MaterializedField = Readonly<{
   ownerNodeId: string;
@@ -53,7 +46,7 @@ export type TemplateNodeInstance = Readonly<{
   instanceOccurrenceId: string;
   state: "linked" | "detached";
   sources: readonly TemplateNodeSource[];
-  detachmentContributionIds: readonly string[];
+  detachmentActionIds: readonly FactActionId[];
 }>;
 
 export type TemplateField = Readonly<{
@@ -65,15 +58,22 @@ export type TemplateField = Readonly<{
   staticDefaultValueNodeId: string;
   staticDefaultValueOccurrenceId: string;
   fieldDefinitionOwner: "template-field" | "workspace-schema";
-  contributionId: string;
+  factActionId: FactActionId;
   visibility: "normal" | "pinned";
   visibilityCandidates: readonly TemplateFieldVisibilityCandidate[];
   visibilityConflicted: boolean;
+  staticDefaultCandidates: readonly TemplateFieldStaticDefaultCandidate[];
+  staticDefaultConflicted: boolean;
 }>;
 
-export type TemplateFieldVisibilityCandidate = Readonly<{
+type TemplateFieldVisibilityCandidate = Readonly<{
   visibility: "normal" | "pinned";
-  contributionId: string;
+  factActionId: FactActionId;
+}>;
+
+type TemplateFieldStaticDefaultCandidate = Readonly<{
+  value: string;
+  factActionId: FactActionId;
 }>;
 
 export type OptionalFieldContribution = Readonly<{
@@ -89,14 +89,14 @@ export type OptionalFieldContribution = Readonly<{
   definitionOccurrenceId: string;
   valueNodeId: string;
   valueOccurrenceId: string;
-  contributionId: string;
+  factActionId: FactActionId;
 }>;
 
-export type WorkspaceSystemNodeProjection = Readonly<{
+type WorkspaceSystemNodeProjection = Readonly<{
   workspaceSystemNodes: WorkspaceSystemNodes;
 }>;
 
-export type SupertagProjection = Readonly<{
+type SupertagProjection = Readonly<{
   supertagApplications: Readonly<Record<string, readonly SupertagApplication[]>>;
   supertagTemplateNodes: Readonly<Record<string, readonly string[]>>;
   templateFields: Readonly<Record<string, readonly TemplateField[]>>;
@@ -114,14 +114,14 @@ export type SupertagApplication = Readonly<{
   applicationOccurrenceId: string;
   relationDefinitionOccurrenceId: string;
   definitionOccurrenceId: string;
-  contributionId: string;
+  factActionId: FactActionId;
 }>;
 
-export type ConflictProjection = Readonly<{
+type ConflictProjection = Readonly<{
   conflictIssues: Readonly<Record<string, ConflictIssue>>;
 }>;
 
-export type FieldProjection = Readonly<{
+type FieldProjection = Readonly<{
   effectiveFields: Readonly<Record<string, readonly EffectiveField[]>>;
   optionalFieldSuggestions: Readonly<Record<string, readonly OptionalFieldSuggestion[]>>;
   materializedFields: Readonly<Record<string, readonly MaterializedField[]>>;
@@ -158,8 +158,17 @@ type FieldDefinitionConfigurationBase = Readonly<{
   configurationNodeId: string;
   configurationOccurrenceId: string;
   definitionNodeId: string;
-  contributionId: string;
+  factActionId: FactActionId;
 }>;
+
+type ProjectedFieldInitializationExpression = FieldInitializationExpression &
+  Readonly<{
+    expressionNodeId: string;
+    expressionOccurrenceId: string;
+    sourceFieldDefinitionOccurrenceId: string;
+    contextNodeId: string;
+    contextOccurrenceId: string;
+  }>;
 
 export type FieldDefinitionConfiguration =
   | (FieldDefinitionConfigurationBase &
@@ -167,7 +176,7 @@ export type FieldDefinitionConfiguration =
   | (FieldDefinitionConfigurationBase & Readonly<{ kind: "cardinality"; cardinalityNodeId: string }>)
   | (FieldDefinitionConfigurationBase & Readonly<{ kind: "optionality"; optionalityNodeId: string }>)
   | (FieldDefinitionConfigurationBase &
-      Readonly<{ kind: "initialization-expression"; expression: FieldInitializationExpression }>);
+      Readonly<{ kind: "initialization-expression"; expression: ProjectedFieldInitializationExpression }>);
 
 export type SearchExpression = Readonly<{
   expressionNodeId: string;
@@ -176,11 +185,12 @@ export type SearchExpression = Readonly<{
   expression: SearchExpressionSpec;
 }>;
 
-export type SearchProjection = Readonly<{
+type SearchProjection = Readonly<{
   searchExpressions: Readonly<Record<string, SearchExpression>>;
 }>;
 
 export type SharedDefaultViewDefinition = Readonly<{
+  viewId: FactActionId;
   hostNodeId: string;
   attachmentNodeId: string;
   attachmentOccurrenceId: string;
@@ -188,21 +198,13 @@ export type SharedDefaultViewDefinition = Readonly<{
   viewDefinitionNodeId: string;
   viewDefinitionOccurrenceId: string;
   viewType: ViewType;
-  modeContributionIds: readonly string[];
+  modeActionIds: readonly FactActionId[];
   options: ViewOptionsSpec;
-  optionsContributionIds: readonly string[];
+  optionsActionIds: readonly FactActionId[];
   optionsConflicted: boolean;
-  sortByNameAscending: null | Readonly<{
-    sortOrderFieldNodeId: string;
-    sortOrderFieldOccurrenceId: string;
-    sortFieldNodeId: string;
-    sortFieldOccurrenceId: string;
-    nodeNameOccurrenceId: string;
-    ascendingOccurrenceId: string;
-  }>;
 }>;
 
-export type ViewProjection = Readonly<{
+type ViewProjection = Readonly<{
   sharedDefaultViewDefinitions: Readonly<Record<string, readonly SharedDefaultViewDefinition[]>>;
 }>;
 
@@ -240,11 +242,10 @@ export const PROJECTION_SECTION_NAMES = [
 ] as const satisfies readonly (keyof ProjectionSections)[];
 
 type AssertNever<Value extends never> = Value;
-export type ProjectionSectionNamesAreComplete = AssertNever<
-  Exclude<keyof ProjectionSections, (typeof PROJECTION_SECTION_NAMES)[number]>
->;
-
-export type ProjectionSectionName = (typeof PROJECTION_SECTION_NAMES)[number];
+export type ProjectionSectionName =
+  AssertNever<Exclude<keyof ProjectionSections, (typeof PROJECTION_SECTION_NAMES)[number]>> extends never
+    ? (typeof PROJECTION_SECTION_NAMES)[number]
+    : never;
 
 export type ProjectionSectionValue<Section extends ProjectionSectionName = ProjectionSectionName> =
   Section extends ProjectionSectionName
@@ -271,7 +272,7 @@ export type ProjectionGeneration = Readonly<{
   }>;
 }>;
 
-export type ScopedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
+type ScopedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
 
 export type ScopedProjection = Readonly<{
   perspective: ProjectionPerspective;
@@ -286,9 +287,8 @@ export type ScopedProjectionGeneration = Readonly<{
 }>;
 
 export type ProjectionPlanCache = Readonly<{
-  activeContributionIds: readonly string[];
-  supportByContribution: Readonly<Record<string, readonly string[]>>;
-  supportPasses: number;
+  activeActionIds: readonly FactActionId[];
+  supportByAction: Readonly<Record<string, readonly FactActionId[]>>;
 }>;
 
 export type ProjectionVersions = Readonly<{

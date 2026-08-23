@@ -1,25 +1,17 @@
 import type { HistoryQueryRequest } from "@lode/sdk";
 import { frontierCovers, type AuthorityReceipt, type FactSnapshot } from "../../../domain/fact/index.js";
-import { historyTargetFactIds, queryHistory, type HistoryQuery } from "../../../domain/history/index.js";
+import { queryHistory, type HistoryQuery } from "../../../domain/history/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
-import type { ProjectionSnapshotReader } from "../projection/index.js";
-import { readFactGeneration } from "../fact-generation-reader.js";
 
-type HistoryFactReader = Pick<FactAuthorityPort, "receiptsForChannel" | "relatedFacts">;
+type HistoryFactReader = Pick<FactAuthorityPort, "receiptsForChannel">;
 
-export async function queryWorkspaceHistory(
+export function queryWorkspaceHistory(
   query: HistoryQueryRequest,
   snapshot: FactSnapshot,
   facts: HistoryFactReader,
-  projections: ProjectionSnapshotReader,
-  generationId: string,
 ): Promise<HistoryQuery> {
   const receipts = facts.receiptsForChannel(query.channelId);
-  const factIds = historyTargetFactIds(query.channelId, receipts);
-  const historyFacts = facts.relatedFacts(factIds);
-  const scopedSnapshot = { facts: historyFacts, frontier: snapshot.frontier };
-  const generation = await readFactGeneration(projections, generationId, scopedSnapshot);
-  return queryHistory(query.channelId, receiptsCoveredBySnapshot(receipts, snapshot), scopedSnapshot, generation);
+  return Promise.resolve(queryHistory(query.channelId, receiptsCoveredBySnapshot(receipts, snapshot)));
 }
 
 function receiptsCoveredBySnapshot(

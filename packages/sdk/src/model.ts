@@ -6,6 +6,7 @@ import type {
   ReceiptLineage as ProtocolReceiptLineage,
   SequenceAnchor as ProtocolSequenceAnchor,
 } from "@lode/protocol/dto/model";
+import type { FactActionId, FactId } from "./fact-identities.js";
 import type {
   AnchorAffinity,
   AnchorFallback,
@@ -29,7 +30,8 @@ export type { EditIntent, ResolutionDecision, ProjectionPerspective };
 export type JsonValue =
   null | boolean | number | string | readonly JsonValue[] | Readonly<{ [key: string]: JsonValue }>;
 export type FactFrontier = Readonly<Record<ReplicaId, number>>;
-export type TextAtomId = `${string}#${number}`;
+
+export type TextAtomId = `${FactActionId}#${number}`;
 export type InlineReferenceId = string;
 
 type IsAny<Value> = 0 extends 1 & Value ? true : false;
@@ -57,12 +59,7 @@ export type NodeSeed = ProtocolDto<ProtocolNodeSeed>;
 
 export type FieldInitializationExpression = Readonly<{
   kind: "find-field-values";
-  expressionNodeId: string;
-  expressionOccurrenceId: string;
   sourceFieldDefinitionId: string;
-  sourceFieldDefinitionOccurrenceId: string;
-  contextNodeId: string;
-  contextOccurrenceId: string;
 }>;
 export type SearchFieldValue =
   | Readonly<{ kind: "node"; nodeId: string }>
@@ -72,44 +69,51 @@ export type SearchFieldValue =
   | Readonly<{ kind: "date"; value: string }>;
 export type SearchScopeTarget =
   Readonly<{ kind: "node"; nodeId: string }> | Readonly<{ kind: "parent" }> | Readonly<{ kind: "grandparent" }>;
-export type SearchExpressionSpec =
-  | Readonly<{ expressionNodeId: string; kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
-  | Readonly<{ expressionNodeId: string; kind: "not"; operand: SearchExpressionSpec }>
-  | Readonly<{ expressionNodeId: string; kind: "supertag"; supertagId: string }>
-  | Readonly<{ expressionNodeId: string; kind: "text"; text: string }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "field-defined";
-      fieldDefinitionId: string;
-      defined: boolean;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "field-value";
-      fieldDefinitionId: string;
-      value: SearchFieldValue;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "date-compare";
-      fieldDefinitionId: string;
-      operator: "lt" | "gt";
-      date: string;
-    }>
-  | Readonly<{
-      expressionNodeId: string;
-      kind: "descendant-of" | "child-of";
-      target: SearchScopeTarget;
-    }>
-  | Readonly<{ expressionNodeId: string; kind: "links-to"; targetNodeId: string }>;
-export type ViewColumnSpec = Readonly<{ columnNodeId: string; fieldDefinitionId: string }>;
-export type ViewFilterSpec = Readonly<{ filterNodeId: string; expression: SearchExpressionSpec }>;
+export type SearchExpressionSpec = Readonly<{ expressionId: FactActionId; expressionNodeId: string }> &
+  (
+    | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
+    | Readonly<{ kind: "not"; operand: SearchExpressionSpec }>
+    | Readonly<{ kind: "supertag"; supertagId: string }>
+    | Readonly<{ kind: "text"; text: string }>
+    | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
+    | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
+    | Readonly<{
+        kind: "date-compare";
+        fieldDefinitionId: string;
+        operator: "lt" | "gt";
+        date: string;
+      }>
+    | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
+    | Readonly<{ kind: "links-to"; targetNodeId: string }>
+  );
+
+export type SearchClause =
+  | Readonly<{ kind: "and" | "or" | "not" }>
+  | Readonly<{ kind: "supertag"; supertagId: string }>
+  | Readonly<{ kind: "text"; text: string }>
+  | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
+  | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
+  | Readonly<{ kind: "date-compare"; fieldDefinitionId: string; operator: "lt" | "gt"; date: string }>
+  | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
+  | Readonly<{ kind: "links-to"; targetNodeId: string }>;
+
+export type SearchExpressionDraft =
+  | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionDraft[] }>
+  | Readonly<{ kind: "not"; operand: SearchExpressionDraft }>
+  | Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
+export type ViewColumnSpec = Readonly<{ columnId: FactActionId; columnNodeId: string; fieldDefinitionId: string }>;
+export type ViewFilterSpec = Readonly<{
+  filterId: FactActionId;
+  filterNodeId: string;
+  expression: SearchExpressionSpec;
+}>;
 export type ViewSortSpec = Readonly<{
+  sortId: FactActionId;
   sortNodeId: string;
   fieldDefinitionId: string;
   direction: ViewSortDirection;
 }>;
-export type ViewGroupSpec = Readonly<{ groupNodeId: string; fieldDefinitionId: string }>;
+export type ViewGroupSpec = Readonly<{ groupId: FactActionId; groupNodeId: string; fieldDefinitionId: string }>;
 export type ViewOptionsSpec = Readonly<{
   columns: readonly ViewColumnSpec[];
   filter: ViewFilterSpec | null;
@@ -118,8 +122,8 @@ export type ViewOptionsSpec = Readonly<{
 }>;
 export type ReceiptLineage = Omit<ProtocolDto<ProtocolReceiptLineage>, "operation"> &
   Readonly<{ operation: HistoryOperation }>;
-export type AuthorityReceipt = Omit<ProtocolDto<ProtocolAuthorityReceipt>, "lineage"> &
-  Readonly<{ lineage: ReceiptLineage | null }>;
+export type AuthorityReceipt = Omit<ProtocolDto<ProtocolAuthorityReceipt>, "factIds" | "lineage"> &
+  Readonly<{ factIds: readonly FactId[]; lineage: ReceiptLineage | null }>;
 export type ProjectionIdentity = ProtocolDto<ProtocolProjectionIdentity>;
 
 type AssertNever<Value extends never> = Value;

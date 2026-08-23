@@ -1,5 +1,12 @@
 import { parseConflictIssue } from "../conflict/index.js";
-import { isIntrinsicNodeType, parseJsonRecord, parseTextAtomId, parseViewOptionsSpec } from "../fact/index.js";
+import {
+  isIntrinsicNodeType,
+  parseJsonRecord,
+  parseTextAtomId,
+  parseViewOptionsSpec,
+  requireFactActionId,
+  requireFactActionIds,
+} from "../fact/index.js";
 import { array, exact, nonempty, object, stringArray, stringValue } from "../../decoding/index.js";
 import type {
   ProjectedNode,
@@ -13,7 +20,7 @@ import { parseSupertagProjectionSectionValue } from "./supertag-projection-shape
 import { parseFieldDefinitionConfiguration } from "./field-definition-configuration-shape.js";
 import { projectedOccurrence, templateNodeInstance } from "./projection-node-shape.js";
 
-export function parseProjectionSectionValue(section: ProjectionSectionName, value: unknown): ProjectionSectionValue {
+function parseProjectionSectionValue(section: ProjectionSectionName, value: unknown): ProjectionSectionValue {
   switch (section) {
     case "nodes":
       return projectedNode(value);
@@ -51,7 +58,7 @@ export function parseProjectionSectionValue(section: ProjectionSectionName, valu
   }
 }
 
-export function parseProjectionSectionEntry(
+function parseProjectionSectionEntry(
   section: Exclude<ProjectionSectionName, "templateNodeInstances">,
   identity: string,
   value: unknown,
@@ -100,6 +107,7 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
   exact(
     item,
     [
+      "viewId",
       "hostNodeId",
       "attachmentNodeId",
       "attachmentOccurrenceId",
@@ -107,11 +115,10 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
       "viewDefinitionNodeId",
       "viewDefinitionOccurrenceId",
       "viewType",
-      "modeContributionIds",
+      "modeActionIds",
       "options",
-      "optionsContributionIds",
+      "optionsActionIds",
       "optionsConflicted",
-      "sortByNameAscending",
     ],
     "Shared View Definition",
   );
@@ -119,6 +126,7 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
     throw new Error("Shared View Definition type is invalid");
   }
   return {
+    viewId: requireFactActionId(item.viewId, "View identity"),
     hostNodeId: nonempty(item.hostNodeId, "View host Node identity"),
     attachmentNodeId: nonempty(item.attachmentNodeId, "View attachment Node identity"),
     attachmentOccurrenceId: nonempty(item.attachmentOccurrenceId, "View attachment Occurrence identity"),
@@ -129,11 +137,10 @@ function sharedDefaultViewDefinition(value: unknown): SharedDefaultViewDefinitio
     viewDefinitionNodeId: nonempty(item.viewDefinitionNodeId, "View Definition Node identity"),
     viewDefinitionOccurrenceId: nonempty(item.viewDefinitionOccurrenceId, "View Definition Occurrence identity"),
     viewType: item.viewType,
-    modeContributionIds: stringArray(item.modeContributionIds, "View mode contribution identities"),
+    modeActionIds: requireFactActionIds(item.modeActionIds, "View mode action identities", false),
     options: parseViewOptionsSpec(item.options),
-    optionsContributionIds: stringArray(item.optionsContributionIds, "View options contribution identities"),
+    optionsActionIds: requireFactActionIds(item.optionsActionIds, "View options action identities", false),
     optionsConflicted: booleanValue(item.optionsConflicted, "View options conflict state"),
-    sortByNameAscending: viewSortByNameAscending(item.sortByNameAscending),
   };
 }
 
@@ -142,33 +149,6 @@ function booleanValue(value: unknown, label: string): boolean {
     throw new Error(`${label} must be boolean`);
   }
   return value;
-}
-
-function viewSortByNameAscending(value: unknown): SharedDefaultViewDefinition["sortByNameAscending"] {
-  if (value === null) {
-    return null;
-  }
-  const item = object(value, "View name sort");
-  exact(
-    item,
-    [
-      "sortOrderFieldNodeId",
-      "sortOrderFieldOccurrenceId",
-      "sortFieldNodeId",
-      "sortFieldOccurrenceId",
-      "nodeNameOccurrenceId",
-      "ascendingOccurrenceId",
-    ],
-    "View name sort",
-  );
-  return {
-    sortOrderFieldNodeId: nonempty(item.sortOrderFieldNodeId, "Sort order Field Node identity"),
-    sortOrderFieldOccurrenceId: nonempty(item.sortOrderFieldOccurrenceId, "Sort order Field Occurrence identity"),
-    sortFieldNodeId: nonempty(item.sortFieldNodeId, "Sort field Node identity"),
-    sortFieldOccurrenceId: nonempty(item.sortFieldOccurrenceId, "Sort field Occurrence identity"),
-    nodeNameOccurrenceId: nonempty(item.nodeNameOccurrenceId, "Node name Occurrence identity"),
-    ascendingOccurrenceId: nonempty(item.ascendingOccurrenceId, "ASC Occurrence identity"),
-  };
 }
 
 function searchExpression(value: unknown): SearchExpression {
@@ -232,19 +212,19 @@ function projectedNode(value: unknown): ProjectedNode {
     content: array(item.content, "Node content", (contentValue) => {
       const content = object(contentValue, "Node content item");
       if (content.kind === "text") {
-        exact(content, ["kind", "id", "value", "attributes", "contributionId"], "Text Atom");
+        exact(content, ["kind", "id", "value", "attributes", "factActionId"], "Text Atom");
         return {
           kind: "text" as const,
           id: parseTextAtomId(content.id),
           value: stringValue(content.value, "Atom value"),
           attributes: parseJsonRecord(content.attributes),
-          contributionId: nonempty(content.contributionId, "Contribution identity"),
+          factActionId: requireFactActionId(content.factActionId, "FactAction identity"),
         };
       }
       if (content.kind === "inline-reference") {
         exact(
           content,
-          ["kind", "id", "targetNodeId", "aliasNodeId", "targetStatus", "contributionId"],
+          ["kind", "id", "targetNodeId", "aliasNodeId", "targetStatus", "factActionId"],
           "Inline Reference",
         );
         if (
@@ -261,7 +241,7 @@ function projectedNode(value: unknown): ProjectedNode {
           aliasNodeId:
             content.aliasNodeId === null ? null : nonempty(content.aliasNodeId, "Inline Alias Node identity"),
           targetStatus: content.targetStatus,
-          contributionId: nonempty(content.contributionId, "Contribution identity"),
+          factActionId: requireFactActionId(content.factActionId, "FactAction identity"),
         };
       }
       throw new Error("Node content item kind is invalid");

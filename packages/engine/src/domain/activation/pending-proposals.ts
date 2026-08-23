@@ -1,28 +1,27 @@
-import type { ContributionFact, FactSnapshot } from "../fact/index.js";
+import { factActionsFromFacts, type FactAction, type FactActionId, type FactSnapshot } from "../fact/index.js";
 import { deriveActivation } from "./support.js";
 
-export type PendingProposalActivation = Readonly<{
-  pending: ReadonlyMap<string, ContributionFact>;
-  supportByContribution: ReadonlyMap<string, readonly string[]>;
+type PendingProposalActivation = Readonly<{
+  pending: ReadonlyMap<FactActionId, FactAction>;
+  supportByAction: ReadonlyMap<FactActionId, readonly FactActionId[]>;
 }>;
 
 export function pendingProposalActivation(snapshot: FactSnapshot): PendingProposalActivation {
   const origin = deriveActivation(snapshot.facts, "origin");
   const review = deriveActivation(snapshot.facts, "review");
   const pending = new Map(
-    snapshot.facts
+    factActionsFromFacts(snapshot.facts)
       .filter(
-        (fact): fact is ContributionFact =>
-          fact.body.kind === "contribution" &&
-          fact.body.intent === "proposal" &&
-          review.activeContributionIds.has(fact.id) &&
-          !origin.activeContributionIds.has(fact.id),
+        (action) =>
+          action.intent === "proposal" &&
+          review.activeActionIds.has(action.id) &&
+          !origin.activeActionIds.has(action.id),
       )
-      .map((fact) => [fact.id, fact]),
+      .map((action) => [action.id, action]),
   );
-  return { pending, supportByContribution: review.supportByContribution };
+  return { pending, supportByAction: review.supportByAction };
 }
 
-export function pendingProposalFacts(snapshot: FactSnapshot): ReadonlyMap<string, ContributionFact> {
+export function pendingProposalActions(snapshot: FactSnapshot): ReadonlyMap<FactActionId, FactAction> {
   return pendingProposalActivation(snapshot).pending;
 }

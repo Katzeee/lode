@@ -2,7 +2,7 @@ import type { SequenceAnchor } from "./types.js";
 
 export type InlineReferenceId = string;
 
-export type InlineReferenceMutation =
+export type InlineReferenceAction =
   | Readonly<{
       kind: "inline-reference-create";
       inlineReferenceId: InlineReferenceId;
@@ -11,19 +11,16 @@ export type InlineReferenceMutation =
       anchor: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "inline-reference-delete";
+      kind: "inline-reference-remove";
       inlineReferenceId: InlineReferenceId;
-      previousHostNodeId?: string;
-      previousTargetNodeId?: string;
-      previousAnchor?: SequenceAnchor;
     }>
   | Readonly<{
-      kind: "inline-reference-alias-attach";
+      kind: "inline-alias-attach";
       inlineReferenceId: InlineReferenceId;
       aliasNodeId: string;
     }>
   | Readonly<{
-      kind: "inline-reference-alias-detach";
+      kind: "inline-alias-detach";
       inlineReferenceId: InlineReferenceId;
       aliasNodeId: string;
     }>;

@@ -25,6 +25,10 @@ export const supertagRelationKind = defineProtocolEnum<ProtocolSupertagRelationK
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_EXTENSION]: "extension",
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_NODE]: "template-node",
     [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_VISIBILITY]: "template-field-visibility",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_FIELD]: "template-field",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_TEMPLATE_FIELD_STATIC_DEFAULT]:
+      "template-field-static-default",
+    [ProtocolSupertagRelationKind.SUPERTAG_RELATION_KIND_OPTIONAL_FIELD]: "optional-field",
     [ProtocolSupertagRelationKind.UNRECOGNIZED]: null,
   },
   "Supertag relation kind",
@@ -44,6 +48,7 @@ export const diffSpaceKind = defineProtocolEnum<ProtocolDiffSpaceKind>()(
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_INLINE_REFERENCE]: "inline-reference",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_VIEW_DEFINITION]: "view-definition",
     [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_FIELD_DEFINITION_CONFIGURATION]: "field-definition-configuration",
+    [ProtocolDiffSpaceKind.DIFF_SPACE_KIND_SEARCH_EXPRESSION]: "search-expression",
     [ProtocolDiffSpaceKind.UNRECOGNIZED]: null,
   },
   "Diff space kind",

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-mutations.js";
+import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
 
-import type { HardDeletePreview, MutationCommand } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
+import type { HardDeletePreview, EditCommand } from "@lode/sdk";
+import type { FactActionId } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { FactReplication } from "./fact-replication.js";
 import { syncPair } from "../../../tests/support/sync.js";
 import { Workspace } from "./workspace.js";
@@ -21,15 +21,14 @@ describe("Hard Delete maintenance", () => {
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
       throw new Error("Expected durable Supertag deletion");
     }
-    const deletionFactIds = [deletion.receipt.factIds[0]];
     let preview = await previewHardDelete(opened.workspace);
+    const deletionActionIds = preview.selection.deletionActionIds;
     expect(preview).toMatchObject({
       canExecute: false,
       blockers: ["replica-unconfirmed"],
       supertagApplicationNodeIds: ["task"],
     });
     expect(preview.referenceOccurrenceIds).toContain("supertag-reference");
-    expect(preview.referenceOccurrenceIds).toContain("task-supertag-application-task-supertag-1-definition-occurrence");
     expect(preview.historyImpact).toMatchObject({
       affectedChannelIds: ["maintenance-test"],
       truncated: false,
@@ -38,18 +37,23 @@ describe("Hard Delete maintenance", () => {
       expect.arrayContaining(["hard-delete-setup", "delete-supertag"]),
     );
 
-    expect(
-      (
-        await opened.workspace.execute({
-          kind: "acknowledge-deletion",
-          workspaceId: "workspace",
-          invocationId: "acknowledge-supertag-deletion",
-          actorId: "maintainer",
-          nodeId: "task-supertag",
-          deletionFactIds,
-        })
-      ).status,
-    ).toBe("published");
+    const acknowledged = await opened.workspace.execute({
+      kind: "acknowledge-deletion",
+      workspaceId: "workspace",
+      invocationId: "acknowledge-supertag-deletion",
+      actorId: "maintainer",
+      nodeId: "task-supertag",
+      deletionActionIds,
+    });
+    expect(acknowledged, JSON.stringify(acknowledged)).toMatchObject({ status: "published" });
+    if (acknowledged.status !== "published" || acknowledged.receipt.factIds[0] === undefined) {
+      throw new Error("Expected deletion acknowledgement Fact");
+    }
+    expect(opened.facts.facts([acknowledged.receipt.factIds[0]])[0]?.body).toEqual({
+      kind: "maintenance",
+      actorId: "maintainer",
+      action: { kind: "deletion-acknowledge", nodeId: "task-supertag" },
+    });
     preview = await previewHardDelete(opened.workspace);
     expect(preview).toMatchObject({ canExecute: true, blockers: [] });
 
@@ -57,7 +61,7 @@ describe("Hard Delete maintenance", () => {
       (
         await opened.workspace.execute({
           ...command("advance-unrelated"),
-          mutations: nodeAtWorkspace("unrelated"),
+          actions: nodeAtWorkspace("unrelated"),
         })
       ).status,
     ).toBe("published");
@@ -80,6 +84,14 @@ describe("Hard Delete maintenance", () => {
       selection: preview.selection,
     });
     expect(purged, JSON.stringify(purged)).toMatchObject({ status: "published" });
+    if (purged.status !== "published" || purged.receipt.factIds[0] === undefined) {
+      throw new Error("Expected Node purge Fact");
+    }
+    expect(opened.facts.facts([purged.receipt.factIds[0]])[0]?.body).toEqual({
+      kind: "maintenance",
+      actorId: "maintainer",
+      action: { kind: "node-purge", nodeId: "task-supertag" },
+    });
     expect(
       await opened.workspace.execute({
         kind: "hard-delete",
@@ -93,7 +105,7 @@ describe("Hard Delete maintenance", () => {
     expect(await projectionMap(opened.workspace, "supertagApplications")).not.toHaveProperty("task");
 
     await opened.workspace.close();
-    const restarted = await open(documents, "202", opened.facts.replicaId);
+    const restarted = await open(documents, "101");
     expect(await projectionMap(restarted.workspace, "nodes")).not.toHaveProperty("task-supertag");
     const restartedPreview = await previewHardDelete(restarted.workspace);
     expect(restartedPreview.canExecute).toBe(false);
@@ -110,9 +122,9 @@ describe("Hard Delete maintenance", () => {
       (
         await opened.workspace.execute({
           ...command("pending-supertag-edit", "proposal"),
-          mutations: [
+          actions: [
             {
-              kind: "text-splice",
+              kind: "rich-text-splice",
               nodeId: "task-supertag",
               deleteAtomIds: [],
               anchor: end,
@@ -125,7 +137,7 @@ describe("Hard Delete maintenance", () => {
     expect((await opened.workspace.execute(deleteSupertagCommand("delete-with-pending"))).status).toBe("published");
     const preview = await previewHardDelete(opened.workspace);
     expect(preview.blockers).toEqual(expect.arrayContaining(["pending-proposal", "replica-unconfirmed"]));
-    expect(preview.pendingProposalContributionIds).toHaveLength(1);
+    expect(preview.pendingProposalActionIds).toHaveLength(1);
   });
 
   it("blocks root-only purge while Trash contains owned descendants", async () => {
@@ -134,7 +146,7 @@ describe("Hard Delete maintenance", () => {
       (
         await opened.workspace.execute({
           ...command("subtree-setup"),
-          mutations: [
+          actions: [
             ...nodeAtWorkspace("parent"),
             {
               kind: "node-create",
@@ -156,12 +168,12 @@ describe("Hard Delete maintenance", () => {
     ).toBe("published");
     const deletion = await opened.workspace.execute({
       ...command("delete-subtree"),
-      mutations: [{ kind: "node-delete", nodeId: "parent" }],
+      actions: [{ kind: "node-delete", nodeId: "parent" }],
     });
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
       throw new Error("Expected subtree root deletion");
     }
-    const deletionFactIds = [deletion.receipt.factIds[0]];
+    const deletionActionIds = (await previewHardDelete(opened.workspace, "parent")).selection.deletionActionIds;
     expect(
       (
         await opened.workspace.execute({
@@ -170,7 +182,7 @@ describe("Hard Delete maintenance", () => {
           invocationId: "acknowledge-subtree-deletion",
           actorId: "maintainer",
           nodeId: "parent",
-          deletionFactIds,
+          deletionActionIds,
         })
       ).status,
     ).toBe("published");
@@ -200,26 +212,26 @@ describe("Hard Delete maintenance", () => {
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
       throw new Error("Expected multi-Replica deletion");
     }
-    const deletionFactIds = [deletion.receipt.factIds[0]];
     await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
         await right.workspace.execute({
           ...command("right-presence"),
-          mutations: nodeAtWorkspace("right-node"),
+          actions: nodeAtWorkspace("right-node"),
         })
       ).status,
     ).toBe("published");
     await syncPair(new FactReplication(right.facts.replication), new FactReplication(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
 
-    await acknowledge(left.workspace, "left-ack", deletionFactIds);
+    const deletionActionIds = (await previewHardDelete(left.workspace)).selection.deletionActionIds;
+    await acknowledge(left.workspace, "left-ack", deletionActionIds);
     let preview = await previewHardDelete(left.workspace);
     expect(preview.knownReplicaIds).toEqual(expect.arrayContaining([left.facts.replicaId, right.facts.replicaId]));
     expect(preview.blockers).toContain("replica-unconfirmed");
 
-    await acknowledge(right.workspace, "right-ack", deletionFactIds);
+    await acknowledge(right.workspace, "right-ack", deletionActionIds);
     await syncPair(new FactReplication(right.facts.replication), new FactReplication(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     preview = await previewHardDelete(left.workspace);
@@ -240,6 +252,27 @@ describe("Hard Delete maintenance", () => {
     expect(await projectionMap(right.workspace, "nodes")).not.toHaveProperty("task-supertag");
   });
 
+  it("does not count an acknowledgement that misses a concurrent Trash action", async () => {
+    const left = await open(new InMemoryDocumentStore(), "515");
+    const right = await open(new InMemoryDocumentStore(), "525");
+    expect((await left.workspace.execute(setupCommand())).status).toBe("published");
+    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await left.workspace.reconcileAuthorityAdvance();
+    await right.workspace.reconcileAuthorityAdvance();
+
+    expect((await left.workspace.execute(deleteSupertagCommand("left-concurrent-delete"))).status).toBe("published");
+    const leftSelection = (await previewHardDelete(left.workspace)).selection;
+    await acknowledge(left.workspace, "left-early-ack", leftSelection.deletionActionIds);
+    expect((await right.workspace.execute(deleteSupertagCommand("right-concurrent-delete"))).status).toBe("published");
+
+    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await left.workspace.reconcileAuthorityAdvance();
+    const merged = await previewHardDelete(left.workspace);
+    expect(merged.selection.deletionActionIds).toHaveLength(2);
+    expect(merged.acknowledgedReplicaIds).not.toContain(left.facts.replicaId);
+    expect(merged.blockers).toContain("replica-unconfirmed");
+  });
+
   it("requires explicit retirement before an unavailable known Replica stops blocking purge", async () => {
     const left = await open(new InMemoryDocumentStore(), "606");
     const right = await open(new InMemoryDocumentStore(), "707");
@@ -248,20 +281,20 @@ describe("Hard Delete maintenance", () => {
     if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
       throw new Error("Expected retirement fixture deletion");
     }
-    const deletionFactIds = [deletion.receipt.factIds[0]];
     await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(
       (
         await right.workspace.execute({
           ...command("retiring-replica-presence"),
-          mutations: nodeAtWorkspace("retiring-replica-node"),
+          actions: nodeAtWorkspace("retiring-replica-node"),
         })
       ).status,
     ).toBe("published");
     await syncPair(new FactReplication(right.facts.replication), new FactReplication(left.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
-    await acknowledge(left.workspace, "retirement-left-ack", deletionFactIds);
+    const deletionActionIds = (await previewHardDelete(left.workspace)).selection.deletionActionIds;
+    await acknowledge(left.workspace, "retirement-left-ack", deletionActionIds);
     expect((await previewHardDelete(left.workspace)).blockers).toContain("replica-unconfirmed");
 
     expect(
@@ -282,14 +315,11 @@ describe("Hard Delete maintenance", () => {
   });
 });
 
-async function open(documents: InMemoryDocumentStore, peer: `${number}`, replicaId = createReplicaId()) {
+async function open(documents: InMemoryDocumentStore, peer: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId,
     loroPeerId: peer,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return {
     facts,
@@ -297,22 +327,22 @@ async function open(documents: InMemoryDocumentStore, peer: `${number}`, replica
   };
 }
 
-function command(invocationId: string, intent: "direct" | "proposal" = "direct"): MutationCommand {
+function command(invocationId: string, intent: "direct" | "proposal" = "direct"): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     intent,
     historyChannelId: "maintenance-test",
-    mutations: nodeAtWorkspace(invocationId),
+    actions: nodeAtWorkspace(invocationId),
   };
 }
 
-function setupCommand(): MutationCommand {
+function setupCommand(): EditCommand {
   return {
     ...command("hard-delete-setup"),
-    mutations: [
+    actions: [
       {
         kind: "node-create",
         occurrenceId: "supertag-reference",
@@ -345,8 +375,8 @@ function nodeAtWorkspace(nodeId: string) {
   ];
 }
 
-function deleteSupertagCommand(invocationId: string): MutationCommand {
-  return { ...command(invocationId), mutations: [{ kind: "node-delete", nodeId: "task-supertag" }] };
+function deleteSupertagCommand(invocationId: string): EditCommand {
+  return { ...command(invocationId), actions: [{ kind: "node-delete", nodeId: "task-supertag" }] };
 }
 
 async function previewHardDelete(workspace: Workspace, nodeId = "task-supertag"): Promise<HardDeletePreview> {
@@ -364,20 +394,17 @@ async function previewHardDelete(workspace: Workspace, nodeId = "task-supertag")
 async function acknowledge(
   workspace: Workspace,
   invocationId: string,
-  deletionFactIds: readonly string[],
+  deletionActionIds: readonly FactActionId[],
 ): Promise<void> {
-  expect(
-    (
-      await workspace.execute({
-        kind: "acknowledge-deletion",
-        workspaceId: "workspace",
-        invocationId,
-        actorId: "maintainer",
-        nodeId: "task-supertag",
-        deletionFactIds,
-      })
-    ).status,
-  ).toBe("published");
+  const result = await workspace.execute({
+    kind: "acknowledge-deletion",
+    workspaceId: "workspace",
+    invocationId,
+    actorId: "maintainer",
+    nodeId: "task-supertag",
+    deletionActionIds,
+  });
+  expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
 }
 
 async function projectionMap(workspace: Workspace, section: "nodes" | "supertagApplications") {

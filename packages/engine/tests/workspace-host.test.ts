@@ -35,8 +35,8 @@ describe("Engine workspace host capabilities", () => {
     await createWorkspaceAs(engine, "tasks", "Task and Project");
 
     expect(await engine.api.workspaces.listWorkspaces()).toEqual([
-      { workspaceId: "personal", label: "Personal", state: "active" },
-      { workspaceId: "tasks", label: "Task and Project", state: "active" },
+      { workspaceId: "personal", label: "Personal" },
+      { workspaceId: "tasks", label: "Task and Project" },
     ]);
 
     await expect(
@@ -47,8 +47,8 @@ describe("Engine workspace host capabilities", () => {
 
     const restarted = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     expect(await restarted.api.workspaces.listWorkspaces()).toEqual([
-      { workspaceId: "personal", label: "Personal", state: "active" },
-      { workspaceId: "tasks", label: "Task and Project", state: "active" },
+      { workspaceId: "personal", label: "Personal" },
+      { workspaceId: "tasks", label: "Task and Project" },
     ]);
     await restarted.stop();
   });
@@ -57,13 +57,13 @@ describe("Engine workspace host capabilities", () => {
     const engine = await startEngine();
     const tester = await createWorkspaceAs(engine, "workspace", "Workspace");
     await engine.api.application.execute({
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "setup",
       actorId: tester,
       intent: "direct",
       historyChannelId: "test",
-      mutations: [
+      actions: [
         {
           kind: "node-create",
           nodeId: "parent",
@@ -78,13 +78,13 @@ describe("Engine workspace host capabilities", () => {
     expect(activeDraft.available).toBe(false);
 
     await engine.api.application.execute({
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "trash-draft",
       actorId: tester,
       intent: "direct",
       historyChannelId: "test",
-      mutations: [{ kind: "node-delete", nodeId: "draft" }],
+      actions: [{ kind: "node-delete", nodeId: "draft" }],
     });
 
     const parentEvidence = await trashEvidence(engine, "workspace", "parent");
@@ -93,26 +93,23 @@ describe("Engine workspace host capabilities", () => {
     const draftEvidence = await trashEvidence(engine, "workspace", "draft");
     expect(draftEvidence.available).toBe(true);
     expect(draftEvidence.occurrenceId).toBe("draft-original");
-    expect(draftEvidence.previousParentNodeId).toBe("parent");
-    expect(draftEvidence.previousOwnerNodeId).toBe("parent");
-    expect(draftEvidence.deletionFactId).not.toBe("");
+    expect(draftEvidence.parentNodeId).toBe("parent");
+    expect(draftEvidence.anchor).not.toBeNull();
 
     const restored = await engine.api.application.execute({
-      kind: "mutate",
+      kind: "edit",
       workspaceId: "workspace",
       invocationId: "restore-draft",
       actorId: tester,
       intent: "direct",
       historyChannelId: "test",
-      mutations: [
+      actions: [
         {
           kind: "node-restore",
           nodeId: "draft",
-          deletionFactId: draftEvidence.deletionFactId,
           occurrenceId: draftEvidence.occurrenceId,
-          ownerNodeId: draftEvidence.previousOwnerNodeId,
-          parentNodeId: draftEvidence.previousParentNodeId,
-          anchor: draftEvidence.previousAnchor ?? end,
+          parentNodeId: draftEvidence.parentNodeId,
+          anchor: draftEvidence.anchor ?? end,
         },
       ],
     });

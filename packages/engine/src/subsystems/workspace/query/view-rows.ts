@@ -1,22 +1,22 @@
 import type { ViewRowsQueryRequest, ViewRowsResult } from "@lode/sdk";
-import { stableStringCompare, type ViewColumnSpec, type ViewGroupSpec } from "../../../domain/fact/index.js";
+import {
+  stableStringCompare,
+  VIEW_SORT_NODE_NAME_NODE_ID,
+  type ViewColumnSpec,
+  type ViewGroupSpec,
+} from "../../../domain/fact/index.js";
 import { matchesSearchExpressionSpec } from "../../../domain/query/index.js";
 import { nodeLocation } from "../../../domain/reconcile/index.js";
-import type { Projection } from "../../../domain/reconcile/index.js";
+import type { Projection, ProjectionGeneration } from "../../../domain/reconcile/index.js";
 import {
   sortViewChildrenByNodeName,
   supportsSharedDefaultViewHost,
   viewChildSource,
   type ViewChildReference,
 } from "../../../domain/view/index.js";
-import type { ProjectionGenerationReader } from "../projection/index.js";
 
-export async function queryViewRows(
-  query: ViewRowsQueryRequest,
-  generationId: string,
-  projections: ProjectionGenerationReader,
-): Promise<ViewRowsResult> {
-  const generation = await projections.load(generationId);
+export function queryViewRows(query: ViewRowsQueryRequest, generation: ProjectionGeneration): ViewRowsResult {
+  const generationId = generation.identity.generationId;
   const projection = generation[query.perspective];
   const host = projection.nodes[query.hostNodeId];
   const hostAvailable =
@@ -43,14 +43,12 @@ export async function queryViewRows(
       : rawChildSource.filter((source) =>
           matchesSearchExpressionSpec(source.targetNodeId, options.filter!.expression, projection, query.hostNodeId),
         );
-  const legacySortedChildSource =
-    selectedDefinition === null || selectedDefinition === undefined || selectedDefinition.sortByNameAscending === null
-      ? filteredChildSource
-      : sortViewChildrenByNodeName(filteredChildSource, projection);
   const sortedChildSource =
     selectedDefinition?.viewType === "table" && options.sort !== null
-      ? sortByField(legacySortedChildSource, options.sort.fieldDefinitionId, options.sort.direction, projection)
-      : legacySortedChildSource;
+      ? options.sort.fieldDefinitionId === VIEW_SORT_NODE_NAME_NODE_ID
+        ? sortByNodeName(filteredChildSource, options.sort.direction, projection)
+        : sortByField(filteredChildSource, options.sort.fieldDefinitionId, options.sort.direction, projection)
+      : filteredChildSource;
   const childSource =
     selectedDefinition?.viewType === "table" && options.group !== null
       ? sortByGroup(sortedChildSource, options.group.fieldDefinitionId, projection)
@@ -75,6 +73,15 @@ export async function queryViewRows(
     rows: selected,
     next: remaining.length > selected.length ? (selected.at(-1)?.rowKey ?? null) : null,
   };
+}
+
+function sortByNodeName(
+  children: readonly ViewChildReference[],
+  direction: "ascending" | "descending",
+  projection: Projection,
+): readonly ViewChildReference[] {
+  const ascending = sortViewChildrenByNodeName(children, projection);
+  return direction === "ascending" ? ascending : [...ascending].reverse();
 }
 
 function viewRow(

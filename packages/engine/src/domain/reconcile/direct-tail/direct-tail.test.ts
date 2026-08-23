@@ -1,52 +1,42 @@
 import { describe, expect, it } from "vitest";
 
-import { makeFact, type Mutation } from "../../fact/index.js";
+import { makeFact, type AuthoredAction } from "../../fact/index.js";
 import { base, end, REPLICA, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { fullSurface } from "../../../../tests/support/reconcile/full-surface-test-fixture.js";
-import { supertagApplicationIdentity } from "../../../../tests/support/reconcile/supertag-application-test-helpers.js";
 import { rebuildGeneration } from "../reconcile.js";
 import type { Projection } from "../projection-types.js";
 import { selectEligibleDirectTail } from "./index.js";
 
 describe("Direct Projection tail policy", () => {
-  it("delegates Projection prerequisites to each Mutation family", () => {
+  it("delegates Projection prerequisites to each AuthoredAction family", () => {
     const facts = fullSurface("direct");
     const projection = rebuildGeneration("workspace", facts.snapshot(), versions).origin;
-    const application = supertagApplicationIdentity("node", "supertag");
     const eligible = [
-      { kind: "node-delete", nodeId: "node" },
-      { kind: "occurrence-delete", occurrenceId: "occurrence" },
+      { kind: "node-trash", nodeId: "node" },
+      { kind: "placement-remove", placementId: "occurrence" },
       {
-        kind: "supertag-remove",
+        kind: "supertag-membership-remove",
         hostNodeId: "node",
         supertagId: "supertag",
-        applicationNodeId: application.applicationNodeId,
-        applicationOccurrenceId: application.applicationOccurrenceId,
-        relationDefinitionOccurrenceId: application.relationDefinitionOccurrenceId,
-        definitionOccurrenceId: application.definitionOccurrenceId,
-        detachedValueNodeId: `${application.applicationNodeId}-detached-value`,
-        detachedValueOccurrenceId: `${application.applicationNodeId}-detached-value-occurrence`,
       },
-      { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "x" },
-    ] as const satisfies readonly Mutation[];
+      { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "x" },
+    ] as const satisfies readonly AuthoredAction[];
 
-    expect(eligible.map((mutation) => isEligible(projection, mutation))).toEqual(eligible.map(() => true));
+    expect(eligible.map((authoredAction) => isEligible(projection, authoredAction))).toEqual(eligible.map(() => true));
     expect(
       isEligible(projection, {
-        kind: "intrinsic-node-type-declare",
+        kind: "node-create",
         nodeId: "node",
+        ownerNodeId: "workspace",
+        originalPlacement: null,
         intrinsicNodeType: "calendar",
       }),
     ).toBe(false);
     expect(
       isEligible(projection, {
-        kind: "supertag-apply",
+        kind: "supertag-application-add",
         hostNodeId: "node",
         supertagId: "missing-supertag",
-        applicationNodeId: "missing-application",
-        applicationOccurrenceId: "missing-application-occurrence",
-        relationDefinitionOccurrenceId: "missing-relation-definition-occurrence",
-        definitionOccurrenceId: "missing-definition-occurrence",
         anchor: end,
       }),
     ).toBe(false);
@@ -65,21 +55,21 @@ describe("Direct Projection tail policy", () => {
           instanceOccurrenceId: "instance-occurrence",
           state: "linked",
           sources: [],
-          detachmentContributionIds: [],
+          detachmentActionIds: [],
         },
       ],
     };
-    const mutation = {
+    const authoredAction = {
       kind: "template-node-detach",
       ownerNodeId: "node",
       templateNodeId: "template",
       instanceNodeId: "instance",
       instanceOccurrenceId: "instance-occurrence",
       anchor: end,
-    } as const satisfies Mutation;
+    } as const satisfies AuthoredAction;
 
-    expect(isEligible(projection, mutation)).toBe(false);
-    expect(isEligible(linked, mutation)).toBe(true);
+    expect(isEligible(projection, authoredAction)).toBe(false);
+    expect(isEligible(linked, authoredAction)).toBe(true);
   });
 
   it("selects only a neutral-order all-Direct Fact suffix", () => {
@@ -87,7 +77,7 @@ describe("Direct Projection tail policy", () => {
     const before = facts.snapshot();
     const projection = rebuildGeneration("workspace", before, versions).origin;
     const direct = facts.add({
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
@@ -95,11 +85,12 @@ describe("Direct Projection tail policy", () => {
     });
     const directSnapshot = facts.snapshot();
 
-    expect(selectEligibleDirectTail(projection, directSnapshot.facts, [direct])).toEqual([direct]);
+    const directFact = directSnapshot.facts.find((fact) => fact.id === direct.factId)!;
+    expect(selectEligibleDirectTail(projection, directSnapshot.facts, [directFact])).toEqual([direct]);
 
     const proposal = facts.add(
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
         anchor: end,
@@ -108,19 +99,20 @@ describe("Direct Projection tail policy", () => {
       "proposal",
     );
     const proposalSnapshot = facts.snapshot();
-    expect(selectEligibleDirectTail(projection, proposalSnapshot.facts, [proposal])).toBeNull();
-    expect(selectEligibleDirectTail(projection, proposalSnapshot.facts, [direct])).toBeNull();
+    const proposalFact = proposalSnapshot.facts.find((fact) => fact.id === proposal.factId)!;
+    expect(selectEligibleDirectTail(projection, proposalSnapshot.facts, [proposalFact])).toBeNull();
+    expect(selectEligibleDirectTail(projection, proposalSnapshot.facts, [directFact])).toBeNull();
   });
 });
 
-function isEligible(projection: Projection, mutation: Mutation): boolean {
+function isEligible(projection: Projection, authoredAction: AuthoredAction): boolean {
   const fact = makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence: 1,
     observed: {},
     lamport: 1,
-    body: { kind: "contribution", actorId: "actor", intent: "direct", mutation },
+    body: { kind: "edit", actorId: "actor", intent: "direct", actions: [authoredAction] },
   });
   return selectEligibleDirectTail(projection, [fact], [fact]) !== null;
 }

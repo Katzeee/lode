@@ -11,7 +11,7 @@ import type { PeerIdentityCapability } from "../identity/index.js";
  * The remote replica-exchange boundary, Engine-owned. A dialing Peer
  * authenticates every request with an Ed25519 signature over a canonical
  * challenge naming the workspace, its peer id, a fresh nonce, the target
- * document, and the sealed payload digest; the serving side checks admission
+ * document, and the sealed payload digest; the serving side checks interpretation
  * against its replayed governance state and answers under the workspace's
  * current transit key. Every response's handshake returns the dialer's own
  * transit envelope, which is how an admitted Peer learns a rotated key or
@@ -19,9 +19,9 @@ import type { PeerIdentityCapability } from "../identity/index.js";
  * provider logic crosses this boundary.
  */
 
-export const REPLICA_EXCHANGE_PROTOCOL = "lode-peer-exchange/v1";
+const REPLICA_EXCHANGE_PROTOCOL = "lode-peer-exchange/v1";
 
-export class ReplicaExchangeRejected extends Error {
+class ReplicaExchangeRejected extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ReplicaExchangeRejected";
@@ -37,7 +37,7 @@ type ChallengeInput = Readonly<{
 }>;
 
 /** The exact bytes a Peer signs for one request. */
-export function peerChallenge(input: ChallengeInput): Uint8Array {
+function peerChallenge(input: ChallengeInput): Uint8Array {
   const digest = createHash("sha256").update(input.payload).digest("hex");
   const canonical = [
     REPLICA_EXCHANGE_PROTOCOL,
@@ -50,13 +50,13 @@ export function peerChallenge(input: ChallengeInput): Uint8Array {
   return new TextEncoder().encode(canonical);
 }
 
-export type ServingWorkspace = Readonly<{
+type ServingWorkspace = Readonly<{
   workspaceId: string;
   facts: GovernanceAuthority;
   peer(): ReplicaPeer;
 }>;
 
-/** The serving side: verify, gate on admission, seal under the transit key. */
+/** The serving side: verify, gate on snapshot, seal under the transit key. */
 export class ReplicaExchangeGateway {
   constructor(
     private readonly identity: PeerIdentityCapability,
@@ -109,11 +109,8 @@ export class ReplicaExchangeGateway {
     sealedPayload: Uint8Array,
   ): Readonly<{ state: GovernanceState; workspace: ServingWorkspace; transitKey: Uint8Array }> {
     const workspace = this.workspace(proof.workspaceId);
-    const admission = workspace.facts.admission();
-    if (admission.kind === "fault") {
-      throw new ReplicaExchangeRejected("Workspace authority is faulted");
-    }
-    const state = projectGovernance(admission.snapshot.facts);
+    const snapshot = workspace.facts.snapshot();
+    const state = projectGovernance(snapshot.facts);
     const publicKey = peerPublicKeyFromId(proof.peerId);
     if (publicKey === null) {
       throw new ReplicaExchangeRejected("Peer id does not encode a public key");
@@ -199,7 +196,7 @@ export class OutboundExchange {
   }
 }
 
-export function decodeProfile(bytes: Uint8Array): readonly SyncProfileEntry[] {
+function decodeProfile(bytes: Uint8Array): readonly SyncProfileEntry[] {
   const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new ReplicaExchangeRejected("Remote profile is malformed");

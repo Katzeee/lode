@@ -1,12 +1,12 @@
 import type { MutableOccurrence } from "./projection-state.js";
 
-export type TupleEndpoint = Readonly<{
+type TupleEndpoint = Readonly<{
   occurrenceId: string;
   nodeId: string;
   isOwning: boolean;
 }>;
 
-export type Tuple = Readonly<{
+type Tuple = Readonly<{
   nodeId: string;
   ownerNodeId: string | null | undefined;
   endpoints: readonly TupleEndpoint[];

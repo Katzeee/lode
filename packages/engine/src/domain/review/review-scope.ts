@@ -1,7 +1,7 @@
-import { canonicalJson, fieldContentDeletionOccurrenceId, type FieldContentDeletionMutation } from "../fact/index.js";
+import { canonicalJson, type FieldContentRemovalAction } from "../fact/index.js";
 
 export type ReviewScopeContext = Readonly<{
-  occurrenceNodeId(occurrenceId: string): string | null;
+  occurrence(occurrenceId: string): Readonly<{ nodeId: string; parentNodeId: string }> | null;
 }>;
 
 export function reviewScope(...parts: readonly unknown[]): string {
@@ -20,13 +20,20 @@ export function structureParentScope(parentNodeId: string): string {
   return reviewScope("structure-parent", parentNodeId);
 }
 
-export function fieldContentDeletionScopes(mutation: FieldContentDeletionMutation): readonly string[] {
+export function fieldContentRemovalScopes(
+  action: FieldContentRemovalAction,
+  context: ReviewScopeContext,
+): readonly string[] {
+  if (action.kind === "field-value-remove") {
+    const placement = context.occurrence(action.valuePlacementId);
+    return [
+      reviewScope("associated-occurrence", action.valuePlacementId),
+      ...(placement ? [associatedNodeScope(placement.nodeId), associatedNodeScope(placement.parentNodeId)] : []),
+    ];
+  }
   return [
-    reviewScope("field-content", mutation.ownerNodeId, mutation.fieldDefinitionId),
-    associatedNodeScope(mutation.ownerNodeId),
-    associatedNodeScope(mutation.fieldDefinitionId),
-    mutation.kind === "field-value-delete"
-      ? reviewScope("associated-occurrence", fieldContentDeletionOccurrenceId(mutation))
-      : associatedNodeScope(mutation.fieldNodeId),
+    reviewScope("field-content", action.ownerNodeId, action.fieldDefinitionId),
+    associatedNodeScope(action.ownerNodeId),
+    associatedNodeScope(action.fieldDefinitionId),
   ];
 }

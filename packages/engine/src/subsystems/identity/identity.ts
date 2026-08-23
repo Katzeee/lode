@@ -5,7 +5,6 @@ import {
   keyPairFromPhrase,
   MIN_PASSPHRASE_LENGTH,
   normalizePhrase,
-  signBytes,
   type SigningKeyPair,
 } from "../../crypto/index.js";
 import { loadOrCreatePeerMaterial, type PeerMaterial } from "./peer-identity.js";
@@ -16,17 +15,9 @@ import type { ActorSummary } from "./capability.js";
 /**
  * Engine identity: the Actor Vault plus the Peer identity. The vault holds
  * every Actor this Engine can act as; unlocking loads Ed25519 seeds
- * into memory and makes Fact attribution signatures available to workspace
- * commits. The Peer identity is always available — replica exchange and Fact
+ * into memory for acting-Actor checks. The Peer identity is always available — replica exchange and Fact
  * forwarding never depend on an unlocked vault.
  */
-
-export class ActorLockedError extends Error {
-  constructor(actorId: string) {
-    super(`Actor ${actorId} has no unlocked key in this Home`);
-    this.name = "ActorLockedError";
-  }
-}
 
 export class Identity {
   private unlockedKeys = new Map<string, SigningKeyPair>();
@@ -107,15 +98,6 @@ export class Identity {
 
   isActorUnlocked(actorId: string): boolean {
     return this.unlockedKeys.has(actorId);
-  }
-
-  /** Fact attribution signature; throws when the Actor has no unlocked key. */
-  signFact(digest: string, actorId: string): string {
-    const keyPair = this.unlockedKeys.get(actorId);
-    if (!keyPair) {
-      throw new ActorLockedError(actorId);
-    }
-    return Buffer.from(signBytes(Buffer.from(digest, "utf8"), keyPair.seed)).toString("base64");
   }
 
   /**

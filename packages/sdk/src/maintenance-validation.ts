@@ -4,22 +4,22 @@ export function validateHardDeleteSelection(value: unknown): void {
     "workspaceId",
     "frontier",
     "nodeId",
-    "deletionFactIds",
+    "deletionActionIds",
     "acknowledgementFactIds",
     "retiredReplicaIds",
   ]);
   nonempty(selection.workspaceId, "Hard Delete Workspace identity");
   factFrontier(selection.frontier);
   nonempty(selection.nodeId, "Hard Delete Node identity");
-  identities(selection.deletionFactIds, "Deletion Fact identities", true);
-  identities(selection.acknowledgementFactIds, "Acknowledgement Fact identities", true);
+  factActionIds(selection.deletionActionIds, "Deletion action identities");
+  factIds(selection.acknowledgementFactIds, "Acknowledgement Fact identities");
   identities(selection.retiredReplicaIds, "Retired Replica identities", false);
 }
 
 function factFrontier(value: unknown): void {
   const frontier = record(value, "Fact frontier");
   for (const [replicaId, sequence] of Object.entries(frontier)) {
-    if (!/^[a-z2-7]{26}$/.test(replicaId) || !Number.isSafeInteger(sequence) || (sequence as number) < 0) {
+    if (!/^(?:0|[1-9]\d*)$/.test(replicaId) || !Number.isSafeInteger(sequence) || (sequence as number) < 0) {
       throw new Error("Fact frontier is invalid");
     }
   }
@@ -55,3 +55,4 @@ function nonempty(value: unknown, label: string): string {
   }
   return value;
 }
+import { factActionIds, factIds } from "./fact-identities.js";

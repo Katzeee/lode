@@ -1,12 +1,5 @@
-import { admitAuthorityRecords } from "../src/domain/admission/index.js";
-import {
-  canonicalJson,
-  frontierOf,
-  type AuthorityRecord,
-  type Fact,
-  type FactSnapshot,
-  type TextAtomId,
-} from "../src/domain/fact/index.js";
+import { buildFactSnapshot } from "../src/domain/fact/index.js";
+import { canonicalJson, frontierOf, type Fact, type FactSnapshot, type TextAtomId } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
   rebuildGeneration,
@@ -14,6 +7,8 @@ import {
   type ProjectionGeneration,
 } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
+import { addDefinitionNode } from "./support/reconcile/placed-node-test-helpers.js";
+import { uniqueFacts } from "./support/facts.js";
 
 export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: number): void {
   const failure = equivalenceFailure(facts, seed);
@@ -25,8 +20,8 @@ export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: num
     .map(
       (fact) =>
         `${fact.body.kind}/${
-          fact.body.kind === "contribution"
-            ? fact.body.mutation.kind
+          fact.body.kind === "edit"
+            ? fact.body.actions.map((authoredAction) => authoredAction.kind).join("+")
             : fact.body.kind === "resolution"
               ? fact.body.decision
               : fact.body.action.kind
@@ -46,24 +41,12 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   facts.addPlaced("child-b", "container-b", "rehome-child");
   occurrence(facts, "shared-b", "shared", "container-a");
   occurrence(facts, "self-reference", "shared", "shared");
-  facts.add({
-    kind: "node-owner-set",
-    nodeId: "shared",
-    ownerNodeId: "container-a",
-    previousOwnerNodeId: "root",
-  });
-  facts.addPlaced("generated-supertag");
-  facts.add({
-    kind: "intrinsic-node-type-declare",
-    nodeId: "generated-supertag",
-    intrinsicNodeType: "supertag-definition",
-  });
+  addDefinitionNode(facts, "generated-supertag", "supertag-definition");
   facts.applySupertag("shared", "generated-supertag");
   const text = facts.add({
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: "shared",
     deleteAtomIds: [],
-    deletedAtoms: [],
     anchor: end,
     insert: "ABCDE".slice(0, 2 + (seed % 4)),
   });
@@ -72,16 +55,15 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
     (_, index) => (index + seed) % 2 === 0,
   );
   facts.add({
-    kind: "text-mark",
+    kind: "rich-text-mark",
     nodeId: "shared",
     atomIds: marked,
     key: "emphasis",
     value: { kind: "set", value: seed % 2 === 0 },
-    previous: { kind: "unset" },
   });
   const contentProposal = facts.add(
     {
-      kind: "text-splice",
+      kind: "rich-text-splice",
       nodeId: "shared",
       deleteAtomIds: [],
       anchor: end,
@@ -91,21 +73,18 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
   );
   const createProposal = facts.addPlaced(`proposal-${seed}`, "workspace", undefined, "proposal");
   facts.add({
-    kind: "text-splice",
+    kind: "rich-text-splice",
     nodeId: `proposal-${seed}`,
     deleteAtomIds: [],
-    deletedAtoms: [],
     anchor: end,
     insert: "dependent",
   });
   facts.add(
     {
-      kind: "occurrence-move",
-      occurrenceId: "shared-b",
+      kind: "placement-move",
+      placementId: "shared-b",
       parentNodeId: "container-b",
       anchor: end,
-      previousParentNodeId: "container-a",
-      previousAnchor: end,
     },
     "proposal",
   );
@@ -120,8 +99,8 @@ export function generatedDomainGraph(seed: number): readonly Fact[] {
 
 function occurrence(facts: Facts, occurrenceId: string, nodeId: string, parentNodeId: string): void {
   facts.add({
-    kind: "occurrence-create",
-    occurrenceId,
+    kind: "placement-create",
+    placementId: occurrenceId,
     nodeId,
     parentNodeId,
     anchor: end,
@@ -151,25 +130,22 @@ function equivalenceFailure(facts: readonly Fact[], seed: number): string | null
       return `shuffled incremental path differs at cut ${cut}`;
     }
   }
-  const expectedAdmission = admitAuthorityRecords("workspace", records(facts));
-  const delivered = shuffle([...facts, ...facts.filter((_, index) => (index + seed) % 3 === 0)], seed).map((fact) => ({
-    recordKind: "fact" as const,
-    fact,
-  }));
-  const received: AuthorityRecord[] = [];
+  const expectedFactSnapshot = buildFactSnapshot("workspace", uniqueFacts(records(facts)));
+  const delivered = shuffle([...facts, ...facts.filter((_, index) => (index + seed) % 3 === 0)], seed);
+  const received: Fact[] = [];
   let offset = 0;
   while (offset < delivered.length) {
     const batchSize = 1 + ((seed + offset) % 5);
     received.push(...delivered.slice(offset, offset + batchSize));
-    admitAuthorityRecords("workspace", received);
+    buildFactSnapshot("workspace", uniqueFacts(received));
     offset += batchSize;
   }
-  const actualAdmission = admitAuthorityRecords("workspace", received);
-  return canonicalJson(actualAdmission) === canonicalJson(expectedAdmission)
+  const actualFactSnapshot = buildFactSnapshot("workspace", uniqueFacts(received));
+  return canonicalJson(actualFactSnapshot) === canonicalJson(expectedFactSnapshot)
     ? null
-    : `arrival order, duplicate count, or batch boundaries changed admission: expected ${canonicalJson(
-        expectedAdmission,
-      )}, actual ${canonicalJson(actualAdmission)}`;
+    : `arrival order, duplicate count, or batch boundaries changed the authoritative snapshot: expected ${canonicalJson(
+        expectedFactSnapshot,
+      )}, actual ${canonicalJson(actualFactSnapshot)}`;
 }
 
 function shrinkCausalFailure(
@@ -200,8 +176,8 @@ function factSnapshot(facts: readonly Fact[]): FactSnapshot {
   return { facts: [...facts], frontier: frontierOf(facts) };
 }
 
-function records(facts: readonly Fact[]): AuthorityRecord[] {
-  return facts.map((fact) => ({ recordKind: "fact", fact }));
+function records(facts: readonly Fact[]): readonly Fact[] {
+  return facts;
 }
 
 function shuffle<T>(values: readonly T[], seed: number): T[] {

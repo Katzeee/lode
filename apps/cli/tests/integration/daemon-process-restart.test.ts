@@ -38,12 +38,7 @@ describe("real daemon child-process restart", () => {
       {
         kind: "supertag-application-create",
         hostNodeId: "task",
-        metanodeId: "task-metanode",
         supertagId: "supertag",
-        applicationNodeId: "task-supertag-application",
-        applicationOccurrenceId: "task-supertag-application-occurrence",
-        definitionOccurrenceId: "task-supertag-application-definition-occurrence",
-        relationDefinitionOccurrenceId: "task-supertag-application-relation-definition-occurrence",
         anchor: end,
       },
     ]);
@@ -59,18 +54,18 @@ describe("real daemon child-process restart", () => {
     expect(application).toMatchObject({
       hostNodeId: "task",
       supertagId: "supertag",
-      applicationNodeId: "task-supertag-application",
-      applicationOccurrenceId: "task-supertag-application-occurrence",
-      definitionOccurrenceId: "task-supertag-application-definition-occurrence",
     });
-    expect(typeof application.contributionId).toBe("string");
+    expect(typeof application.applicationNodeId).toBe("string");
+    expect(typeof application.applicationOccurrenceId).toBe("string");
+    expect(typeof application.definitionOccurrenceId).toBe("string");
+    expect(typeof application.factActionId).toBe("string");
     await mutate(
       daemon.address,
       "proposal-once",
       "review",
       [
         {
-          kind: "text-splice",
+          kind: "rich-text-splice",
           nodeId: "task",
           deleteAtomIds: [],
           anchor: end,
@@ -97,7 +92,7 @@ describe("real daemon child-process restart", () => {
 
     await mutate(daemon.address, "history-edit", "history", [
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "task",
         deleteAtomIds: [],
         anchor: end,
@@ -163,10 +158,10 @@ async function mutate(
   endpoint: string,
   invocationId: string,
   channelId: string,
-  mutations: readonly unknown[],
+  actions: readonly unknown[],
   intent: "direct" | "proposal" = "direct",
 ): Promise<void> {
-  const result = await execute(endpoint, mutateCommand(invocationId, channelId, intent, mutations));
+  const result = await execute(endpoint, mutateCommand(invocationId, channelId, intent, actions));
   expect(result, JSON.stringify(result)).toMatchObject({
     status: "published",
   });
@@ -176,16 +171,16 @@ function mutateCommand(
   invocationId: string,
   channelId: string,
   intent: "direct" | "proposal",
-  mutations: readonly unknown[],
+  actions: readonly unknown[],
 ) {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId,
     invocationId,
     actorId: actorOf(),
     intent,
     historyChannelId: channelId,
-    mutations,
+    actions,
   };
 }
 

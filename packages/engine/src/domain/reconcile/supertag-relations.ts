@@ -1,10 +1,10 @@
 import {
-  compareFacts,
+  compareCausalOrder,
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   NODE_SUPERTAGS_DEFINITION_NODE_ID,
   stableStringCompare,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  type ContributionFact,
+  type FactAction,
 } from "../fact/index.js";
 import type {
   EffectiveField,
@@ -18,13 +18,13 @@ import type { MutableOccurrence } from "./projection-state.js";
 import { supertagExtensionGraph } from "./supertag-extension-graph.js";
 import { observedRelations, supertagExtensionEvent } from "./supertag-relation-events.js";
 import { boundSupertagTemplateNodes } from "./supertag-template-bindings.js";
-import { activeIntrinsicNodeTypes } from "./intrinsic-node-type-declarations.js";
 import { filterMaterializedFields, filterRecordOwners } from "./intrinsic-node-type-filters.js";
 import { projectMaterializedFields } from "./materialized-fields.js";
 import { relationRecord } from "./supertag-relation-records.js";
 import { projectTuple } from "./tuple.js";
 import { projectFieldAvailability } from "./field-availability.js";
 import { projectTemplateFieldGraph } from "./template-fields.js";
+import { supertagApplicationStates } from "./supertag-application-graph.js";
 
 export type SupertagRelations = Readonly<{
   supertagApplications: Readonly<Record<string, readonly SupertagApplication[]>>;
@@ -40,7 +40,7 @@ export type SupertagRelations = Readonly<{
 }>;
 
 export function deriveSupertagRelations(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   workspaceNodeId: string,
   nodes: Readonly<
     Record<
@@ -58,15 +58,14 @@ export function deriveSupertagRelations(
   metanodes: Readonly<Record<string, string>>,
   nodeOwners: Readonly<Record<string, string | null>>,
 ): SupertagRelations {
-  const intrinsicNodeTypes = activeIntrinsicNodeTypes(active);
   const supertagDefinitionIds = new Set(
-    [...intrinsicNodeTypes].flatMap(([nodeId, intrinsicNodeType]) =>
-      intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
+    Object.entries(nodes).flatMap(([nodeId, node]) =>
+      node.intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
     ),
   );
   const fieldDefinitionIds = new Set(
-    [...intrinsicNodeTypes].flatMap(([nodeId, intrinsicNodeType]) =>
-      intrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
+    Object.entries(nodes).flatMap(([nodeId, node]) =>
+      node.intrinsicNodeType === FIELD_DEFINITION_INTRINSIC_NODE_TYPE ? [nodeId] : [],
     ),
   );
   const supertagApplications = projectSupertagApplications(
@@ -120,7 +119,7 @@ export function deriveSupertagRelations(
 }
 
 function projectSupertagApplications(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   existingNodeIds: ReadonlySet<string>,
   supertagDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
@@ -129,49 +128,53 @@ function projectSupertagApplications(
   nodeOwners: Readonly<Record<string, string | null>>,
 ): Readonly<Record<string, readonly SupertagApplication[]>> {
   const byHost = new Map<string, SupertagApplication[]>();
-  for (const fact of [...active].sort(compareFacts)) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== "supertag-apply") {
+  for (const state of [...supertagApplicationStates(active)].sort((left, right) =>
+    compareCausalOrder(left.addition, right.addition),
+  )) {
+    if (state.removed) {
       continue;
     }
-    const metanodeId = metanodes[mutation.hostNodeId];
-    const applicationOccurrence = occurrences.get(mutation.applicationOccurrenceId);
-    const tuple = projectTuple(mutation.applicationNodeId, occurrences, childOccurrences, nodeOwners);
+    const fact = state.addition;
+    const authoredAction = fact.action;
+    const identity = state.identity;
+    const metanodeId = metanodes[authoredAction.hostNodeId];
+    const applicationOccurrence = occurrences.get(identity.applicationOccurrenceId);
+    const tuple = projectTuple(identity.applicationNodeId, occurrences, childOccurrences, nodeOwners);
     const relationDefinitionEndpoint = tuple.endpoints[0];
     const supertagEndpoint = tuple.endpoints[1];
     if (
       metanodeId === undefined ||
-      !existingNodeIds.has(mutation.hostNodeId) ||
-      !existingNodeIds.has(mutation.applicationNodeId) ||
-      !supertagDefinitionIds.has(mutation.supertagId) ||
-      applicationOccurrence?.nodeId !== mutation.applicationNodeId ||
-      applicationOccurrence.parentNodeId !== metanodeId ||
+      !existingNodeIds.has(authoredAction.hostNodeId) ||
+      !existingNodeIds.has(identity.applicationNodeId) ||
+      !supertagDefinitionIds.has(authoredAction.supertagId) ||
+      applicationOccurrence?.nodeId !== identity.applicationNodeId ||
+      applicationOccurrence?.parentNodeId !== metanodeId ||
       tuple.ownerNodeId !== metanodeId ||
       tuple.endpoints.length !== 2 ||
-      relationDefinitionEndpoint?.occurrenceId !== mutation.relationDefinitionOccurrenceId ||
-      relationDefinitionEndpoint.nodeId !== NODE_SUPERTAGS_DEFINITION_NODE_ID ||
-      relationDefinitionEndpoint.isOwning ||
-      supertagEndpoint?.occurrenceId !== mutation.definitionOccurrenceId ||
-      supertagEndpoint.nodeId !== mutation.supertagId ||
-      supertagEndpoint.isOwning
+      relationDefinitionEndpoint?.occurrenceId !== identity.relationDefinitionOccurrenceId ||
+      relationDefinitionEndpoint?.nodeId !== NODE_SUPERTAGS_DEFINITION_NODE_ID ||
+      relationDefinitionEndpoint?.isOwning ||
+      supertagEndpoint?.occurrenceId !== identity.definitionOccurrenceId ||
+      supertagEndpoint?.nodeId !== authoredAction.supertagId ||
+      supertagEndpoint?.isOwning
     ) {
       continue;
     }
-    const values = byHost.get(mutation.hostNodeId) ?? [];
-    const existingIndex = values.findIndex((value) => value.applicationNodeId === mutation.applicationNodeId);
+    const values = byHost.get(authoredAction.hostNodeId) ?? [];
+    const existingIndex = values.findIndex((value) => value.applicationNodeId === identity.applicationNodeId);
     if (existingIndex >= 0) {
       values.splice(existingIndex, 1);
     }
     values.push({
-      hostNodeId: mutation.hostNodeId,
-      supertagId: mutation.supertagId,
-      applicationNodeId: mutation.applicationNodeId,
-      applicationOccurrenceId: mutation.applicationOccurrenceId,
-      relationDefinitionOccurrenceId: mutation.relationDefinitionOccurrenceId,
-      definitionOccurrenceId: mutation.definitionOccurrenceId,
-      contributionId: fact.id,
+      hostNodeId: authoredAction.hostNodeId,
+      supertagId: authoredAction.supertagId,
+      applicationNodeId: identity.applicationNodeId,
+      applicationOccurrenceId: identity.applicationOccurrenceId,
+      relationDefinitionOccurrenceId: identity.relationDefinitionOccurrenceId,
+      definitionOccurrenceId: identity.definitionOccurrenceId,
+      factActionId: fact.id,
     });
-    byHost.set(mutation.hostNodeId, values);
+    byHost.set(authoredAction.hostNodeId, values);
   }
   return Object.fromEntries(
     [...byHost]

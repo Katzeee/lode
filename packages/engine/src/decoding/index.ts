@@ -1,13 +1,3 @@
-export function parseIndexed<T>(
-  value: unknown,
-  label: string,
-  parse: (value: unknown, identity: string) => T,
-): Record<string, T> {
-  return Object.fromEntries(
-    Object.entries(object(value, label)).map(([identity, item]) => [identity, parse(item, identity)]),
-  );
-}
-
 export function stringArray(value: unknown, label = "string array"): string[] {
   return array(value, label, (item) => nonempty(item, label));
 }
@@ -85,15 +75,6 @@ export function assertJsonValue(value: unknown, label: string): void {
   throw new Error(`${label} is not JSON data`);
 }
 
-export function assertStringArray(value: unknown, label: string): void {
-  if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
-  }
-  for (const item of value) {
-    requireString(item, label);
-  }
-}
-
 export function assertNullableString(value: unknown, label: string): void {
   if (value !== null) {
     requireString(value, label);
@@ -114,12 +95,6 @@ export function requireString(value: unknown, label: string): asserts value is s
 
 export function requireStringAllowEmpty(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string") {
-    throw new Error(`${label} is invalid`);
-  }
-}
-
-export function requireNumber(value: unknown, label: string): asserts value is number {
-  if (typeof value !== "number") {
     throw new Error(`${label} is invalid`);
   }
 }

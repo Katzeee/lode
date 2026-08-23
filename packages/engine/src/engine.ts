@@ -54,7 +54,7 @@ function createEngineApi(capabilities: ApiCapabilities): EngineApi {
   return {
     application: wrappedApplication(
       { ...capabilities.workspace.application, subscribe: capabilities.event.subscribe },
-      { identity: capabilities.identity.signing, workspace: capabilities.workspace },
+      { identity: capabilities.identity.vault, workspace: capabilities.workspace },
     ),
     identity: identityOperations(capabilities.identity),
     governance: createWorkspaceGovernanceApi(capabilities.identity, capabilities.workspace),
@@ -95,7 +95,6 @@ function workspaceOperations(
   synchronization: SynchronizationCapability,
 ): EngineApi["workspaces"] {
   return {
-    recoverAuthority: (workspaceId) => workspace.recoverAuthority(workspaceId),
     listWorkspaces: () => workspace.list(),
     createWorkspace: (input) => workspace.create(input),
     adoptWorkspace: (input) => adoptWorkspace(workspace, synchronization, input),
@@ -111,18 +110,11 @@ async function adoptWorkspace(
   try {
     const exchanged = await synchronization.exchange(input.workspaceId, staging, input.endpoint);
     if (exchanged.pulled === 0) {
-      throw new Error(`Remote ${input.endpoint} served no journal for workspace ${input.workspaceId}`);
+      throw new Error(`Remote ${input.endpoint} served no Fact authority for workspace ${input.workspaceId}`);
     }
-    const admission = staging.facts.admission();
-    if (admission.kind !== "ready") {
-      throw new Error(
-        admission.kind === "fault"
-          ? `Adopted journal failed admission: ${admission.fault ?? "unknown fault"}`
-          : `Adopted journal is incomplete: ${admission.pendingTransactionIds.join(", ")}`,
-      );
-    }
-    if (!projectGovernance(admission.snapshot.facts).established) {
-      throw new Error("Remote journal is not governed; nothing to adopt");
+    const snapshot = staging.facts.snapshot();
+    if (!projectGovernance(snapshot.facts).established) {
+      throw new Error("Remote Fact authority is not governed; nothing to adopt");
     }
     return await staging.promote();
   } catch (error) {
@@ -151,7 +143,7 @@ class DisconnectedPeerTransport implements PeerTransportPort {
 function wrappedApplication(
   inner: EngineApplicationContract,
   context: Readonly<{
-    identity: IdentityCapability["signing"];
+    identity: IdentityCapability["vault"];
     workspace: Pick<WorkspaceCapability, "authority">;
   }>,
 ): EngineApplicationContract {
@@ -165,7 +157,7 @@ function wrappedApplication(
 function actorRejection(
   command: EngineCommand,
   context: Readonly<{
-    identity: IdentityCapability["signing"];
+    identity: IdentityCapability["vault"];
     workspace: Pick<WorkspaceCapability, "authority">;
   }>,
 ): WriteResult | null {
@@ -174,16 +166,13 @@ function actorRejection(
   if (typeof actorId !== "string" || typeof workspaceId !== "string") {
     return null;
   }
-  let admission;
+  let snapshot;
   try {
-    admission = context.workspace.authority(workspaceId).admission();
+    snapshot = context.workspace.authority(workspaceId).snapshot();
   } catch {
     return null;
   }
-  if (admission.kind === "fault") {
-    return null;
-  }
-  const state = projectGovernance(admission.snapshot.facts);
+  const state = projectGovernance(snapshot.facts);
   if (!state.established) {
     return null;
   }

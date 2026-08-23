@@ -6,23 +6,20 @@ import type { WriteResult, EngineError, EngineErrorCode } from "@lode/sdk";
  * only program defects escape as unclassified errors and become `internal`.
  */
 
-export const CLI_ERROR_CODES = [
-  "usage",
-  "configuration-missing",
-  "target-not-found",
-  "ambiguous-target",
-  "invalid-value",
-  "unsupported",
-  "conflict",
-  "stale-selection",
-  "unavailable",
-  "authorization",
-  "transport",
-  "invocation-conflict",
-  "internal",
-] as const;
-
-export type CliErrorCode = (typeof CLI_ERROR_CODES)[number];
+type CliErrorCode =
+  | "usage"
+  | "configuration-missing"
+  | "target-not-found"
+  | "ambiguous-target"
+  | "invalid-value"
+  | "unsupported"
+  | "conflict"
+  | "stale-selection"
+  | "unavailable"
+  | "authorization"
+  | "transport"
+  | "invocation-conflict"
+  | "internal";
 
 /** Candidate for `target-not-found` / `ambiguous-target` resolution hints. */
 export type TargetCandidate = Readonly<{
@@ -78,7 +75,7 @@ function exitCodeFor(code: CliErrorCode): 1 | 2 | 3 | 4 {
   }
 }
 
-export type CliStatus = "ok" | "committed-pending" | "outcome-unknown" | "error";
+type CliStatus = "ok" | "committed-pending" | "outcome-unknown" | "error";
 
 export type CliPage = Readonly<{ count: number; next: string | null }>;
 
@@ -205,7 +202,6 @@ function engineErrorToCli(error: EngineError, domainExit: 3 | 4): CliError {
     case "invocation-conflict":
       return new CliError("invocation-conflict", error.message, { exitCode: 3, details: { engineCode: error.code } });
     case "projection-unavailable":
-    case "authority-fault":
     case "history-unavailable":
     case "maintenance-blocked":
       return new CliError("unavailable", error.message, { exitCode: 4, details: { engineCode: error.code } });

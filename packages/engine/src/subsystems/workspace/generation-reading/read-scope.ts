@@ -1,4 +1,5 @@
-import type { Mutation } from "../../../domain/fact/index.js";
+import type { AuthoredAction } from "../../../domain/fact/index.js";
+import { metanodeNodeId } from "../../../domain/reconcile/index.js";
 
 export type GenerationReadScope = Readonly<{
   nodes: Set<string>;
@@ -9,13 +10,19 @@ export type GenerationReadScope = Readonly<{
   fields: Set<string>;
 }>;
 
-export function requiresOwnerGraph(mutation: Mutation): boolean {
+export function requiresOwnerGraph(action: AuthoredAction): boolean {
   return (
-    mutation.kind === "node-delete" ||
-    mutation.kind === "node-owner-set" ||
-    mutation.kind === "text-splice" ||
-    mutation.kind === "text-mark" ||
-    mutation.kind === "shared-default-view-definition-mode-set"
+    action.kind === "node-trash" ||
+    action.kind === "rich-text-splice" ||
+    action.kind === "rich-text-mark" ||
+    action.kind === "inline-alias-attach" ||
+    action.kind === "inline-alias-detach" ||
+    action.kind === "view-mode-set" ||
+    action.kind === "search-expression-add" ||
+    action.kind === "search-expression-configure" ||
+    action.kind === "search-expression-move" ||
+    action.kind === "search-expression-remove" ||
+    action.kind === "search-expression-restore"
   );
 }
 
@@ -28,4 +35,10 @@ export function emptyGenerationReadScope(): GenerationReadScope {
     instanceSupertags: new Set(),
     fields: new Set(),
   };
+}
+
+export function addMetanodeReadScope(scope: GenerationReadScope, hostNodeId: string): void {
+  const metanodeId = metanodeNodeId(hostNodeId);
+  scope.nodes.add(metanodeId);
+  scope.childOccurrences.add(metanodeId);
 }

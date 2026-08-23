@@ -1,45 +1,50 @@
-import { pendingProposalActivation } from "../activation/index.js";
 import {
   canonicalJson,
-  compareFacts,
+  compareCausalOrder,
+  factActionsFromFacts,
   stableStringCompare,
-  type ContributionFact,
+  type FactAction,
+  type FactActionId,
   type FactSnapshot,
 } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import type { ProjectionGeneration } from "../reconcile/index.js";
 import { reviewPaginationScopeKeys } from "./review-plan.js";
 
 export type ReviewReadModel = Readonly<{
-  scopes: Readonly<Record<string, readonly string[]>>;
-  supportByContribution: Readonly<Record<string, readonly string[]>>;
+  scopes: Readonly<Record<string, readonly FactActionId[]>>;
+  supportByAction: Readonly<Record<string, readonly FactActionId[]>>;
 }>;
 
-export function createReviewReadModel(
-  snapshot: FactSnapshot,
-  review: Pick<ScopedProjection, "occurrences">,
-): ReviewReadModel {
-  const activation = pendingProposalActivation(snapshot);
+export function createReviewReadModel(snapshot: FactSnapshot, generation: ProjectionGeneration): ReviewReadModel {
+  const originActive = new Set(generation.planCaches.origin.activeActionIds);
+  const reviewActive = new Set(generation.planCaches.review.activeActionIds);
+  const pending = new Map(
+    factActionsFromFacts(snapshot.facts)
+      .filter((action) => action.intent === "proposal" && reviewActive.has(action.id) && !originActive.has(action.id))
+      .map((action) => [action.id, action]),
+  );
   const scopes = reviewPaginationScopes(
-    activation.pending,
-    (occurrenceId) => review.occurrences[occurrenceId]?.nodeId ?? null,
+    pending,
+    (occurrenceId) =>
+      generation.origin.occurrences[occurrenceId] ?? generation.review.occurrences[occurrenceId] ?? null,
   );
   return {
     scopes: Object.fromEntries([...scopes].map(([identity, facts]) => [identity, facts.map((fact) => fact.id)])),
-    supportByContribution: Object.fromEntries(
-      [...activation.pending.keys()]
+    supportByAction: Object.fromEntries(
+      [...pending.keys()]
         .sort(stableStringCompare)
-        .map((id) => [id, activation.supportByContribution.get(id) ?? []]),
+        .map((id) => [id, generation.planCaches.review.supportByAction[id] ?? []]),
     ),
   };
 }
 
 function reviewPaginationScopes(
-  pending: ReadonlyMap<string, ContributionFact>,
-  occurrenceNodeId: (occurrenceId: string) => string | null,
-): ReadonlyMap<string, readonly ContributionFact[]> {
-  const groups: { keys: Set<string>; facts: ContributionFact[] }[] = [];
+  pending: ReadonlyMap<FactAction["id"], FactAction>,
+  occurrence: (occurrenceId: string) => Readonly<{ nodeId: string; parentNodeId: string }> | null,
+): ReadonlyMap<string, readonly FactAction[]> {
+  const groups: { keys: Set<string>; facts: FactAction[] }[] = [];
   for (const fact of pending.values()) {
-    const keys = new Set(reviewPaginationScopeKeys(fact, occurrenceNodeId));
+    const keys = new Set(reviewPaginationScopeKeys(fact, occurrence));
     const matching = groups
       .map((group, index) => ({ group, index }))
       .filter(({ group }) => [...keys].some((key) => group.keys.has(key)));
@@ -57,6 +62,9 @@ function reviewPaginationScopes(
     }
   }
   return new Map(
-    groups.map((group) => [canonicalJson([...group.keys].sort(stableStringCompare)), group.facts.sort(compareFacts)]),
+    groups.map((group) => [
+      canonicalJson([...group.keys].sort(stableStringCompare)),
+      group.facts.sort(compareCausalOrder),
+    ]),
   );
 }

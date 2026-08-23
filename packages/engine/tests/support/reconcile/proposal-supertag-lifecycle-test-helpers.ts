@@ -1,30 +1,30 @@
-import { SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, type Mutation } from "../../../src/domain/fact/index.js";
+import { SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, type AuthoredAction } from "../../../src/domain/fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 import { base, end } from "./reconcile-test-helpers.js";
 import { addDefinitionNode, addPlacedNode } from "./placed-node-test-helpers.js";
 import type { Facts } from "./reconcile-test-helpers.js";
 
 export const supertagProposalLifecycleCases = {
-  "supertag-apply": supertagApplyCase,
-  "supertag-remove": supertagRemoveCase,
+  "supertag-application-add": supertagApplyCase,
+  "supertag-membership-remove": supertagRemoveCase,
   "supertag-extension-add": supertagExtensionAddCase,
   "supertag-extension-remove": supertagExtensionRemoveCase,
-  "supertag-template-node-add": supertagTemplateNodeAddCase,
-  "supertag-template-node-remove": supertagTemplateNodeRemoveCase,
+  "template-member-add": templateMemberAddCase,
+  "template-member-remove": templateMemberRemoveCase,
   "template-node-detach": templateNodeDetachCase,
 } as const;
 
 function supertagApplyCase(): ProposalLifecycleCase {
   const facts = base();
   addDefinitionNode(facts, "supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE);
-  return { kind: "supertag-apply", facts, proposal: facts.applySupertag("node", "supertag", "proposal") };
+  return { kind: "supertag-application-add", facts, proposal: facts.applySupertag("node", "supertag", "proposal") };
 }
 
 function supertagRemoveCase(): ProposalLifecycleCase {
   const facts = base();
   addDefinitionNode(facts, "supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE);
   facts.applySupertag("node", "supertag");
-  return { kind: "supertag-remove", facts, proposal: facts.removeSupertag("node", "supertag", "proposal") };
+  return { kind: "supertag-membership-remove", facts, proposal: facts.removeSupertag("node", "supertag", "proposal") };
 }
 
 function supertagExtensionAddCase(): ProposalLifecycleCase {
@@ -49,46 +49,40 @@ function supertagExtensionRemoveCase(): ProposalLifecycleCase {
     kind: "supertag-extension-remove",
     supertagId: "supertag",
     baseSupertagId: "base-supertag",
-    previousAnchor: end,
   });
 }
 
-function supertagTemplateNodeAddCase(): ProposalLifecycleCase {
+function templateMemberAddCase(): ProposalLifecycleCase {
   const facts = supertagAndTemplateFacts();
   return lifecycle(facts, {
-    kind: "supertag-template-node-add",
+    kind: "template-member-add",
     supertagId: "supertag",
     templateNodeId: "template",
-    templateOccurrenceId: "supertag-template-template-occurrence",
     anchor: end,
   });
 }
 
-function supertagTemplateNodeRemoveCase(): ProposalLifecycleCase {
+function templateMemberRemoveCase(): ProposalLifecycleCase {
   const facts = supertagAndTemplateFacts();
   facts.add({
-    kind: "supertag-template-node-add",
+    kind: "template-member-add",
     supertagId: "supertag",
     templateNodeId: "template",
-    templateOccurrenceId: "supertag-template-template-occurrence",
     anchor: end,
   });
   return lifecycle(facts, {
-    kind: "supertag-template-node-remove",
+    kind: "template-member-remove",
     supertagId: "supertag",
     templateNodeId: "template",
-    templateOccurrenceId: "supertag-template-template-occurrence",
-    previousAnchor: end,
   });
 }
 
 function templateNodeDetachCase(): ProposalLifecycleCase {
   const facts = supertagAndTemplateFacts();
   facts.add({
-    kind: "supertag-template-node-add",
+    kind: "template-member-add",
     supertagId: "supertag",
     templateNodeId: "template",
-    templateOccurrenceId: "supertag-template-template-occurrence",
     anchor: end,
   });
   facts.applySupertag("node", "supertag");
@@ -99,9 +93,6 @@ function templateNodeDetachCase(): ProposalLifecycleCase {
     instanceNodeId: "template-instance:v1:node:template",
     instanceOccurrenceId: "template-instance-occ:v1:node:template",
     anchor: end,
-    sourceSupertagIds: ["supertag"],
-    sourceApplicationSupertagIds: ["supertag"],
-    sourceTemplateOccurrenceIds: ["supertag-template-template-occurrence"],
   });
 }
 
@@ -119,6 +110,6 @@ function supertagAndTemplateFacts(): Facts {
   return facts;
 }
 
-function lifecycle(facts: Facts, mutation: Mutation): ProposalLifecycleCase {
-  return { kind: mutation.kind, facts, proposal: facts.add(mutation, "proposal") };
+function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+  return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

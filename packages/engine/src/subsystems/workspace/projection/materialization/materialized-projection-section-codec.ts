@@ -8,7 +8,7 @@ import {
   type ProjectionSections,
 } from "../../../../domain/reconcile/index.js";
 
-export type MaterializedProjectionEntry = Readonly<{
+type MaterializedProjectionEntry = Readonly<{
   section: ProjectionSectionName;
   identity: string;
   value: unknown;

@@ -43,7 +43,7 @@ The Workspace explicitly selected as the durable default boundary for Task-orien
 _Avoid_: CLI context, Current Node, active View
 
 **Replica**:
-One independently evolving copy of a Workspace's Fact authority, identified separately so it can advance while disconnected and later exchange Facts with another Replica. A Replica is not a Projection cache or a client connection.
+One independently evolving copy of a Workspace's Loro Fact document. Its Replica identity is the document's Loro Peer ID, so one causal identity advances the CRDT and identifies the Facts it inserts. A Replica is not a Projection cache or a client connection.
 _Avoid_: Peer connection, synchronized view
 
 **Replica Exchange**:
@@ -74,15 +74,23 @@ A bounded, rooted unfolding of the Node Graph for navigation and editing. An Out
 _Avoid_: Stored tree, Workspace state, copied subtree
 
 **Workspace Projection**:
-The generation-bound semantic state derived from admitted Facts, composed from the Node Graph and the current Supertag, Field, and conflict relations. Rebuildable lookup indexes and individual query results are not part of the Workspace Projection.
+The generation-bound semantic state derived from effective Facts, composed from the Node Graph and the current Supertag, Field, and conflict relations. Rebuildable lookup indexes and individual query results are not part of the Workspace Projection.
 _Avoid_: Projection index, query response, storage snapshot
+
+**Authored Intent**:
+A durable domain choice whose loss could change a current or future merged Workspace Projection, Review decision, or conflict. It records what was chosen, not the graph patches, previous state, support closure, or indexes used to realize that choice.
+_Avoid_: Mutation evidence, Projection patch, command DTO
+
+**Authored Action**:
+One typed, indivisible expression of Authored Intent inside a Fact. Several Authored Actions may form one atomic Fact, while Nodes, Occurrences, relation endpoints, support, and conflicts that follow deterministically from them remain Projection.
+_Avoid_: Mutation, graph operation, Projection patch
 
 **Projection Perspective**:
 The choice between accepted authority (`origin`) and accepted authority plus pending Proposals (`review`) when deriving or reading a Workspace Projection. It is not a View Definition or a presentation mode.
 _Avoid_: View Mode, View, renderer state
 
 **Workspace**:
-The Node of type Workspace that forms one ownership, authorization, and replication boundary. Workspace genesis atomically creates the Node, declares its Intrinsic Node Type, and installs its protected Trash and System Definition Catalog through the common Fact transaction path; root policy only fixes its Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
+The Node of type Workspace that forms one ownership, authorization, and replication boundary. Workspace genesis atomically creates the Node and its Workspace-scoped role targets and assignments; the Engine-owned system manifest supplies built-in System Definition Nodes to the assigned Catalog. Root policy only fixes the Workspace Owner to `null` and prevents deletion. Top-level outline Occurrences are children of the Workspace Node itself; there is no separate Workspace Root entity, root Occurrence, root children list, or Workspace-specific placement path.
 _Avoid_: Workspace Root, synthetic root Occurrence, graph-external Workspace identity
 
 **Reference**:
@@ -114,24 +122,24 @@ The unique outline Occurrence of an outline-placed Node whose parent is that Nod
 _Avoid_: Canonical Occurrence, main copy, source Node
 
 **Fact**:
-An immutable domain assertion whose identity, transaction position, observed Fact frontier, semantic evidence, and canonical content are independent of storage and replication technology. Admission decides whether a Fact belongs to authority; Projection derives current knowledge state from admitted Facts.
-_Avoid_: Loro operation, mutable event row, projected Node
-
-**Fact Transaction**:
-The smallest authority unit that must become visible as a whole. An ordinary one-Fact write is an implicit singleton transaction; only a domain operation that expands into several inseparable Facts requests an explicit multi-Fact transaction. Every member carries the same transaction identity plus its index and total size, so Admission can withhold an incomplete replicated group without storing `begin` or `end` marker Facts. Review and authority indexes preserve the same boundary.
-_Avoid_: Transaction marker Fact, one transaction per command, Loro transaction semantics
+An immutable record of one domain transaction stored as one element of the authoritative Loro Fact list and committed by one Loro Change. Its value contains Actor identity, Direct or Proposal intent and authored actions, or one Resolution, Governance, or Maintenance decision; its transaction identity and causal metadata come from the enclosing Change. Structurally invalid records are protocol or code failures, while Transaction Activation deterministically handles every structurally valid concurrent record.
+_Avoid_: Mutation row, graph patch, duplicated causal envelope, projected Node
 
 **Fact Replication**:
-The delivery of immutable Fact envelopes between Replicas. Loro owns replicated container versions, deltas, snapshots, duplicate delivery, and arrival order; it may deliver the members of one Fact Transaction separately, while Admission alone decides when the complete transaction becomes authoritative. Loro does not decide Node, Owner, Supertag, Field, Proposal, Review, transaction, or deletion semantics.
-_Avoid_: Domain authority, Loro-backed domain model
+The unconditional exchange and merge of the authoritative Loro Fact document between configured Replicas. Loro owns transaction identity, causal versions, Change atomicity, deltas, snapshots, duplicate delivery, and authority convergence. Transaction Activation and domain projection decide Node, Owner, Supertag, Field, Proposal, Review, and deletion semantics after merge.
+_Avoid_: Custom append-only protocol, domain validation gate, Projection replication
 
 **Supertag Definition**:
 A Node of type Supertag Definition that defines an “is a” classification whose template contributes Fields and content to Nodes that apply it. “Supertag” is the concise product-facing name for this definition when the distinction from its applications is already clear.
 _Avoid_: Class, tag, Supertag Node
 
 **Supertag Application**:
-An identity-bearing relation Node owned beneath the host Node's Metanode. Its ordered definition endpoint is a Reference to one Supertag Definition, while the typed application relation states that the host is an instance of that definition. A host can own multiple independently ordered Supertag Applications; removal makes the relation a Detached Relation rather than placing it in Trash, and reapplication creates a new relation identity.
+An identity-bearing relation Node owned beneath the host Node's Metanode. Its ordered definition endpoint is a Reference to one Supertag Definition. Removal makes the relation a Detached Relation rather than placing it in Trash, and every reapplication creates a new relation identity; concurrent Applications can support one Supertag Membership without being identity-merged.
 _Avoid_: supertagId array, assigned supertag flag, anonymous relation
+
+**Supertag Membership**:
+The derived statement that one host Node currently applies one Supertag Definition, supported by one or more active Supertag Applications for that `(host, definition)` pair. Removing the membership deactivates only the Applications observed by that removal, so a concurrent unobserved Application remains support without creating a second displayed membership.
+_Avoid_: Supertag Application, stored tag flag, add-wins set
 
 **Supertag Instances Query**:
 A bounded read of Nodes whose Supertag Applications match one Supertag Definition directly or through Supertag Extension. It reads derived membership and is not a persistent Search Node or query definition.
@@ -142,7 +150,7 @@ A Node of type Search whose Configuration Graph owns one Search Expression. Sear
 _Avoid_: Saved result list, query blob, Supertag Instances Query
 
 **Search Expression**:
-An identity-bearing recursive expression tree owned beneath a Search Node's Metanode. Ordered `and`/`or` operands, negation, Supertag, text, Field presence and typed value, Date comparison, scope, and reference predicates define the persistent query; updates preserve reusable expression identities, while evaluation produces derived Search Result References.
+An identity-bearing recursive expression tree owned beneath a Search Node's Metanode or a View Filter. Each expression receives its identity from the Authored Action that adds it, so configuration, movement, removal, and restoration preserve the same semantic target without persisting the derived graph. Ordered `and`/`or` operands, negation, Supertag, text, Field presence and typed value, Date comparison, scope, and reference predicates define the persistent query, while evaluation produces derived Search Result References.
 _Avoid_: Search Clause, Query JSON, filter callback, anonymous predicate
 
 **Search Result Reference**:
@@ -194,11 +202,11 @@ A Workspace-scoped canonical relation assigning a built-in structural purpose, s
 _Avoid_: System Node Type, system-role metadata, reserved title
 
 **System Definition Catalog**:
-A protected hidden Owner subtree assigned the Workspace's System Definition Catalog role. It has ordinary Node identities but no ordinary Outline Occurrences. Its stable Definition Nodes are reusable endpoints for built-in typed relations, initially Field configuration definitions, Datatypes, and Cardinalities, so configuration authority remains inside the Node graph instead of becoming an enum column or raw property map. Lode owns the catalog's Workspace lifecycle without claiming that its IDs or ownership root duplicate Tana's private storage.
+A protected hidden Owner subtree assigned the Workspace's System Definition Catalog role. Its role root belongs to Workspace authority, while its built-in Definition Nodes come from the Engine's versioned system manifest and use permanent registered identities. Adding a built-in extends the manifest and rebuilds Projection without migration Facts; an incompatible meaning receives a new identity, while old identities remain resolvable. These Nodes are reusable endpoints for typed relations and have no ordinary Outline Occurrences.
 _Avoid_: Enum registry, metadata schema, global magic IDs, System Node Type
 
 **System Field Definition**:
-A built-in Field Definition whose identity, value shape, and policy are owned by Lode. It lets Nodes carry typed configuration and relations through the ordinary Field and Node graph without exposing an untyped metadata key or a parallel configuration store.
+A built-in Field Definition whose permanent identity, value shape, and policy are owned by the Engine system manifest. It lets Nodes carry typed configuration and relations through the ordinary Field and Node graph without exposing an untyped metadata key or a parallel configuration store.
 _Avoid_: Metadata key, magic property, configuration column
 
 **Calculated System Field**:
@@ -214,11 +222,11 @@ An internal identity-bearing relation container Node whose Owner, when attached,
 _Avoid_: Binary relation, anonymous tuple object, universal Field shape
 
 **Metanode**:
-The single persistent Node attached to a host by the canonical `metanode-attach` relation. Its Owner is the host, but it has no Outline Occurrence and does not appear in the host's ordered child Occurrences. Configuration descendants use ordinary Node, Field, Reference, Occurrence, Owner, Trash, Proposal, and History semantics beneath the Metanode. It cannot be deleted independently and follows the host through the Owner lifecycle. Metanode is a structural role established by the attachment, not an Intrinsic Node Type or an intrinsic property bag.
-_Avoid_: Hidden child Occurrence, metadata object, deterministic Metanode lookup
+The deterministic hidden Node that owns host-scoped relation Tuples. Projection derives it when the current graph needs that container; authority does not store a Metanode identity or attachment action. Its Owner is the host, but it has no Outline Occurrence and does not appear in the host's ordered child Occurrences. It cannot be deleted independently and follows the host through the Owner lifecycle.
+_Avoid_: Authored attachment, hidden child Occurrence, metadata object
 
 **Debug node**:
-A Tana-aligned diagnostic operation and read model for one existing Node. Opening it ensures that the target has its persistent Metanode; reading it returns the selected Projection's Node, Owner, Metanode, child Occurrences, materialized Fields, URL, and Code language without creating a persistent Debug Node or a second diagnostic authority.
+A Tana-aligned read model for one existing Node. It returns the selected Projection's Node, Owner, derived Metanode when present, child Occurrences, materialized Fields, URL, and Code language without changing authority or Projection state.
 _Avoid_: Debug Node, mutating query, debug JSON property bag
 
 **URL Node**:
@@ -238,7 +246,7 @@ A Field made available to a Node by at least one normal or pinned Template Field
 _Avoid_: Managed child, generated field
 
 **Materialized Field**:
-A persistent binding of one owner Node and one Field Definition to a stable Field Node and Field Occurrence because it has a default, initialization result, explicitly authored empty state, authored value, or other local content. It can materialize from an Effective Field or by explicitly selecting an Optional Field Suggestion; default-generated and authored Materialized Fields remain owned by the instance when their final Supertag source disappears.
+A persistent binding of one owner Node and one Field Definition to a stable Field Node and Field Occurrence because it has a default, initialization result, explicitly authored empty state, authored value, or other local content. Materialization records its cause and frozen ordinary value identities/content in the triggering domain transaction; rebuild never reruns the historical default or initializer. It can materialize from an Effective Field or by explicitly selecting an Optional Field Suggestion, and remains owned by the instance when its final Supertag source disappears.
 _Avoid_: Field placeholder, scalar property
 
 **Field Value**:
@@ -254,7 +262,7 @@ A persistent ordinary Node owned by a typed View attachment relation beneath a h
 _Avoid_: View Node Type, saved result set, renderer state, view blob
 
 **Shared Default View**:
-The Workspace-shared typed attachment represented by an identity-bearing relation Node beneath the host's Metanode. The attachment owns the selected View Definition through an ordered Occurrence, while View Type remains configuration of that View Definition. Removing it replaces the selected View endpoint with an attachment-owned blank and moves both the attachment and View Definition to Trash; reapplication creates new identities. A host has at most one effective Shared Default View, and this authority remains separate from any future personal presentation choice.
+The Workspace-shared typed attachment whose semantic identity comes from the Authored Action that adds it. Projection represents it as a relation Node beneath the host's Metanode and an owned View Definition, while columns, Filter, Sort, Group, and View Type remain independently authored configuration of that identity. Removing it replaces the selected View endpoint with an attachment-owned blank and moves both the attachment and View Definition to Trash; History restores the same identity, while explicit reapplication creates a new one. A host has at most one effective Shared Default View, and this authority remains separate from any future personal presentation choice.
 _Avoid_: Shared View, current renderer, personal View
 
 **View Type**:
@@ -286,7 +294,7 @@ The ordered Fields, Nodes, References, and searches that a Supertag Definition c
 _Avoid_: Field list, copied children
 
 **Template Field**:
-An identity-bearing Field relation occupying an ordered place in a Supertag Template and carrying configuration specific to that direct use. `Add new field` creates it with an owned Field Definition; making that definition discoverable moves the same definition to Schema while the Template Field keeps a non-owning endpoint. `Insert existing field` in the template reuses a discoverable Field Definition but creates a new Template Field identity and default slot. Removing the use moves that relation and its owned slot to Trash without deleting the Field Definition; adding the definition again does not revive the removed relation.
+An identity-bearing Field relation occupying an ordered place in a Supertag Template and carrying configuration specific to that direct use. Its identity comes from the Authored Action that adds it, while Projection derives its relation Node, Occurrences, endpoint, and Static Default slot. `Add new field` creates it with an owned Field Definition; making that definition discoverable moves the same definition to Schema while the Template Field keeps a non-owning endpoint. `Insert existing field` reuses a discoverable Field Definition but creates a new Template Field identity. Removing the currently observed uses of one `(Supertag, Field Definition)` pair preserves their recoverable identities; History restores the removed identity, while an explicit add creates a new one.
 _Avoid_: Supertag Field Contribution, Field Template Item, anonymous field entry, Template Field Node
 
 **Pinned Template Field**:
@@ -294,11 +302,11 @@ A Template Field marked as a primary dimension of one Supertag Definition, so in
 _Avoid_: Pinned Field Definition, required Field, global Field priority
 
 **Static Default**:
-The stable text slot owned by one Template Field use. Setting, modifying, or clearing it preserves the slot identity. A non-empty current value is copied into an instance-owned Materialized Field when a new Supertag Application first makes the Field effective; later changes never overwrite that copy, while an empty slot leaves only an Effective placeholder. Concurrent edits preserve CRDT text authorship, and conflicting incomparable defaults from different sources pause materialization and remain visible with provenance.
+The stable text value configured on one Template Field use. Setting, modifying, or clearing it preserves the Template Field identity. A non-empty current value is copied into an instance-owned Materialized Field when a new Supertag Application first makes the Field effective; later changes never overwrite that copy, while an empty value leaves only an Effective placeholder. Concurrent incomparable values remain visible as candidates, and conflicting defaults from different sources pause materialization with their provenance intact.
 _Avoid_: Live default, fallback scalar
 
 **Optional Field Contribution**:
-A Supertag Definition relationship that offers an existing Field Definition to instances without placing a direct Template Field in the Supertag Template or creating an Effective Field. It is authored through the Optional fields section's existing-field branch and materializes only when an instance explicitly supplies content.
+An identity-bearing Supertag Definition relationship that offers an existing Field Definition to instances without placing a direct Template Field in the Supertag Template or creating an Effective Field. Each add contributes independent provenance; removal deactivates the contributions for the `(Supertag, Field Definition)` pair that the author observes, and History re-adds the contribution because it owns no separate configuration. It materializes only when an instance explicitly supplies content.
 _Avoid_: Hidden field, optional placeholder
 
 **Optional Field Suggestion**:
@@ -306,7 +314,7 @@ A derived Add fields choice produced when an instance reaches one or more Option
 _Avoid_: Optional Effective Field, generated Field, persisted suggestion
 
 **Detached Template Content**:
-An instance-owned Node snapshot of ordinary Template content. Detachment gives the snapshot and its placement explicit identities under the common Node and Occurrence lifecycle, while later definition changes no longer rewrite it.
+An instance-owned Node snapshot of ordinary Template content, frozen as ordinary Node, placement, and content authority in the transaction that first touches it. Detachment does not bind a historical projector or preserve a Projection snapshot blob, and later definition or rules changes no longer rewrite it.
 _Avoid_: Stale managed child
 
 **Placement Conflict**:
@@ -315,6 +323,10 @@ _Avoid_: Duplicate owner, winning move
 
 **Proposal**:
 A contribution that appears in Review without changing Origin until it is accepted. Rejection removes its participation without deleting its recorded intent.
+
+**Transaction Activation**:
+The deterministic derivation that decides which authored transactions participate in Origin or Review from their Direct or Proposal intent, Resolutions, causal identity dependencies, and conflicts. It does not modify authority or materialize the Node Graph.
+_Avoid_: Fact admission, Interpreter repair, materialization
 
 **Unsupported Work**:
 A Direct contribution whose required Proposal support is terminally rejected. It remains durable and publicly discoverable with its author, Replica, observed frontier, missing support, and recovery action; restoring independent support makes the work projectable again.

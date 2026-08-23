@@ -1,14 +1,4 @@
-export {
-  TARGET_KINDS,
-  parseSelector,
-  descriptor,
-  nodeLabel,
-  resolveWorkspaceFromList,
-  type TargetKind,
-  type ParsedSelector,
-  type ResourceDescriptor,
-  type WorkspaceEntry,
-} from "./selector.js";
+export { parseSelector, descriptor, nodeLabel, resolveWorkspaceFromList, type ResourceDescriptor } from "./selector.js";
 export {
   resolveNodeTarget,
   resolveOccurrenceTarget,
@@ -17,7 +7,4 @@ export {
   labelOf,
   ownerLabel,
   ownerChainIncludes,
-  type ResolvedNodeTarget,
-  type ResolvedOccurrenceTarget,
-  type ProjectedOccurrenceLike,
 } from "./nodes.js";

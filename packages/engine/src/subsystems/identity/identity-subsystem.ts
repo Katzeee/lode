@@ -33,10 +33,7 @@ function createCapability(identity: () => Identity): IdentityCapability {
       importActor: (input) => identity().importActor(input),
       unlock: (passphrase) => identity().unlock(passphrase),
       lock: () => identity().lock(),
-    },
-    signing: {
       isActorUnlocked: (actorId) => identity().isActorUnlocked(actorId),
-      signFact: (digest, actorId) => identity().signFact(digest, actorId),
     },
     peer: {
       peerId: () => identity().material().peerId,

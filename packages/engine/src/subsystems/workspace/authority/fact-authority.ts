@@ -1,42 +1,26 @@
 import type {
-  Admission,
   AuthorityReceipt,
   FactSnapshot,
+  FactActionId,
+  FactId,
   InvocationId,
   ReplicaId,
   WorkspaceId,
 } from "../../../domain/fact/index.js";
+import { frontierEquals, requestDigest, validatePlannedReceiptAppend } from "../../../domain/fact/index.js";
 import type { DocumentStore } from "../../persistence/index.js";
 import type { SyncBytes, SyncableDoc } from "../replica-sync.js";
 import { SerialExecutor } from "../serial-executor.js";
-import { planAuthorityCommit } from "./authority-commit-plan.js";
-import { AuthorityJournalSession } from "./authority-journal-session.js";
-import { importAuthorityUpdate } from "./authority-sync-import.js";
-import type {
-  AuthorityAdmissionPolicy,
-  AuthorityCommit,
-  AuthorityCommitResult,
-  FactAuthorityPort,
-} from "./authority-contract.js";
-import { LoroFactReplica } from "./loro-fact-replica.js";
-import { validateReplicaId } from "./replica-identity.js";
+import type { AuthorityCommit, AuthorityCommitResult, FactAuthorityPort } from "./authority-contract.js";
+import { LoroFactStore } from "./loro-fact-store.js";
+import { LocalReceiptStore } from "./local-receipt-store.js";
+import { FactValidationError, InvocationConflictError, ProjectionUnavailableError } from "./errors.js";
 
-export { createReplicaId } from "./replica-identity.js";
-
-export type FactAuthorityOptions = Readonly<{
+type FactAuthorityOptions = Readonly<{
   workspaceId: WorkspaceId;
-  replicaId: ReplicaId;
   loroPeerId: `${number}`;
-  authorityJournal: DocumentStore;
-  factReplication: DocumentStore;
+  documents: DocumentStore;
   snapshotInterval?: number;
-  admitRecords: AuthorityAdmissionPolicy;
-  /**
-   * Actor attribution signer: returns the base64 Ed25519 signature over a
-   * Fact's contentDigest for the body's actorId. Absent — or an unlocked-key
-   * miss inside it — leaves attribution null, which governed journals reject.
-   */
-  signFact?: (digest: string, actorId: string) => string;
 }>;
 
 export class FactAuthority implements FactAuthorityPort {
@@ -45,98 +29,108 @@ export class FactAuthority implements FactAuthorityPort {
 
   private constructor(
     private readonly options: FactAuthorityOptions,
-    private readonly journal: AuthorityJournalSession,
-    private readonly replica: LoroFactReplica,
+    private readonly store: LoroFactStore,
+    private readonly receiptStore: LocalReceiptStore,
     readonly replicaId: ReplicaId,
   ) {
-    this.replication = replica.connect(
-      (bytes) => this.importUpdate(bytes),
-      () => this.serial.run(() => this.replica.heal(this.admission())),
-    );
+    this.replication = {
+      ...store.replication,
+      importUpdate: (bytes) => this.importUpdate(bytes),
+    };
   }
 
   static async open(options: FactAuthorityOptions): Promise<FactAuthority> {
-    validateReplicaId(options.replicaId);
-    const journal = await AuthorityJournalSession.open({ ...options, documents: options.authorityJournal });
-    const replica = await LoroFactReplica.open(
-      {
-        workspaceId: options.workspaceId,
-        loroPeerId: options.loroPeerId,
-        documents: options.factReplication,
-        admitRecords: options.admitRecords,
-      },
-      journal.records(),
-      journal.validRecords(),
+    const store = await LoroFactStore.open({ ...options, documents: options.documents });
+    const receiptStore = await LocalReceiptStore.open(
+      { ...options, replicaId: options.loroPeerId, documents: options.documents },
+      store.allFacts(),
     );
-    return new FactAuthority(options, journal, replica, options.replicaId);
+    return new FactAuthority(options, store, receiptStore, options.loroPeerId);
   }
 
-  admission = (): Admission => this.journal.admission();
+  snapshot = (): FactSnapshot => this.store.snapshot();
 
-  snapshot = (): FactSnapshot => this.journal.snapshot();
+  receipt = (invocationId: InvocationId): AuthorityReceipt | null => this.receiptStore.receipt(invocationId);
 
-  receipt = (invocationId: InvocationId): AuthorityReceipt | null => this.journal.receipt(invocationId);
-
-  receipts = (): readonly AuthorityReceipt[] => this.journal.receipts();
+  receipts = (): readonly AuthorityReceipt[] => this.receiptStore.receipts();
 
   receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
-    return this.journal.receiptsForChannel(channelId);
+    return this.receiptStore.receiptsForChannel(channelId);
   }
 
-  facts(factIds: readonly string[]) {
-    return this.journal.facts(factIds);
+  facts(factIds: readonly FactId[]) {
+    return this.store.facts(factIds);
   }
 
-  relatedFacts(factIds: readonly string[]) {
-    return this.journal.relatedFacts(factIds);
+  factsOwningActions(actionIds: readonly FactActionId[]) {
+    return this.store.factsOwningActions(actionIds);
+  }
+
+  relatedFacts(factIds: readonly FactId[]) {
+    return this.store.relatedFacts(factIds);
+  }
+
+  relatedFactsOwningActions(actionIds: readonly FactActionId[]) {
+    return this.store.relatedFactsOwningActions(actionIds);
   }
 
   historyImpacts(nodeId: string) {
-    return this.journal.historyImpacts(nodeId);
+    return this.receiptStore.historyImpacts(this.store.relatedFactIdsForNode(nodeId));
   }
-
-  recoverToLastValidPrefix = (): Promise<FactSnapshot> => this.serial.run(() => this.recoverExclusive());
 
   commit = (input: AuthorityCommit): Promise<AuthorityCommitResult> =>
     this.serial.run(() => this.commitExclusive(input));
 
   private async commitExclusive(input: AuthorityCommit): Promise<AuthorityCommitResult> {
-    const plan = planAuthorityCommit(input, {
+    const digest = requestDigest(input.request);
+    const existing = this.receipt(input.invocationId);
+    if (existing) {
+      if (existing.requestDigest !== digest) {
+        throw new InvocationConflictError(`Invocation request conflict: ${input.invocationId}`);
+      }
+      return { receipt: existing, created: false };
+    }
+    if (input.writes.length === 0) {
+      throw new FactValidationError("Authority commit requires at least one Fact write");
+    }
+    const current = this.snapshot();
+    if (!frontierEquals(current.frontier, input.publishedFrontier)) {
+      throw new ProjectionUnavailableError(
+        "State-dependent command requires a complete generation at the authoritative frontier",
+      );
+    }
+
+    const facts = this.store.stageAppend(input.writes);
+    const expectedFactCount = input.writes.length;
+    if (facts.facts.length !== expectedFactCount) {
+      throw new FactValidationError("Local Fact append does not match the validated Fact set");
+    }
+    const committedFacts = facts.facts;
+    const authorityReceipt: AuthorityReceipt = {
       workspaceId: this.options.workspaceId,
       replicaId: this.replicaId,
-      admission: this.admission(),
-      records: this.journal.records(),
-      existingReceipt: this.receipt(input.invocationId),
-      maximumLamport: this.journal.maximumLamport(),
-      previousChannelReceipt: input.lineage ? this.journal.lastReceiptForChannel(input.lineage.channelId) : null,
-      admitRecords: this.options.admitRecords,
-      signFact: this.options.signFact,
-    });
-    if (plan.kind === "replay") {
-      return { receipt: plan.receipt, created: false };
-    }
-    await this.journal.append(plan.records, plan.admission);
-    return { receipt: plan.receipt, created: true };
+      invocationId: input.invocationId,
+      requestDigest: digest,
+      factIds: committedFacts.map((fact) => fact.id),
+      committedFrontier: facts.snapshot.frontier,
+      lineage: input.lineage,
+      inverse: input.inverse,
+    };
+    validatePlannedReceiptAppend(
+      this.options.workspaceId,
+      authorityReceipt,
+      committedFacts,
+      input.lineage ? this.receiptStore.lastReceiptForChannel(input.lineage.channelId) : null,
+    );
+    const receipt = this.receiptStore.stageAppend(authorityReceipt);
+    await this.options.documents.appendUpdates([facts.update, receipt.update]);
+    facts.apply();
+    receipt.apply();
+    await Promise.all([facts.compact(), receipt.compact()]);
+    return { receipt: authorityReceipt, created: true };
   }
 
   private async importUpdate(bytes: SyncBytes): Promise<void> {
-    return this.serial.run(async () => {
-      await this.replica.heal(this.admission());
-      await importAuthorityUpdate(bytes, {
-        admission: this.admission(),
-        records: this.journal.records(),
-        replica: this.replica,
-        append: (records) => this.journal.append(records),
-      });
-    });
-  }
-
-  private async recoverExclusive(): Promise<FactSnapshot> {
-    if (this.admission().kind !== "fault") {
-      return this.snapshot();
-    }
-    const snapshot = await this.journal.recover();
-    await this.replica.rebuild(this.journal.records(), this.journal.validRecords());
-    return snapshot;
+    return this.serial.run(() => this.store.replication.importUpdate(bytes));
   }
 }

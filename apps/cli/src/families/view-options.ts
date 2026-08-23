@@ -1,9 +1,12 @@
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
+import { CliError } from "../outcome/index.js";
 import { resolveNodeTarget } from "../target/index.js";
-import { identity, workspaceIdOf } from "../intent/index.js";
+import { workspaceIdOf } from "../intent/index.js";
 import { parseExpression } from "../value/expression.js";
-import { compileSpec, resolveAst } from "../value/expression-compile.js";
-import { readHostView, writeOptions } from "./view.js";
+import { compileDraft, resolveAst } from "../value/expression-compile.js";
+import { writeViewActions } from "./view.js";
+
+const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const viewFilterSet: CommandDefinition = {
   path: ["view", "filter", "set"],
@@ -15,19 +18,23 @@ const viewFilterSet: CommandDefinition = {
   needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const existing = await readHostView(context, args.positional("node"));
     const ast = await resolveAst(parseExpression(args.requiredOption("--where")), async (token, role) => {
       const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, token, [role]);
       return target.nodeId;
     });
-    let counter = 0;
-    const expression = compileSpec(ast, existing?.options.filter?.expression ?? null, () =>
-      identity(context.requestId, `filter-expr-${(counter += 1)}`),
-    );
-    return writeOptions(context, args.positional("node"), "view.filter.set", (current) => ({
-      ...current,
-      filter: { filterNodeId: current.filter?.filterNodeId ?? `view-filter:v1:${workspaceId}`, expression },
-    }));
+    const expression = compileDraft(ast);
+    return writeViewActions(context, args.positional("node"), "view.filter.set", (current) => [
+      ...(current.options.filter === null
+        ? []
+        : [{ kind: "view-filter-remove" as const, hostNodeId: current.hostNodeId, viewId: current.viewId }]),
+      {
+        kind: "view-filter-create",
+        hostNodeId: current.hostNodeId,
+        viewId: current.viewId,
+        expression,
+        anchor: end,
+      },
+    ]);
   },
 };
 
@@ -40,7 +47,13 @@ const viewFilterClear: CommandDefinition = {
   paginated: false,
   needsWorkspace: true,
   run: async (context, args) =>
-    writeOptions(context, args.positional("node"), "view.filter.clear", (current) => ({ ...current, filter: null })),
+    writeViewActions(context, args.positional("node"), "view.filter.clear", (current) => [
+      {
+        kind: "view-filter-remove",
+        hostNodeId: current.hostNodeId,
+        viewId: current.viewId,
+      },
+    ]),
 };
 
 const viewSortSet: CommandDefinition = {
@@ -64,14 +77,29 @@ const viewSortSet: CommandDefinition = {
     const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
       "field",
     ]);
-    return writeOptions(context, args.requiredOption("--on"), "view.sort.set", (current) => ({
-      ...current,
-      sort: {
-        sortNodeId: current.sort?.sortNodeId ?? `view-sort:v1:${field.nodeId}`,
-        fieldDefinitionId: field.nodeId,
-        direction: args.requiredOption("--direction") === "descending" ? "descending" : "ascending",
-      },
-    }));
+    return writeViewActions(context, args.requiredOption("--on"), "view.sort.set", (current) => {
+      const direction = args.requiredOption("--direction") === "descending" ? "descending" : "ascending";
+      return current.options.sort === null
+        ? [
+            {
+              kind: "view-sort-add",
+              hostNodeId: current.hostNodeId,
+              viewId: current.viewId,
+              fieldDefinitionId: field.nodeId,
+              direction,
+            },
+          ]
+        : [
+            {
+              kind: "view-sort-configure",
+              hostNodeId: current.hostNodeId,
+              viewId: current.viewId,
+              sortId: current.options.sort.sortId,
+              fieldDefinitionId: field.nodeId,
+              direction,
+            },
+          ];
+    });
   },
 };
 
@@ -84,7 +112,13 @@ const viewSortClear: CommandDefinition = {
   paginated: false,
   needsWorkspace: true,
   run: async (context, args) =>
-    writeOptions(context, args.positional("node"), "view.sort.clear", (current) => ({ ...current, sort: null })),
+    writeViewActions(context, args.positional("node"), "view.sort.clear", (current) => [
+      {
+        kind: "view-sort-remove",
+        hostNodeId: current.hostNodeId,
+        viewId: current.viewId,
+      },
+    ]),
 };
 
 const viewGroupSet: CommandDefinition = {
@@ -100,13 +134,22 @@ const viewGroupSet: CommandDefinition = {
     const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
       "field",
     ]);
-    return writeOptions(context, args.requiredOption("--on"), "view.group.set", (current) => ({
-      ...current,
-      group: {
-        groupNodeId: current.group?.groupNodeId ?? `view-group:v1:${field.nodeId}`,
-        fieldDefinitionId: field.nodeId,
-      },
-    }));
+    return writeViewActions(context, args.requiredOption("--on"), "view.group.set", (current) => {
+      if (current.options.group?.fieldDefinitionId === field.nodeId) {
+        throw new CliError("invalid-value", "View already groups by this Field Definition.");
+      }
+      return [
+        ...(current.options.group === null
+          ? []
+          : [{ kind: "view-group-remove" as const, hostNodeId: current.hostNodeId, viewId: current.viewId }]),
+        {
+          kind: "view-group-add" as const,
+          hostNodeId: current.hostNodeId,
+          viewId: current.viewId,
+          fieldDefinitionId: field.nodeId,
+        },
+      ];
+    });
   },
 };
 
@@ -119,7 +162,13 @@ const viewGroupClear: CommandDefinition = {
   paginated: false,
   needsWorkspace: true,
   run: async (context, args) =>
-    writeOptions(context, args.positional("node"), "view.group.clear", (current) => ({ ...current, group: null })),
+    writeViewActions(context, args.positional("node"), "view.group.clear", (current) => [
+      {
+        kind: "view-group-remove",
+        hostNodeId: current.hostNodeId,
+        viewId: current.viewId,
+      },
+    ]),
 };
 
 export function registerViewOptionCommands(catalog: CommandCatalog): void {

@@ -7,7 +7,7 @@ import type { CommandContext, GlobalOptions, ParsedArgs } from "../invocation/in
  * and no central family/action switch.
  */
 
-export type OptionSpec = Readonly<{
+type OptionSpec = Readonly<{
   name: string;
   description: string;
   value?: Readonly<{ kind: "string" | "enum" | "file"; enum?: readonly string[] }>;
@@ -16,7 +16,7 @@ export type OptionSpec = Readonly<{
   conflicts?: readonly string[];
 }>;
 
-export type PositionalSpec = readonly [name: string, description: string] | readonly [string, string, "optional"];
+type PositionalSpec = readonly [name: string, description: string] | readonly [string, string, "optional"];
 
 type CommandMetadata = Readonly<{
   /** Command path, e.g. `["node", "create"]`. Globally unique. */

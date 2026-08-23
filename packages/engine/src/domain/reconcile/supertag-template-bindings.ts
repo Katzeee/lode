@@ -1,45 +1,43 @@
-import { compareFacts, contributionFactsOfKind, factObserves, type ContributionFact } from "../fact/index.js";
+import { compareCausalOrder, factActionsOfKind, factObserves, type FactAction } from "../fact/index.js";
 import type { MutableOccurrence } from "./projection-state.js";
+import { templateMemberOccurrenceId } from "./projection-identity.js";
 
 export function boundSupertagTemplateNodes(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   knownNodeIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly string[]>> {
-  const removals = contributionFactsOfKind(active, "supertag-template-node-remove");
-  type Binding = { occurrenceId: string; fact: ContributionFact };
+  const removals = factActionsOfKind(active, "template-member-remove");
+  type Binding = { occurrenceId: string; fact: FactAction };
   const bySupertag = new Map<string, Map<string, Binding>>();
-  for (const fact of [...contributionFactsOfKind(active, "supertag-template-node-add")].sort(compareFacts)) {
-    const mutation = fact.body.mutation;
+  for (const fact of [...factActionsOfKind(active, "template-member-add")].sort(compareCausalOrder)) {
+    const authoredAction = fact.action;
     const removed = removals.some((candidate) => {
-      const removal = candidate.body.mutation;
+      const removal = candidate.action;
       return (
-        removal.supertagId === mutation.supertagId &&
-        removal.templateNodeId === mutation.templateNodeId &&
-        removal.templateOccurrenceId === mutation.templateOccurrenceId &&
+        removal.supertagId === authoredAction.supertagId &&
+        removal.templateNodeId === authoredAction.templateNodeId &&
         factObserves(candidate, fact)
       );
     });
-    const occurrence = occurrences.get(mutation.templateOccurrenceId);
-    const creation = occurrenceCreation(active, mutation.templateOccurrenceId);
+    const occurrenceId = templateMemberOccurrenceId(fact.id);
+    const occurrence = occurrences.get(occurrenceId);
     if (
       removed ||
-      !knownNodeIds.has(mutation.supertagId) ||
-      !knownNodeIds.has(mutation.templateNodeId) ||
-      creation?.nodeId !== mutation.templateNodeId ||
-      creation?.parentNodeId !== mutation.supertagId ||
-      (occurrence !== undefined &&
-        (occurrence.nodeId !== mutation.templateNodeId || occurrence.parentNodeId !== mutation.supertagId))
+      !knownNodeIds.has(authoredAction.supertagId) ||
+      !knownNodeIds.has(authoredAction.templateNodeId) ||
+      occurrence?.nodeId !== authoredAction.templateNodeId ||
+      occurrence.parentNodeId !== authoredAction.supertagId
     ) {
       continue;
     }
-    const bindings = bySupertag.get(mutation.supertagId) ?? new Map<string, Binding>();
-    bindings.set(mutation.templateNodeId, {
-      occurrenceId: mutation.templateOccurrenceId,
+    const bindings = bySupertag.get(authoredAction.supertagId) ?? new Map<string, Binding>();
+    bindings.set(authoredAction.templateNodeId, {
+      occurrenceId,
       fact,
     });
-    bySupertag.set(mutation.supertagId, bindings);
+    bySupertag.set(authoredAction.supertagId, bindings);
   }
   return Object.fromEntries(
     [...bySupertag].map(([supertagId, bindings]) => {
@@ -55,25 +53,16 @@ export function boundSupertagTemplateNodes(
 }
 
 function compareBindings(
-  left: { occurrenceId: string; fact: ContributionFact },
-  right: { occurrenceId: string; fact: ContributionFact },
+  left: { occurrenceId: string; fact: FactAction },
+  right: { occurrenceId: string; fact: FactAction },
   occurrenceIds: readonly string[],
 ): number {
   const leftIndex = occurrenceIndex(occurrenceIds, left.occurrenceId);
   const rightIndex = occurrenceIndex(occurrenceIds, right.occurrenceId);
-  return leftIndex === rightIndex ? compareFacts(left.fact, right.fact) : leftIndex - rightIndex;
+  return leftIndex === rightIndex ? compareCausalOrder(left.fact, right.fact) : leftIndex - rightIndex;
 }
 
 function occurrenceIndex(occurrenceIds: readonly string[], occurrenceId: string): number {
   const index = occurrenceIds.indexOf(occurrenceId);
   return index < 0 ? Number.MAX_SAFE_INTEGER : index;
-}
-
-function occurrenceCreation(
-  active: readonly ContributionFact[],
-  occurrenceId: string,
-): Readonly<{ nodeId: string; parentNodeId: string }> | undefined {
-  return contributionFactsOfKind(active, "occurrence-create").find(
-    (candidate) => candidate.body.mutation.occurrenceId === occurrenceId,
-  )?.body.mutation;
 }

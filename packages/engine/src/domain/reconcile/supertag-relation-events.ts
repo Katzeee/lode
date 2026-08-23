@@ -1,22 +1,30 @@
-import { factObserves, type ContributionFact, type SequenceAnchor } from "../fact/index.js";
+import { factObserves, type FactAction, type SequenceAnchor } from "../fact/index.js";
 
 type RelationEvent = Readonly<{
-  fact: ContributionFact;
+  fact: FactAction;
   operation: "add" | "remove";
   ownerId: string;
   targetId: string;
   anchor?: SequenceAnchor;
 }>;
 
-export const supertagExtensionEvent = relationEvent(
-  "supertag-extension-add",
-  "supertag-extension-remove",
-  (mutation) => [mutation.supertagId, mutation.baseSupertagId],
-);
+export function supertagExtensionEvent(fact: FactAction): RelationEvent | null {
+  const action = fact.action;
+  if (action.kind !== "supertag-extension-add" && action.kind !== "supertag-extension-remove") {
+    return null;
+  }
+  return {
+    fact,
+    operation: action.kind === "supertag-extension-add" ? "add" : "remove",
+    ownerId: action.supertagId,
+    targetId: action.baseSupertagId,
+    ...(action.kind === "supertag-extension-add" ? { anchor: action.anchor } : {}),
+  };
+}
 
 export function observedRelations(
-  active: readonly ContributionFact[],
-  eventOf: (fact: ContributionFact) => RelationEvent | null,
+  active: readonly FactAction[],
+  eventOf: (fact: FactAction) => RelationEvent | null,
   ownerNodeIds: ReadonlySet<string>,
   targetNodeIds: ReadonlySet<string>,
 ): Map<string, string[]> {
@@ -41,33 +49,6 @@ export function observedRelations(
     insertUnique(list(relations, addition.ownerId), addition.targetId, addition.anchor);
   }
   return relations;
-}
-
-function relationEvent<
-  AddKind extends "supertag-extension-add" | "supertag-template-node-add",
-  RemoveKind extends "supertag-extension-remove" | "supertag-template-node-remove",
->(
-  addKind: AddKind,
-  removeKind: RemoveKind,
-  identities: (
-    mutation: Extract<ContributionFact["body"]["mutation"], { kind: AddKind | RemoveKind }>,
-  ) => readonly [string, string],
-): (fact: ContributionFact) => RelationEvent | null {
-  return (fact) => {
-    const mutation = fact.body.mutation;
-    if (mutation.kind !== addKind && mutation.kind !== removeKind) {
-      return null;
-    }
-    const typed = mutation as Extract<typeof mutation, { kind: AddKind | RemoveKind }>;
-    const [ownerId, targetId] = identities(typed);
-    return {
-      fact,
-      operation: mutation.kind === addKind ? "add" : "remove",
-      ownerId,
-      targetId,
-      ...(mutation.kind === addKind && "anchor" in mutation ? { anchor: mutation.anchor } : {}),
-    };
-  };
 }
 
 function list(map: Map<string, string[]>, key: string): string[] {

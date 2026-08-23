@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { admitAuthorityRecords } from "../admission/index.js";
-import {
-  frontierOf,
-  makeFact,
-  workspaceTrashOccurrenceId,
-  type FactSnapshot,
-  type SequenceAnchor,
-} from "../fact/index.js";
+import { uniqueFacts } from "../../../tests/support/facts.js";
+import { buildFactSnapshot } from "../fact/index.js";
+import { frontierOf, factActionId, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
 import { rebuildGeneration } from "../reconcile/index.js";
 import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import {
@@ -20,17 +15,16 @@ import {
 } from "../../../tests/support/review/review-test-helpers.js";
 import { resolutionAdjudicationProblem } from "./conflicts.js";
 
-const REPLICA_D = "dddddddddddddddddddddddddd";
+const REPLICA_D = "404";
 
 describe("Conflict lifecycle", () => {
   it("queries opposite Resolutions with provenance and clears them through adjudication", () => {
     const facts = base();
     const proposal = facts.add(
       {
-        kind: "text-splice",
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
-        deletedAtoms: [],
         anchor: end,
         insert: "P",
       },
@@ -46,7 +40,7 @@ describe("Conflict lifecycle", () => {
         adjudicatesResolutionIds: [],
         actorId: "accept-reviewer",
         decision: "accept",
-        proposalContributionIds: [proposal.id],
+        proposalFactIds: [proposal.factId],
       },
     });
     const reject = remoteFact({
@@ -58,7 +52,7 @@ describe("Conflict lifecycle", () => {
         adjudicatesResolutionIds: [],
         actorId: "reject-reviewer",
         decision: "reject",
-        proposalContributionIds: [proposal.id],
+        proposalFactIds: [proposal.factId],
       },
     });
     const conflicted = facts.snapshot([accept, reject]);
@@ -70,7 +64,7 @@ describe("Conflict lifecycle", () => {
       {
         kind: "resolution-conflict",
         identity: issues[0]?.identity,
-        proposalContributionIds: [proposal.id],
+        proposalFactIds: [proposal.factId],
         candidates: [
           {
             resolutionId: accept.id,
@@ -89,7 +83,7 @@ describe("Conflict lifecycle", () => {
         ],
       },
     ]);
-    expect(resolutionAdjudicationProblem(conflicted, [proposal.id], [accept.id, reject.id])).toBeNull();
+    expect(resolutionAdjudicationProblem(conflicted, [proposal.factId], [accept.id, reject.id])).toBeNull();
 
     const adjudication = makeFact({
       workspaceId: "workspace",
@@ -102,19 +96,14 @@ describe("Conflict lifecycle", () => {
         adjudicatesResolutionIds: [accept.id, reject.id],
         actorId: "adjudicator",
         decision: "accept",
-        proposalContributionIds: [proposal.id],
+        proposalFactIds: [proposal.factId],
       },
     });
-    const records = [...conflicted.facts, adjudication].map((fact) => ({
-      recordKind: "fact" as const,
-      fact,
-    }));
-    const admission = admitAuthorityRecords("workspace", records);
-    expect(admission.kind).toBe("ready");
-    const terminal = rebuildGeneration("workspace", admission.snapshot, versions);
+    const interpretation = buildFactSnapshot("workspace", uniqueFacts([...conflicted.facts, adjudication]));
+    const terminal = rebuildGeneration("workspace", interpretation, versions);
     expect(projectionText(terminal.origin, "node")).toBe("P");
     expect(Object.values(terminal.review.conflictIssues)).toEqual([]);
-    expect(frontierOf(admission.snapshot.facts)).toEqual(admission.snapshot.frontier);
+    expect(frontierOf(interpretation.facts)).toEqual(interpretation.frontier);
   });
 
   it("surfaces concurrent cross-parent moves and clears them through an observed move", () => {
@@ -123,28 +112,22 @@ describe("Conflict lifecycle", () => {
       facts.addPlaced(`parent-${suffix}`, "workspace", `parent-${suffix}-occurrence`);
     }
     const observed = { [REPLICA_A]: facts.values.length };
-    const previousAnchor = {
-      after: workspaceTrashOccurrenceId("workspace"),
-      before: "parent-b-occurrence",
-      affinity: "after",
-      fallback: "end",
-    } as const;
     const moveB = remoteFact({
       replicaId: REPLICA_B,
       observed,
       lamport: facts.values.length + 1,
       body: {
-        kind: "contribution",
+        kind: "edit",
         actorId: "mover-b",
         intent: "direct",
-        mutation: {
-          kind: "occurrence-move",
-          occurrenceId: "occurrence",
-          parentNodeId: "parent-b",
-          anchor: end,
-          previousParentNodeId: "workspace",
-          previousAnchor,
-        },
+        actions: [
+          {
+            kind: "placement-move",
+            placementId: "occurrence",
+            parentNodeId: "parent-b",
+            anchor: end,
+          },
+        ],
       },
     });
     const moveC = remoteFact({
@@ -152,28 +135,28 @@ describe("Conflict lifecycle", () => {
       observed,
       lamport: facts.values.length + 1,
       body: {
-        kind: "contribution",
+        kind: "edit",
         actorId: "mover-c",
         intent: "direct",
-        mutation: {
-          kind: "occurrence-move",
-          occurrenceId: "occurrence",
-          parentNodeId: "parent-c",
-          anchor: end,
-          previousParentNodeId: "workspace",
-          previousAnchor,
-        },
+        actions: [
+          {
+            kind: "placement-move",
+            placementId: "occurrence",
+            parentNodeId: "parent-c",
+            anchor: end,
+          },
+        ],
       },
     });
-    const conflicted = admitted(facts.snapshot([moveB, moveC]));
+    const conflicted = interpreted(facts.snapshot([moveB, moveC]));
     const generation = rebuildGeneration("workspace", conflicted, versions);
     const issue = Object.values(generation.review.conflictIssues)[0];
     expect(issue).toMatchObject({
       kind: "placement-conflict",
       occurrenceId: "occurrence",
       candidates: [
-        { contributionId: moveB.id, parentNodeId: "parent-b", actorId: "mover-b" },
-        { contributionId: moveC.id, parentNodeId: "parent-c", actorId: "mover-c" },
+        { factActionId: factActionId(moveB.id, 0), parentNodeId: "parent-b", actorId: "mover-b" },
+        { factActionId: factActionId(moveC.id, 0), parentNodeId: "parent-c", actorId: "mover-c" },
       ],
     });
     if (!issue || issue.kind !== "placement-conflict") {
@@ -185,32 +168,25 @@ describe("Conflict lifecycle", () => {
     if (!currentParent) {
       throw new Error("Expected occurrence to have a parent Node");
     }
-    const siblings = generation.origin.childOccurrences[currentParent] ?? [];
-    const index = siblings.indexOf("occurrence");
     const resolution = remoteFact({
       replicaId: REPLICA_D,
       observed: conflicted.frontier,
       lamport: facts.values.length + 2,
       body: {
-        kind: "contribution",
+        kind: "edit",
         actorId: "resolver",
         intent: "direct",
-        mutation: {
-          kind: "occurrence-move",
-          occurrenceId: "occurrence",
-          parentNodeId: "parent-b",
-          anchor: end,
-          previousParentNodeId: currentParent,
-          previousAnchor: {
-            after: siblings[index - 1] ?? null,
-            before: siblings[index + 1] ?? null,
-            affinity: "after",
-            fallback: index <= 0 ? "start" : "end",
+        actions: [
+          {
+            kind: "placement-move",
+            placementId: "occurrence",
+            parentNodeId: "parent-b",
+            anchor: end,
           },
-        },
+        ],
       },
     });
-    const resolved = admitted({
+    const resolved = interpreted({
       facts: [...conflicted.facts, resolution],
       frontier: frontierOf([...conflicted.facts, resolution]),
     });
@@ -232,25 +208,20 @@ describe("Conflict lifecycle", () => {
         observed,
         lamport: facts.values.length + 1,
         body: {
-          kind: "contribution",
+          kind: "edit",
           actorId: replicaId,
           intent: "direct",
-          mutation: {
-            kind: "occurrence-move",
-            occurrenceId: "occurrence",
-            parentNodeId: "parent",
-            anchor,
-            previousParentNodeId: "workspace",
-            previousAnchor: {
-              after: workspaceTrashOccurrenceId("workspace"),
-              before: "parent-occurrence",
-              affinity: "after",
-              fallback: "end",
+          actions: [
+            {
+              kind: "placement-move",
+              placementId: "occurrence",
+              parentNodeId: "parent",
+              anchor,
             },
-          },
+          ],
         },
       });
-    const snapshot = admitted(
+    const snapshot = interpreted(
       facts.snapshot([
         move(REPLICA_B, { after: null, before: "left", affinity: "before", fallback: "start" }),
         move(REPLICA_C, { after: "right", before: null, affinity: "after", fallback: "end" }),
@@ -263,13 +234,7 @@ describe("Conflict lifecycle", () => {
   });
 });
 
-function admitted(snapshot: FactSnapshot) {
-  const admission = admitAuthorityRecords(
-    "workspace",
-    snapshot.facts.map((fact) => ({ recordKind: "fact" as const, fact })),
-  );
-  if (admission.kind === "fault") {
-    throw new Error(admission.fault ?? "Conflict fixture admission failed");
-  }
-  return admission.snapshot;
+function interpreted(snapshot: FactSnapshot) {
+  const interpretation = buildFactSnapshot("workspace", uniqueFacts(snapshot.facts));
+  return interpretation;
 }

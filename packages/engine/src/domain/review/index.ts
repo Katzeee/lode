@@ -1,8 +1,6 @@
 export type {
   FieldDefinitionConfigurationDecisionState,
   DecisionEffect,
-  InlineReferenceDecisionEffect,
-  InlineReferenceDecisionState,
   PlacementRelation,
   ReviewQuery,
   ReviewSelection,

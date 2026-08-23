@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { MutationCommand, TypedFieldValue } from "@lode/sdk";
-import { admitAuthorityRecords } from "../../domain/admission/index.js";
-import type { EditMutation } from "../../domain/edit/index.js";
-import {
-  FIELD_DATATYPE_NODE_IDS,
-  fieldDefinitionEndpointOccurrenceId,
-  type Mutation,
-} from "../../domain/fact/index.js";
+import type { EditCommand, TypedFieldValue } from "@lode/sdk";
+import type { EditAction } from "../../domain/edit/index.js";
+import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { syncPair } from "../../../tests/support/sync.js";
-import { createReplicaId, FactAuthority } from "./authority/fact-authority.js";
+import { FactAuthority } from "./authority/fact-authority.js";
 import { FactReplication } from "./fact-replication.js";
 import { Workspace } from "./workspace.js";
 
@@ -48,32 +43,6 @@ describe("typed Field Values", () => {
       state: "value",
       value: { kind: "options-from-supertag", targetNodeId: "option-alpha" },
     });
-
-    const numberNode = await opened.workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      perspective: "origin",
-      section: "nodes",
-    });
-    if (!("nodes" in numberNode) || numberNode.nodes["number-value"]?.content[0]?.kind !== "text") {
-      throw new Error("Expected Number value text atom");
-    }
-    const rawNumberEdit = await opened.workspace.execute(
-      command("reject-raw-number", "typed-values", [
-        {
-          kind: "text-splice",
-          nodeId: "number-value",
-          deleteAtomIds: [numberNode.nodes["number-value"].content[0].id],
-          anchor: end,
-          insert: "not-a-number",
-        },
-      ]),
-    );
-    expect(rawNumberEdit.status).toBe("rejected");
-    if (rawNumberEdit.status !== "rejected") {
-      throw new Error("Expected raw Number edit rejection");
-    }
-    expect(rawNumberEdit.error.message).toMatch(/requires a typed mutation/);
 
     const genericNumberCreate = await opened.workspace.execute(
       command("reject-generic-number-create", "typed-values", [
@@ -219,8 +188,6 @@ describe("typed Field Values", () => {
       throw new Error("Expected typed Datatype rejection");
     }
     expect(invalidDatatype.error.message).toMatch(/not configured as Date/);
-    await expect(smuggleInvalidOptionsValue(left.facts)).rejects.toThrow(/Materialized Field structure is invalid/);
-
     await execute(
       left.workspace,
       command("sync-typed-values", "typed-values", [numberSet(-3), checkboxSet(true, "checkbox-value-yes")]),
@@ -259,12 +226,7 @@ async function establishFixture(workspace: Workspace): Promise<void> {
       {
         kind: "supertag-application-create",
         hostNodeId: "option-alpha",
-        metanodeId: "option-alpha-metanode",
         supertagId: "option-tag",
-        applicationNodeId: "option-alpha-application",
-        applicationOccurrenceId: "option-alpha-application-occurrence",
-        relationDefinitionOccurrenceId: "option-alpha-relation-definition-occurrence",
-        definitionOccurrenceId: "option-alpha-tag-occurrence",
         anchor: end,
       },
     ]),
@@ -278,7 +240,6 @@ async function establishFixture(workspace: Workspace): Promise<void> {
       {
         ...datatypeConfiguration("options", FIELD_DATATYPE_NODE_IDS.optionsFromSupertag),
         optionsSupertagId: "option-tag",
-        optionsSupertagOccurrenceId: "options-datatype-source-occurrence",
       },
     ]),
   );
@@ -287,20 +248,15 @@ async function establishFixture(workspace: Workspace): Promise<void> {
 function datatypeConfiguration(
   prefix: string,
   datatypeNodeId: string,
-): Extract<EditMutation, { kind: "field-datatype-configuration-create" }> {
+): Extract<EditAction, { kind: "field-datatype-configure" }> {
   return {
-    kind: "field-datatype-configuration-create",
+    kind: "field-datatype-configure",
     fieldDefinitionId: `${prefix}-field`,
-    configurationNodeId: `${prefix}-datatype-configuration`,
-    configurationOccurrenceId: `${prefix}-datatype-configuration-occurrence`,
-    definitionOccurrenceId: `${prefix}-datatype-definition-occurrence`,
-    valueOccurrenceId: `${prefix}-datatype-value-occurrence`,
     datatypeNodeId,
-    anchor: end,
   };
 }
 
-function numberSet(value: number): Extract<EditMutation, { kind: "field-number-value-set" }> {
+function numberSet(value: number): Extract<EditAction, { kind: "field-number-value-set" }> {
   return {
     kind: "field-number-value-set",
     ownerNodeId: "owner",
@@ -313,7 +269,7 @@ function numberSet(value: number): Extract<EditMutation, { kind: "field-number-v
   };
 }
 
-function dateSet(value: string): Extract<EditMutation, { kind: "field-date-value-set" }> {
+function dateSet(value: string): Extract<EditAction, { kind: "field-date-value-set" }> {
   return {
     kind: "field-date-value-set",
     ownerNodeId: "owner",
@@ -329,7 +285,7 @@ function dateSet(value: string): Extract<EditMutation, { kind: "field-date-value
 function checkboxSet(
   value: boolean,
   valueOccurrenceId: string,
-): Extract<EditMutation, { kind: "field-checkbox-value-set" }> {
+): Extract<EditAction, { kind: "field-checkbox-value-set" }> {
   return {
     kind: "field-checkbox-value-set",
     ownerNodeId: "owner",
@@ -344,7 +300,7 @@ function checkboxSet(
 function optionsSet(
   targetNodeId: string,
   valueOccurrenceId: string,
-): Extract<EditMutation, { kind: "field-options-from-supertag-value-set" }> {
+): Extract<EditAction, { kind: "field-options-from-supertag-value-set" }> {
   return {
     kind: "field-options-from-supertag-value-set",
     ownerNodeId: "owner",
@@ -360,7 +316,7 @@ function clear(
   prefix: "number" | "date" | "checkbox" | "options",
   emptyValueNodeId?: string,
   emptyValueOccurrenceId?: string,
-): Extract<EditMutation, { kind: "typed-field-value-clear" }> {
+): Extract<EditAction, { kind: "typed-field-value-clear" }> {
   return {
     kind: "typed-field-value-clear",
     ownerNodeId: "owner",
@@ -376,7 +332,7 @@ function nodeAt(
   parentNodeId: string,
   occurrenceId: string,
   intrinsicNodeType?: "supertag-definition" | "field-definition",
-): EditMutation {
+): EditAction {
   return {
     kind: "node-create",
     nodeId,
@@ -407,17 +363,17 @@ async function value(
 function command(
   invocationId: string,
   historyChannelId: string,
-  mutations: MutationCommand["mutations"],
-  intent: MutationCommand["intent"] = "direct",
-): MutationCommand {
+  actions: EditCommand["actions"],
+  intent: EditCommand["intent"] = "direct",
+): EditCommand {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId,
     actorId: "actor",
     historyChannelId,
     intent,
-    mutations,
+    actions,
   };
 }
 
@@ -433,73 +389,8 @@ async function execute(workspace: Workspace, command: Parameters<Workspace["exec
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
-    replicaId: createReplicaId(),
     loroPeerId,
-    authorityJournal: documents,
-    factReplication: documents,
-    admitRecords: admitAuthorityRecords,
+    documents: documents,
   });
   return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
-}
-
-function smuggleInvalidOptionsValue(facts: FactAuthority) {
-  const contribution = (mutation: Mutation) => ({
-    kind: "contribution" as const,
-    actorId: "remote",
-    intent: "direct" as const,
-    mutation,
-  });
-  return facts.commit({
-    invocationId: "smuggle-invalid-options",
-    request: { command: "smuggle-invalid-options" },
-    writes: [
-      {
-        kind: "transaction",
-        bodies: [
-          contribution({ kind: "node-create", nodeId: "smuggled-options-field" }),
-          contribution({
-            kind: "node-owner-set",
-            nodeId: "smuggled-options-field",
-            ownerNodeId: "owner",
-            previousOwnerNodeId: null,
-          }),
-          contribution({
-            kind: "intrinsic-node-type-declare",
-            nodeId: "smuggled-options-field",
-            intrinsicNodeType: "field",
-          }),
-          contribution({
-            kind: "occurrence-create",
-            occurrenceId: "smuggled-options-field-occurrence",
-            nodeId: "smuggled-options-field",
-            parentNodeId: "owner",
-            anchor: end,
-          }),
-          contribution({
-            kind: "occurrence-create",
-            occurrenceId: fieldDefinitionEndpointOccurrenceId("smuggled-options-field-occurrence"),
-            nodeId: "options-field",
-            parentNodeId: "smuggled-options-field",
-            anchor: { after: null, before: null, affinity: "before", fallback: "start" },
-          }),
-          contribution({
-            kind: "occurrence-create",
-            occurrenceId: "smuggled-options-value-occurrence",
-            nodeId: "not-an-option",
-            parentNodeId: "smuggled-options-field",
-            anchor: end,
-          }),
-          contribution({
-            kind: "field-materialize",
-            ownerNodeId: "owner",
-            fieldDefinitionId: "options-field",
-            fieldNodeId: "smuggled-options-field",
-            fieldOccurrenceId: "smuggled-options-field-occurrence",
-          }),
-        ],
-      },
-    ],
-    lineage: null,
-    publishedFrontier: facts.snapshot().frontier,
-  });
 }

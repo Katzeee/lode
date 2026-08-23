@@ -14,12 +14,12 @@ import { runLode } from "../../src/composition.js";
  * daemon, so no launcher ever fires.
  */
 
-export const accessToken = "home-harness-access-token";
-export const vaultPassphrase = "home-harness-passphrase";
+const accessToken = "home-harness-access-token";
+const vaultPassphrase = "home-harness-passphrase";
 
 const temporaryDirectories: string[] = [];
 
-export type Run = Readonly<{
+type Run = Readonly<{
   exitCode: number;
   stdout: string;
   stderr: string;

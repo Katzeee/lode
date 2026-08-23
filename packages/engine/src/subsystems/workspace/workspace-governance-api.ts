@@ -5,7 +5,7 @@ import {
   type GovernanceSummary,
 } from "@lode/sdk/host";
 
-import { type Admission, type FactSnapshot } from "../../domain/fact/index.js";
+import type { FactSnapshot } from "../../domain/fact/index.js";
 import { syncAdmittedPeers } from "../../domain/governance/index.js";
 import type { IdentityCapability } from "../identity/index.js";
 import type { WorkspaceCapability } from "./capability.js";
@@ -55,7 +55,7 @@ async function revokePeer(
   input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
 ): Promise<void> {
   const facts = workspace.authority(input.workspaceId);
-  const state = governanceStateOf(admissionSnapshot(facts));
+  const state = governanceStateOf(factSnapshot(facts));
   if (state.ownerActorId !== input.actingActorId) {
     throw new GovernanceAuthorizationError(`Actor is not the Workspace owner: ${input.actingActorId}`);
   }
@@ -71,20 +71,16 @@ async function rotateTransitFor(
   input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>,
 ): Promise<void> {
   const facts = workspace.authority(input.workspaceId);
-  const state = governanceStateOf(admissionSnapshot(facts));
+  const state = governanceStateOf(factSnapshot(facts));
   await rotateTransit(facts, { ...input, survivingPeerIds: [...syncAdmittedPeers(state).keys()] });
 }
 
-function admissionSnapshot(facts: { admission(): Admission }): FactSnapshot {
-  const admission = facts.admission();
-  if (admission.kind === "fault") {
-    throw new Error(admission.fault ?? "Workspace authority is faulted");
-  }
-  return admission.snapshot;
+function factSnapshot(facts: { snapshot(): FactSnapshot }): FactSnapshot {
+  return facts.snapshot();
 }
 
 function governanceSummary(workspace: WorkspaceCapability, workspaceId: string): GovernanceSummary {
-  const state = governanceStateOf(admissionSnapshot(workspace.authority(workspaceId)));
+  const state = governanceStateOf(factSnapshot(workspace.authority(workspaceId)));
   const admitted = syncAdmittedPeers(state);
   return {
     established: state.established,

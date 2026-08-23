@@ -2,13 +2,14 @@ import type { ReviewReadModel } from "../../../../domain/review/index.js";
 import type { MaterializedDataset, MaterializedDatasetEntry } from "./store/materialized-dataset.js";
 import { defineMaterializedDataset, materializedDatasetEntry } from "./store/materialized-dataset.js";
 import { isStringArray } from "../../../../decoding/index.js";
+import { isFactActionId, type FactActionId } from "../../../../domain/fact/index.js";
 
-export const REVIEW_READ_MODEL_SECTION_NAMES = ["scopes", "support"] as const;
+const REVIEW_READ_MODEL_SECTION_NAMES = ["scopes", "support"] as const;
 
-export type ReviewReadModelSection = (typeof REVIEW_READ_MODEL_SECTION_NAMES)[number];
+type ReviewReadModelSection = (typeof REVIEW_READ_MODEL_SECTION_NAMES)[number];
 
-export function isReviewReadModelValue(value: unknown): value is readonly string[] {
-  return isStringArray(value);
+function isReviewReadModelValue(value: unknown): value is readonly FactActionId[] {
+  return isStringArray(value) && value.every(isFactActionId);
 }
 
 export const REVIEW_MATERIALIZED_DATASETS = REVIEW_READ_MODEL_SECTION_NAMES.map((section) =>
@@ -20,15 +21,17 @@ export function reviewReadModelEntries(model: ReviewReadModel): readonly Materia
     ...Object.entries(model.scopes).map(([identity, value]) =>
       materializedDatasetEntry(reviewMaterializedDataset("scopes"), identity, value),
     ),
-    ...Object.entries(model.supportByContribution).map(([identity, value]) =>
+    ...Object.entries(model.supportByAction).map(([identity, value]) =>
       materializedDatasetEntry(reviewMaterializedDataset("support"), identity, value),
     ),
   ];
 }
 
-export function reviewMaterializedDataset(section: ReviewReadModelSection): MaterializedDataset<readonly string[]> {
+export function reviewMaterializedDataset(
+  section: ReviewReadModelSection,
+): MaterializedDataset<readonly FactActionId[]> {
   return defineMaterializedDataset(
     { dataset: "review", partition: "read-model", section },
-    (_identity, value): value is readonly string[] => isReviewReadModelValue(value),
+    (_identity, value): value is readonly FactActionId[] => isReviewReadModelValue(value),
   );
 }

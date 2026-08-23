@@ -4,7 +4,6 @@
 export * from "./gen/lode/daemon_pb.js";
 export * from "./gen/lode/edit_pb.js";
 export * from "./gen/lode/engine_pb.js";
-export * from "./gen/lode/fact_pb.js";
 export * from "./gen/lode/governance_pb.js";
 export * from "./gen/lode/identity_pb.js";
 export * from "./gen/lode/history_pb.js";

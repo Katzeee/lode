@@ -1,151 +1,149 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  factTransactionId,
+  factActionsFromFacts,
+  factActions,
+  factActionId,
   frontierOf,
   makeFact,
-  type ContributionFact,
   type Fact,
-  type Mutation,
+  type FactActionId,
+  type FactId,
+  type AuthoredAction,
 } from "../fact/index.js";
 import { projectSnapshot } from "../../../tests/support/reconcile/projection.js";
 import { deriveActivation, deriveSupport } from "./support.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../reconcile/index.js";
 
-const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const REPLICA = "101";
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {
-    const node = contribution(1, { kind: "node-create", nodeId: "node" }, "proposal");
-    const firstText = contribution(
+    const node = editFact(
+      1,
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const firstText = editFact(
       2,
-      { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "a" },
+      { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "a" },
       "direct",
     );
-    const secondText = contribution(
+    const secondText = editFact(
       3,
-      { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "b" },
+      { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "b" },
       "direct",
     );
-    const support = deriveSupport([node, firstText, secondText]);
+    const support = deriveSupport(factActionsFromFacts([node, firstText, secondText]));
 
-    expect(support.get(firstText.id)).toEqual([node.id]);
-    expect(support.get(secondText.id)).toEqual([node.id]);
-    expect(support.get(secondText.id)).not.toContain(firstText.id);
+    expect(support.get(actionId(firstText))).toEqual([actionId(node)]);
+    expect(support.get(actionId(secondText))).toEqual([actionId(node)]);
+    expect(support.get(actionId(secondText))).not.toContain(actionId(firstText));
   });
 
   it("DEP-2 inactive support closes dependents", () => {
-    const node = contribution(1, { kind: "node-create", nodeId: "node" }, "proposal");
-    const text = contribution(
+    const node = editFact(
+      1,
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const text = editFact(
       2,
-      { kind: "text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "dependent" },
+      { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "dependent" },
       "direct",
     );
     const activation = deriveActivation([node, text], "origin");
-    expect(activation.activeContributionIds.has(text.id)).toBe(false);
+    expect(activation.activeActionIds.has(actionId(text))).toBe(false);
   });
 
   it("activates every member of a Fact Transaction as one unit", () => {
-    const parent = contribution(1, { kind: "node-create", nodeId: "parent" }, "proposal");
-    const transactionId = factTransactionId("workspace", REPLICA, 2);
-    const child = makeFact({
+    const parent = editFact(
+      1,
+      { kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const edit = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
       sequence: 2,
       observed: { [REPLICA]: 1 },
       lamport: 2,
-      transaction: { transactionId, index: 0, size: 2 },
       body: {
-        kind: "contribution",
+        kind: "edit",
         actorId: "actor",
         intent: "direct",
-        mutation: { kind: "node-create", nodeId: "child" },
-      },
-    }) as ContributionFact;
-    const placement = makeFact({
-      workspaceId: "workspace",
-      replicaId: REPLICA,
-      sequence: 3,
-      observed: { [REPLICA]: 2 },
-      lamport: 3,
-      transaction: { transactionId, index: 1, size: 2 },
-      body: {
-        kind: "contribution",
-        actorId: "actor",
-        intent: "direct",
-        mutation: {
-          kind: "occurrence-create",
-          occurrenceId: "child-original",
-          nodeId: "child",
-          parentNodeId: "parent",
-          anchor: end,
-        },
-      },
-    }) as ContributionFact;
-
-    const origin = deriveActivation([parent, child, placement], "origin");
-    const review = deriveActivation([parent, child, placement], "review");
-
-    expect(origin.activeContributionIds.has(child.id)).toBe(false);
-    expect(origin.activeContributionIds.has(placement.id)).toBe(false);
-    expect(review.activeContributionIds.has(child.id)).toBe(true);
-    expect(review.activeContributionIds.has(placement.id)).toBe(true);
-  });
-
-  it("represents transaction activation with linear support", () => {
-    const size = 20;
-    const transactionId = factTransactionId("workspace", REPLICA, 1);
-    const members = Array.from(
-      { length: size },
-      (_, index) =>
-        makeFact({
-          workspaceId: "workspace",
-          replicaId: REPLICA,
-          sequence: index + 1,
-          observed: index === 0 ? {} : { [REPLICA]: index },
-          lamport: index + 1,
-          transaction: { transactionId, index, size },
-          body: {
-            kind: "contribution",
-            actorId: "actor",
-            intent: "direct",
-            mutation: { kind: "node-create", nodeId: `node-${index}` },
+        actions: [
+          { kind: "node-create", nodeId: "child", ownerNodeId: "workspace", originalPlacement: null },
+          {
+            kind: "placement-create",
+            placementId: "child-original",
+            nodeId: "child",
+            parentNodeId: "parent",
+            anchor: end,
           },
-        }) as ContributionFact,
-    );
+        ],
+      },
+    });
+    const [child, placement] = factActions(edit);
+    if (!child || !placement) {
+      throw new Error("Expected both edit Edit Facts");
+    }
 
-    const support = deriveSupport(members);
-    expect([...support.values()].reduce((total, dependencies) => total + dependencies.length, 0)).toBe(size);
+    const origin = deriveActivation([parent, edit], "origin");
+    const review = deriveActivation([parent, edit], "review");
+
+    expect(origin.activeActionIds.has(child.id)).toBe(false);
+    expect(origin.activeActionIds.has(placement.id)).toBe(false);
+    expect(review.activeActionIds.has(child.id)).toBe(true);
+    expect(review.activeActionIds.has(placement.id)).toBe(true);
   });
 
   it("duplicate live creates do not replace the effective existence support", () => {
-    const directCreate = contribution(1, { kind: "node-create", nodeId: "node" });
-    const duplicateProposal = contribution(2, { kind: "node-create", nodeId: "node" }, "proposal");
-    const text = contribution(3, {
-      kind: "text-splice",
+    const directCreate = editFact(1, {
+      kind: "node-create",
+      nodeId: "node",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
+    });
+    const duplicateProposal = editFact(
+      2,
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const text = editFact(3, {
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
       insert: "X",
     });
 
-    const support = deriveSupport([directCreate, duplicateProposal, text]);
+    const support = deriveSupport(factActionsFromFacts([directCreate, duplicateProposal, text]));
     const origin = deriveActivation([directCreate, duplicateProposal, text], "origin");
 
-    expect(support.get(text.id)).toEqual([directCreate.id]);
-    expect(origin.activeContributionIds.has(text.id)).toBe(true);
+    expect(support.get(actionId(text))).toEqual([actionId(directCreate)]);
+    expect(origin.activeActionIds.has(actionId(text))).toBe(true);
   });
 
   it("a rejected first Proposal create yields existence support to an independent Direct create", () => {
-    const proposalCreate = contribution(1, { kind: "node-create", nodeId: "node" }, "proposal");
-    const directCreate = contribution(2, { kind: "node-create", nodeId: "node" });
-    const text = contribution(3, {
-      kind: "text-splice",
+    const proposalCreate = editFact(
+      1,
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const text = editFact(2, {
+      kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
       insert: "X",
+    });
+    const directCreate = editFact(3, {
+      kind: "node-create",
+      nodeId: "node",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
     });
     const rejection = makeFact({
       workspaceId: "workspace",
@@ -158,22 +156,112 @@ describe("semantic support policy", () => {
         adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision: "reject",
-        proposalContributionIds: [proposalCreate.id],
+        proposalFactIds: [proposalCreate.id],
       },
     });
 
     const origin = deriveActivation([proposalCreate, directCreate, text, rejection], "origin");
-    expect(origin.supportByContribution.get(text.id)).toEqual([directCreate.id]);
-    expect(origin.activeContributionIds.has(text.id)).toBe(true);
+    expect(origin.supportByAction.get(actionId(text))).toEqual([actionId(directCreate)]);
+    expect(origin.activeActionIds.has(actionId(text))).toBe(true);
+  });
+
+  it("recovers an earlier Placement consumer through a later independent creator", () => {
+    const node = editFact(1, {
+      kind: "node-create",
+      nodeId: "node",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
+    });
+    const proposalCreate = editFact(
+      2,
+      {
+        kind: "placement-create",
+        placementId: "placement",
+        nodeId: "node",
+        parentNodeId: "workspace",
+        anchor: end,
+      },
+      "proposal",
+    );
+    const move = editFact(3, {
+      kind: "placement-move",
+      placementId: "placement",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
+    const directCreate = editFact(4, {
+      kind: "placement-create",
+      placementId: "placement",
+      nodeId: "node",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
+    const rejection = resolution(5, [proposalCreate.id], "reject");
+
+    const origin = deriveActivation([node, proposalCreate, move, directCreate, rejection], "origin");
+    expect(origin.supportByAction.get(actionId(move))).toContain(actionId(directCreate));
+    expect(origin.activeActionIds.has(actionId(move))).toBe(true);
+  });
+
+  it("recovers earlier Inline Reference and Alias consumers through later independent producers", () => {
+    const nodes = ["host", "target", "alias"].map((nodeId, index) =>
+      editFact(index + 1, { kind: "node-create", nodeId, ownerNodeId: "workspace", originalPlacement: null }),
+    );
+    const proposalReference = editFact(
+      4,
+      {
+        kind: "inline-reference-create",
+        inlineReferenceId: "reference",
+        hostNodeId: "host",
+        targetNodeId: "target",
+        anchor: end,
+      },
+      "proposal",
+    );
+    const proposalAlias = editFact(
+      5,
+      { kind: "inline-alias-attach", inlineReferenceId: "reference", aliasNodeId: "alias" },
+      "proposal",
+    );
+    const detach = editFact(6, {
+      kind: "inline-alias-detach",
+      inlineReferenceId: "reference",
+      aliasNodeId: "alias",
+    });
+    const directReference = editFact(7, {
+      kind: "inline-reference-create",
+      inlineReferenceId: "reference",
+      hostNodeId: "host",
+      targetNodeId: "target",
+      anchor: end,
+    });
+    const directAlias = editFact(8, {
+      kind: "inline-alias-attach",
+      inlineReferenceId: "reference",
+      aliasNodeId: "alias",
+    });
+    const rejection = resolution(9, [proposalReference.id, proposalAlias.id], "reject");
+
+    const origin = deriveActivation(
+      [...nodes, proposalReference, proposalAlias, detach, directReference, directAlias, rejection],
+      "origin",
+    );
+    expect(origin.supportByAction.get(actionId(proposalAlias))).toContain(actionId(directReference));
+    expect(origin.supportByAction.get(actionId(detach))).toContain(actionId(directAlias));
+    expect(origin.activeActionIds.has(actionId(detach))).toBe(true);
   });
 
   it("Create + existence dependency", () => {
-    const node = contribution(1, { kind: "node-create", nodeId: "node" }, "proposal");
-    const occurrence = contribution(
+    const node = editFact(
+      1,
+      { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const occurrence = editFact(
       2,
       {
-        kind: "occurrence-create",
-        occurrenceId: "occurrence",
+        kind: "placement-create",
+        placementId: "occurrence",
         nodeId: "node",
         parentNodeId: "workspace",
         anchor: end,
@@ -181,7 +269,7 @@ describe("semantic support policy", () => {
       "direct",
     );
     const pending = [node, occurrence];
-    expect(deriveSupport(pending).get(occurrence.id)).toEqual([node.id]);
+    expect(deriveSupport(factActionsFromFacts(pending)).get(actionId(occurrence))).toEqual([actionId(node)]);
     expect(project(pending, "origin").occurrences.occurrence).toBeUndefined();
     expect(project(pending, "review").occurrences.occurrence).toBeDefined();
 
@@ -194,19 +282,28 @@ describe("semantic support policy", () => {
     expect(project(rejected, "review").occurrences.occurrence).toBeUndefined();
   });
 
-  it("an occurrence depends on the parent Node contribution", () => {
-    const childNode = contribution(1, { kind: "node-create", nodeId: "child" });
-    const parentNode = contribution(2, { kind: "node-create", nodeId: "parent" }, "proposal");
-    const child = contribution(3, {
-      kind: "occurrence-create",
-      occurrenceId: "child-placement",
+  it("an occurrence depends on the parent Node editFact", () => {
+    const childNode = editFact(1, {
+      kind: "node-create",
+      nodeId: "child",
+      ownerNodeId: "workspace",
+      originalPlacement: null,
+    });
+    const parentNode = editFact(
+      2,
+      { kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null },
+      "proposal",
+    );
+    const child = editFact(3, {
+      kind: "placement-create",
+      placementId: "child-placement",
       nodeId: "child",
       parentNodeId: "parent",
       anchor: end,
     });
     const pending = [childNode, parentNode, child];
-    const support = deriveSupport(pending);
-    expect(support.get(child.id)).toContain(parentNode.id);
+    const support = deriveSupport(factActionsFromFacts(pending));
+    expect(support.get(actionId(child))).toContain(actionId(parentNode));
     expect(project(pending, "origin").occurrences["child-placement"]).toBeUndefined();
     expect(project(pending, "review").occurrences["child-placement"]?.parentNodeId).toBe("parent");
 
@@ -221,15 +318,15 @@ describe("semantic support policy", () => {
 function project(facts: readonly Fact[], perspective: "origin" | "review") {
   const workspace = makeFact({
     workspaceId: "workspace",
-    replicaId: "zzzzzzzzzzzzzzzzzzzzzzzzzz",
+    replicaId: "808",
     sequence: 1,
     observed: {},
     lamport: 1,
     body: {
-      kind: "contribution",
+      kind: "edit",
       actorId: "workspace-genesis",
       intent: "direct",
-      mutation: { kind: "node-create", nodeId: "workspace" },
+      actions: [{ kind: "node-create", nodeId: "workspace", ownerNodeId: "workspace", originalPlacement: null }],
     },
   });
   const projectedFacts = [workspace, ...facts];
@@ -241,7 +338,7 @@ function project(facts: readonly Fact[], perspective: "origin" | "review") {
   );
 }
 
-function resolution(sequence: number, proposalContributionIds: readonly string[], decision: "accept" | "reject"): Fact {
+function resolution(sequence: number, proposalFactIds: readonly FactId[], decision: "accept" | "reject"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
@@ -253,22 +350,22 @@ function resolution(sequence: number, proposalContributionIds: readonly string[]
       adjudicatesResolutionIds: [],
       actorId: "reviewer",
       decision,
-      proposalContributionIds,
+      proposalFactIds,
     },
   });
 }
 
-function contribution(
-  sequence: number,
-  mutation: Mutation,
-  intent: "direct" | "proposal" = "direct",
-): ContributionFact {
+function actionId(fact: Fact): FactActionId {
+  return factActionId(fact.id, 0);
+}
+
+function editFact(sequence: number, authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence,
     observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
     lamport: sequence,
-    body: { kind: "contribution", actorId: "actor", intent, mutation },
-  }) as ContributionFact;
+    body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
+  });
 }

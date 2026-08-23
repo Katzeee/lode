@@ -12,13 +12,23 @@ export function advanceDirectProjection(
   changed: readonly Fact[],
   versions: ProjectionVersions,
   selectedStages: ReadonlySet<ProjectionStageKey>,
+  originPlanCache: ProjectionPlanCache | null = null,
 ): Readonly<{
   projection: Projection;
   planCache: ProjectionPlanCache;
 }> | null {
-  const contributions = selectEligibleDirectTail(previous, snapshot.facts, changed);
-  if (!contributions) {
+  const actions = selectEligibleDirectTail(previous, snapshot.facts, changed);
+  if (!actions) {
     return null;
   }
-  return advanceWithPlan(workspaceId, previous, previousCache, snapshot, contributions, versions, selectedStages);
+  return advanceWithPlan(
+    workspaceId,
+    previous,
+    previousCache,
+    snapshot,
+    actions,
+    versions,
+    selectedStages,
+    originPlanCache,
+  );
 }

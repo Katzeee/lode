@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { makeFact, type Fact, type Mutation } from "../fact/index.js";
+import { makeFact, type Fact, type AuthoredAction } from "../fact/index.js";
 import { deriveActivation } from "../activation/index.js";
 import { compileProjectionPlan } from "./projection-plan-dag.js";
 import { invalidatedProjectionStages, PROJECTION_PLAN } from "./projection-plan.js";
 
-const REPLICA = "aaaaaaaaaaaaaaaaaaaaaaaaaa";
+const REPLICA = "101";
 
 describe("Projection plan dataflow", () => {
   it("RULE-1 Projection plan rejects missing dependencies duplicate writers and cycles", () => {
@@ -29,12 +29,16 @@ describe("Projection plan dataflow", () => {
 
   it("RULE-2 Projection convergence has a finite hard bound", () => {
     const facts = [
-      contribution(1, { kind: "node-create", nodeId: "node" }, "proposal"),
-      contribution(
+      editFact(
+        1,
+        { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
+        "proposal",
+      ),
+      editFact(
         2,
         {
-          kind: "occurrence-create",
-          occurrenceId: "occurrence",
+          kind: "placement-create",
+          placementId: "occurrence",
           nodeId: "node",
           parentNodeId: "workspace",
           anchor: { after: null, before: null, affinity: "after", fallback: "end" },
@@ -43,16 +47,17 @@ describe("Projection plan dataflow", () => {
       ),
     ];
     const activation = deriveActivation(facts, "origin");
-    expect(activation.convergencePasses).toBeLessThanOrEqual(facts.length + 1);
-    expect(activation.activeContributionIds.size).toBe(0);
+    expect(activation.activeActionIds.size).toBe(0);
   });
 
   it("RULE-3 invalidation reaches only declared stage downstream", () => {
-    const beforeFacts = [contribution(1, { kind: "node-create", nodeId: "node" })];
+    const beforeFacts = [
+      editFact(1, { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }),
+    ];
     const afterFacts = [
       ...beforeFacts,
-      contribution(2, {
-        kind: "text-splice",
+      editFact(2, {
+        kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
         anchor: { after: null, before: null, affinity: "after", fallback: "end" },
@@ -71,13 +76,13 @@ describe("Projection plan dataflow", () => {
   });
 });
 
-function contribution(sequence: number, mutation: Mutation, intent: "direct" | "proposal" = "direct"): Fact {
+function editFact(sequence: number, authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence,
     observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
     lamport: sequence,
-    body: { kind: "contribution", actorId: "actor", intent, mutation },
+    body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
   });
 }

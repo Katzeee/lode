@@ -50,7 +50,9 @@ function materializedShard<Identity>(
   catalog: MaterializedDatasetCatalog<Identity>,
 ): Readonly<{ descriptor: ShardDescriptor; value: unknown }> {
   if (!catalog.isRoot(entry) || !catalog.isValue(entry, entry.identity, entry.value)) {
-    throw new Error("Materialized dataset entry does not satisfy its dataset contract");
+    throw new Error(
+      `Materialized dataset entry does not satisfy ${entry.dataset}/${entry.partition}/${entry.section}/${entry.identity}`,
+    );
   }
   const key = materializedShardKey(entry, entry.identity);
   return {

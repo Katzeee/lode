@@ -1,5 +1,4 @@
-import type { FieldDefinitionConfiguration } from "./projection.js";
-import type { FieldInitializationExpression } from "./model.js";
+import type { FieldDefinitionConfiguration, ProjectedFieldInitializationExpression } from "./projection.js";
 import { required } from "./protocol-shape-codec.js";
 
 export function toFieldDefinitionConfiguration(configuration: FieldDefinitionConfiguration): Record<string, unknown> {
@@ -73,7 +72,7 @@ export function fromFieldDefinitionConfiguration(value: unknown): FieldDefinitio
   } as FieldDefinitionConfiguration;
 }
 
-function withoutExpressionKind(expression: FieldInitializationExpression): Record<string, unknown> {
+function withoutExpressionKind(expression: ProjectedFieldInitializationExpression): Record<string, unknown> {
   const { kind: _kind, ...value } = expression;
   return value;
 }

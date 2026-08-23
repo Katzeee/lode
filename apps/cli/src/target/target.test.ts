@@ -45,7 +45,7 @@ function node(nodeId: string, text: string, intrinsic: string | null = null): Pr
     nodeId,
     intrinsicNodeType: intrinsic,
     content:
-      text.length === 0 ? [] : [{ kind: "text", id: `${nodeId}#1`, value: text, attributes: {}, contributionId: "c" }],
+      text.length === 0 ? [] : [{ kind: "text", id: `${nodeId}#1`, value: text, attributes: {}, factActionId: "c" }],
   } as unknown as ProjectedNode;
 }
 

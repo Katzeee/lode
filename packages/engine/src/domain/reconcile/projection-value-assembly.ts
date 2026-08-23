@@ -1,7 +1,7 @@
 import {
-  compareFacts,
+  compareCausalOrder,
   stableStringCompare,
-  type ContributionFact,
+  type FactAction,
   type ProjectionIdentity,
   type ProjectionPerspective,
 } from "../fact/index.js";
@@ -35,7 +35,7 @@ type ProjectionArtifactAssemblyInput = Readonly<{
   sharedDefaultViewDefinitions: ProjectionSections["sharedDefaultViewDefinitions"];
   fieldDefinitionConfigurations: ProjectionSections["fieldDefinitionConfigurations"];
   conflictIssues: ProjectionSections["conflictIssues"];
-  active: readonly ContributionFact[];
+  active: readonly FactAction[];
 }>;
 
 export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInput): Projection {
@@ -44,7 +44,6 @@ export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInp
     occurrences: input.templateStructure.occurrences,
     childOccurrences: input.templateStructure.childOccurrences,
     nodeOwners: input.nodeGraphStructure.nodeOwners,
-    metanodes: input.nodeGraphStructure.metanodes,
   });
   const nodes = projectNodes(
     input.contentNodes,
@@ -83,7 +82,7 @@ export function assembleProjectionArtifacts(input: ProjectionArtifactAssemblyInp
 
 function projectNodes(
   nodes: ReadonlyMap<string, MutableNode>,
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   graph: NodeGraphStructure,
   workspaceNodeId: string,
 ): ReadonlyMap<string, ProjectedNode> {
@@ -113,7 +112,7 @@ function projectNodes(
 }
 
 function inlineAliases(
-  active: readonly ContributionFact[],
+  active: readonly FactAction[],
   nodes: ReadonlyMap<string, MutableNode>,
 ): ReadonlyMap<string, string> {
   const result = new Map<string, string>(
@@ -123,21 +122,21 @@ function inlineAliases(
       ),
     ),
   );
-  for (const fact of [...active].sort(compareFacts)) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind === "inline-reference-alias-attach") {
-      result.set(mutation.inlineReferenceId, mutation.aliasNodeId);
+  for (const fact of [...active].sort(compareCausalOrder)) {
+    const authoredAction = fact.action;
+    if (authoredAction.kind === "inline-alias-attach") {
+      result.set(authoredAction.inlineReferenceId, authoredAction.aliasNodeId);
     } else if (
-      mutation.kind === "inline-reference-alias-detach" &&
-      result.get(mutation.inlineReferenceId) === mutation.aliasNodeId
+      authoredAction.kind === "inline-alias-detach" &&
+      result.get(authoredAction.inlineReferenceId) === authoredAction.aliasNodeId
     ) {
-      result.delete(mutation.inlineReferenceId);
+      result.delete(authoredAction.inlineReferenceId);
     }
   }
   return result;
 }
 
-export function assembleProjection(input: ProjectionAssemblyInput): Projection {
+function assembleProjection(input: ProjectionAssemblyInput): Projection {
   return {
     perspective: input.perspective,
     identity: input.identity,

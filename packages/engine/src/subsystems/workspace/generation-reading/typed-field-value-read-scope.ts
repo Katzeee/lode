@@ -1,9 +1,9 @@
-import type { EditMutation } from "../../../domain/edit/index.js";
+import type { EditAction } from "../../../domain/edit/index.js";
 import { CHECKBOX_VALUE_NODE_IDS } from "../../../domain/fact/index.js";
 import type { GenerationReadScope } from "./read-scope.js";
 
 type TypedFieldValueEdit = Extract<
-  EditMutation,
+  EditAction,
   {
     kind:
       | "field-number-value-set"
@@ -14,7 +14,7 @@ type TypedFieldValueEdit = Extract<
   }
 >;
 
-export function isTypedFieldValueEdit(edit: EditMutation): edit is TypedFieldValueEdit {
+export function isTypedFieldValueEdit(edit: EditAction): edit is TypedFieldValueEdit {
   return (
     edit.kind === "field-number-value-set" ||
     edit.kind === "field-date-value-set" ||
@@ -24,7 +24,7 @@ export function isTypedFieldValueEdit(edit: EditMutation): edit is TypedFieldVal
   );
 }
 
-export function addTypedFieldValueEditReadScope(scope: GenerationReadScope, edit: EditMutation): boolean {
+export function addTypedFieldValueEditReadScope(scope: GenerationReadScope, edit: EditAction): boolean {
   if (!isTypedFieldValueEdit(edit)) {
     return false;
   }

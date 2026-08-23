@@ -1,8 +1,12 @@
 import {
   isIntrinsicNodeType,
-  isMutationKind,
+  isAuthoredActionKind,
   parseFactFrontier as frontier,
   parseSequenceAnchor as sequenceAnchor,
+  requireFactActionId,
+  requireFactActionIds,
+  requireFactId,
+  requireFactIds,
 } from "../fact/index.js";
 import { exact, nonempty as string, object as record, stringArray as strings } from "../../decoding/index.js";
 import type { ConflictIssue } from "./types.js";
@@ -16,12 +20,12 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
       [
         "kind",
         "identity",
-        "contributionId",
-        "mutationKind",
+        "factActionId",
+        "actionKind",
         "actorId",
         "replicaId",
         "observedFrontier",
-        "missingSupportContributionIds",
+        "missingSupportActionIds",
         "requiredNodeIds",
         "recoveryActions",
       ],
@@ -31,18 +35,18 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
     if (recoveryActions.length !== 1 || recoveryActions[0] !== "restore-support") {
       throw new Error("Unsupported Direct intent recovery actions are invalid");
     }
-    if (!isMutationKind(issue.mutationKind)) {
-      throw new Error("Unsupported Direct intent Mutation kind is invalid");
+    if (!isAuthoredActionKind(issue.actionKind)) {
+      throw new Error("Unsupported Direct intent AuthoredAction kind is invalid");
     }
     return {
       kind,
       identity: string(issue.identity, "Conflict identity"),
-      contributionId: string(issue.contributionId, "Contribution identity"),
-      mutationKind: issue.mutationKind,
+      factActionId: requireFactActionId(issue.factActionId, "FactAction identity"),
+      actionKind: issue.actionKind,
       actorId: string(issue.actorId, "Actor identity"),
       replicaId: string(issue.replicaId, "Replica identity"),
       observedFrontier: frontier(issue.observedFrontier),
-      missingSupportContributionIds: strings(issue.missingSupportContributionIds, "Missing support Contributions"),
+      missingSupportActionIds: requireFactActionIds(issue.missingSupportActionIds, "Missing support actions"),
       requiredNodeIds: strings(issue.requiredNodeIds, "Required Node identities"),
       recoveryActions: ["restore-support"],
     };
@@ -64,14 +68,14 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
   if (kind !== "resolution-conflict") {
     throw new Error(`Unknown Conflict issue kind: ${kind}`);
   }
-  exact(issue, ["kind", "identity", "proposalContributionIds", "candidates"], "Resolution conflict");
+  exact(issue, ["kind", "identity", "proposalFactIds", "candidates"], "Resolution conflict");
   if (!Array.isArray(issue.candidates)) {
     throw new Error("Resolution candidates must be an array");
   }
   return {
     kind,
     identity: string(issue.identity, "Conflict identity"),
-    proposalContributionIds: strings(issue.proposalContributionIds, "Proposal targets"),
+    proposalFactIds: requireFactIds(issue.proposalFactIds, "Proposal targets"),
     candidates: issue.candidates.map((value) => {
       const candidate = record(value, "Resolution candidate");
       exact(
@@ -83,7 +87,7 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
         throw new Error("Resolution decision is invalid");
       }
       return {
-        resolutionId: string(candidate.resolutionId, "Resolution identity"),
+        resolutionId: requireFactId(candidate.resolutionId, "Resolution identity"),
         decision: candidate.decision,
         actorId: string(candidate.actorId, "Actor identity"),
         replicaId: string(candidate.replicaId, "Replica identity"),
@@ -108,14 +112,14 @@ function parseIntrinsicNodeTypeConflict(
       const candidate = record(value, "Intrinsic Node Type candidate");
       exact(
         candidate,
-        ["contributionId", "intrinsicNodeType", "actorId", "replicaId", "observedFrontier"],
+        ["factActionId", "intrinsicNodeType", "actorId", "replicaId", "observedFrontier"],
         "Intrinsic Node Type candidate",
       );
       if (!isIntrinsicNodeType(candidate.intrinsicNodeType)) {
         throw new Error("Intrinsic Node Type candidate is invalid");
       }
       return {
-        contributionId: string(candidate.contributionId, "Contribution identity"),
+        factActionId: requireFactActionId(candidate.factActionId, "FactAction identity"),
         intrinsicNodeType: candidate.intrinsicNodeType,
         actorId: string(candidate.actorId, "Actor identity"),
         replicaId: string(candidate.replicaId, "Replica identity"),
@@ -139,11 +143,11 @@ function parsePlacementConflict(issue: Record<string, unknown>): ConflictIssue {
       const candidate = record(value, "Placement candidate");
       exact(
         candidate,
-        ["contributionId", "parentNodeId", "anchor", "actorId", "replicaId", "observedFrontier"],
+        ["factActionId", "parentNodeId", "anchor", "actorId", "replicaId", "observedFrontier"],
         "Placement candidate",
       );
       return {
-        contributionId: string(candidate.contributionId, "Contribution identity"),
+        factActionId: requireFactActionId(candidate.factActionId, "FactAction identity"),
         parentNodeId: string(candidate.parentNodeId, "parent Node identity"),
         anchor: sequenceAnchor(candidate.anchor),
         actorId: string(candidate.actorId, "Actor identity"),

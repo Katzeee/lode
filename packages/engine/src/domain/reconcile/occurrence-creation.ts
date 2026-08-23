@@ -1,32 +1,41 @@
-import type { ContributionFact, SequenceAnchor } from "../fact/index.js";
+import type { FactAction, SequenceAnchor } from "../fact/index.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { insertAtAnchor, listFor } from "./sequence.js";
 
 export function placeCreatedOccurrence(
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-create" }>,
+  authoredAction: Extract<FactAction["action"], { kind: "placement-create" }>,
   occurrences: Map<string, MutableOccurrence>,
   childOccurrences: Map<string, string[]>,
   nodes: ReadonlyMap<string, MutableNode>,
-  createdIdentities: Set<string>,
-): void {
+): boolean {
+  const existing = occurrences.get(authoredAction.placementId);
   if (
-    !nodes.has(mutation.nodeId) ||
-    createdIdentities.has(mutation.occurrenceId) ||
-    hasPlacement(occurrences, mutation.nodeId, mutation.parentNodeId)
+    !nodes.has(authoredAction.nodeId) ||
+    (existing !== undefined && existing.nodeId !== authoredAction.nodeId) ||
+    hasPlacement(occurrences, authoredAction.nodeId, authoredAction.parentNodeId, authoredAction.placementId)
   ) {
-    return;
+    return false;
   }
-  createdIdentities.add(mutation.occurrenceId);
+  if (existing) {
+    const siblings = childOccurrences.get(existing.parentNodeId);
+    if (siblings) {
+      const index = siblings.indexOf(authoredAction.placementId);
+      if (index >= 0) {
+        siblings.splice(index, 1);
+      }
+    }
+  }
   placeOccurrence(
     occurrences,
     childOccurrences,
-    newOccurrence(mutation.occurrenceId, mutation.nodeId, mutation.parentNodeId),
-    mutation.anchor,
+    newOccurrence(authoredAction.placementId, authoredAction.nodeId, authoredAction.parentNodeId),
+    authoredAction.anchor,
     nodes,
   );
+  return occurrences.get(authoredAction.placementId)?.parentNodeId === authoredAction.parentNodeId;
 }
 
-export function hasPlacement(
+function hasPlacement(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   nodeId: string,
   parentNodeId: string,
@@ -40,12 +49,7 @@ export function hasPlacement(
   );
 }
 
-export function newOccurrence(
-  occurrenceId: string,
-  nodeId: string,
-  parentNodeId: string,
-  derived = false,
-): MutableOccurrence {
+function newOccurrence(occurrenceId: string, nodeId: string, parentNodeId: string, derived = false): MutableOccurrence {
   return {
     occurrenceId,
     nodeId,
@@ -54,7 +58,7 @@ export function newOccurrence(
   };
 }
 
-export function placeOccurrence(
+function placeOccurrence(
   occurrences: Map<string, MutableOccurrence>,
   childOccurrences: Map<string, string[]>,
   occurrence: MutableOccurrence,
@@ -66,14 +70,4 @@ export function placeOccurrence(
   }
   occurrences.set(occurrence.occurrenceId, occurrence);
   insertAtAnchor(listFor(childOccurrences, occurrence.parentNodeId), occurrence.occurrenceId, anchor);
-}
-
-export function createdOccurrenceNodeId(active: readonly ContributionFact[], occurrenceId: string): string | null {
-  for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (mutation.kind === "occurrence-create" && mutation.occurrenceId === occurrenceId) {
-      return mutation.nodeId;
-    }
-  }
-  return null;
 }

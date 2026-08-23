@@ -1,15 +1,21 @@
-import { isOccurrenceMutation, type ContributionFact, type IntrinsicNodeType } from "../fact/index.js";
-import type { InlineReferenceId } from "../fact/index.js";
-import type { TextAtom } from "./projection-types.js";
-import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
-import { hasUnrestoredDeletion, occurrenceDeletionIds } from "./field-content-deletion.js";
 import {
-  createdOccurrenceNodeId,
-  hasPlacement,
-  newOccurrence,
-  placeCreatedOccurrence,
-  placeOccurrence,
-} from "./occurrence-creation.js";
+  compareCausalOrder,
+  factObserves,
+  type FactAction,
+  type FactActionId,
+  type IntrinsicNodeType,
+} from "../fact/index.js";
+import type { InlineReferenceId } from "../fact/index.js";
+import { placeCreatedOccurrence } from "./occurrence-creation.js";
+import {
+  createPlacementProjectionContext,
+  isPlacementRemovalAction,
+  placementCreationForAction,
+  placementIdsForAction,
+  type PlacementProjectionContext,
+} from "./projection-placement.js";
+import type { TextAtom } from "./projection-types.js";
+import { removePlacement } from "./sequence.js";
 
 export type MutableOccurrence = {
   occurrenceId: string;
@@ -29,10 +35,10 @@ export type MutableInlineReference = {
   id: InlineReferenceId;
   targetNodeId: string;
   aliasNodeId?: string | null;
-  contributionId: string;
+  factActionId: FactActionId;
 };
 
-export type MutableNodeContentItem = TextAtom | MutableInlineReference;
+type MutableNodeContentItem = TextAtom | MutableInlineReference;
 
 export type AuthoredStructure = Readonly<{
   occurrences: Map<string, MutableOccurrence>;
@@ -40,58 +46,90 @@ export type AuthoredStructure = Readonly<{
 }>;
 
 export function createOccurrences(
-  active: readonly ContributionFact[],
+  workspaceNodeId: string,
+  active: readonly FactAction[],
   nodes: ReadonlyMap<string, MutableNode>,
 ): AuthoredStructure {
-  const occurrences = new Map<string, MutableOccurrence>();
-  const childOccurrences = new Map<string, string[]>();
-  const createdIdentities = new Set<string>();
-  const restoredDeletionIds = restoredOccurrenceDeletionIds(active);
-  const deletionIds = occurrenceDeletionIds(active);
-
-  for (const fact of active) {
-    const mutation = fact.body.mutation;
-    if (!isOccurrenceMutation(mutation)) {
-      continue;
+  const context = createPlacementProjectionContext(active);
+  const actionsByPlacement = placementActions(context);
+  const placements = [...actionsByPlacement].flatMap(([placementId, actions]) => {
+    const removalActions = actions.filter((action) => isPlacementRemovalAction(action));
+    const liveCreates = actions.filter(
+      (action) =>
+        placementCreationForAction(workspaceNodeId, action, placementId, context) !== null &&
+        !removalActions.some((removal) => actionObserves(removal, action)),
+    );
+    if (liveCreates.length === 0) {
+      return [];
     }
-    switch (mutation.kind) {
-      case "occurrence-create":
-        placeCreatedOccurrence(mutation, occurrences, childOccurrences, nodes, createdIdentities);
-        break;
-      case "occurrence-move": {
-        const occurrence = occurrences.get(mutation.occurrenceId);
-        if (
-          occurrence &&
-          nodes.has(mutation.parentNodeId) &&
-          !hasPlacement(occurrences, occurrence.nodeId, mutation.parentNodeId, mutation.occurrenceId)
-        ) {
-          removePlacement(childOccurrences, mutation.occurrenceId);
-          occurrence.parentNodeId = mutation.parentNodeId;
-          insertAtAnchor(listFor(childOccurrences, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
+    const moves = actions.filter(
+      (action) =>
+        action.action.kind === "placement-move" &&
+        !removalActions.some((removal) => actionObserves(removal, action)) &&
+        liveCreates.some((create) => actionObserves(action, create)),
+    );
+    const candidates = [...liveCreates]
+      .sort((left, right) => compareCausalOrder(right, left))
+      .flatMap((create) => {
+        const creation = placementCreationForAction(workspaceNodeId, create, placementId, context);
+        if (!creation) {
+          return [];
         }
+        return [...moves.filter((move) => actionObserves(move, create)), create]
+          .sort((left, right) => compareCausalOrder(right, left))
+          .flatMap((position) => {
+            const value = placementPosition(workspaceNodeId, position, placementId, context);
+            return value
+              ? [
+                  {
+                    action: {
+                      kind: "placement-create" as const,
+                      placementId,
+                      nodeId: creation.nodeId,
+                      parentNodeId: value.parentNodeId,
+                      anchor: value.anchor,
+                    },
+                    order: position,
+                    derived: creation.derived,
+                  },
+                ]
+              : [];
+          });
+      });
+    return [
+      {
+        candidates,
+        candidateIndex: 0,
+      },
+    ];
+  });
+
+  while (true) {
+    const occurrences = new Map<string, MutableOccurrence>();
+    const childOccurrences = new Map<string, string[]>();
+    let retry = false;
+    const ordered = placements
+      .flatMap((placement) => {
+        const candidate = placement.candidates[placement.candidateIndex];
+        return candidate ? [{ placement, candidate }] : [];
+      })
+      .sort((left, right) => compareCausalOrder(left.candidate.order, right.candidate.order));
+    for (const { placement, candidate } of ordered) {
+      if (!placeCreatedOccurrence(candidate.action, occurrences, childOccurrences, nodes)) {
+        placement.candidateIndex += 1;
+        retry = true;
         break;
       }
-      case "occurrence-delete":
-        if (!restoredDeletionIds.has(fact.id)) {
-          deleteOccurrence(mutation.occurrenceId, occurrences, childOccurrences);
-        }
-        break;
-      case "occurrence-restore":
-        applyOccurrenceRestore(
-          active,
-          mutation,
-          deletionIds,
-          restoredDeletionIds,
-          occurrences,
-          childOccurrences,
-          nodes,
-        );
-        break;
+      const occurrence = occurrences.get(candidate.action.placementId);
+      if (occurrence) {
+        occurrence.derived = candidate.derived;
+      }
+    }
+    if (!retry) {
+      removeOccurrencesWithMissingNodes(nodes, occurrences, childOccurrences);
+      return { occurrences, childOccurrences };
     }
   }
-
-  removeOccurrencesWithMissingNodes(nodes, occurrences, childOccurrences);
-  return { occurrences, childOccurrences };
 }
 
 function removeOccurrencesWithMissingNodes(
@@ -106,54 +144,39 @@ function removeOccurrencesWithMissingNodes(
   }
 }
 
-function restoredOccurrenceDeletionIds(active: readonly ContributionFact[]): ReadonlySet<string> {
-  return new Set(
-    active.flatMap((fact) =>
-      fact.body.mutation.kind === "occurrence-restore" ? [fact.body.mutation.deletionFactId] : [],
-    ),
-  );
+function placementActions(context: PlacementProjectionContext): ReadonlyMap<string, readonly FactAction[]> {
+  const result = new Map<string, FactAction[]>();
+  for (const action of context.active) {
+    for (const placementId of placementIdsForAction(action, context)) {
+      const actions = result.get(placementId) ?? [];
+      actions.push(action);
+      result.set(placementId, actions);
+    }
+  }
+  return result;
 }
 
-function applyOccurrenceRestore(
-  active: readonly ContributionFact[],
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-restore" }>,
-  deletionIds: ReadonlyMap<string, readonly string[]>,
-  restoredDeletionIds: ReadonlySet<string>,
-  occurrences: Map<string, MutableOccurrence>,
-  childOccurrences: Map<string, string[]>,
-  nodes: ReadonlyMap<string, MutableNode>,
-): void {
-  if (hasUnrestoredDeletion(mutation.occurrenceId, deletionIds, restoredDeletionIds)) {
-    return;
+function placementPosition(
+  workspaceNodeId: string,
+  action: FactAction,
+  placementId: string,
+  context: PlacementProjectionContext,
+): Readonly<{
+  parentNodeId: string;
+  anchor: Extract<FactAction["action"], { kind: "placement-create" }>["anchor"];
+}> | null {
+  const creation = placementCreationForAction(workspaceNodeId, action, placementId, context);
+  if (creation) {
+    return creation;
   }
-  restoreOccurrence(active, mutation, occurrences, childOccurrences, nodes);
+  const authoredAction = action.action;
+  return authoredAction.kind === "placement-move"
+    ? { parentNodeId: authoredAction.parentNodeId, anchor: authoredAction.anchor }
+    : null;
 }
 
-function restoreOccurrence(
-  active: readonly ContributionFact[],
-  mutation: Extract<ContributionFact["body"]["mutation"], { kind: "occurrence-restore" }>,
-  occurrences: Map<string, MutableOccurrence>,
-  childOccurrences: Map<string, string[]>,
-  nodes: ReadonlyMap<string, MutableNode>,
-): void {
-  const nodeId = createdOccurrenceNodeId(active, mutation.occurrenceId);
-  if (nodeId === null || !nodes.has(nodeId)) {
-    return;
-  }
-  const existing = occurrences.get(mutation.occurrenceId);
-  if (existing) {
-    removePlacement(childOccurrences, mutation.occurrenceId);
-    existing.parentNodeId = mutation.parentNodeId;
-    insertAtAnchor(listFor(childOccurrences, mutation.parentNodeId), mutation.occurrenceId, mutation.anchor);
-    return;
-  }
-  placeOccurrence(
-    occurrences,
-    childOccurrences,
-    newOccurrence(mutation.occurrenceId, nodeId, mutation.parentNodeId),
-    mutation.anchor,
-    nodes,
-  );
+function actionObserves(observer: FactAction, observed: FactAction): boolean {
+  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 function deleteOccurrence(

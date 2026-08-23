@@ -23,49 +23,33 @@ import {
   workspaceTrashOccurrenceId,
   workspaceSchemaNodeId,
 } from "./identity.js";
-import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE, WORKSPACE_INTRINSIC_NODE_TYPE } from "./intrinsic-node-type-types.js";
-import type { Mutation } from "./types.js";
+import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE } from "./intrinsic-node-type-types.js";
+import type { AuthoredAction } from "./types.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-export function workspaceGenesisMutations(workspaceId: string): readonly [Mutation, ...Mutation[]] {
+export function workspaceGenesisActions(workspaceId: string): readonly [AuthoredAction, ...AuthoredAction[]] {
   return [
-    { kind: "node-create", nodeId: workspaceId },
-    { kind: "intrinsic-node-type-declare", nodeId: workspaceId, intrinsicNodeType: WORKSPACE_INTRINSIC_NODE_TYPE },
+    { kind: "workspace-bootstrap", workspaceNodeId: workspaceId },
     {
       kind: "node-create",
       nodeId: workspaceSchemaNodeId(workspaceId),
+      ownerNodeId: workspaceId,
+      originalPlacement: null,
       seed: { text: [{ value: "Schema", attributes: {} }] },
     },
     {
-      kind: "node-owner-set",
-      nodeId: workspaceSchemaNodeId(workspaceId),
-      ownerNodeId: workspaceId,
-      previousOwnerNodeId: null,
-    },
-    {
       kind: "node-create",
       nodeId: workspaceTrashNodeId(workspaceId),
+      ownerNodeId: workspaceId,
+      originalPlacement: { placementId: workspaceTrashOccurrenceId(workspaceId), anchor: end },
       seed: { text: [{ value: "Trash", attributes: {} }] },
     },
-    {
-      kind: "node-owner-set",
-      nodeId: workspaceTrashNodeId(workspaceId),
-      ownerNodeId: workspaceId,
-      previousOwnerNodeId: null,
-    },
-    {
-      kind: "occurrence-create",
-      occurrenceId: workspaceTrashOccurrenceId(workspaceId),
-      nodeId: workspaceTrashNodeId(workspaceId),
-      parentNodeId: workspaceId,
-      anchor: end,
-    },
-    ...systemDefinitionCatalogMutations(workspaceId),
+    ...systemDefinitionCatalogActions(workspaceId),
   ];
 }
 
-function systemDefinitionCatalogMutations(workspaceId: string): readonly Mutation[] {
+function systemDefinitionCatalogActions(workspaceId: string): readonly AuthoredAction[] {
   const nodes = [
     [SYSTEM_DEFINITION_CATALOG_NODE_ID, "System Definitions", workspaceId],
     [NODE_SUPERTAGS_DEFINITION_NODE_ID, "Node supertags(s)", SYSTEM_DEFINITION_CATALOG_NODE_ID],
@@ -122,22 +106,12 @@ function systemDefinitionCatalogMutations(workspaceId: string): readonly Mutatio
     VIEW_SORT_ORDER_DEFINITION_NODE_ID,
     VIEW_SORT_FIELD_DEFINITION_NODE_ID,
   ]);
-  return nodes.flatMap(([nodeId, title, ownerNodeId]): readonly Mutation[] => [
-    { kind: "node-create", nodeId, seed: { text: [{ value: title, attributes: {} }] } },
-    {
-      kind: "node-owner-set",
-      nodeId,
-      ownerNodeId,
-      previousOwnerNodeId: null,
-    },
-    ...(fieldDefinitionIds.has(nodeId)
-      ? [
-          {
-            kind: "intrinsic-node-type-declare" as const,
-            nodeId,
-            intrinsicNodeType: FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
-          },
-        ]
-      : []),
-  ]);
+  return nodes.map(([nodeId, title, ownerNodeId]): AuthoredAction => ({
+    kind: "node-create",
+    nodeId,
+    ownerNodeId,
+    originalPlacement: null,
+    seed: { text: [{ value: title, attributes: {} }] },
+    ...(fieldDefinitionIds.has(nodeId) ? { intrinsicNodeType: FIELD_DEFINITION_INTRINSIC_NODE_TYPE } : {}),
+  }));
 }

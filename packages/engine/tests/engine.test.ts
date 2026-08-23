@@ -82,7 +82,7 @@ describe("Engine composition", () => {
       if (key) {
         (event.frontier as Record<string, number>)[key] = 999;
       }
-      throw new Error("injected public listener failure after mutation attempt");
+      throw new Error("injected public listener failure after action attempt");
     });
     engine.api.application.subscribe((event) => events.push(event.kind));
 
@@ -109,7 +109,7 @@ describe("Engine composition", () => {
       ...createNodeCommand(actor),
       invocationId: "mobile-node",
       historyChannelId: "mobile",
-      mutations: [
+      actions: [
         {
           kind: "node-create",
           occurrenceId: "mobile-node-original",
@@ -228,7 +228,7 @@ describe("Engine composition", () => {
           ...createNodeCommand(actor),
           invocationId: "proposal-create",
           intent: "proposal",
-          mutations: [
+          actions: [
             {
               kind: "node-create",
               occurrenceId: "proposal-node-original",
@@ -334,7 +334,7 @@ describe("Engine composition", () => {
       const rightWrite = await right.api.application.execute({
         ...createNodeCommand(owner),
         invocationId: "right-node",
-        mutations: [
+        actions: [
           {
             kind: "node-create",
             occurrenceId: "right-node-original",
@@ -465,13 +465,13 @@ class InProcessPeerNetwork {
 
 function createNodeCommand(actorId: string) {
   return {
-    kind: "mutate",
+    kind: "edit",
     workspaceId: "workspace",
     invocationId: "create-node",
     actorId,
     intent: "direct",
     historyChannelId: "desktop",
-    mutations: [
+    actions: [
       {
         kind: "node-create",
         occurrenceId: "node-original",

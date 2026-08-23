@@ -1,10 +1,10 @@
-import { canonicalJson, type ContributionFact, type JsonValue, type PreviousValue } from "../fact/index.js";
+import { canonicalJson, type FactAction, type JsonValue, type PreviousValue } from "../fact/index.js";
 import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { TextDecisionEffect } from "./types.js";
 
 export function textEffect(
   nodeId: string,
-  targets: readonly ContributionFact[],
+  targets: readonly FactAction[],
   generation: ScopedProjectionGeneration,
 ): TextDecisionEffect {
   const origin = textAtoms(generation.origin.nodes[nodeId]);
@@ -13,18 +13,16 @@ export function textEffect(
   const reviewById = new Map(review.map((atom) => [atom.id, atom]));
   const targetIds = new Set(targets.map((target) => target.id));
   const targetDeletedIds = new Set(
-    targets.flatMap((target) =>
-      target.body.mutation.kind === "text-splice" ? target.body.mutation.deleteAtomIds : [],
-    ),
+    targets.flatMap((target) => (target.action.kind === "rich-text-splice" ? target.action.deleteAtomIds : [])),
   );
   const targetMarks = new Set(
     targets.flatMap((target) => {
-      const mutation = target.body.mutation;
-      return mutation.kind === "text-mark" ? mutation.atomIds.map((atomId) => `${atomId}/${mutation.key}`) : [];
+      const action = target.action;
+      return action.kind === "rich-text-mark" ? action.atomIds.map((atomId) => `${atomId}/${action.key}`) : [];
     }),
   );
   const addedAtomIds = review
-    .filter((atom) => !originById.has(atom.id) && targetIds.has(atom.contributionId))
+    .filter((atom) => !originById.has(atom.id) && targetIds.has(atom.factActionId))
     .map((atom) => atom.id);
   const deletedAtomIds = origin
     .filter((atom) => !reviewById.has(atom.id) && targetDeletedIds.has(atom.id))
@@ -55,10 +53,10 @@ export function hasTextEffect(effect: TextDecisionEffect): boolean {
   return effect.addedAtomIds.length + effect.deletedAtomIds.length + effect.markChanges.length > 0;
 }
 
-export function isTextMutation(
-  mutation: ContributionFact["body"]["mutation"],
-): mutation is Extract<ContributionFact["body"]["mutation"], { kind: "text-splice" | "text-mark" }> {
-  return mutation.kind === "text-splice" || mutation.kind === "text-mark";
+export function isTextAction(
+  action: FactAction["action"],
+): action is Extract<FactAction["action"], { kind: "rich-text-splice" | "rich-text-mark" }> {
+  return action.kind === "rich-text-splice" || action.kind === "rich-text-mark";
 }
 
 function attributeState(values: Readonly<Record<string, JsonValue>>, key: string): PreviousValue {
