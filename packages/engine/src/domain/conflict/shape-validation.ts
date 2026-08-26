@@ -1,6 +1,7 @@
 import {
   isIntrinsicNodeType,
   isAuthoredActionKind,
+  isGraphActionKind,
   parseFactFrontier as frontier,
   parseSequenceAnchor as sequenceAnchor,
   requireFactActionId,
@@ -35,7 +36,7 @@ export function parseConflictIssue(value: unknown): ConflictIssue {
     if (recoveryActions.length !== 1 || recoveryActions[0] !== "restore-support") {
       throw new Error("Unsupported Direct intent recovery actions are invalid");
     }
-    if (!isAuthoredActionKind(issue.actionKind)) {
+    if (!isAuthoredActionKind(issue.actionKind) || !isGraphActionKind(issue.actionKind)) {
       throw new Error("Unsupported Direct intent AuthoredAction kind is invalid");
     }
     return {

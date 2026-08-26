@@ -1,4 +1,4 @@
-import type { FactAction } from "../fact/index.js";
+import { actionIdentityProducers, type FactAction } from "../fact/index.js";
 import { isPresentNodeOutsideTrash } from "./node-graph.js";
 import { projectionRule } from "./projection-rule.js";
 import { deriveSupertagRelations } from "./supertag-relations.js";
@@ -58,13 +58,8 @@ export const supertagProjectionRule = projectionRule({
 
 function knownNodeIds(active: readonly FactAction[]): ReadonlySet<string> {
   return new Set(
-    active.flatMap((fact) => {
-      const authoredAction = fact.action;
-      return authoredAction.kind === "node-create"
-        ? [authoredAction.nodeId]
-        : authoredAction.kind === "workspace-bootstrap"
-          ? [authoredAction.workspaceNodeId]
-          : [];
-    }),
+    active.flatMap((fact) =>
+      actionIdentityProducers(fact.action).flatMap((identity) => (identity.kind === "node" ? [identity.nodeId] : [])),
+    ),
   );
 }

@@ -1,11 +1,9 @@
 import {
   canonicalJson,
   parseAuthorityReceipt,
-  stableStringCompare,
   validateReceipts,
   type AuthorityReceipt,
   type Fact,
-  type FactId,
   type InvocationId,
   type ReplicaId,
   type WorkspaceId,
@@ -26,7 +24,6 @@ type LocalReceiptStoreOptions = Readonly<{
 export class LocalReceiptStore {
   private readonly byInvocation = new Map<InvocationId, AuthorityReceipt>();
   private readonly byChannel = new Map<string, AuthorityReceipt[]>();
-  private readonly historyInvocationIdsByFact = new Map<string, Set<string>>();
 
   private constructor(
     private readonly options: LocalReceiptStoreOptions,
@@ -54,35 +51,11 @@ export class LocalReceiptStore {
   }
 
   receipts(): readonly AuthorityReceipt[] {
-    return [...this.byInvocation.values()].sort(
-      (left, right) =>
-        (left.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) - (right.lineage?.ordinal ?? Number.MAX_SAFE_INTEGER) ||
-        stableStringCompare(left.invocationId, right.invocationId),
-    );
+    return [...this.byInvocation.values()];
   }
 
   receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
     return [...(this.byChannel.get(channelId) ?? [])];
-  }
-
-  lastReceiptForChannel(channelId: string): AuthorityReceipt | null {
-    return this.byChannel.get(channelId)?.at(-1) ?? null;
-  }
-
-  historyImpacts(factIds: readonly FactId[]): readonly Readonly<{ channelId: string; invocationId: string }>[] {
-    const invocationIds = new Set(
-      factIds.flatMap((factId) => [...(this.historyInvocationIdsByFact.get(factId) ?? [])]),
-    );
-    return [...invocationIds]
-      .flatMap((invocationId) => {
-        const receipt = this.byInvocation.get(invocationId);
-        return receipt?.lineage ? [{ channelId: receipt.lineage.channelId, invocationId }] : [];
-      })
-      .sort(
-        (left, right) =>
-          stableStringCompare(left.channelId, right.channelId) ||
-          stableStringCompare(left.invocationId, right.invocationId),
-      );
   }
 
   stageAppend(receipt: AuthorityReceipt): StagedReceiptAppend {
@@ -108,11 +81,6 @@ export class LocalReceiptStore {
     }
     channel.push(receipt);
     this.byChannel.set(channelId, channel);
-    for (const factId of receipt.factIds) {
-      const invocationIds = this.historyInvocationIdsByFact.get(factId) ?? new Set<string>();
-      invocationIds.add(receipt.invocationId);
-      this.historyInvocationIdsByFact.set(factId, invocationIds);
-    }
   }
 
   private async compactIfNeeded(): Promise<void> {

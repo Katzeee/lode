@@ -4,7 +4,7 @@ import {
   isTextAction,
   type FactAction,
   type JsonValue,
-  type AuthoredAction,
+  type GraphAction,
   type TextAtomId,
 } from "../fact/index.js";
 import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
@@ -16,7 +16,6 @@ export function compensateContentAction(
   activeFacts: readonly FactAction[],
   projection: ScopedProjection,
   counterfactual: ScopedProjection,
-  inverseHints: readonly AuthoredAction[],
 ): CompensationStep | null {
   const authoredAction = target.action;
   if (!isTextAction(authoredAction)) {
@@ -26,7 +25,7 @@ export function compensateContentAction(
     case "rich-text-splice":
       return compensateTextSplice(target, activeFacts, projection, counterfactual);
     case "rich-text-mark":
-      return compensateTextMark(target, targetIds, activeFacts, projection, counterfactual, inverseHints);
+      return compensateTextMark(target, targetIds, activeFacts, projection, counterfactual);
   }
 }
 
@@ -113,7 +112,7 @@ function compensateTextSplice(
 }
 
 function currentTextAnchor(
-  original: Extract<AuthoredAction, { kind: "rich-text-splice" }>["anchor"],
+  original: Extract<GraphAction, { kind: "rich-text-splice" }>["anchor"],
   targetIds: readonly string[],
   atoms: readonly Readonly<{ id: string }>[],
 ) {
@@ -154,7 +153,7 @@ function restoreGroups(
 }
 
 function anchorPrepends(
-  anchor: Extract<AuthoredAction, { kind: "rich-text-splice" }>["anchor"],
+  anchor: Extract<GraphAction, { kind: "rich-text-splice" }>["anchor"],
   atoms: readonly Readonly<{ id: string }>[],
 ): boolean {
   const after = anchor.after !== null && atoms.some((atom) => atom.id === anchor.after);
@@ -171,7 +170,6 @@ function compensateTextMark(
   activeFacts: readonly FactAction[],
   projection: ScopedProjection,
   counterfactual: ScopedProjection,
-  inverseHints: readonly AuthoredAction[],
 ): CompensationStep {
   const authoredAction = target.action;
   if (authoredAction.kind !== "rich-text-mark") {
@@ -196,21 +194,12 @@ function compensateTextMark(
     (id) =>
       !independentlyMarked.has(id) && textAtoms(projection.nodes[authoredAction.nodeId]).some((atom) => atom.id === id),
   );
-  const inverseHint = inverseHints.find(
-    (candidate) =>
-      candidate.kind === "rich-text-mark" &&
-      candidate.nodeId === authoredAction.nodeId &&
-      candidate.key === authoredAction.key &&
-      canonicalJson([...candidate.atomIds].sort()) === canonicalJson([...authoredAction.atomIds].sort()),
-  );
   const previousValues = liveIds.map((id) =>
-    inverseHint?.kind === "rich-text-mark"
-      ? inverseHint.value
-      : previousValue(
-          textAtoms(counterfactual.nodes[authoredAction.nodeId]).find((atom) => atom.id === id)?.attributes[
-            authoredAction.key
-          ],
-        ),
+    previousValue(
+      textAtoms(counterfactual.nodes[authoredAction.nodeId]).find((atom) => atom.id === id)?.attributes[
+        authoredAction.key
+      ],
+    ),
   );
   const previous = previousValues[0];
   if (previous === undefined) {

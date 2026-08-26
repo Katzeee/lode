@@ -74,10 +74,6 @@ export class FactAuthority implements FactAuthorityPort {
     return this.store.relatedFactsOwningActions(actionIds);
   }
 
-  historyImpacts(nodeId: string) {
-    return this.receiptStore.historyImpacts(this.store.relatedFactIdsForNode(nodeId));
-  }
-
   commit = (input: AuthorityCommit): Promise<AuthorityCommitResult> =>
     this.serial.run(() => this.commitExclusive(input));
 
@@ -114,14 +110,8 @@ export class FactAuthority implements FactAuthorityPort {
       factIds: committedFacts.map((fact) => fact.id),
       committedFrontier: facts.snapshot.frontier,
       lineage: input.lineage,
-      inverse: input.inverse,
     };
-    validatePlannedReceiptAppend(
-      this.options.workspaceId,
-      authorityReceipt,
-      committedFacts,
-      input.lineage ? this.receiptStore.lastReceiptForChannel(input.lineage.channelId) : null,
-    );
+    validatePlannedReceiptAppend(this.options.workspaceId, authorityReceipt, committedFacts);
     const receipt = this.receiptStore.stageAppend(authorityReceipt);
     await this.options.documents.appendUpdates([facts.update, receipt.update]);
     facts.apply();

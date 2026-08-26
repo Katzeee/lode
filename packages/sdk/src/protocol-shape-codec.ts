@@ -21,29 +21,21 @@ import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-
 import { fromSearchClause, toSearchClause } from "./protocol-search-expression-codec.js";
 
 export function toReviewSelection(selection: ReviewSelection): Record<string, unknown> {
-  const value = toProtocolValue(selection) as Record<string, unknown>;
-  value.evidence = {
-    ...(toProtocolValue(selection.evidence) as Record<string, unknown>),
-    effects: selection.evidence.effects.map(toDecisionEffect),
-  };
-  return toProtocolMessage(ReviewSelectionSchema, value) as Record<string, unknown>;
+  return toProtocolMessage(ReviewSelectionSchema, toProtocolValue(selection)) as Record<string, unknown>;
 }
 
 export function fromReviewSelection(value: unknown): ReviewSelection {
-  const decoded = fromProtocolMessage(ReviewSelectionSchema, value) as Record<string, unknown>;
-  const selection = fromProtocolValue(decoded) as Record<string, unknown>;
-  const evidence = required(selection.evidence as Record<string, unknown> | null, "Review evidence");
-  selection.evidence = {
-    ...evidence,
-    effects: (evidence.effects as readonly unknown[]).map(fromDecisionEffect),
-  };
-  return selection as ReviewSelection;
+  return fromProtocolValue(fromProtocolMessage(ReviewSelectionSchema, value)) as ReviewSelection;
 }
 
 export function toReviewQuery(value: ReviewQuery): Record<string, unknown> {
   const result = toProtocolValue(value) as Record<string, unknown>;
   result.hunks = value.hunks.map((hunk) => ({
     ...(toProtocolValue(hunk) as Record<string, unknown>),
+    evidence: {
+      ...(toProtocolValue(hunk.evidence) as Record<string, unknown>),
+      effects: hunk.evidence.effects.map(toDecisionEffect),
+    },
     selection: toReviewSelection(hunk.selection),
   }));
   return toProtocolMessage(ReviewQueryResultSchema, result) as Record<string, unknown>;
@@ -52,10 +44,17 @@ export function toReviewQuery(value: ReviewQuery): Record<string, unknown> {
 export function fromReviewQuery(value: unknown): ReviewQuery {
   const decoded = fromProtocolMessage(ReviewQueryResultSchema, value) as Record<string, unknown>;
   const result = fromProtocolValue(decoded) as Record<string, unknown>;
-  result.hunks = (result.hunks as readonly Record<string, unknown>[]).map((hunk) => ({
-    ...hunk,
-    selection: fromReviewSelection(hunk.selection),
-  }));
+  result.hunks = (result.hunks as readonly Record<string, unknown>[]).map((hunk) => {
+    const evidence = required(hunk.evidence as Record<string, unknown> | null, "Review evidence");
+    return {
+      ...hunk,
+      evidence: {
+        ...evidence,
+        effects: (evidence.effects as readonly unknown[]).map(fromDecisionEffect),
+      },
+      selection: fromReviewSelection(hunk.selection),
+    };
+  });
   return result as ReviewQuery;
 }
 

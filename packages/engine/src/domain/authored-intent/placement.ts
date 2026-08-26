@@ -1,14 +1,15 @@
-import { workspaceTrashOccurrenceId, type AuthoredAction, type PlacementAction } from "../fact/index.js";
+import {
+  graphActionKindsInFamily,
+  workspaceTrashOccurrenceId,
+  type AuthoredAction,
+  type PlacementAction,
+} from "../fact/index.js";
 import { isPresentNodeOutsideTrash, type ScopedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
 type MutablePlacementAction = Extract<AuthoredAction, { kind: "placement-move" | "placement-remove" }>;
 
-const PLACEMENT_ACTION_KINDS = [
-  "placement-create",
-  "placement-remove",
-  "placement-move",
-] as const satisfies readonly PlacementAction["kind"][];
+const PLACEMENT_ACTION_KINDS = graphActionKindsInFamily("placement");
 
 export const placementAuthoredIntent = {
   key: "placement",

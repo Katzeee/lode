@@ -59,10 +59,6 @@ export class FactStoreCache {
   relatedFactsOwningActions(actionIds: readonly FactActionId[]): readonly Fact[] {
     return this.index.relatedFactsOwningActions(actionIds);
   }
-
-  relatedFactIdsForNode(nodeId: string): readonly FactId[] {
-    return this.index.relatedFactIdsForNode(nodeId);
-  }
 }
 
 function mergeFacts(left: readonly Fact[], right: readonly Fact[]): readonly Fact[] {

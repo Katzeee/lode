@@ -10,7 +10,6 @@ const LOCAL_REPLICA_DOCUMENT_ID = "local-replica";
 
 type LocalReplica = Readonly<{
   loroPeerId: `${number}`;
-  reviewCapabilityKey: string;
 }>;
 
 export async function createWorkspaceFromStorage(
@@ -31,7 +30,6 @@ export async function createWorkspaceFromStorage(
       workspaceId: storage.workspaceId,
       facts,
       versions: CURRENT_PROJECTION_VERSIONS,
-      reviewCapabilityKey: local.reviewCapabilityKey,
       seedGenesis: false,
       eventSink: options.eventSink,
       storage,
@@ -69,7 +67,6 @@ async function loadOrCreateLocalReplica(documents: WorkspaceStorage["metadata"])
   }
   const local = {
     loroPeerId: createLoroPeerId(),
-    reviewCapabilityKey: randomBytes(32).toString("hex"),
   } as const;
   await documents.writeSnapshot(LOCAL_REPLICA_DOCUMENT_ID, new TextEncoder().encode(JSON.stringify(local)));
   return local;
@@ -89,9 +86,8 @@ function isLocalReplica(value: unknown): value is LocalReplica {
   }
   const candidate = value as Record<string, unknown>;
   return (
+    Object.keys(candidate).length === 1 &&
     typeof candidate.loroPeerId === "string" &&
-    /^\d+$/.test(candidate.loroPeerId) &&
-    typeof candidate.reviewCapabilityKey === "string" &&
-    /^[a-f\d]{64}$/.test(candidate.reviewCapabilityKey)
+    /^\d+$/.test(candidate.loroPeerId)
   );
 }

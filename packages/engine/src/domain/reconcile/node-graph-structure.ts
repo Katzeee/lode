@@ -1,5 +1,5 @@
 import type { FactAction } from "../fact/index.js";
-import { nodeDeletionActionIds } from "../maintenance/index.js";
+import { nodeDeletionActionIds } from "./deletion-finalization.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
 import { projectWorkspaceSystemNodes, type WorkspaceSystemNodes } from "./workspace-system-nodes.js";

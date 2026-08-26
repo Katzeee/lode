@@ -3,7 +3,7 @@ import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js
 import {
   CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
   URL_DEFINITION_NODE_ID,
-  type AuthoredAction,
+  type GraphAction,
   type NodeSeed,
 } from "../../../domain/fact/index.js";
 import { nodeLocation, type MaterializedField, type ScopedProjection } from "../../../domain/reconcile/index.js";
@@ -136,7 +136,7 @@ function ensureMaterializedField(
   fieldNodeId: string,
   fieldOccurrenceId: string,
   available: ScopedProjection,
-): readonly AuthoredAction[] {
+): readonly GraphAction[] {
   const existing = fieldFor(available, ownerNodeId, fieldDefinitionId);
   if (existing !== undefined) {
     if (existing.fieldNodeId !== fieldNodeId || existing.fieldOccurrenceId !== fieldOccurrenceId) {
@@ -179,7 +179,7 @@ function textSeed(value: string): NodeSeed {
   return { text: [{ value, attributes: {} }] };
 }
 
-function nonemptyBatch(actions: readonly AuthoredAction[]): AuthoredActionBatch {
+function nonemptyBatch(actions: readonly GraphAction[]): AuthoredActionBatch {
   const first = actions[0];
   if (first === undefined) {
     throw new Error("Composite edit contains no actions");

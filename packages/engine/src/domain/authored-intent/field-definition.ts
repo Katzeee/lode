@@ -4,15 +4,11 @@ import {
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   FIELD_OPTIONALITY_NODE_IDS,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  type FieldDefinitionAction,
+  graphActionKindsInFamily,
 } from "../fact/index.js";
 import type { AuthoredIntentFamily } from "./policy.js";
 
-const ACTION_KINDS = [
-  "field-configuration-set",
-  "field-definition-make-discoverable",
-  "field-definition-return-to-template-field",
-] as const satisfies readonly FieldDefinitionAction["kind"][];
+const ACTION_KINDS = graphActionKindsInFamily("fieldDefinition");
 
 export const fieldDefinitionAuthoredIntent = {
   key: "field-definition",

@@ -5,12 +5,13 @@ import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.j
 import type { EditAction } from "../../domain/edit/index.js";
 import {
   factActionsFromFacts,
+  graphActionBody,
   workspaceGenesisActions,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
   type EditIntent,
   type FactBody,
-  type EditBody,
+  type ActionBody,
 } from "../../domain/fact/index.js";
 import {
   CURRENT_PROJECTION_VERSIONS as versions,
@@ -55,14 +56,13 @@ describe("Fact-only production sync", () => {
       request: { kind: "test" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "dependency", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const dependent = await domainReplica("202");
@@ -73,14 +73,13 @@ describe("Fact-only production sync", () => {
       request: { kind: "test" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "dependent", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: dependent.snapshot().frontier,
     });
 
@@ -99,14 +98,13 @@ describe("Fact-only production sync", () => {
       request: { kind: "test" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "local", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
 
@@ -451,7 +449,7 @@ describe("Fact-only production sync", () => {
       request: { command: "create" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
@@ -459,12 +457,9 @@ describe("Fact-only production sync", () => {
       ],
       lineage: {
         channelId: "private-desktop-channel",
-        ordinal: 1,
-        parentStepId: null,
         operation: "normal",
         targetStepId: null,
       },
-      inverse: [],
       publishedFrontier: {},
     });
     const received = new LoroDoc();
@@ -556,14 +551,13 @@ describe("Fact-only production sync", () => {
       request: { command: "create" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "a",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const remote = new FactReplication(b.replication);
@@ -575,14 +569,13 @@ describe("Fact-only production sync", () => {
       request: { command: "tail" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "a",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "tail", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: a.snapshot().frontier,
     });
     expect(await new SyncExchange(new FactReplication(a.replication), transport).sync()).toMatchObject({ pushed: 1 });
@@ -611,7 +604,7 @@ describe("Fact-only production sync", () => {
         request: { index },
         writes: [
           {
-            kind: "edit",
+            kind: "action",
             actorId: "actor",
             intent: "direct",
             actions: [
@@ -625,7 +618,6 @@ describe("Fact-only production sync", () => {
           },
         ],
         lineage: null,
-        inverse: [],
         publishedFrontier: local.snapshot().frontier,
       });
     }
@@ -640,14 +632,13 @@ describe("Fact-only production sync", () => {
       request: { tail: true },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "restart-tail", ownerNodeId: "workspace", originalPlacement: null }],
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: local.snapshot().frontier,
     });
     expect(await new SyncExchange(new FactReplication(local.replication), transport).sync()).toMatchObject({
@@ -768,7 +759,6 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     request: { command: "workspace-genesis" },
     writes: [genesisBody()],
     lineage: null,
-    inverse: [],
     publishedFrontier: {},
   });
   await syncPair(required(composites[0], "first composite"), required(composites[1], "second composite"));
@@ -778,7 +768,6 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     request: { command: "proposal" },
     writes: [nodeTransaction("proposal", "a", "proposal")],
     lineage: null,
-    inverse: [],
     publishedFrontier: required(stores[0], "first store").snapshot().frontier,
   });
   await syncPair(required(composites[0], "first composite"), required(composites[1], "second composite"));
@@ -797,7 +786,6 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
       },
     ],
     lineage: null,
-    inverse: [],
     publishedFrontier: required(stores[1], "second store").snapshot().frontier,
   });
   await required(stores[2], "third store").commit({
@@ -814,7 +802,6 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
       },
     ],
     lineage: null,
-    inverse: [],
     publishedFrontier: required(stores[2], "third store").snapshot().frontier,
   });
   for (const [left, right] of edges) {
@@ -833,13 +820,13 @@ async function runTopology(edges: readonly (readonly [number, number])[]) {
     factIds: firstSnapshot.facts.map((fact) => fact.id).sort(),
     originNodeIds: Object.keys(generation.origin.nodes).sort(),
     reviewNodeIds: Object.keys(generation.review.nodes).sort(),
-    reviewHunkCount: queryReview("workspace", firstSnapshot, generation).hunks.length,
+    reviewHunkCount: queryReview(firstSnapshot, generation).hunks.length,
   };
 }
 
 function genesisBody(): FactBody {
   return {
-    kind: "edit",
+    kind: "action",
     actorId: "workspace-genesis",
     intent: "direct",
     actions: workspaceGenesisActions("workspace"),
@@ -879,23 +866,18 @@ function required<T>(value: T | undefined, label: string): T {
   return value;
 }
 
-function nodeTransaction(nodeId: string, actorId: string, intent: EditIntent): EditBody {
-  return {
-    kind: "edit",
-    actorId,
-    intent,
-    actions: [
-      {
-        kind: "node-create",
-        nodeId,
-        ownerNodeId: "workspace",
-        originalPlacement: {
-          placementId: `${nodeId}-original`,
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
-        },
+function nodeTransaction(nodeId: string, actorId: string, intent: EditIntent): ActionBody {
+  return graphActionBody(actorId, intent, [
+    {
+      kind: "node-create",
+      nodeId,
+      ownerNodeId: "workspace",
+      originalPlacement: {
+        placementId: `${nodeId}-original`,
+        anchor: { after: null, before: null, affinity: "after", fallback: "end" },
       },
-    ],
-  };
+    },
+  ]);
 }
 
 class CountingReplicaPeer {

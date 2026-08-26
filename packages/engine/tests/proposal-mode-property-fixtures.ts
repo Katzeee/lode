@@ -20,7 +20,7 @@ export function assertGeneratedPathEquivalence(facts: readonly Fact[], seed: num
     .map(
       (fact) =>
         `${fact.body.kind}/${
-          fact.body.kind === "edit"
+          fact.body.kind === "action"
             ? fact.body.actions.map((authoredAction) => authoredAction.kind).join("+")
             : fact.body.kind === "resolution"
               ? fact.body.decision

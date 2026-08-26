@@ -7,7 +7,7 @@ import {
   type Fact,
   type FactFrontier,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
 } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
@@ -25,7 +25,7 @@ export function remoteBranch(
   replicaId: string,
   observed: FactFrontier,
   lamport: number,
-  actions: readonly AuthoredAction[],
+  actions: readonly GraphAction[],
 ): readonly Fact[] {
   const ownedActions = withFieldDefinitionEndpoints(withInitialNodeRelations(actions));
   const [first, ...rest] = ownedActions;
@@ -37,7 +37,7 @@ export function remoteBranch(
           sequence: 1,
           observed,
           lamport,
-          body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
+          body: { kind: "action", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
         }),
       ]
     : [];

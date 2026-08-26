@@ -5,6 +5,7 @@ import {
   type FactActionId,
   type FactSnapshot,
   type AuthoredAction,
+  type ProposableAction,
 } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { fieldMaterializationReviewFamily } from "./field-materialization-review-family.js";
@@ -36,7 +37,7 @@ const REVIEW_FAMILIES = [
 type OwnedActionKind = (typeof REVIEW_FAMILIES)[number]["actionKinds"][number];
 type AssertNever<Value extends never> = Value;
 type ReviewedActionKind =
-  AssertNever<Exclude<AuthoredAction["kind"], OwnedActionKind>> extends never ? AuthoredAction["kind"] : never;
+  AssertNever<Exclude<ProposableAction["kind"], OwnedActionKind>> extends never ? ProposableAction["kind"] : never;
 
 const FAMILY_BY_ACTION = compileReviewFamilies(REVIEW_FAMILIES);
 
@@ -73,7 +74,7 @@ export function normalizedReviewEffects(
 }
 
 function familyFor(kind: AuthoredAction["kind"]): ReviewFamilyRule {
-  const family = FAMILY_BY_ACTION.get(kind);
+  const family = FAMILY_BY_ACTION.get(kind as ReviewedActionKind);
   if (!family) {
     throw new Error(`Review AuthoredAction has no family owner: ${kind}`);
   }

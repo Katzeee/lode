@@ -165,20 +165,19 @@ export type DecisionEffect =
   | FieldDefinitionConfigurationDecisionEffect;
 
 export type DecisionEvidence = Readonly<{
-  proposalTargets: readonly FactActionId[];
-  supportClosure: readonly FactActionId[];
+  proposalActionIds: readonly FactActionId[];
   effects: readonly DecisionEffect[];
   associatedImpactIds: readonly string[];
-  rulesVersion: string;
-  schemaVersion: string;
 }>;
 
 export type ReviewSelection = Readonly<{
-  token: string;
-  workspaceId: string;
-  frontier: FactFrontier;
-  generationId: string;
-  evidence: DecisionEvidence;
+  evidenceId: string;
+  proposalActionIds: readonly FactActionId[];
+}>;
+
+export type ReviewEvidence = Readonly<{
+  effects: readonly DecisionEffect[];
+  associatedImpactIds: readonly string[];
 }>;
 
 export type ReviewHunk = Readonly<{
@@ -198,9 +197,9 @@ export type ReviewHunk = Readonly<{
       | "field-definition-configuration";
     identity: string;
   }>;
-  proposalActionIds: readonly FactActionId[];
   neutralBridgeAtomIds: readonly TextAtomId[];
   linkedHunkIds: readonly string[];
+  evidence: ReviewEvidence;
   selection: ReviewSelection;
 }>;
 

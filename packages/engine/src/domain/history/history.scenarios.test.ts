@@ -17,6 +17,7 @@ describe("production History scenarios", () => {
     });
     const undoSelection = queryHistory("channel", fixture.receipts).undo!;
     const undoPlan = validateHistorySelection(
+      "undo",
       undoSelection,
       fixture.receipts,
       fixture.snapshot(),
@@ -35,6 +36,7 @@ describe("production History scenarios", () => {
 
     const redoSelection = queryHistory("channel", fixture.receipts).redo!;
     const redoPlan = validateHistorySelection(
+      "redo",
       redoSelection,
       fixture.receipts,
       fixture.snapshot(),
@@ -58,7 +60,7 @@ describe("production History scenarios", () => {
     expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual([]);
   });
 
-  it("rejects an immutable inverse when only part of its target remains attributable", () => {
+  it("compensates only the part of a step that remains attributable", () => {
     const fixture = baseFixture();
     const initial = fixture.fact({
       kind: "rich-text-splice",
@@ -93,9 +95,23 @@ describe("production History scenarios", () => {
       insert: "Z",
     });
     const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(selection, fixture.receipts, fixture.snapshot(), fixture.generation());
-    expect(plan.kind).toBe("stale");
-    expect(projectionText(fixture.generation().origin, "node")).toBe("ZY");
+    const plan = validateHistorySelection(
+      "undo",
+      selection,
+      fixture.receipts,
+      fixture.snapshot(),
+      fixture.generation(),
+    );
+    if (plan.kind !== "ready") {
+      throw new Error("Remaining attributable text must be compensable");
+    }
+    fixture.step({
+      invocationId: "undo-replace",
+      operation: "undo",
+      targetStepId: "replace",
+      actions: plan.writes.flatMap((batch) => batch.actions),
+    });
+    expect(projectionText(fixture.generation().origin, "node")).toBe("ZB");
   });
 
   it("History sees contingent Direct effects", () => {
@@ -121,7 +137,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(contingent.inverseActions("direct-on-proposal")).toHaveLength(1);
+    expect(contingent.compensationActions("direct-on-proposal")).toHaveLength(1);
   });
 
   it("Text 与 mark compensation", () => {
@@ -152,7 +168,13 @@ describe("production History scenarios", () => {
       insert: "X",
     });
     const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(selection, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const plan = validateHistorySelection(
+      "undo",
+      selection,
+      fixture.receipts,
+      fixture.snapshot(),
+      fixture.generation(),
+    );
     if (plan.kind !== "ready") {
       throw new Error("Text Undo must be ready");
     }
@@ -191,9 +213,9 @@ describe("production History scenarios", () => {
       key: "bold",
       value: { kind: "set", value: false },
     });
-    expect(marks.inverseActions("mark")[0]).toMatchObject({
+    expect(marks.compensationActions("mark")[0]).toMatchObject({
       kind: "rich-text-mark",
-      atomIds: [`${text.id}#0`, `${text.id}#1`],
+      atomIds: [`${text.id}#1`],
       value: { kind: "unset" },
     });
 
@@ -220,6 +242,7 @@ describe("production History scenarios", () => {
     });
     const nullableUndo = queryHistory("channel", nullableMark.receipts).undo!;
     const nullableUndoPlan = validateHistorySelection(
+      "undo",
       nullableUndo,
       nullableMark.receipts,
       nullableMark.snapshot(),
@@ -237,6 +260,7 @@ describe("production History scenarios", () => {
     expect(textAtoms(nullableMark.generation().origin.nodes.node)[0]?.attributes.nullable).toBeNull();
     const nullableRedo = queryHistory("channel", nullableMark.receipts).redo!;
     const nullableRedoPlan = validateHistorySelection(
+      "redo",
       nullableRedo,
       nullableMark.receipts,
       nullableMark.snapshot(),
@@ -280,7 +304,7 @@ describe("production History scenarios", () => {
       anchor: end,
       insert: "",
     });
-    expectUndoStale(deletion);
+    expectUndoUnavailable(deletion);
 
     const richDeletion = baseFixture();
     const richText = richDeletion.fact({
@@ -313,12 +337,12 @@ describe("production History scenarios", () => {
     if (!richUndo) {
       throw new Error("Mixed rich-text deletion must be compensable");
     }
-    expect(richDeletion.inverseActions("rich-delete")).toHaveLength(2);
+    expect(richDeletion.compensationActions("rich-delete")).toHaveLength(2);
     richDeletion.step({
       invocationId: "rich-undo",
       operation: "undo",
       targetStepId: "rich-delete",
-      actions: richDeletion.inverseActions("rich-delete"),
+      actions: richDeletion.compensationActions("rich-delete"),
     });
     expect(projectionText(richDeletion.generation().origin, "node")).toBe("AB");
     expect(textAtoms(richDeletion.generation().origin.nodes.node)[1]?.attributes).toEqual({
@@ -353,7 +377,7 @@ describe("production History scenarios", () => {
       insert: "Y",
     });
     expect(projectionText(replaced.generation().origin, "node")).toBe("Y");
-    expectUndoStale(replaced);
+    expectUndoUnavailable(replaced);
   });
 
   it("Create/Delete/Move/Canonical compensation", () => {
@@ -371,7 +395,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(nodeCreate.inverseActions("node-create")).toEqual([{ kind: "node-trash", nodeId: "created" }]);
+    expect(nodeCreate.compensationActions("node-create")).toEqual([{ kind: "node-trash", nodeId: "created" }]);
 
     const duplicateNodeCreate = new HistoryFixture();
     duplicateNodeCreate.step({
@@ -393,7 +417,7 @@ describe("production History scenarios", () => {
       ownerNodeId: "workspace",
       originalPlacement: null,
     });
-    expectUndoStale(duplicateNodeCreate);
+    expectUndoUnavailable(duplicateNodeCreate);
     const occurrenceCreate = new HistoryFixture();
     occurrenceCreate.fact({ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null });
     occurrenceCreate.step({
@@ -408,7 +432,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(occurrenceCreate.inverseActions("placement-create")[0]).toMatchObject({
+    expect(occurrenceCreate.compensationActions("placement-create")[0]).toMatchObject({
       kind: "placement-remove",
       placementId: "created-occurrence",
     });
@@ -418,7 +442,7 @@ describe("production History scenarios", () => {
       actions: [{ kind: "node-trash", nodeId: "node" }],
     });
     expect(deletion.factIds).toHaveLength(1);
-    expect(fixture.inverseActions("delete")).toEqual([
+    expect(fixture.compensationActions("delete")).toEqual([
       {
         kind: "node-restore",
         nodeId: "node",
@@ -433,7 +457,7 @@ describe("production History scenarios", () => {
       },
     ]);
     fixture.fact({ kind: "node-trash", nodeId: "node" });
-    expectUndoStale(fixture);
+    expectUndoUnavailable(fixture);
 
     const restoredIndependentDelete = baseFixture();
     const targetDelete = restoredIndependentDelete.step({
@@ -453,20 +477,7 @@ describe("production History scenarios", () => {
     });
     expect(independentDelete.action.kind).toBe("node-trash");
     expect(targetDelete.factIds).toHaveLength(1);
-    expect(restoredIndependentDelete.inverseActions("target-delete")).toEqual([
-      {
-        kind: "node-restore",
-        nodeId: "node",
-        placementId: "occurrence",
-        parentNodeId: "workspace",
-        anchor: {
-          after: "workspace-trash-occ:v1:workspace",
-          before: null,
-          affinity: "after",
-          fallback: "end",
-        },
-      },
-    ]);
+    expectUndoUnavailable(restoredIndependentDelete);
 
     const occurrenceDelete = baseFixture();
     occurrenceDelete.step({
@@ -478,7 +489,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(occurrenceDelete.inverseActions("placement-remove")[0]).toEqual({
+    expect(occurrenceDelete.compensationActions("placement-remove")[0]).toEqual({
       kind: "placement-create",
       placementId: "occurrence",
       nodeId: "node",
@@ -502,7 +513,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(occurrenceDelete.inverseActions("placement-create")[0]).toMatchObject({
+    expect(occurrenceDelete.compensationActions("placement-create")[0]).toMatchObject({
       kind: "placement-remove",
       placementId: "occurrence",
     });
@@ -513,7 +524,7 @@ describe("production History scenarios", () => {
       parentNodeId: "workspace",
       anchor: end,
     });
-    expectUndoStale(occurrenceDelete);
+    expectUndoUnavailable(occurrenceDelete);
 
     const neutralLaterMove = new HistoryFixture();
     neutralLaterMove.fact({ kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null });
@@ -549,7 +560,7 @@ describe("production History scenarios", () => {
       parentNodeId: "child",
       anchor: end,
     });
-    expectUndoStale(neutralLaterMove);
+    expectUndoUnavailable(neutralLaterMove);
 
     const move = baseFixture();
     move.fact({ kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null });
@@ -571,7 +582,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    expect(move.inverseActions("move")[0]).toMatchObject({
+    expect(move.compensationActions("move")[0]).toMatchObject({
       kind: "placement-move",
       parentNodeId: "workspace",
     });
@@ -581,7 +592,7 @@ describe("production History scenarios", () => {
       parentNodeId: "parent",
       anchor: { ...end, fallback: "start" },
     });
-    expectUndoStale(move);
+    expectUndoUnavailable(move);
 
     const missingDeleteParent = new HistoryFixture();
     missingDeleteParent.fact({
@@ -623,7 +634,7 @@ describe("production History scenarios", () => {
       kind: "placement-remove",
       placementId: "parent",
     });
-    expectUndoStale(missingDeleteParent);
+    expectUndoUnavailable(missingDeleteParent);
 
     const missingMoveParent = new HistoryFixture();
     missingMoveParent.facts.push(...missingDeleteParent.facts.slice(0, 4));
@@ -642,7 +653,7 @@ describe("production History scenarios", () => {
       kind: "placement-remove",
       placementId: "parent",
     });
-    expectUndoStale(missingMoveParent);
+    expectUndoUnavailable(missingMoveParent);
   });
 
   it("Proposal Redo restores Review work after net-zero Undo", () => {
@@ -653,7 +664,13 @@ describe("production History scenarios", () => {
       actions: [{ kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "proposal" }],
     });
     const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(selection, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const plan = validateHistorySelection(
+      "undo",
+      selection,
+      fixture.receipts,
+      fixture.snapshot(),
+      fixture.generation(),
+    );
     if (plan.kind !== "ready") {
       throw new Error("Proposal Undo must be ready");
     }
@@ -668,7 +685,7 @@ describe("production History scenarios", () => {
     if (!redo) {
       throw new Error("Proposal Redo selection must exist");
     }
-    const redoPlan = validateHistorySelection(redo, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const redoPlan = validateHistorySelection("redo", redo, fixture.receipts, fixture.snapshot(), fixture.generation());
     if (redoPlan.kind !== "ready") {
       throw new Error("Proposal Redo must be ready");
     }
@@ -679,7 +696,7 @@ describe("production History scenarios", () => {
       targetStepId: "proposal-undo",
       actions: redoPlan.writes.flatMap((batch) => batch.actions),
     });
-    expect(queryReview("workspace", fixture.snapshot(), fixture.generation()).hunks.length).toBeGreaterThan(0);
+    expect(queryReview(fixture.snapshot(), fixture.generation()).hunks.length).toBeGreaterThan(0);
   });
 
   it("rejects Redo after another History channel replaces its structural attribution", () => {
@@ -693,7 +710,7 @@ describe("production History scenarios", () => {
       actions: [{ kind: "placement-move", placementId: "occurrence", parentNodeId: "parent-a", anchor: end }],
     });
     const undo = queryHistory("channel-a", fixture.receipts).undo!;
-    const undoPlan = validateHistorySelection(undo, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const undoPlan = validateHistorySelection("undo", undo, fixture.receipts, fixture.snapshot(), fixture.generation());
     if (undoPlan.kind !== "ready") {
       throw new Error("Initial Undo must be ready");
     }
@@ -711,20 +728,20 @@ describe("production History scenarios", () => {
     });
 
     const redo = queryHistory("channel-a", fixture.receipts).redo!;
-    expect(validateHistorySelection(redo, fixture.receipts, fixture.snapshot(), fixture.generation()).kind).toBe(
-      "stale",
-    );
+    expect(
+      validateHistorySelection("redo", redo, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
+    ).toBe("unavailable");
   });
 });
 
-function expectUndoStale(fixture: HistoryFixture): void {
+function expectUndoUnavailable(fixture: HistoryFixture): void {
   const selection = queryHistory("channel", fixture.receipts).undo;
   if (!selection) {
     return;
   }
-  expect(validateHistorySelection(selection, fixture.receipts, fixture.snapshot(), fixture.generation()).kind).toBe(
-    "stale",
-  );
+  expect(
+    validateHistorySelection("undo", selection, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
+  ).toBe("unavailable");
 }
 
 function receiptActionId(factId: FactId | undefined): FactActionId {

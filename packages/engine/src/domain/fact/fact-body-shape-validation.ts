@@ -1,12 +1,13 @@
-import type { FactBody } from "./types.js";
+import { actionHasAdmission } from "./action-catalog.js";
+import { canonicalJson } from "./canonical.js";
+import type { AuthoredAction, FactBody } from "./types.js";
 import { assertGovernanceAction } from "./governance-shape-validation.js";
 import { requireFactIds } from "./identities.js";
-import { assertMaintenanceAction } from "./maintenance-shape-validation.js";
 import { assertKeys, assertObject, requireString } from "../../decoding/index.js";
 
 export function assertFactBody(
   value: unknown,
-  assertAuthoredAction: (action: unknown) => void,
+  parseAuthoredAction: (action: unknown) => AuthoredAction,
 ): asserts value is FactBody {
   assertObject(value, "Fact body");
   requireString(value.actorId, "Fact actor identity");
@@ -24,20 +25,30 @@ export function assertFactBody(
     requireFactIds(value.adjudicatesResolutionIds, "adjudicated Resolution identities", false);
     return;
   }
-  if (value.kind === "maintenance") {
-    assertKeys(value, ["kind", "actorId", "action"], "Maintenance Fact");
-    assertMaintenanceAction(value.action);
-    return;
-  }
-  if (value.kind !== "edit") {
+  if (value.kind !== "action") {
     throw new Error("Unknown Fact body kind");
   }
-  assertKeys(value, ["kind", "actorId", "intent", "actions"], "Edit Fact");
+  assertKeys(value, ["kind", "actorId", "intent", "actions"], "Action Fact");
   if (value.intent !== "direct" && value.intent !== "proposal") {
-    throw new Error("Invalid Edit intent shape");
+    throw new Error("Invalid Action intent shape");
   }
   if (!Array.isArray(value.actions) || value.actions.length === 0) {
-    throw new Error("Edit Fact actions must be non-empty");
+    throw new Error("Action Fact actions must be non-empty");
   }
-  value.actions.forEach(assertAuthoredAction);
+  const actions = value.actions.map((action) => parseAuthoredAction(action));
+  const terminalActions = actions.filter((action) => actionHasAdmission(action, "terminal"));
+  if (terminalActions.length > 0) {
+    if (value.intent !== "direct") {
+      throw new Error("Terminal actions must be direct");
+    }
+    if (terminalActions.length !== actions.length) {
+      throw new Error("Terminal and graph actions cannot share one Action Fact");
+    }
+    const identities = terminalActions.map(canonicalJson);
+    if (new Set(identities).size !== identities.length) {
+      throw new Error("Terminal actions in one Action Fact must be unique");
+    }
+  } else if (value.intent === "proposal" && actions.some((action) => !actionHasAdmission(action, "proposable"))) {
+    throw new Error("Direct-only actions cannot be proposed");
+  }
 }

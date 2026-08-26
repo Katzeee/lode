@@ -17,7 +17,6 @@ export type AuthorityCommit = Readonly<{
   request: unknown;
   writes: readonly FactBody[];
   lineage: AuthorityReceipt["lineage"];
-  inverse: AuthorityReceipt["inverse"];
   publishedFrontier: FactFrontier;
 }>;
 
@@ -36,7 +35,6 @@ export type FactAuthorityPort = {
   factsOwningActions(actionIds: readonly FactActionId[]): readonly Fact[];
   relatedFacts(factIds: readonly FactId[]): readonly Fact[];
   relatedFactsOwningActions(actionIds: readonly FactActionId[]): readonly Fact[];
-  historyImpacts(nodeId: string): readonly Readonly<{ channelId: string; invocationId: string }>[];
   commit(input: AuthorityCommit): Promise<AuthorityCommitResult>;
 };
 

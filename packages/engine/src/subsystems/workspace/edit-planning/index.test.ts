@@ -4,31 +4,30 @@ import { rebuildGeneration } from "../../../domain/reconcile/index.js";
 import { base, end, Facts, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { prepareEdits } from "./index.js";
 
-describe("Edit Fact boundaries", () => {
+describe("Action Fact boundaries", () => {
   it("reserves Workspace root creation for genesis at the planning boundary", () => {
     const facts = new Facts();
     const snapshot = facts.snapshot();
     const generation = rebuildGeneration("workspace", snapshot, versions);
 
-    expect(
-      () =>
-        prepareEdits(
-          "workspace",
-          "actor",
-          [
-            {
-              kind: "node-create",
-              nodeId: "workspace",
-              occurrenceId: "workspace-original",
-              parentNodeId: "workspace",
-              anchor: end,
-            },
-          ],
-          generation,
-          "direct",
-          snapshot,
-          "101",
-        ).writes,
+    expect(() =>
+      prepareEdits(
+        "workspace",
+        "actor",
+        [
+          {
+            kind: "node-create",
+            nodeId: "workspace",
+            occurrenceId: "workspace-original",
+            parentNodeId: "workspace",
+            anchor: end,
+          },
+        ],
+        generation,
+        "direct",
+        snapshot,
+        "101",
+      ),
     ).toThrow("Workspace identity is created only by Workspace genesis");
   });
 
@@ -53,7 +52,7 @@ describe("Edit Fact boundaries", () => {
         "direct",
         creationSnapshot,
         "101",
-      ).writes,
+      ),
     ).toMatchObject([
       [
         {
@@ -77,7 +76,7 @@ describe("Edit Fact boundaries", () => {
         "direct",
         deletionSnapshot,
         "101",
-      ).writes,
+      ),
     ).toEqual([[{ kind: "node-trash", nodeId: "node" }]]);
   });
 
@@ -98,7 +97,7 @@ describe("Edit Fact boundaries", () => {
       "101",
     );
 
-    expect(writes.writes).toHaveLength(2);
-    expect(writes.writes.map(([action]) => action.kind)).toEqual(["rich-text-splice", "rich-text-splice"]);
+    expect(writes).toHaveLength(2);
+    expect(writes.map(([action]) => action.kind)).toEqual(["rich-text-splice", "rich-text-splice"]);
   });
 });

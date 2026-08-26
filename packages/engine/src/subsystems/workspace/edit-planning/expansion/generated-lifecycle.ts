@@ -1,4 +1,4 @@
-import type { IntrinsicNodeType, AuthoredAction, NodeSeed, SequenceAnchor } from "../../../../domain/fact/index.js";
+import type { IntrinsicNodeType, GraphAction, NodeSeed, SequenceAnchor } from "../../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 
 export function createNodeUnlessPresent(
@@ -7,7 +7,7 @@ export function createNodeUnlessPresent(
   originalPlacement: Readonly<{ placementId: string; anchor: SequenceAnchor }> | null,
   available: ScopedProjection,
   options: Readonly<{ seed?: NodeSeed; intrinsicNodeType?: IntrinsicNodeType }> = {},
-): readonly AuthoredAction[] {
+): readonly GraphAction[] {
   return available.nodes[nodeId]
     ? []
     : [
@@ -28,7 +28,7 @@ export function createOccurrenceUnlessPresent(
   parentNodeId: string,
   anchor: SequenceAnchor,
   available: ScopedProjection,
-): readonly AuthoredAction[] {
+): readonly GraphAction[] {
   return available.occurrences[occurrenceId]
     ? []
     : [{ kind: "placement-create", placementId: occurrenceId, nodeId, parentNodeId, anchor }];

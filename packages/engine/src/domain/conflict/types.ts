@@ -6,7 +6,7 @@ import type {
   ResolutionId,
   SequenceAnchor,
   IntrinsicNodeType,
-  AuthoredAction,
+  GraphAction,
 } from "../fact/index.js";
 
 type ResolutionConflictCandidate = Readonly<{
@@ -22,7 +22,7 @@ export type ConflictIssue =
       kind: "unsupported-direct-intent";
       identity: string;
       factActionId: FactActionId;
-      actionKind: AuthoredAction["kind"];
+      actionKind: GraphAction["kind"];
       actorId: string;
       replicaId: string;
       observedFrontier: FactFrontier;

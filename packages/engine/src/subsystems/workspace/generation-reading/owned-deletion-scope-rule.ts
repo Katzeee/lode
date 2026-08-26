@@ -15,6 +15,7 @@ export async function includeOwnedDeletionScope(
   generationId: string,
   perspective: ProjectionPerspective,
   actions: readonly AuthoredAction[],
+  explicitRootNodeIds: readonly string[],
   initialOccurrences: Record<string, ProjectedOccurrence>,
   nodeOwners: Record<string, string | null>,
   scope: GenerationReadScope,
@@ -23,7 +24,7 @@ export async function includeOwnedDeletionScope(
     store,
     generationId,
     perspective,
-    deletionOwnershipRoots(actions, initialOccurrences, nodeOwners),
+    new Set([...explicitRootNodeIds, ...deletionOwnershipRoots(actions, initialOccurrences, nodeOwners)]),
   );
   Object.assign(nodeOwners, ownedNodeOwners);
   const ownedNodeIds = Object.keys(ownedNodeOwners);

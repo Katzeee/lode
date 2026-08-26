@@ -15,7 +15,6 @@ import {
 } from "./structure-effect.js";
 
 const LIFECYCLE_ACTION_KINDS = [
-  "workspace-bootstrap",
   "node-create",
   "node-trash",
   "node-restore",
@@ -38,7 +37,7 @@ export const lifecycleReviewFamily = {
         associatedNodeScope(action.templateNodeId),
       ];
     }
-    const nodeId = action.kind === "workspace-bootstrap" ? action.workspaceNodeId : action.nodeId;
+    const nodeId = action.nodeId;
     const category = action.kind === "original-promote" ? "owner" : "lifecycle";
     return [reviewScope(category, nodeId), associatedNodeScope(nodeId)];
   },
@@ -91,7 +90,7 @@ function lifecycleCandidates(
     const key =
       action.kind === "original-promote"
         ? `owner/${action.nodeId}`
-        : `lifecycle/${action.kind === "workspace-bootstrap" ? action.workspaceNodeId : "nodeId" in action ? action.nodeId : fact.id}`;
+        : `lifecycle/${"nodeId" in action ? action.nodeId : fact.id}`;
     const group = groups.get(key) ?? [];
     group.push(fact);
     groups.set(key, group);
@@ -182,9 +181,6 @@ function actionIdentity(fact: FactAction): string {
   if ("nodeId" in action) {
     return action.nodeId;
   }
-  if (action.kind === "workspace-bootstrap") {
-    return action.workspaceNodeId;
-  }
   if ("placementId" in action) {
     return action.placementId;
   }
@@ -201,13 +197,7 @@ function templateInstances(generation: ScopedProjectionGeneration) {
 function isLifecycleReviewAction(action: FactAction["action"]): action is Extract<
   FactAction["action"],
   {
-    kind:
-      | "workspace-bootstrap"
-      | "node-create"
-      | "node-trash"
-      | "node-restore"
-      | "original-promote"
-      | "template-node-detach";
+    kind: "node-create" | "node-trash" | "node-restore" | "original-promote" | "template-node-detach";
   }
 > {
   return LIFECYCLE_ACTION_KINDS.includes(action.kind as (typeof LIFECYCLE_ACTION_KINDS)[number]);

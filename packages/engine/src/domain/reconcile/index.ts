@@ -18,6 +18,7 @@ export type {
 } from "./projection-types.js";
 export { isProjectionSectionEntry, isProjectionSectionValue } from "./projection-section-shape.js";
 export { advanceGeneration, rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
+export { finalizedNodeIds, nodeDeletionActionIds } from "./deletion-finalization.js";
 export {
   fieldConfigurationProjectionIdentity,
   metanodeHostNodeId,

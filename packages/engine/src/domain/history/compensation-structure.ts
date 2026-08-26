@@ -3,7 +3,7 @@ import {
   fieldDefinitionEndpointOccurrenceId,
   isNodeAction,
   isPlacementAction,
-  type AuthoredAction,
+  type GraphAction,
   type FactAction,
 } from "../fact/index.js";
 import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
@@ -12,9 +12,10 @@ import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
 import { compensateNodeOwner } from "./compensation-owner.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import type { CompensationTargetAction } from "./compensation-policy.js";
 
 export function compensateStructureAction(
-  target: FactAction,
+  target: FactAction<CompensationTargetAction>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
   projection: ScopedProjection,
@@ -29,8 +30,6 @@ export function compensateStructureAction(
   }
   if (isNodeAction(authoredAction)) {
     switch (authoredAction.kind) {
-      case "workspace-bootstrap":
-        return noCompensation();
       case "node-create":
       case "node-restore":
         return compensateNodeCreate(target, targetIds, activeFacts, projection);
@@ -206,7 +205,7 @@ function compensateMaterializedFieldClear(
   if (missingOccurrenceIds.length === 0) {
     return noCompensation();
   }
-  const actions: AuthoredAction[] = [];
+  const actions: GraphAction[] = [];
   for (const occurrenceId of missingOccurrenceIds) {
     const previous = counterfactual.occurrences[occurrenceId];
     if (!previous || !projection.nodes[previous.parentNodeId]) {

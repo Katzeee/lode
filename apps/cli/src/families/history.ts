@@ -32,9 +32,7 @@ function selectionView(side: "undo" | "redo", history: HistoryQuery): ReturnType
   if (selection === null) {
     return view(`Nothing to ${side} on channel ${CLI_HISTORY_CHANNEL}.`);
   }
-  return view(
-    `${side === "undo" ? "Undo" : "Redo"} target: ${selection.targetInvocationId} (ordinal ${selection.headOrdinal})`,
-  );
+  return view(`${side === "undo" ? "Undo" : "Redo"} is available on channel ${CLI_HISTORY_CHANNEL}.`);
 }
 
 function view(...lines: readonly string[]) {
@@ -54,14 +52,8 @@ const historyShow: CommandDefinition = {
     return okOutcome(
       {
         channel: CLI_HISTORY_CHANNEL,
-        undo:
-          history.undo === null
-            ? null
-            : { targetInvocationId: history.undo.targetInvocationId, headOrdinal: history.undo.headOrdinal },
-        redo:
-          history.redo === null
-            ? null
-            : { targetInvocationId: history.redo.targetInvocationId, headOrdinal: history.redo.headOrdinal },
+        undoAvailable: history.undo !== null,
+        redoAvailable: history.redo !== null,
       },
       {
         view: {
@@ -112,9 +104,9 @@ async function compensate(context: Parameters<ProductCommandRun>[0], side: "undo
   const data = { intent: "direct" as const, requestId: context.requestId, action: `history.${side}` };
   return writeResult(data, result, {
     view: writeView(side === "undo" ? "Undid" : "Redid", {
-      label: selection.targetInvocationId,
-      ref: `invocation:${selection.targetInvocationId}`,
-      link: selection.targetInvocationId,
+      label: `history.${side}`,
+      ref: `history:${CLI_HISTORY_CHANNEL}`,
+      link: CLI_HISTORY_CHANNEL,
     }),
   });
 }

@@ -382,23 +382,6 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/domain/maintenance/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["../{conflict,history,reconcile,review}/**"],
-              message: "Maintenance policy depends only on Fact vocabulary and lower-level Activation policy.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
     files: ["packages/engine/src/domain/conflict/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {

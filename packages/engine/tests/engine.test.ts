@@ -145,7 +145,7 @@ describe("Engine composition", () => {
     });
     expect(desktopHistory).toMatchObject({
       status: "ok",
-      value: { undo: { targetInvocationId: "create-node", headOrdinal: 1 } },
+      value: { undo: { channelId: "desktop" } },
     });
     const mobileHistory = await restarted.api.application.query({
       kind: "history",
@@ -154,7 +154,7 @@ describe("Engine composition", () => {
     });
     expect(mobileHistory).toMatchObject({
       status: "ok",
-      value: { undo: { targetInvocationId: "mobile-node", headOrdinal: 1 } },
+      value: { undo: { channelId: "mobile" } },
     });
     if (desktopHistory.status !== "ok" || !("undo" in desktopHistory.value) || !desktopHistory.value.undo) {
       throw new Error("Expected the restarted desktop History selection");
@@ -217,8 +217,8 @@ describe("Engine composition", () => {
     await afterUndoRestart.stop();
   });
 
-  it("Review capability remains opaque and valid across a durable engine restart", async () => {
-    const dataRoot = await mkdtemp(join(tmpdir(), "lode-review-capability-"));
+  it("Review selection remains valid across a durable engine restart", async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), "lode-review-selection-"));
     temporaryDirectories.push(dataRoot);
     const first = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     const { actorId: actor } = await createWorkspaceAs(first, "workspace", "Workspace");
@@ -242,7 +242,7 @@ describe("Engine composition", () => {
     ).toBe("published");
     const review = await first.api.application.query({ kind: "review", workspaceId: "workspace" });
     if (review.status !== "ok" || !("hunks" in review.value) || !review.value.hunks[0]) {
-      throw new Error("Expected a durable Review capability");
+      throw new Error("Expected a durable Review selection");
     }
     const selection = review.value.hunks[0].selection;
     await first.stop();

@@ -45,7 +45,7 @@ export function advanceGeneration(
   const changed = nextSnapshot.facts.filter((fact) => !previousIds.has(fact.id));
   const invalidated = invalidatedProjectionStages(changed);
   const selectedStages = new Set(PROJECTION_PLAN.downstream(invalidated));
-  if (changed.some((fact) => fact.body.kind === "edit")) {
+  if (changed.some((fact) => fact.body.kind === "action")) {
     selectedStages.add("activation");
   }
   if (

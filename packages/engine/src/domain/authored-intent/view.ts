@@ -1,24 +1,7 @@
-import type { ViewAction } from "../fact/index.js";
+import { graphActionKindsInFamily } from "../fact/index.js";
 import type { AuthoredIntentFamily } from "./policy.js";
 
-const VIEW_ACTION_KINDS = [
-  "shared-default-view-add",
-  "shared-default-view-remove",
-  "shared-default-view-restore",
-  "view-mode-set",
-  "view-column-add",
-  "view-column-remove",
-  "view-column-move",
-  "view-sort-add",
-  "view-sort-configure",
-  "view-sort-remove",
-  "view-sort-restore",
-  "view-group-add",
-  "view-group-remove",
-  "view-filter-add",
-  "view-filter-remove",
-  "view-filter-restore",
-] as const satisfies readonly ViewAction["kind"][];
+const VIEW_ACTION_KINDS = graphActionKindsInFamily("view");
 
 export const viewAuthoredIntent = {
   key: "view",

@@ -1,4 +1,5 @@
-import { compareCausalOrder, factActionsOfKind, factObserves, type FactAction } from "../fact/index.js";
+import { compareCausalOrder, type FactAction } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { templateMemberOccurrenceId } from "./projection-identity.js";
 
@@ -8,26 +9,21 @@ export function boundSupertagTemplateNodes(
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly string[]>> {
-  const removals = factActionsOfKind(active, "template-member-remove");
   type Binding = { occurrenceId: string; fact: FactAction };
   const bySupertag = new Map<string, Map<string, Binding>>();
-  for (const fact of [...factActionsOfKind(active, "template-member-add")].sort(compareCausalOrder)) {
+  const states = [...causalCollectionStates(active, "template-member")].sort((left, right) =>
+    compareCausalOrder(left.addition, right.addition),
+  );
+  for (const { addition: fact, removed } of states) {
     const authoredAction = fact.action;
-    const removed = removals.some((candidate) => {
-      const removal = candidate.action;
-      return (
-        removal.supertagId === authoredAction.supertagId &&
-        removal.templateNodeId === authoredAction.templateNodeId &&
-        factObserves(candidate, fact)
-      );
-    });
     const occurrenceId = templateMemberOccurrenceId(fact.id);
     const occurrence = occurrences.get(occurrenceId);
     if (
       removed ||
       !knownNodeIds.has(authoredAction.supertagId) ||
       !knownNodeIds.has(authoredAction.templateNodeId) ||
-      occurrence?.nodeId !== authoredAction.templateNodeId ||
+      occurrence === undefined ||
+      occurrence.nodeId !== authoredAction.templateNodeId ||
       occurrence.parentNodeId !== authoredAction.supertagId
     ) {
       continue;

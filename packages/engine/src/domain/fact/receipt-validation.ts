@@ -39,21 +39,9 @@ export function validatePlannedReceiptAppend(
   workspaceId: WorkspaceId,
   receipt: AuthorityReceipt,
   facts: readonly Fact[],
-  previousHistoryReceipt: AuthorityReceipt | null,
 ): void {
   validateReceipt(workspaceId, receipt);
   validateReceiptBatch(workspaceId, receipt, new Map(facts.map((fact) => [fact.id, fact])));
-  const lineage = receipt.lineage;
-  if (!lineage) {
-    return;
-  }
-  if (
-    lineage.ordinal !== (previousHistoryReceipt?.lineage?.ordinal ?? 0) + 1 ||
-    lineage.parentStepId !== (previousHistoryReceipt?.invocationId ?? null) ||
-    (previousHistoryReceipt?.lineage?.channelId ?? lineage.channelId) !== lineage.channelId
-  ) {
-    throw new Error(`History lineage gap or parent mismatch: ${receipt.replicaId}/${lineage.channelId}`);
-  }
 }
 
 function validateReceipt(workspaceId: WorkspaceId, receipt: AuthorityReceipt): void {
@@ -73,16 +61,12 @@ function validateReceipt(workspaceId: WorkspaceId, receipt: AuthorityReceipt): v
   }
   if (receipt.lineage) {
     if (
-      !Number.isSafeInteger(receipt.lineage.ordinal) ||
-      receipt.lineage.ordinal < 1 ||
       (receipt.lineage.operation === "normal" && receipt.lineage.targetStepId !== null) ||
       ((receipt.lineage.operation === "undo" || receipt.lineage.operation === "redo") &&
         receipt.lineage.targetStepId === null)
     ) {
       throw new Error(`Receipt lineage is invalid: ${receipt.invocationId}`);
     }
-  } else if (receipt.inverse.length > 0) {
-    throw new Error(`Non-History receipt contains inverse actions: ${receipt.invocationId}`);
   }
 }
 
@@ -157,15 +141,10 @@ function validateLineages(receipts: readonly AuthorityReceipt[]): void {
 }
 
 function validateLineageChannel(key: string, receipts: readonly AuthorityReceipt[]): void {
-  const ordered = [...receipts].sort((left, right) => left.lineage!.ordinal - right.lineage!.ordinal);
   const undo: string[] = [];
   const redo: string[] = [];
-  let parent: string | null = null;
-  for (const [index, receipt] of ordered.entries()) {
+  for (const receipt of receipts) {
     const lineage = receipt.lineage!;
-    if (lineage.ordinal !== index + 1 || lineage.parentStepId !== parent) {
-      throw new Error(`History lineage gap or parent mismatch: ${key}`);
-    }
     if (lineage.operation === "normal") {
       undo.push(receipt.invocationId);
       redo.length = 0;
@@ -182,6 +161,5 @@ function validateLineageChannel(key: string, receipts: readonly AuthorityReceipt
       redo.pop();
       undo.push(receipt.invocationId);
     }
-    parent = receipt.invocationId;
   }
 }

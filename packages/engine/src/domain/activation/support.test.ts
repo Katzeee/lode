@@ -5,11 +5,12 @@ import {
   factActions,
   factActionId,
   frontierOf,
+  graphActionBody,
   makeFact,
   type Fact,
   type FactActionId,
   type FactId,
-  type AuthoredAction,
+  type GraphAction,
 } from "../fact/index.js";
 import { projectSnapshot } from "../../../tests/support/reconcile/projection.js";
 import { deriveActivation, deriveSupport } from "./support.js";
@@ -20,17 +21,17 @@ const end = { after: null, before: null, affinity: "after", fallback: "end" } as
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {
-    const node = editFact(
+    const node = actionFact(
       1,
       { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const firstText = editFact(
+    const firstText = actionFact(
       2,
       { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "a" },
       "direct",
     );
-    const secondText = editFact(
+    const secondText = actionFact(
       3,
       { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "b" },
       "direct",
@@ -43,12 +44,12 @@ describe("semantic support policy", () => {
   });
 
   it("DEP-2 inactive support closes dependents", () => {
-    const node = editFact(
+    const node = actionFact(
       1,
       { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const text = editFact(
+    const text = actionFact(
       2,
       { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "dependent" },
       "direct",
@@ -58,7 +59,7 @@ describe("semantic support policy", () => {
   });
 
   it("activates every member of a Fact Transaction as one unit", () => {
-    const parent = editFact(
+    const parent = actionFact(
       1,
       { kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
@@ -70,7 +71,7 @@ describe("semantic support policy", () => {
       observed: { [REPLICA]: 1 },
       lamport: 2,
       body: {
-        kind: "edit",
+        kind: "action",
         actorId: "actor",
         intent: "direct",
         actions: [
@@ -87,7 +88,7 @@ describe("semantic support policy", () => {
     });
     const [child, placement] = factActions(edit);
     if (!child || !placement) {
-      throw new Error("Expected both edit Edit Facts");
+      throw new Error("Expected both Action Facts");
     }
 
     const origin = deriveActivation([parent, edit], "origin");
@@ -100,18 +101,18 @@ describe("semantic support policy", () => {
   });
 
   it("duplicate live creates do not replace the effective existence support", () => {
-    const directCreate = editFact(1, {
+    const directCreate = actionFact(1, {
       kind: "node-create",
       nodeId: "node",
       ownerNodeId: "workspace",
       originalPlacement: null,
     });
-    const duplicateProposal = editFact(
+    const duplicateProposal = actionFact(
       2,
       { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const text = editFact(3, {
+    const text = actionFact(3, {
       kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
@@ -127,19 +128,19 @@ describe("semantic support policy", () => {
   });
 
   it("a rejected first Proposal create yields existence support to an independent Direct create", () => {
-    const proposalCreate = editFact(
+    const proposalCreate = actionFact(
       1,
       { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const text = editFact(2, {
+    const text = actionFact(2, {
       kind: "rich-text-splice",
       nodeId: "node",
       deleteAtomIds: [],
       anchor: end,
       insert: "X",
     });
-    const directCreate = editFact(3, {
+    const directCreate = actionFact(3, {
       kind: "node-create",
       nodeId: "node",
       ownerNodeId: "workspace",
@@ -166,13 +167,13 @@ describe("semantic support policy", () => {
   });
 
   it("recovers an earlier Placement consumer through a later independent creator", () => {
-    const node = editFact(1, {
+    const node = actionFact(1, {
       kind: "node-create",
       nodeId: "node",
       ownerNodeId: "workspace",
       originalPlacement: null,
     });
-    const proposalCreate = editFact(
+    const proposalCreate = actionFact(
       2,
       {
         kind: "placement-create",
@@ -183,13 +184,13 @@ describe("semantic support policy", () => {
       },
       "proposal",
     );
-    const move = editFact(3, {
+    const move = actionFact(3, {
       kind: "placement-move",
       placementId: "placement",
       parentNodeId: "workspace",
       anchor: end,
     });
-    const directCreate = editFact(4, {
+    const directCreate = actionFact(4, {
       kind: "placement-create",
       placementId: "placement",
       nodeId: "node",
@@ -205,9 +206,9 @@ describe("semantic support policy", () => {
 
   it("recovers earlier Inline Reference and Alias consumers through later independent producers", () => {
     const nodes = ["host", "target", "alias"].map((nodeId, index) =>
-      editFact(index + 1, { kind: "node-create", nodeId, ownerNodeId: "workspace", originalPlacement: null }),
+      actionFact(index + 1, { kind: "node-create", nodeId, ownerNodeId: "workspace", originalPlacement: null }),
     );
-    const proposalReference = editFact(
+    const proposalReference = actionFact(
       4,
       {
         kind: "inline-reference-create",
@@ -218,24 +219,24 @@ describe("semantic support policy", () => {
       },
       "proposal",
     );
-    const proposalAlias = editFact(
+    const proposalAlias = actionFact(
       5,
       { kind: "inline-alias-attach", inlineReferenceId: "reference", aliasNodeId: "alias" },
       "proposal",
     );
-    const detach = editFact(6, {
+    const detach = actionFact(6, {
       kind: "inline-alias-detach",
       inlineReferenceId: "reference",
       aliasNodeId: "alias",
     });
-    const directReference = editFact(7, {
+    const directReference = actionFact(7, {
       kind: "inline-reference-create",
       inlineReferenceId: "reference",
       hostNodeId: "host",
       targetNodeId: "target",
       anchor: end,
     });
-    const directAlias = editFact(8, {
+    const directAlias = actionFact(8, {
       kind: "inline-alias-attach",
       inlineReferenceId: "reference",
       aliasNodeId: "alias",
@@ -252,12 +253,12 @@ describe("semantic support policy", () => {
   });
 
   it("Create + existence dependency", () => {
-    const node = editFact(
+    const node = actionFact(
       1,
       { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const occurrence = editFact(
+    const occurrence = actionFact(
       2,
       {
         kind: "placement-create",
@@ -282,19 +283,97 @@ describe("semantic support policy", () => {
     expect(project(rejected, "review").occurrences.occurrence).toBeUndefined();
   });
 
-  it("an occurrence depends on the parent Node editFact", () => {
-    const childNode = editFact(1, {
+  it("derives empty support for bootstrap and terminal Actions", () => {
+    const bootstrap = actionFact(1, { kind: "workspace-bootstrap", workspaceNodeId: "workspace" });
+    const terminal = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA,
+      sequence: 2,
+      observed: { [REPLICA]: 1 },
+      lamport: 2,
+      body: {
+        kind: "action",
+        actorId: "actor",
+        intent: "direct",
+        actions: [{ kind: "node-deletion-finalize", nodeId: "node" }],
+      },
+    });
+
+    const support = deriveSupport(factActionsFromFacts([bootstrap, terminal]));
+
+    expect(support.get(actionId(bootstrap))).toEqual([]);
+    expect(support.get(actionId(terminal))).toEqual([]);
+  });
+
+  it("derives causal register dependencies from semantic contributions", () => {
+    const view = actionFact(1, {
+      kind: "shared-default-view-add",
+      hostNodeId: "workspace",
+      viewType: "outline",
+      anchor: end,
+    });
+    const firstMode = actionFact(2, { kind: "view-mode-set", viewId: actionId(view), viewType: "table" });
+    const secondMode = actionFact(3, { kind: "view-mode-set", viewId: actionId(view), viewType: "outline" });
+
+    const support = deriveSupport(factActionsFromFacts([view, firstMode, secondMode]));
+
+    expect(support.get(actionId(firstMode))).toContain(actionId(view));
+    expect(support.get(actionId(secondMode))).toEqual([actionId(view), actionId(firstMode)]);
+  });
+
+  it("derives observed collection-removal support without an Action-kind interpreter", () => {
+    const addition = actionFact(1, {
+      kind: "template-member-add",
+      supertagId: "supertag",
+      templateNodeId: "template",
+      anchor: end,
+    });
+    const removal = actionFact(2, {
+      kind: "template-member-remove",
+      supertagId: "supertag",
+      templateNodeId: "template",
+    });
+
+    const support = deriveSupport(factActionsFromFacts([addition, removal]));
+
+    expect(support.get(actionId(removal))).toContain(actionId(addition));
+  });
+
+  it("derives generated occurrence support from semantic contributions", () => {
+    const detachment = actionFact(1, {
+      kind: "template-node-detach",
+      ownerNodeId: "workspace",
+      templateNodeId: "template",
+      instanceNodeId: "instance",
+      instanceOccurrenceId: "instance-occurrence",
+      anchor: end,
+    });
+    const materialization = actionFact(2, {
+      kind: "placement-create",
+      placementId: "instance-occurrence",
+      nodeId: "instance",
+      parentNodeId: "workspace",
+      anchor: end,
+    });
+
+    const support = deriveSupport(factActionsFromFacts([detachment, materialization]));
+
+    expect(support.get(actionId(detachment))).toContain(actionId(materialization));
+  });
+
+  it("an occurrence depends on the parent Node Action Fact", () => {
+    const childNode = actionFact(1, {
       kind: "node-create",
       nodeId: "child",
       ownerNodeId: "workspace",
       originalPlacement: null,
     });
-    const parentNode = editFact(
+    const parentNode = actionFact(
       2,
       { kind: "node-create", nodeId: "parent", ownerNodeId: "workspace", originalPlacement: null },
       "proposal",
     );
-    const child = editFact(3, {
+    const child = actionFact(3, {
       kind: "placement-create",
       placementId: "child-placement",
       nodeId: "child",
@@ -323,7 +402,7 @@ function project(facts: readonly Fact[], perspective: "origin" | "review") {
     observed: {},
     lamport: 1,
     body: {
-      kind: "edit",
+      kind: "action",
       actorId: "workspace-genesis",
       intent: "direct",
       actions: [{ kind: "node-create", nodeId: "workspace", ownerNodeId: "workspace", originalPlacement: null }],
@@ -359,13 +438,13 @@ function actionId(fact: Fact): FactActionId {
   return factActionId(fact.id, 0);
 }
 
-function editFact(sequence: number, authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): Fact {
+function actionFact(sequence: number, authoredAction: GraphAction, intent: "direct" | "proposal" = "direct"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence,
     observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
     lamport: sequence,
-    body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
+    body: graphActionBody("actor", intent, [authoredAction]),
   });
 }

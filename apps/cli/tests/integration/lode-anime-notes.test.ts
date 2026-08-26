@@ -568,7 +568,7 @@ async function reviewHunk(endpoint: string, kind: string): Promise<Record<string
 }
 
 function evidence(hunk: Record<string, unknown>): Record<string, unknown> {
-  return record(record(hunk.selection, "Review selection").evidence, "Review evidence");
+  return record(hunk.evidence, "Review evidence");
 }
 
 async function nodeText(endpoint: string, perspective: string, nodeId: string): Promise<string> {

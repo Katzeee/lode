@@ -1,6 +1,6 @@
 import type { TrashEvidenceQueryRequest, TrashEvidenceResult } from "@lode/sdk";
 import { factActionsFromFacts, type FactSnapshot } from "../../../domain/fact/index.js";
-import { nodeDeletionActionIds } from "../../../domain/maintenance/index.js";
+import { nodeDeletionActionIds } from "../../../domain/reconcile/index.js";
 import {
   nodeLocation,
   occurrenceAnchor,

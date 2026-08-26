@@ -355,7 +355,7 @@ describe("transport-neutral SDK contract", () => {
     ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
   });
 
-  it("Hard Delete maintenance remains a closed serialized contract", async () => {
+  it("Deletion Finalization remains a closed serialized contract", async () => {
     const { serialized } = await setup();
     expect((await serialized.execute(command)).status).toBe("published");
     const deletion = await serialized.execute({
@@ -363,54 +363,17 @@ describe("transport-neutral SDK contract", () => {
       invocationId: "serialized-delete",
       actions: [{ kind: "node-delete", nodeId: "node" }],
     });
-    if (deletion.status !== "published" || !deletion.receipt.factIds[0]) {
+    if (deletion.status !== "published") {
       throw new Error("Expected serialized deletion");
     }
-    let preview = await serialized.query({
-      kind: "hard-delete-preview",
-      workspaceId: "workspace",
-      nodeId: "node",
-    });
-    if (preview.status !== "ok" || !("blockers" in preview.value)) {
-      throw new Error("Expected serialized Hard Delete preview");
-    }
-    expect(preview.value.blockers).toContain("replica-unconfirmed");
-    expect(preview.value.historyImpact).toMatchObject({
-      affectedChannelIds: ["surface"],
-      totalAffectedInvocations: 2,
-      truncated: false,
-    });
-    const deletionActionIds = preview.value.selection.deletionActionIds;
-
     expect(
       (
         await serialized.execute({
-          kind: "acknowledge-deletion",
+          kind: "finalize-deletions",
           workspaceId: "workspace",
-          invocationId: "serialized-ack",
+          invocationId: "serialized-finalization",
           actorId: "maintainer",
-          nodeId: "node",
-          deletionActionIds,
-        })
-      ).status,
-    ).toBe("published");
-    preview = await serialized.query({
-      kind: "hard-delete-preview",
-      workspaceId: "workspace",
-      nodeId: "node",
-    });
-    if (preview.status !== "ok" || !("blockers" in preview.value)) {
-      throw new Error("Expected executable Hard Delete preview");
-    }
-    expect(preview.value.canExecute).toBe(true);
-    expect(
-      (
-        await serialized.execute({
-          kind: "hard-delete",
-          workspaceId: "workspace",
-          invocationId: "serialized-purge",
-          actorId: "maintainer",
-          selection: preview.value.selection,
+          nodeIds: ["node"],
         })
       ).status,
     ).toBe("published");

@@ -28,14 +28,14 @@ describe("instance Field content deletion", () => {
     const hunk = review.hunks.find(
       (candidate) =>
         candidate.diffSpace.kind === "child-sequence" &&
-        candidate.selection.evidence.effects.some(
+        candidate.evidence.effects.some(
           (effect) => effect.kind === "structure" && effect.occurrenceId === "value-a-occurrence",
         ),
     );
     if (!hunk) {
       throw new Error("Expected typed structure Hunk for the deleted Field Value");
     }
-    expect(hunk.selection.evidence.associatedImpactIds.length).toBeGreaterThan(0);
+    expect(hunk.evidence.associatedImpactIds.length).toBeGreaterThan(0);
     expect(
       (
         await fixture.workspace.execute({
@@ -122,7 +122,7 @@ describe("instance Field content deletion", () => {
     if (!hunk) {
       throw new Error("Expected typed Materialized Field Hunk");
     }
-    expect(hunk.selection.evidence.effects).toEqual(
+    expect(hunk.evidence.effects).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           kind: "field-materialization",

@@ -9,7 +9,6 @@ import type {
   ProjectionSupertagInstancesReader,
   ProjectionSnapshotReader,
 } from "../projection/index.js";
-import { hardDeletePreview } from "../hard-delete.js";
 import { queryWorkspaceHistory } from "./history.js";
 import { queryWorkspaceInvocation } from "./invocation.js";
 import { queryConflicts, queryProjection, querySupertagInstances } from "./projection.js";
@@ -29,14 +28,7 @@ type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
 
 type WorkspaceQueryAuthority = Pick<
   FactAuthorityPort,
-  | "facts"
-  | "factsOwningActions"
-  | "historyImpacts"
-  | "receipt"
-  | "receiptsForChannel"
-  | "relatedFacts"
-  | "relatedFactsOwningActions"
-  | "replicaId"
+  "factsOwningActions" | "receipt" | "receiptsForChannel" | "relatedFactsOwningActions"
 >;
 
 type WorkspaceQueryContext = Readonly<{
@@ -47,7 +39,6 @@ type WorkspaceQueryContext = Readonly<{
   projections: WorkspaceQueryProjectionReader;
   generationId: string;
   projectionFailure: string | null;
-  reviewCapabilityKey?: string;
 }>;
 
 export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContext): Promise<EngineQueryValue> {
@@ -73,25 +64,8 @@ export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContex
       return Promise.resolve(queryDebugNode(query, context.generation));
     case "trash-evidence":
       return Promise.resolve(queryTrashEvidence(query, context.snapshot, context.generation));
-    case "hard-delete-preview":
-      return hardDeletePreview(
-        context.workspaceId,
-        query.nodeId,
-        context.snapshot,
-        context.facts,
-        context.projections,
-        context.generationId,
-      );
     case "review":
-      return queryWorkspaceReview(
-        context.workspaceId,
-        query,
-        context.snapshot,
-        context.facts,
-        context.projections,
-        context.generationId,
-        context.reviewCapabilityKey,
-      );
+      return queryWorkspaceReview(query, context.snapshot, context.facts, context.projections, context.generationId);
     case "history":
       return queryWorkspaceHistory(query, context.snapshot, context.facts);
     case "invocation":

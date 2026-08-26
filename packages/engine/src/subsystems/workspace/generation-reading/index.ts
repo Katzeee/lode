@@ -3,6 +3,7 @@ import type { FactAction, ProjectionPerspective } from "../../../domain/fact/ind
 import type { ScopedProjection, ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { ProjectionSnapshotReader } from "../projection/index.js";
 import { planEditGenerationRead, planFactActionGenerationRead, type GenerationReadPlan } from "./read-plan.js";
+import { planProjectionScopeGenerationRead } from "./projection-scope-read-plan.js";
 import { readResolvedProjection } from "./projection-reader.js";
 import { resolveGenerationRead } from "./scope-resolver.js";
 
@@ -20,6 +21,20 @@ export function readEditGeneration(
   edits: readonly EditAction[],
 ): Promise<ScopedProjectionGeneration> {
   return readScopedGeneration(store, generationId, planEditGenerationRead(edits));
+}
+
+export function readProjectionScopeGeneration(
+  store: ProjectionSnapshotReader,
+  generationId: string,
+  nodeIds: readonly string[],
+  readsOwnerGraph: boolean,
+  readsOwnedDescendants: boolean,
+): Promise<ScopedProjectionGeneration> {
+  return readScopedGeneration(
+    store,
+    generationId,
+    planProjectionScopeGenerationRead(nodeIds, readsOwnerGraph, readsOwnedDescendants),
+  );
 }
 
 async function readScopedGeneration(

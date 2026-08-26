@@ -2,6 +2,7 @@ import {
   factActionsFromFacts,
   isFieldAction,
   isFieldDefinitionAction,
+  isGraphAction,
   isInlineReferenceAction,
   isNodeAction,
   isPlacementAction,
@@ -33,7 +34,7 @@ export function selectEligibleDirectTail(
   if (!tail) {
     return null;
   }
-  if (!tail.every((fact) => fact.body.kind === "edit" && fact.body.intent === "direct")) {
+  if (!tail.every((fact) => fact.body.kind === "action" && fact.body.intent === "direct")) {
     return null;
   }
   const actions = factActionsFromFacts(tail);
@@ -44,6 +45,9 @@ export function selectEligibleDirectTail(
 }
 
 function canApplyDirectTail(projection: Projection, authoredAction: AuthoredAction): boolean {
+  if (!isGraphAction(authoredAction)) {
+    return false;
+  }
   if (isNodeAction(authoredAction)) {
     return canApplyNodeDirectTail(projection, authoredAction);
   }

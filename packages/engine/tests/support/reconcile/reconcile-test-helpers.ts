@@ -2,6 +2,7 @@ import {
   frontierOf,
   factActionsFromFacts,
   factActions,
+  graphActionBody,
   makeFact,
   owningFactIds,
   type Fact,
@@ -9,7 +10,7 @@ import {
   type FactActionId,
   type FactBody,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
   type SequenceAnchor,
   workspaceGenesisActions,
   workspaceTrashNodeId,
@@ -34,7 +35,7 @@ export class Facts {
   constructor(trashNodeId = workspaceTrashNodeId("workspace")) {
     const defaultTrashNodeId = workspaceTrashNodeId("workspace");
     this.addTransaction(
-      workspaceGenesisActions("workspace").map((authoredAction): AuthoredAction => {
+      workspaceGenesisActions("workspace").map((authoredAction): GraphAction => {
         if (authoredAction.kind === "node-create" && authoredAction.nodeId === defaultTrashNodeId) {
           return { ...authoredAction, nodeId: trashNodeId };
         }
@@ -43,7 +44,7 @@ export class Facts {
     );
   }
 
-  add(authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): FactAction {
+  add(authoredAction: GraphAction, intent: "direct" | "proposal" = "direct"): FactAction {
     const prerequisites = fixturePrerequisites(authoredAction);
     const fact = this.addTransaction(
       [...prerequisites, authoredAction, ...fixtureConsequences(authoredAction)],
@@ -90,13 +91,13 @@ export class Facts {
     return removal;
   }
 
-  addTransaction(actions: readonly AuthoredAction[], intent: "direct" | "proposal" = "direct"): readonly FactAction[] {
+  addTransaction(actions: readonly GraphAction[], intent: "direct" | "proposal" = "direct"): readonly FactAction[] {
     const preparedActions = withFieldDefinitionEndpoints(withInitialNodeRelations(actions));
     const [first, ...rest] = preparedActions;
     if (!first) {
       return [];
     }
-    return factActions(this.body({ kind: "edit", actorId: "actor", intent, actions: [first, ...rest] }));
+    return factActions(this.body(graphActionBody("actor", intent, [first, ...rest])));
   }
 
   addPlaced(

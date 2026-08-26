@@ -77,7 +77,7 @@ describe("production Reconcile", () => {
       observed: {},
       lamport: 1,
       body: {
-        kind: "edit",
+        kind: "action",
         actorId: "actor",
         intent: "direct",
         actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
@@ -91,7 +91,7 @@ describe("production Reconcile", () => {
         observed: { [baseFact.coordinate.dot.replicaId]: 1 },
         lamport: 2,
         body: {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [

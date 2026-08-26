@@ -7,7 +7,6 @@ export * from "./gen/lode/engine_pb.js";
 export * from "./gen/lode/governance_pb.js";
 export * from "./gen/lode/identity_pb.js";
 export * from "./gen/lode/history_pb.js";
-export * from "./gen/lode/maintenance_pb.js";
 export * from "./gen/lode/model_pb.js";
 export * from "./gen/lode/projection_pb.js";
 export * from "./gen/lode/replica_sync_pb.js";

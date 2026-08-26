@@ -84,7 +84,7 @@ function rotateBody(actorId: string, epoch: number, peers: readonly string[]): F
 
 function actionBody(actorId: string): FactBody {
   return {
-    kind: "edit",
+    kind: "action",
     actorId,
     intent: "direct",
     actions: [
@@ -121,7 +121,7 @@ function authoredFacts(input: {
 function genesisBodies(actorId: string): readonly FactBody[] {
   return [
     {
-      kind: "edit" as const,
+      kind: "action" as const,
       actorId,
       intent: "direct" as const,
       actions: workspaceGenesisActions(WORKSPACE),

@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildFactSnapshot, factActionId } from "../src/domain/fact/index.js";
-import {
-  canonicalJson,
-  makeFact,
-  type Fact,
-  type FactFrontier,
-  type AuthoredAction,
-} from "../src/domain/fact/index.js";
+import { canonicalJson, makeFact, type Fact, type FactFrontier, type GraphAction } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
   rebuildGeneration,
@@ -157,14 +151,14 @@ function remoteMove(replicaId: string, observed: FactFrontier, parentNodeId: str
   });
 }
 
-function remoteFact(replicaId: string, observed: FactFrontier, authoredAction: AuthoredAction): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, authoredAction: GraphAction): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,
     sequence: 1,
     observed,
     lamport: Object.values(observed).reduce((maximum, value) => Math.max(maximum, value), 0) + 1,
-    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
+    body: { kind: "action", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 

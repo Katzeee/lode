@@ -2,6 +2,7 @@ import {
   canonicalJson,
   factActionsFromFacts,
   factObserves,
+  isGraphAction,
   stableStringCompare,
   type FactAction,
   type FactSnapshot,
@@ -120,7 +121,7 @@ function unsupportedDirectIntents(
     factActionsFromFacts(snapshot.facts).map((fact) => [fact.id, fact] as const),
   );
   return [...actions.values()].flatMap((fact): readonly ConflictIssue[] => {
-    if (fact.intent !== "direct" || activeActionIds.has(fact.id)) {
+    if (fact.intent !== "direct" || !isGraphAction(fact.action) || activeActionIds.has(fact.id)) {
       return [];
     }
     const missingSupportActionIds = (origin.supportByAction[fact.id] ?? [])

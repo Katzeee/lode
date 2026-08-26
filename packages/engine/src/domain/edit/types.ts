@@ -1,4 +1,11 @@
-import type { AuthoredAction, IntrinsicNodeType, NodeSeed, SequenceAnchor } from "../fact/index.js";
+import {
+  isGraphAction,
+  type AuthoredAction,
+  type GraphAction,
+  type IntrinsicNodeType,
+  type NodeSeed,
+  type SequenceAnchor,
+} from "../fact/index.js";
 import type { CodeNodeConfigureEdit, FieldValueCreateEdit, UrlNodeCreateEdit } from "./breadth-edit-types.js";
 import type {
   AddExistingSupertagTemplateFieldEdit,
@@ -84,7 +91,7 @@ const ACTION_EDIT_ACCESS = {
   "view-filter-add": "internal",
   "view-filter-remove": "internal",
   "view-filter-restore": "internal",
-} as const satisfies Readonly<Record<AuthoredAction["kind"], "direct" | "composite" | "internal">>;
+} as const satisfies Readonly<Record<GraphAction["kind"], "direct" | "composite" | "internal">>;
 
 type CreateNodeEdit = Readonly<{
   kind: "node-create";
@@ -159,10 +166,10 @@ type CreateInlineReferenceAliasEdit = Readonly<{
 }>;
 
 type DirectEditActionKind = {
-  [Kind in AuthoredAction["kind"]]: (typeof ACTION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
-}[AuthoredAction["kind"]];
+  [Kind in GraphAction["kind"]]: (typeof ACTION_EDIT_ACCESS)[Kind] extends "direct" ? Kind : never;
+}[GraphAction["kind"]];
 
-type DirectAuthoredActionEdit = Extract<AuthoredAction, { kind: DirectEditActionKind }>;
+type DirectAuthoredActionEdit = Extract<GraphAction, { kind: DirectEditActionKind }>;
 
 export type EditAction =
   | DirectAuthoredActionEdit
@@ -236,10 +243,10 @@ type ExpandableEdit = Exclude<
 >;
 
 export function isDirectAuthoredActionEdit(action: AuthoredAction): action is DirectAuthoredActionEdit {
-  return ACTION_EDIT_ACCESS[action.kind] === "direct";
+  return isGraphAction(action) && ACTION_EDIT_ACCESS[action.kind] === "direct";
 }
 
-export function expandEditAction(edit: ExpandableEdit): readonly [AuthoredAction, ...AuthoredAction[]] {
+export function expandEditAction(edit: ExpandableEdit): readonly [GraphAction, ...GraphAction[]] {
   if (edit.kind !== "node-create") {
     return [edit];
   }

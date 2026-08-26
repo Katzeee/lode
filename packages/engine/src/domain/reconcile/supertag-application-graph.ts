@@ -1,11 +1,11 @@
 import {
-  factObserves,
   NODE_SUPERTAGS_DEFINITION_NODE_ID,
   type FactAction,
   type FactActionId,
   type FactActionOf,
   type SequenceAnchor,
 } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
 
 export type SupertagApplicationProjectionIdentity = Readonly<{
@@ -36,22 +36,13 @@ export function supertagApplicationProjectionIdentity(actionId: FactActionId): S
 }
 
 export function supertagApplicationStates(active: readonly FactAction[]): readonly SupertagApplicationState[] {
-  const removals = active.filter(
-    (action): action is FactActionOf<"supertag-membership-remove"> =>
-      action.action.kind === "supertag-membership-remove",
+  return causalCollectionStates(active, "supertag-application").map(
+    ({ addition, removed }): SupertagApplicationState => ({
+      addition,
+      removed,
+      identity: supertagApplicationProjectionIdentity(addition.id),
+    }),
   );
-  const additions = active.filter(
-    (action): action is FactActionOf<"supertag-application-add"> => action.action.kind === "supertag-application-add",
-  );
-  return additions.map((action): SupertagApplicationState => {
-    const removed = removals.some(
-      (removal) =>
-        removal.action.hostNodeId === action.action.hostNodeId &&
-        removal.action.supertagId === action.action.supertagId &&
-        actionObserves(removal, action),
-    );
-    return { addition: action, removed, identity: supertagApplicationProjectionIdentity(action.id) };
-  });
 }
 
 export function supertagApplicationPlacementIds(
@@ -115,10 +106,6 @@ export function supertagApplicationStateByAction(
   active: readonly FactAction[],
 ): ReadonlyMap<FactActionId, SupertagApplicationState> {
   return new Map(supertagApplicationStates(active).map((state) => [state.addition.id, state]));
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;

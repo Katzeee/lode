@@ -17,7 +17,7 @@ const body = edit("node");
 
 function edit(nodeId: string) {
   return {
-    kind: "edit" as const,
+    kind: "action" as const,
     actorId: "actor",
     intent: "direct" as const,
     actions: [
@@ -56,7 +56,6 @@ describe("production Fact authority store", () => {
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
 
@@ -75,7 +74,7 @@ describe("production Fact authority store", () => {
     const factRecords = authorityDocument.getList("facts");
     expect(factRecords.length).toBe(1);
     expect(factRecords.get(0)).toEqual({
-      kind: "edit",
+      kind: "action",
       actorId: "actor",
       intent: "direct",
       actions: [
@@ -97,7 +96,6 @@ describe("production Fact authority store", () => {
         request,
         writes: [body],
         lineage: null,
-        inverse: [],
         publishedFrontier: {},
       }),
     ).rejects.toThrow("injected append failure");
@@ -119,7 +117,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     expect(first.created).toBe(true);
@@ -132,7 +129,6 @@ describe("production Fact authority store", () => {
       request: { ...request, nodeId: "second" },
       writes: [edit("second")],
       lineage: null,
-      inverse: [],
       publishedFrontier: first.receipt.committedFrontier,
     });
     expect((await sourceDocuments.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(0);
@@ -149,7 +145,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const retry = await store.commit({
@@ -157,7 +152,6 @@ describe("production Fact authority store", () => {
       request: { nodeId: "node", command: "create-node" },
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
 
@@ -169,7 +163,6 @@ describe("production Fact authority store", () => {
         request: { ...request, nodeId: "other" },
         writes: [body],
         lineage: null,
-        inverse: [],
         publishedFrontier: first.receipt.committedFrontier,
       }),
     ).rejects.toBeInstanceOf(InvocationConflictError);
@@ -182,7 +175,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     } as const;
 
@@ -201,7 +193,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     await expect(
@@ -210,7 +201,6 @@ describe("production Fact authority store", () => {
         request: { ...request, nodeId: "node-2" },
         writes: [edit("node-2")],
         lineage: null,
-        inverse: [],
         publishedFrontier: {},
       }),
     ).rejects.toBeInstanceOf(ProjectionUnavailableError);
@@ -226,7 +216,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const restarted = await open(documentsA, "101");
@@ -248,7 +237,6 @@ describe("production Fact authority store", () => {
       request,
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
 
@@ -266,7 +254,6 @@ describe("production Fact authority store", () => {
       request: { side: "local" },
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const remote = await open(new InMemoryDocumentStore(), "202");
@@ -275,7 +262,6 @@ describe("production Fact authority store", () => {
       request: { side: "remote" },
       writes: [edit("remote")],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
 
@@ -292,7 +278,6 @@ describe("production Fact authority store", () => {
       request: { side: "left" },
       writes: [body],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     const right = await second.commit({
@@ -300,7 +285,6 @@ describe("production Fact authority store", () => {
       request: { side: "right" },
       writes: [edit("right")],
       lineage: null,
-      inverse: [],
       publishedFrontier: {},
     });
     expect(left.receipt.committedFrontier).toEqual({ [REPLICA_A]: 1 });
@@ -321,7 +305,6 @@ describe("production Fact authority store", () => {
         request: { index },
         writes: [edit(`offline-${index}`)],
         lineage: null,
-        inverse: [],
         publishedFrontier: store.snapshot().frontier,
       });
     }
@@ -346,7 +329,6 @@ describe("production Fact authority store", () => {
         request: { index },
         writes: [edit(`compact-${index}`)],
         lineage: null,
-        inverse: [],
         publishedFrontier: store.snapshot().frontier,
       });
     }

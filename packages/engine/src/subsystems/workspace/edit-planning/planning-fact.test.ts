@@ -18,7 +18,7 @@ describe("planning Facts", () => {
     ]);
 
     expect(buildFactSnapshot("workspace", uniqueFacts([fact])).facts).toEqual([fact]);
-    expect(fact.body).toMatchObject({ kind: "edit", actorId: "actor" });
-    expect(fact.body.kind === "edit" ? fact.body.actions : []).toHaveLength(2);
+    expect(fact.body).toMatchObject({ kind: "action", actorId: "actor" });
+    expect(fact.body.kind === "action" ? fact.body.actions : []).toHaveLength(2);
   });
 });

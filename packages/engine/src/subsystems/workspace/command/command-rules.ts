@@ -5,14 +5,14 @@ import type {
   AcceptedEditCommand,
   AcceptedReviewCommand,
 } from "../application/input-validation.js";
-import type { ActorId, EditIntent, FactBody } from "../../../domain/fact/index.js";
+import { graphActionBody, type ActorId, type EditIntent, type FactBody } from "../../../domain/fact/index.js";
 import { nextHistoryLineage, validateHistorySelection } from "../../../domain/history/index.js";
 import { validateReviewSelection } from "../../../domain/review/index.js";
 import { resolutionAdjudicationProblem } from "../../../domain/conflict/index.js";
-import { prepareEdits, prepareReceiptInverse, type AuthoredActionBatch } from "../edit-planning/index.js";
+import { prepareEdits, type AuthoredActionBatch } from "../edit-planning/index.js";
 import { rejectedResult } from "../workspace-results.js";
 import type { BoundWorkspaceCommand, WorkspaceCommandPlanningContext } from "./command-rule.js";
-import { bindMaintenanceCommand } from "./maintenance.js";
+import { bindDeletionFinalizationCommand } from "./deletion-finalization.js";
 
 export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorkspaceCommand {
   switch (command.kind) {
@@ -24,10 +24,8 @@ export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorks
     case "undo":
     case "redo":
       return bindHistoryCommand(command);
-    case "acknowledge-deletion":
-    case "retire-replica":
-    case "hard-delete":
-      return bindMaintenanceCommand(command);
+    case "finalize-deletions":
+      return bindDeletionFinalizationCommand(command);
     default:
       return assertNever(command);
   }
@@ -40,20 +38,19 @@ function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
       actions: command.actions,
       historyChannelId: command.historyChannelId,
     },
-    plan({ workspaceId, snapshot, generation, receipts, maintenanceAuthority }) {
-      const prepared = prepareEdits(
+    plan({ workspaceId, snapshot, generation, receipts, replicaId }) {
+      const writes = prepareEdits(
         workspaceId,
         command.actorId,
         command.actions,
         generation,
         command.intent,
         snapshot,
-        maintenanceAuthority.replicaId,
+        replicaId,
       );
       return {
-        writes: prepared.writes.map((write) => editFactBody(write, command.actorId, command.intent)),
+        writes: writes.map((write) => actionFactBody(write, command.actorId, command.intent)),
         lineage: nextHistoryLineage(receipts, command.historyChannelId, "normal", null),
-        inverse: prepared.inverse,
       };
     },
   };
@@ -63,7 +60,7 @@ function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudication
   return {
     readPlan:
       command.kind === "resolve-review"
-        ? { kind: "action-ids", actionIds: command.selection.evidence.supportClosure, historyChannelId: null }
+        ? { kind: "action-ids", actionIds: command.selection.proposalActionIds, historyChannelId: null }
         : {
             kind: "facts",
             factIds: [...command.proposalFactIds, ...command.resolutionIds],
@@ -79,19 +76,17 @@ function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudication
 
 function planReviewResolution(
   command: AcceptedReviewCommand,
-  { workspaceId, snapshot, generation, reviewCapabilityKey }: WorkspaceCommandPlanningContext,
+  { snapshot, generation }: WorkspaceCommandPlanningContext,
 ) {
   const validation = validateReviewSelection(
-    workspaceId,
     command.selection,
     command.decision,
     command.actorId,
     snapshot,
     generation,
-    reviewCapabilityKey,
   );
   return validation.kind === "valid"
-    ? { writes: [validation.resolution], lineage: null, inverse: [] }
+    ? { writes: [validation.resolution], lineage: null }
     : rejectedResult("stale-selection", validation.reason, generation.identity.generationId);
 }
 
@@ -113,7 +108,6 @@ function planResolutionAdjudication(
           },
         ],
         lineage: null,
-        inverse: [],
       };
 }
 
@@ -121,12 +115,11 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
   const selection = command.selection;
   return {
     readPlan: {
-      kind: "facts",
-      factIds: selection.targetFactIds,
+      kind: "history",
       historyChannelId: selection.channelId,
     },
-    plan({ workspaceId, snapshot, generation, receipts, maintenanceAuthority }) {
-      const validation = validateHistorySelection(selection, receipts, snapshot, generation);
+    plan({ snapshot, generation, receipts }) {
+      const validation = validateHistorySelection(command.kind, selection, receipts, snapshot, generation);
       if (validation.kind !== "ready") {
         return rejectedResult(
           validation.kind === "stale" ? "stale-selection" : "history-unavailable",
@@ -134,31 +127,16 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
           generation.identity.generationId,
         );
       }
-      const inverse = prepareReceiptInverse(
-        workspaceId,
-        command.actorId,
-        validation.writes,
-        generation,
-        snapshot,
-        maintenanceAuthority.replicaId,
-      );
       return {
-        writes: validation.writes.map((batch) => ({
-          kind: "edit" as const,
-          actorId: command.actorId,
-          intent: batch.intent,
-          actions: batch.actions,
-        })),
+        writes: validation.writes.map((batch) => graphActionBody(command.actorId, batch.intent, batch.actions)),
         lineage: nextHistoryLineage(receipts, selection.channelId, command.kind, validation.targetInvocationId),
-        inverse,
       };
     },
   };
 }
 
-function editFactBody(write: AuthoredActionBatch, actorId: ActorId, intent: EditIntent): FactBody {
-  const [first, ...rest] = write;
-  return { kind: "edit", actorId, intent, actions: [first, ...rest] };
+function actionFactBody(write: AuthoredActionBatch, actorId: ActorId, intent: EditIntent): FactBody {
+  return graphActionBody(actorId, intent, write);
 }
 
 function assertNever(value: never): never {

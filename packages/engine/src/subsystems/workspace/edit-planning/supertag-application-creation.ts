@@ -6,7 +6,7 @@ import {
   templateFieldInstanceOccurrenceId,
   templateFieldInstanceValueNodeId,
   templateFieldInstanceValueOccurrenceId,
-  type AuthoredAction,
+  type GraphAction,
 } from "../../../domain/fact/index.js";
 import { projectFieldAvailability, type ScopedProjection } from "../../../domain/reconcile/index.js";
 
@@ -25,7 +25,7 @@ export function prepareSupertagApplicationCreation(
   if ((available.supertagApplications[edit.hostNodeId] ?? []).some((item) => item.supertagId === edit.supertagId)) {
     throw new Error("Node already has this Supertag Application");
   }
-  const actions: AuthoredAction[] = [
+  const actions: GraphAction[] = [
     {
       kind: "supertag-application-add",
       hostNodeId: edit.hostNodeId,
@@ -45,7 +45,7 @@ function materializeStaticDefaults(
   ownerNodeId: string,
   appliedSupertagId: string,
   available: ScopedProjection,
-): readonly AuthoredAction[] {
+): readonly GraphAction[] {
   const applications = {
     ...available.supertagApplications,
     [ownerNodeId]: [
@@ -65,7 +65,7 @@ function materializeStaticDefaults(
     available.materializedFields,
     available.nodes,
   );
-  const actions: AuthoredAction[] = [];
+  const actions: GraphAction[] = [];
   for (const field of projected.effectiveFields[ownerNodeId] ?? []) {
     const fieldDefinitionId = field.fieldDefinitionId;
     if (

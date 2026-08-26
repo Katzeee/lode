@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeFact, type Fact, type AuthoredAction } from "../fact/index.js";
+import { graphActionBody, makeFact, type Fact, type GraphAction } from "../fact/index.js";
 import { deriveActivation } from "../activation/index.js";
 import { compileProjectionPlan } from "./projection-plan-dag.js";
 import { invalidatedProjectionStages, PROJECTION_PLAN } from "./projection-plan.js";
@@ -29,12 +29,12 @@ describe("Projection plan dataflow", () => {
 
   it("RULE-2 Projection convergence has a finite hard bound", () => {
     const facts = [
-      editFact(
+      actionFact(
         1,
         { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null },
         "proposal",
       ),
-      editFact(
+      actionFact(
         2,
         {
           kind: "placement-create",
@@ -52,11 +52,11 @@ describe("Projection plan dataflow", () => {
 
   it("RULE-3 invalidation reaches only declared stage downstream", () => {
     const beforeFacts = [
-      editFact(1, { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }),
+      actionFact(1, { kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }),
     ];
     const afterFacts = [
       ...beforeFacts,
-      editFact(2, {
+      actionFact(2, {
         kind: "rich-text-splice",
         nodeId: "node",
         deleteAtomIds: [],
@@ -74,15 +74,47 @@ describe("Projection plan dataflow", () => {
       "assembly",
     ]);
   });
+
+  it("seeds Projection invalidation from the owning Fact algebra", () => {
+    const governance = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA,
+      sequence: 1,
+      observed: {},
+      lamport: 1,
+      body: {
+        kind: "governance",
+        actorId: "owner",
+        action: { kind: "workspace-establish", ownerActorId: "owner" },
+      },
+    });
+    const resolution = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA,
+      sequence: 2,
+      observed: { [REPLICA]: 1 },
+      lamport: 2,
+      body: {
+        kind: "resolution",
+        actorId: "reviewer",
+        decision: "accept",
+        proposalFactIds: [],
+        adjudicatesResolutionIds: [],
+      },
+    });
+
+    expect([...invalidatedProjectionStages([governance])]).toEqual([]);
+    expect([...invalidatedProjectionStages([resolution])]).toEqual(["activation"]);
+  });
 });
 
-function editFact(sequence: number, authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): Fact {
+function actionFact(sequence: number, authoredAction: GraphAction, intent: "direct" | "proposal" = "direct"): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence,
     observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
     lamport: sequence,
-    body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
+    body: graphActionBody("actor", intent, [authoredAction]),
   });
 }

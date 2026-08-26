@@ -1,5 +1,5 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import { VIEW_SORT_NODE_NAME_NODE_ID, type AuthoredAction, type FactActionId } from "../../../domain/fact/index.js";
+import { VIEW_SORT_NODE_NAME_NODE_ID, type GraphAction, type FactActionId } from "../../../domain/fact/index.js";
 import type { ScopedProjection, SharedDefaultViewDefinition } from "../../../domain/reconcile/index.js";
 import { sortViewChildrenByNodeName, supportsSharedDefaultViewHost } from "../../../domain/view/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
@@ -240,7 +240,7 @@ function nodeNameSort(
   view: SharedDefaultViewDefinition,
   available: ScopedProjection,
 ): AuthoredActionBatch {
-  const sort: AuthoredAction = view.options.sort
+  const sort: GraphAction = view.options.sort
     ? {
         kind: "view-sort-configure",
         sortId: view.options.sort.sortId,
@@ -261,7 +261,7 @@ function nodeNameSort(
   });
   const ascending = sortViewChildrenByNodeName(source, available);
   const ordered = edit.direction === "descending" ? [...ascending].reverse() : ascending;
-  const moves = ordered.map((child, index): AuthoredAction => ({
+  const moves = ordered.map((child, index): GraphAction => ({
     kind: "placement-move",
     placementId: child.sourceIdentity,
     parentNodeId: edit.hostNodeId,

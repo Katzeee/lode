@@ -15,7 +15,7 @@ import { uniqueFacts } from "../../../tests/support/facts.js";
 const REPLICA_A = "101";
 const REPLICA_B = "202";
 
-function editFact(sequence: number, overrides: Partial<Parameters<typeof makeFact>[0]> = {}) {
+function actionFact(sequence: number, overrides: Partial<Parameters<typeof makeFact>[0]> = {}) {
   return makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA_A,
@@ -23,7 +23,7 @@ function editFact(sequence: number, overrides: Partial<Parameters<typeof makeFac
     observed: sequence === 1 ? {} : { [REPLICA_A]: sequence - 1 },
     lamport: sequence,
     body: {
-      kind: "edit",
+      kind: "action",
       actorId: "actor",
       intent: "proposal",
       actions: [
@@ -41,7 +41,7 @@ function editFact(sequence: number, overrides: Partial<Parameters<typeof makeFac
 
 describe("production Fact contracts", () => {
   it("AUTH-1 facts are the only domain authority", () => {
-    const fact = editFact(1);
+    const fact = actionFact(1);
     const interpretation = buildFactSnapshot("workspace", uniqueFacts([fact]));
 
     expect(interpretation).toEqual({
@@ -52,8 +52,8 @@ describe("production Fact contracts", () => {
     expect(interpretation).not.toHaveProperty("projection");
   });
 
-  it("AUTH-3 editFact intent and Actor identity remain immutable", () => {
-    const proposal = editFact(1);
+  it("AUTH-3 Action Fact intent and Actor identity remain immutable", () => {
+    const proposal = actionFact(1);
     const resolution = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA_A,
@@ -77,7 +77,7 @@ describe("production Fact contracts", () => {
   });
 
   it("receipt batches and History lineage are exact non-empty authority ledger units", () => {
-    const first = editFact(1);
+    const first = actionFact(1);
     const baseReceipt = {
       workspaceId: "workspace",
       replicaId: REPLICA_A,
@@ -86,7 +86,6 @@ describe("production Fact contracts", () => {
       factIds: [first.id],
       committedFrontier: { [REPLICA_A]: 1 },
       lineage: null,
-      inverse: [],
     } as const;
     const invalidReceipts: readonly (readonly AuthorityReceipt[])[] = [
       [{ ...baseReceipt, committedFrontier: { [REPLICA_A]: 1, [REPLICA_B]: 999 } }],
@@ -103,9 +102,7 @@ describe("production Fact contracts", () => {
           ...baseReceipt,
           lineage: {
             channelId: "desktop",
-            ordinal: 2,
-            parentStepId: "missing",
-            operation: "normal",
+            operation: "undo",
             targetStepId: null,
           },
         },
@@ -126,7 +123,7 @@ describe("production Fact contracts", () => {
 
   it("decodes the exact authority body and provenance identities at the Fact boundary", () => {
     const body = {
-      kind: "edit",
+      kind: "action",
       actorId: "actor",
       intent: "direct",
       actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
@@ -156,5 +153,36 @@ describe("production Fact contracts", () => {
         ],
       }),
     ).toThrow("Atom identity is invalid");
+  });
+
+  it("keeps terminal Actions homogeneous, direct-only, and unique", () => {
+    const body = {
+      kind: "action",
+      actorId: "actor",
+      intent: "direct",
+      actions: [{ kind: "node-deletion-finalize", nodeId: "node" }],
+    } as const;
+    expect(parseFactBody(body)).toEqual(body);
+    expect(() => parseFactBody({ ...body, intent: "proposal" })).toThrow("Terminal actions must be direct");
+    expect(() =>
+      parseFactBody({
+        ...body,
+        actions: [
+          ...body.actions,
+          { kind: "node-create", nodeId: "other", ownerNodeId: "workspace", originalPlacement: null },
+        ],
+      }),
+    ).toThrow("Terminal and graph actions cannot share one Action Fact");
+    expect(() => parseFactBody({ ...body, actions: [...body.actions, ...body.actions] })).toThrow(
+      "Terminal actions in one Action Fact must be unique",
+    );
+    expect(() =>
+      parseFactBody({
+        kind: "action",
+        actorId: "actor",
+        intent: "proposal",
+        actions: [{ kind: "workspace-bootstrap", workspaceNodeId: "workspace" }],
+      }),
+    ).toThrow("Direct-only actions cannot be proposed");
   });
 });

@@ -1,13 +1,13 @@
-import type { FactId, HistoryChannelId, InvocationId, ReceiptInverseBatch } from "../fact/index.js";
+import type { HistoryChannelId, GraphAction, EditIntent } from "../fact/index.js";
+
+export type CompensationBatch = Readonly<{
+  intent: EditIntent;
+  actions: readonly [GraphAction, ...GraphAction[]];
+}>;
 
 export type HistorySelection = Readonly<{
   token: string;
   channelId: HistoryChannelId;
-  operation: "undo" | "redo";
-  targetInvocationId: InvocationId;
-  headInvocationId: InvocationId | null;
-  headOrdinal: number;
-  targetFactIds: readonly FactId[];
 }>;
 
 export type HistoryQuery = Readonly<{
@@ -19,8 +19,8 @@ export type HistoryQuery = Readonly<{
 export type HistoryPlan =
   | Readonly<{
       kind: "ready";
-      writes: readonly ReceiptInverseBatch[];
-      targetInvocationId: InvocationId;
+      writes: readonly CompensationBatch[];
+      targetInvocationId: string;
     }>
   | Readonly<{ kind: "unavailable"; reason: string }>
   | Readonly<{ kind: "stale"; reason: string }>;

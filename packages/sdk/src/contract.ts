@@ -1,12 +1,10 @@
 import type {
-  AcknowledgeDeletionCommand as ProtocolAcknowledgeDeletionCommand,
   AdjudicateResolutionCommand as ProtocolAdjudicateResolutionCommand,
   CommittedProjectionPendingResult as ProtocolCommittedProjectionPendingResult,
   ConflictQueryRequest as ProtocolConflictQueryRequest,
   EngineError as ProtocolEngineError,
   EngineEvent as ProtocolEngineEvent,
-  HardDeleteCommand as ProtocolHardDeleteCommand,
-  HardDeletePreviewQuery as ProtocolHardDeletePreviewQuery,
+  FinalizeDeletionsCommand as ProtocolFinalizeDeletionsCommand,
   HistoryCommand as ProtocolHistoryCommand,
   HistoryQueryRequest as ProtocolHistoryQueryRequest,
   InvocationQuery as ProtocolInvocationQuery,
@@ -16,7 +14,6 @@ import type {
   PublishedResult as ProtocolPublishedResult,
   RejectedResult as ProtocolRejectedResult,
   ResolveReviewCommand as ProtocolResolveReviewCommand,
-  RetireReplicaCommand as ProtocolRetireReplicaCommand,
   ReviewQueryRequest as ProtocolReviewQueryRequest,
   SupertagInstancesQueryRequest as ProtocolSupertagInstancesQueryRequest,
   SupertagInstancesResult as ProtocolSupertagInstancesResult,
@@ -39,8 +36,7 @@ import type {
 } from "@lode/protocol/dto/engine";
 import type { EditAction } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
-import type { HardDeletePreview, HardDeleteSelection } from "./maintenance.js";
-import type { FactActionId, FactId } from "./fact-identities.js";
+import type { FactId } from "./fact-identities.js";
 import type {
   AuthorityReceipt,
   ProtocolDto,
@@ -76,24 +72,12 @@ export type AdjudicateResolutionCommand = Omit<
     proposalFactIds: readonly FactId[];
     resolutionIds: readonly FactId[];
   }>;
-type AcknowledgeDeletionCommand = Omit<
-  WithKind<ProtocolAcknowledgeDeletionCommand, "acknowledge-deletion">,
-  "deletionActionIds"
-> &
-  Readonly<{ deletionActionIds: readonly FactActionId[] }>;
 export type HistoryCommand = Omit<WithKind<ProtocolHistoryCommand, "undo" | "redo">, "selection"> &
   Readonly<{ selection: HistorySelection }>;
-type HardDeleteCommand = Omit<WithKind<ProtocolHardDeleteCommand, "hard-delete">, "selection"> &
-  Readonly<{ selection: HardDeleteSelection }>;
+export type FinalizeDeletionsCommand = WithKind<ProtocolFinalizeDeletionsCommand, "finalize-deletions">;
 
 export type EngineCommand =
-  | EditCommand
-  | ReviewCommand
-  | AdjudicateResolutionCommand
-  | HistoryCommand
-  | AcknowledgeDeletionCommand
-  | WithKind<ProtocolRetireReplicaCommand, "retire-replica">
-  | HardDeleteCommand;
+  EditCommand | ReviewCommand | AdjudicateResolutionCommand | HistoryCommand | FinalizeDeletionsCommand;
 
 export type { EngineErrorCode };
 export type EngineError = Omit<ProtocolDto<ProtocolEngineError>, "code"> & Readonly<{ code: EngineErrorCode }>;
@@ -121,7 +105,6 @@ export type SupertagInstancesQueryRequest = Omit<
   "perspective"
 > &
   Readonly<{ perspective: ProjectionPerspective }>;
-export type HardDeletePreviewQuery = WithKind<ProtocolHardDeletePreviewQuery, "hard-delete-preview">;
 export type BacklinksQueryRequest = Omit<WithKind<ProtocolBacklinksQueryRequest, "backlinks">, "perspective"> &
   Readonly<{ perspective: ProjectionPerspective }>;
 export type SupertagInstancesResult = Omit<ProtocolDto<ProtocolSupertagInstancesResult>, "perspective"> &
@@ -192,7 +175,6 @@ export type EngineQueryContract =
   | Readonly<{ query: InvocationQuery; value: InvocationOutcome }>
   | Readonly<{ query: ConflictQueryRequest; value: ConflictQuery }>
   | Readonly<{ query: SupertagInstancesQueryRequest; value: SupertagInstancesResult }>
-  | Readonly<{ query: HardDeletePreviewQuery; value: HardDeletePreview }>
   | Readonly<{ query: BacklinksQueryRequest; value: BacklinksResult }>
   | Readonly<{ query: SearchResultsQueryRequest; value: SearchResultsResult }>
   | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>

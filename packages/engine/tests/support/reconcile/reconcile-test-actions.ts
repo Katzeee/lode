@@ -1,6 +1,6 @@
-import type { AuthoredAction } from "../../../src/domain/fact/index.js";
+import type { GraphAction } from "../../../src/domain/fact/index.js";
 
-export function fixturePrerequisites(authoredAction: AuthoredAction): readonly AuthoredAction[] {
+export function fixturePrerequisites(authoredAction: GraphAction): readonly GraphAction[] {
   if (authoredAction.kind === "field-materialize") {
     return [];
   }
@@ -17,7 +17,7 @@ export function fixturePrerequisites(authoredAction: AuthoredAction): readonly A
   return [];
 }
 
-export function fixtureConsequences(authoredAction: AuthoredAction): readonly AuthoredAction[] {
+export function fixtureConsequences(authoredAction: GraphAction): readonly GraphAction[] {
   if (authoredAction.kind === "template-node-detach") {
     return [
       {

@@ -1,42 +1,94 @@
 import {
   canonicalJson,
   factActionsFromFacts,
+  type Fact,
   type FactAction,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
 } from "../fact/index.js";
-import { resolutionsByAction } from "../activation/index.js";
+import { deriveActivation, resolutionsByAction } from "../activation/index.js";
 import { rebuildGeneration, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import { normalizeCompensationTargets } from "./compensation-normalization.js";
 import { compensateAction } from "./compensation-rules.js";
-import { scopedHistoryFacts } from "./compensation-scope.js";
 import { fieldDefinitionConfigurationCompensations } from "./compensation-field-definition.js";
+import type { CompensationBatch } from "./types.js";
+import { isCompensationTargetAction, type CompensationTargetAction } from "./compensation-policy.js";
 
 export type Compensation =
-  | Readonly<{ kind: "ready"; actions: readonly AuthoredAction[] }>
+  | Readonly<{ kind: "ready"; actions: readonly GraphAction[] }>
   | Readonly<{ kind: "unavailable"; reason: string }>
   | Readonly<{ kind: "stale"; reason: string }>;
+
+export type InvocationCompensation =
+  | Readonly<{ kind: "ready"; writes: readonly CompensationBatch[] }>
+  | Readonly<{ kind: "unavailable"; reason: string }>
+  | Readonly<{ kind: "stale"; reason: string }>;
+
+export function planInvocationCompensation(
+  targetFacts: readonly Fact[],
+  snapshot: FactSnapshot,
+  generation: ScopedProjectionGeneration,
+): InvocationCompensation {
+  let remainingFacts = snapshot.facts;
+  let remainingGeneration = generation;
+  const writes: CompensationBatch[] = [];
+  const versions = {
+    rulesVersion: generation.identity.rulesVersion,
+    schemaVersion: generation.identity.schemaVersion,
+  };
+
+  for (const target of [...targetFacts].reverse()) {
+    if (target.body.kind !== "action") {
+      return { kind: "stale", reason: "History Step contains a non-Action Fact" };
+    }
+    const currentSnapshot = { facts: remainingFacts, frontier: snapshot.frontier };
+    const compensation = planCompensation(factActionsFromFacts([target]), currentSnapshot, remainingGeneration);
+    if (compensation.kind === "stale") {
+      return compensation;
+    }
+    if (compensation.kind === "ready") {
+      const [first, ...rest] = compensation.actions;
+      if (first) {
+        writes.push({ intent: target.body.intent, actions: [first, ...rest] });
+      }
+      remainingFacts = remainingFacts.filter((fact) => fact.id !== target.id);
+      remainingGeneration = rebuildGeneration(
+        generation.identity.workspaceNodeId,
+        { facts: remainingFacts, frontier: snapshot.frontier },
+        versions,
+      );
+    }
+  }
+
+  return writes.length === 0
+    ? { kind: "unavailable", reason: "History Step has no attributable effect" }
+    : { kind: "ready", writes };
+}
 
 export function planCompensation(
   targetFacts: readonly FactAction[],
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
-  inverseHints: readonly AuthoredAction[] = [],
 ): Compensation {
   const intent = targetFacts[0]?.intent;
   if (!intent || targetFacts.some((fact) => fact.intent !== intent)) {
     return { kind: "stale", reason: "History Step has inconsistent editing intent" };
   }
-  const scopedFacts = scopedHistoryFacts(snapshot.facts, targetFacts, generation.review);
-  const resolutions = resolutionsByAction(scopedFacts);
+  const compensationTargets = targetFacts.filter((fact): fact is FactAction<CompensationTargetAction> =>
+    isCompensationTargetAction(fact.action),
+  );
+  if (compensationTargets.length !== targetFacts.length) {
+    return { kind: "unavailable", reason: "Direct-only Action Facts are not undoable" };
+  }
+  const resolutions = resolutionsByAction(snapshot.facts);
   const eligibleTargets =
-    intent === "proposal" ? targetFacts.filter((fact) => !resolutions.has(fact.id)) : [...targetFacts];
+    intent === "proposal" ? compensationTargets.filter((fact) => !resolutions.has(fact.id)) : [...compensationTargets];
   if (eligibleTargets.length === 0) {
     return { kind: "unavailable", reason: "Resolved Proposal Fact actions are not undoable" };
   }
   const eligibleIds = new Set(eligibleTargets.map((fact) => fact.id));
   const excludedFactIds = new Set(eligibleTargets.map((fact) => fact.factId));
-  const counterfactualFacts = scopedFacts.filter((fact) => !excludedFactIds.has(fact.id));
+  const counterfactualFacts = snapshot.facts.filter((fact) => !excludedFactIds.has(fact.id));
   const firstTarget = eligibleTargets[0];
   if (!firstTarget) {
     return { kind: "unavailable", reason: "History Step has no target Facts" };
@@ -45,19 +97,14 @@ export function planCompensation(
     rulesVersion: generation.identity.rulesVersion,
     schemaVersion: generation.identity.schemaVersion,
   };
-  const currentGeneration = rebuildGeneration(
-    generation.identity.workspaceNodeId,
-    { facts: scopedFacts, frontier: snapshot.frontier },
-    versions,
-  );
-  const originActive = new Set(currentGeneration.planCaches.origin.activeActionIds);
-  const reviewActive = new Set(currentGeneration.planCaches.review.activeActionIds);
+  const originActive = deriveActivation(snapshot.facts, "origin").activeActionIds;
+  const reviewActive = deriveActivation(snapshot.facts, "review").activeActionIds;
   const contingentDirect =
     intent === "direct" && eligibleTargets.some((fact) => reviewActive.has(fact.id) && !originActive.has(fact.id));
   const perspective = intent === "proposal" || contingentDirect ? "review" : "origin";
   const projection = generation[perspective];
   const active = perspective === "review" ? reviewActive : originActive;
-  const scoped = currentGeneration[perspective];
+  const scoped = generation[perspective];
   const counterfactual = rebuildGeneration(
     generation.identity.workspaceNodeId,
     { facts: counterfactualFacts, frontier: snapshot.frontier },
@@ -72,15 +119,15 @@ export function planCompensation(
     (fact) => !infrastructureNodeCreationIds.has(fact.id),
   );
   const normalizedIds = new Set(normalizedTargets.map((fact) => fact.id));
-  const activeFacts = factActionsFromFacts(scopedFacts).filter(
+  const activeFacts = factActionsFromFacts(snapshot.facts).filter(
     (fact) => active.has(fact.id) && (!eligibleIds.has(fact.id) || normalizedIds.has(fact.id)),
   );
-  const actions: AuthoredAction[] = [];
+  const actions: GraphAction[] = [];
   for (const target of [...normalizedTargets].reverse()) {
     if (!active.has(target.id)) {
       continue;
     }
-    const planned = compensateAction(target, eligibleIds, activeFacts, projection, counterfactual, inverseHints);
+    const planned = compensateAction(target, eligibleIds, activeFacts, projection, counterfactual);
     if (planned.kind === "stale") {
       return planned;
     }
@@ -95,9 +142,9 @@ export function planCompensation(
 
 function typedFieldValueCompensations(
   projection: ScopedProjectionGeneration["origin"],
-  planned: readonly AuthoredAction[],
-): readonly AuthoredAction[] {
-  const result: AuthoredAction[] = [];
+  planned: readonly GraphAction[],
+): readonly GraphAction[] {
+  const result: GraphAction[] = [];
   for (const [ownerNodeId, fields] of Object.entries(projection.typedFieldValues)) {
     for (const field of fields) {
       if (

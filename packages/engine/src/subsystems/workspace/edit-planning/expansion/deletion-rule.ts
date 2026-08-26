@@ -1,4 +1,4 @@
-import type { AuthoredAction } from "../../../../domain/fact/index.js";
+import type { GraphAction } from "../../../../domain/fact/index.js";
 import { singleAuthoredActionBatch, type AuthoredActionBatch } from "../action-batch.js";
 import { nodeLocation, type ScopedProjection } from "../../../../domain/reconcile/index.js";
 
@@ -23,7 +23,7 @@ function expandNodeDeletion(
 }
 
 export function expandPlacementRemoval(
-  action: Extract<AuthoredAction, { kind: "placement-remove" }>,
+  action: Extract<GraphAction, { kind: "placement-remove" }>,
   available: ScopedProjection,
 ): AuthoredActionBatch {
   const occurrence = available.occurrences[action.placementId];

@@ -3,7 +3,7 @@ import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js
 import {
   CHECKBOX_VALUE_NODE_IDS,
   FIELD_DATATYPE_NODE_IDS,
-  type AuthoredAction,
+  type GraphAction,
   type NodeSeed,
 } from "../../../domain/fact/index.js";
 import {
@@ -172,7 +172,7 @@ function clearTypedFieldValue(
   ) {
     throw new Error("Typed Field is already empty");
   }
-  const actions: AuthoredAction[] = [
+  const actions: GraphAction[] = [
     ...(current === null ? [] : [valueDeletion(current.occurrenceId)]),
     {
       kind: "node-create",
@@ -278,7 +278,7 @@ function requireUnusedOccurrence(occurrenceId: string, available: ScopedProjecti
   }
 }
 
-function materialization(edit: TypedFieldValueEdit): AuthoredAction {
+function materialization(edit: TypedFieldValueEdit): GraphAction {
   return {
     kind: "field-materialize",
     ownerNodeId: edit.ownerNodeId,
@@ -288,14 +288,14 @@ function materialization(edit: TypedFieldValueEdit): AuthoredAction {
   };
 }
 
-function valueDeletion(valueOccurrenceId: string): AuthoredAction {
+function valueDeletion(valueOccurrenceId: string): GraphAction {
   return {
     kind: "field-value-remove",
     valuePlacementId: valueOccurrenceId,
   };
 }
 
-function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): AuthoredAction {
+function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): GraphAction {
   return { kind: "placement-create", placementId: occurrenceId, nodeId, parentNodeId, anchor: end };
 }
 

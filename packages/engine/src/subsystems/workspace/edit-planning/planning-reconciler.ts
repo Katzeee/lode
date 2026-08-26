@@ -7,7 +7,7 @@ import {
   type Fact,
   type FactSnapshot,
   type FactActionId,
-  type AuthoredAction,
+  type GraphAction,
   type ReplicaId,
 } from "../../../domain/fact/index.js";
 import {
@@ -20,7 +20,7 @@ import { createPlanningFact } from "./planning-fact.js";
 type PlanningReconciler = Readonly<{
   reconcileEdit(
     editIndex: number,
-    actions: readonly [AuthoredAction, ...AuthoredAction[]],
+    actions: readonly [GraphAction, ...GraphAction[]],
     intent: EditIntent,
   ): Readonly<{
     snapshot: FactSnapshot;

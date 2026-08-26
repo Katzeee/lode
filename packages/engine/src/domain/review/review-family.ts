@@ -1,4 +1,4 @@
-import type { FactAction, FactActionId, FactSnapshot, AuthoredAction, TextAtomId } from "../fact/index.js";
+import type { FactAction, FactActionId, FactSnapshot, ProposableAction, TextAtomId } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { DecisionEffect, ReviewHunk } from "./types.js";
 import type { ReviewScopeContext } from "./review-scope.js";
@@ -22,7 +22,7 @@ export type ReviewEffectEntry = Readonly<{
 
 export type ReviewFamilyRule = Readonly<{
   key: string;
-  actionKinds: readonly AuthoredAction["kind"][];
+  actionKinds: readonly ProposableAction["kind"][];
   scopes(fact: FactAction, context: ReviewScopeContext): readonly string[];
   candidates(context: ReviewFamilyContext): readonly HunkCandidate[];
   effect(

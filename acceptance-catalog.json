@@ -321,7 +321,7 @@
     },
     {
       "id": "definition.lifecycle",
-      "contract": "Trash is an Owner-tree placement that retains Node identity, restoration reverses the structural deletion, and gated Hard Delete prevents replica-unsafe resurrection or orphaned owned descendants.",
+      "contract": "Trash is an Owner-tree placement that retains Node identity, restoration reverses structural deletion, and Deletion Finalization terminates the contributions owned by explicit Trash roots and their owned descendants.",
       "tests": [
         {
           "workspace": "engine",
@@ -329,15 +329,19 @@
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires every known Replica to causally acknowledge the Trash placement"
+          "test": "src/subsystems/workspace/deletion-finalization.acceptance.test.ts > Deletion Finalization > records one explicit terminal Action Fact for a Trash root and its owned descendants"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > requires explicit retirement before an unavailable known Replica stops blocking purge"
+          "test": "src/subsystems/workspace/deletion-finalization.acceptance.test.ts > Deletion Finalization > preserves an incoming Inline Reference and removes finalized Proposals from Review"
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/hard-delete.acceptance.test.ts > Hard Delete maintenance > blocks root-only purge while Trash contains owned descendants"
+          "test": "src/subsystems/workspace/deletion-finalization.acceptance.test.ts > Deletion Finalization > rejects a root that is not currently in Trash"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/subsystems/workspace/deletion-finalization.acceptance.test.ts > Deletion Finalization > suppresses a concurrent Restore and later edits without finalizing unrelated Trash Nodes"
         },
         {
           "workspace": "engine",
@@ -365,7 +369,7 @@
     },
     {
       "id": "proposal.shared-domain-review",
-      "contract": "Direct and Proposal share one action vocabulary; Review exposes typed net effects, impacts, support closure, and freshness.",
+      "contract": "Direct and Proposal share one action vocabulary; Review exposes typed net effects and impacts while selections identify the complete Proposal action closure and its current evidence.",
       "tests": [
         {
           "workspace": "engine",
@@ -377,7 +381,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/domain/review/review.acceptance.test.ts > production Review contracts > REVIEW-2 scope is visible targets plus minimal support closure"
+          "test": "src/domain/review/review.acceptance.test.ts > production Review contracts > REVIEW-2 selection identifies the complete Proposal action closure"
         },
         {
           "workspace": "engine",

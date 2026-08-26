@@ -25,7 +25,6 @@ type WorkspaceCommandExecutorOptions = Readonly<{
   facts: WorkspaceCommandAuthority;
   projection: WorkspaceProjection;
   events?: WorkspaceEventPublisher;
-  reviewCapabilityKey?: string;
 }>;
 
 type WorkspaceCommandAuthority = Pick<
@@ -84,8 +83,7 @@ export class WorkspaceCommandExecutor {
         generation,
         receipts:
           readPlan.historyChannelId === null ? [] : this.options.facts.receiptsForChannel(readPlan.historyChannelId),
-        maintenanceAuthority: this.options.facts,
-        ...(this.options.reviewCapabilityKey ? { reviewCapabilityKey: this.options.reviewCapabilityKey } : {}),
+        replicaId: this.options.facts.replicaId,
       });
     } catch (error) {
       return this.rejected("invalid-input", error instanceof Error ? error.message : String(error));
@@ -103,7 +101,6 @@ export class WorkspaceCommandExecutor {
         request: command,
         writes: planned.writes,
         lineage: planned.lineage,
-        inverse: planned.inverse,
         publishedFrontier: this.options.projection.identity.frontier,
       });
     } catch (error) {

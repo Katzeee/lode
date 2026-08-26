@@ -1,6 +1,6 @@
 import { expandEditAction, type EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
-import type { AuthoredAction, FactActionId } from "../../../domain/fact/index.js";
+import type { GraphAction, FactActionId } from "../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../domain/reconcile/index.js";
 import { locateInlineReference, nodeLocation } from "../../../domain/reconcile/index.js";
 import { prepareFieldDefinitionConfiguration } from "./field-definition-configuration.js";
@@ -230,7 +230,7 @@ function prepareInlineReferenceAliasCreation(
   if (available.nodes[edit.aliasNodeId] !== undefined) {
     throw new Error("Inline Alias Node identity already exists");
   }
-  const actions: AuthoredAction[] = [
+  const actions: GraphAction[] = [
     {
       kind: "node-create",
       nodeId: edit.aliasNodeId,
@@ -251,7 +251,7 @@ function prepareInlineReferenceAliasCreation(
   return authoredActionBatch([first, ...actions.slice(1)]);
 }
 
-function prepareReferencePromotion(occurrenceId: string, available: ScopedProjection): AuthoredAction {
+function prepareReferencePromotion(occurrenceId: string, available: ScopedProjection): GraphAction {
   const occurrence = available.occurrences[occurrenceId];
   if (!occurrence) {
     throw new Error("Reference promotion target is absent from the current Projection");

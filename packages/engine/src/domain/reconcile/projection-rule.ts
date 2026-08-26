@@ -96,13 +96,18 @@ type CompleteInvalidation<Rules extends readonly ProjectionRule[]> =
 export function projectionInvalidationFor<const Rules extends readonly ProjectionRule[]>(
   rules: Rules & CompleteInvalidation<Rules>,
 ): (facts: readonly Fact[]) => ReadonlySet<ProjectionStageKey> {
+  const activation = rules.find((rule) => rule.key === "activation");
+  if (activation === undefined) {
+    throw new Error("Projection plan has no Activation stage");
+  }
   return (facts) => {
     const invalidated = new Set<ProjectionStageKey>();
     for (const fact of facts) {
-      if (fact.body.kind !== "edit" || fact.body.intent === "proposal") {
-        for (const rule of rules) {
-          invalidated.add(rule.key);
-        }
+      if (fact.body.kind === "governance") {
+        continue;
+      }
+      if (fact.body.kind === "resolution") {
+        invalidated.add(activation.key);
         continue;
       }
       for (const authoredAction of fact.body.actions) {

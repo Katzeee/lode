@@ -26,13 +26,23 @@ export type WorkspaceCommandReadPlan =
       kind: "action-ids";
       actionIds: readonly FactActionId[];
       historyChannelId: HistoryChannelId | null;
+    }>
+  | Readonly<{
+      kind: "history";
+      historyChannelId: HistoryChannelId;
+    }>
+  | Readonly<{
+      kind: "projection-scope";
+      nodeIds: readonly string[];
+      readsOwnerGraph: boolean;
+      readsOwnedDescendants: boolean;
+      historyChannelId: null;
     }>;
 
 type WorkspaceCommandPlan =
   | Readonly<{
       writes: readonly FactBody[];
       lineage: AuthorityReceipt["lineage"];
-      inverse: AuthorityReceipt["inverse"];
     }>
   | RejectedResult;
 
@@ -41,8 +51,7 @@ export type WorkspaceCommandPlanningContext = Readonly<{
   snapshot: FactSnapshot;
   generation: ScopedProjectionGeneration;
   receipts: readonly AuthorityReceipt[];
-  maintenanceAuthority: Pick<FactAuthorityPort, "replicaId">;
-  reviewCapabilityKey?: string;
+  replicaId: FactAuthorityPort["replicaId"];
 }>;
 
 export type BoundWorkspaceCommand = Readonly<{

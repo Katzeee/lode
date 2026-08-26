@@ -1,7 +1,5 @@
 import {
-  canonicalJson,
-  causalMaxima,
-  factObserves,
+  factActionsOfKind,
   isFactActionId,
   SEARCH_EXPRESSION_DEFINITION_NODE_ID,
   type FactAction,
@@ -10,6 +8,7 @@ import {
   type SearchClause,
   type SequenceAnchor,
 } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
 
 type SearchExpressionProjectionIdentity = Readonly<{
@@ -47,53 +46,28 @@ export function searchExpressionActionId(expressionNodeId: string): FactActionId
 }
 
 export function searchExpressionStates(active: readonly FactAction[]): readonly SearchExpressionState[] {
-  const additions = active.filter(
-    (action): action is FactActionOf<"search-expression-add"> => action.action.kind === "search-expression-add",
-  );
-  const removals = active.filter(
-    (action): action is FactActionOf<"search-expression-remove"> => action.action.kind === "search-expression-remove",
-  );
-  const restores = active.filter(
-    (action): action is FactActionOf<"search-expression-restore"> => action.action.kind === "search-expression-restore",
-  );
-  return additions.map((addition) => {
-    const supports: readonly FactAction[] = [
-      addition,
-      ...restores.filter((restore) => restore.action.expressionId === addition.id),
-    ];
-    const removed = supports.every((support) =>
-      removals.some((removal) => removal.action.expressionId === addition.id && actionObserves(removal, support)),
-    );
-    const configurations = causalMaxima(
-      active.filter(
-        (action): action is FactActionOf<"search-expression-configure"> =>
-          action.action.kind === "search-expression-configure" && action.action.expressionId === addition.id,
-      ),
-      (left, right) => left.action.expressionId === right.action.expressionId,
+  return causalCollectionStates(active, "search-expression").map((state) => {
+    const { addition, removed } = state;
+    const configurations = factActionsOfKind(
+      state.registers.get("clause")?.candidates ?? [],
+      "search-expression-configure",
     );
     const clauses =
       configurations.length === 0 ? [addition.action.clause] : configurations.map((value) => value.action.clause);
-    const uniqueClauses = new Map(clauses.map((clause) => [canonicalJson(clause), clause]));
-    const moves = causalMaxima(
-      active.filter(
-        (action): action is FactActionOf<"search-expression-move"> =>
-          action.action.kind === "search-expression-move" && action.action.expressionId === addition.id,
-      ),
-      (left, right) => left.action.expressionId === right.action.expressionId,
-    );
+    const clauseState = state.registers.get("clause");
+    const moves = factActionsOfKind(state.registers.get("position")?.candidates ?? [], "search-expression-move");
     const positions =
       moves.length === 0
         ? [{ parentExpressionId: addition.action.parentExpressionId, anchor: addition.action.anchor }]
         : moves.map((move) => ({ parentExpressionId: move.action.parentExpressionId, anchor: move.action.anchor }));
-    const uniquePositions = new Map(positions.map((position) => [canonicalJson(position), position]));
-    const position = [...uniquePositions.values()][0];
+    const position = positions[0];
     return {
       addition,
       removed,
-      clause: uniqueClauses.size === 1 ? ([...uniqueClauses.values()][0] ?? null) : null,
+      clause: clauseState?.conflicted === true ? null : (clauses[0] ?? null),
       parentExpressionId: position?.parentExpressionId ?? null,
       anchor: position?.anchor ?? addition.action.anchor,
-      positionConflicted: uniquePositions.size > 1,
+      positionConflicted: state.registers.get("position")?.conflicted ?? false,
       identity: searchExpressionProjectionIdentity(addition.id),
     };
   });
@@ -140,10 +114,6 @@ export function expressionHostParent(expressionHostId: string): string {
   return isFactActionId(expressionHostId)
     ? `${expressionHostId}/projection/view-filter/node`
     : metanodeNodeId(expressionHostId);
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;

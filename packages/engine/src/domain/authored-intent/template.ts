@@ -1,14 +1,14 @@
 import {
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
+  graphActionKindsInFamily,
   type AuthoredAction,
   type SequenceAnchor,
-  type TemplateAction,
 } from "../fact/index.js";
 import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentFamily } from "./policy.js";
 
-const TEMPLATE_ACTION_KINDS = ["template-node-detach"] as const satisfies readonly TemplateAction["kind"][];
+const TEMPLATE_ACTION_KINDS = graphActionKindsInFamily("template");
 
 export const templateAuthoredIntent = {
   key: "template",

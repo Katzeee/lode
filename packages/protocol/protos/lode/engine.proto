@@ -6,7 +6,6 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/wrappers.proto";
 import "lode/edit.proto";
 import "lode/history.proto";
-import "lode/maintenance.proto";
 import "lode/model.proto";
 import "lode/projection.proto";
 import "lode/review.proto";
@@ -24,10 +23,9 @@ enum EngineErrorCode {
   ENGINE_ERROR_CODE_PROJECTION_UNAVAILABLE = 3;
   ENGINE_ERROR_CODE_INVOCATION_CONFLICT = 4;
   ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE = 5;
-  ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED = 6;
-  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 7;
-  ENGINE_ERROR_CODE_ACTOR_LOCKED = 8;
-  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 9;
+  ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND = 6;
+  ENGINE_ERROR_CODE_ACTOR_LOCKED = 7;
+  ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER = 8;
 }
 
 enum EngineEventKind {
@@ -71,26 +69,11 @@ message HistoryCommand {
   HistorySelection selection = 4;
 }
 
-message AcknowledgeDeletionCommand {
+message FinalizeDeletionsCommand {
   string workspace_id = 1;
   string invocation_id = 2;
   string actor_id = 3;
-  string node_id = 4;
-  repeated string deletion_action_ids = 5;
-}
-
-message RetireReplicaCommand {
-  string workspace_id = 1;
-  string invocation_id = 2;
-  string actor_id = 3;
-  string replica_id = 4;
-}
-
-message HardDeleteCommand {
-  string workspace_id = 1;
-  string invocation_id = 2;
-  string actor_id = 3;
-  HardDeleteSelection selection = 4;
+  repeated string node_ids = 4;
 }
 
 message EngineCommand {
@@ -100,9 +83,7 @@ message EngineCommand {
     AdjudicateResolutionCommand adjudicate_resolution = 3;
     HistoryCommand undo = 4;
     HistoryCommand redo = 5;
-    AcknowledgeDeletionCommand acknowledge_deletion = 6;
-    RetireReplicaCommand retire_replica = 7;
-    HardDeleteCommand hard_delete = 8;
+    FinalizeDeletionsCommand finalize_deletions = 6;
   }
 }
 
@@ -178,11 +159,6 @@ message SupertagInstancesQueryRequest {
   optional uint32 limit = 5;
 }
 
-message HardDeletePreviewQuery {
-  string workspace_id = 1;
-  string node_id = 2;
-}
-
 message BacklinksQueryRequest {
   string workspace_id = 1;
   ProjectionPerspective perspective = 2;
@@ -237,13 +213,12 @@ message EngineQuery {
     InvocationQuery invocation = 4;
     ConflictQueryRequest conflicts = 5;
     SupertagInstancesQueryRequest supertag_instances = 6;
-    HardDeletePreviewQuery hard_delete_preview = 7;
-    BacklinksQueryRequest backlinks = 8;
-    SearchResultsQueryRequest search_results = 9;
-    ViewRowsQueryRequest view_rows = 10;
-    OutlineQueryRequest outline = 11;
-    DebugNodeQueryRequest debug_node = 12;
-    TrashEvidenceQueryRequest trash_evidence = 13;
+    BacklinksQueryRequest backlinks = 7;
+    SearchResultsQueryRequest search_results = 8;
+    ViewRowsQueryRequest view_rows = 9;
+    OutlineQueryRequest outline = 10;
+    DebugNodeQueryRequest debug_node = 11;
+    TrashEvidenceQueryRequest trash_evidence = 12;
   }
 }
 
@@ -400,13 +375,12 @@ message QueryResult {
     InvocationOutcome invocation = 5;
     ConflictQueryResult conflicts = 6;
     SupertagInstancesResult supertag_instances = 7;
-    HardDeletePreview hard_delete_preview = 8;
-    BacklinksResult backlinks = 9;
-    SearchResultsResult search_results = 10;
-    ViewRowsResult view_rows = 11;
-    OutlineResult outline = 12;
-    DebugNodeResult debug_node = 13;
-    TrashEvidence trash_evidence = 14;
+    BacklinksResult backlinks = 8;
+    SearchResultsResult search_results = 9;
+    ViewRowsResult view_rows = 10;
+    OutlineResult outline = 11;
+    DebugNodeResult debug_node = 12;
+    TrashEvidence trash_evidence = 13;
   }
 }
 

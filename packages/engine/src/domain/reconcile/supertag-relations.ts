@@ -16,7 +16,7 @@ import type {
 } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { supertagExtensionGraph } from "./supertag-extension-graph.js";
-import { observedRelations, supertagExtensionEvent } from "./supertag-relation-events.js";
+import { observedSupertagExtensions } from "./supertag-relation-events.js";
 import { boundSupertagTemplateNodes } from "./supertag-template-bindings.js";
 import { filterMaterializedFields, filterRecordOwners } from "./intrinsic-node-type-filters.js";
 import { projectMaterializedFields } from "./materialized-fields.js";
@@ -77,7 +77,7 @@ export function deriveSupertagRelations(
     metanodes,
     nodeOwners,
   );
-  const extensions = observedRelations(active, supertagExtensionEvent, supertagDefinitionIds, supertagDefinitionIds);
+  const extensions = observedSupertagExtensions(active, supertagDefinitionIds, supertagDefinitionIds);
   const supertagTemplateNodes = filterRecordOwners(
     boundSupertagTemplateNodes(active, knownNodeIds, occurrences, childOccurrences),
     supertagDefinitionIds,

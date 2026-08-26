@@ -1,10 +1,9 @@
 import type { EngineCommand, EngineQuery } from "./contract.js";
-import { ACTION_KINDS, COMMAND_KINDS, DECISION_EFFECT_KINDS, QUERY_KINDS } from "./protocol-cases.js";
+import { ACTION_KINDS, COMMAND_KINDS, QUERY_KINDS } from "./protocol-cases.js";
 import { editIntent } from "./protocol-enums/engine.js";
 import { projectionPerspective } from "./protocol-enums/projection.js";
 import { resolutionDecision } from "./protocol-enums/review.js";
 import { PROJECTION_PAGE_SECTIONS } from "./projection.js";
-import { validateHardDeleteSelection } from "./maintenance-validation.js";
 import { factActionIds, factIds } from "./fact-identities.js";
 
 export function parseEngineCommand(value: unknown): EngineCommand {
@@ -36,19 +35,15 @@ export function parseEngineCommand(value: unknown): EngineCommand {
   } else if (kind === "undo" || kind === "redo") {
     exact(command, ["kind", "workspaceId", "invocationId", "actorId", "selection"]);
     historySelection(command.selection, kind);
-  } else if (kind === "acknowledge-deletion") {
-    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "nodeId", "deletionActionIds"]);
-    nonempty(command.nodeId, "Deleted Node identity");
-    factActionIds(command.deletionActionIds, "Deletion action identities");
-  } else if (kind === "retire-replica") {
-    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "replicaId"]);
-    const replicaId = nonempty(command.replicaId, "Retired Replica identity");
-    if (!/^(?:0|[1-9]\d*)$/.test(replicaId)) {
-      throw new Error("Retired Replica identity is invalid");
+  } else if (kind === "finalize-deletions") {
+    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "nodeIds"]);
+    if (!Array.isArray(command.nodeIds) || command.nodeIds.length === 0) {
+      throw new Error("Deletion Finalization requires at least one Trash root");
     }
-  } else if (kind === "hard-delete") {
-    exact(command, ["kind", "workspaceId", "invocationId", "actorId", "selection"]);
-    validateHardDeleteSelection(command.selection);
+    const nodeIds = command.nodeIds.map((nodeId) => nonempty(nodeId, "Deletion Finalization Node identity"));
+    if (new Set(nodeIds).size !== nodeIds.length) {
+      throw new Error("Deletion Finalization roots must be unique");
+    }
   }
   return command as EngineCommand;
 }
@@ -113,34 +108,20 @@ export function parseEngineQuery(value: unknown): EngineQuery {
   } else if (kind === "invocation") {
     exact(query, ["kind", "workspaceId", "invocationId"]);
     nonempty(query.invocationId, "Invocation identity");
-  } else {
-    exact(query, ["kind", "workspaceId", "nodeId"]);
-    nonempty(query.nodeId, "Node identity");
   }
   return query as EngineQuery;
 }
 
 function reviewSelection(value: unknown): void {
   const selection = record(value, "Review selection");
-  nonempty(selection.token, "Review token");
-  const evidence = record(selection.evidence, "Review evidence");
-  factActionIds(evidence.proposalTargets, "Review proposal targets");
-  factActionIds(evidence.supportClosure, "Review support closure", false);
-  if (!Array.isArray(evidence.effects)) {
-    throw new Error("Review effects must be an array");
-  }
-  for (const value of evidence.effects) {
-    const effect = record(value, "Review effect");
-    enumString(effect.kind, DECISION_EFFECT_KINDS, "Review effect kind");
-  }
+  nonempty(selection.evidenceId, "Review evidence identity");
+  factActionIds(selection.proposalActionIds, "Review proposal actions");
 }
 
 function historySelection(value: unknown, operation: "undo" | "redo"): void {
   const selection = record(value, "History selection");
-  if (selection.operation !== operation) {
-    throw new Error("History selection operation does not match command");
-  }
-  factIds(selection.targetFactIds, "History target Facts");
+  nonempty(selection.token, `${operation} History token`);
+  nonempty(selection.channelId, "History channel");
 }
 
 function paginationValues(value: Record<string, unknown>, maximum: number, label: string): void {

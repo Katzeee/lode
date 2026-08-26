@@ -1,12 +1,13 @@
 import {
   frontierOf,
   factActions,
+  graphActionBody,
   makeFact,
   type Fact,
   type FactAction,
   type FactBody,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
   workspaceGenesisActions,
 } from "../../../src/domain/fact/index.js";
 import {
@@ -35,7 +36,7 @@ export class ReviewFacts {
     this.addTransaction(workspaceGenesisActions("workspace"));
   }
 
-  add(authoredAction: AuthoredAction, intent: "direct" | "proposal" = "direct"): FactAction {
+  add(authoredAction: GraphAction, intent: "direct" | "proposal" = "direct"): FactAction {
     const action = this.addTransaction([authoredAction], intent)[0];
     if (!action) {
       throw new Error("Review fixture edit has no FactAction");
@@ -43,12 +44,10 @@ export class ReviewFacts {
     return action;
   }
 
-  addTransaction(actions: readonly AuthoredAction[], intent: "direct" | "proposal" = "direct"): readonly FactAction[] {
+  addTransaction(actions: readonly GraphAction[], intent: "direct" | "proposal" = "direct"): readonly FactAction[] {
     const preparedActions = withInitialNodeRelations(actions);
     const [first, ...rest] = preparedActions;
-    return first
-      ? factActions(this.addBody({ kind: "edit", actorId: "actor", intent, actions: [first, ...rest] }))
-      : [];
+    return first ? factActions(this.addBody(graphActionBody("actor", intent, [first, ...rest]))) : [];
   }
 
   applySupertag(

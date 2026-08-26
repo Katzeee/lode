@@ -1,12 +1,8 @@
-import type { FieldContentRemovalAction, FieldAction } from "../fact/index.js";
+import { graphActionKindsInFamily, type FieldContentRemovalAction, type FieldAction } from "../fact/index.js";
 import { assertMaterializedField, type ScopedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
-const FIELD_ACTION_KINDS = [
-  "field-materialize",
-  "field-value-remove",
-  "materialized-field-clear",
-] as const satisfies readonly FieldAction["kind"][];
+const FIELD_ACTION_KINDS = graphActionKindsInFamily("field");
 
 export const fieldAuthoredIntent = {
   key: "field",

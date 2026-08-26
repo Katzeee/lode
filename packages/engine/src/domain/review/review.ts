@@ -1,8 +1,5 @@
-import { createHmac, randomBytes } from "node:crypto";
-
 import {
   canonicalDigest,
-  canonicalJson,
   frontierEquals,
   owningFactIds,
   stableStringCompare,
@@ -16,13 +13,9 @@ import { collectReviewCandidates } from "./review-plan.js";
 import { createReviewEvidenceContext, evidenceForTargets, type ReviewEvidenceContext } from "./evidence.js";
 import type { DecisionEvidence, ReviewHunk, ReviewQuery, ReviewSelection, SelectionValidation } from "./types.js";
 
-const DEFAULT_REVIEW_CAPABILITY_KEY = randomBytes(32).toString("hex");
-
 export function queryReview(
-  workspaceId: string,
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
-  capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
   page?: Readonly<{
     pending: ReadonlyMap<FactAction["id"], FactAction>;
     context?: ReviewEvidenceContext;
@@ -34,7 +27,7 @@ export function queryReview(
   const pending = page?.pending ?? context.pending;
   const evidenceCache = new Map<string, DecisionEvidence>();
   const hunks = collectReviewCandidates(snapshot, generation, pending).map((candidate) =>
-    candidateToHunk(workspaceId, snapshot, generation, candidate, capabilityKey, context, evidenceCache),
+    candidateToHunk(snapshot, generation, candidate, context, evidenceCache),
   );
   return {
     generationId: generation.identity.generationId,
@@ -45,33 +38,19 @@ export function queryReview(
 }
 
 export function validateReviewSelection(
-  workspaceId: string,
   selection: ReviewSelection,
   decision: ResolutionDecision,
   actorId: string,
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
-  capabilityKey = DEFAULT_REVIEW_CAPABILITY_KEY,
 ): SelectionValidation {
-  if (selection.workspaceId !== workspaceId) {
-    return stale(generation, "selection belongs to another Workspace");
-  }
-  if (selection.token !== selectionToken(workspaceId, selection.generationId, selection.evidence, capabilityKey)) {
-    return stale(generation, "selection token is invalid");
-  }
-  if (
-    selection.evidence.rulesVersion !== generation.identity.rulesVersion ||
-    selection.evidence.schemaVersion !== generation.identity.schemaVersion
-  ) {
-    return stale(generation, "interpretation version changed");
-  }
   const current = evidenceForTargets(
     snapshot,
     generation,
-    selection.evidence.proposalTargets,
+    selection.proposalActionIds,
     createReviewEvidenceContext(snapshot),
   );
-  if (!current || canonicalJson(current) !== canonicalJson(selection.evidence)) {
+  if (!current || evidenceId(current) !== selection.evidenceId) {
     return stale(generation, "decision evidence changed");
   }
   return {
@@ -81,17 +60,15 @@ export function validateReviewSelection(
       adjudicatesResolutionIds: [],
       actorId,
       decision,
-      proposalFactIds: owningFactIds(snapshot.facts, current.supportClosure),
+      proposalFactIds: owningFactIds(snapshot.facts, current.proposalActionIds),
     },
   };
 }
 
 function candidateToHunk(
-  workspaceId: string,
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
   candidate: HunkCandidate,
-  capabilityKey: string,
   context: ReviewEvidenceContext,
   cache: Map<string, DecisionEvidence>,
 ): ReviewHunk {
@@ -102,47 +79,30 @@ function candidateToHunk(
   }
   const completeEvidence = cache.get(cacheKey) ?? evidence;
   cache.set(cacheKey, completeEvidence);
-  const selection = makeSelection(workspaceId, generation, completeEvidence, capabilityKey);
   return {
     id: canonicalDigest({ diffSpace: candidate.diffSpace, evidence: completeEvidence }),
     diffSpace: candidate.diffSpace,
-    proposalActionIds: completeEvidence.proposalTargets,
     neutralBridgeAtomIds: candidate.bridges,
     linkedHunkIds: [],
-    selection,
+    evidence: {
+      effects: completeEvidence.effects,
+      associatedImpactIds: completeEvidence.associatedImpactIds,
+    },
+    selection: {
+      evidenceId: evidenceId(completeEvidence),
+      proposalActionIds: completeEvidence.proposalActionIds,
+    },
   };
 }
 
-function makeSelection(
-  workspaceId: string,
-  generation: ScopedProjectionGeneration,
-  evidence: DecisionEvidence,
-  capabilityKey: string,
-): ReviewSelection {
-  return {
-    token: selectionToken(workspaceId, generation.identity.generationId, evidence, capabilityKey),
-    workspaceId,
-    frontier: generation.identity.frontier,
-    generationId: generation.identity.generationId,
-    evidence,
-  };
-}
-
-function selectionToken(
-  workspaceId: string,
-  generationId: string,
-  evidence: DecisionEvidence,
-  capabilityKey: string,
-): string {
-  return createHmac("sha256", capabilityKey)
-    .update(canonicalJson({ workspaceId, generationId, evidence }))
-    .digest("hex");
+function evidenceId(evidence: DecisionEvidence): string {
+  return canonicalDigest(evidence);
 }
 
 function linkAssociatedHunks(hunks: readonly ReviewHunk[]): readonly ReviewHunk[] {
   const groups = new Map<string, ReviewHunk[]>();
   for (const hunk of hunks) {
-    const signature = hunk.selection.evidence.associatedImpactIds.join("\u0000");
+    const signature = hunk.evidence.associatedImpactIds.join("\u0000");
     const group = groups.get(signature) ?? [];
     group.push(hunk);
     groups.set(signature, group);
@@ -159,7 +119,7 @@ function linkAssociatedHunks(hunks: readonly ReviewHunk[]): readonly ReviewHunk[
         }
       });
     }
-    for (const impact of group[0]?.selection.evidence.associatedImpactIds ?? []) {
+    for (const impact of group[0]?.evidence.associatedImpactIds ?? []) {
       const signatures = signaturesByImpact.get(impact) ?? new Set<string>();
       signatures.add(signature);
       signaturesByImpact.set(impact, signatures);

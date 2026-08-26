@@ -69,7 +69,7 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    expect(queryReview("workspace", snapshot, generation(snapshot)).hunks).toHaveLength(2);
+    expect(queryReview(snapshot, generation(snapshot)).hunks).toHaveLength(2);
   });
 
   it("结构替换呈现", () => {
@@ -102,11 +102,11 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    const structural = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter(
+    const structural = queryReview(snapshot, generation(snapshot)).hunks.filter(
       (hunk) => hunk.diffSpace.kind === "child-sequence",
     );
     expect(structural).toHaveLength(1);
-    expect(structural[0]?.proposalActionIds).toEqual(expect.arrayContaining([removal.id, addition.id]));
+    expect(structural[0]?.selection.proposalActionIds).toEqual(expect.arrayContaining([removal.id, addition.id]));
   });
 
   it("unchanged sibling identities split local ChildSequence Diff Spaces", () => {
@@ -161,10 +161,10 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    const structural = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter(
+    const structural = queryReview(snapshot, generation(snapshot)).hunks.filter(
       (hunk) => hunk.diffSpace.kind === "child-sequence",
     );
-    expect(structural.map((hunk) => hunk.proposalActionIds)).toEqual([[left.id], [right.id]]);
+    expect(structural.map((hunk) => hunk.selection.proposalActionIds)).toEqual([[left.id], [right.id]]);
   });
 
   it("Move 双端点", () => {
@@ -187,8 +187,8 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    const endpoints = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter((hunk) =>
-      hunk.proposalActionIds.includes(move.id),
+    const endpoints = queryReview(snapshot, generation(snapshot)).hunks.filter((hunk) =>
+      hunk.selection.proposalActionIds.includes(move.id),
     );
     expect(endpoints).toHaveLength(2);
     expect(endpoints.every((hunk) => hunk.linkedHunkIds.length === 1)).toBe(true);
@@ -214,12 +214,12 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    const hunks = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter((hunk) =>
-      hunk.proposalActionIds.includes(reorder.id),
+    const hunks = queryReview(snapshot, generation(snapshot)).hunks.filter((hunk) =>
+      hunk.selection.proposalActionIds.includes(reorder.id),
     );
 
     expect(hunks).toHaveLength(1);
-    expect(hunks[0]?.selection.evidence.effects).toMatchObject([
+    expect(hunks[0]?.evidence.effects).toMatchObject([
       {
         kind: "structure",
         originParentId: "workspace",
@@ -242,9 +242,7 @@ describe("production Review scenarios", () => {
       anchor: end,
     });
     const advanced = facts.snapshot();
-    expect(
-      validateReviewSelection("workspace", selection, "accept", "reviewer", advanced, generation(advanced)).kind,
-    ).toBe("valid");
+    expect(validateReviewSelection(selection, "accept", "reviewer", advanced, generation(advanced)).kind).toBe("valid");
   });
 
   it("Shared Node 全局影响", () => {
@@ -262,8 +260,8 @@ describe("production Review scenarios", () => {
       throw new Error("Expected proposed Node deletion");
     }
     const snapshot = facts.snapshot();
-    const impacts = queryReview("workspace", snapshot, generation(snapshot)).hunks.filter((hunk) =>
-      hunk.proposalActionIds.includes(deletion.id),
+    const impacts = queryReview(snapshot, generation(snapshot)).hunks.filter((hunk) =>
+      hunk.selection.proposalActionIds.includes(deletion.id),
     );
     expect(impacts.some((hunk) => hunk.diffSpace.kind === "lifecycle")).toBe(true);
     expect(impacts.every((hunk) => hunk.linkedHunkIds.length > 0)).toBe(true);
@@ -309,9 +307,9 @@ describe("production Review scenarios", () => {
       "proposal",
     );
     const before = facts.snapshot();
-    const hunks = queryReview("workspace", before, generation(before)).hunks;
+    const hunks = queryReview(before, generation(before)).hunks;
     expect(hunks).toHaveLength(2);
-    const selection = hunks.find((hunk) => hunk.proposalActionIds.includes(left.id))?.selection;
+    const selection = hunks.find((hunk) => hunk.selection.proposalActionIds.includes(left.id))?.selection;
     if (!selection) {
       throw new Error("Expected the left Proposal Hunk");
     }
@@ -324,10 +322,8 @@ describe("production Review scenarios", () => {
       insert: "",
     });
     const after = facts.snapshot();
-    expect(queryReview("workspace", after, generation(after)).hunks).toHaveLength(1);
-    expect(validateReviewSelection("workspace", selection, "accept", "reviewer", after, generation(after)).kind).toBe(
-      "valid",
-    );
+    expect(queryReview(after, generation(after)).hunks).toHaveLength(1);
+    expect(validateReviewSelection(selection, "accept", "reviewer", after, generation(after)).kind).toBe("valid");
   });
 
   it("same text-mark owner is one truthful decision scope", () => {
@@ -360,10 +356,10 @@ describe("production Review scenarios", () => {
         },
         "proposal",
       );
-      const hunk = queryReview("workspace", facts.snapshot(), generation(facts.snapshot())).hunks.find(
+      const hunk = queryReview(facts.snapshot(), generation(facts.snapshot())).hunks.find(
         (candidate) => candidate.diffSpace.kind === "node-content",
       );
-      expect(hunk?.proposalActionIds).toEqual([blue.id, red.id]);
+      expect(hunk?.selection.proposalActionIds).toEqual([blue.id, red.id]);
       if (!hunk) {
         throw new Error("Expected one text mark Hunk");
       }
@@ -372,7 +368,7 @@ describe("production Review scenarios", () => {
         adjudicatesResolutionIds: [],
         actorId: "reviewer",
         decision,
-        proposalFactIds: owningFactIds(facts.values, hunk.selection.evidence.supportClosure),
+        proposalFactIds: owningFactIds(facts.values, hunk.selection.proposalActionIds),
       });
       const resolved = generation(facts.snapshot());
       expect(
@@ -416,8 +412,8 @@ describe("production Review scenarios", () => {
       throw new Error("Expected Supertag Application Fact");
     }
     const before = facts.snapshot();
-    const selected = queryReview("workspace", before, generation(before)).hunks.find((hunk) =>
-      hunk.proposalActionIds.includes(application.id),
+    const selected = queryReview(before, generation(before)).hunks.find((hunk) =>
+      hunk.selection.proposalActionIds.includes(application.id),
     )?.selection;
     if (!selected) {
       throw new Error("Expected Supertag Application Hunk");
@@ -429,8 +425,8 @@ describe("production Review scenarios", () => {
       anchor: end,
     });
     const after = facts.snapshot();
-    expect(
-      validateReviewSelection("workspace", selected, "accept", "reviewer", after, generation(after)),
-    ).toMatchObject({ kind: "valid" });
+    expect(validateReviewSelection(selected, "accept", "reviewer", after, generation(after))).toMatchObject({
+      kind: "valid",
+    });
   });
 });

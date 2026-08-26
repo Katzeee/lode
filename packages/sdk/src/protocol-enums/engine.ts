@@ -26,7 +26,6 @@ export const engineErrorCode = defineProtocolEnum<ProtocolEngineErrorCode>()(
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_PROJECTION_UNAVAILABLE]: "projection-unavailable",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_INVOCATION_CONFLICT]: "invocation-conflict",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_HISTORY_UNAVAILABLE]: "history-unavailable",
-    [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_MAINTENANCE_BLOCKED]: "maintenance-blocked",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_WORKSPACE_NOT_FOUND]: "workspace-not-found",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_ACTOR_LOCKED]: "actor-locked",
     [ProtocolEngineErrorCode.ENGINE_ERROR_CODE_ACTOR_NOT_MEMBER]: "actor-not-member",

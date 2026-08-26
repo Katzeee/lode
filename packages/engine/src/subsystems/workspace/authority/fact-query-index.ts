@@ -71,11 +71,6 @@ export class FactQueryIndex {
     return this.relatedFacts(this.factsOwningActions(actionIds).map((fact) => fact.id));
   }
 
-  relatedFactIdsForNode(nodeId: string): readonly FactId[] {
-    const seedFactIds = [...(this.factIdsByScope.get(nodeKey(nodeId)) ?? [])];
-    return this.relatedFacts(seedFactIds).map((fact) => fact.id);
-  }
-
   private addFact(fact: Fact): void {
     if (this.factsById.has(fact.id)) {
       return;
@@ -100,13 +95,8 @@ function scopeKeys(fact: Fact, actions = factActions(fact)): readonly string[] {
   if (fact.body.kind === "resolution") {
     fact.body.proposalFactIds.forEach((id) => keys.add(factKey(id)));
     fact.body.adjudicatesResolutionIds.forEach((id) => keys.add(factKey(id)));
-  } else if (fact.body.kind === "maintenance") {
-    if ("nodeId" in fact.body.action) {
-      keys.add(nodeKey(fact.body.action.nodeId));
-    }
   } else if (fact.body.kind === "governance") {
-    // Governance Facts index under their actor only; they carry no content keys.
-    keys.add(nodeKey(fact.body.actorId));
+    // Governance Facts carry no content scopes.
   } else {
     for (const action of actions) {
       keys.add(actionKey(action.id));

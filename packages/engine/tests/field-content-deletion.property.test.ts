@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildFactSnapshot } from "../src/domain/fact/index.js";
-import {
-  canonicalJson,
-  makeFact,
-  type Fact,
-  type FactFrontier,
-  type AuthoredAction,
-} from "../src/domain/fact/index.js";
+import { canonicalJson, makeFact, type Fact, type FactFrontier, type GraphAction } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
   rebuildGeneration,
@@ -211,7 +205,7 @@ function orderingFixture(): Facts {
 function remoteFact(
   replicaId: string,
   observed: FactFrontier,
-  authoredAction: AuthoredAction,
+  authoredAction: GraphAction,
   lamport = Math.max(...Object.values(observed)) + 1,
 ): Fact {
   return makeFact({
@@ -220,14 +214,14 @@ function remoteFact(
     sequence: 1,
     observed,
     lamport,
-    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
+    body: { kind: "action", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
 function remoteDeletion(
   replicaId: string,
   observed: FactFrontier,
-  authoredAction: Extract<AuthoredAction, { kind: "field-value-remove" | "materialized-field-clear" }>,
+  authoredAction: Extract<GraphAction, { kind: "field-value-remove" | "materialized-field-clear" }>,
 ): readonly Fact[] {
   return remoteTransaction(replicaId, observed, [authoredAction]);
 }
@@ -235,7 +229,7 @@ function remoteDeletion(
 function remoteTransaction(
   replicaId: string,
   observed: FactFrontier,
-  actions: readonly AuthoredAction[],
+  actions: readonly GraphAction[],
   firstLamport = Math.max(...Object.values(observed)) + 1,
 ): readonly Fact[] {
   const [first, ...rest] = actions;
@@ -247,7 +241,7 @@ function remoteTransaction(
           sequence: 1,
           observed,
           lamport: firstLamport,
-          body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
+          body: { kind: "action", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
         }),
       ]
     : [];

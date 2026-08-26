@@ -43,7 +43,7 @@ function ownerFact(
     observed: sequence === 1 ? {} : { [replicaId]: sequence - 1 },
     lamport,
     body: {
-      kind: "edit",
+      kind: "action",
       actorId: "actor",
       intent: "direct",
       actions: [

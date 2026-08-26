@@ -9,7 +9,7 @@ import { assembleProjectionArtifacts } from "./projection-value-assembly.js";
 import { supertagApplicationTargets } from "./supertag-relations.js";
 import { projectConflictIssues } from "./projection-conflicts.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
-import { excludePurgedActions, purgedNodeIds } from "../maintenance/index.js";
+import { effectiveContributions, effectivePlanCache, finalizedNodeIds } from "./deletion-finalization.js";
 import { projectTemplateStructure } from "./template-node-projection.js";
 import { projectNodeGraphStructure } from "./node-graph-structure.js";
 import { projectMetanodes } from "./metanodes.js";
@@ -23,27 +23,33 @@ const PROJECTION_RULES = [
     key: "activation",
     dependencies: [],
     factScope: "tail",
-    invalidatedBy: [],
+    invalidatedBy: ["node-deletion-finalize"],
     evaluate(context) {
       if (context.incremental) {
         const planCache = incrementalPlanCache(context.previousPlanCache, context.activeTail, context.snapshot);
         const allActive = context.requiresAllActive
           ? activeActionsFromCache(context.snapshot, context.previousPlanCache, context.activeTail)
           : context.activeTail;
-        const purged = purgedNodeIds(context.snapshot.facts);
+        const finalized = finalizedNodeIds(allActive);
+        const active = effectiveContributions(context.activeTail, finalized);
+        const allEffective = effectiveContributions(allActive, finalized);
         return {
           activation: {
-            active: excludePurgedActions(context.activeTail, purged),
-            allActive: excludePurgedActions(allActive, purged),
-            planCache,
+            active,
+            allActive: allEffective,
+            planCache: effectivePlanCache(planCache, allActive, allEffective),
           },
         };
       }
       const activation = activeFactActions(context.snapshot, context.perspective);
-      const purged = purgedNodeIds(context.snapshot.facts);
-      const active = excludePurgedActions(activation.actions, purged);
+      const finalized = finalizedNodeIds(activation.actions);
+      const active = effectiveContributions(activation.actions, finalized);
       return {
-        activation: { active, allActive: active, planCache: activation.cache },
+        activation: {
+          active,
+          allActive: active,
+          planCache: effectivePlanCache(activation.cache, activation.actions, active),
+        },
       };
     },
   }),

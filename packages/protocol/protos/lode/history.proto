@@ -2,17 +2,9 @@ syntax = "proto3";
 
 package lode;
 
-import "google/protobuf/wrappers.proto";
-import "lode/model.proto";
-
 message HistorySelection {
   string token = 1;
   string channel_id = 2;
-  HistoryOperation operation = 3;
-  string target_invocation_id = 4;
-  google.protobuf.StringValue head_invocation_id = 5;
-  uint32 head_ordinal = 6;
-  repeated string target_fact_ids = 7;
 }
 
 message HistoryQueryResult {

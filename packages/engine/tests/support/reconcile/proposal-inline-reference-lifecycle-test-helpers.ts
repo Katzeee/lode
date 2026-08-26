@@ -1,4 +1,4 @@
-import type { AuthoredAction } from "../../../src/domain/fact/index.js";
+import type { GraphAction } from "../../../src/domain/fact/index.js";
 import { base, end, type Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
@@ -73,6 +73,6 @@ function inlineAliasBase(withAlias: boolean): Facts {
   return facts;
 }
 
-function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+function lifecycle(facts: Facts, authoredAction: GraphAction): ProposalLifecycleCase {
   return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

@@ -1,10 +1,11 @@
 import {
   makeFact,
+  graphActionBody,
   type ActorId,
   type EditIntent,
   type Fact,
   type FactFrontier,
-  type AuthoredAction,
+  type GraphAction,
 } from "../../../domain/fact/index.js";
 
 export function createPlanningFact(
@@ -15,7 +16,7 @@ export function createPlanningFact(
   lamport: number,
   actorId: ActorId,
   intent: EditIntent,
-  actions: readonly [AuthoredAction, ...AuthoredAction[]],
+  actions: readonly [GraphAction, ...GraphAction[]],
 ): Fact {
   return makeFact({
     workspaceId,
@@ -23,6 +24,6 @@ export function createPlanningFact(
     sequence,
     observed,
     lamport,
-    body: { kind: "edit", actorId, intent, actions: actions },
+    body: graphActionBody(actorId, intent, actions),
   });
 }

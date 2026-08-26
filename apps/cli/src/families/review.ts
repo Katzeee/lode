@@ -85,7 +85,7 @@ const reviewShow: CommandDefinition = {
           label: `${hunk.diffSpace.kind} ${hunk.diffSpace.identity}`,
         },
         diffSpace: hunk.diffSpace,
-        proposals: hunk.proposalActionIds,
+        proposals: hunk.selection.proposalActionIds,
       },
       {
         view: {
@@ -93,7 +93,7 @@ const reviewShow: CommandDefinition = {
           lines: [
             `Review hunk ${hunk.id}`,
             `Diff space: ${hunk.diffSpace.kind} (${hunk.diffSpace.identity})`,
-            `Proposals: ${hunk.proposalActionIds.join(", ") || "(none)"}`,
+            `Proposals: ${hunk.selection.proposalActionIds.join(", ") || "(none)"}`,
             `Accept with: lode review accept review:${hunk.id}`,
           ],
         },
@@ -102,17 +102,17 @@ const reviewShow: CommandDefinition = {
   },
 };
 
-async function hunkByRef(context: Parameters<ProductCommandRun>[0], token: string) {
-  if (!token.startsWith("review:")) {
+async function hunkByRef(context: Parameters<ProductCommandRun>[0], reference: string) {
+  if (!reference.startsWith("review:")) {
     throw new CliError("usage", "Review targets use the review:<id> refs printed by `review list`.");
   }
-  const id = token.slice("review:".length);
+  const id = reference.slice("review:".length);
   const review = await readReview(context, undefined, 100);
   const hunk = review.hunks.find((candidate) => candidate.id === id);
   if (hunk === undefined) {
     throw new CliError(
       "stale-selection",
-      `Review item ${token} is no longer pending. Re-run review list for fresh refs.`,
+      `Review item ${reference} is no longer pending. Re-run review list for fresh refs.`,
     );
   }
   return hunk;

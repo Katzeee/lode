@@ -2,7 +2,7 @@
 
 Lode is a local-first knowledge outliner whose persistent meaning is expressed through Nodes, Supertags, Fields, references, and proposals. This language names the product concepts independently of storage, projection, and transport mechanisms.
 
-The formal app transport authenticates every command, query, event stream, maintenance request, and replica sync exchange with an explicit access credential. Local socket ownership can restrict reachability, but it is not a substitute for protocol authentication.
+The formal app transport authenticates every command, query, event stream, and replica sync exchange with an explicit access credential. Local socket ownership can restrict reachability, but it is not a substitute for protocol authentication.
 
 ## Language
 
@@ -82,8 +82,24 @@ A durable domain choice whose loss could change a current or future merged Works
 _Avoid_: Mutation evidence, Projection patch, command DTO
 
 **Authored Action**:
-One typed, indivisible expression of Authored Intent inside a Fact. Several Authored Actions may form one atomic Fact, while Nodes, Occurrences, relation endpoints, support, and conflicts that follow deterministically from them remain Projection.
+One typed, indivisible expression of Authored Intent inside an Action Fact. Several Authored Actions may form one atomic Fact, while Nodes, Occurrences, relation endpoints, support, and conflicts that follow deterministically from them remain Projection. Proposal eligibility and terminal status constrain Action Fact structure; History Compensation and Action Support are derived interpretations rather than additional Action categories.
 _Avoid_: Mutation, graph operation, Projection patch
+
+**Proposable Action**:
+An Authored Action that may be recorded with Proposal intent and interpreted in Review before it affects Origin. Direct-only system and terminal actions are not Proposable Actions.
+_Avoid_: Any Authored Action, reviewable mutation
+
+**History Compensation**:
+An Action batch derived by comparing the current Projection with the counterfactual Projection that excludes selected History target Facts. A target may contribute no individual inverse when its attributable effect is carried by other actions in the same Fact.
+_Avoid_: Compensable Action, stored inverse, Undo command
+
+**Action Support**:
+The derived set of other Fact Actions whose activation is required for one Authored Action to participate in Projection. Every Authored Action has an Action Support set, which is empty when it needs no such authority.
+_Avoid_: Support-Dependent Action, Dependent Fact, validation prerequisite
+
+**Terminal Action**:
+A direct-only Authored Action whose durable effect permanently prevents explicitly named authority from contributing to later Projection. It remains on the ordinary Action Fact, identity, relation, activation, and replay path rather than creating a separate maintenance channel.
+_Avoid_: Maintenance action, purge marker, special Fact body
 
 **Projection Perspective**:
 The choice between accepted authority (`origin`) and accepted authority plus pending Proposals (`review`) when deriving or reading a Workspace Projection. It is not a View Definition or a presentation mode.
@@ -122,8 +138,12 @@ The unique outline Occurrence of an outline-placed Node whose parent is that Nod
 _Avoid_: Canonical Occurrence, main copy, source Node
 
 **Fact**:
-An immutable record of one domain transaction stored as one element of the authoritative Loro Fact list and committed by one Loro Change. Its value contains Actor identity, Direct or Proposal intent and authored actions, or one Resolution, Governance, or Maintenance decision; its transaction identity and causal metadata come from the enclosing Change. Structurally invalid records are protocol or code failures, while Transaction Activation deterministically handles every structurally valid concurrent record.
+An immutable record of one domain transaction stored as one element of the authoritative Loro Fact list and committed by one Loro Change. Its value is an Action Fact, a Resolution, or a Governance decision; its transaction identity and causal metadata come from the enclosing Change. Structurally invalid records are protocol or code failures, while Transaction Activation deterministically handles every structurally valid concurrent record.
 _Avoid_: Mutation row, graph patch, duplicated causal envelope, projected Node
+
+**Action Fact**:
+A Fact containing one non-empty atomic batch of Authored Actions from a compatible lifecycle family. Ordinary actions may carry Direct or Proposal intent, while bootstrap and terminal batches are Direct only; the body never mixes terminal actions with ordinary actions.
+_Avoid_: Edit Fact, Maintenance Fact, command DTO
 
 **Fact Replication**:
 The unconditional exchange and merge of the authoritative Loro Fact document between configured Replicas. Loro owns transaction identity, causal versions, Change atomicity, deltas, snapshots, duplicate delivery, and authority convergence. Transaction Activation and domain projection decide Node, Owner, Supertag, Field, Proposal, Review, and deletion semantics after merge.
@@ -237,9 +257,13 @@ _Avoid_: URL Intrinsic Node Type, raw URL property, identity-preserving auto-con
 A Node whose Code capability is carried by a Materialized Field using the protected Code block language System Definition and one owned language Value Node. Configuring Code preserves the host Node identity and remains independent of CRDT text editing and syntax highlighting.
 _Avoid_: Code Intrinsic Node Type, language enum column, code text replacement
 
-**Hard Delete**:
-An independently gated maintenance operation that permanently prevents a Node already placed in Trash from re-entering Projection. Its preview includes bounded Reference, Supertag, Field, Proposal, and History impacts. Every known Replica must causally acknowledge the deletion or be explicitly retired, and pending Proposals, unknown Invocation outcomes, or owned descendants block execution; root-only purge never leaves an Owner subtree orphaned.
-_Avoid_: Delete mutation, garbage collection, best-effort purge
+**Deletion Finalization**:
+An irreversible transition that permanently prevents explicitly targeted Nodes and the contributions they own from participating in Projection while retaining every authoritative Fact. Planning accepts current Trash roots, expands their owned descendants into an explicit atomic Terminal Action batch, and never turns unrelated later Trash contents or incoming references owned by surviving Nodes into finalization targets.
+_Avoid_: Hard Delete, purge, physical erasure, garbage collection
+
+**Contribution Owner**:
+A Node whose finalization prevents one Authored Action's contribution from participating in Projection. An Action may have zero or several Contribution Owners, and a referenced target is not an owner merely because the Action names it.
+_Avoid_: Referenced Node, affected Node, deletion target
 
 **Effective Field**:
 A Field made available to a Node by at least one normal or pinned Template Field reached through its Supertag Applications and Supertag Extensions, whether or not the Node has stored local content yet. Sources merge by Field Definition identity while retaining each Template Field and Application or Extension provenance; pinned outranks normal presentation without becoming Definition-global configuration.

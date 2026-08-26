@@ -314,7 +314,6 @@ describe("ordinary Supertag Template Nodes", () => {
     if (!textHunk) {
       throw new Error("Expected detached instance text Hunk");
     }
-    expect(textHunk.selection.evidence.supportClosure).toEqual(textHunk.selection.evidence.proposalTargets);
     const acceptedDetachment = await opened.workspace.execute({
       kind: "resolve-review",
       workspaceId: "workspace",

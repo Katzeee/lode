@@ -1,4 +1,4 @@
-import { canonicalJson, isFieldDefinitionAction, type AuthoredAction, type FactAction } from "../fact/index.js";
+import { canonicalJson, isFieldDefinitionAction, type GraphAction, type FactAction } from "../fact/index.js";
 import type { FieldDefinitionConfiguration, ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
@@ -44,9 +44,9 @@ export function compensateFieldDefinitionConfiguration(
 export function fieldDefinitionConfigurationCompensations(
   current: ScopedProjectionGeneration["origin"],
   counterfactual: ScopedProjectionGeneration["origin"],
-  planned: readonly AuthoredAction[],
-): readonly AuthoredAction[] {
-  const result: AuthoredAction[] = [];
+  planned: readonly GraphAction[],
+): readonly GraphAction[] {
+  const result: GraphAction[] = [];
   for (const [fieldDefinitionId, configurations] of Object.entries(counterfactual.fieldDefinitionConfigurations)) {
     for (const configuration of configurations) {
       const previous = current.fieldDefinitionConfigurations[fieldDefinitionId]?.find(

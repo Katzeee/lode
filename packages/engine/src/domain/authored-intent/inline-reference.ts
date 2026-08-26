@@ -1,13 +1,8 @@
-import type { InlineReferenceAction } from "../fact/index.js";
+import { graphActionKindsInFamily } from "../fact/index.js";
 import { locateInlineReference } from "../reconcile/index.js";
 import type { AuthoredIntentFamily } from "./policy.js";
 
-const INLINE_REFERENCE_ACTION_KINDS = [
-  "inline-reference-create",
-  "inline-reference-remove",
-  "inline-alias-attach",
-  "inline-alias-detach",
-] as const satisfies readonly InlineReferenceAction["kind"][];
+const INLINE_REFERENCE_ACTION_KINDS = graphActionKindsInFamily("inlineReference");
 
 export const inlineReferenceAuthoredIntent = {
   key: "inline-reference",

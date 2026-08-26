@@ -17,17 +17,17 @@ describe("production Review contracts", () => {
       "proposal",
     );
     const snapshot = facts.snapshot();
-    const review = queryReview("workspace", snapshot, generation(snapshot));
+    const review = queryReview(snapshot, generation(snapshot));
 
     expect(review.hunks).toHaveLength(1);
     expect(review.hunks[0]).toMatchObject({
       diffSpace: { kind: "node-content", identity: "node" },
-      proposalActionIds: [proposal.id],
+      selection: { proposalActionIds: [proposal.id] },
     });
     expect(snapshot).not.toHaveProperty("hunks");
   });
 
-  it("REVIEW-2 scope is visible targets plus minimal support closure", () => {
+  it("REVIEW-2 selection identifies the complete Proposal action closure", () => {
     const facts = base();
     const created = facts.addPlaced("proposal-node", "workspace", "proposal-occurrence", "proposal");
     const [node] = created;
@@ -35,10 +35,10 @@ describe("production Review contracts", () => {
       throw new Error("Expected a Node creation FactAction");
     }
     const snapshot = facts.snapshot();
-    const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find((candidate) =>
-      candidate.proposalActionIds.includes(node.id),
+    const hunk = queryReview(snapshot, generation(snapshot)).hunks.find((candidate) =>
+      candidate.selection.proposalActionIds.includes(node.id),
     );
 
-    expect(hunk?.selection.evidence.supportClosure).toEqual([node.id]);
+    expect(hunk?.selection.proposalActionIds).toEqual([node.id]);
   });
 });

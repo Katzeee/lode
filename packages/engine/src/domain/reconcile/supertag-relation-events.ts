@@ -1,52 +1,18 @@
-import { factObserves, type FactAction, type SequenceAnchor } from "../fact/index.js";
+import type { FactAction, SequenceAnchor } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 
-type RelationEvent = Readonly<{
-  fact: FactAction;
-  operation: "add" | "remove";
-  ownerId: string;
-  targetId: string;
-  anchor?: SequenceAnchor;
-}>;
-
-export function supertagExtensionEvent(fact: FactAction): RelationEvent | null {
-  const action = fact.action;
-  if (action.kind !== "supertag-extension-add" && action.kind !== "supertag-extension-remove") {
-    return null;
-  }
-  return {
-    fact,
-    operation: action.kind === "supertag-extension-add" ? "add" : "remove",
-    ownerId: action.supertagId,
-    targetId: action.baseSupertagId,
-    ...(action.kind === "supertag-extension-add" ? { anchor: action.anchor } : {}),
-  };
-}
-
-export function observedRelations(
+export function observedSupertagExtensions(
   active: readonly FactAction[],
-  eventOf: (fact: FactAction) => RelationEvent | null,
   ownerNodeIds: ReadonlySet<string>,
   targetNodeIds: ReadonlySet<string>,
 ): Map<string, string[]> {
-  const events = active.map(eventOf).filter((event) => event !== null);
-  const additions = events.filter((event) => event.operation === "add");
-  const removals = events.filter((event) => event.operation === "remove");
   const relations = new Map<string, string[]>();
-  for (const addition of additions) {
-    if (
-      !addition.anchor ||
-      !ownerNodeIds.has(addition.ownerId) ||
-      !targetNodeIds.has(addition.targetId) ||
-      removals.some(
-        (removal) =>
-          removal.ownerId === addition.ownerId &&
-          removal.targetId === addition.targetId &&
-          factObserves(removal.fact, addition.fact),
-      )
-    ) {
+  for (const state of causalCollectionStates(active, "supertag-extension")) {
+    const action = state.addition.action;
+    if (state.removed || !ownerNodeIds.has(action.supertagId) || !targetNodeIds.has(action.baseSupertagId)) {
       continue;
     }
-    insertUnique(list(relations, addition.ownerId), addition.targetId, addition.anchor);
+    insertUnique(list(relations, action.supertagId), action.baseSupertagId, action.anchor);
   }
   return relations;
 }

@@ -143,20 +143,13 @@ export type PlacementRelation = Omit<ProtocolDto<ProtocolPlacementRelation>, "af
     beforeEndpoint: PlacementEndpoint | null;
   }>;
 
-type ReviewEvidence = Omit<
-  ProtocolDto<NonNullable<ProtocolReviewSelection["evidence"]>>,
-  "effects" | "proposalTargets" | "supportClosure"
-> &
-  Readonly<{
-    proposalTargets: readonly FactActionId[];
-    supportClosure: readonly FactActionId[];
-    effects: readonly DecisionEffect[];
-  }>;
-export type ReviewSelection = Omit<ProtocolDto<ProtocolReviewSelection>, "evidence"> &
-  Readonly<{ evidence: ReviewEvidence }>;
+export type ReviewEvidence = Omit<ProtocolDto<NonNullable<ProtocolReviewHunk["evidence"]>>, "effects"> &
+  Readonly<{ effects: readonly DecisionEffect[] }>;
+export type ReviewSelection = Omit<ProtocolDto<ProtocolReviewSelection>, "proposalActionIds"> &
+  Readonly<{ proposalActionIds: readonly FactActionId[] }>;
 type ReviewHunk = Omit<
   ProtocolDto<ProtocolReviewHunk>,
-  "diffSpace" | "neutralBridgeAtomIds" | "proposalActionIds" | "selection"
+  "diffSpace" | "neutralBridgeAtomIds" | "evidence" | "selection"
 > &
   Readonly<{
     diffSpace: Readonly<{
@@ -164,7 +157,7 @@ type ReviewHunk = Omit<
       identity: string;
     }>;
     neutralBridgeAtomIds: readonly TextAtomId[];
-    proposalActionIds: readonly FactActionId[];
+    evidence: ReviewEvidence;
     selection: ReviewSelection;
   }>;
 export type ReviewQuery = Omit<ProtocolDto<ProtocolReviewQuery>, "hunks"> & Readonly<{ hunks: readonly ReviewHunk[] }>;

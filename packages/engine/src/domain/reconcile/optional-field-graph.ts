@@ -1,11 +1,11 @@
 import {
-  factObserves,
   OPTIONAL_FIELDS_DEFINITION_NODE_ID,
   type FactAction,
   type FactActionId,
   type FactActionOf,
   type SequenceAnchor,
 } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
 
 type OptionalFieldProjectionIdentity = Readonly<{
@@ -44,23 +44,11 @@ function optionalFieldProjectionIdentity(actionId: FactActionId): OptionalFieldP
 }
 
 export function optionalFieldStates(active: readonly FactAction[]): readonly OptionalFieldState[] {
-  const removals = active.filter(
-    (action): action is FactActionOf<"optional-field-contribution-remove"> =>
-      action.action.kind === "optional-field-contribution-remove",
-  );
-  const additions = active.filter(
-    (action): action is FactActionOf<"optional-field-contribution-add"> =>
-      action.action.kind === "optional-field-contribution-add",
-  );
-  return additions.map((addition): OptionalFieldState => {
-    const removed = removals.some(
-      (removal) =>
-        removal.action.supertagId === addition.action.supertagId &&
-        removal.action.fieldDefinitionId === addition.action.fieldDefinitionId &&
-        actionObserves(removal, addition),
-    );
-    return { addition, removed, identity: optionalFieldProjectionIdentity(addition.id) };
-  });
+  return causalCollectionStates(active, "optional-field").map(({ addition, removed }): OptionalFieldState => ({
+    addition,
+    removed,
+    identity: optionalFieldProjectionIdentity(addition.id),
+  }));
 }
 
 export function optionalFieldStateByAction(
@@ -121,10 +109,6 @@ export function optionalFieldPlacement(
   };
   const value = values[placementId];
   return value ? { ...value, derived: true } : null;
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;

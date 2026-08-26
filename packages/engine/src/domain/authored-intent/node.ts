@@ -1,15 +1,9 @@
-import { type AuthoredAction, type NodeAction } from "../fact/index.js";
+import { graphActionKindsInFamily, type GraphAction, type GraphNodeAction } from "../fact/index.js";
 import { metanodeHostNodeId, type ScopedProjection } from "../reconcile/index.js";
 import { isPresentNodeOutsideTrash, nodeLocation } from "../reconcile/node-graph.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
-const NODE_ACTION_KINDS = [
-  "workspace-bootstrap",
-  "node-create",
-  "node-trash",
-  "node-restore",
-  "original-promote",
-] as const satisfies readonly NodeAction["kind"][];
+const NODE_ACTION_KINDS = graphActionKindsInFamily("node");
 
 export const nodeAuthoredIntent = {
   key: "node",
@@ -17,7 +11,7 @@ export const nodeAuthoredIntent = {
   validate: validateNodeAuthoredIntent,
 } satisfies AuthoredIntentFamily<(typeof NODE_ACTION_KINDS)[number]>;
 
-function validateNodeAuthoredIntent(action: NodeAction, context: AuthoredIntentContext): NodeAction {
+function validateNodeAuthoredIntent(action: GraphNodeAction, context: AuthoredIntentContext): GraphNodeAction {
   const { available, resulting } = context.projections();
   switch (action.kind) {
     case "workspace-bootstrap":
@@ -41,7 +35,7 @@ function validateNodeAuthoredIntent(action: NodeAction, context: AuthoredIntentC
 }
 
 function assertNodeCreationTarget(
-  action: Extract<AuthoredAction, { kind: "node-create" }>,
+  action: Extract<GraphAction, { kind: "node-create" }>,
   available: ScopedProjection,
   resulting: ScopedProjection,
 ): void {
@@ -67,7 +61,7 @@ function assertNodeCreationTarget(
 }
 
 function assertNodeDeletionTarget(
-  action: Extract<AuthoredAction, { kind: "node-trash" }>,
+  action: Extract<GraphAction, { kind: "node-trash" }>,
   available: ScopedProjection,
 ): void {
   if (action.nodeId === available.identity.workspaceNodeId) {
@@ -85,7 +79,7 @@ function assertNodeDeletionTarget(
 }
 
 function assertNodeRestoreTarget(
-  action: Extract<AuthoredAction, { kind: "node-restore" }>,
+  action: Extract<GraphAction, { kind: "node-restore" }>,
   available: ScopedProjection,
 ): void {
   const occurrence = available.occurrences[action.placementId];
@@ -99,7 +93,7 @@ function assertNodeRestoreTarget(
 }
 
 function assertOriginalPromotionTarget(
-  action: Extract<AuthoredAction, { kind: "original-promote" }>,
+  action: Extract<GraphAction, { kind: "original-promote" }>,
   available: ScopedProjection,
 ): void {
   const placement = available.occurrences[action.placementId];

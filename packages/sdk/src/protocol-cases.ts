@@ -35,9 +35,7 @@ const COMMAND_KIND_BY_CASE = {
   adjudicateResolution: "adjudicate-resolution",
   undo: "undo",
   redo: "redo",
-  acknowledgeDeletion: "acknowledge-deletion",
-  retireReplica: "retire-replica",
-  hardDelete: "hard-delete",
+  finalizeDeletions: "finalize-deletions",
 } as const satisfies Readonly<Record<ProtocolCommandCase, EngineCommand["kind"]>>;
 
 const QUERY_KIND_BY_CASE = {
@@ -47,7 +45,6 @@ const QUERY_KIND_BY_CASE = {
   invocation: "invocation",
   conflicts: "conflicts",
   supertagInstances: "supertag-instances",
-  hardDeletePreview: "hard-delete-preview",
   backlinks: "backlinks",
   searchResults: "search-results",
   viewRows: "view-rows",

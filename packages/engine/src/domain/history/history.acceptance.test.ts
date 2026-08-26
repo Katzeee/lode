@@ -25,8 +25,8 @@ describe("production History contracts", () => {
       const selection = queryHistory("channel", fixture.receipts).undo;
       expect(selection).not.toBeNull();
       expect(
-        validateHistorySelection(selection!, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
-      ).toBe("stale");
+        validateHistorySelection("undo", selection!, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
+      ).toBe("unavailable");
     }
   });
 });

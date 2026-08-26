@@ -1,4 +1,4 @@
-import type { FactAction, AuthoredAction } from "../fact/index.js";
+import type { FactAction } from "../fact/index.js";
 import { locateInlineReference, type ScopedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
@@ -6,7 +6,6 @@ export function compensateInlineReferenceAction(
   target: FactAction,
   projection: ScopedProjection,
   counterfactual: ScopedProjection,
-  inverseHints: readonly AuthoredAction[],
 ): CompensationStep | null {
   const authoredAction = target.action;
   if (
@@ -33,23 +32,16 @@ export function compensateInlineReferenceAction(
           };
     case "inline-reference-remove": {
       const previousLocation = locateInlineReference(counterfactual.nodes, authoredAction.inlineReferenceId);
-      const inverseHint = inverseHints.find(
-        (candidate) =>
-          candidate.kind === "inline-reference-create" &&
-          candidate.inlineReferenceId === authoredAction.inlineReferenceId,
-      );
       const restored =
-        inverseHint?.kind === "inline-reference-create"
-          ? inverseHint
-          : previousLocation === null
-            ? null
-            : {
-                kind: "inline-reference-create" as const,
-                inlineReferenceId: authoredAction.inlineReferenceId,
-                hostNodeId: previousLocation.hostNodeId,
-                targetNodeId: previousLocation.reference.targetNodeId,
-                anchor: previousLocation.anchor,
-              };
+        previousLocation === null
+          ? null
+          : {
+              kind: "inline-reference-create" as const,
+              inlineReferenceId: authoredAction.inlineReferenceId,
+              hostNodeId: previousLocation.hostNodeId,
+              targetNodeId: previousLocation.reference.targetNodeId,
+              anchor: previousLocation.anchor,
+            };
       return location !== null || restored === null
         ? noCompensation()
         : {

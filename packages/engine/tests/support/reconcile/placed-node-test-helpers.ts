@@ -1,25 +1,25 @@
 import {
   fieldDefinitionEndpointOccurrenceId,
   type FactAction,
-  type AuthoredAction,
+  type GraphAction,
   type IntrinsicNodeType,
 } from "../../../src/domain/fact/index.js";
 
 type PlacedNodeFacts = Readonly<{
-  add(authoredAction: AuthoredAction, intent?: "direct" | "proposal"): FactAction;
-  addTransaction(actions: readonly AuthoredAction[], intent?: "direct" | "proposal"): readonly FactAction[];
+  add(authoredAction: GraphAction, intent?: "direct" | "proposal"): FactAction;
+  addTransaction(actions: readonly GraphAction[], intent?: "direct" | "proposal"): readonly FactAction[];
 }>;
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-export function withInitialNodeRelations(actions: readonly AuthoredAction[]): readonly AuthoredAction[] {
+export function withInitialNodeRelations(actions: readonly GraphAction[]): readonly GraphAction[] {
   const initialPlacements = new Map(
     actions.flatMap((authoredAction) =>
       authoredAction.kind === "placement-create" ? [[authoredAction.nodeId, authoredAction] as const] : [],
     ),
   );
   const foldedPlacementIds = new Set<string>();
-  const folded = actions.map((authoredAction): AuthoredAction => {
+  const folded = actions.map((authoredAction): GraphAction => {
     if (authoredAction.kind !== "node-create" || authoredAction.originalPlacement !== null) {
       return authoredAction;
     }
@@ -40,13 +40,13 @@ export function withInitialNodeRelations(actions: readonly AuthoredAction[]): re
   );
 }
 
-export function withFieldDefinitionEndpoints(actions: readonly AuthoredAction[]): readonly AuthoredAction[] {
+export function withFieldDefinitionEndpoints(actions: readonly GraphAction[]): readonly GraphAction[] {
   const explicitOccurrences = new Set(
     actions.flatMap((authoredAction) =>
       authoredAction.kind === "placement-create" ? [authoredAction.placementId] : [],
     ),
   );
-  return actions.flatMap((authoredAction): readonly AuthoredAction[] => {
+  return actions.flatMap((authoredAction): readonly GraphAction[] => {
     if (authoredAction.kind !== "field-materialize") {
       return [authoredAction];
     }

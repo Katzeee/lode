@@ -64,9 +64,9 @@ export async function establishGovernedWorkspace(
       envelope: sealTransitKey(transitKey, exchangePublicKey),
       epoch: 0,
     }),
-    { kind: "edit", actorId: input.ownerActorId, intent: "direct", actions: genesisActions },
+    { kind: "action", actorId: input.ownerActorId, intent: "direct", actions: genesisActions },
     {
-      kind: "edit",
+      kind: "action",
       actorId: input.ownerActorId,
       intent: "direct",
       actions: [
@@ -242,7 +242,6 @@ function commitSigned(
     request: input.request,
     writes: input.writes,
     lineage: null,
-    inverse: [],
     publishedFrontier: snapshot.frontier,
   });
 }

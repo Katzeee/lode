@@ -253,12 +253,11 @@ describe("production Reconcile scenarios", () => {
           projectionPayload(pendingOrigin),
         );
         const pendingHunk = queryReview(
-          "workspace",
           pendingSnapshot,
           rebuildGeneration("workspace", pendingSnapshot, versions),
-        ).hunks.find((hunk) => hunk.proposalActionIds.includes(entry.proposal.id));
+        ).hunks.find((hunk) => hunk.selection.proposalActionIds.includes(entry.proposal.id));
         expect(pendingHunk, `${entry.kind} must have a typed Review Hunk`).toBeDefined();
-        entry.facts.resolve(pendingHunk!.selection.evidence.supportClosure, decision);
+        entry.facts.resolve(pendingHunk!.selection.proposalActionIds, decision);
         const terminalSnapshot = entry.facts.snapshot();
         const terminalOrigin = projectSnapshot("workspace", terminalSnapshot, "origin", versions);
         const terminalReview = projectSnapshot("workspace", terminalSnapshot, "review", versions);
@@ -270,11 +269,9 @@ describe("production Reconcile scenarios", () => {
           `${entry.kind} ${decision} must preserve the selected pending side`,
         ).toEqual(projectionPayload(decision === "accept" ? pendingReview : pendingOrigin));
         expect(
-          queryReview(
-            "workspace",
-            terminalSnapshot,
-            rebuildGeneration("workspace", terminalSnapshot, versions),
-          ).hunks.some((hunk) => hunk.proposalActionIds.includes(entry.proposal.id)),
+          queryReview(terminalSnapshot, rebuildGeneration("workspace", terminalSnapshot, versions)).hunks.some((hunk) =>
+            hunk.selection.proposalActionIds.includes(entry.proposal.id),
+          ),
         ).toBe(false);
       }
     }

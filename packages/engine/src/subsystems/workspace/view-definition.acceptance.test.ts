@@ -131,7 +131,7 @@ describe("View Definition product model", () => {
     }
     const secondFactId = required(updated.receipt.factIds[1], "second View mode Fact");
     const second = workspace.facts.snapshot().facts.find((fact) => fact.id === secondFactId);
-    expect(second?.body.kind === "edit" ? second.body.actions[0] : null).toEqual({
+    expect(second?.body.kind === "action" ? second.body.actions[0] : null).toEqual({
       kind: "view-mode-set",
       viewId,
       viewType: "outline",

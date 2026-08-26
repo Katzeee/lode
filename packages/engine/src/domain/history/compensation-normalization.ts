@@ -1,13 +1,14 @@
-import { compareCausalOrder, type FactAction, type AuthoredAction } from "../fact/index.js";
+import { compareCausalOrder, type FactAction } from "../fact/index.js";
 import type { ScopedProjection } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
+import type { CompensationTargetAction } from "./compensation-policy.js";
 
 export function normalizeCompensationTargets(
-  targets: readonly FactAction[],
+  targets: readonly FactAction<CompensationTargetAction>[],
   projection: ScopedProjection,
-): readonly FactAction[] {
-  const result: FactAction[] = [];
-  const grouped = new Map<string, FactAction[]>();
+): readonly FactAction<CompensationTargetAction>[] {
+  const result: FactAction<CompensationTargetAction>[] = [];
+  const grouped = new Map<string, FactAction<CompensationTargetAction>[]>();
   for (const target of targets) {
     const key = compensationOwner(target.action);
     if (!key) {
@@ -24,7 +25,10 @@ export function normalizeCompensationTargets(
   return result.sort(compareCausalOrder);
 }
 
-function normalizeOwnerChanges(group: readonly FactAction[], projection: ScopedProjection): readonly FactAction[] {
+function normalizeOwnerChanges(
+  group: readonly FactAction<CompensationTargetAction>[],
+  projection: ScopedProjection,
+): readonly FactAction<CompensationTargetAction>[] {
   const ordered = [...group].sort(compareCausalOrder);
   const lifecycle = lifecycleRepresentatives(ordered, projection);
   if (lifecycle) {
@@ -39,9 +43,9 @@ function normalizeOwnerChanges(group: readonly FactAction[], projection: ScopedP
 }
 
 function lifecycleRepresentatives(
-  ordered: readonly FactAction[],
+  ordered: readonly FactAction<CompensationTargetAction>[],
   projection: ScopedProjection,
-): readonly FactAction[] | null {
+): readonly FactAction<CompensationTargetAction>[] | null {
   const authoredAction = ordered[0]?.action;
   if (!authoredAction) {
     return null;
@@ -66,7 +70,7 @@ function lifecycleRepresentatives(
   return null;
 }
 
-function compensationOwner(authoredAction: AuthoredAction): string | null {
+function compensationOwner(authoredAction: CompensationTargetAction): string | null {
   if (
     authoredAction.kind === "node-create" ||
     authoredAction.kind === "node-trash" ||

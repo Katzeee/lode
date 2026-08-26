@@ -14,13 +14,11 @@ type ReviewFactReader = Pick<FactAuthorityPort, "factsOwningActions" | "relatedF
 type ReviewProjectionReader = ProjectionSnapshotReader & ReviewReadModelReader;
 
 export async function queryWorkspaceReview(
-  workspaceId: string,
   query: ReviewQueryRequest,
   snapshot: FactSnapshot,
   facts: ReviewFactReader,
   projections: ReviewProjectionReader,
   generationId: string,
-  reviewCapabilityKey?: string,
 ): Promise<ReviewQuery> {
   const after = query.after ?? null;
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
@@ -32,17 +30,11 @@ export async function queryWorkspaceReview(
     .filter((action): action is FactAction => action !== undefined);
   const generation = await readFactActionGeneration(projections, generationId, selectedActions);
   const reviewFacts = facts.relatedFactsOwningActions([...pending.keys()]);
-  return queryReview(
-    workspaceId,
-    { facts: reviewFacts, frontier: snapshot.frontier },
-    generation,
-    reviewCapabilityKey,
-    {
-      pending,
-      context: { pending, supportByAction },
-      next: scopePage.next,
-    },
-  );
+  return queryReview({ facts: reviewFacts, frontier: snapshot.frontier }, generation, {
+    pending,
+    context: { pending, supportByAction },
+    next: scopePage.next,
+  });
 }
 
 async function loadReviewContext(

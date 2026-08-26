@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { makeFact, type AuthoredAction } from "../../fact/index.js";
+import { makeFact, type GraphAction } from "../../fact/index.js";
 import { base, end, REPLICA, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { fullSurface } from "../../../../tests/support/reconcile/full-surface-test-fixture.js";
 import { rebuildGeneration } from "../reconcile.js";
@@ -8,7 +8,7 @@ import type { Projection } from "../projection-types.js";
 import { selectEligibleDirectTail } from "./index.js";
 
 describe("Direct Projection tail policy", () => {
-  it("delegates Projection prerequisites to each AuthoredAction family", () => {
+  it("delegates Projection prerequisites to each GraphAction family", () => {
     const facts = fullSurface("direct");
     const projection = rebuildGeneration("workspace", facts.snapshot(), versions).origin;
     const eligible = [
@@ -20,7 +20,7 @@ describe("Direct Projection tail policy", () => {
         supertagId: "supertag",
       },
       { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "x" },
-    ] as const satisfies readonly AuthoredAction[];
+    ] as const satisfies readonly GraphAction[];
 
     expect(eligible.map((authoredAction) => isEligible(projection, authoredAction))).toEqual(eligible.map(() => true));
     expect(
@@ -66,7 +66,7 @@ describe("Direct Projection tail policy", () => {
       instanceNodeId: "instance",
       instanceOccurrenceId: "instance-occurrence",
       anchor: end,
-    } as const satisfies AuthoredAction;
+    } as const satisfies GraphAction;
 
     expect(isEligible(projection, authoredAction)).toBe(false);
     expect(isEligible(linked, authoredAction)).toBe(true);
@@ -105,14 +105,14 @@ describe("Direct Projection tail policy", () => {
   });
 });
 
-function isEligible(projection: Projection, authoredAction: AuthoredAction): boolean {
+function isEligible(projection: Projection, authoredAction: GraphAction): boolean {
   const fact = makeFact({
     workspaceId: "workspace",
     replicaId: REPLICA,
     sequence: 1,
     observed: {},
     lamport: 1,
-    body: { kind: "edit", actorId: "actor", intent: "direct", actions: [authoredAction] },
+    body: { kind: "action", actorId: "actor", intent: "direct", actions: [authoredAction] },
   });
   return selectEligibleDirectTail(projection, [fact], [fact]) !== null;
 }

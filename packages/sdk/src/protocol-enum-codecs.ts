@@ -6,7 +6,6 @@ import {
   viewRowSourceKind,
 } from "./protocol-enums/engine.js";
 import { factActionKind } from "./protocol-enums/fact.js";
-import { hardDeleteBlocker } from "./protocol-enums/maintenance.js";
 import {
   anchorAffinity,
   anchorFallback,
@@ -43,7 +42,6 @@ export const protocolEnumCodecs = new Map<string, AnyEnumCodec>([
   ["lode.EditIntent", editIntent],
   ["lode.EngineErrorCode", engineErrorCode],
   ["lode.EngineEventKind", engineEventKind],
-  ["lode.HardDeleteBlocker", hardDeleteBlocker],
   ["lode.HistoryOperation", historyOperation],
   ["lode.IntrinsicNodeType", intrinsicNodeType],
   ["lode.PlacementEndpoint", placementEndpoint],

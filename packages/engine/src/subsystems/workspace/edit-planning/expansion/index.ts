@@ -10,7 +10,7 @@ import {
   isTextAction,
   isSearchAction,
   isViewAction,
-  type AuthoredAction,
+  type GraphAction,
 } from "../../../../domain/fact/index.js";
 import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
 import { expandPlacementRemoval } from "./deletion-rule.js";
@@ -18,7 +18,7 @@ import { expandFieldAction } from "./field-rule.js";
 import { expandSupertagAction } from "./supertag-rule.js";
 import { expandTemplateAction } from "./template-rule.js";
 
-export function expandAction(action: AuthoredAction, available: ScopedProjection): AuthoredActionBatch {
+export function expandAction(action: GraphAction, available: ScopedProjection): AuthoredActionBatch {
   if (isSupertagAction(action)) {
     return expandSupertagAction(action, available);
   }
@@ -55,5 +55,5 @@ export function expandAction(action: AuthoredAction, available: ScopedProjection
 }
 
 function assertNever(value: never): never {
-  throw new Error(`Unhandled AuthoredAction expansion: ${JSON.stringify(value)}`);
+  throw new Error(`Unhandled GraphAction expansion: ${JSON.stringify(value)}`);
 }

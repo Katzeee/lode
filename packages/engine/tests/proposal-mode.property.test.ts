@@ -5,12 +5,13 @@ import {
   factActionId,
   factActionsFromFacts,
   buildFactSnapshot,
+  graphActionBody,
   makeFact,
   workspaceGenesisActions,
   type AuthorityReceipt,
   type Fact,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
 } from "../src/domain/fact/index.js";
 import { uniqueFacts } from "./support/facts.js";
 import {
@@ -124,8 +125,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         "proposal",
       );
       const selectedSnapshot = reviewFacts.snapshot();
-      const reviewSelection = queryReview("workspace", selectedSnapshot, generation(selectedSnapshot)).hunks[0]
-        ?.selection;
+      const reviewSelection = queryReview(selectedSnapshot, generation(selectedSnapshot)).hunks[0]?.selection;
       if (!reviewSelection) {
         throw new Error("Expected a Review selection");
       }
@@ -138,9 +138,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         });
       }
       let current = reviewFacts.snapshot();
-      expect(
-        validateReviewSelection("workspace", reviewSelection, "accept", "reviewer", current, generation(current)).kind,
-      ).toBe("valid");
+      expect(validateReviewSelection(reviewSelection, "accept", "reviewer", current, generation(current)).kind).toBe(
+        "valid",
+      );
       reviewFacts.addBody({
         kind: "resolution",
         adjudicatesResolutionIds: [],
@@ -149,9 +149,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         proposalFactIds: [proposal.factId],
       });
       current = reviewFacts.snapshot();
-      expect(
-        validateReviewSelection("workspace", reviewSelection, "accept", "reviewer", current, generation(current)).kind,
-      ).toBe("stale");
+      expect(validateReviewSelection(reviewSelection, "accept", "reviewer", current, generation(current)).kind).toBe(
+        "stale",
+      );
 
       const history = baseFixture();
       const historyStep = history.step({
@@ -179,7 +179,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         });
       }
       expect(
-        validateHistorySelection(historySelection, history.receipts, history.snapshot(), history.generation()).kind,
+        validateHistorySelection("undo", historySelection, history.receipts, history.snapshot(), history.generation())
+          .kind,
       ).toBe("ready");
       history.fact({
         kind: "rich-text-splice",
@@ -189,7 +190,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         insert: "R",
       });
       expect(
-        validateHistorySelection(historySelection, history.receipts, history.snapshot(), history.generation()).kind,
+        validateHistorySelection("undo", historySelection, history.receipts, history.snapshot(), history.generation())
+          .kind,
       ).not.toBe("ready");
     }
   });
@@ -256,13 +258,13 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Undo`);
           }
           expect(
-            validateHistorySelection(undo, restarted.receipts, restarted.snapshot, restarted.generation).kind,
+            validateHistorySelection("undo", undo, restarted.receipts, restarted.snapshot, restarted.generation).kind,
           ).toBe("ready");
           expect(restarted.receipts.some((receipt) => receipt.invocationId === targetInvocationId)).toBe(true);
 
           const undoReceipt = history.step({
             invocationId: `undo-${targetInvocationId}`,
-            actions: history.inverseActions(targetInvocationId),
+            actions: history.compensationActions(targetInvocationId),
             intent,
             channelId,
             operation: "undo",
@@ -273,16 +275,16 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           if (!redo) {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Redo`);
           }
-          expect(validateHistorySelection(redo, history.receipts, history.snapshot(), history.generation()).kind).toBe(
-            "ready",
-          );
+          expect(
+            validateHistorySelection("redo", redo, history.receipts, history.snapshot(), history.generation()).kind,
+          ).toBe("ready");
           history.step({
             invocationId: `redo-${targetInvocationId}`,
-            actions: history.inverseActions(redo.targetInvocationId),
+            actions: history.compensationActions(undoReceipt.invocationId),
             intent,
             channelId,
             operation: "redo",
-            targetStepId: redo.targetInvocationId,
+            targetStepId: undoReceipt.invocationId,
           });
           expect(
             generationFingerprint(history.generation()),
@@ -296,8 +298,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
   it("generated Review evidence for representative action owners survives only unrelated advances", () => {
     for (const [index, ownerCase] of proposalLifecycleCases().entries()) {
       const pending = ownerCase.facts.snapshot();
-      const selection = queryReview("workspace", pending, generation(pending)).hunks.find((hunk) =>
-        hunk.proposalActionIds.includes(ownerCase.proposal.id),
+      const selection = queryReview(pending, generation(pending)).hunks.find((hunk) =>
+        hunk.selection.proposalActionIds.includes(ownerCase.proposal.id),
       )?.selection;
       if (!selection) {
         throw new Error(`Generated ${ownerCase.kind} Review program has no selection`);
@@ -309,14 +311,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         originalPlacement: null,
       });
       const unrelated = ownerCase.facts.snapshot();
-      expect(
-        validateReviewSelection("workspace", selection, "accept", "reviewer", unrelated, generation(unrelated)).kind,
-      ).toBe("valid");
-      ownerCase.facts.resolve(selection.evidence.supportClosure, "reject");
+      expect(validateReviewSelection(selection, "accept", "reviewer", unrelated, generation(unrelated)).kind).toBe(
+        "valid",
+      );
+      ownerCase.facts.resolve(selection.proposalActionIds, "reject");
       const related = ownerCase.facts.snapshot();
-      expect(
-        validateReviewSelection("workspace", selection, "accept", "reviewer", related, generation(related)).kind,
-      ).toBe("stale");
+      expect(validateReviewSelection(selection, "accept", "reviewer", related, generation(related)).kind).toBe("stale");
     }
   });
 
@@ -330,24 +330,24 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     for (const decision of ["accept", "reject"] as const) {
       for (const [index, entry] of proposalLifecycleCases().entries()) {
         const snapshot = entry.facts.snapshot();
-        const hunk = queryReview("workspace", snapshot, generation(snapshot)).hunks.find((candidate) =>
-          candidate.proposalActionIds.includes(entry.proposal.id),
+        const hunk = queryReview(snapshot, generation(snapshot)).hunks.find((candidate) =>
+          candidate.selection.proposalActionIds.includes(entry.proposal.id),
         );
         if (!hunk) {
           throw new Error(`Generated ${entry.kind} program has no Review Hunk`);
         }
-        entry.facts.resolve(hunk.selection.evidence.supportClosure, decision);
+        entry.facts.resolve(hunk.selection.proposalActionIds, decision);
         assertGeneratedPathEquivalence(entry.facts.values, 100 + index);
       }
     }
   });
 });
 function caseSetupFacts(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly Fact[] {
-  return ownerCase.facts.values.filter((fact) => fact.body.kind !== "edit" || fact.body.intent !== "proposal");
+  return ownerCase.facts.values.filter((fact) => fact.body.kind !== "action" || fact.body.intent !== "proposal");
 }
-function caseActions(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly AuthoredAction[] {
+function caseActions(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly GraphAction[] {
   return ownerCase.facts.values.flatMap((fact) =>
-    fact.body.kind === "edit" && fact.body.intent === "proposal" ? fact.body.actions : [],
+    fact.body.kind === "action" && fact.body.intent === "proposal" ? fact.body.actions : [],
   );
 }
 function historyFor(prefix: readonly Fact[]): HistoryFixture {
@@ -530,9 +530,9 @@ function causalFixture(): Fact[] {
 }
 
 function extensionCycleFixture(): Fact[] {
-  const actions: readonly AuthoredAction[] = [
+  const actions: readonly GraphAction[] = [
     ...workspaceGenesisActions("workspace"),
-    ...["base", "supertag-a", "supertag-b", "task", "field-a"].map((nodeId): AuthoredAction => ({
+    ...["base", "supertag-a", "supertag-b", "task", "field-a"].map((nodeId): GraphAction => ({
       kind: "node-create",
       nodeId,
       ownerNodeId: "workspace",
@@ -568,7 +568,7 @@ function extensionCycleFixture(): Fact[] {
 
 function concurrentSearchExpressionFixture(): Readonly<{ prefix: readonly Fact[]; facts: readonly Fact[] }> {
   const prefix: Fact[] = [];
-  const add = (authoredAction: AuthoredAction): Fact => {
+  const add = (authoredAction: GraphAction): Fact => {
     const sequence = prefix.length + 1;
     const fact = authoredFact(A, sequence, sequence === 1 ? {} : { [A]: sequence - 1 }, sequence, authoredAction);
     prefix.push(fact);
@@ -637,7 +637,7 @@ function concurrentSearchExpressionFixture(): Readonly<{ prefix: readonly Fact[]
 
 function concurrentViewOptionsFixture(): Readonly<{ prefix: readonly Fact[]; facts: readonly Fact[] }> {
   const prefix: Fact[] = [];
-  const add = (authoredAction: AuthoredAction): Fact => {
+  const add = (authoredAction: GraphAction): Fact => {
     const sequence = prefix.length + 1;
     const fact = authoredFact(A, sequence, sequence === 1 ? {} : { [A]: sequence - 1 }, sequence, authoredAction);
     prefix.push(fact);
@@ -686,7 +686,7 @@ function authoredFact(
   sequence: number,
   observed: Readonly<Record<string, number>>,
   lamport: number,
-  authoredAction: AuthoredAction,
+  authoredAction: GraphAction,
 ): Fact {
   return makeFact({
     workspaceId: "workspace",
@@ -694,7 +694,7 @@ function authoredFact(
     sequence,
     observed,
     lamport,
-    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
+    body: { kind: "action", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
@@ -712,12 +712,9 @@ function fact(
     sequence,
     observed,
     lamport,
-    body: {
-      kind: "edit",
-      actorId: "actor",
-      intent,
-      actions: [{ kind: "node-create", nodeId, ownerNodeId: "workspace", originalPlacement: null }],
-    },
+    body: graphActionBody("actor", intent, [
+      { kind: "node-create", nodeId, ownerNodeId: "workspace", originalPlacement: null },
+    ]),
   });
 }
 

@@ -203,7 +203,6 @@ function engineErrorToCli(error: EngineError, domainExit: 3 | 4): CliError {
       return new CliError("invocation-conflict", error.message, { exitCode: 3, details: { engineCode: error.code } });
     case "projection-unavailable":
     case "history-unavailable":
-    case "maintenance-blocked":
       return new CliError("unavailable", error.message, { exitCode: 4, details: { engineCode: error.code } });
     case "workspace-not-found":
       return new CliError("target-not-found", error.message, { exitCode: 4, details: { engineCode: error.code } });

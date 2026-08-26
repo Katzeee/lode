@@ -1,6 +1,7 @@
 export type {
   ActorId,
-  EditBody,
+  ActionBody,
+  ActionFact,
   FactAction,
   FactActionId,
   FactId,
@@ -14,6 +15,9 @@ export type {
   InvocationId,
   JsonValue,
   AuthoredAction,
+  GraphAction,
+  ProposableAction,
+  TerminalAction,
   PreviousValue,
   ProjectionIdentity,
   ReplicaId,
@@ -27,14 +31,11 @@ export type {
   WorkspaceId,
 } from "./types.js";
 export type { GovernanceAction, PeerId, TransitEnvelope } from "./governance-types.js";
-export type { AuthorityReceipt, ReceiptInverseBatch, ReceiptLineage } from "./authority-types.js";
-export type { FieldContentRemovalAction } from "./field-content-types.js";
+export type { AuthorityReceipt, ReceiptLineage } from "./authority-types.js";
 export type {
-  FieldDefinitionAction,
   FieldDefinitionConfigurationValue,
   FieldInitializationExpression,
 } from "./field-definition-config-types.js";
-export type { SearchExpressionAction } from "./search-expression-types.js";
 export type {
   SearchClause,
   SearchExpressionDraft,
@@ -66,14 +67,20 @@ export {
 export type {
   FactActionOf,
   FieldAction,
+  FieldConfigurationSetAction,
+  FieldContentRemovalAction,
+  FieldDefinitionAction,
   InlineReferenceAction,
+  SearchExpressionAction,
   ViewAction,
+  GraphNodeAction,
   NodeAction,
   PlacementAction,
   SupertagAction,
   TemplateAction,
   TextAction,
 } from "./action-family.js";
+export type { ActionKindAddingToCollection } from "./action-catalog.js";
 export {
   factActionsOfKind,
   factActionsOfKinds,
@@ -82,6 +89,8 @@ export {
   isFieldDefinitionAction,
   isFieldDefinitionConfigAction,
   isInlineReferenceAction,
+  isGraphAction,
+  isGraphActionKind,
   isSearchAction,
   isViewAction,
   isNodeAction,
@@ -91,6 +100,22 @@ export {
   isTextAction,
 } from "./action-family.js";
 export { actionRelations } from "./action-relations.js";
+export {
+  authoredActionContributions,
+  actionIdentityProducers,
+  actionIdentityRequirements,
+  contributionOwnerNodeIds,
+  factActionContributions,
+  SELF_FACT_ACTION,
+} from "./action-semantics/index.js";
+export type {
+  CollectionContribution,
+  CollectionName,
+  IdentityContribution,
+  IdentityRole,
+  SemanticContribution,
+  SemanticIdentity,
+} from "./action-semantics/index.js";
 export { canonicalDigest, canonicalJson, stableStringCompare } from "./canonical.js";
 export {
   causalMaxima,
@@ -137,6 +162,8 @@ export {
   workspaceTrashOccurrenceId,
 } from "./identity.js";
 export { workspaceGenesisActions } from "./workspace-genesis.js";
+export { ACTION_DEFINITIONS, graphActionKindsInFamily } from "./action-catalog.js";
+export { graphActionBody, terminalActionBody } from "./action-body.js";
 export { buildFactSnapshot } from "./snapshot.js";
 export { factActionId, factActionsFromFacts, factActions, owningFactIds } from "./fact-actions.js";
 export { isAuthoredActionKind, parseAuthorityReceipt, parseFactBody, parseAuthoredAction } from "./shape-validation.js";

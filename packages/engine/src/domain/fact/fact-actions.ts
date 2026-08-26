@@ -1,14 +1,14 @@
-import type { FactAction, EditFact, Fact } from "./types.js";
+import type { FactAction, ActionFact, Fact } from "./types.js";
 
-function isEditFact(fact: Fact): fact is EditFact {
-  return fact.body.kind === "edit";
+function isActionFact(fact: Fact): fact is ActionFact {
+  return fact.body.kind === "action";
 }
 
 export function factActions(fact: Fact): readonly FactAction[] {
-  if (!isEditFact(fact)) {
+  if (!isActionFact(fact)) {
     return [];
   }
-  return fact.body.actions.map((action, index) => ({
+  return (fact.body.actions as readonly FactAction["action"][]).map((action, index) => ({
     id: factActionId(fact.id, index),
     factId: fact.id,
     index,

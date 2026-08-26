@@ -1,4 +1,4 @@
-import { FIELD_DATATYPE_NODE_IDS, type AuthoredAction } from "../../../src/domain/fact/index.js";
+import { FIELD_DATATYPE_NODE_IDS, type GraphAction } from "../../../src/domain/fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 import { materializedFieldFacts, supertagAndFieldFacts } from "./materialized-field-test-facts.js";
 import type { Facts } from "./reconcile-test-helpers.js";
@@ -52,6 +52,6 @@ function materializedFieldClearCase(): ProposalLifecycleCase {
   });
 }
 
-function lifecycle(facts: Facts, action: AuthoredAction): ProposalLifecycleCase {
+function lifecycle(facts: Facts, action: GraphAction): ProposalLifecycleCase {
   return { kind: action.kind, facts, proposal: facts.add(action, "proposal") };
 }

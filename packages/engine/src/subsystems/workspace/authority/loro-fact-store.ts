@@ -87,10 +87,6 @@ export class LoroFactStore {
     return this.cache.relatedFactsOwningActions(actionIds);
   }
 
-  relatedFactIdsForNode(nodeId: string): readonly FactId[] {
-    return this.cache.relatedFactIdsForNode(nodeId);
-  }
-
   stageAppend(writes: readonly FactBody[]): StagedFactAppend {
     const before = this.document.version();
     const firstSequence = (before.get(this.options.loroPeerId) ?? 0) + 1;

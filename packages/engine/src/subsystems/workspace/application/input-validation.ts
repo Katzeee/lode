@@ -7,8 +7,7 @@ import {
 import { parseEditAction, type EditAction } from "../../../domain/edit/index.js";
 import type { HistorySelection } from "../../../domain/history/index.js";
 import type { ReviewSelection } from "../../../domain/review/index.js";
-import type { HardDeleteSelection } from "../../../domain/maintenance/index.js";
-import { requireFactActionIds, requireFactIds, type FactId } from "../../../domain/fact/index.js";
+import { requireFactIds, type FactId } from "../../../domain/fact/index.js";
 import { parseHistorySelectionContract, parseReviewSelectionContract } from "./selection-validation.js";
 
 type AcceptedCommand<Kind extends EngineCommand["kind"], Fields extends object> = Omit<
@@ -24,31 +23,12 @@ export type AcceptedAdjudicationCommand = AcceptedCommand<
   "adjudicate-resolution",
   { proposalFactIds: readonly FactId[]; resolutionIds: readonly FactId[] }
 >;
-type AcceptedDeletionAcknowledgementCommand = AcceptedCommand<
-  "acknowledge-deletion",
-  { deletionActionIds: HardDeleteSelection["deletionActionIds"] }
->;
-type AcceptedHardDeleteCommand = AcceptedCommand<"hard-delete", { selection: HardDeleteSelection }>;
 export type AcceptedEngineCommand =
   | AcceptedEditCommand
   | AcceptedReviewCommand
   | AcceptedHistoryCommand
   | AcceptedAdjudicationCommand
-  | AcceptedDeletionAcknowledgementCommand
-  | AcceptedHardDeleteCommand
-  | Exclude<
-      EngineCommand,
-      {
-        kind:
-          | "edit"
-          | "resolve-review"
-          | "undo"
-          | "redo"
-          | "adjudicate-resolution"
-          | "acknowledge-deletion"
-          | "hard-delete";
-      }
-    >;
+  | Exclude<EngineCommand, { kind: "edit" | "resolve-review" | "undo" | "redo" | "adjudicate-resolution" }>;
 
 export function parseEngineCommand(value: unknown): AcceptedEngineCommand {
   const command = parseSdkEngineCommand(value);
@@ -59,29 +39,15 @@ export function parseEngineCommand(value: unknown): AcceptedEngineCommand {
       return { ...command, selection: parseReviewSelectionContract(command.selection) };
     case "undo":
     case "redo":
-      return { ...command, selection: parseHistorySelectionContract(command.selection, command.kind) };
+      return { ...command, selection: parseHistorySelectionContract(command.selection) };
     case "adjudicate-resolution":
       return {
         ...command,
         proposalFactIds: requireFactIds(command.proposalFactIds, "Proposal targets"),
         resolutionIds: requireFactIds(command.resolutionIds, "Resolution identities"),
       };
-    case "acknowledge-deletion":
-      return {
-        ...command,
-        deletionActionIds: requireFactActionIds(command.deletionActionIds, "Deletion actions"),
-      };
-    case "retire-replica":
+    case "finalize-deletions":
       return command;
-    case "hard-delete":
-      return {
-        ...command,
-        selection: {
-          ...command.selection,
-          deletionActionIds: requireFactActionIds(command.selection.deletionActionIds, "Deletion actions"),
-          acknowledgementFactIds: requireFactIds(command.selection.acknowledgementFactIds, "Acknowledgement Facts"),
-        },
-      };
   }
 }
 
@@ -112,7 +78,6 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       return query;
     case "history":
     case "invocation":
-    case "hard-delete-preview":
     case "trash-evidence":
       return query;
   }

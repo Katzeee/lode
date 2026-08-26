@@ -1,11 +1,11 @@
-import type { AuthoredAction, TextAction } from "../fact/index.js";
+import { graphActionKindsInFamily, type AuthoredAction, type TextAction } from "../fact/index.js";
 import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
 type RichTextSpliceAction = Extract<AuthoredAction, { kind: "rich-text-splice" }>;
 type RichTextMarkAction = Extract<AuthoredAction, { kind: "rich-text-mark" }>;
 
-const TEXT_ACTION_KINDS = ["rich-text-splice", "rich-text-mark"] as const satisfies readonly TextAction["kind"][];
+const TEXT_ACTION_KINDS = graphActionKindsInFamily("text");
 
 export const textAuthoredIntent = {
   key: "text",

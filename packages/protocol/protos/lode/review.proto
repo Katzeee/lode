@@ -250,20 +250,13 @@ message DecisionEffect {
 }
 
 message ReviewEvidence {
-  repeated string proposal_targets = 1;
-  repeated string support_closure = 2;
-  repeated DecisionEffect effects = 3;
-  repeated string associated_impact_ids = 4;
-  string rules_version = 5;
-  string schema_version = 6;
+  repeated DecisionEffect effects = 1;
+  repeated string associated_impact_ids = 2;
 }
 
 message ReviewSelection {
-  string token = 1;
-  string workspace_id = 2;
-  map<string, uint64> frontier = 3;
-  string generation_id = 4;
-  ReviewEvidence evidence = 5;
+  string evidence_id = 1;
+  repeated string proposal_action_ids = 2;
 }
 
 message DiffSpace {
@@ -274,9 +267,9 @@ message DiffSpace {
 message ReviewHunk {
   string id = 1;
   DiffSpace diff_space = 2;
-  repeated string proposal_action_ids = 3;
-  repeated string neutral_bridge_atom_ids = 4;
-  repeated string linked_hunk_ids = 5;
+  repeated string neutral_bridge_atom_ids = 3;
+  repeated string linked_hunk_ids = 4;
+  ReviewEvidence evidence = 5;
   ReviewSelection selection = 6;
 }
 

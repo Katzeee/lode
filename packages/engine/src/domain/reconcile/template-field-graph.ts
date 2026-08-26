@@ -1,5 +1,6 @@
 import {
   causalMaxima,
+  factActionsOfKind,
   factObserves,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
@@ -8,6 +9,7 @@ import {
   type FactActionOf,
   type SequenceAnchor,
 } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 
 type TemplateFieldProjectionIdentity = Readonly<{
   templateFieldNodeId: string;
@@ -36,15 +38,6 @@ function templateFieldProjectionIdentity(actionId: FactActionId): TemplateFieldP
 }
 
 export function templateFieldStates(active: readonly FactAction[]): readonly TemplateFieldState[] {
-  const additions = active.filter(
-    (action): action is FactActionOf<"template-field-add"> => action.action.kind === "template-field-add",
-  );
-  const removals = active.filter(
-    (action): action is FactActionOf<"template-field-remove"> => action.action.kind === "template-field-remove",
-  );
-  const restores = active.filter(
-    (action): action is FactActionOf<"template-field-restore"> => action.action.kind === "template-field-restore",
-  );
   const lifecycle = active.filter(
     (
       action,
@@ -53,19 +46,7 @@ export function templateFieldStates(active: readonly FactAction[]): readonly Tem
       action.action.kind === "field-definition-return-to-template-field",
   );
 
-  return additions.map((addition) => {
-    const supports: readonly FactAction[] = [
-      addition,
-      ...restores.filter((restore) => restore.action.templateFieldId === addition.id),
-    ];
-    const removed = supports.every((support) =>
-      removals.some(
-        (removal) =>
-          removal.action.supertagId === addition.action.supertagId &&
-          removal.action.fieldDefinitionId === addition.action.fieldDefinition.fieldDefinitionId &&
-          actionObserves(removal, support),
-      ),
-    );
+  return causalCollectionStates(active, "template-field").map(({ addition, removed }) => {
     const identity = templateFieldProjectionIdentity(addition.id);
     return {
       addition,
@@ -169,13 +150,23 @@ export function templateFieldStaticDefaultCandidates(
   active: readonly FactAction[],
   templateFieldId: FactActionId,
 ): readonly FactActionOf<"template-field-static-default-set">[] {
-  return causalMaxima(
-    active.filter(
-      (action): action is FactActionOf<"template-field-static-default-set"> =>
-        action.action.kind === "template-field-static-default-set" && action.action.templateFieldId === templateFieldId,
-    ),
-    (left, right) => left.action.templateFieldId === right.action.templateFieldId,
+  const state = causalCollectionStates(active, "template-field").find(
+    (candidate) => candidate.entryId === templateFieldId,
   );
+  return factActionsOfKind(
+    state?.registers.get("static-default")?.candidates ?? [],
+    "template-field-static-default-set",
+  );
+}
+
+export function templateFieldVisibilityCandidates(
+  active: readonly FactAction[],
+  templateFieldId: FactActionId,
+): readonly FactActionOf<"template-field-visibility-set">[] {
+  const state = causalCollectionStates(active, "template-field").find(
+    (candidate) => candidate.entryId === templateFieldId,
+  );
+  return factActionsOfKind(state?.registers.get("visibility")?.candidates ?? [], "template-field-visibility-set");
 }
 
 function actionObserves(observer: FactAction, observed: FactAction): boolean {

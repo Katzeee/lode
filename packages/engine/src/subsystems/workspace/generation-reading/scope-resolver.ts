@@ -38,6 +38,7 @@ export async function resolveGenerationRead(
     generationId,
     perspective,
     plan.actions,
+    plan.ownedRootNodeIds,
     occurrences,
     nodeOwners,
     scope,

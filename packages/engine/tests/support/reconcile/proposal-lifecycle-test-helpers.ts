@@ -1,4 +1,4 @@
-import type { AuthoredAction } from "../../../src/domain/fact/index.js";
+import type { GraphAction } from "../../../src/domain/fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
@@ -13,7 +13,7 @@ export const proposalLifecycleCases = (): readonly ProposalLifecycleCase[] =>
 export const historyLifecycleCases = (): readonly ProposalLifecycleCase[] =>
   proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
 
-const HISTORY_MUTATION_KINDS: ReadonlySet<AuthoredAction["kind"]> = new Set([
+const HISTORY_MUTATION_KINDS: ReadonlySet<GraphAction["kind"]> = new Set([
   "node-create",
   "node-trash",
   "node-restore",
@@ -187,6 +187,6 @@ function richTextMarkCase(): ProposalLifecycleCase {
   });
 }
 
-function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+function lifecycle(facts: Facts, authoredAction: GraphAction): ProposalLifecycleCase {
   return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

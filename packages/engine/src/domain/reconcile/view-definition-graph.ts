@@ -1,7 +1,6 @@
 import {
   canonicalJson,
-  causalMaxima,
-  factObserves,
+  factActionsOfKind,
   type FactAction,
   type FactActionId,
   type FactActionOf,
@@ -10,6 +9,7 @@ import {
   type ViewType,
   NODE_VIEWS_DEFINITION_NODE_ID,
 } from "../fact/index.js";
+import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
 
 type ViewProjectionIdentity = Readonly<{
@@ -91,24 +91,9 @@ export function viewFilterNodeId(filterId: FactActionId): string {
 }
 
 export function viewStates(active: readonly FactAction[]): readonly ViewState[] {
-  const additions = actionsOf(active, "shared-default-view-add");
-  const removals = actionsOf(active, "shared-default-view-remove");
-  const restores = actionsOf(active, "shared-default-view-restore");
-  const modes = actionsOf(active, "view-mode-set");
-  return additions.map((addition) => {
-    const supports: readonly FactAction[] = [
-      addition,
-      ...restores.filter((restore) => restore.action.viewId === addition.id),
-    ];
-    const removed = supports.every((support) =>
-      removals.some(
-        (removal) => removal.action.hostNodeId === addition.action.hostNodeId && observes(removal, support),
-      ),
-    );
-    const candidates = causalMaxima(
-      modes.filter((mode) => mode.action.viewId === addition.id),
-      () => true,
-    );
+  return causalCollectionStates(active, "shared-default-view").map((state) => {
+    const { addition, removed } = state;
+    const candidates = factActionsOfKind(state.registers.get("mode")?.candidates ?? [], "view-mode-set");
     const values =
       candidates.length === 0 ? [addition.action.viewType] : candidates.map((candidate) => candidate.action.viewType);
     const unique = [...new Set(values)].sort();
@@ -117,7 +102,7 @@ export function viewStates(active: readonly FactAction[]): readonly ViewState[] 
       removed,
       viewType: unique[0] ?? addition.action.viewType,
       modeCandidates: candidates,
-      modeConflicted: unique.length > 1,
+      modeConflicted: state.registers.get("mode")?.conflicted ?? false,
       identity: viewProjectionIdentity(addition.id),
     };
   });
@@ -189,110 +174,67 @@ export function viewPlacement(
 }
 
 export function viewColumnStates(active: readonly FactAction[], viewId: FactActionId): readonly ViewColumnState[] {
-  const additions = actionsOf(active, "view-column-add").filter((action) => action.action.viewId === viewId);
-  const removals = actionsOf(active, "view-column-remove").filter((action) => action.action.viewId === viewId);
-  const moves = actionsOf(active, "view-column-move");
-  return additions.map((addition) => {
-    const removed = removals.some(
-      (removal) =>
-        removal.action.fieldDefinitionId === addition.action.fieldDefinitionId && observes(removal, addition),
-    );
-    const candidates = causalMaxima(
-      moves.filter((move) => move.action.columnId === addition.id),
-      () => true,
-    );
-    const positions =
-      candidates.length === 0 ? [addition.action.anchor] : candidates.map((candidate) => candidate.action.anchor);
-    const unique = new Map(positions.map((anchor) => [canonicalJson(anchor), anchor]));
-    return {
-      addition,
-      removed,
-      anchor: [...unique.values()][0] ?? addition.action.anchor,
-      positionConflicted: unique.size > 1,
-      columnNodeId: viewColumnNodeId(addition.id),
-    };
-  });
+  return causalCollectionStates(active, "view-column")
+    .filter((state) => state.addition.action.viewId === viewId)
+    .map((state) => {
+      const { addition, removed } = state;
+      const candidates = factActionsOfKind(state.registers.get("position")?.candidates ?? [], "view-column-move");
+      const positions =
+        candidates.length === 0 ? [addition.action.anchor] : candidates.map((candidate) => candidate.action.anchor);
+      return {
+        addition,
+        removed,
+        anchor: positions[0] ?? addition.action.anchor,
+        positionConflicted: state.registers.get("position")?.conflicted ?? false,
+        columnNodeId: viewColumnNodeId(addition.id),
+      };
+    });
 }
 
 export function viewSortStates(active: readonly FactAction[], viewId: FactActionId): readonly ViewSortState[] {
-  const additions = actionsOf(active, "view-sort-add").filter((action) => action.action.viewId === viewId);
-  const removals = actionsOf(active, "view-sort-remove").filter((action) => action.action.viewId === viewId);
-  const restores = actionsOf(active, "view-sort-restore");
-  const configurations = actionsOf(active, "view-sort-configure");
-  return additions.map((addition) => {
-    const supports: readonly FactAction[] = [
-      addition,
-      ...restores.filter((restore) => restore.action.sortId === addition.id),
-    ];
-    const removed = supports.every((support) => removals.some((removal) => observes(removal, support)));
-    const candidates = causalMaxima(
-      configurations.filter((value) => value.action.sortId === addition.id),
-      () => true,
-    );
-    const values =
-      candidates.length === 0
-        ? [{ fieldDefinitionId: addition.action.fieldDefinitionId, direction: addition.action.direction }]
-        : candidates.map((candidate) => ({
-            fieldDefinitionId: candidate.action.fieldDefinitionId,
-            direction: candidate.action.direction,
-          }));
-    const unique = new Map(values.map((value) => [canonicalJson(value), value]));
-    const selected = [...unique.values()].sort((left, right) =>
-      canonicalJson(left).localeCompare(canonicalJson(right)),
-    )[0] ?? {
-      fieldDefinitionId: addition.action.fieldDefinitionId,
-      direction: addition.action.direction,
-    };
-    return {
-      addition,
-      removed,
-      ...selected,
-      configurationCandidates: candidates,
-      configurationConflicted: unique.size > 1,
-      sortNodeId: viewSortNodeId(addition.id),
-    };
-  });
+  return causalCollectionStates(active, "view-sort")
+    .filter((state) => state.addition.action.viewId === viewId)
+    .map((state) => {
+      const { addition, removed } = state;
+      const candidates = factActionsOfKind(
+        state.registers.get("configuration")?.candidates ?? [],
+        "view-sort-configure",
+      );
+      const values =
+        candidates.length === 0
+          ? [{ fieldDefinitionId: addition.action.fieldDefinitionId, direction: addition.action.direction }]
+          : candidates.map((candidate) => ({
+              fieldDefinitionId: candidate.action.fieldDefinitionId,
+              direction: candidate.action.direction,
+            }));
+      const unique = new Map(values.map((value) => [canonicalJson(value), value]));
+      const selected = [...unique.values()].sort((left, right) =>
+        canonicalJson(left).localeCompare(canonicalJson(right)),
+      )[0] ?? {
+        fieldDefinitionId: addition.action.fieldDefinitionId,
+        direction: addition.action.direction,
+      };
+      return {
+        addition,
+        removed,
+        ...selected,
+        configurationCandidates: candidates,
+        configurationConflicted: state.registers.get("configuration")?.conflicted ?? false,
+        sortNodeId: viewSortNodeId(addition.id),
+      };
+    });
 }
 
 export function viewGroupStates(active: readonly FactAction[], viewId: FactActionId): readonly ViewGroupState[] {
-  const additions = actionsOf(active, "view-group-add").filter((action) => action.action.viewId === viewId);
-  const removals = actionsOf(active, "view-group-remove").filter((action) => action.action.viewId === viewId);
-  return additions.map((addition) => ({
-    addition,
-    removed: removals.some((removal) => observes(removal, addition)),
-    groupNodeId: viewGroupNodeId(addition.id),
-  }));
+  return causalCollectionStates(active, "view-group")
+    .filter((state) => state.addition.action.viewId === viewId)
+    .map(({ addition, removed }) => ({ addition, removed, groupNodeId: viewGroupNodeId(addition.id) }));
 }
 
 export function viewFilterStates(active: readonly FactAction[], viewId: FactActionId): readonly ViewFilterState[] {
-  const additions = actionsOf(active, "view-filter-add").filter((action) => action.action.viewId === viewId);
-  const removals = actionsOf(active, "view-filter-remove").filter((action) => action.action.viewId === viewId);
-  const restores = actionsOf(active, "view-filter-restore");
-  return additions.map((addition) => {
-    const supports: readonly FactAction[] = [
-      addition,
-      ...restores.filter((restore) => restore.action.filterId === addition.id),
-    ];
-    return {
-      addition,
-      removed: supports.every((support) => removals.some((removal) => observes(removal, support))),
-      filterNodeId: viewFilterNodeId(addition.id),
-    };
-  });
-}
-
-function actionsOf<Kind extends FactAction["action"]["kind"]>(
-  active: readonly FactAction[],
-  kind: Kind,
-): readonly (FactAction & Readonly<{ action: Extract<FactAction["action"], { kind: Kind }> }>)[] {
-  return active.filter(
-    (fact): fact is FactAction & Readonly<{ action: Extract<FactAction["action"], { kind: Kind }> }> =>
-      fact.action.kind === kind,
-  );
-}
-
-function observes(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
+  return causalCollectionStates(active, "view-filter")
+    .filter((state) => state.addition.action.viewId === viewId)
+    .map(({ addition, removed }) => ({ addition, removed, filterNodeId: viewFilterNodeId(addition.id) }));
 }
 
 const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;

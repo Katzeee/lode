@@ -19,7 +19,7 @@ export function evidenceForTargets(
   const closure = proposalClosure(targetIds, context.pending, context.supportByAction);
   const targets = closure
     .map((id) => context.pending.get(id))
-    .filter((fact): fact is FactAction => fact !== undefined)
+    .filter((action): action is FactAction => action !== undefined)
     .sort(compareCausalOrder);
   if (targets.length !== closure.length) {
     return null;
@@ -29,12 +29,9 @@ export function evidenceForTargets(
     return null;
   }
   return {
-    proposalTargets: targets.map((fact) => fact.id).sort(stableStringCompare),
-    supportClosure: closure,
+    proposalActionIds: targets.map((action) => action.id).sort(stableStringCompare),
     effects,
     associatedImpactIds: associatedReviewImpacts(targets, generation),
-    rulesVersion: generation.identity.rulesVersion,
-    schemaVersion: generation.identity.schemaVersion,
   };
 }
 

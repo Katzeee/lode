@@ -1,7 +1,7 @@
 import {
   compareCausalOrder,
   isSupertagAction,
-  type AuthoredAction,
+  type GraphAction,
   type FactAction,
   type FactActionId,
   type SupertagAction,
@@ -123,7 +123,7 @@ function compensateTemplateField(
     );
     const restores = templateFieldsForPair(counterfactual, action.supertagId, action.fieldDefinitionId)
       .filter((field) => !currentIds.has(field.factActionId))
-      .map((field): AuthoredAction => ({ kind: "template-field-restore", templateFieldId: field.factActionId }));
+      .map((field): GraphAction => ({ kind: "template-field-restore", templateFieldId: field.factActionId }));
     return restores.length > 0 ? ready(restores) : noCompensation();
   }
   if (action.kind === "template-field-restore") {
@@ -162,7 +162,7 @@ function compensateTemplateField(
 }
 
 function compensateTemplateNodeRelation(
-  action: Extract<AuthoredAction, { kind: "template-member-add" | "template-member-remove" }>,
+  action: Extract<GraphAction, { kind: "template-member-add" | "template-member-remove" }>,
   projection: ScopedProjection,
   counterfactual: ScopedProjection,
 ): CompensationStep {
@@ -200,7 +200,7 @@ function templateFieldsForPair(
   return (projection.templateFields[supertagId] ?? []).filter((field) => field.fieldDefinitionId === fieldDefinitionId);
 }
 
-function ready(actions: readonly AuthoredAction[]): CompensationStep {
+function ready(actions: readonly GraphAction[]): CompensationStep {
   const first = actions[0];
   return first ? { kind: "ready", actions: [first, ...actions.slice(1)] } : noCompensation();
 }

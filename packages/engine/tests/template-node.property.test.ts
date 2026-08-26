@@ -9,7 +9,7 @@ import {
   templateInstanceOccurrenceId,
   type Fact,
   type FactFrontier,
-  type AuthoredAction,
+  type GraphAction,
 } from "../src/domain/fact/index.js";
 import {
   advanceGeneration,
@@ -120,26 +120,21 @@ function fixture(): Facts {
   return facts;
 }
 
-function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, authoredAction: AuthoredAction): Fact {
+function remoteFact(replicaId: string, observed: FactFrontier, lamport: number, authoredAction: GraphAction): Fact {
   return makeFact({
     workspaceId: "workspace",
     replicaId,
     sequence: 1,
     observed,
     lamport,
-    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [authoredAction] },
+    body: { kind: "action", actorId: replicaId, intent: "direct", actions: [authoredAction] },
   });
 }
 
-function remoteEdit(
-  replicaId: string,
-  observed: FactFrontier,
-  lamport: number,
-  actions: readonly AuthoredAction[],
-): Fact {
+function remoteEdit(replicaId: string, observed: FactFrontier, lamport: number, actions: readonly GraphAction[]): Fact {
   const [first, ...rest] = actions;
   if (!first) {
-    throw new Error("Remote edit requires at least one AuthoredAction");
+    throw new Error("Remote edit requires at least one GraphAction");
   }
   return makeFact({
     workspaceId: "workspace",
@@ -147,7 +142,7 @@ function remoteEdit(
     sequence: 1,
     observed,
     lamport,
-    body: { kind: "edit", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
+    body: { kind: "action", actorId: replicaId, intent: "direct", actions: [first, ...rest] },
   });
 }
 

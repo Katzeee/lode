@@ -1,8 +1,12 @@
-import { causalMaxima, stableStringCompare, type FactAction, type FactActionOf } from "../fact/index.js";
+import { stableStringCompare, type FactAction } from "../fact/index.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import type { OptionalFieldContribution, TemplateField } from "./projection-types.js";
 import { optionalFieldStates } from "./optional-field-graph.js";
-import { templateFieldStates, templateFieldStaticDefaultCandidates } from "./template-field-graph.js";
+import {
+  templateFieldStates,
+  templateFieldStaticDefaultCandidates,
+  templateFieldVisibilityCandidates,
+} from "./template-field-graph.js";
 
 type TemplateFieldGraph = Readonly<{
   templateFields: Readonly<Record<string, readonly TemplateField[]>>;
@@ -34,13 +38,7 @@ function projectTemplateFields(
     if (state.removed) {
       return [];
     }
-    const visibilityActions = causalMaxima(
-      active.filter(
-        (action): action is FactActionOf<"template-field-visibility-set"> =>
-          action.action.kind === "template-field-visibility-set" && action.action.templateFieldId === state.addition.id,
-      ),
-      (left, right) => left.action.templateFieldId === right.action.templateFieldId,
-    );
+    const visibilityActions = templateFieldVisibilityCandidates(active, state.addition.id);
     const visibilityCandidates = visibilityActions.map((action) => ({
       visibility: action.action.visibility,
       factActionId: action.id,

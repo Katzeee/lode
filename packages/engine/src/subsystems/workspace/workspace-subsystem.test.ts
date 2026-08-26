@@ -59,7 +59,43 @@ describe("Workspace durable inventory", () => {
         facts: [establishment],
         frontier: { [replicaId]: 1 },
       }),
-    ).toThrow("complete Workspace genesis");
+    ).toThrow("exactly one Workspace bootstrap action");
+  });
+
+  it("rejects a bootstrap marker that does not establish the system structure atomically", () => {
+    const owner = `actor_${"0".repeat(64)}`;
+    const establishment = makeFact({
+      workspaceId: "workspace",
+      replicaId: "101",
+      sequence: 1,
+      observed: {},
+      lamport: 1,
+      body: {
+        kind: "governance",
+        actorId: owner,
+        action: { kind: "workspace-establish", ownerActorId: owner },
+      },
+    });
+    const incomplete = makeFact({
+      workspaceId: "workspace",
+      replicaId: "101",
+      sequence: 2,
+      observed: { "101": 1 },
+      lamport: 2,
+      body: {
+        kind: "action",
+        actorId: owner,
+        intent: "direct",
+        actions: [{ kind: "workspace-bootstrap", workspaceNodeId: "workspace" }],
+      },
+    });
+
+    expect(() =>
+      validateWorkspaceSnapshot("workspace", {
+        facts: [establishment, incomplete],
+        frontier: { "101": 2 },
+      }),
+    ).toThrow("complete Workspace system structure");
   });
 
   it("creates only through CreateWorkspace and opens every promoted Workspace at boot", async () => {

@@ -226,10 +226,8 @@ message ViewOptionsSpec {
 
 message ReceiptLineage {
   string channel_id = 1;
-  uint32 ordinal = 2;
-  google.protobuf.StringValue parent_step_id = 3;
-  HistoryOperation operation = 4;
-  google.protobuf.StringValue target_step_id = 5;
+  HistoryOperation operation = 2;
+  google.protobuf.StringValue target_step_id = 3;
 }
 
 message AuthorityReceipt {

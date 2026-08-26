@@ -21,6 +21,7 @@ import { addTemplateFieldEditReadScope } from "./template-field-read-scope.js";
 export type GenerationReadPlan = Readonly<{
   actions: readonly AuthoredAction[];
   readsOwnerGraph: boolean;
+  ownedRootNodeIds: readonly string[];
   createScope: () => GenerationReadScope;
 }>;
 
@@ -29,6 +30,7 @@ export function planFactActionGenerationRead(facts: readonly FactAction[]): Gene
   return {
     actions,
     readsOwnerGraph: actions.some(requiresOwnerGraph),
+    ownedRootNodeIds: [],
     createScope: () => factActionReadScope(facts),
   };
 }
@@ -54,6 +56,7 @@ export function planEditGenerationRead(edits: readonly EditAction[]): Generation
           edit.kind === "view-sort-by-node-name" ||
           edit.kind === "supertag-template-field-static-default-set",
       ),
+    ownedRootNodeIds: [],
     createScope: () => editReadScope(edits, actions),
   };
 }

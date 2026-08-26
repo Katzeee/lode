@@ -1,6 +1,7 @@
 import {
   frontierOf,
   factActions,
+  graphActionBody,
   makeFact,
   type AuthorityReceipt,
   type EditIntent,
@@ -8,7 +9,7 @@ import {
   type FactId,
   type FactAction,
   type FactSnapshot,
-  type AuthoredAction,
+  type GraphAction,
   workspaceGenesisActions,
 } from "../../../src/domain/fact/index.js";
 import {
@@ -17,7 +18,7 @@ import {
   type ProjectionGeneration,
 } from "../../../src/domain/reconcile/index.js";
 import { nextHistoryLineage } from "../../../src/domain/history/state.js";
-import { planCompensation } from "../../../src/domain/history/compensation.js";
+import { planInvocationCompensation } from "../../../src/domain/history/compensation.js";
 import { withInitialNodeRelations } from "../reconcile/placed-node-test-helpers.js";
 
 const REPLICA = "101";
@@ -37,7 +38,7 @@ export class HistoryFixture {
     this.transaction(workspaceGenesisActions("workspace"));
   }
 
-  fact(authoredAction: AuthoredAction, intent: EditIntent = "direct"): FactAction {
+  fact(authoredAction: GraphAction, intent: EditIntent = "direct"): FactAction {
     const sequence = this.facts.length + 1;
     const fact = makeFact({
       workspaceId: "workspace",
@@ -45,7 +46,7 @@ export class HistoryFixture {
       sequence,
       observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
       lamport: sequence,
-      body: { kind: "edit", actorId: "actor", intent, actions: [authoredAction] },
+      body: graphActionBody("actor", intent, [authoredAction]),
     });
     this.facts.push(fact);
     const action = factActions(fact)[0];
@@ -77,7 +78,7 @@ export class HistoryFixture {
 
   step(input: {
     invocationId: string;
-    actions: readonly AuthoredAction[];
+    actions: readonly GraphAction[];
     intent?: EditIntent;
     channelId?: string;
     operation?: "normal" | "undo" | "redo";
@@ -91,7 +92,6 @@ export class HistoryFixture {
       input.operation ?? "normal",
       input.targetStepId ?? null,
     );
-    const inverse = this.inverseForStep(created);
     const receipt: AuthorityReceipt = {
       workspaceId: "workspace",
       replicaId: REPLICA,
@@ -100,34 +100,30 @@ export class HistoryFixture {
       factIds: [...new Set(created.map((fact) => fact.factId))],
       committedFrontier: frontierOf(this.facts),
       lineage,
-      inverse,
     };
     this.receipts.push(receipt);
     return receipt;
   }
 
-  private inverseForStep(created: readonly FactAction[]): AuthorityReceipt["inverse"] {
-    const compensation = planCompensation(created, this.snapshot(), this.generation());
-    if (compensation.kind !== "ready") {
-      return [];
-    }
-    const [first, ...rest] = compensation.actions;
-    return first ? [{ intent: created[0]?.intent ?? "direct", actions: [first, ...rest] }] : [];
-  }
-
-  addTransaction(actions: readonly AuthoredAction[], intent: EditIntent = "direct"): readonly FactAction[] {
+  addTransaction(actions: readonly GraphAction[], intent: EditIntent = "direct"): readonly FactAction[] {
     return this.transaction(actions, intent);
   }
 
-  inverseActions(invocationId: string): readonly AuthoredAction[] {
-    return (
-      this.receipts
-        .find((receipt) => receipt.invocationId === invocationId)
-        ?.inverse.flatMap((batch) => batch.actions) ?? []
+  compensationActions(invocationId: string): readonly GraphAction[] {
+    const receipt = this.receipts.find((candidate) => candidate.invocationId === invocationId);
+    if (!receipt) {
+      return [];
+    }
+    const ids = new Set(receipt.factIds);
+    const compensation = planInvocationCompensation(
+      this.facts.filter((fact) => ids.has(fact.id)),
+      this.snapshot(),
+      this.generation(),
     );
+    return compensation.kind === "ready" ? compensation.writes.flatMap((batch) => batch.actions) : [];
   }
 
-  private transaction(actions: readonly AuthoredAction[], intent: EditIntent = "direct"): readonly FactAction[] {
+  private transaction(actions: readonly GraphAction[], intent: EditIntent = "direct"): readonly FactAction[] {
     const ownedActions = withInitialNodeRelations(actions);
     const [first, ...rest] = ownedActions;
     if (!first) {
@@ -140,7 +136,7 @@ export class HistoryFixture {
       sequence,
       observed: sequence === 1 ? {} : { [REPLICA]: sequence - 1 },
       lamport: sequence,
-      body: { kind: "edit", actorId: "actor", intent, actions: [first, ...rest] },
+      body: graphActionBody("actor", intent, [first, ...rest]),
     });
     this.facts.push(fact);
     return factActions(fact);

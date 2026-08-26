@@ -117,7 +117,7 @@ describe("Conflict lifecycle", () => {
       observed,
       lamport: facts.values.length + 1,
       body: {
-        kind: "edit",
+        kind: "action",
         actorId: "mover-b",
         intent: "direct",
         actions: [
@@ -135,7 +135,7 @@ describe("Conflict lifecycle", () => {
       observed,
       lamport: facts.values.length + 1,
       body: {
-        kind: "edit",
+        kind: "action",
         actorId: "mover-c",
         intent: "direct",
         actions: [
@@ -173,7 +173,7 @@ describe("Conflict lifecycle", () => {
       observed: conflicted.frontier,
       lamport: facts.values.length + 2,
       body: {
-        kind: "edit",
+        kind: "action",
         actorId: "resolver",
         intent: "direct",
         actions: [
@@ -208,7 +208,7 @@ describe("Conflict lifecycle", () => {
         observed,
         lamport: facts.values.length + 1,
         body: {
-          kind: "edit",
+          kind: "action",
           actorId: replicaId,
           intent: "direct",
           actions: [

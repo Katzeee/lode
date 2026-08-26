@@ -26,7 +26,6 @@ type WorkspaceOptions = Readonly<{
   workspaceId: string;
   facts: ReplicatedFactAuthorityPort;
   versions: ProjectionVersions;
-  reviewCapabilityKey?: string;
   projection?: WorkspaceProjectionOptions;
   /**
    * Seed an untitled genesis Fact into an empty authority. Only for
@@ -53,7 +52,6 @@ export class Workspace {
       facts: options.facts,
       projection,
       events,
-      ...(options.reviewCapabilityKey ? { reviewCapabilityKey: options.reviewCapabilityKey } : {}),
     });
     this.authority = new WorkspaceAuthorityCoordinator({
       facts: options.facts,
@@ -119,7 +117,6 @@ export class Workspace {
       projections: this.projection.reader,
       generationId: this.projection.identity.generationId,
       projectionFailure: this.projection.failure,
-      ...(this.options.reviewCapabilityKey ? { reviewCapabilityKey: this.options.reviewCapabilityKey } : {}),
     });
   }
   async reconcileAuthorityAdvance(): Promise<void> {

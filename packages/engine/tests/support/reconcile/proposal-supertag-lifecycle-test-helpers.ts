@@ -1,4 +1,4 @@
-import { SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, type AuthoredAction } from "../../../src/domain/fact/index.js";
+import { SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, type GraphAction } from "../../../src/domain/fact/index.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 import { base, end } from "./reconcile-test-helpers.js";
 import { addDefinitionNode, addPlacedNode } from "./placed-node-test-helpers.js";
@@ -110,6 +110,6 @@ function supertagAndTemplateFacts(): Facts {
   return facts;
 }
 
-function lifecycle(facts: Facts, authoredAction: AuthoredAction): ProposalLifecycleCase {
+function lifecycle(facts: Facts, authoredAction: GraphAction): ProposalLifecycleCase {
   return { kind: authoredAction.kind, facts, proposal: facts.add(authoredAction, "proposal") };
 }

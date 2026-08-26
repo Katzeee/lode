@@ -58,7 +58,7 @@ async function setup(
   };
 }
 
-async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`) {
+async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`, seedGenesis = true) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
     loroPeerId,
@@ -70,6 +70,7 @@ async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`) {
       workspaceId: "workspace",
       facts,
       versions,
+      seedGenesis,
     }),
   };
 }
@@ -178,8 +179,8 @@ describe("Proposal Workspace coordinator", () => {
   it("queries and adjudicates concurrent opposite Resolutions through the public Engine contract", async () => {
     const documentsA = new InMemoryDocumentStore();
     const a = await setupReplica(documentsA, "201");
-    const b = await setupReplica(new InMemoryDocumentStore(), "202");
-    const c = await setupReplica(new InMemoryDocumentStore(), "203");
+    const b = await setupReplica(new InMemoryDocumentStore(), "202", false);
+    const c = await setupReplica(new InMemoryDocumentStore(), "203", false);
     expect(
       (
         await a.workspace.execute({
@@ -519,7 +520,7 @@ describe("Proposal Workspace coordinator", () => {
       throw new Error("Expected Reference deletion");
     }
     expect(facts.facts(referenceDeletion.receipt.factIds)[0]?.body).toMatchObject({
-      kind: "edit",
+      kind: "action",
       actions: [expect.objectContaining({ kind: "placement-remove", placementId: "node-reference" })],
     });
     expect(await lifecycleExists(workspace, "node", "node")).toBe(true);
@@ -1005,7 +1006,7 @@ describe("Proposal Workspace coordinator", () => {
 
   it("bootstraps the Workspace ownership root", async () => {
     const { facts, workspace } = await setup();
-    expect(facts.snapshot().facts[0]?.body).toMatchObject({ kind: "edit", actorId: "workspace-genesis" });
+    expect(facts.snapshot().facts[0]?.body).toMatchObject({ kind: "action", actorId: "workspace-genesis" });
     const genesisFacts = facts.snapshot().facts;
     expect(genesisFacts).toHaveLength(1);
     expect(factActionsFromFacts(genesisFacts).map((fact) => fact.action)).toEqual(
@@ -1254,7 +1255,7 @@ describe("Proposal Workspace coordinator", () => {
     if (!("hunks" in complete)) {
       throw new Error("Expected complete Review query");
     }
-    const replacement = complete.hunks.find((hunk) => hunk.proposalActionIds.length === 2);
+    const replacement = complete.hunks.find((hunk) => hunk.selection.proposalActionIds.length === 2);
     expect(replacement?.diffSpace.kind).toBe("child-sequence");
 
     const paged = [];
@@ -1273,11 +1274,11 @@ describe("Proposal Workspace coordinator", () => {
       after = page.next;
     } while (after !== null);
 
-    expect(new Map(paged.map((hunk) => [hunk.id, hunk.selection.evidence]))).toEqual(
-      new Map(complete.hunks.map((hunk) => [hunk.id, hunk.selection.evidence])),
+    expect(new Map(paged.map((hunk) => [hunk.id, hunk.evidence]))).toEqual(
+      new Map(complete.hunks.map((hunk) => [hunk.id, hunk.evidence])),
     );
-    expect(paged.find((hunk) => hunk.id === replacement?.id)?.proposalActionIds).toEqual(
-      replacement?.proposalActionIds,
+    expect(paged.find((hunk) => hunk.id === replacement?.id)?.selection.proposalActionIds).toEqual(
+      replacement?.selection.proposalActionIds,
     );
   });
 
@@ -1373,7 +1374,7 @@ describe("Proposal Workspace coordinator", () => {
     if (!("hunks" in review) || !review.hunks[0]) {
       throw new Error("Expected Proposal Review Hunk");
     }
-    expect(review.hunks[0].selection.evidence.associatedImpactIds).toContain(directActionId);
+    expect(review.hunks[0].evidence.associatedImpactIds).toContain(directActionId);
     expect(
       (
         await first.workspace.execute({
@@ -1391,7 +1392,7 @@ describe("Proposal Workspace coordinator", () => {
     const restarted = await setupReplica(documents, "302");
     await expectUnsupportedDirect(restarted.workspace, directActionId, "direct-author");
 
-    const remote = await setupReplica(new InMemoryDocumentStore(), "303");
+    const remote = await setupReplica(new InMemoryDocumentStore(), "303", false);
     await syncPair(new FactReplication(restarted.facts.replication), new FactReplication(remote.facts.replication));
     await remote.workspace.reconcileAuthorityAdvance();
     await expectUnsupportedDirect(remote.workspace, directActionId, "direct-author");
@@ -2022,7 +2023,7 @@ describe("Proposal Workspace coordinator", () => {
       request: { kind: "tail" },
       writes: [
         {
-          kind: "edit",
+          kind: "action",
           actorId: "actor",
           intent: "direct",
           actions: [
@@ -2036,7 +2037,6 @@ describe("Proposal Workspace coordinator", () => {
         },
       ],
       lineage: null,
-      inverse: [],
       publishedFrontier: firstFacts.snapshot().frontier,
     });
 
@@ -2181,9 +2181,8 @@ async function commitAuthorityNode(facts: FactAuthority, invocationId: string, n
   await facts.commit({
     invocationId,
     request: { kind: "remote-authority-node", nodeId },
-    writes: [{ kind: "edit", actorId: "remote", intent: "direct", actions: authorityNodeActions(nodeId) }],
+    writes: [{ kind: "action", actorId: "remote", intent: "direct", actions: authorityNodeActions(nodeId) }],
     lineage: null,
-    inverse: [],
     publishedFrontier: facts.snapshot().frontier,
   });
 }

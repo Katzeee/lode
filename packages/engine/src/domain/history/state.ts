@@ -3,35 +3,24 @@ import type { AuthorityReceipt, HistoryChannelId, InvocationId, ReceiptLineage }
 export type HistoryState = Readonly<{
   channelId: HistoryChannelId;
   headInvocationId: InvocationId | null;
-  headOrdinal: number;
   undoStack: readonly InvocationId[];
   redoStack: readonly InvocationId[];
 }>;
 
 export function rebuildHistoryState(receipts: readonly AuthorityReceipt[], channelId: HistoryChannelId): HistoryState {
-  const channelReceipts = receipts
-    .filter(
-      (receipt): receipt is AuthorityReceipt & { lineage: ReceiptLineage } => receipt.lineage?.channelId === channelId,
-    )
-    .sort((left, right) => left.lineage.ordinal - right.lineage.ordinal);
+  const channelReceipts = receipts.filter(
+    (receipt): receipt is AuthorityReceipt & { lineage: ReceiptLineage } => receipt.lineage?.channelId === channelId,
+  );
   const undoStack: InvocationId[] = [];
   const redoStack: InvocationId[] = [];
   let headInvocationId: InvocationId | null = null;
-  let headOrdinal = 0;
 
   for (const receipt of channelReceipts) {
     const lineage = receipt.lineage;
-    if (lineage.ordinal !== headOrdinal + 1) {
-      throw new Error(`History ordinal gap in channel ${channelId}`);
-    }
-    if (lineage.parentStepId !== headInvocationId) {
-      throw new Error(`History parent mismatch in channel ${channelId}`);
-    }
     applyReceipt(receipt.invocationId, lineage, undoStack, redoStack);
     headInvocationId = receipt.invocationId;
-    headOrdinal = lineage.ordinal;
   }
-  return { channelId, headInvocationId, headOrdinal, undoStack, redoStack };
+  return { channelId, headInvocationId, undoStack, redoStack };
 }
 
 export function nextHistoryLineage(
@@ -41,10 +30,17 @@ export function nextHistoryLineage(
   targetStepId: InvocationId | null,
 ): ReceiptLineage {
   const state = rebuildHistoryState(receipts, channelId);
+  const expectedTarget =
+    operation === "undo"
+      ? (state.undoStack.at(-1) ?? null)
+      : operation === "redo"
+        ? (state.redoStack.at(-1) ?? null)
+        : null;
+  if (targetStepId !== expectedTarget) {
+    throw new Error(`History ${operation} target is not the channel head: ${targetStepId}`);
+  }
   return {
     channelId,
-    ordinal: state.headOrdinal + 1,
-    parentStepId: state.headInvocationId,
     operation,
     targetStepId,
   };

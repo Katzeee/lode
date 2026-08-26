@@ -1,25 +1,21 @@
 import {
+  actionIdentityProducers,
   compareCausalOrder,
+  factActionContributions,
   factObserves,
   factActionsFromFacts,
-  isFieldContentRemovalAction,
-  isSupertagAction,
-  isTemplateAction,
   type FactAction,
   type FactActionId,
   type Fact,
   type ResolutionFact,
-  type SupertagAction,
+  type SemanticIdentity,
   type ProjectionPerspective,
 } from "../fact/index.js";
 import { eligibleForPerspective, resolutionsByAction } from "./activation-perspective.js";
-import { addSupertagActionSupport, type SupertagSupportContext } from "./supertag-support.js";
-import { addGeneratedOccurrenceSupport, addTemplateNodeSupport } from "./generated-relation-support.js";
+import { addCausalCollectionSupport, type CausalCollectionSupportContext } from "./causal-collection-support.js";
 import { addCandidate } from "./support-candidate.js";
-import { addFieldContentDeletionSupport } from "./field-content-support.js";
-import { addCoreActionSupport } from "./core-action-support.js";
-import { intrinsicNodeTypeSupportKey } from "./supertag-support.js";
-import { indexSemanticValueFacts, semanticValueKey } from "./semantic-value-support.js";
+import { addIdentityRequirementSupport, intrinsicNodeTypeSupportKey } from "./identity-support.js";
+import { causalRegisterKeys, indexCausalRegisterFacts } from "./causal-register-support.js";
 
 type Activation = Readonly<{
   activeActionIds: ReadonlySet<FactActionId>;
@@ -99,37 +95,24 @@ function deriveSupportPass(
 }> {
   const nodeExistenceSupport = new Map<string, string[]>();
   const occurrenceExistenceSupport = new Map<string, string[]>();
-  const supertagApplicationSupport = new Map<string, FactAction[]>();
-  const supertagTemplateOccurrenceSupport = new Map<string, FactAction[]>();
-  const templateFieldSupport = new Map<string, FactAction[]>();
-  const optionalFieldSupport = new Map<string, FactAction[]>();
+  const causalCollectionSupport: CausalCollectionSupportContext = new Map();
   const intrinsicNodeTypeSupport = new Map<string, string[]>();
-  const occurrenceLifecycleFacts = indexOccurrenceLifecycleFacts(ordered);
+  const occurrenceMaterializationFacts = indexOccurrenceMaterializationFacts(ordered);
   const inlineReferenceSupport = new Map<string, string[]>();
   const inlineAliasSupport = new Map<string, string[]>();
-  const semanticValueSupport = indexSemanticValueFacts(ordered);
+  const causalRegisterSupport = indexCausalRegisterFacts(ordered);
   const viable = new Set(previouslyViable);
-  const existence = existenceSupport(nodeExistenceSupport, occurrenceExistenceSupport, viable);
-  const supertagSupport = createSupertagSupport(
-    nodeExistenceSupport,
-    viable,
-    supertagApplicationSupport,
-    supertagTemplateOccurrenceSupport,
-    templateFieldSupport,
-    optionalFieldSupport,
-    intrinsicNodeTypeSupport,
-  );
   const result = new Map<FactActionId, readonly FactActionId[]>();
   const context = {
     nodeExistenceSupport,
     occurrenceExistenceSupport,
     viable,
-    existence,
-    supertagSupport,
-    occurrenceLifecycleFacts,
+    intrinsicNodeTypeSupport,
+    causalCollectionSupport,
+    occurrenceMaterializationFacts,
     inlineReferenceSupport,
     inlineAliasSupport,
-    semanticValueSupport,
+    causalRegisterSupport,
   };
 
   registerIdentityProducers(
@@ -157,36 +140,55 @@ function registerIdentityProducers(
   inlineAliases: Map<string, string[]>,
   intrinsicNodeTypes: Map<string, string[]>,
 ): void {
-  for (const action of actions) {
-    const authoredAction = action.action;
-    if (authoredAction.kind === "workspace-bootstrap") {
-      addCandidate(nodes, authoredAction.workspaceNodeId, action.id);
-    } else if (authoredAction.kind === "node-create") {
-      addCandidate(nodes, authoredAction.nodeId, action.id);
-      if (authoredAction.originalPlacement !== null) {
-        addCandidate(occurrences, authoredAction.originalPlacement.placementId, action.id);
-      }
-      if (authoredAction.intrinsicNodeType !== undefined) {
-        addCandidate(
-          intrinsicNodeTypes,
-          intrinsicNodeTypeSupportKey(authoredAction.nodeId, authoredAction.intrinsicNodeType),
-          action.id,
-        );
-      }
-    } else if (authoredAction.kind === "placement-create") {
-      addCandidate(occurrences, authoredAction.placementId, action.id);
-    } else if (authoredAction.kind === "template-field-add" && authoredAction.fieldDefinition.kind === "new") {
-      addCandidate(nodes, authoredAction.fieldDefinition.fieldDefinitionId, action.id);
+  for (const fact of actions) {
+    for (const identity of actionIdentityProducers(fact.action)) {
+      registerIdentityProducer(
+        identity,
+        fact.id,
+        nodes,
+        occurrences,
+        inlineReferences,
+        inlineAliases,
+        intrinsicNodeTypes,
+      );
+    }
+  }
+}
+
+function registerIdentityProducer(
+  identity: SemanticIdentity,
+  actionId: FactActionId,
+  nodes: Map<string, string[]>,
+  occurrences: Map<string, string[]>,
+  inlineReferences: Map<string, string[]>,
+  inlineAliases: Map<string, string[]>,
+  intrinsicNodeTypes: Map<string, string[]>,
+): void {
+  switch (identity.kind) {
+    case "node":
+      addCandidate(nodes, identity.nodeId, actionId);
+      return;
+    case "occurrence":
+      addCandidate(occurrences, identity.occurrenceId, actionId);
+      return;
+    case "inline-reference":
+      addCandidate(inlineReferences, identity.inlineReferenceId, actionId);
+      return;
+    case "inline-alias":
+      addCandidate(inlineAliases, `${identity.inlineReferenceId}/${identity.aliasNodeId}`, actionId);
+      return;
+    case "intrinsic-node-type":
       addCandidate(
         intrinsicNodeTypes,
-        intrinsicNodeTypeSupportKey(authoredAction.fieldDefinition.fieldDefinitionId, "field-definition"),
-        action.id,
+        intrinsicNodeTypeSupportKey(identity.nodeId, identity.intrinsicNodeType),
+        actionId,
       );
-    } else if (authoredAction.kind === "inline-reference-create") {
-      addCandidate(inlineReferences, authoredAction.inlineReferenceId, action.id);
-    } else if (authoredAction.kind === "inline-alias-attach") {
-      addCandidate(inlineAliases, `${authoredAction.inlineReferenceId}/${authoredAction.aliasNodeId}`, action.id);
-    }
+      break;
+    case "node-children":
+    case "fact-action":
+    case "supertag":
+    case "field-definition":
+      break;
   }
 }
 
@@ -196,84 +198,59 @@ function actionSupport(
     nodeExistenceSupport: Map<string, string[]>;
     occurrenceExistenceSupport: Map<string, string[]>;
     viable: Set<FactActionId>;
-    existence: ReturnType<typeof existenceSupport>;
-    supertagSupport: SupertagSupportContext;
-    occurrenceLifecycleFacts: ReadonlyMap<string, readonly FactAction[]>;
+    intrinsicNodeTypeSupport: Map<string, string[]>;
+    causalCollectionSupport: CausalCollectionSupportContext;
+    occurrenceMaterializationFacts: ReadonlyMap<string, readonly FactAction[]>;
     inlineReferenceSupport: Map<string, string[]>;
     inlineAliasSupport: Map<string, string[]>;
-    semanticValueSupport: ReadonlyMap<string, readonly FactAction[]>;
+    causalRegisterSupport: ReadonlyMap<string, readonly FactAction[]>;
   }>,
 ): Set<FactActionId> {
-  const { existence, supertagSupport } = context;
   const authoredAction = fact.action;
   const support = new Set<FactActionId>();
-  const semanticKey = semanticValueKey(authoredAction);
-  if (semanticKey !== null) {
-    for (const candidate of context.semanticValueSupport.get(semanticKey) ?? []) {
+  addIdentityRequirementSupport(support, authoredAction, context);
+  for (const semanticKey of causalRegisterKeys(fact)) {
+    for (const candidate of context.causalRegisterSupport.get(semanticKey) ?? []) {
       if (candidate.id !== fact.id && factObserves(fact, candidate)) {
         support.add(candidate.id);
       }
     }
   }
-  if (isSupertagAction(authoredAction)) {
-    addSupertagContributionSupport(support, authoredAction, fact, supertagSupport);
-  } else if (isTemplateAction(authoredAction)) {
-    addTemplateNodeSupport(support, authoredAction, fact, supertagSupport, existence);
-  } else if (isFieldContentRemovalAction(authoredAction)) {
-    addFieldContentDeletionSupport(support, authoredAction, existence);
-  } else {
-    addCoreActionSupport(support, authoredAction, context);
-  }
-  addGeneratedOccurrenceSupport(support, authoredAction, fact, context.occurrenceLifecycleFacts);
+  addCausalCollectionSupport(support, fact, context.causalCollectionSupport, context.viable);
+  addGeneratedOccurrenceSupport(support, fact, context.occurrenceMaterializationFacts);
   return support;
 }
 
-function indexOccurrenceLifecycleFacts(facts: readonly FactAction[]): ReadonlyMap<string, readonly FactAction[]> {
+function indexOccurrenceMaterializationFacts(facts: readonly FactAction[]): ReadonlyMap<string, readonly FactAction[]> {
   const result = new Map<string, FactAction[]>();
   for (const fact of facts) {
-    const authoredAction = fact.action;
-    if (authoredAction.kind !== "placement-create" && authoredAction.kind !== "placement-remove") {
-      continue;
+    for (const contribution of factActionContributions(fact)) {
+      if (contribution.kind !== "sequence-position" || contribution.operation !== "insert") {
+        continue;
+      }
+      const candidates = result.get(contribution.occurrenceId) ?? [];
+      candidates.push(fact);
+      result.set(contribution.occurrenceId, candidates);
     }
-    const key = `${authoredAction.kind}/${authoredAction.placementId}`;
-    const candidates = result.get(key) ?? [];
-    candidates.push(fact);
-    result.set(key, candidates);
   }
   return result;
 }
 
-function addSupertagContributionSupport(
+function addGeneratedOccurrenceSupport(
   support: Set<string>,
-  authoredAction: SupertagAction,
   fact: FactAction,
-  supertagSupport: SupertagSupportContext,
+  materializationFacts: ReadonlyMap<string, readonly FactAction[]>,
 ): void {
-  addSupertagActionSupport(support, authoredAction, fact, supertagSupport);
-}
-
-function existenceSupport(nodes: Map<string, string[]>, occurrences: Map<string, string[]>, viable: Set<string>) {
-  return { nodes, occurrences, viable };
-}
-
-function createSupertagSupport(
-  nodes: Map<string, string[]>,
-  viable: Set<string>,
-  applications: Map<string, FactAction[]>,
-  templateOccurrences: Map<string, FactAction[]>,
-  templateFields: Map<string, FactAction[]>,
-  optionalFields: Map<string, FactAction[]>,
-  intrinsicNodeTypeDeclarations: Map<string, string[]>,
-): SupertagSupportContext {
-  return {
-    nodes,
-    viable,
-    applications,
-    templateOccurrences,
-    templateFields,
-    optionalFields,
-    intrinsicNodeTypeDeclarations,
-  };
+  for (const contribution of factActionContributions(fact)) {
+    if (contribution.kind === "generated-occurrence") {
+      const candidate = materializationFacts
+        .get(contribution.occurrenceId)
+        ?.find((materialization) => factObserves(materialization, fact));
+      if (candidate !== undefined) {
+        support.add(candidate.id);
+      }
+    }
+  }
 }
 
 function markViable(

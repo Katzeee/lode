@@ -24,11 +24,11 @@ import {
   workspaceSchemaNodeId,
 } from "./identity.js";
 import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE } from "./intrinsic-node-type-types.js";
-import type { AuthoredAction } from "./types.js";
+import type { GraphAction } from "./types.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
-export function workspaceGenesisActions(workspaceId: string): readonly [AuthoredAction, ...AuthoredAction[]] {
+export function workspaceGenesisActions(workspaceId: string): readonly [GraphAction, ...GraphAction[]] {
   return [
     { kind: "workspace-bootstrap", workspaceNodeId: workspaceId },
     {
@@ -49,7 +49,7 @@ export function workspaceGenesisActions(workspaceId: string): readonly [Authored
   ];
 }
 
-function systemDefinitionCatalogActions(workspaceId: string): readonly AuthoredAction[] {
+function systemDefinitionCatalogActions(workspaceId: string): readonly GraphAction[] {
   const nodes = [
     [SYSTEM_DEFINITION_CATALOG_NODE_ID, "System Definitions", workspaceId],
     [NODE_SUPERTAGS_DEFINITION_NODE_ID, "Node supertags(s)", SYSTEM_DEFINITION_CATALOG_NODE_ID],
@@ -106,7 +106,7 @@ function systemDefinitionCatalogActions(workspaceId: string): readonly AuthoredA
     VIEW_SORT_ORDER_DEFINITION_NODE_ID,
     VIEW_SORT_FIELD_DEFINITION_NODE_ID,
   ]);
-  return nodes.map(([nodeId, title, ownerNodeId]): AuthoredAction => ({
+  return nodes.map(([nodeId, title, ownerNodeId]): GraphAction => ({
     kind: "node-create",
     nodeId,
     ownerNodeId,

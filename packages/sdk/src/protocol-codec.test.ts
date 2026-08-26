@@ -4,7 +4,6 @@ import {
   file_lode_edit,
   file_lode_engine,
   file_lode_history,
-  file_lode_maintenance,
   file_lode_model,
   file_lode_projection,
   file_lode_replica_sync,
@@ -34,7 +33,6 @@ describe("generated protobuf SDK codec", () => {
         file_lode_edit,
         file_lode_engine,
         file_lode_history,
-        file_lode_maintenance,
         file_lode_model,
         file_lode_projection,
         file_lode_replica_sync,
@@ -63,6 +61,15 @@ describe("generated protobuf SDK codec", () => {
     };
 
     expect(decodeEngineCommand(encodeEngineCommand(command))).toEqual(command);
+
+    const finalization: EngineCommand = {
+      kind: "finalize-deletions",
+      workspaceId: "workspace",
+      invocationId: "finalize",
+      actorId: "actor",
+      nodeIds: ["node", "owned-child"],
+    };
+    expect(decodeEngineCommand(encodeEngineCommand(finalization))).toEqual(finalization);
   });
 
   it("round-trips an existing Field Definition as a new Template Field use", () => {
@@ -298,11 +305,6 @@ describe("generated protobuf SDK codec", () => {
     const selection = {
       token: "token",
       channelId: "desktop",
-      operation: "undo",
-      targetInvocationId: "target",
-      headInvocationId: "target",
-      headOrdinal: 1,
-      targetFactIds: ["g1/workspace/101/1"],
     } as const;
     const result: EngineQueryResult<typeof query> = {
       status: "ok",
@@ -843,36 +845,29 @@ describe("generated protobuf SDK codec", () => {
           {
             id: "hunk",
             diffSpace: { kind: "field-definition-configuration", identity: "optionality" },
-            proposalActionIds: ["g1/workspace/101/3/actions/0"],
             neutralBridgeAtomIds: [],
             linkedHunkIds: [],
-            selection: {
-              token: "token",
-              workspaceId: "workspace",
-              frontier: { replica: 3 },
-              generationId: "generation",
-              evidence: {
-                proposalTargets: ["g1/workspace/101/3/actions/0"],
-                supportClosure: [],
-                effects: [
-                  {
-                    kind: "field-definition-configuration",
-                    fieldDefinitionId: "field",
-                    configurationKind: "optionality",
-                    origin: {
-                      kind: "optionality",
-                      optionalityNodeId: "system-field-optionality:v1:yes",
-                    },
-                    review: {
-                      kind: "optionality",
-                      optionalityNodeId: "system-field-optionality:v1:no",
-                    },
+            evidence: {
+              effects: [
+                {
+                  kind: "field-definition-configuration",
+                  fieldDefinitionId: "field",
+                  configurationKind: "optionality",
+                  origin: {
+                    kind: "optionality",
+                    optionalityNodeId: "system-field-optionality:v1:yes",
                   },
-                ],
-                associatedImpactIds: ["field", "optionality"],
-                rulesVersion: "rules",
-                schemaVersion: "schema",
-              },
+                  review: {
+                    kind: "optionality",
+                    optionalityNodeId: "system-field-optionality:v1:no",
+                  },
+                },
+              ],
+              associatedImpactIds: ["field", "optionality"],
+            },
+            selection: {
+              evidenceId: "evidence",
+              proposalActionIds: ["g1/workspace/101/3/actions/0"],
             },
           },
         ],
