@@ -133,16 +133,18 @@ class SocketEngineTransport {
       [Symbol.asyncIterator]();
     let active = true;
     void (async () => {
-      try {
-        while (active) {
-          const result = await iterator.next();
-          if (result.done) {
-            break;
-          }
-          listener(toBinary(EngineEventSchema, result.value));
+      while (active) {
+        let result: Awaited<ReturnType<typeof iterator.next>>;
+        try {
+          result = await iterator.next();
+        } catch {
+          active = false;
+          break;
         }
-      } catch {
-        active = false;
+        if (result.done) {
+          break;
+        }
+        listener(toBinary(EngineEventSchema, result.value));
       }
     })();
     return () => {

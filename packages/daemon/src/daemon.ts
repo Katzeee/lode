@@ -54,16 +54,8 @@ export async function startDaemon(options: DaemonOptions): Promise<Daemon> {
 }
 
 async function stopDaemon(control: ConnectServerResource, engine: Readonly<{ stop(): Promise<void> }>): Promise<void> {
-  try {
-    await control.close();
-  } catch (error) {
-    throw new AggregateError([toError(error)], "Daemon failed to stop cleanly", { cause: error });
-  }
-  try {
-    await engine.stop();
-  } catch (error) {
-    throw new AggregateError([toError(error)], "Daemon failed to stop cleanly", { cause: error });
-  }
+  await control.close();
+  await engine.stop();
 }
 
 function toError(value: unknown): Error {

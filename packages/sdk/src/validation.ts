@@ -1,4 +1,4 @@
-import type { EngineCommand, EngineQuery } from "./contract.js";
+import { OUTLINE_MAX_DEPTH, type EngineCommand, type EngineQuery } from "./contract.js";
 import { ACTION_KINDS, COMMAND_KINDS, QUERY_KINDS } from "./protocol-cases.js";
 import { editIntent } from "./protocol-enums/engine.js";
 import { projectionPerspective } from "./protocol-enums/projection.js";
@@ -87,8 +87,12 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     exact(query, [...pagination, "perspective", "rootNodeId", "maxDepth"]);
     enumString(query.perspective, projectionPerspective.values, "Outline perspective");
     nonempty(query.rootNodeId, "Outline root Node identity");
-    if (!Number.isSafeInteger(query.maxDepth) || (query.maxDepth as number) < 0) {
-      throw new Error("Outline maximum depth must be a non-negative integer");
+    if (
+      !Number.isSafeInteger(query.maxDepth) ||
+      (query.maxDepth as number) < 1 ||
+      (query.maxDepth as number) > OUTLINE_MAX_DEPTH
+    ) {
+      throw new Error(`Outline maximum depth must be between 1 and ${OUTLINE_MAX_DEPTH}`);
     }
     paginationValues(query, 100, "Outline");
   } else if (kind === "debug-node") {

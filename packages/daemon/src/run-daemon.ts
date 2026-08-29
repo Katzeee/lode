@@ -27,12 +27,12 @@ export async function runDaemon(argv: string[]): Promise<void> {
     configureLogger({ file: { path: options.logFile ?? join(paths.logs, "daemon.log") } });
     const socketPath = socketPathOf(listen);
     if (socketPath) {
-      await unlink(socketPath).catch(() => {});
+      await removeIfPresent(socketPath);
     }
     const exchangeListen = options.exchangeListen ?? defaultExchangeEndpoint(listen);
     const exchangeSocketPath = socketPathOf(exchangeListen);
     if (exchangeSocketPath && exchangeSocketPath !== socketPath) {
-      await unlink(exchangeSocketPath).catch(() => {});
+      await removeIfPresent(exchangeSocketPath);
     }
     let resolveStop = () => {};
     const stopped = new Promise<void>((resolve) => {
@@ -87,6 +87,9 @@ export async function runDaemon(argv: string[]): Promise<void> {
       throw toError(failure);
     }
     if (cleanupErrors.length > 0) {
+      if (cleanupErrors.length === 1) {
+        throw cleanupErrors[0];
+      }
       throw new AggregateError(cleanupErrors, "Daemon failed to stop cleanly");
     }
   } finally {
@@ -143,11 +146,31 @@ async function writeEndpoint(path: string, address: string): Promise<void> {
   try {
     try {
       await rename(temporaryPath, path);
-    } catch {
-      await unlink(path).catch(() => {});
+    } catch (error) {
+      if (!hasCode(error, "EEXIST") && !hasCode(error, "EPERM")) {
+        throw error;
+      }
+      await removeIfPresent(path);
       await rename(temporaryPath, path);
     }
-  } finally {
-    await unlink(temporaryPath).catch(() => {});
+  } catch (error) {
+    try {
+      await removeIfPresent(temporaryPath);
+    } catch (cleanupError) {
+      throw new AggregateError([toError(error), toError(cleanupError)], "Endpoint publication failed to clean up", {
+        cause: cleanupError,
+      });
+    }
+    throw error;
+  }
+}
+
+async function removeIfPresent(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch (error) {
+    if (!hasCode(error, "ENOENT")) {
+      throw error;
+    }
   }
 }

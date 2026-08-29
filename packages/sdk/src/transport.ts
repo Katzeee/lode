@@ -37,18 +37,7 @@ export function createTransportEngineApplication(transport: EngineTransport): En
     } catch (error) {
       return { status: "rejected", error: invalidError(error) };
     }
-    try {
-      return decodeEngineQueryResult(await transport.query(bytes), parsed);
-    } catch (error) {
-      return {
-        status: "rejected",
-        error: {
-          code: "projection-unavailable",
-          message: error instanceof Error ? error.message : String(error),
-          currentGenerationId: null,
-        },
-      };
-    }
+    return decodeEngineQueryResult(await transport.query(bytes), parsed);
   }
 
   return {
@@ -69,15 +58,7 @@ export function createTransportEngineApplication(transport: EngineTransport): En
     },
     query,
     subscribe(listener: (event: EngineEvent) => void) {
-      return (
-        transport.subscribe?.((bytes) => {
-          try {
-            listener(decodeEngineEvent(bytes));
-          } catch {
-            // A malformed event is isolated from the rest of the stream.
-          }
-        }) ?? (() => {})
-      );
+      return transport.subscribe?.((bytes) => listener(decodeEngineEvent(bytes))) ?? (() => {});
     },
   };
 }

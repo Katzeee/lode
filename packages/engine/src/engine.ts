@@ -1,5 +1,5 @@
 import type { EngineApplicationContract, EngineCommand, WriteResult } from "@lode/sdk";
-import type { EngineApi } from "@lode/sdk/host";
+import { WorkspaceNotFoundError, type EngineApi } from "@lode/sdk/host";
 
 import { projectGovernance } from "./domain/governance/index.js";
 import type { PersistenceBackend } from "./subsystems/persistence/backend.js";
@@ -169,8 +169,11 @@ function actorRejection(
   let snapshot;
   try {
     snapshot = context.workspace.authority(workspaceId).snapshot();
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof WorkspaceNotFoundError) {
+      return null;
+    }
+    throw error;
   }
   const state = projectGovernance(snapshot.facts);
   if (!state.established) {

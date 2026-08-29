@@ -1,12 +1,7 @@
 import type { OutlineQueryRequest, OutlineResult } from "@lode/sdk";
 import { nodeLocation, type Projection, type ProjectionGeneration } from "../../../domain/reconcile/index.js";
 
-const MAX_DEPTH = 32;
-
 export function queryOutline(query: OutlineQueryRequest, generation: ProjectionGeneration): OutlineResult {
-  if (!Number.isSafeInteger(query.maxDepth) || query.maxDepth < 1 || query.maxDepth > MAX_DEPTH) {
-    throw new Error(`Outline maxDepth must be between 1 and ${MAX_DEPTH}`);
-  }
   const generationId = generation.identity.generationId;
   const projection = generation[query.perspective];
   const available =

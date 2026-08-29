@@ -417,6 +417,17 @@ describe("transport-neutral SDK contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
+    for (const maxDepth of [0, 33]) {
+      expect(
+        await direct.query({
+          kind: "outline",
+          workspaceId: "workspace",
+          perspective: "origin",
+          rootNodeId: "workspace",
+          maxDepth,
+        }),
+      ).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+    }
     expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
   });
@@ -500,19 +511,19 @@ describe("transport-neutral SDK contract", () => {
       status: "outcome-unknown",
       invocationId: command.invocationId,
     });
-    expect(
-      await adapter.query({
+    await expect(
+      adapter.query({
         kind: "projection",
         workspaceId: "workspace",
         perspective: "origin",
       }),
-    ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
+    ).rejects.toThrow();
     let delivered = 0;
     adapter.subscribe(() => {
       delivered += 1;
     });
     for (const listener of listeners) {
-      listener(new Uint8Array([0xff]));
+      expect(() => listener(new Uint8Array([0xff]))).toThrow();
     }
     expect(delivered).toBe(0);
   });

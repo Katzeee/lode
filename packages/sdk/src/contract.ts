@@ -139,6 +139,7 @@ export type ViewRowsResult = Omit<
     options: ViewOptionsSpec;
     rows: readonly ViewRowReference[];
   }>;
+export const OUTLINE_MAX_DEPTH = 32;
 export type OutlineQueryRequest = Omit<WithKind<ProtocolOutlineQueryRequest, "outline">, "perspective"> &
   Readonly<{ perspective: ProjectionPerspective }>;
 export type OutlineRow = ProtocolDto<ProtocolOutlineRow>;

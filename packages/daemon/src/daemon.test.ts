@@ -56,8 +56,8 @@ describe("Daemon", () => {
       status: { homeName: "test", daemonVersion: "test", homePath: "test" },
     });
 
-    await expect(daemon.stop()).rejects.toThrow("Daemon failed to stop cleanly");
-    await expect(daemon.stop()).rejects.toThrow("Daemon failed to stop cleanly");
+    await expect(daemon.stop()).rejects.toThrow("injected Engine stop failure");
+    await expect(daemon.stop()).rejects.toThrow("injected Engine stop failure");
     expect(stopAttempts).toBe(1);
   });
 
@@ -79,9 +79,9 @@ describe("Daemon", () => {
       status: { homeName: "test", daemonVersion: "test", homePath: "test" },
     });
     try {
-      await expect(daemon.stop()).rejects.toThrow("Daemon failed to stop cleanly");
+      await expect(daemon.stop()).rejects.toThrow("injected listener close failure");
       expect(engineStopAttempts).toBe(0);
-      await expect(daemon.stop()).rejects.toThrow("Daemon failed to stop cleanly");
+      await expect(daemon.stop()).rejects.toThrow("injected listener close failure");
       expect(engineStopAttempts).toBe(0);
     } finally {
       const control = closeSpy.mock.instances[0] as ConnectServerResource | undefined;

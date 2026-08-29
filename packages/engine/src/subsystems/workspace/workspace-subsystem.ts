@@ -203,18 +203,7 @@ class WorkspaceCollection {
     if (!resident) {
       return { status: "rejected", error: workspaceNotFound(parsed.workspaceId) };
     }
-    try {
-      return { status: "ok", value: await resident.workspace.query(parsed) };
-    } catch (error) {
-      return {
-        status: "rejected",
-        error: {
-          code: "projection-unavailable",
-          message: error instanceof Error ? error.message : String(error),
-          currentGenerationId: null,
-        },
-      };
-    }
+    return { status: "ok", value: await resident.workspace.query(parsed) };
   }
 
   private assertAbsent(workspaceId: string): void {
