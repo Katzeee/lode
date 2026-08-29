@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { buildFactSnapshot } from "../src/domain/fact/index.js";
-import { canonicalJson, makeFact, type Fact, type FactFrontier, type GraphAction } from "../src/domain/fact/index.js";
 import {
-  advanceGeneration,
-  rebuildGeneration,
-  CURRENT_PROJECTION_VERSIONS as versions,
-} from "../src/domain/reconcile/index.js";
+  buildFactSnapshot,
+  canonicalJson,
+  makeFact,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+  type Fact,
+  type FactFrontier,
+  type GraphAction,
+} from "../src/domain/fact/index.js";
+import { rebuildGeneration, CURRENT_PROJECTION_VERSIONS as versions } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { addDefinitionNode } from "./support/reconcile/placed-node-test-helpers.js";
 import { uniqueFacts } from "./support/facts.js";
@@ -15,15 +19,17 @@ const deleteReplica = "202";
 const insertReplica = "303";
 const unrelatedReplica = "404";
 const restoreReplica = "505";
+const FIELD_NODE_ID = materializedFieldNodeId("owner", "field-definition");
+const FIELD_OCCURRENCE_ID = materializedFieldOccurrenceId("owner", "field-definition");
 
 describe("Field content deletion convergence", () => {
-  it("converges concurrent same-Field value reorders across 32 arrival and incremental topologies", () => {
+  it("converges concurrent same-Field value reorders across 32 Fact arrival orders", () => {
     const base = orderingFixture();
     const baseSnapshot = snapshotOf(base.values);
     const moveC = remoteFact(insertReplica, baseSnapshot.frontier, {
       kind: "placement-move",
       placementId: "value-c-occurrence",
-      parentNodeId: "field-node",
+      parentNodeId: FIELD_NODE_ID,
       anchor: {
         after: "field-definition-endpoint-occ:v1:field-occurrence",
         before: "value-a-occurrence",
@@ -34,7 +40,7 @@ describe("Field content deletion convergence", () => {
     const moveB = remoteFact(unrelatedReplica, baseSnapshot.frontier, {
       kind: "placement-move",
       placementId: "value-b-occurrence",
-      parentNodeId: "field-node",
+      parentNodeId: FIELD_NODE_ID,
       anchor: {
         after: "field-definition-endpoint-occ:v1:field-occurrence",
         before: "value-a-occurrence",
@@ -52,11 +58,6 @@ describe("Field content deletion convergence", () => {
       const snapshot = snapshotOf(shuffle([...base.values, moveB, moveC, moveB, moveC], seed));
       expect(summary(rebuildGeneration("workspace", snapshot, versions))).toBe(expectedSummary);
     }
-
-    const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
   });
 
   it("preserves a concurrent new value while deleting only the selected value across 32 topologies", () => {
@@ -70,7 +71,7 @@ describe("Field content deletion convergence", () => {
       kind: "placement-create",
       placementId: "value-c-occurrence",
       nodeId: "value-c",
-      parentNodeId: "field-node",
+      parentNodeId: FIELD_NODE_ID,
       anchor: end,
     });
     const unrelated = remoteFact(unrelatedReplica, baseSnapshot.frontier, {
@@ -96,11 +97,6 @@ describe("Field content deletion convergence", () => {
       expect(full.origin.nodes["value-a"]).toBeDefined();
       expect(full.review).toEqual({ ...full.origin, perspective: "review" });
     }
-
-    const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
   });
 
   it("restores the full Field subtree including a concurrently authored value", () => {
@@ -115,13 +111,13 @@ describe("Field content deletion convergence", () => {
       kind: "placement-create",
       placementId: "value-c-occurrence",
       nodeId: "value-c",
-      parentNodeId: "field-node",
+      parentNodeId: FIELD_NODE_ID,
       anchor: end,
     });
     const merged = snapshotOf([...base.values, ...deletion, insertion]);
     const hidden = rebuildGeneration("workspace", merged, versions).origin;
     expect(hidden.materializedFields.owner).toBeUndefined();
-    expect(hidden.nodes["field-node"]).toBeDefined();
+    expect(hidden.nodes[FIELD_NODE_ID]).toBeDefined();
     expect(hidden.nodes["value-a"]).toBeDefined();
     expect(hidden.nodes["value-b"]).toBeDefined();
     expect(hidden.nodes["value-c"]).toBeDefined();
@@ -132,8 +128,8 @@ describe("Field content deletion convergence", () => {
       [
         {
           kind: "placement-create",
-          nodeId: "field-node",
-          placementId: "field-occurrence",
+          nodeId: FIELD_NODE_ID,
+          placementId: FIELD_OCCURRENCE_ID,
           parentNodeId: "owner",
           anchor: { ...end, fallback: "start" },
         },
@@ -157,11 +153,6 @@ describe("Field content deletion convergence", () => {
       expect(full.origin.nodes["value-b"]).toBeDefined();
       expect(full.origin.nodes["value-c"]).toBeDefined();
     }
-
-    const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    expect(summary(advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before))).toBe(
-      expectedSummary,
-    );
   });
 });
 
@@ -169,17 +160,15 @@ function fixture(): Facts {
   const facts = new Facts();
   addDefinitionNode(facts, "field-definition", "field-definition");
   facts.addPlaced("owner", "workspace", "owner-occurrence");
-  facts.addPlaced("field-node", "owner", "field-occurrence");
-  facts.addPlaced("value-a", "field-node", "value-a-occurrence");
-  facts.addPlaced("value-b", "field-node", "value-b-occurrence");
+  facts.addPlaced(FIELD_NODE_ID, "owner", FIELD_OCCURRENCE_ID);
+  facts.addPlaced("value-a", FIELD_NODE_ID, "value-a-occurrence");
+  facts.addPlaced("value-b", FIELD_NODE_ID, "value-b-occurrence");
   facts.addPlaced("value-c", "workspace");
   facts.addPlaced("unrelated", "workspace");
   facts.add({
     kind: "field-materialize",
     ownerNodeId: "owner",
     fieldDefinitionId: "field-definition",
-    fieldNodeId: "field-node",
-    fieldOccurrenceId: "field-occurrence",
   });
   return facts;
 }
@@ -188,16 +177,14 @@ function orderingFixture(): Facts {
   const facts = new Facts();
   addDefinitionNode(facts, "field-definition", "field-definition");
   facts.addPlaced("owner", "workspace", "owner-occurrence");
-  facts.addPlaced("field-node", "owner", "field-occurrence");
-  facts.addPlaced("value-a", "field-node", "value-a-occurrence");
-  facts.addPlaced("value-b", "field-node", "value-b-occurrence");
-  facts.addPlaced("value-c", "field-node", "value-c-occurrence");
+  facts.addPlaced(FIELD_NODE_ID, "owner", FIELD_OCCURRENCE_ID);
+  facts.addPlaced("value-a", FIELD_NODE_ID, "value-a-occurrence");
+  facts.addPlaced("value-b", FIELD_NODE_ID, "value-b-occurrence");
+  facts.addPlaced("value-c", FIELD_NODE_ID, "value-c-occurrence");
   facts.add({
     kind: "field-materialize",
     ownerNodeId: "owner",
     fieldDefinitionId: "field-definition",
-    fieldNodeId: "field-node",
-    fieldOccurrenceId: "field-occurrence",
   });
   return facts;
 }

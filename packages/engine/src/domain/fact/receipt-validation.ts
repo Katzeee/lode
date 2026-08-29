@@ -10,7 +10,6 @@ export function validateReceipts(
   facts: readonly Fact[],
 ): void {
   const receiptCanonicals = new Map<string, string>();
-  const receiptsByKey = new Map<string, AuthorityReceipt>();
   const factClaims = new Map<string, string>();
   const factsById = new Map(facts.map((fact) => [fact.id, fact]));
   for (const receipt of receipts) {
@@ -23,7 +22,6 @@ export function validateReceipts(
       throw new Error(`Invocation ledger conflict: ${key}`);
     }
     receiptCanonicals.set(key, canonical);
-    receiptsByKey.set(key, receipt);
     for (const factId of receipt.factIds) {
       const claimant = factClaims.get(factId);
       if (claimant && claimant !== key) {
@@ -32,7 +30,6 @@ export function validateReceipts(
       factClaims.set(factId, key);
     }
   }
-  validateLineages([...receiptsByKey.values()]);
 }
 
 export function validatePlannedReceiptAppend(
@@ -114,6 +111,24 @@ function validateReceiptBatch(
   ) {
     throw new Error(`Receipt complete batch has a Replica mismatch: ${receipt.invocationId}`);
   }
+  const historyFacts = available.filter((fact) => fact?.body.kind === "history");
+  if (receipt.lineage === null) {
+    if (historyFacts.length > 0) {
+      throw new Error(`Receipt without lineage contains a History Step: ${receipt.invocationId}`);
+    }
+  } else {
+    const historyFact = available.at(-1);
+    if (
+      historyFacts.length !== 1 ||
+      historyFact?.body.kind !== "history" ||
+      historyFact.body.channelId !== receipt.lineage.channelId ||
+      historyFact.body.operation !== receipt.lineage.operation ||
+      historyFact.body.targetStepId !== receipt.lineage.targetStepId ||
+      historyFact.body.actionFactCount !== receipt.factIds.length - 1
+    ) {
+      throw new Error(`Receipt lineage differs from its History Step: ${receipt.invocationId}`);
+    }
+  }
   const last = available.at(-1)!;
   const expected = normalizeFrontier({
     ...last.coordinate.observed,
@@ -121,45 +136,5 @@ function validateReceiptBatch(
   });
   if (!frontierEquals(receipt.committedFrontier, expected)) {
     throw new Error(`Receipt frontier differs from its complete Fact batch: ${receipt.invocationId}`);
-  }
-}
-
-function validateLineages(receipts: readonly AuthorityReceipt[]): void {
-  const channels = new Map<string, AuthorityReceipt[]>();
-  for (const receipt of receipts) {
-    if (!receipt.lineage) {
-      continue;
-    }
-    const key = `${receipt.replicaId}/${receipt.lineage.channelId}`;
-    const channel = channels.get(key) ?? [];
-    channel.push(receipt);
-    channels.set(key, channel);
-  }
-  for (const [key, channel] of channels) {
-    validateLineageChannel(key, channel);
-  }
-}
-
-function validateLineageChannel(key: string, receipts: readonly AuthorityReceipt[]): void {
-  const undo: string[] = [];
-  const redo: string[] = [];
-  for (const receipt of receipts) {
-    const lineage = receipt.lineage!;
-    if (lineage.operation === "normal") {
-      undo.push(receipt.invocationId);
-      redo.length = 0;
-    } else if (lineage.operation === "undo") {
-      if (undo.at(-1) !== lineage.targetStepId) {
-        throw new Error(`History Undo target mismatch: ${key}`);
-      }
-      undo.pop();
-      redo.push(receipt.invocationId);
-    } else {
-      if (redo.at(-1) !== lineage.targetStepId) {
-        throw new Error(`History Redo target mismatch: ${key}`);
-      }
-      redo.pop();
-      undo.push(receipt.invocationId);
-    }
   }
 }

@@ -22,11 +22,11 @@ describe("production History contracts", () => {
       });
       fixture.resolve(step.factIds, decision);
 
-      const selection = queryHistory("channel", fixture.receipts).undo;
+      const selection = queryHistory("channel", fixture.snapshot()).undo;
       expect(selection).not.toBeNull();
-      expect(
-        validateHistorySelection("undo", selection!, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
-      ).toBe("unavailable");
+      expect(validateHistorySelection("undo", selection!, fixture.snapshot(), fixture.generation()).kind).toBe(
+        "unavailable",
+      );
     }
   });
 });

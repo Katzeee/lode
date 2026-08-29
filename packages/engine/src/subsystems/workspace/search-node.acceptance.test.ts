@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EditCommand, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
 import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
 import { syncPair } from "../../../tests/support/sync.js";
-import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
+import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
@@ -303,24 +303,22 @@ describe("Search Node product model", () => {
         createSupertagApplication("materialized-candidate", "field-supertag"),
       ]),
     );
+    const materializedFieldNode = materializedFieldNodeId("materialized-candidate", "status-definition");
     await expectPublished(
       workspace,
       command("author-materialized-field", "defined-search", [
-        nodeAt("materialized-status-field", "materialized-candidate", "materialized-status-field-occurrence"),
-        nodeAt("materialized-status-value", "materialized-status-field", "materialized-status-value-occurrence"),
+        {
+          kind: "field-materialize",
+          ownerNodeId: "materialized-candidate",
+          fieldDefinitionId: "status-definition",
+        },
+        nodeAt("materialized-status-value", materializedFieldNode, "materialized-status-value-occurrence"),
         {
           kind: "rich-text-splice",
           nodeId: "materialized-status-value",
           deleteAtomIds: [],
           anchor: end,
           insert: "Authored",
-        },
-        {
-          kind: "field-materialize",
-          ownerNodeId: "materialized-candidate",
-          fieldDefinitionId: "status-definition",
-          fieldNodeId: "materialized-status-field",
-          fieldOccurrenceId: "materialized-status-field-occurrence",
         },
       ]),
     );
@@ -509,8 +507,6 @@ function dateValue(ownerNodeId: string, prefix: string, value: string): EditComm
     kind: "field-date-value-set",
     ownerNodeId,
     fieldDefinitionId: "date-field",
-    fieldNodeId: `${prefix}-date-field-node`,
-    fieldOccurrenceId: `${prefix}-date-field-occurrence`,
     valueNodeId: `${prefix}-date-value`,
     valueOccurrenceId: `${prefix}-date-value-occurrence`,
     value,

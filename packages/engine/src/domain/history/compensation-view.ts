@@ -21,7 +21,9 @@ export function compensateViewAction(
       ? noCompensation()
       : { kind: "ready", actions: views.map((view) => ({ kind: "shared-default-view-restore", viewId: view.viewId })) };
   }
-  const viewId = targetViewId(action, counterfactual);
+  const targetProjection =
+    action.kind === "view-sort-restore" || action.kind === "view-filter-restore" ? projection : counterfactual;
+  const viewId = targetViewId(action, targetProjection);
   if (!viewId) {
     return noCompensation();
   }

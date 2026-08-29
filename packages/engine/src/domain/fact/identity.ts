@@ -1,11 +1,11 @@
 const FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX = "field-definition-endpoint-occ:v1:";
+const MATERIALIZED_FIELD_NODE_PREFIX = "materialized-field:v1:";
+const MATERIALIZED_FIELD_OCCURRENCE_PREFIX = "materialized-field-occ:v1:";
 const TEMPLATE_INSTANCE_NODE_PREFIX = "template-instance:v1:";
 const TEMPLATE_INSTANCE_OCCURRENCE_PREFIX = "template-instance-occ:v1:";
 const WORKSPACE_TRASH_NODE_PREFIX = "workspace-trash:v1:";
 const WORKSPACE_TRASH_OCCURRENCE_PREFIX = "workspace-trash-occ:v1:";
 const WORKSPACE_SCHEMA_NODE_PREFIX = "workspace-schema:v1:";
-const TEMPLATE_FIELD_INSTANCE_NODE_PREFIX = "template-field-instance:v1:";
-const TEMPLATE_FIELD_INSTANCE_OCCURRENCE_PREFIX = "template-field-instance-occ:v1:";
 const TEMPLATE_FIELD_INSTANCE_VALUE_NODE_PREFIX = "template-field-instance-value:v1:";
 const TEMPLATE_FIELD_INSTANCE_VALUE_OCCURRENCE_PREFIX = "template-field-instance-value-occ:v1:";
 export const SYSTEM_DEFINITION_CATALOG_NODE_ID = "system-definition-catalog:v1";
@@ -66,20 +66,20 @@ export function fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId: string): 
   return `${FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX}${encodeURIComponent(fieldOccurrenceId)}`;
 }
 
+export function materializedFieldNodeId(ownerNodeId: string, fieldDefinitionId: string): string {
+  return identity(MATERIALIZED_FIELD_NODE_PREFIX, ownerNodeId, fieldDefinitionId);
+}
+
+export function materializedFieldOccurrenceId(ownerNodeId: string, fieldDefinitionId: string): string {
+  return identity(MATERIALIZED_FIELD_OCCURRENCE_PREFIX, ownerNodeId, fieldDefinitionId);
+}
+
 export function templateInstanceNodeId(ownerNodeId: string, templateNodeId: string): string {
   return identity(TEMPLATE_INSTANCE_NODE_PREFIX, ownerNodeId, templateNodeId);
 }
 
 export function templateInstanceOccurrenceId(ownerNodeId: string, templateNodeId: string): string {
   return identity(TEMPLATE_INSTANCE_OCCURRENCE_PREFIX, ownerNodeId, templateNodeId);
-}
-
-export function templateFieldInstanceNodeId(ownerNodeId: string, templateFieldNodeId: string): string {
-  return identity(TEMPLATE_FIELD_INSTANCE_NODE_PREFIX, ownerNodeId, templateFieldNodeId);
-}
-
-export function templateFieldInstanceOccurrenceId(ownerNodeId: string, templateFieldNodeId: string): string {
-  return identity(TEMPLATE_FIELD_INSTANCE_OCCURRENCE_PREFIX, ownerNodeId, templateFieldNodeId);
 }
 
 export function templateFieldInstanceValueNodeId(ownerNodeId: string, templateFieldNodeId: string): string {

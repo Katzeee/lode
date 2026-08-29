@@ -440,7 +440,7 @@ export default tseslint.config(
               group: [
                 "../../../domain/{history,reconcile,review}/**",
                 "../application/**",
-                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
+                "../{authority-coordination,command,edit-planning,projection,query}/**",
                 "../workspace*.js",
               ],
               message:
@@ -463,7 +463,7 @@ export default tseslint.config(
                 "../../../domain/{history,reconcile,review}/**",
                 "../../persistence/**",
                 "../application/**",
-                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
+                "../{authority-coordination,command,edit-planning,projection,query}/**",
                 "../replica-sync.js",
                 "../workspace*.js",
                 "./fact-authority.js",
@@ -488,7 +488,7 @@ export default tseslint.config(
               group: [
                 "../../../domain/{history,reconcile,review}/**",
                 "../application/**",
-                "../{authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
+                "../{authority-coordination,command,edit-planning,projection,query}/**",
                 "../workspace*.js",
                 "./authority-commit-plan.js",
                 "./fact-authority.js",
@@ -503,7 +503,7 @@ export default tseslint.config(
   },
   {
     files: ["packages/engine/src/subsystems/workspace/**/*.ts"],
-    ignores: ["**/*.test.ts", "**/authority/**", "**/materialization/**"],
+    ignores: ["**/*.test.ts", "**/authority/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -520,60 +520,13 @@ export default tseslint.config(
             },
             {
               regex:
-                "^(?:\\./|(?:\\.\\./)+)(?:authority-coordination|command|edit-planning|generation-reading|projection|query)/(?!index\\.js$).+",
+                "^(?:\\./|(?:\\.\\./)+)(?:authority-coordination|command|edit-planning|projection|query)/(?!index\\.js$).+",
               message:
                 "Workspace orchestration modules are consumed through their public funnels, never their internals.",
             },
             {
               regex: "^(?:\\.\\./)+(?:authority-coordination|command|query)/index\\.js$",
               message: "Workspace command, query, and authority use cases remain independent sibling modules.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["packages/engine/src/subsystems/workspace/projection/materialization/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../../application/**",
-                "../../../synchronization/**",
-                "../../authority/**",
-                "../../workspace*.js",
-              ],
-              message:
-                "Projection owns materialization; its storage adapter cannot depend on application contracts, workspace composition, authority, or sync.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["packages/engine/src/subsystems/workspace/projection/materialization/store/**/*.ts"],
-    ignores: ["**/*.test.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../../../application/**",
-                "../../../../../domain/{reconcile,review}/**",
-                "../../../../synchronization/**",
-                "../../../authority/**",
-                "../../../workspace*.js",
-              ],
-              message:
-                "The Workspace materialized storage kernel depends on dataset contracts, never orchestration, sync, or Projection and Review adapters.",
             },
           ],
         },
@@ -590,7 +543,7 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../{authority,authority-coordination,command,edit-planning,generation-reading,projection,query}/**",
+                "../{authority,authority-coordination,command,edit-planning,projection,query}/**",
                 "../workspace*.js",
                 "../../{connection,event,identity,persistence,synchronization}/**",
                 "loro-crdt",

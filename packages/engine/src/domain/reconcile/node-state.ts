@@ -31,7 +31,7 @@ export function createNodes(active: readonly FactAction[]): Map<string, MutableN
     }
   }
   for (const action of activeFieldConfigurationActions(active)) {
-    const identity = fieldConfigurationProjectionIdentity(action.id);
+    const identity = fieldConfigurationProjectionIdentity(action.action.fieldDefinitionId, action.action.configuration);
     addNode(created, identity.configurationNodeId);
     if (action.action.configuration.kind === "initialization-expression") {
       addNode(created, identity.expressionNodeId, {

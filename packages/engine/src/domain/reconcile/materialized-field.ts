@@ -1,4 +1,9 @@
-import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE, type AuthoredAction } from "../fact/index.js";
+import {
+  FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+  type AuthoredAction,
+} from "../fact/index.js";
 import { definitionNodeState } from "./definition-node.js";
 import { isActiveNode } from "./node-graph.js";
 import type { Projection } from "./projection-types.js";
@@ -18,6 +23,8 @@ function materializedFieldProblem(
   authoredAction: Extract<AuthoredAction, { kind: "field-materialize" }>,
   projection: MaterializedFieldProjection,
 ): string | null {
+  const fieldNodeId = materializedFieldNodeId(authoredAction.ownerNodeId, authoredAction.fieldDefinitionId);
+  const fieldOccurrenceId = materializedFieldOccurrenceId(authoredAction.ownerNodeId, authoredAction.fieldDefinitionId);
   if (
     definitionNodeState(projection, authoredAction.fieldDefinitionId, FIELD_DEFINITION_INTRINSIC_NODE_TYPE) !== "active"
   ) {
@@ -26,25 +33,24 @@ function materializedFieldProblem(
   for (const [nodeId, label] of [
     [authoredAction.ownerNodeId, "Field owner"],
     [authoredAction.fieldDefinitionId, "Field Definition"],
-    [authoredAction.fieldNodeId, "Materialized Field"],
+    [fieldNodeId, "Materialized Field"],
   ] as const) {
     if (!isActiveNode(projection.identity.workspaceNodeId, projection, nodeId)) {
       return `${label} Node does not exist: ${nodeId}`;
     }
   }
-  const occurrence = projection.occurrences[authoredAction.fieldOccurrenceId];
-  if (occurrence?.nodeId !== authoredAction.fieldNodeId) {
+  const occurrence = projection.occurrences[fieldOccurrenceId];
+  if (occurrence?.nodeId !== fieldNodeId) {
     return "Materialized Field Occurrence does not present the Field Node";
   }
   if (occurrence.parentNodeId !== authoredAction.ownerNodeId) {
     return "Materialized Field Occurrence is not stored under its owner Node";
   }
-  for (const fields of Object.values(projection.materializedFields)) {
-    for (const field of fields) {
-      if (!sameMaterialization(field, authoredAction) && identitiesOverlap(field, authoredAction)) {
-        return "Materialized Field identity is already bound";
-      }
-    }
+  const field = projection.materializedFields[authoredAction.ownerNodeId]?.find(
+    (candidate) => candidate.fieldDefinitionId === authoredAction.fieldDefinitionId,
+  );
+  if (field?.fieldNodeId !== fieldNodeId || field.fieldOccurrenceId !== fieldOccurrenceId) {
+    return "Materialized Field semantic identity is absent";
   }
   return null;
 }
@@ -57,28 +63,4 @@ export function assertMaterializedField(
   if (problem) {
     throw new Error(problem);
   }
-}
-
-function sameMaterialization(
-  field: Projection["materializedFields"][string][number],
-  authoredAction: Extract<AuthoredAction, { kind: "field-materialize" }>,
-): boolean {
-  return (
-    field.ownerNodeId === authoredAction.ownerNodeId &&
-    field.fieldDefinitionId === authoredAction.fieldDefinitionId &&
-    field.fieldNodeId === authoredAction.fieldNodeId &&
-    field.fieldOccurrenceId === authoredAction.fieldOccurrenceId
-  );
-}
-
-function identitiesOverlap(
-  field: Projection["materializedFields"][string][number],
-  authoredAction: Extract<AuthoredAction, { kind: "field-materialize" }>,
-): boolean {
-  return (
-    (field.ownerNodeId === authoredAction.ownerNodeId &&
-      field.fieldDefinitionId === authoredAction.fieldDefinitionId) ||
-    field.fieldNodeId === authoredAction.fieldNodeId ||
-    field.fieldOccurrenceId === authoredAction.fieldOccurrenceId
-  );
 }

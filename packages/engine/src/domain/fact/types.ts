@@ -6,6 +6,8 @@ import type {
   FactActionId,
   FactFrontier,
   FactId,
+  HistoryChannelId,
+  HistoryOperation,
   ResolutionDecision,
   ResolutionId,
   WorkspaceId,
@@ -20,6 +22,7 @@ export type {
   FactFrontier,
   FactId,
   HistoryChannelId,
+  HistoryOperation,
   InvocationId,
   JsonValue,
   PreviousValue,
@@ -67,7 +70,15 @@ export type ResolutionBody = Readonly<{
   adjudicatesResolutionIds: readonly ResolutionId[];
 }>;
 
-export type FactBody = ActionBody | ResolutionBody | GovernanceBody;
+export type HistoryBody = Readonly<{
+  kind: "history";
+  channelId: HistoryChannelId;
+  operation: HistoryOperation;
+  targetStepId: FactId | null;
+  actionFactCount: number;
+}>;
+
+export type FactBody = ActionBody | ResolutionBody | GovernanceBody | HistoryBody;
 
 export type Fact = Readonly<{
   id: FactId;

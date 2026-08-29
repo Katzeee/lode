@@ -1,47 +1,51 @@
 import type { ReviewQueryRequest } from "@lode/sdk";
 import {
   factActionsFromFacts,
+  stableStringCompare,
   type FactAction,
   type FactActionId,
   type FactSnapshot,
 } from "../../../domain/fact/index.js";
 import { queryReview, type ReviewQuery } from "../../../domain/review/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
-import type { ProjectionSnapshotReader, ReviewReadModelReader } from "../projection/index.js";
-import { readFactActionGeneration } from "../generation-reading/index.js";
+import type { WorkspaceProjectionState } from "../projection/index.js";
 
 type ReviewFactReader = Pick<FactAuthorityPort, "factsOwningActions" | "relatedFactsOwningActions">;
-type ReviewProjectionReader = ProjectionSnapshotReader & ReviewReadModelReader;
 
-export async function queryWorkspaceReview(
+export function queryWorkspaceReview(
   query: ReviewQueryRequest,
   snapshot: FactSnapshot,
   facts: ReviewFactReader,
-  projections: ReviewProjectionReader,
-  generationId: string,
-): Promise<ReviewQuery> {
+  state: WorkspaceProjectionState,
+): ReviewQuery {
   const after = query.after ?? null;
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 100);
-  const scopePage = await projections.reviewScopes(generationId, after, limit);
+  const scopePage = reviewScopePage(state, after, limit);
   const selectedIds = scopePage.scopes.flatMap((scope) => scope.factActionIds);
-  const { pending, supportByAction } = await loadReviewContext(generationId, selectedIds, facts, projections);
-  const selectedActions = selectedIds
-    .map((id) => pending.get(id))
-    .filter((action): action is FactAction => action !== undefined);
-  const generation = await readFactActionGeneration(projections, generationId, selectedActions);
+  const { pending, supportByAction } = loadReviewContext(selectedIds, facts, state);
   const reviewFacts = facts.relatedFactsOwningActions([...pending.keys()]);
-  return queryReview({ facts: reviewFacts, frontier: snapshot.frontier }, generation, {
+  return queryReview({ facts: reviewFacts, frontier: snapshot.frontier }, state.generation, {
     pending,
     context: { pending, supportByAction },
     next: scopePage.next,
   });
 }
 
-async function loadReviewContext(
-  generationId: string,
+function reviewScopePage(state: WorkspaceProjectionState, after: string | null, limit: number) {
+  const identities = Object.keys(state.review.scopes).sort(stableStringCompare);
+  const start = after === null ? 0 : identities.findIndex((identity) => stableStringCompare(identity, after) > 0);
+  const normalizedStart = start < 0 ? identities.length : start;
+  const selected = identities.slice(normalizedStart, normalizedStart + limit);
+  return {
+    scopes: selected.map((identity) => ({ identity, factActionIds: state.review.scopes[identity] ?? [] })),
+    next: normalizedStart + selected.length < identities.length ? (selected.at(-1) ?? null) : null,
+  };
+}
+
+function loadReviewContext(
   selectedIds: readonly FactActionId[],
   facts: ReviewFactReader,
-  projections: ReviewProjectionReader,
+  state: WorkspaceProjectionState,
 ) {
   const pending = new Map<FactActionId, FactAction>();
   const supportByAction = new Map<FactActionId, readonly FactActionId[]>();
@@ -52,10 +56,9 @@ async function loadReviewContext(
     const batch = [...queued];
     queued.clear();
     batch.forEach((id) => loaded.add(id));
-    const support = await projections.reviewSupport(generationId, batch);
-    const pendingIds = new Set(support.entries.map((entry) => entry.identity));
-    for (const entry of support.entries) {
-      supportByAction.set(entry.identity, entry.supportIds);
+    const pendingIds = new Set(batch.filter((id) => state.review.supportByAction[id] !== undefined));
+    for (const id of pendingIds) {
+      supportByAction.set(id, state.review.supportByAction[id] ?? []);
     }
     const actions = factActionsFromFacts(facts.factsOwningActions(batch));
     for (const action of actions) {

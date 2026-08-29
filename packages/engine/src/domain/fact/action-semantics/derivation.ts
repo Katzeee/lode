@@ -8,7 +8,11 @@ import {
   type MutableActionRelations,
 } from "../action-relation-collection.js";
 import { canonicalJson } from "../canonical.js";
-import { fieldDefinitionEndpointOccurrenceId } from "../identity.js";
+import {
+  fieldDefinitionEndpointOccurrenceId,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+} from "../identity.js";
 import type { SemanticContribution, SemanticIdentity } from "./types.js";
 
 export function relationsFromContributions(contributions: readonly SemanticContribution[]): ActionRelations {
@@ -32,8 +36,9 @@ export function contributionOwnersFromContributions(contributions: readonly Sema
     } else if (contribution.kind === "text-operation" || contribution.kind === "terminal-cutoff") {
       owners.add(contribution.nodeId);
     } else if (contribution.kind === "field-materialization") {
+      const fieldNodeId = materializedFieldNodeId(contribution.ownerNodeId, contribution.fieldDefinitionId);
       owners.add(contribution.ownerNodeId);
-      owners.add(contribution.fieldNodeId);
+      owners.add(fieldNodeId);
     }
   }
   return [...owners];
@@ -69,13 +74,15 @@ export function requirementsFromContributions(
     } else if (contribution.kind === "text-operation") {
       requirements.push({ kind: "node", nodeId: contribution.nodeId });
     } else if (contribution.kind === "field-materialization") {
+      const fieldNodeId = materializedFieldNodeId(contribution.ownerNodeId, contribution.fieldDefinitionId);
+      const fieldOccurrenceId = materializedFieldOccurrenceId(contribution.ownerNodeId, contribution.fieldDefinitionId);
       requirements.push({ kind: "node", nodeId: contribution.ownerNodeId });
       requirements.push({ kind: "node", nodeId: contribution.fieldDefinitionId });
-      requirements.push({ kind: "node", nodeId: contribution.fieldNodeId });
-      requirements.push({ kind: "occurrence", occurrenceId: contribution.fieldOccurrenceId });
+      requirements.push({ kind: "node", nodeId: fieldNodeId });
+      requirements.push({ kind: "occurrence", occurrenceId: fieldOccurrenceId });
       requirements.push({
         kind: "occurrence",
-        occurrenceId: fieldDefinitionEndpointOccurrenceId(contribution.fieldOccurrenceId),
+        occurrenceId: fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId),
       });
       requirements.push({
         kind: "intrinsic-node-type",
@@ -151,13 +158,16 @@ function addContributionRelations(relations: MutableActionRelations, contributio
         addAnchorRelations(relations, contribution.anchor);
       }
       return;
-    case "field-materialization":
+    case "field-materialization": {
+      const fieldNodeId = materializedFieldNodeId(contribution.ownerNodeId, contribution.fieldDefinitionId);
+      const fieldOccurrenceId = materializedFieldOccurrenceId(contribution.ownerNodeId, contribution.fieldDefinitionId);
       relations.nodeIds.add(contribution.ownerNodeId);
       addFieldDefinitionRelations(relations, contribution.fieldDefinitionId);
-      addChildrenRelation(relations, contribution.fieldNodeId);
-      relations.occurrenceIds.add(contribution.fieldOccurrenceId);
-      relations.occurrenceIds.add(fieldDefinitionEndpointOccurrenceId(contribution.fieldOccurrenceId));
+      addChildrenRelation(relations, fieldNodeId);
+      relations.occurrenceIds.add(fieldOccurrenceId);
+      relations.occurrenceIds.add(fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId));
       return;
+    }
     case "generated-occurrence":
       relations.occurrenceIds.add(contribution.occurrenceId);
       return;

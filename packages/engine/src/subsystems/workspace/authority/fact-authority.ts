@@ -54,10 +54,6 @@ export class FactAuthority implements FactAuthorityPort {
 
   receipts = (): readonly AuthorityReceipt[] => this.receiptStore.receipts();
 
-  receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
-    return this.receiptStore.receiptsForChannel(channelId);
-  }
-
   facts(factIds: readonly FactId[]) {
     return this.store.facts(factIds);
   }

@@ -61,12 +61,9 @@ async function setValueActions(
 ): Promise<readonly EditAction[]> {
   const workspaceId = workspaceIdOf(context);
   const parsed = parseFieldValue(state.datatype, raw);
-  const fieldNodeId = state.materialized?.fieldNodeId ?? slotId(state, "field");
   const base = {
     ownerNodeId: state.ownerNodeId,
     fieldDefinitionId: state.fieldDefinitionId,
-    fieldNodeId,
-    fieldOccurrenceId: state.materialized?.fieldOccurrenceId ?? `${fieldNodeId}-occurrence`,
     valueOccurrenceId: slotId(state, "value-occurrence"),
   };
   if (parsed.kind === "plain") {
@@ -92,26 +89,13 @@ async function setValueActions(
     }
     return [
       {
-        kind: "node-create",
-        nodeId: fieldNodeId,
-        occurrenceId: `${fieldNodeId}-occurrence`,
-        parentNodeId: state.ownerNodeId,
-        anchor: end,
-      },
-      {
-        kind: "node-create",
-        nodeId: slotId(state, "value"),
-        occurrenceId: slotId(state, "value-occurrence"),
-        parentNodeId: fieldNodeId,
-        anchor: end,
-        seed: { text: [{ value: parsed.text, attributes: {} }] },
-      },
-      {
-        kind: "field-materialize",
+        kind: "field-value-create",
         ownerNodeId: state.ownerNodeId,
         fieldDefinitionId: state.fieldDefinitionId,
-        fieldNodeId,
-        fieldOccurrenceId: `${fieldNodeId}-occurrence`,
+        valueNodeId: slotId(state, "value"),
+        valueOccurrenceId: slotId(state, "value-occurrence"),
+        anchor: end,
+        seed: { text: [{ value: parsed.text, attributes: {} }] },
       },
     ];
   }
@@ -150,25 +134,6 @@ const fieldAdd: CommandDefinition = {
       throw new CliError("invalid-value", "Duplicate --value entries in one invocation.");
     }
     const actions: EditAction[] = [];
-    const fieldNodeId = state.materialized?.fieldNodeId ?? slotId(state, "field");
-    if (state.materialized === undefined) {
-      actions.push(
-        {
-          kind: "node-create",
-          nodeId: fieldNodeId,
-          occurrenceId: `${fieldNodeId}-occurrence`,
-          parentNodeId: state.ownerNodeId,
-          anchor: end,
-        },
-        {
-          kind: "field-materialize",
-          ownerNodeId: state.ownerNodeId,
-          fieldDefinitionId: state.fieldDefinitionId,
-          fieldNodeId,
-          fieldOccurrenceId: `${fieldNodeId}-occurrence`,
-        },
-      );
-    }
     for (const [index, raw] of values.entries()) {
       const parsed = parseFieldValue(state.datatype, raw);
       if (parsed.kind !== "plain") {
@@ -181,8 +146,6 @@ const fieldAdd: CommandDefinition = {
         kind: "field-value-create",
         ownerNodeId: state.ownerNodeId,
         fieldDefinitionId: state.fieldDefinitionId,
-        fieldNodeId,
-        fieldOccurrenceId: state.materialized?.fieldOccurrenceId ?? `${fieldNodeId}-occurrence`,
         valueNodeId: `${slotId(state, "value")}-${values.length > 1 ? index : "1"}`,
         valueOccurrenceId: `${slotId(state, "value-occurrence")}-${values.length > 1 ? index : "1"}`,
         anchor: end,

@@ -3,6 +3,8 @@ import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js
 import {
   CHECKBOX_VALUE_NODE_IDS,
   FIELD_DATATYPE_NODE_IDS,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   type GraphAction,
   type NodeSeed,
 } from "../../../domain/fact/index.js";
@@ -62,6 +64,7 @@ function setOwnedTextValue(
   available: ScopedProjection,
 ): AuthoredActionBatch {
   const field = fieldFor(edit, available);
+  const fieldNodeId = materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId);
   if (field === undefined) {
     requireUnusedFieldIdentity(edit, available);
     requireUnusedNode(edit.valueNodeId, available, "Field Value");
@@ -71,13 +74,12 @@ function setOwnedTextValue(
       {
         kind: "node-create",
         nodeId: edit.valueNodeId,
-        ownerNodeId: edit.fieldNodeId,
+        ownerNodeId: fieldNodeId,
         originalPlacement: { placementId: edit.valueOccurrenceId, anchor: end },
         seed: textSeed(value),
       },
     ]);
   }
-  requireFieldIdentity(edit, field);
   const current = singleValue(field, available);
   if (current.occurrenceId !== edit.valueOccurrenceId || current.nodeId !== edit.valueNodeId) {
     throw new Error("Typed Field Value identity does not match the materialized value");
@@ -108,15 +110,12 @@ function setReferenceValue(
 ): AuthoredActionBatch {
   requireActive(targetNodeId, available, "Typed Field target");
   const field = fieldFor(edit, available);
+  const fieldNodeId = materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId);
   if (field === undefined) {
     requireUnusedFieldIdentity(edit, available);
     requireUnusedOccurrence(edit.valueOccurrenceId, available, "Field Value");
-    return authoredActionBatch([
-      materialization(edit),
-      occurrence(edit.valueOccurrenceId, targetNodeId, edit.fieldNodeId),
-    ]);
+    return authoredActionBatch([materialization(edit), occurrence(edit.valueOccurrenceId, targetNodeId, fieldNodeId)]);
   }
-  requireFieldIdentity(edit, field);
   const current = singleValue(field, available);
   if (current.nodeId === targetNodeId) {
     throw new Error("Typed Field already has the requested value");
@@ -124,7 +123,7 @@ function setReferenceValue(
   requireUnusedOccurrence(edit.valueOccurrenceId, available, "Field Value");
   return authoredActionBatch([
     valueDeletion(current.occurrenceId),
-    occurrence(edit.valueOccurrenceId, targetNodeId, edit.fieldNodeId),
+    occurrence(edit.valueOccurrenceId, targetNodeId, fieldNodeId),
     materialization(edit),
   ]);
 }
@@ -146,7 +145,6 @@ function clearTypedFieldValue(
   if (field === undefined) {
     throw new Error("Typed Field is already unset");
   }
-  requireFieldIdentity(edit, field);
   if (datatype.datatypeNodeId === FIELD_DATATYPE_NODE_IDS.checkbox) {
     if (edit.emptyValueNodeId !== undefined || edit.emptyValueOccurrenceId !== undefined) {
       throw new Error("Checkbox clear removes the Field and does not accept placeholder identities");
@@ -177,7 +175,7 @@ function clearTypedFieldValue(
     {
       kind: "node-create",
       nodeId: edit.emptyValueNodeId,
-      ownerNodeId: edit.fieldNodeId,
+      ownerNodeId: materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId),
       originalPlacement: { placementId: edit.emptyValueOccurrenceId, anchor: end },
     },
     materialization(edit),
@@ -249,15 +247,9 @@ function singleValue(
   return { occurrenceId, nodeId: occurrence.nodeId };
 }
 
-function requireFieldIdentity(edit: TypedFieldValueEdit, field: MaterializedField): void {
-  if (field.fieldNodeId !== edit.fieldNodeId || field.fieldOccurrenceId !== edit.fieldOccurrenceId) {
-    throw new Error("Field identity does not match the materialized Field");
-  }
-}
-
 function requireUnusedFieldIdentity(edit: TypedFieldValueEdit, available: ScopedProjection): void {
-  requireUnusedNode(edit.fieldNodeId, available, "Field");
-  requireUnusedOccurrence(edit.fieldOccurrenceId, available, "Field");
+  requireUnusedNode(materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
+  requireUnusedOccurrence(materializedFieldOccurrenceId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
 }
 
 function requireActive(nodeId: string, available: ScopedProjection, label: string): void {
@@ -283,8 +275,6 @@ function materialization(edit: TypedFieldValueEdit): GraphAction {
     kind: "field-materialize",
     ownerNodeId: edit.ownerNodeId,
     fieldDefinitionId: edit.fieldDefinitionId,
-    fieldNodeId: edit.fieldNodeId,
-    fieldOccurrenceId: edit.fieldOccurrenceId,
   };
 }
 

@@ -2,13 +2,19 @@ import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
-import type { ProjectionPerspective } from "../../domain/fact/index.js";
+import {
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+  type ProjectionPerspective,
+} from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+const FIELD_NODE_ID = materializedFieldNodeId("owner", "field-definition");
+const FIELD_OCCURRENCE_ID = materializedFieldOccurrenceId("owner", "field-definition");
 
 describe("instance Field content deletion", () => {
   it("deletes one ordered Field Value through Proposal, Direct, Reject, and History", async () => {
@@ -128,7 +134,7 @@ describe("instance Field content deletion", () => {
           kind: "field-materialization",
           ownerNodeId: "owner",
           fieldDefinitionId: "field-definition",
-          originFieldNodeId: "field-node",
+          originFieldNodeId: FIELD_NODE_ID,
           reviewFieldNodeId: null,
         }),
       ]),
@@ -150,7 +156,7 @@ describe("instance Field content deletion", () => {
     await fixture.workspace.close();
     const restarted = await open(documents, "702");
     await expectDeletedFieldState(restarted);
-    expect((await section(restarted, "origin", "nodes")).nodes["field-node"]).toBeDefined();
+    expect((await section(restarted, "origin", "nodes")).nodes[FIELD_NODE_ID]).toBeDefined();
   });
 });
 
@@ -158,15 +164,13 @@ function explicitFieldProgram(): readonly EditAction[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
     nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
-    nodeAt("field-node", "owner", "field-occurrence"),
-    nodeAt("value-a", "field-node", "value-a-occurrence"),
-    nodeAt("value-b", "field-node", "value-b-occurrence"),
+    nodeAt(FIELD_NODE_ID, "owner", FIELD_OCCURRENCE_ID),
+    nodeAt("value-a", FIELD_NODE_ID, "value-a-occurrence"),
+    nodeAt("value-b", FIELD_NODE_ID, "value-b-occurrence"),
     {
       kind: "field-materialize",
       ownerNodeId: "owner",
       fieldDefinitionId: "field-definition",
-      fieldNodeId: "field-node",
-      fieldOccurrenceId: "field-occurrence",
     },
   ];
 }
@@ -205,14 +209,14 @@ function materializedFieldDeletion(): EditAction {
 async function expectDeletedFieldState(fixture: WorkspaceFixture): Promise<void> {
   expect(await materializedField(fixture, "origin")).toBeUndefined();
   const nodes = (await section(fixture, "origin", "nodes")).nodes;
-  expect(nodes["field-node"]).toBeDefined();
+  expect(nodes[FIELD_NODE_ID]).toBeDefined();
   expect(nodes["value-a"]).toBeDefined();
   expect(nodes["value-b"]).toBeDefined();
   const owners = (await section(fixture, "origin", "nodeOwners")).nodeOwners;
-  expect((await section(fixture, "origin", "occurrences")).occurrences["field-occurrence"]).toBeUndefined();
-  expect(owners["field-node"]).toBeUndefined();
-  expect(owners["value-a"]).toBe("field-node");
-  expect(owners["value-b"]).toBe("field-node");
+  expect((await section(fixture, "origin", "occurrences")).occurrences[FIELD_OCCURRENCE_ID]).toBeUndefined();
+  expect(owners[FIELD_NODE_ID]).toBeUndefined();
+  expect(owners["value-a"]).toBe(FIELD_NODE_ID);
+  expect(owners["value-b"]).toBe(FIELD_NODE_ID);
 }
 
 async function fieldValues(fixture: WorkspaceFixture, perspective: ProjectionPerspective): Promise<readonly string[]> {

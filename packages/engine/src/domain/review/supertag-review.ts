@@ -11,7 +11,7 @@ export function supertagRelationEffect(
     throw new Error("Supertag relation effect requires a Supertag relation AuthoredAction");
   }
   const relation = supertagRelationKind(action);
-  const [ownerId, targetId] = supertagRelationIdentities(action, fact.id);
+  const [ownerId, targetId] = supertagRelationIdentities(action, generation);
   return {
     kind: "supertag-relation",
     relation,
@@ -20,6 +20,16 @@ export function supertagRelationEffect(
     originIndex: relationIndex(generation.origin, relation, ownerId, targetId),
     reviewIndex: relationIndex(generation.review, relation, ownerId, targetId),
   };
+}
+
+function restoredTemplateFieldIdentities(
+  templateFieldId: string,
+  generation: ScopedProjectionGeneration,
+): readonly [string, string] {
+  const field = [...Object.values(generation.origin.templateFields), ...Object.values(generation.review.templateFields)]
+    .flat()
+    .find((candidate) => candidate.factActionId === templateFieldId);
+  return field ? [field.supertagId, field.fieldDefinitionId] : [templateFieldId, templateFieldId];
 }
 
 export function addSupertagRelationImpacts(
@@ -31,7 +41,7 @@ export function addSupertagRelationImpacts(
   if (!isSupertagAction(action)) {
     return;
   }
-  impacts.add(supertagRelationAddress(action, fact.id));
+  impacts.add(supertagRelationAddress(action, generation));
   if (action.kind === "template-member-add" || action.kind === "template-member-remove") {
     for (const instance of [...generation.origin.templateNodeInstances, ...generation.review.templateNodeInstances]) {
       if (
@@ -45,9 +55,9 @@ export function addSupertagRelationImpacts(
   }
 }
 
-export function supertagRelationAddress(action: SupertagAction, factActionId?: string): string {
+export function supertagRelationAddress(action: SupertagAction, generation: ScopedProjectionGeneration): string {
   const relation = supertagRelationKind(action);
-  const [ownerId, targetId] = supertagRelationIdentities(action, factActionId ?? "");
+  const [ownerId, targetId] = supertagRelationIdentities(action, generation);
   return impactAddress(`supertag-${relation}`, ownerId, targetId);
 }
 
@@ -118,7 +128,10 @@ function supertagRelationKind(action: SupertagAction): SupertagRelationDecisionE
   return "template-field";
 }
 
-function supertagRelationIdentities(action: SupertagAction, factActionId: string): readonly [string, string] {
+function supertagRelationIdentities(
+  action: SupertagAction,
+  generation: ScopedProjectionGeneration,
+): readonly [string, string] {
   if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
     return [action.hostNodeId, action.supertagId];
   }
@@ -141,7 +154,7 @@ function supertagRelationIdentities(action: SupertagAction, factActionId: string
     return [action.templateFieldId, action.visibility];
   }
   if (action.kind === "template-field-restore") {
-    return [action.templateFieldId, factActionId];
+    return restoredTemplateFieldIdentities(action.templateFieldId, generation);
   }
   return [action.supertagId, action.fieldDefinitionId];
 }

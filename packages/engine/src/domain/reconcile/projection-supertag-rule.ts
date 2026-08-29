@@ -6,25 +6,6 @@ import { deriveSupertagRelations } from "./supertag-relations.js";
 export const supertagProjectionRule = projectionRule({
   key: "supertag-relations",
   dependencies: ["activation", "node", "content", "node-graph"],
-  factScope: "history",
-  invalidatedBy: [
-    "node-create",
-    "supertag-application-add",
-    "supertag-membership-remove",
-    "supertag-extension-add",
-    "supertag-extension-remove",
-    "template-field-add",
-    "template-field-remove",
-    "template-field-restore",
-    "template-field-visibility-set",
-    "template-field-static-default-set",
-    "field-definition-make-discoverable",
-    "field-definition-return-to-template-field",
-    "optional-field-contribution-add",
-    "optional-field-contribution-remove",
-    "field-materialize",
-    "rich-text-splice",
-  ],
   evaluate(context) {
     const effectiveNodes = Object.fromEntries(context.contentNodes);
     const activeNodeIds = new Set(
@@ -42,11 +23,11 @@ export const supertagProjectionRule = projectionRule({
     );
     return {
       supertagRelations: deriveSupertagRelations(
-        context.activation.allActive,
+        context.activation.actions,
         context.workspaceNodeId,
         effectiveNodes,
         activeNodeIds,
-        knownNodeIds(context.activation.allActive),
+        knownNodeIds(context.activation.actions),
         context.nodeGraphStructure.occurrences,
         context.nodeGraphStructure.childOccurrences,
         context.nodeGraphStructure.metanodes,

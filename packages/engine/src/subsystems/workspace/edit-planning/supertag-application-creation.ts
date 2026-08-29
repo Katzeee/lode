@@ -2,8 +2,8 @@ import type { EditAction } from "../../../domain/edit/index.js";
 import type { AuthoredActionBatch } from "./action-batch.js";
 import {
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
-  templateFieldInstanceNodeId,
-  templateFieldInstanceOccurrenceId,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   templateFieldInstanceValueNodeId,
   templateFieldInstanceValueOccurrenceId,
   type GraphAction,
@@ -77,8 +77,8 @@ function materializeStaticDefaults(
       continue;
     }
     const sourceTemplateFieldNodeId = field.staticDefault.sourceTemplateFieldNodeId;
-    const fieldNodeId = templateFieldInstanceNodeId(ownerNodeId, sourceTemplateFieldNodeId);
-    const fieldOccurrenceId = templateFieldInstanceOccurrenceId(ownerNodeId, sourceTemplateFieldNodeId);
+    const fieldNodeId = materializedFieldNodeId(ownerNodeId, fieldDefinitionId);
+    const fieldOccurrenceId = materializedFieldOccurrenceId(ownerNodeId, fieldDefinitionId);
     const valueNodeId = templateFieldInstanceValueNodeId(ownerNodeId, sourceTemplateFieldNodeId);
     const valueOccurrenceId = templateFieldInstanceValueOccurrenceId(ownerNodeId, sourceTemplateFieldNodeId);
     if (
@@ -90,7 +90,7 @@ function materializeStaticDefaults(
       throw new Error("Static default materialization identity already exists");
     }
     actions.push(
-      { kind: "field-materialize", ownerNodeId, fieldDefinitionId, fieldNodeId, fieldOccurrenceId },
+      { kind: "field-materialize", ownerNodeId, fieldDefinitionId },
       {
         kind: "node-create",
         nodeId: valueNodeId,

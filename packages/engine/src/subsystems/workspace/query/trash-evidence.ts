@@ -28,7 +28,7 @@ export function queryTrashEvidence(
     return unavailable;
   }
 
-  const activeIds = new Set(generation.planCaches[query.perspective].activeActionIds);
+  const activeIds = new Set(generation.activations[query.perspective].activeActionIds);
   const active = factActionsFromFacts(snapshot.facts).filter((action) => activeIds.has(action.id));
   const trashActionIds = new Set(nodeDeletionActionIds(active).get(query.nodeId) ?? []);
   const trashFactIds = new Set(active.filter((action) => trashActionIds.has(action.id)).map((action) => action.factId));

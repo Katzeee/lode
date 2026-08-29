@@ -16,8 +16,8 @@ export type ReviewReadModel = Readonly<{
 }>;
 
 export function createReviewReadModel(snapshot: FactSnapshot, generation: ProjectionGeneration): ReviewReadModel {
-  const originActive = new Set(generation.planCaches.origin.activeActionIds);
-  const reviewActive = new Set(generation.planCaches.review.activeActionIds);
+  const originActive = new Set(generation.activations.origin.activeActionIds);
+  const reviewActive = new Set(generation.activations.review.activeActionIds);
   const pending = new Map(
     factActionsFromFacts(snapshot.facts)
       .filter((action) => action.intent === "proposal" && reviewActive.has(action.id) && !originActive.has(action.id))
@@ -33,7 +33,7 @@ export function createReviewReadModel(snapshot: FactSnapshot, generation: Projec
     supportByAction: Object.fromEntries(
       [...pending.keys()]
         .sort(stableStringCompare)
-        .map((id) => [id, generation.planCaches.review.supportByAction[id] ?? []]),
+        .map((id) => [id, generation.activations.review.supportByAction[id] ?? []]),
     ),
   };
 }

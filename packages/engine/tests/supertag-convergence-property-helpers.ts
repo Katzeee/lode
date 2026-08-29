@@ -10,7 +10,6 @@ import {
   type GraphAction,
 } from "../src/domain/fact/index.js";
 import {
-  advanceGeneration,
   rebuildGeneration,
   CURRENT_PROJECTION_VERSIONS as versions,
   type ProjectionGeneration,
@@ -64,13 +63,6 @@ export function assertSupertagConvergence(
     const snapshot = snapshotOf(delivered);
     const full = rebuildGeneration("workspace", snapshot, versions);
     expect(canonicalJson(full)).toBe(expectedSummary);
-
-    const tailLength = facts.length - prefixCount;
-    const cut = prefixCount + (tailLength === 0 ? 0 : seed % tailLength);
-    const beforeSnapshot = snapshotOf(facts.slice(0, cut));
-    const before = rebuildGeneration("workspace", beforeSnapshot, versions);
-    const incremental = advanceGeneration("workspace", beforeSnapshot, snapshot, versions, before);
-    expect(canonicalJson(incremental)).toBe(expectedSummary);
 
     const restarted = rebuildGeneration("workspace", structuredClone(snapshot), versions);
     expect(canonicalJson(restarted)).toBe(expectedSummary);

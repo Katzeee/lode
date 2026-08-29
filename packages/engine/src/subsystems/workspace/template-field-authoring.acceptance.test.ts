@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EditAction } from "../../domain/edit/index.js";
 import {
-  templateFieldInstanceNodeId,
+  materializedFieldNodeId,
   templateFieldInstanceValueNodeId,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
@@ -36,7 +36,7 @@ describe("Supertag Template Field authoring", () => {
     const materialized = await projection(workspace, "materializedFields");
     expect(materialized.materializedFields.task?.[0]).toMatchObject({
       fieldDefinitionId: "status-definition",
-      fieldNodeId: templateFieldInstanceNodeId("task", field.templateFieldNodeId),
+      fieldNodeId: materializedFieldNodeId("task", "status-definition"),
     });
     const nodes = await projection(workspace, "nodes");
     expect(nodeText(nodes.nodes[templateFieldInstanceValueNodeId("task", field.templateFieldNodeId)])).toBe("Ready");
@@ -195,18 +195,15 @@ describe("Supertag Template Field authoring", () => {
     });
     expect(effective.effectiveFields["derived-instance"]?.[0]?.sources).toHaveLength(2);
 
-    const fieldNodeId = "authored-shared-field";
+    const fieldNodeId = materializedFieldNodeId("derived-instance", "shared-definition");
     await publish(workspace, "author-field", [
-      nodeAt(fieldNodeId, "derived-instance"),
-      nodeAt("authored-shared-value", fieldNodeId),
-      { kind: "rich-text-splice", nodeId: "authored-shared-value", deleteAtomIds: [], anchor: end, insert: "Authored" },
       {
         kind: "field-materialize",
         ownerNodeId: "derived-instance",
         fieldDefinitionId: "shared-definition",
-        fieldNodeId,
-        fieldOccurrenceId: `${fieldNodeId}-original`,
       },
+      nodeAt("authored-shared-value", fieldNodeId),
+      { kind: "rich-text-splice", nodeId: "authored-shared-value", deleteAtomIds: [], anchor: end, insert: "Authored" },
     ]);
     await publish(workspace, "remove-sources", [
       { kind: "supertag-template-field-remove", supertagId: "base-a", templateFieldId: source.factActionId },

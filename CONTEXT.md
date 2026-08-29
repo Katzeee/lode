@@ -93,6 +93,14 @@ _Avoid_: Any Authored Action, reviewable mutation
 An Action batch derived by comparing the current Projection with the counterfactual Projection that excludes selected History target Facts. A target may contribute no individual inverse when its attributable effect is carried by other actions in the same Fact.
 _Avoid_: Compensable Action, stored inverse, Undo command
 
+**History Step**:
+An Authored Intent Fact that places one immediately preceding, same-Replica Action Fact batch on a user/device History channel as a normal, undo, or redo step. Its coordinate and Action Fact count identify the compensated authority without repeating Fact identities; undo and redo target an earlier History Step. History queries, selections, and compensation rebuild from History Steps and their Action Facts, never from Invocation Receipts.
+_Avoid_: Receipt lineage, stored inverse, global state snapshot
+
+**Invocation Receipt**:
+The local runtime record that makes one Invocation idempotent and reports its committed Fact batch and publication outcome. Its optional History lineage mirrors the committed History Step for diagnostics, but deleting it can only remove retry/outcome knowledge and cannot change History or any other Workspace domain result.
+_Avoid_: Domain event, History ledger, Fact replacement
+
 **Action Support**:
 The derived set of other Fact Actions whose activation is required for one Authored Action to participate in Projection. Every Authored Action has an Action Support set, which is empty when it needs no such authority.
 _Avoid_: Support-Dependent Action, Dependent Fact, validation prerequisite
@@ -142,7 +150,7 @@ An immutable record of one domain transaction stored as one element of the autho
 _Avoid_: Mutation row, graph patch, duplicated causal envelope, projected Node
 
 **Action Fact**:
-A Fact containing one non-empty atomic batch of Authored Actions from a compatible lifecycle family. Ordinary actions may carry Direct or Proposal intent, while bootstrap and terminal batches are Direct only; the body never mixes terminal actions with ordinary actions.
+A Fact containing one non-empty atomic batch of Authored Actions that together express one Authored Intent. A graph batch may combine Action families when the intent requires an indivisible domain transition, and every Action in a Proposal batch must be Proposable. A terminal batch is Direct only and contains only Terminal Actions, so terminal and graph authority never share one Action Fact.
 _Avoid_: Edit Fact, Maintenance Fact, command DTO
 
 **Fact Replication**:
@@ -210,7 +218,7 @@ An identity-bearing `findFieldValues` expression Node used as the value endpoint
 _Avoid_: Template Field initializer, live formula, metadata callback
 
 **Field**:
-A Node of type Field that is placed beneath an owner and bound to one Field Definition. A Field owns ordered value Occurrences and represents authored content such as a Materialized Field; Template Field and Optional Field Contribution are distinct Supertag Definition relations, not Field Nodes. An unmaterialized placeholder is Projection state, not a Field Node.
+A Node of type Field that is placed beneath an owner and bound to one Field Definition. A Materialized Field has the semantic identity `(owner Node, Field Definition)`, so concurrent first writes derive the same Field Node and owning Occurrence rather than creating competing slots. A Field owns ordered value Occurrences and represents authored content; Template Field and Optional Field Contribution are distinct Supertag Definition relations, not Field Nodes. An unmaterialized placeholder is Projection state, not a Field Node.
 _Avoid_: Field occurrence, tuple object, scalar property, placeholder Node
 
 **Trash**:

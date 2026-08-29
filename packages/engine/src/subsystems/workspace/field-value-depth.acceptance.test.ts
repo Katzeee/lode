@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { EditCommand } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
-import { FIELD_CARDINALITY_NODE_IDS, FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
+import {
+  FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPE_NODE_IDS,
+  materializedFieldNodeId,
+} from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
@@ -45,7 +49,7 @@ describe("Field Value depth", () => {
         {
           kind: "occurrence-move",
           occurrenceId: "beta-occurrence",
-          parentNodeId: "field-node",
+          parentNodeId: materializedFieldNodeId("owner", "field"),
           anchor: { after: null, before: "alpha-occurrence", affinity: "before", fallback: "start" },
         },
       ]),
@@ -168,7 +172,7 @@ describe("Field Value depth", () => {
           {
             kind: "occurrence-move",
             occurrenceId: "beta-occurrence",
-            parentNodeId: "other-field-node",
+            parentNodeId: materializedFieldNodeId("other", "other-field"),
             anchor: end,
           },
         ]),
@@ -225,8 +229,6 @@ function valueCreate(ownerNodeId: string, prefix: string, valuePrefix: string, t
     kind: "field-value-create",
     ownerNodeId,
     fieldDefinitionId: prefix === "field" ? "field" : "other-field",
-    fieldNodeId: `${prefix}-node`,
-    fieldOccurrenceId: `${prefix}-occurrence`,
     valueNodeId: valuePrefix,
     valueOccurrenceId: `${valuePrefix}-occurrence`,
     anchor: end,

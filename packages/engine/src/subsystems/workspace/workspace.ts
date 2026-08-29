@@ -14,7 +14,7 @@ import type { SyncableDoc } from "./replica-sync.js";
 import { SerialExecutor } from "./serial-executor.js";
 import { ensureWorkspaceGenesis, WorkspaceAuthorityCoordinator } from "./authority-coordination/index.js";
 import { WorkspaceCommandExecutor } from "./command/index.js";
-import { WorkspaceProjection, type WorkspaceProjectionOptions } from "./projection/index.js";
+import { WorkspaceProjection } from "./projection/index.js";
 import { queryWorkspace } from "./query/index.js";
 import { rejectedResult } from "./workspace-results.js";
 import { WorkspaceEventPublisher } from "./workspace-event-publisher.js";
@@ -26,7 +26,6 @@ type WorkspaceOptions = Readonly<{
   workspaceId: string;
   facts: ReplicatedFactAuthorityPort;
   versions: ProjectionVersions;
-  projection?: WorkspaceProjectionOptions;
   /**
    * Seed an untitled genesis Fact into an empty authority. Only for
    * ungoverned engine-local contexts; production hosts own genesis through
@@ -65,12 +64,8 @@ export class Workspace {
     }
     const snapshot = options.facts.snapshot();
     const events = new WorkspaceEventPublisher(options.workspaceId, options.eventSink);
-    const projection = await WorkspaceProjection.open(
-      options.workspaceId,
-      snapshot,
-      options.versions,
-      options.projection,
-      (event) => events.publish(event.kind, event.frontier, event.generationId),
+    const projection = WorkspaceProjection.open(options.workspaceId, snapshot, options.versions, (event) =>
+      events.publish(event.kind, event.frontier, event.generationId),
     );
     return new Workspace(options, projection, events);
   }
@@ -78,7 +73,8 @@ export class Workspace {
     return this.options.workspaceId;
   }
   get label(): string {
-    return validateWorkspaceSnapshot(this.workspaceId, this.options.facts.snapshot()).label;
+    const state = this.projection.current;
+    return validateWorkspaceSnapshot(this.workspaceId, state.snapshot, state.generation).label;
   }
   get facts(): FactAuthorityPort {
     return this.options.facts;
@@ -109,13 +105,11 @@ export class Workspace {
     return this.serial.run(() => this.queryExclusive(query));
   }
   private queryExclusive(query: EngineQuery): Promise<EngineQueryValue> {
+    const state = this.projection.current;
     return queryWorkspace(query, {
       workspaceId: this.options.workspaceId,
       facts: this.options.facts,
-      snapshot: this.projection.publishedSnapshot,
-      generation: this.projection.currentGeneration,
-      projections: this.projection.reader,
-      generationId: this.projection.identity.generationId,
+      state,
       projectionFailure: this.projection.failure,
     });
   }

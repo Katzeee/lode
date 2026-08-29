@@ -1,12 +1,13 @@
 import {
-  compareCausalOrder,
   fieldDefinitionEndpointOccurrenceId,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   stableStringCompare,
   type FactAction,
 } from "../fact/index.js";
 import type { MaterializedField } from "./projection-types.js";
 import type { MutableOccurrence } from "./projection-state.js";
-import { appendUnique, materializedFieldRecord } from "./supertag-relation-records.js";
+import { materializedFieldRecord } from "./supertag-relation-records.js";
 import { projectTuple } from "./tuple.js";
 
 export function projectMaterializedFields(
@@ -17,119 +18,91 @@ export function projectMaterializedFields(
   childOccurrences: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
 ): Readonly<Record<string, readonly MaterializedField[]>> {
-  const candidates = collectCandidates(
+  const fields = collectMaterializedFields(
     active,
     existingNodeIds,
     fieldDefinitionIds,
     occurrences,
     childOccurrences,
     nodeOwners,
-  );
+  ).sort((left, right) => compareFields(left, right, occurrences, childOccurrences));
   const byOwner = new Map<string, MaterializedField[]>();
-  const claimedNodes = new Set<string>();
-  const claimedOccurrences = new Set<string>();
-  for (const ownerCandidates of [...candidates.values()].sort((left, right) =>
-    compareCandidateGroups(left, right, occurrences, childOccurrences),
-  )) {
-    const available = ownerCandidates
-      .sort((left, right) => compareCausalOrder(left.fact, right.fact))
-      .filter(
-        (candidate) => !claimedNodes.has(candidate.fieldNodeId) && !claimedOccurrences.has(candidate.fieldOccurrenceId),
-      );
-    const canonical = available[0];
-    if (!canonical) {
-      continue;
-    }
-    const valueOccurrenceIds: string[] = [];
-    for (const candidate of available) {
-      claimedNodes.add(candidate.fieldNodeId);
-      claimedOccurrences.add(candidate.fieldOccurrenceId);
-      for (const occurrenceId of (childOccurrences.get(candidate.fieldNodeId) ?? []).slice(1)) {
-        appendUnique(valueOccurrenceIds, occurrenceId);
-      }
-    }
-    const ownerFields = byOwner.get(canonical.ownerNodeId) ?? [];
-    ownerFields.push({
-      ownerNodeId: canonical.ownerNodeId,
-      fieldDefinitionId: canonical.fieldDefinitionId,
-      fieldNodeId: canonical.fieldNodeId,
-      fieldOccurrenceId: canonical.fieldOccurrenceId,
-      definitionOccurrenceId: fieldDefinitionEndpointOccurrenceId(canonical.fieldOccurrenceId),
-      valueOccurrenceIds,
-    });
-    byOwner.set(canonical.ownerNodeId, ownerFields);
+  for (const field of fields) {
+    const values = byOwner.get(field.ownerNodeId) ?? [];
+    values.push(field);
+    byOwner.set(field.ownerNodeId, values);
   }
   return materializedFieldRecord(byOwner);
 }
 
-function collectCandidates(
+function collectMaterializedFields(
   active: readonly FactAction[],
   existingNodeIds: ReadonlySet<string>,
   fieldDefinitionIds: ReadonlySet<string>,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
   nodeOwners: Readonly<Record<string, string | null>>,
-): ReadonlyMap<string, MaterializationCandidate[]> {
-  const candidates = new Map<string, MaterializationCandidate[]>();
+): MaterializedField[] {
+  const fields = new Map<string, MaterializedField>();
   for (const fact of active) {
-    const authoredAction = fact.action;
-    if (authoredAction.kind !== "field-materialize") {
+    const action = fact.action;
+    if (action.kind !== "field-materialize") {
       continue;
     }
-    const occurrence = occurrences.get(authoredAction.fieldOccurrenceId);
-    const tuple = projectTuple(authoredAction.fieldNodeId, occurrences, childOccurrences, nodeOwners);
-    const definitionEndpoint = tuple.endpoints[0];
+    const fieldNodeId = materializedFieldNodeId(action.ownerNodeId, action.fieldDefinitionId);
+    const fieldOccurrenceId = materializedFieldOccurrenceId(action.ownerNodeId, action.fieldDefinitionId);
+    const definitionOccurrenceId = fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId);
+    const occurrence = occurrences.get(fieldOccurrenceId);
+    const tuple = projectTuple(fieldNodeId, occurrences, childOccurrences, nodeOwners);
+    const definitionEndpoint = tuple.endpoints.find((endpoint) => endpoint.occurrenceId === definitionOccurrenceId);
     if (
-      !existingNodeIds.has(authoredAction.ownerNodeId) ||
-      !existingNodeIds.has(authoredAction.fieldNodeId) ||
-      !fieldDefinitionIds.has(authoredAction.fieldDefinitionId) ||
-      occurrence?.nodeId !== authoredAction.fieldNodeId ||
-      occurrence.parentNodeId !== authoredAction.ownerNodeId ||
-      tuple.ownerNodeId !== authoredAction.ownerNodeId ||
-      definitionEndpoint?.occurrenceId !== fieldDefinitionEndpointOccurrenceId(authoredAction.fieldOccurrenceId) ||
-      definitionEndpoint.nodeId !== authoredAction.fieldDefinitionId ||
-      nodeOwners[authoredAction.fieldDefinitionId] === authoredAction.fieldNodeId
+      !existingNodeIds.has(action.ownerNodeId) ||
+      !existingNodeIds.has(fieldNodeId) ||
+      !fieldDefinitionIds.has(action.fieldDefinitionId) ||
+      occurrence?.nodeId !== fieldNodeId ||
+      occurrence.parentNodeId !== action.ownerNodeId ||
+      tuple.ownerNodeId !== action.ownerNodeId ||
+      definitionEndpoint?.nodeId !== action.fieldDefinitionId ||
+      nodeOwners[action.fieldDefinitionId] === fieldNodeId
     ) {
       continue;
     }
-    const key = `${encodeURIComponent(authoredAction.ownerNodeId)}/${encodeURIComponent(authoredAction.fieldDefinitionId)}`;
-    const values = candidates.get(key) ?? [];
-    values.push({ fact, ...authoredAction });
-    candidates.set(key, values);
+    const key = semanticFieldKey(action.ownerNodeId, action.fieldDefinitionId);
+    fields.set(key, {
+      ownerNodeId: action.ownerNodeId,
+      fieldDefinitionId: action.fieldDefinitionId,
+      fieldNodeId,
+      fieldOccurrenceId,
+      definitionOccurrenceId,
+      valueOccurrenceIds: (childOccurrences.get(fieldNodeId) ?? []).filter(
+        (occurrenceId) => occurrenceId !== definitionOccurrenceId,
+      ),
+    });
   }
-  return candidates;
+  return [...fields.values()];
 }
 
-type MaterializationCandidate = Readonly<{
-  fact: FactAction;
-  ownerNodeId: string;
-  fieldDefinitionId: string;
-  fieldNodeId: string;
-  fieldOccurrenceId: string;
-}>;
-
-function compareCandidateGroups(
-  left: readonly MaterializationCandidate[],
-  right: readonly MaterializationCandidate[],
+function compareFields(
+  left: MaterializedField,
+  right: MaterializedField,
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   childOccurrences: ReadonlyMap<string, readonly string[]>,
 ): number {
-  const leftCandidate = left[0];
-  const rightCandidate = right[0];
-  if (!leftCandidate || !rightCandidate) {
-    return left.length - right.length;
-  }
-  const leftParent = occurrences.get(leftCandidate.fieldOccurrenceId)?.parentNodeId ?? null;
-  const rightParent = occurrences.get(rightCandidate.fieldOccurrenceId)?.parentNodeId ?? null;
+  const leftParent = occurrences.get(left.fieldOccurrenceId)?.parentNodeId ?? null;
+  const rightParent = occurrences.get(right.fieldOccurrenceId)?.parentNodeId ?? null;
   const sharedParent = leftParent === rightParent ? leftParent : null;
   const placementOrder =
-    sharedParent !== null
-      ? (childOccurrences.get(sharedParent)?.indexOf(leftCandidate.fieldOccurrenceId) ?? -1) -
-        (childOccurrences.get(sharedParent)?.indexOf(rightCandidate.fieldOccurrenceId) ?? -1)
-      : 0;
+    sharedParent === null
+      ? 0
+      : (childOccurrences.get(sharedParent)?.indexOf(left.fieldOccurrenceId) ?? -1) -
+        (childOccurrences.get(sharedParent)?.indexOf(right.fieldOccurrenceId) ?? -1);
   return (
     placementOrder ||
-    stableStringCompare(leftCandidate.ownerNodeId, rightCandidate.ownerNodeId) ||
-    stableStringCompare(leftCandidate.fieldDefinitionId, rightCandidate.fieldDefinitionId)
+    stableStringCompare(left.ownerNodeId, right.ownerNodeId) ||
+    stableStringCompare(left.fieldDefinitionId, right.fieldDefinitionId)
   );
+}
+
+function semanticFieldKey(ownerNodeId: string, fieldDefinitionId: string): string {
+  return `${encodeURIComponent(ownerNodeId)}/${encodeURIComponent(fieldDefinitionId)}`;
 }

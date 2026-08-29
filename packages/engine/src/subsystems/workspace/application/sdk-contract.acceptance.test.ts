@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import {
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
+  materializedFieldNodeId,
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
   workspaceTrashNodeId,
@@ -279,16 +280,13 @@ describe("transport-neutral SDK contract", () => {
             nodeAt("owner", "workspace", "owner-occurrence"),
             nodeAt("supertag", "workspace", "supertag-original", "supertag-definition"),
             nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
-            nodeAt("field-node", "owner", "field-occurrence"),
-            nodeAt("value", "field-node", "value-occurrence"),
-            createSupertagApplication("owner", "supertag"),
             {
               kind: "field-materialize",
               ownerNodeId: "owner",
               fieldDefinitionId: "field-definition",
-              fieldNodeId: "field-node",
-              fieldOccurrenceId: "field-occurrence",
             },
+            nodeAt("value", materializedFieldNodeId("owner", "field-definition"), "value-occurrence"),
+            createSupertagApplication("owner", "supertag"),
           ],
         })
       ).status,

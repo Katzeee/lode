@@ -2,6 +2,8 @@ import type { EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   URL_DEFINITION_NODE_ID,
   type GraphAction,
   type NodeSeed,
@@ -35,24 +37,33 @@ function expandFieldValueCreate(
 ): AuthoredActionBatch {
   requireActiveNode(edit.ownerNodeId, available, "Field owner");
   validatePlainOrOptionsValue(edit.fieldDefinitionId, edit.ownerNodeId, available);
-  const prefix = ensureMaterializedField(
-    edit.ownerNodeId,
-    edit.fieldDefinitionId,
-    edit.fieldNodeId,
-    edit.fieldOccurrenceId,
-    available,
-  );
-  requireUnusedNode(edit.valueNodeId, available, "Field Value");
+  const fieldNodeId = materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId);
+  const prefix = ensureMaterializedField(edit.ownerNodeId, edit.fieldDefinitionId, available);
   requireUnusedOccurrence(edit.valueOccurrenceId, available, "Field Value");
+  const existingValue = available.nodes[edit.valueNodeId];
+  if (existingValue !== undefined && edit.seed !== undefined) {
+    throw new Error("Existing Field Value Node cannot be reseeded");
+  }
+  if (existingValue !== undefined) {
+    requireActiveNode(edit.valueNodeId, available, "Existing Field Value");
+  }
   return nonemptyBatch([
     ...prefix,
-    {
-      kind: "node-create",
-      nodeId: edit.valueNodeId,
-      ownerNodeId: edit.fieldNodeId,
-      originalPlacement: { placementId: edit.valueOccurrenceId, anchor: edit.anchor },
-      ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-    },
+    existingValue === undefined
+      ? {
+          kind: "node-create",
+          nodeId: edit.valueNodeId,
+          ownerNodeId: fieldNodeId,
+          originalPlacement: { placementId: edit.valueOccurrenceId, anchor: edit.anchor },
+          ...(edit.seed === undefined ? {} : { seed: edit.seed }),
+        }
+      : {
+          kind: "placement-create",
+          placementId: edit.valueOccurrenceId,
+          nodeId: edit.valueNodeId,
+          parentNodeId: fieldNodeId,
+          anchor: edit.anchor,
+        },
   ]);
 }
 
@@ -61,16 +72,17 @@ function expandUrlNodeCreate(
   available: ScopedProjection,
 ): AuthoredActionBatch {
   requireActiveNode(edit.parentNodeId, available, "URL Node parent");
+  const fieldNodeId = materializedFieldNodeId(edit.nodeId, URL_DEFINITION_NODE_ID);
   for (const [nodeId, label] of [
     [edit.nodeId, "URL Node"],
-    [edit.urlFieldNodeId, "URL Field"],
+    [fieldNodeId, "URL Field"],
     [edit.urlValueNodeId, "URL Value"],
   ] as const) {
     requireUnusedNode(nodeId, available, label);
   }
   for (const [occurrenceId, label] of [
     [edit.occurrenceId, "URL Node"],
-    [edit.urlFieldOccurrenceId, "URL Field"],
+    [materializedFieldOccurrenceId(edit.nodeId, URL_DEFINITION_NODE_ID), "URL Field"],
     [edit.urlValueOccurrenceId, "URL Value"],
   ] as const) {
     requireUnusedOccurrence(occurrenceId, available, label);
@@ -87,13 +99,11 @@ function expandUrlNodeCreate(
       kind: "field-materialize",
       ownerNodeId: edit.nodeId,
       fieldDefinitionId: URL_DEFINITION_NODE_ID,
-      fieldNodeId: edit.urlFieldNodeId,
-      fieldOccurrenceId: edit.urlFieldOccurrenceId,
     },
     {
       kind: "node-create",
       nodeId: edit.urlValueNodeId,
-      ownerNodeId: edit.urlFieldNodeId,
+      ownerNodeId: fieldNodeId,
       originalPlacement: { placementId: edit.urlValueOccurrenceId, anchor: END },
       seed: textSeed(edit.url),
     },
@@ -108,22 +118,25 @@ function expandCodeNodeConfigure(
   if (fieldFor(available, edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID) !== undefined) {
     throw new Error("Code Node already has a language configuration");
   }
-  requireUnusedNode(edit.languageFieldNodeId, available, "Code language Field");
+  const fieldNodeId = materializedFieldNodeId(edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID);
+  requireUnusedNode(fieldNodeId, available, "Code language Field");
   requireUnusedNode(edit.languageValueNodeId, available, "Code language Value");
-  requireUnusedOccurrence(edit.languageFieldOccurrenceId, available, "Code language Field");
+  requireUnusedOccurrence(
+    materializedFieldOccurrenceId(edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID),
+    available,
+    "Code language Field",
+  );
   requireUnusedOccurrence(edit.languageValueOccurrenceId, available, "Code language Value");
   return authoredActionBatch([
     {
       kind: "field-materialize",
       ownerNodeId: edit.nodeId,
       fieldDefinitionId: CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
-      fieldNodeId: edit.languageFieldNodeId,
-      fieldOccurrenceId: edit.languageFieldOccurrenceId,
     },
     {
       kind: "node-create",
       nodeId: edit.languageValueNodeId,
-      ownerNodeId: edit.languageFieldNodeId,
+      ownerNodeId: fieldNodeId,
       originalPlacement: { placementId: edit.languageValueOccurrenceId, anchor: END },
       seed: textSeed(edit.language),
     },
@@ -133,20 +146,17 @@ function expandCodeNodeConfigure(
 function ensureMaterializedField(
   ownerNodeId: string,
   fieldDefinitionId: string,
-  fieldNodeId: string,
-  fieldOccurrenceId: string,
   available: ScopedProjection,
 ): readonly GraphAction[] {
   const existing = fieldFor(available, ownerNodeId, fieldDefinitionId);
   if (existing !== undefined) {
-    if (existing.fieldNodeId !== fieldNodeId || existing.fieldOccurrenceId !== fieldOccurrenceId) {
-      throw new Error("Field identity does not match the materialized Field");
-    }
     return [];
   }
+  const fieldNodeId = materializedFieldNodeId(ownerNodeId, fieldDefinitionId);
+  const fieldOccurrenceId = materializedFieldOccurrenceId(ownerNodeId, fieldDefinitionId);
   requireUnusedNode(fieldNodeId, available, "Field");
   requireUnusedOccurrence(fieldOccurrenceId, available, "Field");
-  return [{ kind: "field-materialize", ownerNodeId, fieldDefinitionId, fieldNodeId, fieldOccurrenceId }];
+  return [{ kind: "field-materialize", ownerNodeId, fieldDefinitionId }];
 }
 
 function fieldFor(

@@ -1,10 +1,4 @@
-import {
-  SYSTEM_DEFINITION_CATALOG_NODE_ID,
-  workspaceSchemaNodeId,
-  workspaceTrashNodeId,
-  type Fact,
-} from "../../domain/fact/index.js";
-import { CURRENT_PROJECTION_VERSIONS, rebuildGeneration } from "../../domain/reconcile/index.js";
+import { canonicalJson, workspaceGenesisActions, type Fact } from "../../domain/fact/index.js";
 
 export function workspaceGenesisFact(workspaceId: string, facts: readonly Fact[]): Fact {
   const matches = facts.flatMap((fact) => {
@@ -21,20 +15,12 @@ export function workspaceGenesisFact(workspaceId: string, facts: readonly Fact[]
   }
 
   const genesis = matches[0].fact;
-  const projection = rebuildGeneration(
-    workspaceId,
-    {
-      facts: [genesis],
-      frontier: { [genesis.coordinate.dot.replicaId]: genesis.coordinate.dot.sequence },
-    },
-    CURRENT_PROJECTION_VERSIONS,
-  ).origin;
-  if (
-    projection.nodes[workspaceId] === undefined ||
-    projection.workspaceSystemNodes.schema !== workspaceSchemaNodeId(workspaceId) ||
-    projection.workspaceSystemNodes.trash !== workspaceTrashNodeId(workspaceId) ||
-    projection.workspaceSystemNodes.systemDefinitionCatalog !== SYSTEM_DEFINITION_CATALOG_NODE_ID
-  ) {
+  if (genesis.body.kind !== "action") {
+    throw new Error("Workspace bootstrap Fact does not establish the complete Workspace system structure");
+  }
+  const actual = new Set(genesis.body.actions.map((action) => canonicalJson(action)));
+  const required = workspaceGenesisActions(workspaceId);
+  if (required.some((action) => !actual.has(canonicalJson(action)))) {
     throw new Error("Workspace bootstrap Fact does not establish the complete Workspace system structure");
   }
   return genesis;

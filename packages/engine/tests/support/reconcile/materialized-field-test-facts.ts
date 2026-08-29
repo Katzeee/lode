@@ -1,5 +1,7 @@
 import {
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
 } from "../../../src/domain/fact/index.js";
 import { addDefinitionNode } from "./placed-node-test-helpers.js";
@@ -7,18 +9,17 @@ import { base, type Facts } from "./reconcile-test-helpers.js";
 
 export function materializedFieldFacts(withValue: boolean, withMaterialization = true): Facts {
   const facts = supertagAndFieldFacts();
-  facts.addPlaced("field-node", "node", "field-occurrence");
+  const fieldNodeId = materializedFieldNodeId("node", "field");
+  facts.addPlaced(fieldNodeId, "node", materializedFieldOccurrenceId("node", "field"));
   if (withMaterialization) {
     facts.add({
       kind: "field-materialize",
       ownerNodeId: "node",
       fieldDefinitionId: "field",
-      fieldNodeId: "field-node",
-      fieldOccurrenceId: "field-occurrence",
     });
   }
   if (withValue) {
-    facts.addPlaced("value-node", "field-node", "value-occurrence");
+    facts.addPlaced("value-node", fieldNodeId, "value-occurrence");
   }
   return facts;
 }

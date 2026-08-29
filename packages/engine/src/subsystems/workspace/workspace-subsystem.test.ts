@@ -20,7 +20,7 @@ import { createEventSubsystemDefinition } from "../event/event-subsystem.js";
 import { createIdentitySubsystemDefinition } from "../identity/identity-subsystem.js";
 import { createPersistenceSubsystemDefinition } from "../persistence/persistence-subsystem.js";
 import { createWorkspaceSubsystemDefinition } from "./workspace-subsystem.js";
-import { validateWorkspaceSnapshot } from "./workspace-validation.js";
+import { workspaceGenesisFact } from "./workspace-genesis-validation.js";
 
 const temporaryDirectories: string[] = [];
 const vaultPassphrase = "catalog-test-passphrase";
@@ -54,12 +54,7 @@ describe("Workspace durable inventory", () => {
       },
     });
 
-    expect(() =>
-      validateWorkspaceSnapshot("workspace", {
-        facts: [establishment],
-        frontier: { [replicaId]: 1 },
-      }),
-    ).toThrow("exactly one Workspace bootstrap action");
+    expect(() => workspaceGenesisFact("workspace", [establishment])).toThrow("exactly one Workspace bootstrap action");
   });
 
   it("rejects a bootstrap marker that does not establish the system structure atomically", () => {
@@ -90,12 +85,9 @@ describe("Workspace durable inventory", () => {
       },
     });
 
-    expect(() =>
-      validateWorkspaceSnapshot("workspace", {
-        facts: [establishment, incomplete],
-        frontier: { "101": 2 },
-      }),
-    ).toThrow("complete Workspace system structure");
+    expect(() => workspaceGenesisFact("workspace", [establishment, incomplete])).toThrow(
+      "complete Workspace system structure",
+    );
   });
 
   it("creates only through CreateWorkspace and opens every promoted Workspace at boot", async () => {

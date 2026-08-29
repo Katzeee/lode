@@ -4,6 +4,8 @@ import type { EditAction } from "../../domain/edit/index.js";
 import {
   factActionsFromFacts,
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   NODE_SUPERTAGS_DEFINITION_NODE_ID,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   requireFactActionId,
@@ -307,7 +309,6 @@ describe("Supertag product model", () => {
         await mutate(workspace, "materialization-proposal-setup", [
           nodeAt("task", "workspace", "task-occurrence"),
           ...definitionAtWorkspace("status-field", FIELD_DEFINITION_INTRINSIC_NODE_TYPE),
-          nodeAt("status-on-task", "task", "status-on-task-occurrence"),
         ])
       ).status,
     ).toBe("published");
@@ -321,8 +322,6 @@ describe("Supertag product model", () => {
               kind: "field-materialize",
               ownerNodeId: "task",
               fieldDefinitionId: "status-field",
-              fieldNodeId: "status-on-task",
-              fieldOccurrenceId: "status-on-task-occurrence",
             },
           ],
           "proposal",
@@ -355,8 +354,8 @@ describe("Supertag product model", () => {
     });
     expect("materializedFields" in materialized && materialized.materializedFields.task?.[0]).toMatchObject({
       fieldDefinitionId: "status-field",
-      fieldNodeId: "status-on-task",
-      fieldOccurrenceId: "status-on-task-occurrence",
+      fieldNodeId: materializedFieldNodeId("task", "status-field"),
+      fieldOccurrenceId: materializedFieldOccurrenceId("task", "status-field"),
     });
   });
 });

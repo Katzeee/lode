@@ -115,8 +115,6 @@ export type SemanticContribution =
       kind: "field-materialization";
       ownerNodeId: string;
       fieldDefinitionId: string;
-      fieldNodeId: string;
-      fieldOccurrenceId: string;
     }>
   | Readonly<{ kind: "causal-register-write"; registerKey: string }>
   | Readonly<{ kind: "generated-occurrence"; occurrenceId: string }>

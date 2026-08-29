@@ -95,8 +95,8 @@ function scopeKeys(fact: Fact, actions = factActions(fact)): readonly string[] {
   if (fact.body.kind === "resolution") {
     fact.body.proposalFactIds.forEach((id) => keys.add(factKey(id)));
     fact.body.adjudicatesResolutionIds.forEach((id) => keys.add(factKey(id)));
-  } else if (fact.body.kind === "governance") {
-    // Governance Facts carry no content scopes.
+  } else if (fact.body.kind === "governance" || fact.body.kind === "history") {
+    // Governance and History Facts carry no content scopes.
   } else {
     for (const action of actions) {
       keys.add(actionKey(action.id));

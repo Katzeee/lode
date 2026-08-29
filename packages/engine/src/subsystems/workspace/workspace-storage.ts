@@ -4,7 +4,6 @@ import type { EventSink } from "../event/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../domain/reconcile/index.js";
-import { BoundedProjectionStore } from "./projection/index.js";
 
 const LOCAL_REPLICA_DOCUMENT_ID = "local-replica";
 
@@ -25,7 +24,6 @@ export async function createWorkspaceFromStorage(
       loroPeerId: local.loroPeerId,
       documents: storage.facts,
     });
-    const projectionStore = new BoundedProjectionStore(storage.projection);
     const workspace = await Workspace.open({
       workspaceId: storage.workspaceId,
       facts,
@@ -33,7 +31,6 @@ export async function createWorkspaceFromStorage(
       seedGenesis: false,
       eventSink: options.eventSink,
       storage,
-      projection: { store: projectionStore },
     });
     return workspace;
   } catch (error) {

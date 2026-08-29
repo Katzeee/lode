@@ -37,7 +37,7 @@ function addFieldConfigurationOwners(
   nodes: ReadonlyMap<string, MutableNode>,
 ): void {
   for (const action of activeFieldConfigurationActions(active)) {
-    const identity = fieldConfigurationProjectionIdentity(action.id);
+    const identity = fieldConfigurationProjectionIdentity(action.action.fieldDefinitionId, action.action.configuration);
     if (nodes.has(identity.configurationNodeId)) {
       owners.set(identity.configurationNodeId, action.action.fieldDefinitionId);
     }

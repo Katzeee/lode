@@ -4,7 +4,6 @@ import type { DocumentStore } from "./document-store.js";
 export type WorkspaceStorage = Readonly<{
   workspaceId: string;
   facts: DocumentStore;
-  projection: DocumentStore;
   metadata: DocumentStore;
   release(): Promise<void>;
 }>;

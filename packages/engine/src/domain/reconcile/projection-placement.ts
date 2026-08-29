@@ -1,4 +1,4 @@
-import { factObserves, type FactAction } from "../fact/index.js";
+import { factObserves, materializedFieldOccurrenceId, type FactAction } from "../fact/index.js";
 import { activeFieldConfigurationActions } from "./field-configuration-actions.js";
 import { fieldConfigurationPlacement, fieldConfigurationPlacementIds } from "./field-configuration-graph.js";
 import {
@@ -67,7 +67,7 @@ export function placementIdsForAction(action: FactAction, context: PlacementProj
         creation.ownerNodeId === authoredAction.ownerNodeId &&
         creation.fieldDefinitionId === authoredAction.fieldDefinitionId &&
         actionObserves(action, candidate)
-        ? [creation.fieldOccurrenceId]
+        ? [materializedFieldOccurrenceId(creation.ownerNodeId, creation.fieldDefinitionId)]
         : [];
     });
   }

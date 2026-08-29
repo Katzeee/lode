@@ -54,12 +54,12 @@ export function executionErrorResult(error: unknown, currentGenerationId: string
   throw error;
 }
 
-export async function finishWorkspaceReceipt(
+export function finishWorkspaceReceipt(
   receipt: AuthorityReceipt,
   generationId: string,
   snapshot: FactSnapshot,
-  publish: (receipt: AuthorityReceipt) => Promise<WriteResult>,
-): Promise<WriteResult> {
+  publish: (receipt: AuthorityReceipt) => WriteResult,
+): WriteResult {
   if (frontierCovers(snapshot.frontier, receipt.committedFrontier)) {
     return publish(receipt);
   }

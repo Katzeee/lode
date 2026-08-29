@@ -12,7 +12,7 @@ export function supertagCandidates(
     if (!isSupertagAction(fact.action)) {
       continue;
     }
-    const address = supertagRelationAddress(fact.action, fact.id);
+    const address = supertagRelationAddress(fact.action, generation);
     const group = groups.get(address) ?? [];
     group.push(fact);
     groups.set(address, group);
@@ -29,7 +29,7 @@ export function supertagCandidates(
           {
             diffSpace: {
               kind: effect.relation === "application" ? "supertag-application" : "supertag-template",
-              identity: supertagRelationAddress(last.action, last.id),
+              identity: supertagRelationAddress(last.action, generation),
             },
             targets: facts.map((fact) => fact.id),
             bridges: [],

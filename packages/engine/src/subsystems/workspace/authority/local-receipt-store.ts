@@ -23,7 +23,6 @@ type LocalReceiptStoreOptions = Readonly<{
 
 export class LocalReceiptStore {
   private readonly byInvocation = new Map<InvocationId, AuthorityReceipt>();
-  private readonly byChannel = new Map<string, AuthorityReceipt[]>();
 
   private constructor(
     private readonly options: LocalReceiptStoreOptions,
@@ -54,10 +53,6 @@ export class LocalReceiptStore {
     return [...this.byInvocation.values()];
   }
 
-  receiptsForChannel(channelId: string): readonly AuthorityReceipt[] {
-    return [...(this.byChannel.get(channelId) ?? [])];
-  }
-
   stageAppend(receipt: AuthorityReceipt): StagedReceiptAppend {
     return {
       update: { id: localReceiptsDocumentId(this.options.replicaId), bytes: encodeReceipt(receipt) },
@@ -71,16 +66,6 @@ export class LocalReceiptStore {
 
   private add(receipt: AuthorityReceipt): void {
     this.byInvocation.set(receipt.invocationId, receipt);
-    const channelId = receipt.lineage?.channelId;
-    if (!channelId) {
-      return;
-    }
-    const channel = this.byChannel.get(channelId) ?? [];
-    if (channel.some((candidate) => candidate.invocationId === receipt.invocationId)) {
-      return;
-    }
-    channel.push(receipt);
-    this.byChannel.set(channelId, channel);
   }
 
   private async compactIfNeeded(): Promise<void> {

@@ -1,5 +1,7 @@
 import {
   fieldDefinitionEndpointOccurrenceId,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
   type FactAction,
   type GraphAction,
   type IntrinsicNodeType,
@@ -50,7 +52,12 @@ export function withFieldDefinitionEndpoints(actions: readonly GraphAction[]): r
     if (authoredAction.kind !== "field-materialize") {
       return [authoredAction];
     }
-    const occurrenceId = fieldDefinitionEndpointOccurrenceId(authoredAction.fieldOccurrenceId);
+    const fieldNodeId = materializedFieldNodeId(authoredAction.ownerNodeId, authoredAction.fieldDefinitionId);
+    const fieldOccurrenceId = materializedFieldOccurrenceId(
+      authoredAction.ownerNodeId,
+      authoredAction.fieldDefinitionId,
+    );
+    const occurrenceId = fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId);
     return explicitOccurrences.has(occurrenceId)
       ? [authoredAction]
       : [
@@ -58,7 +65,7 @@ export function withFieldDefinitionEndpoints(actions: readonly GraphAction[]): r
             kind: "placement-create",
             placementId: occurrenceId,
             nodeId: authoredAction.fieldDefinitionId,
-            parentNodeId: authoredAction.fieldNodeId,
+            parentNodeId: fieldNodeId,
             anchor: { after: null, before: null, affinity: "before", fallback: "start" },
           },
           authoredAction,

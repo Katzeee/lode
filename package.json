@@ -20,6 +20,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
     "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
+    "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/fact-sot.completeness.test.ts tests/proposal-mode.property.test.ts",
     "verify:import-cycles": "node scripts/verify-import-cycles.mjs",
     "verify": "npm run build && npm run typecheck && npm run lint && npm run test && npm run verify:import-cycles && npm run verify:acceptance-catalog",
     "prepare": "husky"

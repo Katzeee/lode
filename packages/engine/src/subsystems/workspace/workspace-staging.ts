@@ -4,7 +4,6 @@ import type { EventSink } from "../event/index.js";
 import type { WorkspaceStorageStage } from "../persistence/index.js";
 import type { WorkspaceReplica } from "./capability.js";
 import { FactReplication } from "./fact-replication.js";
-import { validateWorkspaceSnapshot } from "./workspace-validation.js";
 
 export type WorkspaceStaging = Readonly<{
   workspace: Workspace;
@@ -13,7 +12,7 @@ export type WorkspaceStaging = Readonly<{
   discard(): Promise<void>;
 }>;
 
-export async function createWorkspaceStaging(workspaceId: string, stagedStorage: WorkspaceStorageStage) {
+export async function createWorkspaceStaging(stagedStorage: WorkspaceStorageStage) {
   const workspace = await createWorkspaceFromStorage(stagedStorage.storage, { eventSink: silentEvents });
   const replica = createWorkspaceReplica(workspace);
 
@@ -21,7 +20,7 @@ export async function createWorkspaceStaging(workspaceId: string, stagedStorage:
     workspace,
     replica,
     promote: async () => {
-      validateWorkspaceSnapshot(workspaceId, workspace.facts.snapshot());
+      void workspace.label;
       await workspace.close();
       return stagedStorage.promote();
     },

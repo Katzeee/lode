@@ -9,11 +9,7 @@ type FinalizeDeletionsCommand = Extract<AcceptedEngineCommand, { kind: "finalize
 export function bindDeletionFinalizationCommand(command: FinalizeDeletionsCommand): BoundWorkspaceCommand {
   return {
     readPlan: {
-      kind: "projection-scope",
-      nodeIds: command.nodeIds,
-      readsOwnerGraph: true,
-      readsOwnedDescendants: true,
-      historyChannelId: null,
+      kind: "all",
     },
     plan({ generation }) {
       const invalid = command.nodeIds.find(

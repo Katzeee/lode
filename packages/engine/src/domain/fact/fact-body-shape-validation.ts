@@ -2,14 +2,32 @@ import { actionHasAdmission } from "./action-catalog.js";
 import { canonicalJson } from "./canonical.js";
 import type { AuthoredAction, FactBody } from "./types.js";
 import { assertGovernanceAction } from "./governance-shape-validation.js";
-import { requireFactIds } from "./identities.js";
-import { assertKeys, assertObject, requireString } from "../../decoding/index.js";
+import { requireFactId, requireFactIds } from "./identities.js";
+import { assertKeys, assertObject, requireString, safeInteger } from "../../decoding/index.js";
 
 export function assertFactBody(
   value: unknown,
   parseAuthoredAction: (action: unknown) => AuthoredAction,
 ): asserts value is FactBody {
   assertObject(value, "Fact body");
+  if (value.kind === "history") {
+    assertKeys(value, ["kind", "channelId", "operation", "targetStepId", "actionFactCount"], "History Fact");
+    requireString(value.channelId, "History channel identity");
+    if (value.operation !== "normal" && value.operation !== "undo" && value.operation !== "redo") {
+      throw new Error("Invalid History operation shape");
+    }
+    if (value.targetStepId !== null) {
+      requireFactId(value.targetStepId, "History target Step identity");
+    }
+    if (
+      (value.operation === "normal" && value.targetStepId !== null) ||
+      (value.operation !== "normal" && value.targetStepId === null)
+    ) {
+      throw new Error("History target Step does not match its operation");
+    }
+    safeInteger(value.actionFactCount, 1, "History Action Fact count");
+    return;
+  }
   requireString(value.actorId, "Fact actor identity");
   if (value.kind === "governance") {
     assertKeys(value, ["kind", "actorId", "action"], "Governance Fact");

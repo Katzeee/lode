@@ -2,11 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildFactSnapshot, factActionId } from "../src/domain/fact/index.js";
 import { canonicalJson, makeFact, type Fact, type FactFrontier, type GraphAction } from "../src/domain/fact/index.js";
-import {
-  advanceGeneration,
-  rebuildGeneration,
-  CURRENT_PROJECTION_VERSIONS as versions,
-} from "../src/domain/reconcile/index.js";
+import { rebuildGeneration, CURRENT_PROJECTION_VERSIONS as versions } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { uniqueFacts } from "./support/facts.js";
 
@@ -14,7 +10,7 @@ const moveReplicaB = "202";
 const moveReplicaC = "303";
 const unrelatedReplica = "404";
 describe("Placement Conflict convergence", () => {
-  it("preserves both cross-parent move intents across 32 arrival and replay topologies", () => {
+  it("preserves both cross-parent move intents across 32 Fact arrival orders", () => {
     const base = fixture();
     const baseSnapshot = snapshotOf(base.values);
     const frontier = baseSnapshot.frontier;
@@ -49,10 +45,6 @@ describe("Placement Conflict convergence", () => {
         full.origin.occurrences["value-occurrence"]?.parentNodeId,
       );
     }
-
-    const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    const incremental = advanceGeneration("workspace", baseSnapshot, expectedSnapshot, versions, before);
-    expect(summary(incremental)).toBe(expectedSummary);
   });
 
   it("keeps concurrent Original promotions explicit while projecting one canonical graph", () => {
@@ -118,7 +110,6 @@ describe("Placement Conflict convergence", () => {
     }
 
     const conflictSnapshot = snapshotOf([...base.values, promoteB, promoteC]);
-    const before = rebuildGeneration("workspace", conflictSnapshot, versions);
     const extension = remoteFact(unrelatedReplica, conflictSnapshot.frontier, {
       kind: "supertag-extension-add",
       supertagId: "supertag-a",
@@ -126,9 +117,9 @@ describe("Placement Conflict convergence", () => {
       anchor: end,
     });
     const finalSnapshot = snapshotOf([...conflictSnapshot.facts, extension]);
-    expect(
-      advanceGeneration("workspace", conflictSnapshot, finalSnapshot, versions, before).origin.conflictIssues,
-    ).toEqual(rebuildGeneration("workspace", finalSnapshot, versions).origin.conflictIssues);
+    expect(rebuildGeneration("workspace", finalSnapshot, versions).origin.conflictIssues).toEqual(
+      rebuildGeneration("workspace", conflictSnapshot, versions).origin.conflictIssues,
+    );
   });
 });
 

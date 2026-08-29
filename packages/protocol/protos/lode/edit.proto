@@ -140,19 +140,15 @@ message TemplateNodeDetachAction {
 message FieldMaterializeAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
 }
 
 message FieldValueCreateAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  string value_node_id = 5;
-  string value_occurrence_id = 6;
-  SequenceAnchor anchor = 7;
-  optional NodeSeed seed = 8;
+  string value_node_id = 3;
+  string value_occurrence_id = 4;
+  SequenceAnchor anchor = 5;
+  optional NodeSeed seed = 6;
 }
 
 message UrlNodeCreateAction {
@@ -161,20 +157,16 @@ message UrlNodeCreateAction {
   string parent_node_id = 3;
   SequenceAnchor anchor = 4;
   optional NodeSeed seed = 5;
-  string url_field_node_id = 6;
-  string url_field_occurrence_id = 7;
-  string url_value_node_id = 8;
-  string url_value_occurrence_id = 9;
-  string url = 10;
+  string url_value_node_id = 6;
+  string url_value_occurrence_id = 7;
+  string url = 8;
 }
 
 message CodeNodeConfigureAction {
   string node_id = 1;
-  string language_field_node_id = 2;
-  string language_field_occurrence_id = 3;
-  string language_value_node_id = 4;
-  string language_value_occurrence_id = 5;
-  string language = 6;
+  string language_value_node_id = 2;
+  string language_value_occurrence_id = 3;
+  string language = 4;
 }
 
 message FieldValueRemoveAction {
@@ -282,48 +274,38 @@ message FieldInitializationExpressionConfigureAction {
 message FieldNumberValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  string value_node_id = 5;
-  string value_occurrence_id = 6;
-  double value = 7;
+  string value_node_id = 3;
+  string value_occurrence_id = 4;
+  double value = 5;
 }
 
 message FieldDateValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  string value_node_id = 5;
-  string value_occurrence_id = 6;
-  string value = 7;
+  string value_node_id = 3;
+  string value_occurrence_id = 4;
+  string value = 5;
 }
 
 message FieldCheckboxValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  string value_occurrence_id = 5;
-  bool value = 6;
+  string value_occurrence_id = 3;
+  bool value = 4;
 }
 
 message FieldOptionsFromSupertagValueSetAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  string value_occurrence_id = 5;
-  string target_node_id = 6;
+  string value_occurrence_id = 3;
+  string target_node_id = 4;
 }
 
 message TypedFieldValueClearAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-  string field_node_id = 3;
-  string field_occurrence_id = 4;
-  optional string empty_value_node_id = 5;
-  optional string empty_value_occurrence_id = 6;
+  optional string empty_value_node_id = 3;
+  optional string empty_value_occurrence_id = 4;
 }
 
 message SharedDefaultViewCreateAction {

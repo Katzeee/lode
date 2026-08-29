@@ -30,8 +30,6 @@ function fieldMaterializeCase(): ProposalLifecycleCase {
     kind: "field-materialize",
     ownerNodeId: "node",
     fieldDefinitionId: "field",
-    fieldNodeId: "field-node",
-    fieldOccurrenceId: "field-occurrence",
   });
 }
 

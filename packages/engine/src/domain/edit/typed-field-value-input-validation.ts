@@ -2,12 +2,10 @@ import { exactInputKeys, nonemptyInputString } from "./input-validation-primitiv
 import type { EditAction } from "./types.js";
 
 export function parseTypedFieldValueEdit(edit: Record<string, unknown>): EditAction {
-  const commonKeys = ["kind", "ownerNodeId", "fieldDefinitionId", "fieldNodeId", "fieldOccurrenceId"] as const;
+  const commonKeys = ["kind", "ownerNodeId", "fieldDefinitionId"] as const;
   const common = {
     ownerNodeId: nonemptyInputString(edit.ownerNodeId, "Field owner Node identity"),
     fieldDefinitionId: nonemptyInputString(edit.fieldDefinitionId, "Field Definition identity"),
-    fieldNodeId: nonemptyInputString(edit.fieldNodeId, "Field Node identity"),
-    fieldOccurrenceId: nonemptyInputString(edit.fieldOccurrenceId, "Field Occurrence identity"),
   };
   if (edit.kind === "field-number-value-set") {
     exactInputKeys(edit, [...commonKeys, "valueNodeId", "valueOccurrenceId", "value"]);

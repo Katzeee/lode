@@ -15,14 +15,8 @@ describe("production History scenarios", () => {
       invocationId: "normal",
       actions: [{ kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "A" }],
     });
-    const undoSelection = queryHistory("channel", fixture.receipts).undo!;
-    const undoPlan = validateHistorySelection(
-      "undo",
-      undoSelection,
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const undoSelection = queryHistory("channel", fixture.snapshot()).undo!;
+    const undoPlan = validateHistorySelection("undo", undoSelection, fixture.snapshot(), fixture.generation());
     if (undoPlan.kind !== "ready") {
       throw new Error("Undo must be ready");
     }
@@ -32,16 +26,10 @@ describe("production History scenarios", () => {
       targetStepId: "normal",
       actions: undoPlan.writes.flatMap((batch) => batch.actions),
     });
-    expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual(["undo"]);
+    expect(rebuildHistoryState(fixture.snapshot(), "channel").redoStack).toEqual([fixture.stepId("undo")]);
 
-    const redoSelection = queryHistory("channel", fixture.receipts).redo!;
-    const redoPlan = validateHistorySelection(
-      "redo",
-      redoSelection,
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const redoSelection = queryHistory("channel", fixture.snapshot()).redo!;
+    const redoPlan = validateHistorySelection("redo", redoSelection, fixture.snapshot(), fixture.generation());
     if (redoPlan.kind !== "ready") {
       throw new Error("Redo must be ready");
     }
@@ -57,7 +45,7 @@ describe("production History scenarios", () => {
       invocationId: "branch",
       actions: [{ kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "B" }],
     });
-    expect(rebuildHistoryState(fixture.receipts, "channel").redoStack).toEqual([]);
+    expect(rebuildHistoryState(fixture.snapshot(), "channel").redoStack).toEqual([]);
   });
 
   it("compensates only the part of a step that remains attributable", () => {
@@ -94,14 +82,8 @@ describe("production History scenarios", () => {
       },
       insert: "Z",
     });
-    const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(
-      "undo",
-      selection,
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const selection = queryHistory("channel", fixture.snapshot()).undo!;
+    const plan = validateHistorySelection("undo", selection, fixture.snapshot(), fixture.generation());
     if (plan.kind !== "ready") {
       throw new Error("Remaining attributable text must be compensable");
     }
@@ -167,14 +149,8 @@ describe("production History scenarios", () => {
       },
       insert: "X",
     });
-    const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(
-      "undo",
-      selection,
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const selection = queryHistory("channel", fixture.snapshot()).undo!;
+    const plan = validateHistorySelection("undo", selection, fixture.snapshot(), fixture.generation());
     if (plan.kind !== "ready") {
       throw new Error("Text Undo must be ready");
     }
@@ -240,11 +216,10 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    const nullableUndo = queryHistory("channel", nullableMark.receipts).undo!;
+    const nullableUndo = queryHistory("channel", nullableMark.snapshot()).undo!;
     const nullableUndoPlan = validateHistorySelection(
       "undo",
       nullableUndo,
-      nullableMark.receipts,
       nullableMark.snapshot(),
       nullableMark.generation(),
     );
@@ -258,11 +233,10 @@ describe("production History scenarios", () => {
       actions: nullableUndoPlan.writes.flatMap((batch) => batch.actions),
     });
     expect(textAtoms(nullableMark.generation().origin.nodes.node)[0]?.attributes.nullable).toBeNull();
-    const nullableRedo = queryHistory("channel", nullableMark.receipts).redo!;
+    const nullableRedo = queryHistory("channel", nullableMark.snapshot()).redo!;
     const nullableRedoPlan = validateHistorySelection(
       "redo",
       nullableRedo,
-      nullableMark.receipts,
       nullableMark.snapshot(),
       nullableMark.generation(),
     );
@@ -333,7 +307,7 @@ describe("production History scenarios", () => {
         },
       ],
     });
-    const richUndo = queryHistory("channel", richDeletion.receipts).undo;
+    const richUndo = queryHistory("channel", richDeletion.snapshot()).undo;
     if (!richUndo) {
       throw new Error("Mixed rich-text deletion must be compensable");
     }
@@ -663,14 +637,8 @@ describe("production History scenarios", () => {
       intent: "proposal",
       actions: [{ kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "proposal" }],
     });
-    const selection = queryHistory("channel", fixture.receipts).undo!;
-    const plan = validateHistorySelection(
-      "undo",
-      selection,
-      fixture.receipts,
-      fixture.snapshot(),
-      fixture.generation(),
-    );
+    const selection = queryHistory("channel", fixture.snapshot()).undo!;
+    const plan = validateHistorySelection("undo", selection, fixture.snapshot(), fixture.generation());
     if (plan.kind !== "ready") {
       throw new Error("Proposal Undo must be ready");
     }
@@ -681,11 +649,11 @@ describe("production History scenarios", () => {
       targetStepId: "proposal",
       actions: plan.writes.flatMap((batch) => batch.actions),
     });
-    const redo = queryHistory("channel", fixture.receipts).redo;
+    const redo = queryHistory("channel", fixture.snapshot()).redo;
     if (!redo) {
       throw new Error("Proposal Redo selection must exist");
     }
-    const redoPlan = validateHistorySelection("redo", redo, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const redoPlan = validateHistorySelection("redo", redo, fixture.snapshot(), fixture.generation());
     if (redoPlan.kind !== "ready") {
       throw new Error("Proposal Redo must be ready");
     }
@@ -709,8 +677,8 @@ describe("production History scenarios", () => {
       channelId: "channel-a",
       actions: [{ kind: "placement-move", placementId: "occurrence", parentNodeId: "parent-a", anchor: end }],
     });
-    const undo = queryHistory("channel-a", fixture.receipts).undo!;
-    const undoPlan = validateHistorySelection("undo", undo, fixture.receipts, fixture.snapshot(), fixture.generation());
+    const undo = queryHistory("channel-a", fixture.snapshot()).undo!;
+    const undoPlan = validateHistorySelection("undo", undo, fixture.snapshot(), fixture.generation());
     if (undoPlan.kind !== "ready") {
       throw new Error("Initial Undo must be ready");
     }
@@ -727,21 +695,19 @@ describe("production History scenarios", () => {
       actions: [{ kind: "placement-move", placementId: "occurrence", parentNodeId: "parent-b", anchor: end }],
     });
 
-    const redo = queryHistory("channel-a", fixture.receipts).redo!;
-    expect(
-      validateHistorySelection("redo", redo, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
-    ).toBe("unavailable");
+    const redo = queryHistory("channel-a", fixture.snapshot()).redo!;
+    expect(validateHistorySelection("redo", redo, fixture.snapshot(), fixture.generation()).kind).toBe("unavailable");
   });
 });
 
 function expectUndoUnavailable(fixture: HistoryFixture): void {
-  const selection = queryHistory("channel", fixture.receipts).undo;
+  const selection = queryHistory("channel", fixture.snapshot()).undo;
   if (!selection) {
     return;
   }
-  expect(
-    validateHistorySelection("undo", selection, fixture.receipts, fixture.snapshot(), fixture.generation()).kind,
-  ).toBe("unavailable");
+  expect(validateHistorySelection("undo", selection, fixture.snapshot(), fixture.generation()).kind).toBe(
+    "unavailable",
+  );
 }
 
 function receiptActionId(factId: FactId | undefined): FactActionId {

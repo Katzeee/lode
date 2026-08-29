@@ -8,18 +8,17 @@ import {
   factId,
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
   workspaceTrashNodeId,
-  type ProjectionPerspective,
   type SequenceAnchor,
 } from "../../domain/fact/index.js";
 import type { ReviewQuery } from "../../domain/review/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import type { DocumentStore, DocumentUpdate } from "../persistence/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
+import { localReceiptsDocumentId } from "./authority/local-receipt-store.js";
 import { FactReplication } from "./fact-replication.js";
 import { syncPair } from "../../../tests/support/sync.js";
-import { BoundedProjectionStore, type ProjectionSlicePage } from "./projection/index.js";
 import { Workspace } from "./workspace.js";
-import { CURRENT_PROJECTION_VERSIONS as versions, type ProjectionSectionName } from "../../domain/reconcile/index.js";
+import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import type { EventSink } from "../event/index.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -36,11 +35,7 @@ function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string, anch
   return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor };
 }
 
-async function setup(
-  store?: BoundedProjectionStore,
-  documents: DocumentStore = new InMemoryDocumentStore(),
-  eventSink?: EventSink,
-) {
+async function setup(documents: DocumentStore = new InMemoryDocumentStore(), eventSink?: EventSink) {
   const facts = await FactAuthority.open({
     workspaceId: "workspace",
     loroPeerId: "101",
@@ -53,7 +48,6 @@ async function setup(
       facts,
       versions,
       eventSink,
-      projection: { ...(store ? { store } : {}) },
     }),
   };
 }
@@ -561,7 +555,7 @@ describe("Proposal Workspace coordinator", () => {
       fact.action.kind === "node-trash" ? [fact.action.nodeId] : [],
     );
     expect(deletedNodeIds).toEqual(["node"]);
-    expect(originalDeletion.receipt.factIds).toHaveLength(1);
+    expect(originalDeletion.receipt.factIds).toHaveLength(2);
 
     const trashNodeId = workspaceTrashNodeId("workspace");
     expect(await lifecycleExists(workspace, "node", "node")).toBe(true);
@@ -679,15 +673,17 @@ describe("Proposal Workspace coordinator", () => {
       ],
     });
     expect(result.status).toBe("published");
-    const textFacts = facts
+    const committedFacts = facts
       .snapshot()
       .facts.filter((fact) => result.status === "published" && result.receipt.factIds.includes(fact.id));
-    const edits = factActionsFromFacts(textFacts).map((fact) => fact.action);
+    const actionFacts = committedFacts.filter((fact) => fact.body.kind === "action");
+    const edits = factActionsFromFacts(actionFacts).map((fact) => fact.action);
     expect(edits).toEqual([
       expect.objectContaining({ kind: "rich-text-splice", insert: "1" }),
       expect.objectContaining({ kind: "rich-text-splice", insert: "2" }),
     ]);
-    expect(textFacts).toHaveLength(2);
+    expect(actionFacts).toHaveLength(2);
+    expect(committedFacts.at(-1)?.body).toMatchObject({ kind: "history", actionFactCount: 2 });
     expect(
       await workspace.query({
         kind: "projection",
@@ -769,6 +765,7 @@ describe("Proposal Workspace coordinator", () => {
       ...initialFactIds,
       factId("workspace", facts.replicaId, nextSequence),
       factId("workspace", facts.replicaId, nextSequence + 1),
+      factId("workspace", facts.replicaId, nextSequence + 2),
     ]);
     expect(
       await workspace.query({
@@ -779,7 +776,7 @@ describe("Proposal Workspace coordinator", () => {
       }),
     ).toMatchObject({ nodes: { node: { content: [{ value: "Y" }] } } });
 
-    const markedActionId = factActionId(factId("workspace", facts.replicaId, nextSequence + 2), 0);
+    const markedActionId = factActionId(factId("workspace", facts.replicaId, nextSequence + 3), 0);
     const markedAtomId = `${markedActionId}#0` as const;
     const mark = await workspace.execute({
       kind: "edit",
@@ -1085,25 +1082,12 @@ describe("Proposal Workspace coordinator", () => {
     ).toBe("published");
   });
 
-  it("public workspace queries load bounded Projection store shards", async () => {
-    const documents = new RecordingLoadDocumentStore();
-    const facts = await FactAuthority.open({
-      workspaceId: "workspace",
-      loroPeerId: "101",
-      documents: documents,
-    });
-    const materializer = new BoundedProjectionStore(documents, { capacity: 1 });
-    const workspace = await Workspace.open({
-      workspaceId: "workspace",
-      facts,
-      versions,
-      projection: { store: materializer },
-    });
+  it("public workspace queries page the current in-memory Projection", async () => {
+    const { workspace } = await setup();
     await workspace.execute({
       ...createNode("materialized"),
       actions: [...nodeAtWorkspace("first"), ...nodeAtWorkspace("second")],
     });
-    documents.materializedShardLoads = 0;
     const page = await workspace.query({
       kind: "projection",
       workspaceId: "workspace",
@@ -1116,23 +1100,10 @@ describe("Proposal Workspace coordinator", () => {
       throw new Error("Expected Node Projection page");
     }
     expect(page).toMatchObject({ nodes: { second: { nodeId: "second" } }, next: "second" });
-    expect(documents.materializedShardLoads).toBe(1);
   });
 
-  it("Review queries page stable owner scopes through the Projection store", async () => {
-    const documents = new RecordingLoadDocumentStore();
-    const facts = await FactAuthority.open({
-      workspaceId: "workspace",
-      loroPeerId: "101",
-      documents: documents,
-    });
-    const materializer = new BoundedProjectionStore(documents, { capacity: 2 });
-    const workspace = await Workspace.open({
-      workspaceId: "workspace",
-      facts,
-      versions,
-      projection: { store: materializer },
-    });
+  it("Review queries page stable owner scopes from the current Projection state", async () => {
+    const { workspace } = await setup();
     await workspace.execute({
       ...createNode("review-page-base"),
       actions: ["a", "b", "c"].flatMap(nodeAtWorkspace),
@@ -1752,28 +1723,16 @@ describe("Proposal Workspace coordinator", () => {
   });
 
   it("CMD-4 request digest and generation gate fail closed", async () => {
-    const publisher = new ControlledPublisher();
-    const { facts, workspace } = await setup(publisher);
-    publisher.fail = true;
-    const pending = await workspace.execute(createNode());
-    expect(pending.status).toBe("committed-projection-pending");
+    const { facts, workspace } = await setup();
+    await commitAuthorityNode(facts, "remote-lag", "remote-lag");
 
-    const lagged = await workspace.execute({
-      ...createNode("second"),
-      actions: nodeAtWorkspace("second"),
-    });
-    expect(lagged).toMatchObject({
-      status: "rejected",
-      error: { code: "projection-unavailable" },
-    });
-    expect(facts.receipt("second")).toBeNull();
     expect(
       await workspace.execute({
         ...createNode("state-dependent"),
         actions: [
           {
             kind: "rich-text-splice",
-            nodeId: "node",
+            nodeId: "remote-lag",
             deleteAtomIds: [],
             anchor: end,
             insert: "red",
@@ -1783,241 +1742,114 @@ describe("Proposal Workspace coordinator", () => {
     ).toMatchObject({ status: "rejected", error: { code: "projection-unavailable" } });
     expect(facts.receipt("state-dependent")).toBeNull();
 
-    const conflict = await workspace.execute({
-      ...createNode(),
-      actions: nodeAtWorkspace("other"),
-    });
-    expect(conflict).toMatchObject({
-      status: "rejected",
-      error: { code: "invocation-conflict" },
-    });
-  });
-
-  it("CMD-5 result states distinguish rejected published and pending", async () => {
-    const publisher = new ControlledPublisher();
-    const { workspace } = await setup(publisher);
-    publisher.fail = true;
-    expect((await workspace.execute(createNode())).status).toBe("committed-projection-pending");
-    publisher.fail = false;
+    await workspace.reconcileAuthorityAdvance();
     expect((await workspace.execute(createNode())).status).toBe("published");
-    expect(await workspace.execute({ ...createNode("empty"), actions: [] })).toMatchObject({
-      status: "rejected",
-      error: { code: "invalid-input" },
-    });
+    expect(
+      await workspace.execute({
+        ...createNode(),
+        actions: nodeAtWorkspace("other"),
+      }),
+    ).toMatchObject({ status: "rejected", error: { code: "invocation-conflict" } });
   });
 
   it("authority storage failures escape instead of masquerading as invalid input", async () => {
     const documents = new FailingAppendDocumentStore();
-    const { facts, workspace } = await setup(undefined, documents);
+    const { facts, workspace } = await setup(documents);
     documents.failAppend = true;
 
     await expect(workspace.execute(createNode("storage-failure"))).rejects.toThrow("injected authority append failure");
     expect(facts.receipt("storage-failure")).toBeNull();
   });
 
-  it("PROJ-4 origin and review publish as one generation", async () => {
-    const publisher = new ControlledPublisher();
-    const { workspace } = await setup(publisher);
-    const result = await workspace.execute(createNode("proposal", "proposal"));
-    expect(result.status).toBe("published");
-    expect(publisher.generations).toHaveLength(2);
-    const generation = required(publisher.generations.at(-1), "published generation");
-    expect(generation.origin.identity).toEqual(generation.review.identity);
-    expect(generation.origin.nodes.node).toBeUndefined();
-    expect(generation.review.nodes.node).toBeDefined();
+  it("PROJ-4 exposes Origin and Review as one in-memory generation", async () => {
+    const { workspace } = await setup();
+    expect((await workspace.execute(createNode("proposal", "proposal"))).status).toBe("published");
+    const origin = await workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" });
+    const review = await workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "review" });
+
+    expect(origin.identity).toEqual(review.identity);
+    expect(origin).not.toHaveProperty("nodes.node");
+    expect(review).toHaveProperty("nodes.node");
   });
 
-  it("DUR-2 derived failures never roll back facts", async () => {
-    const publisher = new ControlledPublisher();
-    const { facts, workspace } = await setup(publisher);
-    const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
-    publisher.fail = true;
-    const result = await workspace.execute(createNode());
-    if (result.status !== "committed-projection-pending") {
-      throw new Error(`Expected committed Projection failure, received ${result.status}`);
-    }
-    expect(facts.snapshot().facts.map(({ id }) => id)).toEqual([...initialFactIds, ...result.receipt.factIds]);
-    expect(
-      await workspace.query({
-        kind: "invocation",
-        workspaceId: "workspace",
-        invocationId: "create",
-      }),
-    ).toMatchObject({
-      status: "committed-projection-pending",
-      receipt: { invocationId: "create" },
-    });
-  });
-
-  it("restart restores the current published generation without publishing it again", async () => {
+  it("restart rebuilds the current generation from Facts", async () => {
     const documents = new InMemoryDocumentStore();
-    const firstStore = new ControlledPublisher(documents);
-    const { facts, workspace: first } = await setup(firstStore, documents);
+    const { workspace: first } = await setup(documents);
     expect((await first.execute(createNode())).status).toBe("published");
 
-    const restoredStore = new ControlledPublisher(documents);
-    const restarted = await Workspace.open({
+    const restartedFacts = await FactAuthority.open({
       workspaceId: "workspace",
-      facts,
-      versions,
-      projection: { store: restoredStore },
+      loroPeerId: "101",
+      documents,
     });
-
-    expect(restoredStore.generations).toEqual([]);
+    const restarted = await Workspace.open({ workspaceId: "workspace", facts: restartedFacts, versions });
     expect(
       await restarted.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
     ).toMatchObject({ nodes: { node: { nodeId: "node" } } });
   });
 
-  it("restart rebuilds the required generation after a failed publication", async () => {
+  it("restart rebuilds identical History after every Invocation Receipt is deleted", async () => {
     const documents = new InMemoryDocumentStore();
-    const facts = await FactAuthority.open({
-      workspaceId: "workspace",
-      loroPeerId: "101",
-      documents: documents,
-    });
-    const failedPublisher = new ControlledPublisher(documents);
-    const first = await Workspace.open({
-      workspaceId: "workspace",
-      facts,
-      versions,
-      projection: { store: failedPublisher },
-    });
-    failedPublisher.fail = true;
-    expect((await first.execute(createNode())).status).toBe("committed-projection-pending");
+    const { workspace: first } = await setup(documents);
+    expect((await first.execute(createNode("fact-owned-history"))).status).toBe("published");
+    const before = await first.query({ kind: "history", workspaceId: "workspace", channelId: "desktop" });
+    expect(before.undo).not.toBeNull();
+    await first.close();
 
+    await documents.delete(localReceiptsDocumentId("101"));
     const restartedFacts = await FactAuthority.open({
       workspaceId: "workspace",
       loroPeerId: "101",
-      documents: documents,
+      documents,
     });
-    const materializer = new BoundedProjectionStore(documents);
-    const restarted = await Workspace.open({
-      workspaceId: "workspace",
-      facts: restartedFacts,
-      versions,
-      projection: { store: materializer },
-    });
-    expect(
-      await restarted.query({
-        kind: "invocation",
-        workspaceId: "workspace",
-        invocationId: "create",
-      }),
-    ).toMatchObject({ status: "published" });
+    const restarted = await Workspace.open({ workspaceId: "workspace", facts: restartedFacts, versions });
+
+    await expect(restarted.query({ kind: "history", workspaceId: "workspace", channelId: "desktop" })).resolves.toEqual(
+      before,
+    );
+    await expect(
+      restarted.query({ kind: "invocation", workspaceId: "workspace", invocationId: "fact-owned-history" }),
+    ).resolves.toEqual({ status: "absent" });
   });
 
-  it("Events 与 query", async () => {
-    const publisher = new ControlledPublisher();
+  it("events report authority advance and the newly queryable Projection generation", async () => {
     const events: EngineEvent[] = [];
-    const { workspace } = await setup(publisher, undefined, eventCollector(events));
+    const { facts, workspace } = await setup(new InMemoryDocumentStore(), eventCollector(events));
     await workspace.execute(createNode());
     expect(events.map((event) => event.kind)).toEqual(["authority-advanced", "projection-published"]);
-    publisher.fail = true;
-    expect(
-      await workspace.execute({
-        ...createNode("lagged"),
-        actions: nodeAtWorkspace("lagged"),
-      }),
-    ).toMatchObject({ status: "committed-projection-pending" });
-    expect(events.slice(-2).map((event) => event.kind)).toEqual(["authority-advanced", "projection-failed"]);
+
+    await commitAuthorityNode(facts, "remote", "remote");
+    await workspace.reconcileAuthorityAdvance();
+    expect(events.slice(-2).map((event) => event.kind)).toEqual(["authority-advanced", "projection-published"]);
     expect(
       await workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
-    ).not.toHaveProperty("nodes.lagged");
-    publisher.fail = false;
-    expect(
-      (
-        await workspace.execute({
-          ...createNode("lagged"),
-          actions: nodeAtWorkspace("lagged"),
-        })
-      ).status,
-    ).toBe("published");
-    expect(events.at(-1)?.kind).toBe("projection-recovered");
-    expect(
-      await workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
-    ).toMatchObject({
-      nodes: { lagged: { nodeId: "lagged" } },
-    });
+    ).toHaveProperty("nodes.remote");
     expect(events.every((event) => !Object.hasOwn(event, "facts"))).toBe(true);
   });
 
-  it("authority reconciliation reports publication failure through the projection lifecycle", async () => {
-    const publisher = new ControlledPublisher();
-    const events: EngineEvent[] = [];
-    const { facts, workspace } = await setup(publisher, undefined, eventCollector(events));
-    await commitAuthorityNode(facts, "remote-failure", "remote-failure");
-    publisher.fail = true;
-
-    await expect(workspace.reconcileAuthorityAdvance()).rejects.toThrow("injected projection failure");
-
-    expect(events.map((event) => event.kind)).toEqual(["authority-advanced", "projection-failed"]);
-  });
-
-  it("workspace close rejects new work and drains a command already inside publication", async () => {
-    const publisher = new GatePublisher();
-    const { workspace } = await setup(publisher);
-    publisher.enable();
-    const executing = workspace.execute(createNode());
-    await publisher.entered;
-    let closed = false;
-    const closing = workspace.close().then(() => {
-      closed = true;
-    });
-    await Promise.resolve();
-    expect(closed).toBe(false);
-
-    publisher.release();
-    expect((await executing).status).toBe("published");
-    await closing;
+  it("workspace close rejects new commands and queries", async () => {
+    const { workspace } = await setup();
+    await workspace.close();
     expect(await workspace.execute(createNode("after-close"))).toMatchObject({
       status: "rejected",
       error: { code: "projection-unavailable" },
     });
-  });
-
-  it("workspace close drains an accepted query before releasing its runtime", async () => {
-    const store = new GateQueryStore();
-    const { workspace } = await setup(store);
-    store.enable();
-    const querying = workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" });
-    await store.entered;
-    let closed = false;
-    const closing = workspace.close().then(() => {
-      closed = true;
-    });
-    await Promise.resolve();
-    expect(closed).toBe(false);
-
-    store.release();
-    await expect(querying).resolves.toMatchObject({ perspective: "origin" });
-    await closing;
     await expect(
       workspace.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
     ).rejects.toThrow("Workspace is closed");
   });
 
-  it("restart advances the last complete generation across an unpublished Authority tail", async () => {
+  it("restart rebuilds across an Authority tail that the previous runtime did not interpret", async () => {
     const documents = new InMemoryDocumentStore();
     const openFacts = () =>
       FactAuthority.open({
         workspaceId: "workspace",
         loroPeerId: "808",
-        documents: documents,
+        documents,
       });
     const firstFacts = await openFacts();
-    const firstStore = new BoundedProjectionStore(documents);
-    const first = await Workspace.open({
-      workspaceId: "workspace",
-      facts: firstFacts,
-      versions,
-      projection: { store: firstStore },
-    });
+    const first = await Workspace.open({ workspaceId: "workspace", facts: firstFacts, versions });
     await first.execute(createNode());
-    const publishedIdentity = (await firstStore.storedIdentities())[0];
-    if (!publishedIdentity) {
-      throw new Error("Expected one complete materialized generation");
-    }
     await firstFacts.commit({
       invocationId: "tail",
       request: { kind: "tail" },
@@ -2040,126 +1872,12 @@ describe("Proposal Workspace coordinator", () => {
       publishedFrontier: firstFacts.snapshot().frontier,
     });
 
-    const recoveringStore = new ControlledPublisher(documents);
-    const restarted = await Workspace.open({
-      workspaceId: "workspace",
-      facts: await openFacts(),
-      versions,
-      projection: { store: recoveringStore },
-    });
-    expect(recoveringStore.restoredGenerationIds).toContain(publishedIdentity.generationId);
-    expect(recoveringStore.generations).toHaveLength(1);
+    const restarted = await Workspace.open({ workspaceId: "workspace", facts: await openFacts(), versions });
     expect(
       await restarted.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
-    ).toMatchObject({
-      nodes: { node: { nodeId: "node" }, "tail-node": { nodeId: "tail-node" } },
-    });
+    ).toMatchObject({ nodes: { node: { nodeId: "node" }, "tail-node": { nodeId: "tail-node" } } });
   });
 });
-
-class ControlledPublisher extends BoundedProjectionStore {
-  fail = false;
-  readonly generations: Parameters<BoundedProjectionStore["publish"]>[0][] = [];
-  readonly restoredGenerationIds: string[] = [];
-
-  constructor(documents: DocumentStore = new InMemoryDocumentStore()) {
-    super(documents);
-  }
-
-  override restore(generationId: string) {
-    this.restoredGenerationIds.push(generationId);
-    return super.restore(generationId);
-  }
-
-  override async publish(
-    generation: Parameters<BoundedProjectionStore["publish"]>[0],
-    review: Parameters<BoundedProjectionStore["publish"]>[1],
-  ): Promise<void> {
-    if (this.fail) {
-      throw new Error("injected projection failure");
-    }
-    await super.publish(generation, review);
-    this.generations.push(generation);
-  }
-}
-
-class GateQueryStore extends BoundedProjectionStore {
-  readonly entered: Promise<void>;
-  private enter!: () => void;
-  private continue!: () => void;
-  private readonly gate: Promise<void>;
-  private enabled = false;
-
-  constructor() {
-    super(new InMemoryDocumentStore());
-    this.entered = new Promise((resolve) => {
-      this.enter = resolve;
-    });
-    this.gate = new Promise((resolve) => {
-      this.continue = resolve;
-    });
-  }
-
-  override async page<Section extends ProjectionSectionName>(
-    generationId: string,
-    perspective: ProjectionPerspective,
-    section: Section,
-    after: string | null,
-    limit: number,
-  ): Promise<ProjectionSlicePage<Section>> {
-    if (this.enabled) {
-      this.enter();
-      await this.gate;
-    }
-    return super.page(generationId, perspective, section, after, limit);
-  }
-
-  enable(): void {
-    this.enabled = true;
-  }
-
-  release(): void {
-    this.continue();
-  }
-}
-
-class GatePublisher extends BoundedProjectionStore {
-  readonly entered: Promise<void>;
-  private enter!: () => void;
-  private continue!: () => void;
-  private readonly gate: Promise<void>;
-  private enabled = false;
-
-  constructor(documents: DocumentStore = new InMemoryDocumentStore()) {
-    super(documents);
-    this.entered = new Promise((resolve) => {
-      this.enter = resolve;
-    });
-    this.gate = new Promise((resolve) => {
-      this.continue = resolve;
-    });
-  }
-
-  override async publish(
-    generation: Parameters<BoundedProjectionStore["publish"]>[0],
-    review: Parameters<BoundedProjectionStore["publish"]>[1],
-  ): Promise<void> {
-    if (!this.enabled) {
-      return super.publish(generation, review);
-    }
-    this.enter();
-    await this.gate;
-    await super.publish(generation, review);
-  }
-
-  enable(): void {
-    this.enabled = true;
-  }
-
-  release(): void {
-    this.continue();
-  }
-}
 
 class FailingAppendDocumentStore extends InMemoryDocumentStore {
   failAppend = false;
@@ -2196,17 +1914,6 @@ function authorityNodeActions(nodeId: string) {
       originalPlacement: { placementId: `${nodeId}-original`, anchor: end },
     },
   ] as const;
-}
-
-class RecordingLoadDocumentStore extends InMemoryDocumentStore {
-  materializedShardLoads = 0;
-
-  override load(id: string) {
-    if (id.startsWith("materialized-generation/shard/")) {
-      this.materializedShardLoads += 1;
-    }
-    return super.load(id);
-  }
 }
 
 function required<T>(value: T | undefined, label: string): T {

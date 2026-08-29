@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EditCommand, ViewRowsResult } from "@lode/sdk";
 import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
-import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
+import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
@@ -402,14 +402,12 @@ async function createTableFixture(workspace: Workspace): Promise<void> {
 }
 
 function plainField(ownerNodeId: string, prefix: string, value: string): EditCommand["actions"] {
-  const fieldNodeId = `${ownerNodeId}-${prefix}-field`;
-  const fieldOccurrenceId = `${fieldNodeId}-occurrence`;
+  const fieldNodeId = materializedFieldNodeId(ownerNodeId, "status-field");
   const valueNodeId = `${ownerNodeId}-${prefix}-value`;
   return [
-    nodeAt(fieldNodeId, ownerNodeId, fieldOccurrenceId),
+    { kind: "field-materialize", ownerNodeId, fieldDefinitionId: "status-field" },
     nodeAt(valueNodeId, fieldNodeId, `${valueNodeId}-occurrence`),
     { kind: "rich-text-splice", nodeId: valueNodeId, deleteAtomIds: [], anchor: end, insert: value },
-    { kind: "field-materialize", ownerNodeId, fieldDefinitionId: "status-field", fieldNodeId, fieldOccurrenceId },
   ];
 }
 
@@ -418,8 +416,6 @@ function dateValue(ownerNodeId: string, value: string): EditCommand["actions"][n
     kind: "field-date-value-set",
     ownerNodeId,
     fieldDefinitionId: "date-field",
-    fieldNodeId: `${ownerNodeId}-date-field`,
-    fieldOccurrenceId: `${ownerNodeId}-date-field-occurrence`,
     valueNodeId: `${ownerNodeId}-date-value`,
     valueOccurrenceId: `${ownerNodeId}-date-value-occurrence`,
     value,

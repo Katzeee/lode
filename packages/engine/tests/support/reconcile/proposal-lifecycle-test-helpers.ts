@@ -1,42 +1,19 @@
-import type { GraphAction } from "../../../src/domain/fact/index.js";
+import type { GraphAction, ProposableAction } from "../../../src/domain/fact/index.js";
 import { base, end, Facts } from "./reconcile-test-helpers.js";
 import { addPlacedNode } from "./placed-node-test-helpers.js";
 import { fieldProposalLifecycleCases } from "./proposal-field-lifecycle-test-helpers.js";
 import { supertagProposalLifecycleCases } from "./proposal-supertag-lifecycle-test-helpers.js";
 import { inlineReferenceProposalLifecycleCases } from "./proposal-inline-reference-lifecycle-test-helpers.js";
 import type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
+import { searchProposalLifecycleCases } from "./proposal-search-lifecycle-test-helpers.js";
+import { templateFieldProposalLifecycleCases } from "./proposal-template-field-lifecycle-test-helpers.js";
+import { viewProposalLifecycleCases } from "./proposal-view-lifecycle-test-helpers.js";
 export type { ProposalLifecycleCase } from "./proposal-lifecycle-types.js";
 
 export const proposalLifecycleCases = (): readonly ProposalLifecycleCase[] =>
   Object.values(PROPOSAL_LIFECYCLE_CASES).map((createCase) => createCase());
 
-export const historyLifecycleCases = (): readonly ProposalLifecycleCase[] =>
-  proposalLifecycleCases().filter((entry) => HISTORY_MUTATION_KINDS.has(entry.kind));
-
-const HISTORY_MUTATION_KINDS: ReadonlySet<GraphAction["kind"]> = new Set([
-  "node-create",
-  "node-trash",
-  "node-restore",
-  "original-promote",
-  "placement-create",
-  "placement-remove",
-  "placement-move",
-  "supertag-application-add",
-  "supertag-membership-remove",
-  "supertag-extension-add",
-  "supertag-extension-remove",
-  "template-member-add",
-  "template-member-remove",
-  "field-value-remove",
-  "materialized-field-clear",
-  "field-configuration-set",
-  "rich-text-splice",
-  "rich-text-mark",
-  "inline-reference-create",
-  "inline-reference-remove",
-  "inline-alias-attach",
-  "inline-alias-detach",
-]);
+export const historyLifecycleCases = proposalLifecycleCases;
 
 const PROPOSAL_LIFECYCLE_CASES = {
   "node-create": nodeCreateCase,
@@ -49,9 +26,12 @@ const PROPOSAL_LIFECYCLE_CASES = {
   ...supertagProposalLifecycleCases,
   ...fieldProposalLifecycleCases,
   ...inlineReferenceProposalLifecycleCases,
+  ...templateFieldProposalLifecycleCases,
+  ...searchProposalLifecycleCases,
+  ...viewProposalLifecycleCases,
   "rich-text-splice": richTextSpliceCase,
   "rich-text-mark": richTextMarkCase,
-} satisfies Readonly<Record<string, () => ProposalLifecycleCase>>;
+} satisfies Readonly<Record<ProposableAction["kind"], () => ProposalLifecycleCase>>;
 
 function nodeCreateCase(): ProposalLifecycleCase {
   const facts = new Facts();

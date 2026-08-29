@@ -8,6 +8,7 @@ export type {
   Projection,
   ProjectionGeneration,
   ProjectionSectionName,
+  ProjectionSectionValue,
   ProjectionSections,
   ProjectionVersions,
   TemplateField,
@@ -17,7 +18,7 @@ export type {
   ScopedProjectionGeneration,
 } from "./projection-types.js";
 export { isProjectionSectionEntry, isProjectionSectionValue } from "./projection-section-shape.js";
-export { advanceGeneration, rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
+export { rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
 export { finalizedNodeIds, nodeDeletionActionIds } from "./deletion-finalization.js";
 export {
   fieldConfigurationProjectionIdentity,

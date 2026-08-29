@@ -5,7 +5,7 @@ import {
   type FactAction,
   type FactActionId,
 } from "../fact/index.js";
-import type { ProjectionPlanCache } from "./projection-types.js";
+import type { ProjectionActivation } from "./projection-types.js";
 
 export function finalizedNodeIds(actions: readonly FactAction[]): ReadonlySet<string> {
   return new Set(
@@ -27,18 +27,18 @@ export function effectiveContributions(
   );
 }
 
-export function effectivePlanCache(
-  cache: ProjectionPlanCache,
+export function effectiveProjectionActivation(
+  state: ProjectionActivation,
   active: readonly FactAction[],
   effective: readonly FactAction[],
-): ProjectionPlanCache {
+): ProjectionActivation {
   const retained = new Set([
     ...effective.map((action) => action.id),
     ...active.filter(isTerminalContribution).map((action) => action.id),
   ]);
   return {
-    activeActionIds: cache.activeActionIds.filter((id) => retained.has(id)),
-    supportByAction: cache.supportByAction,
+    activeActionIds: state.activeActionIds.filter((id) => retained.has(id)),
+    supportByAction: state.supportByAction,
   };
 }
 

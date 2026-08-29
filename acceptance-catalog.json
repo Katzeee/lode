@@ -81,7 +81,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent Search Expression move and configure converge across three replicas and all Reconcile paths"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent Search Expression move and configure converge across three replicas"
         }
       ]
     },
@@ -115,7 +115,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent View column move and Sort addition converge across three replicas and all Reconcile paths"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > concurrent View column move and Sort addition converge across three replicas"
         },
         {
           "workspace": "daemon",
@@ -229,7 +229,7 @@
     },
     {
       "id": "field.placeholder-materialization-values",
-      "contract": "Effective placeholders remain distinct from Materialized Fields whose ordered values are Node or Reference occurrences.",
+      "contract": "Effective placeholders remain distinct from Materialized Fields; each (owner Node, Field Definition) derives one stable Field Node and owning Occurrence, while concurrent first writes preserve every ordered Node or Reference value Occurrence in that single semantic slot.",
       "tests": [
         {
           "workspace": "engine",
@@ -243,7 +243,7 @@
     },
     {
       "id": "field.definition-configuration",
-      "contract": "Field Definition configuration projects semantic values into typed relation graphs, carries them through Proposal and History, and rejects invalid endpoint types.",
+      "contract": "Field Definition configuration projects semantic values into a stable Definition-owned relation graph, collapses concurrent equal endpoints while retaining incomparable candidates, carries the relation through Proposal and History, and rejects invalid endpoint types.",
       "tests": [
         {
           "workspace": "engine",
@@ -279,7 +279,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > converges concurrent same-Field value reorders across 32 arrival and incremental topologies"
+          "test": "tests/field-content-deletion.property.test.ts > Field content deletion convergence > converges concurrent same-Field value reorders across 32 Fact arrival orders"
         }
       ]
     },
@@ -311,7 +311,7 @@
         },
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > Supertag Extension cycle and search projections converge across seeded arrival and incremental tails"
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > Supertag Extension cycle and search projections converge across seeded Fact arrival"
         },
         {
           "workspace": "engine",
@@ -391,7 +391,7 @@
     },
     {
       "id": "proposal.resolution-history",
-      "contract": "Accept, Reject, opposite Resolution conflict, adjudication, and History preserve immutable terminal intent.",
+      "contract": "Accept, Reject, opposite Resolution conflict, adjudication, and Fact-owned History preserve immutable terminal intent across receipt deletion, restart, and Fact-only sync.",
       "tests": [
         {
           "workspace": "engine",
@@ -404,6 +404,18 @@
         {
           "workspace": "engine",
           "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > representative Proposal actions preserve all rebuild paths through Accept and Reject"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > History Steps preserve Fact-only rebuild paths after Invocation Receipts disappear"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > restart rebuilds identical History after every Invocation Receipt is deleted"
+        },
+        {
+          "workspace": "engine",
+          "test": "src/subsystems/workspace/fact-replication.acceptance.test.ts > Fact-only production sync > History Steps enter Fact-only sync while Invocation Receipts remain local"
         },
         {
           "workspace": "engine",
@@ -499,15 +511,23 @@
     },
     {
       "id": "convergence.multi-replica",
-      "contract": "Permutation, duplicate delivery, batch, incremental, restart, and three-or-more-replica topologies converge without silent intent loss.",
+      "contract": "Permutation, duplicate delivery, batching, restart, and three-or-more-replica topologies converge without silent intent loss.",
       "tests": [
         {
           "workspace": "engine",
-          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated bounded domain graphs shrink and preserve full and incremental semantics"
+          "test": "src/subsystems/workspace/fact-sot.acceptance.test.ts > Fact source-of-truth reconstruction > rebuilds a public Direct, Proposal, Resolution, and History program from Facts alone"
         },
         {
           "workspace": "engine",
-          "test": "tests/placement-conflict.property.test.ts > Placement Conflict convergence > preserves both cross-parent move intents across 32 arrival and replay topologies"
+          "test": "src/subsystems/workspace/fact-sot.acceptance.test.ts > Fact source-of-truth reconstruction > rebuilds concurrent Resolution conflict and adjudication from Facts alone"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/proposal-mode.property.test.ts > seeded Proposal Mode property and permutation contracts > generated bounded domain graphs preserve every Fact-derived execution path"
+        },
+        {
+          "workspace": "engine",
+          "test": "tests/placement-conflict.property.test.ts > Placement Conflict convergence > preserves both cross-parent move intents across 32 Fact arrival orders"
         },
         {
           "workspace": "engine",
@@ -529,8 +549,12 @@
     },
     {
       "id": "identity.governance-replay",
-      "contract": "Actor membership, Peer admission, ownership, and transit rotation are governance Facts on the unified authority; replay is a deterministic fold whose invalid or stale actions have no effect under every merge order.",
+      "contract": "Actor membership, Peer admission, ownership, and transit rotation are governance Facts on the unified authority; public summary and receipt-free Fact replicas use the same deterministic fold, whose invalid or stale actions have no effect under every merge order.",
       "tests": [
+        {
+          "workspace": "engine",
+          "test": "tests/fact-sot-governance.acceptance.test.ts > Fact source-of-truth governance > rebuilds the public Governance summary on a receipt-free Fact replica"
+        },
         {
           "workspace": "engine",
           "test": "src/domain/governance/governance.acceptance.test.ts > governance projection > GOV-2 concurrent governance converges under different merge orders"

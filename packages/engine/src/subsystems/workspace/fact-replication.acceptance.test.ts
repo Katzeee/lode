@@ -1,4 +1,3 @@
-import { LoroDoc } from "loro-crdt";
 import { describe, expect, it } from "vitest";
 
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
@@ -20,6 +19,7 @@ import {
   viewProjectionIdentity,
 } from "../../domain/reconcile/index.js";
 import { queryReview } from "../../domain/review/index.js";
+import { queryHistory } from "../../domain/history/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
 import { Workspace } from "./workspace.js";
 import { SyncExchange } from "../synchronization/sync-exchange.js";
@@ -442,9 +442,10 @@ describe("Fact-only production sync", () => {
     expect(synced.nodeOwners["options-field"]).toBe("workspace");
   });
 
-  it("History receipt lineage remains local while compensating Facts enter sync", async () => {
-    const store = await replica("101");
-    await store.commit({
+  it("History Steps enter Fact-only sync while Invocation Receipts remain local", async () => {
+    const source = await replica("101");
+    const target = await replica("202");
+    await source.commit({
       invocationId: "local-history",
       request: { command: "create" },
       writes: [
@@ -454,6 +455,13 @@ describe("Fact-only production sync", () => {
           intent: "direct",
           actions: [{ kind: "node-create", nodeId: "node", ownerNodeId: "workspace", originalPlacement: null }],
         },
+        {
+          kind: "history",
+          channelId: "private-desktop-channel",
+          operation: "normal",
+          targetStepId: null,
+          actionFactCount: 1,
+        },
       ],
       lineage: {
         channelId: "private-desktop-channel",
@@ -462,16 +470,9 @@ describe("Fact-only production sync", () => {
       },
       publishedFrontier: {},
     });
-    const received = new LoroDoc();
-    received.import(await store.replication.exportUpdate());
-    const records = received
-      .getList("facts")
-      .toArray()
-      .map((value) => value as { kind?: unknown; receipt?: unknown });
-    expect(records).toHaveLength(1);
-    expect(records.every((record) => record.kind !== undefined)).toBe(true);
-    expect(JSON.stringify(records)).not.toContain("private-desktop-channel");
-    expect(records.every((record) => record.receipt === undefined)).toBe(true);
+    await target.replication.importUpdate(await source.replication.exportUpdate());
+    expect(queryHistory("private-desktop-channel", target.snapshot()).undo).not.toBeNull();
+    expect(target.receipt("local-history")).toBeNull();
   });
 
   it("SYNC-2 shuffled duplicate offline merges converge", async () => {

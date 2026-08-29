@@ -1,4 +1,10 @@
-import { canonicalDigest, type FactActionId, type FactSnapshot, type ProjectionIdentity } from "../fact/index.js";
+import {
+  canonicalDigest,
+  type FactActionId,
+  type FactSnapshot,
+  type FieldDefinitionConfigurationValue,
+  type ProjectionIdentity,
+} from "../fact/index.js";
 import type { ProjectionVersions } from "./projection-types.js";
 
 export function projectionIdentity(
@@ -54,18 +60,22 @@ export type FieldConfigurationProjectionIdentity = Readonly<{
   contextOccurrenceId: string;
 }>;
 
-export function fieldConfigurationProjectionIdentity(actionId: FactActionId): FieldConfigurationProjectionIdentity {
-  const root = `${actionId}/projection/field-configuration`;
+export function fieldConfigurationProjectionIdentity(
+  fieldDefinitionId: string,
+  configuration: FieldDefinitionConfigurationValue,
+): FieldConfigurationProjectionIdentity {
+  const relationRoot = `field-configuration:v1:${encodeURIComponent(fieldDefinitionId)}:${configuration.kind}`;
+  const candidateRoot = `${relationRoot}/candidate/${canonicalDigest(configuration)}`;
   return {
-    configurationNodeId: `${root}/node`,
-    configurationOccurrenceId: `${root}/occurrence`,
-    definitionOccurrenceId: `${root}/definition-occurrence`,
-    valueOccurrenceId: `${root}/value-occurrence`,
-    optionsSupertagOccurrenceId: `${root}/options-supertag-occurrence`,
-    expressionNodeId: `${root}/expression/node`,
-    expressionOccurrenceId: `${root}/expression/occurrence`,
-    sourceFieldDefinitionOccurrenceId: `${root}/expression/source-field-definition-occurrence`,
-    contextNodeId: `${root}/expression/context/node`,
-    contextOccurrenceId: `${root}/expression/context/occurrence`,
+    configurationNodeId: `${relationRoot}/node`,
+    configurationOccurrenceId: `${relationRoot}/occurrence`,
+    definitionOccurrenceId: `${relationRoot}/definition-occurrence`,
+    valueOccurrenceId: `${candidateRoot}/value-occurrence`,
+    optionsSupertagOccurrenceId: `${candidateRoot}/options-supertag-occurrence`,
+    expressionNodeId: `${candidateRoot}/expression/node`,
+    expressionOccurrenceId: `${candidateRoot}/expression/occurrence`,
+    sourceFieldDefinitionOccurrenceId: `${candidateRoot}/expression/source-field-definition-occurrence`,
+    contextNodeId: `${candidateRoot}/expression/context/node`,
+    contextOccurrenceId: `${candidateRoot}/expression/context/occurrence`,
   };
 }

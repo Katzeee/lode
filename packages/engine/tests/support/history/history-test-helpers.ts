@@ -3,7 +3,6 @@ import {
   factActions,
   graphActionBody,
   makeFact,
-  type AuthorityReceipt,
   type EditIntent,
   type Fact,
   type FactId,
@@ -17,7 +16,7 @@ import {
   rebuildGeneration,
   type ProjectionGeneration,
 } from "../../../src/domain/reconcile/index.js";
-import { nextHistoryLineage } from "../../../src/domain/history/state.js";
+import { historyBody, historySteps, nextHistoryLineage } from "../../../src/domain/history/state.js";
 import { planInvocationCompensation } from "../../../src/domain/history/compensation.js";
 import { withInitialNodeRelations } from "../reconcile/placed-node-test-helpers.js";
 
@@ -32,7 +31,7 @@ const versions = CURRENT_PROJECTION_VERSIONS;
 
 export class HistoryFixture {
   readonly facts: Fact[] = [];
-  readonly receipts: AuthorityReceipt[] = [];
+  private readonly stepIds = new Map<string, FactId>();
 
   constructor() {
     this.transaction(workspaceGenesisActions("workspace"));
@@ -83,26 +82,27 @@ export class HistoryFixture {
     channelId?: string;
     operation?: "normal" | "undo" | "redo";
     targetStepId?: string | null;
-  }): AuthorityReceipt {
+  }): Readonly<{ stepId: FactId; factIds: readonly FactId[] }> {
     const created = this.transaction(input.actions, input.intent);
     const channelId = input.channelId ?? "channel";
-    const lineage = nextHistoryLineage(
-      this.receipts,
-      channelId,
-      input.operation ?? "normal",
-      input.targetStepId ?? null,
-    );
-    const receipt: AuthorityReceipt = {
+    const targetStepId =
+      input.targetStepId === null || input.targetStepId === undefined
+        ? null
+        : (this.stepIds.get(input.targetStepId) ?? (input.targetStepId as FactId));
+    const lineage = nextHistoryLineage(this.snapshot(), channelId, input.operation ?? "normal", targetStepId);
+    const actionFactIds = [...new Set(created.map((fact) => fact.factId))];
+    const sequence = this.facts.length + 1;
+    const step = makeFact({
       workspaceId: "workspace",
       replicaId: REPLICA,
-      invocationId: input.invocationId,
-      requestDigest: `digest-${input.invocationId}`,
-      factIds: [...new Set(created.map((fact) => fact.factId))],
-      committedFrontier: frontierOf(this.facts),
-      lineage,
-    };
-    this.receipts.push(receipt);
-    return receipt;
+      sequence,
+      observed: { [REPLICA]: sequence - 1 },
+      lamport: sequence,
+      body: historyBody(lineage, actionFactIds.length),
+    });
+    this.facts.push(step);
+    this.stepIds.set(input.invocationId, step.id);
+    return { stepId: step.id, factIds: actionFactIds };
   }
 
   addTransaction(actions: readonly GraphAction[], intent: EditIntent = "direct"): readonly FactAction[] {
@@ -110,17 +110,21 @@ export class HistoryFixture {
   }
 
   compensationActions(invocationId: string): readonly GraphAction[] {
-    const receipt = this.receipts.find((candidate) => candidate.invocationId === invocationId);
-    if (!receipt) {
+    const stepId = this.stepIds.get(invocationId);
+    const step = historySteps(this.snapshot()).find((candidate) => candidate.id === stepId);
+    if (!step) {
       return [];
     }
-    const ids = new Set(receipt.factIds);
-    const compensation = planInvocationCompensation(
-      this.facts.filter((fact) => ids.has(fact.id)),
-      this.snapshot(),
-      this.generation(),
-    );
+    const compensation = planInvocationCompensation(step.actionFacts, this.snapshot(), this.generation());
     return compensation.kind === "ready" ? compensation.writes.flatMap((batch) => batch.actions) : [];
+  }
+
+  stepId(invocationId: string): FactId {
+    const stepId = this.stepIds.get(invocationId);
+    if (!stepId) {
+      throw new Error(`History fixture has no Step for ${invocationId}`);
+    }
+    return stepId;
   }
 
   private transaction(actions: readonly GraphAction[], intent: EditIntent = "direct"): readonly FactAction[] {

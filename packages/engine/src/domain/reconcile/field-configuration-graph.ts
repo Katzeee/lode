@@ -23,7 +23,7 @@ export function fieldConfigurationPlacementIds(
   if (authored.kind !== "field-configuration-set" || !activeConfigurationIds.has(action.id)) {
     return [];
   }
-  const identity = fieldConfigurationProjectionIdentity(action.id);
+  const identity = fieldConfigurationProjectionIdentity(authored.fieldDefinitionId, authored.configuration);
   if (authored.configuration.kind === "initialization-expression") {
     return [
       identity.configurationOccurrenceId,
@@ -52,7 +52,7 @@ export function fieldConfigurationPlacement(
     return null;
   }
   const configuration = authored.configuration;
-  const identity = fieldConfigurationProjectionIdentity(action.id);
+  const identity = fieldConfigurationProjectionIdentity(authored.fieldDefinitionId, authored.configuration);
   if (placementId === identity.configurationOccurrenceId) {
     return {
       nodeId: identity.configurationNodeId,

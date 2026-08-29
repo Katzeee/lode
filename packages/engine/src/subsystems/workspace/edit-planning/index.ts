@@ -1,15 +1,26 @@
 import type { EditAction } from "../../../domain/edit/index.js";
 import {
+  factActionId,
+  factId,
+  graphActionBody,
+  makeFact,
+  normalizeFrontier,
   type ActorId,
   type EditIntent,
+  type Fact,
+  type FactActionId,
   type FactSnapshot,
   type GraphAction,
   type ReplicaId,
 } from "../../../domain/fact/index.js";
-import type { ScopedProjectionGeneration } from "../../../domain/reconcile/index.js";
+import {
+  rebuildGeneration,
+  type ProjectionGeneration,
+  type ProjectionVersions,
+  type ScopedProjectionGeneration,
+} from "../../../domain/reconcile/index.js";
 import { assertNoWorkspaceCreation, expandPlanningEdit } from "./edit-expansion.js";
 import { expandAction } from "./expansion/index.js";
-import { planningReconciler } from "./planning-reconciler.js";
 import { validatePlannedAction } from "./action-validation.js";
 import type { AuthoredActionBatch } from "./action-batch.js";
 
@@ -26,14 +37,14 @@ export function prepareEdits(
 ): readonly AuthoredActionBatch[] {
   let workingGeneration = generation;
   const prepared: AuthoredActionBatch[] = [];
-  const planning = planningReconciler(workspaceId, actorId, snapshot, generation.identity, replicaId);
+  const planning = createPlanningProjection(workspaceId, actorId, intent, snapshot, generation.identity, replicaId);
   assertNoWorkspaceCreation(workspaceId, operations);
-  for (const [editIndex, operation] of operations.entries()) {
+  for (const operation of operations) {
     const previous = intent === "direct" ? workingGeneration.origin : workingGeneration.review;
     const actions = expandPlanningEdit(operation, workingGeneration.review, (actionIndex) =>
-      planning.actionId(editIndex, actionIndex),
+      planning.actionId(actionIndex),
     ).flatMap((action) => expandAction(action, workingGeneration.review));
-    const reconciled = planning.reconcileEdit(editIndex, nonemptyBatch(actions), intent);
+    const reconciled = planning.append(nonemptyBatch(actions));
     const validated = actions.map((action) =>
       validatePlannedAction(action, previous, workingGeneration.review, reconciled.generation.review),
     );
@@ -44,6 +55,45 @@ export function prepareEdits(
     workingGeneration = reconciled.generation;
   }
   return prepared.map(nonemptyBatch);
+}
+
+function createPlanningProjection(
+  workspaceId: string,
+  actorId: ActorId,
+  intent: EditIntent,
+  base: FactSnapshot,
+  versions: ProjectionVersions,
+  replicaId: ReplicaId,
+): Readonly<{
+  actionId(actionIndex: number): FactActionId;
+  append(actions: AuthoredActionBatch): Readonly<{ snapshot: FactSnapshot; generation: ProjectionGeneration }>;
+}> {
+  const facts: Fact[] = [];
+  const firstSequence = (base.frontier[replicaId] ?? 0) + 1;
+  const firstLamport = base.facts.reduce((maximum, fact) => Math.max(maximum, fact.coordinate.lamport), 0) + 1;
+
+  return {
+    actionId: (actionIndex) => factActionId(factId(workspaceId, replicaId, firstSequence + facts.length), actionIndex),
+    append(actions) {
+      const sequence = firstSequence + facts.length;
+      const observed =
+        facts.length === 0 ? base.frontier : normalizeFrontier({ ...base.frontier, [replicaId]: sequence - 1 });
+      const fact = makeFact({
+        workspaceId,
+        replicaId,
+        sequence,
+        observed,
+        lamport: firstLamport + facts.length,
+        body: graphActionBody(actorId, intent, actions),
+      });
+      facts.push(fact);
+      const snapshot: FactSnapshot = {
+        facts: [...base.facts, ...facts],
+        frontier: normalizeFrontier({ ...base.frontier, [replicaId]: sequence }),
+      };
+      return { snapshot, generation: rebuildGeneration(workspaceId, snapshot, versions) };
+    },
+  };
 }
 
 function nonemptyBatch(actions: readonly GraphAction[]): AuthoredActionBatch {

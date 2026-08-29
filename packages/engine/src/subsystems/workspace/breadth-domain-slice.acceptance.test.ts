@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand } from "@lode/sdk";
+import { materializedFieldNodeId } from "../../domain/fact/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
@@ -41,8 +42,6 @@ describe("breadth-first domain slice", () => {
           parentNodeId: "workspace",
           anchor: end,
           seed: textSeed("Lode URL"),
-          urlFieldNodeId: "url-field",
-          urlFieldOccurrenceId: "url-field-occ",
           urlValueNodeId: "url-value",
           urlValueOccurrenceId: "url-value-occ",
           url: "https://example.com/lode",
@@ -61,8 +60,6 @@ describe("breadth-first domain slice", () => {
         {
           kind: "code-node-configure",
           nodeId: "code-target",
-          languageFieldNodeId: "code-language-field",
-          languageFieldOccurrenceId: "code-language-field-occ",
           languageValueNodeId: "code-language-value",
           languageValueOccurrenceId: "code-language-value-occ",
           language: "JavaScript",
@@ -82,8 +79,6 @@ describe("breadth-first domain slice", () => {
           kind: "field-value-create",
           ownerNodeId: "field-host",
           fieldDefinitionId: "field-definition",
-          fieldNodeId: "field",
-          fieldOccurrenceId: "field-occ",
           valueNodeId: "field-value-a",
           valueOccurrenceId: "field-value-a-occ",
           anchor: end,
@@ -93,8 +88,6 @@ describe("breadth-first domain slice", () => {
           kind: "field-value-create",
           ownerNodeId: "field-host",
           fieldDefinitionId: "field-definition",
-          fieldNodeId: "field",
-          fieldOccurrenceId: "field-occ",
           valueNodeId: "field-value-b",
           valueOccurrenceId: "field-value-b-occ",
           anchor: end,
@@ -105,7 +98,7 @@ describe("breadth-first domain slice", () => {
     expect((await debugNode(workspace, "field-host")).materializedFields).toEqual([
       expect.objectContaining({
         fieldDefinitionId: "field-definition",
-        fieldNodeId: "field",
+        fieldNodeId: materializedFieldNodeId("field-host", "field-definition"),
         valueOccurrenceIds: ["field-value-a-occ", "field-value-b-occ"],
       }),
     ]);

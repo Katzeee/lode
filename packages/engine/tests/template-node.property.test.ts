@@ -12,7 +12,6 @@ import {
   type GraphAction,
 } from "../src/domain/fact/index.js";
 import {
-  advanceGeneration,
   rebuildGeneration,
   textAtoms,
   CURRENT_PROJECTION_VERSIONS as versions,
@@ -90,11 +89,6 @@ describe("Template Node convergence", () => {
           .join(""),
       ).toBe("Guidance");
     }
-
-    const before = rebuildGeneration("workspace", baseSnapshot, versions);
-    const finalSnapshot = snapshotOf([...base.values, remove, add, detachment]);
-    const incremental = advanceGeneration("workspace", baseSnapshot, finalSnapshot, versions, before);
-    expect(summary(incremental)).toEqual(expected);
   });
 });
 

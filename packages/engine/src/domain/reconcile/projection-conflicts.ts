@@ -12,7 +12,7 @@ import type { ConflictIssue } from "../conflict/types.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { resolutionsByAction } from "../activation/index.js";
 import { intrinsicNodeTypeConflicts } from "./intrinsic-node-type-conflicts.js";
-import type { ProjectionPlanCache } from "./projection-types.js";
+import type { ProjectionActivation } from "./projection-types.js";
 
 export function projectConflictIssues(
   snapshot: FactSnapshot,
@@ -20,11 +20,11 @@ export function projectConflictIssues(
   active: readonly FactAction[],
   occurrences: ReadonlyMap<string, MutableOccurrence>,
   nodeOwners: Readonly<Record<string, string | null>>,
-  originPlanCache: ProjectionPlanCache,
+  originActivation: ProjectionActivation,
 ): Readonly<Record<string, ConflictIssue>> {
   const resolutions = resolutionsByAction(snapshot.facts);
   const issues = [
-    ...unsupportedDirectIntents(snapshot, originPlanCache, resolutions),
+    ...unsupportedDirectIntents(snapshot, originActivation, resolutions),
     ...resolutionConflicts(snapshot, resolutions),
     ...supertagExtensionConflicts(extensionConflicts),
     ...intrinsicNodeTypeConflicts(active),
@@ -113,7 +113,7 @@ function actionObserves(observer: FactAction, observed: FactAction): boolean {
 
 function unsupportedDirectIntents(
   snapshot: FactSnapshot,
-  origin: ProjectionPlanCache,
+  origin: ProjectionActivation,
   resolutions: ReturnType<typeof resolutionsByAction>,
 ): readonly ConflictIssue[] {
   const activeActionIds = new Set(origin.activeActionIds);

@@ -1,19 +1,18 @@
 import type { InvocationOutcome, InvocationQuery } from "@lode/sdk";
 import { frontierCovers } from "../../../domain/fact/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
-import type { ProjectionIdentityReader } from "../projection/index.js";
+import type { WorkspaceProjectionState } from "../projection/index.js";
 import { pendingResult, publishedResult } from "../workspace-results.js";
 
 type InvocationFactReader = Pick<FactAuthorityPort, "receipt">;
 
-export async function queryWorkspaceInvocation(
+export function queryWorkspaceInvocation(
   query: InvocationQuery,
   facts: InvocationFactReader,
-  projections: ProjectionIdentityReader,
-  generationId: string,
+  state: WorkspaceProjectionState,
   projectionFailure: string | null,
-): Promise<InvocationOutcome> {
-  const identity = await projections.identity(generationId);
+): InvocationOutcome {
+  const identity = state.generation.identity;
   const receipt = facts.receipt(query.invocationId);
   const outcome = !receipt
     ? ({ status: "absent" } as const)

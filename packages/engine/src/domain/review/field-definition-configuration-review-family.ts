@@ -38,7 +38,9 @@ export const fieldDefinitionConfigurationReviewFamily = {
       const action = fact.action;
       if (isFieldDefinitionConfigAction(action)) {
         impacts.add(action.fieldDefinitionId);
-        impacts.add(fieldConfigurationProjectionIdentity(fact.id).configurationNodeId);
+        impacts.add(
+          fieldConfigurationProjectionIdentity(action.fieldDefinitionId, action.configuration).configurationNodeId,
+        );
       }
     }
   },

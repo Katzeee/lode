@@ -14,12 +14,12 @@ type WorkspaceAuthorityCoordinatorOptions = Readonly<{
 export class WorkspaceAuthorityCoordinator {
   constructor(private readonly options: WorkspaceAuthorityCoordinatorOptions) {}
 
-  async reconcileAdvance(): Promise<void> {
+  reconcileAdvance(): void {
     const snapshot = this.options.facts.snapshot();
     if (frontierCovers(this.options.projection.identity.frontier, snapshot.frontier)) {
       return;
     }
     this.options.events?.publish("authority-advanced", snapshot.frontier, null);
-    await this.options.projection.advance(snapshot);
+    this.options.projection.advance(snapshot);
   }
 }

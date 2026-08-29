@@ -32,23 +32,26 @@ export function projectFieldDefinitionConfigurations(
   const byDefinition = new Map<string, FieldDefinitionConfiguration[]>();
   for (const action of [...activeFieldConfigurationActions(active)].sort(compareCausalOrder)) {
     const configuration = action.action.configuration;
-    const identity = fieldConfigurationProjectionIdentity(action.id);
+    const identity = fieldConfigurationProjectionIdentity(action.action.fieldDefinitionId, configuration);
     const occurrence = occurrences.get(identity.configurationOccurrenceId);
-    const tuple = projectTuple(identity.configurationNodeId, occurrences, childOccurrences, nodeOwners);
-    const definitionEndpoint = tuple.endpoints[0];
-    const valueEndpoint = tuple.endpoints[1];
-    const optionsEndpoint = tuple.endpoints[2];
+    const definitionEndpoint = occurrences.get(identity.definitionOccurrenceId);
+    const valueEndpoint = occurrences.get(
+      configuration.kind === "initialization-expression" ? identity.expressionOccurrenceId : identity.valueOccurrenceId,
+    );
+    const optionsEndpoint = occurrences.get(identity.optionsSupertagOccurrenceId);
     const valueNodeId = configurationValueNodeId(action, identity);
     if (
       nodes.get(action.action.fieldDefinitionId)?.intrinsicNodeType !== FIELD_DEFINITION_INTRINSIC_NODE_TYPE ||
       occurrence?.nodeId !== identity.configurationNodeId ||
       occurrence.parentNodeId !== action.action.fieldDefinitionId ||
-      tuple.ownerNodeId !== action.action.fieldDefinitionId ||
-      !hasExpectedEndpointCount(action, tuple.endpoints.length) ||
+      nodeOwners[identity.configurationNodeId] !== action.action.fieldDefinitionId ||
       definitionEndpoint?.nodeId !== configurationDefinitionNodeId(configuration.kind) ||
-      definitionEndpoint.isOwning ||
+      definitionEndpoint.parentNodeId !== identity.configurationNodeId ||
+      nodeOwners[definitionEndpoint.nodeId] === identity.configurationNodeId ||
       valueEndpoint?.nodeId !== valueNodeId ||
-      valueEndpoint.isOwning !== (configuration.kind === "initialization-expression") ||
+      valueEndpoint.parentNodeId !== identity.configurationNodeId ||
+      (nodeOwners[valueNodeId] === identity.configurationNodeId) !==
+        (configuration.kind === "initialization-expression") ||
       nodeLocation(workspaceNodeId, graph, action.action.fieldDefinitionId) !== "active" ||
       nodeLocation(workspaceNodeId, graph, identity.configurationNodeId) !== "active" ||
       nodeLocation(workspaceNodeId, graph, definitionEndpoint.nodeId) !== "active" ||
@@ -95,7 +98,7 @@ function configurationValueNodeId(
 function hasValidOptionsSource(
   workspaceNodeId: string,
   action: FactActionOf<"field-configuration-set">,
-  endpoint: ReturnType<typeof projectTuple>["endpoints"][number] | undefined,
+  endpoint: MutableOccurrence | undefined,
   nodes: ReadonlyMap<string, MutableNode>,
   graph: Parameters<typeof nodeLocation>[1],
 ): boolean {
@@ -109,8 +112,10 @@ function hasValidOptionsSource(
   return (
     configuration.optionsSupertagId !== undefined &&
     endpoint?.nodeId === configuration.optionsSupertagId &&
-    !endpoint.isOwning &&
+    endpoint.parentNodeId ===
+      fieldConfigurationProjectionIdentity(action.action.fieldDefinitionId, configuration).configurationNodeId &&
     nodes.get(endpoint.nodeId)?.intrinsicNodeType === SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE &&
+    graph.nodeOwners[endpoint.nodeId] !== endpoint.parentNodeId &&
     nodeLocation(workspaceNodeId, graph, endpoint.nodeId) === "active"
   );
 }
@@ -174,11 +179,6 @@ function orderedConfigurations(
         ] as const;
       }),
   );
-}
-
-function hasExpectedEndpointCount(action: FactActionOf<"field-configuration-set">, count: number): boolean {
-  const configuration = action.action.configuration;
-  return configuration.kind === "datatype" && configuration.optionsSupertagId !== undefined ? count === 3 : count === 2;
 }
 
 function configurationDefinitionNodeId(

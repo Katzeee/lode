@@ -1,4 +1,10 @@
-import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
+import {
+  canonicalJson,
+  compareCausalOrder,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+  type FactAction,
+} from "../fact/index.js";
 import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import type { FieldMaterializationDecisionEffect } from "./types.js";
@@ -21,7 +27,7 @@ export const fieldMaterializationReviewFamily = {
       reviewScope("materialized-field", action.ownerNodeId, action.fieldDefinitionId),
       associatedNodeScope(action.ownerNodeId),
       associatedNodeScope(action.fieldDefinitionId),
-      associatedNodeScope(action.fieldNodeId),
+      associatedNodeScope(materializedFieldNodeId(action.ownerNodeId, action.fieldDefinitionId)),
     ];
   },
   candidates: ({ generation, pending }) => materializedFieldCandidates(generation, pending),
@@ -43,8 +49,8 @@ export const fieldMaterializationReviewFamily = {
       const action = fact.action;
       if (action.kind === "field-materialize") {
         impacts.add(materializedFieldAddress(action.ownerNodeId, action.fieldDefinitionId));
-        impacts.add(action.fieldNodeId);
-        impacts.add(action.fieldOccurrenceId);
+        impacts.add(materializedFieldNodeId(action.ownerNodeId, action.fieldDefinitionId));
+        impacts.add(materializedFieldOccurrenceId(action.ownerNodeId, action.fieldDefinitionId));
       }
     }
   },

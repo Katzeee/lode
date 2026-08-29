@@ -1,11 +1,9 @@
-import type { FactId } from "./types.js";
-
-type HistoryOperation = "normal" | "undo" | "redo";
+import type { FactId, HistoryChannelId, HistoryOperation } from "./types.js";
 
 export type ReceiptLineage = Readonly<{
-  channelId: string;
+  channelId: HistoryChannelId;
   operation: HistoryOperation;
-  targetStepId: string | null;
+  targetStepId: FactId | null;
 }>;
 
 export type AuthorityReceipt = Readonly<{

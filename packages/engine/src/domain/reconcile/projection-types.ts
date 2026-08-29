@@ -266,9 +266,9 @@ export type ProjectionGeneration = Readonly<{
   identity: ProjectionIdentity;
   origin: Projection;
   review: Projection;
-  planCaches: Readonly<{
-    origin: ProjectionPlanCache;
-    review: ProjectionPlanCache;
+  activations: Readonly<{
+    origin: ProjectionActivation;
+    review: ProjectionActivation;
   }>;
 }>;
 
@@ -286,7 +286,7 @@ export type ScopedProjectionGeneration = Readonly<{
   review: ScopedProjection;
 }>;
 
-export type ProjectionPlanCache = Readonly<{
+export type ProjectionActivation = Readonly<{
   activeActionIds: readonly FactActionId[];
   supportByAction: Readonly<Record<string, readonly FactActionId[]>>;
 }>;
@@ -298,7 +298,7 @@ export type ProjectionVersions = Readonly<{
 
 export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
   rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-1",
+  schemaVersion: "lode-schema-2",
 };
 
 export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {

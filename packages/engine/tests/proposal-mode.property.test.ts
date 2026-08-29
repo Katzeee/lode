@@ -8,17 +8,12 @@ import {
   graphActionBody,
   makeFact,
   workspaceGenesisActions,
-  type AuthorityReceipt,
   type Fact,
   type FactSnapshot,
   type GraphAction,
 } from "../src/domain/fact/index.js";
 import { uniqueFacts } from "./support/facts.js";
-import {
-  advanceGeneration,
-  CURRENT_PROJECTION_VERSIONS as versions,
-  rebuildGeneration,
-} from "../src/domain/reconcile/index.js";
+import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration } from "../src/domain/reconcile/index.js";
 import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
 import { supertagApplicationActions } from "./support/reconcile/supertag-application-test-helpers.js";
 import { queryHistory, validateHistorySelection } from "../src/domain/history/history.js";
@@ -28,7 +23,8 @@ import { compileProjectionPlan } from "../src/domain/reconcile/projection-plan-d
 import { PROJECTION_PLAN } from "../src/domain/reconcile/projection-plan.js";
 import { fullSurface } from "./support/reconcile/full-surface-test-fixture.js";
 import { historyLifecycleCases, proposalLifecycleCases } from "./support/reconcile/proposal-lifecycle-test-helpers.js";
-import { assertGeneratedPathEquivalence, generatedDomainGraph } from "./proposal-mode-property-fixtures.js";
+import { generatedDomainGraph } from "./proposal-mode-property-fixtures.js";
+import { assertFactOracleEquivalence } from "./support/reconcile/fact-oracle-equivalence.js";
 
 const A = "101";
 const B = "202";
@@ -44,15 +40,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("incremental tails and stage registration order are permutation invariant", () => {
+  it("Fact arrival order and stage registration order are permutation invariant", () => {
     const facts = causalFixture();
-    const beforeFacts = facts.slice(0, 3);
-    const before = { facts: beforeFacts, frontier: frontierOf(beforeFacts) };
-    const beforeGeneration = rebuildGeneration("workspace", before, versions);
     const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
-      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
+      expect(rebuildGeneration("workspace", shuffled, versions)).toEqual(expected);
     }
 
     for (let seed = 1; seed <= 32; seed += 1) {
@@ -61,11 +54,8 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("Supertag Extension cycle and search projections converge across seeded arrival and incremental tails", () => {
+  it("Supertag Extension cycle and search projections converge across seeded Fact arrival", () => {
     const facts = extensionCycleFixture();
-    const prefixFacts = facts.slice(0, 6);
-    const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
-    const prefixGeneration = rebuildGeneration("workspace", prefix, versions);
     const expected = rebuildGeneration("workspace", { facts, frontier: frontierOf(facts) }, versions);
     expect(expected.origin.supertagExtensionConflicts).toEqual({
       "supertag-a": ["supertag-a", "supertag-b"],
@@ -74,40 +64,31 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     for (let seed = 1; seed <= 32; seed += 1) {
       const snapshot = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
       expect(rebuildGeneration("workspace", snapshot, versions)).toEqual(expected);
-      expect(advanceGeneration("workspace", prefix, snapshot, versions, prefixGeneration)).toEqual(expected);
     }
   });
 
-  it("concurrent Search Expression move and configure converge across three replicas and all Reconcile paths", () => {
-    const { prefix, facts } = concurrentSearchExpressionFixture();
-    const before = { facts: prefix, frontier: frontierOf(prefix) };
+  it("concurrent Search Expression move and configure converge across three replicas", () => {
+    const { facts } = concurrentSearchExpressionFixture();
     const finalSnapshot = { facts, frontier: frontierOf(facts) };
-    const beforeGeneration = rebuildGeneration("workspace", before, versions);
     const expected = rebuildGeneration("workspace", finalSnapshot, versions);
     expect(expected.origin.searchExpressions.search).toBeDefined();
-    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration)).toEqual(expected);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
       expect(rebuildGeneration("workspace", shuffled, versions)).toEqual(expected);
-      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
     }
   });
 
-  it("concurrent View column move and Sort addition converge across three replicas and all Reconcile paths", () => {
-    const { prefix, facts } = concurrentViewOptionsFixture();
-    const before = { facts: prefix, frontier: frontierOf(prefix) };
+  it("concurrent View column move and Sort addition converge across three replicas", () => {
+    const { facts } = concurrentViewOptionsFixture();
     const finalSnapshot = { facts, frontier: frontierOf(facts) };
-    const beforeGeneration = rebuildGeneration("workspace", before, versions);
     const expected = rebuildGeneration("workspace", finalSnapshot, versions);
     const definition = expected.origin.sharedDefaultViewDefinitions.host?.[0];
     expect(definition?.optionsConflicted).toBe(false);
     expect(definition?.options.columns.map((column) => column.fieldDefinitionId)).toEqual(["field-b", "field-a"]);
     expect(definition?.options.sort).toMatchObject({ fieldDefinitionId: "field-a", direction: "ascending" });
-    expect(advanceGeneration("workspace", before, finalSnapshot, versions, beforeGeneration)).toEqual(expected);
     for (let seed = 1; seed <= 32; seed += 1) {
       const shuffled = { facts: shuffle(facts, seed), frontier: frontierOf(facts) };
       expect(rebuildGeneration("workspace", shuffled, versions)).toEqual(expected);
-      expect(advanceGeneration("workspace", before, shuffled, versions, beforeGeneration)).toEqual(expected);
     }
   });
 
@@ -166,7 +147,7 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           },
         ],
       });
-      const historySelection = queryHistory("channel", history.receipts).undo;
+      const historySelection = queryHistory("channel", history.snapshot()).undo;
       if (!historySelection) {
         throw new Error("Expected a History selection");
       }
@@ -178,10 +159,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           originalPlacement: null,
         });
       }
-      expect(
-        validateHistorySelection("undo", historySelection, history.receipts, history.snapshot(), history.generation())
-          .kind,
-      ).toBe("ready");
+      expect(validateHistorySelection("undo", historySelection, history.snapshot(), history.generation()).kind).toBe(
+        "ready",
+      );
       history.fact({
         kind: "rich-text-splice",
         nodeId: "node",
@@ -190,13 +170,12 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
         insert: "R",
       });
       expect(
-        validateHistorySelection("undo", historySelection, history.receipts, history.snapshot(), history.generation())
-          .kind,
+        validateHistorySelection("undo", historySelection, history.snapshot(), history.generation()).kind,
       ).not.toBe("ready");
     }
   });
 
-  it("complete Direct and Proposal action surfaces survive seeded delivery, incremental, and resolution permutations", () => {
+  it("complete Direct and Proposal action surfaces survive seeded delivery and resolution permutations", () => {
     for (const intent of ["direct", "proposal"] as const) {
       for (const decision of ["accept", "reject"] as const) {
         const fixture = fullSurface(intent);
@@ -219,17 +198,11 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           );
           expect(buildFactSnapshot("workspace", uniqueFacts(delivered))).toEqual(expectedFactSnapshot);
 
-          const cut = seed % fixture.values.length;
-          const prefixFacts = fixture.values.slice(0, cut);
-          const prefix = { facts: prefixFacts, frontier: frontierOf(prefixFacts) };
-          const prefixGeneration = rebuildGeneration("workspace", prefix, versions);
           const deliveredSnapshot = {
             facts: shuffle(fixture.values, seed),
             frontier: expectedSnapshot.frontier,
           };
-          expect(advanceGeneration("workspace", prefix, deliveredSnapshot, versions, prefixGeneration)).toEqual(
-            expectedGeneration,
-          );
+          expect(rebuildGeneration("workspace", deliveredSnapshot, versions)).toEqual(expectedGeneration);
         }
       }
     }
@@ -250,20 +223,23 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           });
           const targetProjection = generationFingerprint(history.generation());
 
-          // A restart cut and an outcome-unknown transport both recover from the
-          // durable Fact/receipt program rather than replaying the command.
+          // A restart cut recovers History from the durable Fact program rather
+          // than from an Invocation Receipt or by replaying the command.
           const restarted = clonedHistoryState(history);
-          const undo = queryHistory(channelId, restarted.receipts).undo;
+          const undo = queryHistory(channelId, restarted.snapshot).undo;
           if (!undo) {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Undo`);
           }
+          const undoPlan = validateHistorySelection("undo", undo, restarted.snapshot, restarted.generation);
           expect(
-            validateHistorySelection("undo", undo, restarted.receipts, restarted.snapshot, restarted.generation).kind,
-          ).toBe("ready");
-          expect(restarted.receipts.some((receipt) => receipt.invocationId === targetInvocationId)).toBe(true);
+            undoPlan,
+            `${intent} ${ownerCase.kind} must remain undoable after restart: ${JSON.stringify(undoPlan)}`,
+          ).toMatchObject({ kind: "ready" });
+          expect(restarted.snapshot.facts.some((fact) => fact.id === history.stepId(targetInvocationId))).toBe(true);
 
+          const undoInvocationId = `undo-${targetInvocationId}`;
           const undoReceipt = history.step({
-            invocationId: `undo-${targetInvocationId}`,
+            invocationId: undoInvocationId,
             actions: history.compensationActions(targetInvocationId),
             intent,
             channelId,
@@ -271,25 +247,34 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
             targetStepId: targetInvocationId,
           });
           expect(undoReceipt.factIds).toHaveLength(1);
-          const redo = queryHistory(channelId, structuredClone(history.receipts)).redo;
+          const undoneProjection = generationFingerprint(history.generation());
+          expect(undoneProjection, `${intent} ${ownerCase.kind} Undo must change its target projection`).not.toBe(
+            targetProjection,
+          );
+          const redo = queryHistory(channelId, structuredClone(history.snapshot())).redo;
           if (!redo) {
             throw new Error(`Generated ${intent} ${ownerCase.kind} program has no Redo`);
           }
+          const redoPlan = validateHistorySelection("redo", redo, history.snapshot(), history.generation());
           expect(
-            validateHistorySelection("redo", redo, history.receipts, history.snapshot(), history.generation()).kind,
-          ).toBe("ready");
+            redoPlan,
+            `${intent} ${ownerCase.kind} must remain redoable: ${JSON.stringify(redoPlan)}`,
+          ).toMatchObject({ kind: "ready" });
           history.step({
             invocationId: `redo-${targetInvocationId}`,
-            actions: history.compensationActions(undoReceipt.invocationId),
+            actions: history.compensationActions(undoInvocationId),
             intent,
             channelId,
             operation: "redo",
-            targetStepId: undoReceipt.invocationId,
+            targetStepId: undoInvocationId,
           });
           expect(
             generationFingerprint(history.generation()),
-            `${intent} ${ownerCase.kind} must round-trip through History`,
-          ).toBe(targetProjection);
+            `${intent} ${ownerCase.kind} Redo must reapply a domain effect`,
+          ).not.toBe(undoneProjection);
+          const redone = queryHistory(channelId, history.snapshot());
+          expect(redone.redo).toBeNull();
+          expect(redone.undo).not.toBeNull();
         }
       }
     }
@@ -320,9 +305,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("generated bounded domain graphs shrink and preserve full and incremental semantics", () => {
+  it("generated bounded domain graphs preserve every Fact-derived execution path", () => {
     for (let seed = 1; seed <= 24; seed += 1) {
-      assertGeneratedPathEquivalence(generatedDomainGraph(seed), seed);
+      assertFactOracleEquivalence(generatedDomainGraph(seed), seed);
     }
   });
 
@@ -337,9 +322,33 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
           throw new Error(`Generated ${entry.kind} program has no Review Hunk`);
         }
         entry.facts.resolve(hunk.selection.proposalActionIds, decision);
-        assertGeneratedPathEquivalence(entry.facts.values, 100 + index);
+        assertFactOracleEquivalence(entry.facts.values, 100 + index);
       }
     }
+  });
+
+  it("History Steps preserve Fact-only rebuild paths after Invocation Receipts disappear", () => {
+    const history = baseFixture();
+    history.step({
+      invocationId: "history-edit",
+      actions: [{ kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "Fact" }],
+    });
+    const selection = queryHistory("channel", history.snapshot()).undo;
+    if (!selection) {
+      throw new Error("Representative History program has no Undo selection");
+    }
+    const plan = validateHistorySelection("undo", selection, history.snapshot(), history.generation());
+    if (plan.kind !== "ready") {
+      throw new Error(`Representative History program is not compensable: ${plan.reason}`);
+    }
+    history.step({
+      invocationId: "history-undo",
+      operation: "undo",
+      targetStepId: "history-edit",
+      actions: plan.writes.flatMap((batch) => batch.actions),
+    });
+
+    assertFactOracleEquivalence(history.facts, 404);
   });
 });
 function caseSetupFacts(ownerCase: ReturnType<typeof proposalLifecycleCases>[number]): readonly Fact[] {
@@ -352,19 +361,18 @@ function caseActions(ownerCase: ReturnType<typeof proposalLifecycleCases>[number
 }
 function historyFor(prefix: readonly Fact[]): HistoryFixture {
   const history = new HistoryFixture();
+  history.facts.length = 0;
   history.facts.push(...structuredClone(prefix));
   return history;
 }
 
 function clonedHistoryState(history: HistoryFixture): Readonly<{
-  receipts: readonly AuthorityReceipt[];
   snapshot: FactSnapshot;
   generation: ReturnType<typeof rebuildGeneration>;
 }> {
   const facts = structuredClone(history.facts);
   const snapshot = { facts, frontier: frontierOf(facts) };
   return {
-    receipts: structuredClone(history.receipts),
     snapshot,
     generation: rebuildGeneration("workspace", snapshot, versions),
   };

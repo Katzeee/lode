@@ -7,6 +7,7 @@ import {
   type AuthorityReceipt,
   type FactSnapshot,
 } from "../../../domain/fact/index.js";
+import { historyBody } from "../../../domain/history/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 import type { WorkspaceProjection } from "../projection/index.js";
 import {
@@ -18,7 +19,6 @@ import {
 } from "../workspace-results.js";
 import type { WorkspaceEventPublisher } from "../workspace-event-publisher.js";
 import { bindWorkspaceCommand } from "./command-rules.js";
-import { readCommandGeneration } from "./generation-reader.js";
 
 type WorkspaceCommandExecutorOptions = Readonly<{
   workspaceId: string;
@@ -29,7 +29,7 @@ type WorkspaceCommandExecutorOptions = Readonly<{
 
 type WorkspaceCommandAuthority = Pick<
   FactAuthorityPort,
-  "snapshot" | "commit" | "receipt" | "receiptsForChannel" | "relatedFacts" | "relatedFactsOwningActions" | "replicaId"
+  "snapshot" | "commit" | "receipt" | "relatedFacts" | "relatedFactsOwningActions" | "replicaId"
 >;
 
 export class WorkspaceCommandExecutor {
@@ -54,35 +54,21 @@ export class WorkspaceCommandExecutor {
       );
     }
     const bound = bindWorkspaceCommand(command);
+    const state = this.options.projection.current;
     const { readPlan } = bound;
     const scopedFacts =
-      readPlan.historyChannelId !== null
+      readPlan.kind === "all"
         ? snapshot.facts
         : readPlan.kind === "facts"
           ? this.options.facts.relatedFacts(readPlan.factIds)
-          : readPlan.kind === "action-ids"
-            ? this.options.facts.relatedFactsOwningActions(readPlan.actionIds)
-            : snapshot.facts;
+          : this.options.facts.relatedFactsOwningActions(readPlan.actionIds);
     const commandSnapshot = { facts: scopedFacts, frontier: snapshot.frontier };
-    let generation: Awaited<ReturnType<typeof readCommandGeneration>>;
-    try {
-      generation = await readCommandGeneration(
-        this.options.projection.reader,
-        this.options.projection.identity.generationId,
-        commandSnapshot,
-        readPlan,
-      );
-    } catch (error) {
-      return this.rejected("projection-unavailable", error instanceof Error ? error.message : String(error));
-    }
     let planned: ReturnType<typeof bound.plan>;
     try {
       planned = bound.plan({
         workspaceId: this.options.workspaceId,
         snapshot: commandSnapshot,
-        generation,
-        receipts:
-          readPlan.historyChannelId === null ? [] : this.options.facts.receiptsForChannel(readPlan.historyChannelId),
+        generation: state.generation,
         replicaId: this.options.facts.replicaId,
       });
     } catch (error) {
@@ -94,12 +80,15 @@ export class WorkspaceCommandExecutor {
     if (planned.writes.length === 0) {
       return this.rejected("invalid-input", "Command does not produce any Facts");
     }
+    const writes = planned.lineage
+      ? [...planned.writes, historyBody(planned.lineage, planned.writes.length)]
+      : planned.writes;
     let committed: Awaited<ReturnType<WorkspaceCommandAuthority["commit"]>>;
     try {
       committed = await this.options.facts.commit({
         invocationId: command.invocationId,
         request: command,
-        writes: planned.writes,
+        writes,
         lineage: planned.lineage,
         publishedFrontier: this.options.projection.identity.frontier,
       });
@@ -112,7 +101,7 @@ export class WorkspaceCommandExecutor {
     return this.publishToReceipt(committed.receipt);
   }
 
-  private async finishReceipt(receipt: AuthorityReceipt): Promise<WriteResult> {
+  private finishReceipt(receipt: AuthorityReceipt): WriteResult {
     if (frontierCovers(this.options.projection.identity.frontier, receipt.committedFrontier)) {
       return publishedResult(receipt, this.options.projection.identity.generationId);
     }
@@ -124,9 +113,9 @@ export class WorkspaceCommandExecutor {
     );
   }
 
-  private async publishToReceipt(receipt: AuthorityReceipt): Promise<WriteResult> {
+  private publishToReceipt(receipt: AuthorityReceipt): WriteResult {
     try {
-      await this.publish(this.options.facts.snapshot());
+      this.advanceProjection(this.options.facts.snapshot());
       return frontierCovers(this.options.projection.identity.frontier, receipt.committedFrontier)
         ? publishedResult(receipt, this.options.projection.identity.generationId)
         : pendingResult(
@@ -140,8 +129,8 @@ export class WorkspaceCommandExecutor {
     }
   }
 
-  private async publish(snapshot: FactSnapshot): Promise<void> {
-    await this.options.projection.advance(snapshot);
+  private advanceProjection(snapshot: FactSnapshot): void {
+    this.options.projection.advance(snapshot);
   }
 
   private rejected(code: Parameters<typeof rejectedResult>[0], message: string): RejectedResult {

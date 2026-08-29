@@ -159,8 +159,7 @@ function typedFieldValueCompensations(
           (authoredAction) =>
             authoredAction.kind === "field-materialize" &&
             authoredAction.ownerNodeId === ownerNodeId &&
-            authoredAction.fieldDefinitionId === field.fieldDefinitionId &&
-            authoredAction.fieldNodeId === field.fieldNodeId,
+            authoredAction.fieldDefinitionId === field.fieldDefinitionId,
         )
       ) {
         continue;
@@ -169,8 +168,6 @@ function typedFieldValueCompensations(
         kind: "field-materialize",
         ownerNodeId,
         fieldDefinitionId: field.fieldDefinitionId,
-        fieldNodeId: field.fieldNodeId,
-        fieldOccurrenceId: field.fieldOccurrenceId,
       });
     }
   }

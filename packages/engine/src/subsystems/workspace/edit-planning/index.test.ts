@@ -100,4 +100,34 @@ describe("Action Fact boundaries", () => {
     expect(writes).toHaveLength(2);
     expect(writes.map(([action]) => action.kind)).toEqual(["rich-text-splice", "rich-text-splice"]);
   });
+
+  it("plans each Edit against the effects of preceding Edits", () => {
+    const facts = new Facts();
+    const snapshot = facts.snapshot();
+    const generation = rebuildGeneration("workspace", snapshot, versions);
+
+    expect(
+      prepareEdits(
+        "workspace",
+        "actor",
+        [
+          {
+            kind: "node-create",
+            nodeId: "node",
+            occurrenceId: "node-original",
+            parentNodeId: "workspace",
+            anchor: end,
+          },
+          { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "created" },
+        ],
+        generation,
+        "direct",
+        snapshot,
+        "101",
+      ),
+    ).toMatchObject([
+      [{ kind: "node-create", nodeId: "node" }],
+      [{ kind: "rich-text-splice", nodeId: "node", insert: "created" }],
+    ]);
+  });
 });

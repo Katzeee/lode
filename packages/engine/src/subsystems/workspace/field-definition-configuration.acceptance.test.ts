@@ -95,6 +95,10 @@ describe("Field Definition configuration", () => {
         },
       ],
     });
+    const initialOptionality = configurationOfKind(await configurations(workspace, "origin"), "optionality");
+    if (!initialOptionality) {
+      throw new Error("Expected initial Field Optionality relation");
+    }
     await execute(
       workspace,
       command(
@@ -143,6 +147,11 @@ describe("Field Definition configuration", () => {
         },
       ]),
     );
+    expect(configurationOfKind(await configurations(workspace, "origin"), "optionality")).toMatchObject({
+      configurationNodeId: initialOptionality.configurationNodeId,
+      configurationOccurrenceId: initialOptionality.configurationOccurrenceId,
+      optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
+    });
     const optionalityHistory = await workspace.query({
       kind: "history",
       workspaceId: "workspace",
@@ -159,6 +168,8 @@ describe("Field Definition configuration", () => {
       selection: optionalityHistory.undo,
     });
     expect(configurationOfKind(await configurations(workspace, "origin"), "optionality")).toMatchObject({
+      configurationNodeId: initialOptionality.configurationNodeId,
+      configurationOccurrenceId: initialOptionality.configurationOccurrenceId,
       optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
     });
 
@@ -230,6 +241,90 @@ describe("Field Definition configuration", () => {
       kind: "optionality",
       optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
     });
+  });
+
+  it("keeps one Field configuration relation identity while preserving concurrent endpoint candidates", async () => {
+    const left = await open("711");
+    const right = await open("712");
+    await execute(
+      left.workspace,
+      command("concurrent-field-fixture", "concurrent-setup", [
+        nodeAt("status", "workspace", "status-original", "field-definition"),
+      ]),
+    );
+    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await left.workspace.reconcileAuthorityAdvance();
+    await right.workspace.reconcileAuthorityAdvance();
+
+    await execute(
+      left.workspace,
+      command("concurrent-optionality-no", "left-optionality", [
+        {
+          kind: "field-optionality-configure",
+          fieldDefinitionId: "status",
+          optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
+        },
+      ]),
+    );
+    await execute(
+      right.workspace,
+      command("concurrent-optionality-yes", "right-optionality", [
+        {
+          kind: "field-optionality-configure",
+          fieldDefinitionId: "status",
+          optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.yes,
+        },
+      ]),
+    );
+
+    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await left.workspace.reconcileAuthorityAdvance();
+    await right.workspace.reconcileAuthorityAdvance();
+    const candidates = (await configurations(left.workspace, "origin")).status?.filter(
+      (configuration) => configuration.kind === "optionality",
+    );
+    expect(candidates).toHaveLength(2);
+    expect(new Set(candidates?.map((candidate) => candidate.configurationNodeId)).size).toBe(1);
+    expect(new Set(candidates?.map((candidate) => candidate.configurationOccurrenceId)).size).toBe(1);
+    expect(new Set(candidates?.map((candidate) => candidate.factActionId)).size).toBe(2);
+    expect(new Set(candidates?.map((candidate) => candidate.optionalityNodeId))).toEqual(
+      new Set([FIELD_OPTIONALITY_NODE_IDS.no, FIELD_OPTIONALITY_NODE_IDS.yes]),
+    );
+    expect(await configurations(right.workspace, "origin")).toEqual(await configurations(left.workspace, "origin"));
+
+    await execute(
+      left.workspace,
+      command("same-optionality-left", "left-optionality", [
+        {
+          kind: "field-optionality-configure",
+          fieldDefinitionId: "status",
+          optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
+        },
+      ]),
+    );
+    await execute(
+      right.workspace,
+      command("same-optionality-right", "right-optionality", [
+        {
+          kind: "field-optionality-configure",
+          fieldDefinitionId: "status",
+          optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
+        },
+      ]),
+    );
+    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await left.workspace.reconcileAuthorityAdvance();
+    await right.workspace.reconcileAuthorityAdvance();
+    const merged = (await configurations(left.workspace, "origin")).status?.filter(
+      (configuration) => configuration.kind === "optionality",
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged?.[0]).toMatchObject({
+      configurationNodeId: candidates?.[0]?.configurationNodeId,
+      configurationOccurrenceId: candidates?.[0]?.configurationOccurrenceId,
+      optionalityNodeId: FIELD_OPTIONALITY_NODE_IDS.no,
+    });
+    expect(await configurations(right.workspace, "origin")).toEqual(await configurations(left.workspace, "origin"));
   });
 
   it("lets a later direct semantic value supersede a pending Proposal without depending on it", async () => {

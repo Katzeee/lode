@@ -2,15 +2,8 @@ import { type FactBody, type AuthoredAction } from "./types.js";
 import type { AuthorityReceipt } from "./authority-types.js";
 import { isCatalogActionKind, parseCatalogAction } from "./action-catalog.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
-import { requireFactIds } from "./identities.js";
-import {
-  assertKeys,
-  assertNullableString,
-  assertObject,
-  assertOneOf,
-  requireSafeInteger,
-  requireString,
-} from "../../decoding/index.js";
+import { requireFactId, requireFactIds } from "./identities.js";
+import { assertKeys, assertObject, assertOneOf, requireSafeInteger, requireString } from "../../decoding/index.js";
 
 export function parseFactBody(value: unknown): FactBody {
   assertFactBody(value, parseCatalogAction);
@@ -42,7 +35,9 @@ function assertReceipt(value: unknown): asserts value is AuthorityReceipt {
   assertKeys(value.lineage, ["channelId", "operation", "targetStepId"], "receipt lineage");
   requireString(value.lineage.channelId, "History channel identity");
   assertOneOf(value.lineage.operation, ["normal", "undo", "redo"], "History operation");
-  assertNullableString(value.lineage.targetStepId, "History target step");
+  if (value.lineage.targetStepId !== null) {
+    requireFactId(value.lineage.targetStepId, "History target Step");
+  }
 }
 
 export function parseAuthoredAction<Kind extends AuthoredAction["kind"]>(

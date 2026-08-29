@@ -47,8 +47,7 @@ type CompiledProjectionPlan<
   ArtifactKey extends string = string,
 > = Readonly<{
   ordered: readonly ProjectionStage<Context, StageKey, ArtifactKey>[];
-  downstream(stageKeys: ReadonlySet<StageKey>): ReadonlySet<StageKey>;
-  run(context: Context, selected?: ReadonlySet<StageKey>): readonly StageKey[];
+  run(context: Context): void;
 }>;
 
 export function compileProjectionPlan<Context, StageKey extends string = string, ArtifactKey extends string = string>(
@@ -94,29 +93,10 @@ export function compileProjectionPlan<Context, StageKey extends string = string,
 
   return {
     ordered,
-    downstream(stageKeys) {
-      const selected = new Set(stageKeys);
-      let changed = true;
-      while (changed) {
-        changed = false;
-        for (const rule of ordered) {
-          if (!selected.has(rule.key) && rule.dependencies.some((dependency) => selected.has(dependency))) {
-            selected.add(rule.key);
-            changed = true;
-          }
-        }
-      }
-      return selected;
-    },
-    run(context, selected) {
-      const evaluated: StageKey[] = [];
+    run(context) {
       for (const rule of ordered) {
-        if (!selected || selected.has(rule.key)) {
-          rule.evaluate(context);
-          evaluated.push(rule.key);
-        }
+        rule.evaluate(context);
       }
-      return evaluated;
     },
   };
 }

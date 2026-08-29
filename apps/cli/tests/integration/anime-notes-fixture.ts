@@ -35,17 +35,16 @@ export function animeNotesProgram(workspaceNodeId = "anime-notes"): readonly Act
     supertagApplication("quick-note", "quick-impression"),
     supertagApplication("quick-note", "anime-context"),
     supertagApplication("review-note", "review"),
-    ...materializedField("quick-note", "work-field", "quick-work", "quick-work-reference", "frieren"),
+    ...materializedField("quick-note", "work-field", "quick-work-reference", "frieren"),
     ...materializedField(
       "quick-note",
       "impression-field",
-      "quick-impression-value",
       "quick-impression-text",
       "impression-text",
       "Quiet, patient, and humane",
     ),
-    ...materializedField("review-note", "work-field", "review-work", "review-work-reference", "frieren"),
-    ...materializedField("review-note", "rating-field", "review-rating", "review-rating-text", "rating-text", "9/10"),
+    ...materializedField("review-note", "work-field", "review-work-reference", "frieren"),
+    ...materializedField("review-note", "rating-field", "review-rating-text", "rating-text", "9/10"),
   ];
 }
 
@@ -91,24 +90,20 @@ function supertagApplication(nodeId: string, supertagId: string): Action {
 function materializedField(
   ownerNodeId: string,
   fieldDefinitionId: string,
-  fieldNodeId: string,
   valueOccurrenceId: string,
   valueNodeId: string,
   valueText?: string,
 ): readonly Action[] {
-  const fieldOccurrenceId = `${fieldNodeId}-occurrence`;
   return [
-    nodeAt(fieldNodeId, ownerNodeId, fieldOccurrenceId),
     {
-      kind: "field-materialize",
+      kind: "field-value-create",
       ownerNodeId,
       fieldDefinitionId,
-      fieldNodeId,
-      fieldOccurrenceId,
+      valueNodeId,
+      valueOccurrenceId,
+      anchor: end,
+      ...(valueText === undefined ? {} : { seed: { text: [{ value: valueText, attributes: {} }] } }),
     },
-    valueText === undefined
-      ? occurrence(valueOccurrenceId, valueNodeId, fieldNodeId)
-      : nodeAt(valueNodeId, fieldNodeId, valueOccurrenceId, valueText),
   ];
 }
 
@@ -133,15 +128,5 @@ function nodeAt(
             text: [...text].map((value) => ({ value, attributes: {} })),
           },
         }),
-  };
-}
-
-function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): Action {
-  return {
-    kind: "occurrence-create",
-    occurrenceId,
-    nodeId,
-    parentNodeId,
-    anchor: end,
   };
 }

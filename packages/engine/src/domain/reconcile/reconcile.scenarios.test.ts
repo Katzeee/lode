@@ -213,37 +213,6 @@ describe("production Reconcile scenarios", () => {
     facts.resolve([pending.id], "reject");
     expect(projectionText(projectSnapshot("workspace", facts.snapshot(), "review", versions), "node")).toBe("");
 
-    const expectedKinds = [
-      "field-configuration-set",
-      "field-materialize",
-      "field-value-remove",
-      "inline-alias-attach",
-      "inline-alias-detach",
-      "inline-reference-create",
-      "inline-reference-remove",
-      "materialized-field-clear",
-      "node-create",
-      "node-trash",
-      "node-restore",
-      "original-promote",
-      "placement-create",
-      "placement-remove",
-      "placement-move",
-      "supertag-application-add",
-      "supertag-extension-add",
-      "supertag-extension-remove",
-      "supertag-membership-remove",
-      "template-member-add",
-      "template-member-remove",
-      "template-node-detach",
-      "rich-text-mark",
-      "rich-text-splice",
-    ];
-    expect(
-      proposalLifecycleCases()
-        .map((entry) => entry.kind)
-        .sort(),
-    ).toEqual(expectedKinds.sort());
     for (const decision of ["accept", "reject"] as const) {
       for (const entry of proposalLifecycleCases()) {
         const pendingSnapshot = entry.facts.snapshot();
@@ -449,19 +418,6 @@ function proposalLifecycleSurface(): Readonly<{
 }
 
 function projectionPayload(projection: ReturnType<typeof projectSnapshot>) {
-  return {
-    nodes: projection.nodes,
-    occurrences: projection.occurrences,
-    childOccurrences: projection.childOccurrences,
-    nodeOwners: projection.nodeOwners,
-    supertagApplications: projection.supertagApplications,
-    supertagTemplateNodes: projection.supertagTemplateNodes,
-    templateNodeInstances: projection.templateNodeInstances,
-    supertagExtensions: projection.supertagExtensions,
-    supertagInstanceSupertags: projection.supertagInstanceSupertags,
-    conflictIssues: projection.conflictIssues,
-    materializedFields: projection.materializedFields,
-    sharedDefaultViewDefinitions: projection.sharedDefaultViewDefinitions,
-    fieldDefinitionConfigurations: projection.fieldDefinitionConfigurations,
-  };
+  const { identity: _identity, perspective: _perspective, ...sections } = projection;
+  return sections;
 }

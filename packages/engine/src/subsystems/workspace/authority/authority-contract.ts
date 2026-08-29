@@ -6,7 +6,6 @@ import type {
   FactActionId,
   FactSnapshot,
   FactBody,
-  HistoryChannelId,
   InvocationId,
   ReplicaId,
 } from "../../../domain/fact/index.js";
@@ -30,7 +29,6 @@ export type FactAuthorityPort = {
   snapshot(): FactSnapshot;
   receipt(invocationId: InvocationId): AuthorityReceipt | null;
   receipts(): readonly AuthorityReceipt[];
-  receiptsForChannel(channelId: HistoryChannelId): readonly AuthorityReceipt[];
   facts(factIds: readonly FactId[]): readonly Fact[];
   factsOwningActions(actionIds: readonly FactActionId[]): readonly Fact[];
   relatedFacts(factIds: readonly FactId[]): readonly Fact[];

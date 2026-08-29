@@ -76,7 +76,7 @@ describe("production Fact contracts", () => {
     });
   });
 
-  it("receipt batches and History lineage are exact non-empty authority ledger units", () => {
+  it("Invocation Receipt lineage diagnoses but cannot replace its exact History Fact", () => {
     const first = actionFact(1);
     const baseReceipt = {
       workspaceId: "workspace",
@@ -113,6 +113,35 @@ describe("production Fact contracts", () => {
       expect(() => validateReceipts("workspace", receipts, [first])).toThrow();
     }
     expect(() => validateReceipts("workspace", [baseReceipt], [])).toThrow("missing Fact");
+
+    const history = makeFact({
+      workspaceId: "workspace",
+      replicaId: REPLICA_A,
+      sequence: 2,
+      observed: { [REPLICA_A]: 1 },
+      lamport: 2,
+      body: {
+        kind: "history",
+        channelId: "desktop",
+        operation: "normal",
+        targetStepId: null,
+        actionFactCount: 1,
+      },
+    });
+    const historyReceipt: AuthorityReceipt = {
+      ...baseReceipt,
+      factIds: [first.id, history.id],
+      committedFrontier: { [REPLICA_A]: 2 },
+      lineage: { channelId: "desktop", operation: "normal", targetStepId: null },
+    };
+    expect(() => validateReceipts("workspace", [historyReceipt], [first, history])).not.toThrow();
+    expect(() =>
+      validateReceipts(
+        "workspace",
+        [{ ...historyReceipt, lineage: { ...historyReceipt.lineage!, channelId: "other" } }],
+        [first, history],
+      ),
+    ).toThrow("differs from its History Step");
   });
 
   it("canonical request bytes and Fact identities are deterministic", () => {
@@ -153,6 +182,16 @@ describe("production Fact contracts", () => {
         ],
       }),
     ).toThrow("Atom identity is invalid");
+    const history = {
+      kind: "history",
+      channelId: "desktop",
+      operation: "normal",
+      targetStepId: null,
+      actionFactCount: 2,
+    } as const;
+    expect(parseFactBody(history)).toEqual(history);
+    expect(() => parseFactBody({ ...history, invocationId: "runtime-only" })).toThrow("unknown field");
+    expect(() => parseFactBody({ ...history, actionFactCount: 0 })).toThrow("Action Fact count");
   });
 
   it("keeps terminal Actions homogeneous, direct-only, and unique", () => {

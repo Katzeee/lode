@@ -1,7 +1,7 @@
 export class SerialExecutor {
   private tail: Promise<void> = Promise.resolve();
 
-  run<T>(task: () => Promise<T>): Promise<T> {
+  run<T>(task: () => T | PromiseLike<T>): Promise<T> {
     const result = this.tail.then(task, task);
     this.tail = result.then(
       () => undefined,

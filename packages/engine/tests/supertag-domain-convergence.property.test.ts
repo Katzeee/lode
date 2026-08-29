@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { frontierOf, type Fact, type FactFrontier } from "../src/domain/fact/index.js";
+import {
+  frontierOf,
+  materializedFieldNodeId,
+  materializedFieldOccurrenceId,
+  type Fact,
+  type FactFrontier,
+} from "../src/domain/fact/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { addDefinitionNode, addPlacedNode } from "./support/reconcile/placed-node-test-helpers.js";
 import {
@@ -77,6 +83,10 @@ describe("Supertag domain convergence matrix", () => {
     assertSupertagConvergence(base.values.length, [...base.values, ...events], (generation) => {
       const fields = generation.origin.materializedFields.owner;
       expect(fields).toHaveLength(1);
+      expect(fields?.[0]).toMatchObject({
+        fieldNodeId: materializedFieldNodeId("owner", "field"),
+        fieldOccurrenceId: materializedFieldOccurrenceId("owner", "field"),
+      });
       expect(new Set(fields?.[0]?.valueOccurrenceIds)).toEqual(
         new Set(["offline-a-value-occurrence", "offline-b-value-occurrence"]),
       );
@@ -124,25 +134,25 @@ function materializationBranch(
   prefix: string,
   text: string,
 ): readonly Fact[] {
+  const fieldNodeId = materializedFieldNodeId("owner", "field");
+  const fieldOccurrenceId = materializedFieldOccurrenceId("owner", "field");
   return remoteBranch(replicaId, observed, lamport, [
     {
       kind: "node-create",
-      nodeId: `${prefix}-field`,
+      nodeId: fieldNodeId,
       ownerNodeId: "owner",
-      originalPlacement: { placementId: `${prefix}-field-occurrence`, anchor: end },
+      originalPlacement: { placementId: fieldOccurrenceId, anchor: end },
       intrinsicNodeType: "field",
     },
     {
       kind: "field-materialize",
       ownerNodeId: "owner",
       fieldDefinitionId: "field",
-      fieldNodeId: `${prefix}-field`,
-      fieldOccurrenceId: `${prefix}-field-occurrence`,
     },
     {
       kind: "node-create",
       nodeId: `${prefix}-value`,
-      ownerNodeId: `${prefix}-field`,
+      ownerNodeId: fieldNodeId,
       originalPlacement: { placementId: `${prefix}-value-occurrence`, anchor: end },
     },
     { kind: "rich-text-splice", nodeId: `${prefix}-value`, deleteAtomIds: [], anchor: end, insert: text },

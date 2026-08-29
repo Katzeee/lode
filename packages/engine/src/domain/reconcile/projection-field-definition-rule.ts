@@ -4,12 +4,10 @@ import { projectionRule } from "./projection-rule.js";
 export const fieldDefinitionProjectionRule = projectionRule({
   key: "field-definition",
   dependencies: ["activation", "node", "node-graph"],
-  factScope: "history",
-  invalidatedBy: ["field-configuration-set"],
   evaluate: (context) => ({
     fieldDefinitionConfigurations: projectFieldDefinitionConfigurations(
       context.workspaceNodeId,
-      context.activation.allActive,
+      context.activation.actions,
       context.storedNodes,
       context.nodeGraphStructure.occurrences,
       context.nodeGraphStructure.childOccurrences,

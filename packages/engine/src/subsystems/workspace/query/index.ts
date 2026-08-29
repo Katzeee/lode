@@ -1,14 +1,6 @@
 import type { EngineQuery, EngineQueryValue } from "@lode/sdk";
-import type { FactSnapshot } from "../../../domain/fact/index.js";
-import type { ProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
-import type {
-  ProjectionIdentityReader,
-  ProjectionSectionPageReader,
-  ReviewReadModelReader,
-  ProjectionSupertagInstancesReader,
-  ProjectionSnapshotReader,
-} from "../projection/index.js";
+import type { WorkspaceProjectionState } from "../projection/index.js";
 import { queryWorkspaceHistory } from "./history.js";
 import { queryWorkspaceInvocation } from "./invocation.js";
 import { queryConflicts, queryProjection, querySupertagInstances } from "./projection.js";
@@ -20,61 +12,43 @@ import { queryOutline } from "./outline.js";
 import { queryDebugNode } from "./debug-node.js";
 import { queryTrashEvidence } from "./trash-evidence.js";
 
-type WorkspaceQueryProjectionReader = ProjectionIdentityReader &
-  ProjectionSectionPageReader &
-  ReviewReadModelReader &
-  ProjectionSupertagInstancesReader &
-  ProjectionSnapshotReader;
-
-type WorkspaceQueryAuthority = Pick<
-  FactAuthorityPort,
-  "factsOwningActions" | "receipt" | "receiptsForChannel" | "relatedFactsOwningActions"
->;
+type WorkspaceQueryAuthority = Pick<FactAuthorityPort, "factsOwningActions" | "receipt" | "relatedFactsOwningActions">;
 
 type WorkspaceQueryContext = Readonly<{
   workspaceId: string;
   facts: WorkspaceQueryAuthority;
-  snapshot: FactSnapshot;
-  generation: ProjectionGeneration;
-  projections: WorkspaceQueryProjectionReader;
-  generationId: string;
+  state: WorkspaceProjectionState;
   projectionFailure: string | null;
 }>;
 
-export function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContext): Promise<EngineQueryValue> {
+export async function queryWorkspace(query: EngineQuery, context: WorkspaceQueryContext): Promise<EngineQueryValue> {
   if (query.workspaceId !== context.workspaceId) {
     throw new Error("Query belongs to another Workspace");
   }
   switch (query.kind) {
     case "projection":
-      return queryProjection(query, context.generationId, context.projections);
+      return queryProjection(query, context.state);
     case "conflicts":
-      return queryConflicts(query, context.generationId, context.projections);
+      return queryConflicts(query, context.state);
     case "supertag-instances":
-      return querySupertagInstances(query, context.generationId, context.projections);
+      return querySupertagInstances(query, context.state);
     case "backlinks":
-      return Promise.resolve(queryBacklinks(query, context.generation));
+      return queryBacklinks(query, context.state.generation);
     case "search-results":
-      return Promise.resolve(querySearchResults(query, context.generation));
+      return querySearchResults(query, context.state.generation);
     case "view-rows":
-      return Promise.resolve(queryViewRows(query, context.generation));
+      return queryViewRows(query, context.state.generation);
     case "outline":
-      return Promise.resolve(queryOutline(query, context.generation));
+      return queryOutline(query, context.state.generation);
     case "debug-node":
-      return Promise.resolve(queryDebugNode(query, context.generation));
+      return queryDebugNode(query, context.state.generation);
     case "trash-evidence":
-      return Promise.resolve(queryTrashEvidence(query, context.snapshot, context.generation));
+      return queryTrashEvidence(query, context.state.snapshot, context.state.generation);
     case "review":
-      return queryWorkspaceReview(query, context.snapshot, context.facts, context.projections, context.generationId);
+      return queryWorkspaceReview(query, context.state.snapshot, context.facts, context.state);
     case "history":
-      return queryWorkspaceHistory(query, context.snapshot, context.facts);
+      return queryWorkspaceHistory(query, context.state.snapshot);
     case "invocation":
-      return queryWorkspaceInvocation(
-        query,
-        context.facts,
-        context.projections,
-        context.generationId,
-        context.projectionFailure,
-      );
+      return queryWorkspaceInvocation(query, context.facts, context.state, context.projectionFailure);
   }
 }

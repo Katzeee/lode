@@ -34,11 +34,9 @@ export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorks
 function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
   return {
     readPlan: {
-      kind: "edits",
-      actions: command.actions,
-      historyChannelId: command.historyChannelId,
+      kind: "all",
     },
-    plan({ workspaceId, snapshot, generation, receipts, replicaId }) {
+    plan({ workspaceId, snapshot, generation, replicaId }) {
       const writes = prepareEdits(
         workspaceId,
         command.actorId,
@@ -50,7 +48,7 @@ function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
       );
       return {
         writes: writes.map((write) => actionFactBody(write, command.actorId, command.intent)),
-        lineage: nextHistoryLineage(receipts, command.historyChannelId, "normal", null),
+        lineage: nextHistoryLineage(snapshot, command.historyChannelId, "normal", null),
       };
     },
   };
@@ -60,11 +58,10 @@ function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudication
   return {
     readPlan:
       command.kind === "resolve-review"
-        ? { kind: "action-ids", actionIds: command.selection.proposalActionIds, historyChannelId: null }
+        ? { kind: "action-ids", actionIds: command.selection.proposalActionIds }
         : {
             kind: "facts",
             factIds: [...command.proposalFactIds, ...command.resolutionIds],
-            historyChannelId: null,
           },
     plan(context) {
       return command.kind === "resolve-review"
@@ -115,11 +112,10 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
   const selection = command.selection;
   return {
     readPlan: {
-      kind: "history",
-      historyChannelId: selection.channelId,
+      kind: "all",
     },
-    plan({ snapshot, generation, receipts }) {
-      const validation = validateHistorySelection(command.kind, selection, receipts, snapshot, generation);
+    plan({ snapshot, generation }) {
+      const validation = validateHistorySelection(command.kind, selection, snapshot, generation);
       if (validation.kind !== "ready") {
         return rejectedResult(
           validation.kind === "stale" ? "stale-selection" : "history-unavailable",
@@ -129,7 +125,7 @@ function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceComm
       }
       return {
         writes: validation.writes.map((batch) => graphActionBody(command.actorId, batch.intent, batch.actions)),
-        lineage: nextHistoryLineage(receipts, selection.channelId, command.kind, validation.targetInvocationId),
+        lineage: nextHistoryLineage(snapshot, selection.channelId, command.kind, validation.targetStepId),
       };
     },
   };

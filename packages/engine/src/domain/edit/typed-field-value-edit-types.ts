@@ -1,8 +1,6 @@
 type TypedFieldIdentity = Readonly<{
   ownerNodeId: string;
   fieldDefinitionId: string;
-  fieldNodeId: string;
-  fieldOccurrenceId: string;
 }>;
 
 type OwnedTypedFieldValueIdentity = TypedFieldIdentity &

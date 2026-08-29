@@ -1,12 +1,7 @@
-import type { Fact, AuthoredAction } from "../fact/index.js";
 import type { ProjectionPlanContext } from "./projection-plan-context.js";
 import type { ProjectionArtifactKey, ProjectionStage, ProjectionStageKey } from "./projection-plan-dag.js";
 
-type ProjectionRule = ProjectionStage<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey> &
-  Readonly<{
-    factScope: "tail" | "history" | "rebuild";
-    invalidatedBy: readonly AuthoredAction["kind"][];
-  }>;
+type ProjectionRule = ProjectionStage<ProjectionPlanContext, ProjectionStageKey, ProjectionArtifactKey>;
 
 const PROJECTION_STAGE_ARTIFACTS = {
   activation: "activation",
@@ -41,22 +36,17 @@ type ProjectionRuleContext<
 export function projectionRule<
   const Key extends ProjectionStageKey,
   const Dependencies extends readonly ProjectionStageKey[],
-  const Invalidations extends readonly AuthoredAction["kind"][],
 >(definition: {
   key: Key;
   dependencies: Dependencies;
-  factScope: "tail" | "history" | "rebuild";
-  invalidatedBy: Invalidations;
   evaluate(
     context: ProjectionRuleContext<Key, Dependencies>,
   ): Pick<ProjectionPlanContext, ProjectionStageArtifact[Key]>;
-}): ProjectionRule & Readonly<{ invalidatedBy: Invalidations }> {
+}): ProjectionRule {
   const writes = [PROJECTION_STAGE_ARTIFACTS[definition.key]] as const;
   return {
     key: definition.key,
     dependencies: definition.dependencies,
-    factScope: definition.factScope,
-    invalidatedBy: definition.invalidatedBy,
     writes,
     evaluate(context) {
       const update = definition.evaluate(context);
@@ -69,58 +59,5 @@ export function projectionRule<
       }
       Object.assign(context, update);
     },
-  };
-}
-
-export type ProjectionReplayPolicy = Readonly<{
-  replayAllActive: boolean;
-  requiresAllActive: boolean;
-}>;
-
-export function projectionReplayPolicyFor(
-  rules: readonly ProjectionRule[],
-): (selected: ReadonlySet<ProjectionStageKey>) => ProjectionReplayPolicy {
-  return (selected) => {
-    const selectedRules = rules.filter((rule) => selected.has(rule.key));
-    const replayAllActive = selectedRules.some((rule) => rule.factScope === "rebuild");
-    return {
-      replayAllActive,
-      requiresAllActive: replayAllActive || selectedRules.some((rule) => rule.factScope === "history"),
-    };
-  };
-}
-
-type CompleteInvalidation<Rules extends readonly ProjectionRule[]> =
-  Exclude<AuthoredAction["kind"], Rules[number]["invalidatedBy"][number]> extends never ? unknown : never;
-
-export function projectionInvalidationFor<const Rules extends readonly ProjectionRule[]>(
-  rules: Rules & CompleteInvalidation<Rules>,
-): (facts: readonly Fact[]) => ReadonlySet<ProjectionStageKey> {
-  const activation = rules.find((rule) => rule.key === "activation");
-  if (activation === undefined) {
-    throw new Error("Projection plan has no Activation stage");
-  }
-  return (facts) => {
-    const invalidated = new Set<ProjectionStageKey>();
-    for (const fact of facts) {
-      if (fact.body.kind === "governance") {
-        continue;
-      }
-      if (fact.body.kind === "resolution") {
-        invalidated.add(activation.key);
-        continue;
-      }
-      for (const authoredAction of fact.body.actions) {
-        const mutationKind = authoredAction.kind;
-        const owners = rules.filter((rule) => rule.invalidatedBy.includes(mutationKind));
-        if (owners.length === 0) {
-          throw new Error(`AuthoredAction ${mutationKind} has no Projection invalidation owner`);
-        }
-        for (const owner of owners) {
-          invalidated.add(owner.key);
-        }
-      }
-    }
-    return invalidated;
   };
 }

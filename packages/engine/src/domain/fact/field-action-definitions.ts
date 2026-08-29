@@ -17,16 +17,12 @@ export const fieldActionDefinitions = defineActionFamily({
     {
       ownerNodeId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,
-      fieldNodeId: nonemptyStringField,
-      fieldOccurrenceId: nonemptyStringField,
     },
     (action) => [
       {
         kind: "field-materialization",
         ownerNodeId: action.ownerNodeId,
         fieldDefinitionId: action.fieldDefinitionId,
-        fieldNodeId: action.fieldNodeId,
-        fieldOccurrenceId: action.fieldOccurrenceId,
       },
       {
         kind: "causal-register-write",

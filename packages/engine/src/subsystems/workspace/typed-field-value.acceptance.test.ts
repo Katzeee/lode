@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EditCommand, TypedFieldValue } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
-import { FIELD_DATATYPE_NODE_IDS } from "../../domain/fact/index.js";
+import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import { syncPair } from "../../../tests/support/sync.js";
@@ -50,8 +50,6 @@ describe("typed Field Values", () => {
           kind: "field-value-create",
           ownerNodeId: "owner",
           fieldDefinitionId: "number-field",
-          fieldNodeId: "number-field-node",
-          fieldOccurrenceId: "number-field-occurrence",
           valueNodeId: "generic-number-value",
           valueOccurrenceId: "generic-number-value-occurrence",
           anchor: end,
@@ -69,11 +67,11 @@ describe("typed Field Values", () => {
       command("edit-number-and-checkbox", "typed-values", [numberSet(-3), checkboxSet(true, "checkbox-value-yes")]),
     );
     expect(await value(opened.workspace, "origin", "number-field")).toMatchObject({
-      fieldNodeId: "number-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "number-field"),
       value: { valueNodeId: "number-value", valueOccurrenceId: "number-value-occurrence", value: -3 },
     });
     expect(await value(opened.workspace, "origin", "checkbox-field")).toMatchObject({
-      fieldNodeId: "checkbox-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "checkbox-field"),
       state: "value",
       value: { kind: "checkbox", value: true },
     });
@@ -98,7 +96,7 @@ describe("typed Field Values", () => {
       selection: hunk.selection,
     });
     expect(await value(opened.workspace, "origin", "date-field")).toMatchObject({
-      fieldNodeId: "date-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "date-field"),
       value: { valueNodeId: "date-value", valueOccurrenceId: "date-value-occurrence", value: "2026-08-21" },
     });
 
@@ -148,15 +146,15 @@ describe("typed Field Values", () => {
       ]),
     );
     expect(await value(opened.workspace, "origin", "number-field")).toMatchObject({
-      fieldNodeId: "number-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "number-field"),
       state: "empty",
     });
     expect(await value(opened.workspace, "origin", "date-field")).toMatchObject({
-      fieldNodeId: "date-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "date-field"),
       state: "empty",
     });
     expect(await value(opened.workspace, "origin", "options-field")).toMatchObject({
-      fieldNodeId: "options-field-node",
+      fieldNodeId: materializedFieldNodeId("owner", "options-field"),
       state: "empty",
     });
     expect(await value(opened.workspace, "origin", "checkbox-field")).toBeUndefined();
@@ -261,8 +259,6 @@ function numberSet(value: number): Extract<EditAction, { kind: "field-number-val
     kind: "field-number-value-set",
     ownerNodeId: "owner",
     fieldDefinitionId: "number-field",
-    fieldNodeId: "number-field-node",
-    fieldOccurrenceId: "number-field-occurrence",
     valueNodeId: "number-value",
     valueOccurrenceId: "number-value-occurrence",
     value,
@@ -274,8 +270,6 @@ function dateSet(value: string): Extract<EditAction, { kind: "field-date-value-s
     kind: "field-date-value-set",
     ownerNodeId: "owner",
     fieldDefinitionId: "date-field",
-    fieldNodeId: "date-field-node",
-    fieldOccurrenceId: "date-field-occurrence",
     valueNodeId: "date-value",
     valueOccurrenceId: "date-value-occurrence",
     value,
@@ -290,8 +284,6 @@ function checkboxSet(
     kind: "field-checkbox-value-set",
     ownerNodeId: "owner",
     fieldDefinitionId: "checkbox-field",
-    fieldNodeId: "checkbox-field-node",
-    fieldOccurrenceId: "checkbox-field-occurrence",
     valueOccurrenceId,
     value,
   };
@@ -305,8 +297,6 @@ function optionsSet(
     kind: "field-options-from-supertag-value-set",
     ownerNodeId: "owner",
     fieldDefinitionId: "options-field",
-    fieldNodeId: "options-field-node",
-    fieldOccurrenceId: "options-field-occurrence",
     valueOccurrenceId,
     targetNodeId,
   };
@@ -321,8 +311,6 @@ function clear(
     kind: "typed-field-value-clear",
     ownerNodeId: "owner",
     fieldDefinitionId: `${prefix}-field`,
-    fieldNodeId: `${prefix}-field-node`,
-    fieldOccurrenceId: `${prefix}-field-occurrence`,
     ...(emptyValueNodeId === undefined ? {} : { emptyValueNodeId, emptyValueOccurrenceId }),
   };
 }

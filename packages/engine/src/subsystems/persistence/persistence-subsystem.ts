@@ -122,7 +122,6 @@ function workspaceStorage(physical: PhysicalWorkspaceStorage, release: () => Pro
   return {
     workspaceId: physical.workspaceId,
     facts: scoped(physical, "facts"),
-    projection: scoped(physical, "projection"),
     metadata: scoped(physical, "metadata"),
     release,
   };

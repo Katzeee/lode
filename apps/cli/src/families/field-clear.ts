@@ -30,8 +30,6 @@ const fieldClear: CommandDefinition = {
             kind: "typed-field-value-clear",
             ownerNodeId: state.ownerNodeId,
             fieldDefinitionId: state.fieldDefinitionId,
-            fieldNodeId: state.materialized.fieldNodeId,
-            fieldOccurrenceId: state.materialized.fieldOccurrenceId,
             emptyValueNodeId: `field:v1:${state.ownerNodeId}/${state.fieldDefinitionId}/empty-${requestId}`,
             emptyValueOccurrenceId: `field:v1:${state.ownerNodeId}/${state.fieldDefinitionId}/empty-occ-${requestId}`,
           },

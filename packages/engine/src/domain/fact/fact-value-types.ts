@@ -6,6 +6,7 @@ export type FactId = `g${number}/${string}/${string}/${number}`;
 export type FactActionId = `${FactId}/actions/${number}`;
 export type ResolutionId = FactId;
 export type HistoryChannelId = string;
+export type HistoryOperation = "normal" | "undo" | "redo";
 
 export type EditIntent = "direct" | "proposal";
 export type ResolutionDecision = "accept" | "reject";

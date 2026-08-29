@@ -1,13 +1,24 @@
 import {
+  frontierEquals,
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
   type FactSnapshot,
 } from "../../domain/fact/index.js";
-import { CURRENT_PROJECTION_VERSIONS, rebuildGeneration, textAtoms } from "../../domain/reconcile/index.js";
+import { textAtoms, type ProjectionGeneration } from "../../domain/reconcile/index.js";
 import { workspaceGenesisFact } from "./workspace-genesis-validation.js";
 
-export function validateWorkspaceSnapshot(workspaceId: string, snapshot: FactSnapshot): Readonly<{ label: string }> {
+export function validateWorkspaceSnapshot(
+  workspaceId: string,
+  snapshot: FactSnapshot,
+  generation: ProjectionGeneration,
+): Readonly<{ label: string }> {
+  if (
+    generation.identity.workspaceNodeId !== workspaceId ||
+    !frontierEquals(generation.identity.frontier, snapshot.frontier)
+  ) {
+    throw new Error("Workspace Projection does not match the authority snapshot");
+  }
   const establish = snapshot.facts.filter(
     (fact) => fact.body.kind === "governance" && fact.body.action.kind === "workspace-establish",
   );
@@ -29,7 +40,7 @@ export function validateWorkspaceSnapshot(workspaceId: string, snapshot: FactSna
     throw new Error("Workspace genesis must be attributed to its initial owner");
   }
 
-  const projection = rebuildGeneration(workspaceId, snapshot, CURRENT_PROJECTION_VERSIONS).origin;
+  const projection = generation.origin;
   const root = projection.nodes[workspaceId];
   const system = projection.workspaceSystemNodes;
   if (

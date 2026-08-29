@@ -1,4 +1,4 @@
-import type { HistoryChannelId, GraphAction, EditIntent } from "../fact/index.js";
+import type { FactId, HistoryChannelId, GraphAction, EditIntent } from "../fact/index.js";
 
 export type CompensationBatch = Readonly<{
   intent: EditIntent;
@@ -20,7 +20,7 @@ export type HistoryPlan =
   | Readonly<{
       kind: "ready";
       writes: readonly CompensationBatch[];
-      targetInvocationId: string;
+      targetStepId: FactId;
     }>
   | Readonly<{ kind: "unavailable"; reason: string }>
   | Readonly<{ kind: "stale"; reason: string }>;

@@ -1,13 +1,13 @@
-import { canonicalDigest, type AuthorityReceipt, type FactSnapshot, type HistoryChannelId } from "../fact/index.js";
+import { canonicalDigest, type FactId, type FactSnapshot, type HistoryChannelId } from "../fact/index.js";
 import type { ScopedProjectionGeneration } from "../reconcile/index.js";
 import { planInvocationCompensation } from "./compensation.js";
-import { rebuildHistoryState, type HistoryState } from "./state.js";
+import { historySteps, rebuildHistoryState, type HistoryState } from "./state.js";
 import type { HistoryPlan, HistoryQuery, HistorySelection } from "./types.js";
 
 export function queryHistory(
   channelId: HistoryChannelId,
-  receipts: readonly AuthorityReceipt[],
-  state: HistoryState = rebuildHistoryState(receipts, channelId),
+  snapshot: FactSnapshot,
+  state: HistoryState = rebuildHistoryState(snapshot, channelId),
 ): HistoryQuery {
   return {
     channelId,
@@ -19,64 +19,44 @@ export function queryHistory(
 export function validateHistorySelection(
   operation: "undo" | "redo",
   selection: HistorySelection,
-  receipts: readonly AuthorityReceipt[],
   snapshot: FactSnapshot,
   generation: ScopedProjectionGeneration,
 ): HistoryPlan {
-  const state = rebuildHistoryState(receipts, selection.channelId);
-  const targetInvocationId = operation === "undo" ? (state.undoStack.at(-1) ?? null) : (state.redoStack.at(-1) ?? null);
-  const current = selectionFor(operation, targetInvocationId, state);
-  if (!current) {
-    return { kind: "unavailable", reason: "History operation has no current target" };
-  }
-  if (targetInvocationId === null) {
+  const state = rebuildHistoryState(snapshot, selection.channelId);
+  const targetStepId = operation === "undo" ? (state.undoStack.at(-1) ?? null) : (state.redoStack.at(-1) ?? null);
+  const current = selectionFor(operation, targetStepId, state);
+  if (!current || !targetStepId) {
     return { kind: "unavailable", reason: "History operation has no current target" };
   }
   if (current.token !== selection.token) {
     return { kind: "stale", reason: "History channel head changed" };
   }
-  const targetReceipt = receiptById(receipts, targetInvocationId);
-  if (!targetReceipt) {
+  const target = historySteps(snapshot, selection.channelId).find((step) => step.id === targetStepId);
+  if (!target) {
     return { kind: "unavailable", reason: "History Step is not available" };
   }
-  const factsById = new Map(snapshot.facts.map((fact) => [fact.id, fact]));
-  const targetFacts = targetReceipt.factIds.flatMap((factId) => {
-    const fact = factsById.get(factId);
-    return fact ? [fact] : [];
-  });
-  if (targetFacts.length !== targetReceipt.factIds.length) {
-    return { kind: "unavailable", reason: "History Step Facts are not available" };
-  }
-  const currentCompensation = planInvocationCompensation(targetFacts, snapshot, generation);
+  const currentCompensation = planInvocationCompensation(target.actionFacts, snapshot, generation);
   if (currentCompensation.kind !== "ready") {
     return currentCompensation;
   }
-  return {
-    kind: "ready",
-    targetInvocationId,
-    writes: currentCompensation.writes,
-  };
+  return { kind: "ready", targetStepId, writes: currentCompensation.writes };
 }
 
 function selectionFor(
   operation: "undo" | "redo",
-  targetInvocationId: string | null,
-  state: ReturnType<typeof rebuildHistoryState>,
+  targetStepId: FactId | null,
+  state: HistoryState,
 ): HistorySelection | null {
-  if (!targetInvocationId) {
+  if (!targetStepId) {
     return null;
   }
   return {
     token: canonicalDigest({
       channelId: state.channelId,
       operation,
-      headInvocationId: state.headInvocationId,
-      targetInvocationId,
+      headStepId: state.headStepId,
+      targetStepId,
     }),
     channelId: state.channelId,
   };
-}
-
-function receiptById(receipts: readonly AuthorityReceipt[], invocationId: string): AuthorityReceipt | null {
-  return receipts.find((receipt) => receipt.invocationId === invocationId) ?? null;
 }
