@@ -26,6 +26,17 @@ for type-only dependencies.
 - Refactor toward a better architecture: high cohesion, low coupling, abstractions and seams that
   make future change cheap. Judge each change by whether the design is genuinely improved — not by
   how much or how little it abstracts; either can be right. The goal is the cleaner architecture.
+- Optimize for team-scale extension, not line count or the apparent simplicity of today's control
+  flow. A design should make ownership discoverable, keep a representative new operation or state
+  change local, and let a newcomer find the right module and the required integration points without
+  reconstructing implicit conventions. Preserve explicit seams, exhaustive dispatch, and atomic
+  state boundaries when they enforce those properties; do not flatten them merely because the
+  current implementation could run as one linear procedure.
+- Require evidence for both abstraction and deletion. Trace production consumers and exercise a
+  representative future change before deciding that a registry, stage, index, or boundary is either
+  necessary or redundant. Remove speculative machinery and derived work with no consumer, but do not
+  confuse an intentional composition point with accidental centralization. When a central module is
+  necessary, keep it declarative and make each owned behavior live in a searchable, cohesive module.
 - The project has no production data or released compatibility surface. Unless the user explicitly
   asks otherwise, changes do not preserve old data, APIs, durable storage formats, code paths,
   module locations, or behavior. Define the requested system in the present tense and update every
