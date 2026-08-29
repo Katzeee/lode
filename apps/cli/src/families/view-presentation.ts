@@ -5,7 +5,7 @@ import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
-import { readHostView } from "./view.js";
+import { readHostView } from "./view-actions.js";
 
 const viewOutlineMode: CommandDefinition = {
   path: ["view", "outline"],

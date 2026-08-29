@@ -32,6 +32,7 @@ export type {
   ProjectionPerspective,
   WorkspaceId,
 } from "./types.js";
+export { END_SEQUENCE_ANCHOR, START_SEQUENCE_ANCHOR } from "./fact-value-types.js";
 export type { GovernanceAction, PeerId, TransitEnvelope } from "./governance-types.js";
 export type { AuthorityReceipt, ReceiptLineage } from "./authority-types.js";
 export type {

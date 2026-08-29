@@ -1,20 +1,30 @@
-import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { EditAction, TemplateField } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_CARDINALITIES,
+  FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPES,
+  type EditAction,
+  type FieldDatatype,
+} from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
+import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
-import { registerSupertagFieldDefaultCommands } from "./supertag-field-default.js";
-import { registerSupertagFieldPlacementCommands } from "./supertag-field-placement.js";
 import {
   cardinalityConfiguration,
   datatypeConfiguration,
+  executeWrite,
+  identity,
   optionalityConfiguration,
   optionalContributionActions,
   requiredEndpoint,
   templateFieldCreateAction,
-} from "./supertag-field-actions.js";
+  writeResult,
+  workspaceIdOf,
+} from "../intent/index.js";
+import { BOOLEAN_VALUES } from "../value/field-values.js";
+import { registerSupertagFieldDefaultCommands } from "./supertag-field-default.js";
+import { registerSupertagFieldPlacementCommands } from "./supertag-field-placement.js";
 
 /**
  * Supertag field family: Template Field authoring in Tana's vocabulary —
@@ -29,9 +39,6 @@ export function registerSupertagFieldCommands(catalog: CommandCatalog): void {
   registerSupertagFieldPlacementCommands(catalog);
 }
 
-const TYPE_ENUM = ["plain", "options", "options-from-supertag", "number", "checkbox", "date"] as const;
-const BOOLEAN_ENUM = ["true", "false"] as const;
-
 const FIELD_OPTION = {
   name: "--field",
   description: "Field name (new) or Field Definition target (existing)",
@@ -39,43 +46,19 @@ const FIELD_OPTION = {
   required: true,
 };
 
-export async function readTemplateFields(
-  context: Parameters<ProductCommandRun>[0],
-  supertagId: string,
-): Promise<readonly TemplateField[]> {
-  const fields = (await context.session.readProjection(
-    workspaceIdOf(context),
-    context.perspective,
-    "templateFields",
-  )) as Record<string, TemplateField[]>;
-  return fields[supertagId] ?? [];
-}
-
-export async function readOptionalContributions(
-  context: Parameters<ProductCommandRun>[0],
-  supertagId: string,
-): Promise<readonly { contributionNodeId: string; fieldDefinitionId: string }[]> {
-  const contributions = (await context.session.readProjection(
-    workspaceIdOf(context),
-    context.perspective,
-    "optionalFieldContributions",
-  )) as Record<string, readonly { contributionNodeId: string; fieldDefinitionId: string }[]>;
-  return contributions[supertagId] ?? [];
-}
-
 const fieldAddNew: CommandDefinition = {
   path: ["supertag", "field", "add-new"],
   summary: "Add a new field to a Supertag template.",
   positionals: [["supertag", "Supertag target"]],
   options: [
     FIELD_OPTION,
-    { name: "--type", description: "Field datatype", value: { kind: "enum" as const, enum: TYPE_ENUM } },
+    { name: "--type", description: "Field datatype", value: { kind: "enum" as const, enum: FIELD_DATATYPES } },
     {
       name: "--cardinality",
       description: "single or list",
-      value: { kind: "enum" as const, enum: ["single", "list"] as const },
+      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
     },
-    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_ENUM } },
+    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_VALUES } },
     {
       name: "--options-from",
       description: "Supertag providing options (only with --type options-from-supertag)",
@@ -84,7 +67,7 @@ const fieldAddNew: CommandDefinition = {
     {
       name: "--optional",
       description: "Add as an Optional Field Contribution instead of a template placement",
-      value: { kind: "enum" as const, enum: BOOLEAN_ENUM },
+      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
     },
   ],
   kind: "write",
@@ -100,7 +83,7 @@ const fieldAddNew: CommandDefinition = {
       ["supertag"],
     );
     const name = args.requiredOption("--field");
-    const datatype = args.option("--type");
+    const datatype = args.option("--type") as FieldDatatype | undefined;
     const optionsFrom = args.option("--options-from");
     if (optionsFrom !== undefined && datatype !== "options-from-supertag") {
       throw new CliError("usage", "--options-from is only valid with --type options-from-supertag.");
@@ -125,7 +108,7 @@ const fieldAddNew: CommandDefinition = {
       actions.push(datatypeConfiguration(fieldDefinitionId, datatype, optionsSupertagId));
     }
     if (args.option("--cardinality") === "list") {
-      actions.push(cardinalityConfiguration(fieldDefinitionId, "system-field-cardinality:v1:list"));
+      actions.push(cardinalityConfiguration(fieldDefinitionId, FIELD_CARDINALITY_NODE_IDS.list));
     }
     if (args.option("--required") !== undefined) {
       actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
@@ -153,7 +136,7 @@ const fieldAddExisting: CommandDefinition = {
     {
       name: "--optional",
       description: "Add as an Optional Field Contribution instead of a template placement",
-      value: { kind: "enum" as const, enum: BOOLEAN_ENUM },
+      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
     },
   ],
   kind: "write",

@@ -2,6 +2,7 @@ import type { EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, requireAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   CHECKBOX_VALUE_NODE_IDS,
+  END_SEQUENCE_ANCHOR as end,
   FIELD_DATATYPE_NODE_IDS,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
@@ -15,8 +16,6 @@ import {
   type MaterializedField,
   type InterpretedProjection,
 } from "../../../domain/reconcile/index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 type TypedFieldValueEdit = Extract<
   EditAction,

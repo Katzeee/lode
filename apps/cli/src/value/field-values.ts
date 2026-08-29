@@ -1,3 +1,5 @@
+import { FIELD_DATATYPES, FIELD_DATATYPE_NODE_IDS, type FieldDatatype } from "@lode/sdk";
+
 import { CliError } from "../outcome/index.js";
 
 /**
@@ -7,9 +9,7 @@ import { CliError } from "../outcome/index.js";
  * language.
  */
 
-export const FIELD_DATATYPES = ["plain", "options", "options-from-supertag", "number", "checkbox", "date"] as const;
-
-export type FieldDatatype = (typeof FIELD_DATATYPES)[number];
+export const BOOLEAN_VALUES = ["true", "false"] as const;
 
 type ParsedFieldValue =
   | Readonly<{ kind: "plain"; text: string }>
@@ -56,6 +56,5 @@ export function datatypeOfEndpoint(endpointNodeId: string | null | undefined): F
   if (endpointNodeId === null || endpointNodeId === undefined) {
     return null;
   }
-  const prefix = "system-field-datatype:v1:";
-  return endpointNodeId.startsWith(prefix) ? (endpointNodeId.slice(prefix.length) as FieldDatatype) : null;
+  return FIELD_DATATYPES.find((datatype) => FIELD_DATATYPE_NODE_IDS[datatype] === endpointNodeId) ?? null;
 }

@@ -37,4 +37,18 @@ export type SequenceAnchor = Readonly<{
   fallback: "start" | "end";
 }>;
 
+export const START_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
+  after: null,
+  before: null,
+  affinity: "before",
+  fallback: "start",
+});
+
+export const END_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
+  after: null,
+  before: null,
+  affinity: "after",
+  fallback: "end",
+});
+
 export type PreviousValue = Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;

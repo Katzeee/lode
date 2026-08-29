@@ -1,5 +1,10 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import { VIEW_SORT_NODE_NAME_NODE_ID, type GraphAction, type FactActionId } from "../../../domain/fact/index.js";
+import {
+  START_SEQUENCE_ANCHOR,
+  VIEW_SORT_NODE_NAME_NODE_ID,
+  type GraphAction,
+  type FactActionId,
+} from "../../../domain/fact/index.js";
 import type { InterpretedProjection, SharedDefaultViewDefinition } from "../../../domain/reconcile/index.js";
 import { sortViewChildrenByNodeName, supportsSharedDefaultViewHost } from "../../../domain/view/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
@@ -267,7 +272,7 @@ function nodeNameSort(
     parentNodeId: edit.hostNodeId,
     anchor:
       index === 0
-        ? { after: null, before: null, affinity: "before", fallback: "start" }
+        ? START_SEQUENCE_ANCHOR
         : { after: ordered[index - 1]?.sourceIdentity ?? null, before: null, affinity: "after", fallback: "end" },
   }));
   return authoredActionBatch([sort, ...moves]);

@@ -106,3 +106,12 @@ export function invocationId(requestId: string): string {
 export function identity(requestId: string, role: string): string {
   return `${requestId}/${role}`;
 }
+
+export {
+  cardinalityConfiguration,
+  datatypeConfiguration,
+  optionalityConfiguration,
+  optionalContributionActions,
+  requiredEndpoint,
+  templateFieldCreateAction,
+} from "./field-edit-actions.js";

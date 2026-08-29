@@ -8,6 +8,7 @@ import {
   type ViewSortDirection,
   type ViewType,
   NODE_VIEWS_DEFINITION_NODE_ID,
+  START_SEQUENCE_ANCHOR as start,
 } from "../fact/index.js";
 import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
@@ -236,8 +237,6 @@ export function viewFilterStates(active: readonly FactAction[], viewId: FactActi
     .filter((state) => state.addition.action.viewId === viewId)
     .map(({ addition, removed }) => ({ addition, removed, filterNodeId: viewFilterNodeId(addition.id) }));
 }
-
-const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
 function after(occurrenceId: string): SequenceAnchor {
   return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };

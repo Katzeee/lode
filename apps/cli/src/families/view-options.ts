@@ -1,11 +1,11 @@
-import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
+import { END_SEQUENCE_ANCHOR as end, VIEW_SORT_DIRECTIONS } from "@lode/sdk";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { CliError } from "../outcome/index.js";
 import { resolveNodeTarget } from "../target/index.js";
 import { workspaceIdOf } from "../intent/index.js";
 import { parseExpression } from "../value/expression.js";
 import { compileDraft, resolveAst } from "../value/expression-compile.js";
-import { writeViewActions } from "./view.js";
+import { writeViewActions } from "./view-actions.js";
 
 const viewFilterSet: CommandDefinition = {
   path: ["view", "filter", "set"],
@@ -64,7 +64,7 @@ const viewSortSet: CommandDefinition = {
     {
       name: "--direction",
       description: "ascending or descending",
-      value: { kind: "enum" as const, enum: ["ascending", "descending"] as const },
+      value: { kind: "enum" as const, enum: VIEW_SORT_DIRECTIONS },
       required: true,
     },
   ],

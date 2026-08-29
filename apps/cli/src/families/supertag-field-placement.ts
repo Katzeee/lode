@@ -4,11 +4,9 @@ import type { EditAction } from "@lode/sdk";
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { resolveNodeTarget } from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
-import { readOptionalContributions, readTemplateFields } from "./supertag-field.js";
-import { optionalContributionActions } from "./supertag-field-actions.js";
-
-const BOOLEAN_ENUM = ["true", "false"] as const;
+import { executeWrite, optionalContributionActions, writeResult, workspaceIdOf } from "../intent/index.js";
+import { BOOLEAN_VALUES } from "../value/field-values.js";
+import { readOptionalContributions, readTemplateFields } from "./supertag-field-state.js";
 
 const fieldRemove: CommandDefinition = {
   path: ["supertag", "field", "remove"],
@@ -151,7 +149,7 @@ const fieldSetOptional: CommandDefinition = {
     {
       name: "--value",
       description: "true to make optional, false to return to template",
-      value: { kind: "enum" as const, enum: BOOLEAN_ENUM },
+      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
       required: true,
     },
   ],

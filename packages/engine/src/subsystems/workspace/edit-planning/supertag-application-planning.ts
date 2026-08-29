@@ -1,6 +1,7 @@
 import type { EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
+  END_SEQUENCE_ANCHOR,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
@@ -102,7 +103,7 @@ function materializeStaticDefaults(
         ownerNodeId: fieldNodeId,
         originalPlacement: {
           placementId: valueOccurrenceId,
-          anchor: { after: null, before: null, affinity: "after", fallback: "end" },
+          anchor: END_SEQUENCE_ANCHOR,
         },
         seed: { text: [{ value: field.staticDefault.value, attributes: {} }] },
       },

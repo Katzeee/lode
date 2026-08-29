@@ -6,7 +6,7 @@ import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../ca
 import { descriptor, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { parseFieldValue } from "../value/field-values.js";
-import { readFieldState, slotId, type FieldState } from "./field-values.js";
+import { readFieldState, slotId, type FieldState } from "./field-state.js";
 
 const VALUE_OPTION = {
   name: "--value",

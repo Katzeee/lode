@@ -79,13 +79,9 @@ function homePort(context: ManagementCommandContext): HomeManagementPort {
     registry: () => readHomeRegistry(context.configDir),
     writeRegistry: (update) => writeHomeRegistry(context.configDir, update),
     probe: async (path) => {
-      try {
-        const probe = await probeDaemon({ name: "", path });
-        probe?.client.close();
-        return probe !== null;
-      } catch {
-        return false;
-      }
+      const probe = await probeDaemon({ name: "", path });
+      probe?.client.close();
+      return probe !== null;
     },
   };
 }

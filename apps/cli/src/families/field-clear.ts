@@ -4,7 +4,7 @@ import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
-import { readFieldState } from "./field-values.js";
+import { readFieldState } from "./field-state.js";
 
 const fieldClear: CommandDefinition = {
   path: ["field", "clear"],

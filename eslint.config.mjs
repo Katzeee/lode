@@ -3,7 +3,7 @@ import prettier from "eslint-config-prettier";
 import nodeImport from "eslint-plugin-node-import";
 import unicorn from "eslint-plugin-unicorn";
 import tseslint from "typescript-eslint";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 function moduleSource(node) {
   const source = node.source ?? node.argument ?? node.parameter;
@@ -179,6 +179,33 @@ const architecturePlugin = {
               data: {
                 message:
                   "Daemon Peer adapters import only named Engine-owned Peer Transport port types from @lode/engine/host.",
+              },
+            });
+          }
+        });
+      },
+    },
+    "cli-family-dependencies": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const filename = context.filename.replaceAll("\\", "/");
+        if (!filename.includes("/apps/cli/src/families/")) {
+          return {};
+        }
+        const owner = basename(filename, ".ts").split("-")[0];
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (typeof source !== "string" || !source.startsWith("./")) {
+            return;
+          }
+          const dependency = /\/families\/([^/]+)\.js$/.exec(normalizedModule(context, source))?.[1];
+          if (dependency !== undefined && dependency.split("-")[0] !== owner) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message:
+                  "A CLI command family cannot import another family; shared command construction belongs below families.",
               },
             });
           }
@@ -700,6 +727,7 @@ export default tseslint.config(
     files: ["apps/cli/src/families/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
+      "architecture/cli-family-dependencies": "error",
       "no-restricted-imports": [
         "error",
         {

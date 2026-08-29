@@ -1,12 +1,11 @@
 import {
+  END_SEQUENCE_ANCHOR as end,
   FIELD_CONFIGURATION_DEFINITION_NODE_IDS,
   type FactAction,
   type FactActionId,
   type SequenceAnchor,
 } from "../fact/index.js";
 import { fieldConfigurationProjectionIdentity } from "./projection-identity.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 type FieldConfigurationPlacement = Readonly<{
   nodeId: string;

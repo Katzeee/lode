@@ -1,5 +1,10 @@
-import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { EditAction } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_DATATYPE_NODE_IDS,
+  FIELD_OPTIONALITY_NODE_IDS,
+  type EditAction,
+  type FieldDatatype,
+} from "@lode/sdk";
 
 export function templateFieldCreateAction(supertagId: string, fieldDefinitionId: string, name: string): EditAction {
   return {
@@ -13,13 +18,13 @@ export function templateFieldCreateAction(supertagId: string, fieldDefinitionId:
 
 export function datatypeConfiguration(
   fieldDefinitionId: string,
-  datatype: string,
+  datatype: FieldDatatype,
   optionsFrom: string | undefined,
 ): EditAction {
   return {
     kind: "field-datatype-configure",
     fieldDefinitionId,
-    datatypeNodeId: `system-field-datatype:v1:${datatype}`,
+    datatypeNodeId: FIELD_DATATYPE_NODE_IDS[datatype],
     ...(optionsFrom === undefined ? {} : { optionsSupertagId: optionsFrom }),
   };
 }
@@ -41,7 +46,7 @@ export function optionalityConfiguration(fieldDefinitionId: string, endpoint: st
 }
 
 export function requiredEndpoint(required: boolean): string {
-  return required ? "system-field-optionality:v1:required" : "system-field-optionality:v1:not-required";
+  return required ? FIELD_OPTIONALITY_NODE_IDS.required : FIELD_OPTIONALITY_NODE_IDS.optional;
 }
 
 export function optionalContributionActions(supertagId: string, fieldDefinitionId: string): readonly EditAction[] {

@@ -1,17 +1,12 @@
-import {
-  END_SEQUENCE_ANCHOR as end,
-  type FieldDefinitionConfiguration,
-  type MaterializedField,
-  type SequenceAnchor,
-} from "@lode/sdk";
+import { END_SEQUENCE_ANCHOR as end, type SequenceAnchor } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { descriptor, resolveNodeTarget, resolveOccurrenceTarget } from "../target/index.js";
+import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
+import { descriptor, resolveOccurrenceTarget } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { registerFieldClearCommands } from "./field-clear.js";
 import { registerFieldValueWriteCommands } from "./field-value-write.js";
-import { datatypeOfEndpoint } from "../value/field-values.js";
+import { readFieldState } from "./field-state.js";
 
 /**
  * Field value commands: `set` serves Single fields, `add`/`remove`/`move`
@@ -32,61 +27,6 @@ const ON_OPTION = {
   value: { kind: "string" as const },
   required: true,
 } as const;
-
-export type FieldState = Readonly<{
-  fieldDefinitionId: string;
-  fieldLabel: string;
-  fieldDescriptor: ReturnType<typeof descriptor>;
-  ownerNodeId: string;
-  ownerLabel: string;
-  datatype: "plain" | "number" | "checkbox" | "date" | "options" | "options-from-supertag";
-  cardinality: "single" | "list";
-  materialized: MaterializedField | undefined;
-}>;
-
-export async function readFieldState(
-  context: Parameters<ProductCommandRun>[0],
-  fieldToken: string,
-  ownerToken: string,
-): Promise<FieldState> {
-  const workspaceId = workspaceIdOf(context);
-  const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, fieldToken, ["field"]);
-  const owner = await resolveNodeTarget(context.session, workspaceId, context.perspective, ownerToken, ["node"]);
-  const configurations = (await context.session.readProjection(
-    workspaceId,
-    context.perspective,
-    "fieldDefinitionConfigurations",
-  )) as Record<string, readonly FieldDefinitionConfiguration[]>;
-  const entries = configurations[field.nodeId] ?? [];
-  const datatype =
-    datatypeOfEndpoint(entries.find((entry) => entry.kind === "datatype")?.datatypeNodeId ?? null) ?? "plain";
-  const cardinality = (entries.find((entry) => entry.kind === "cardinality")?.cardinalityNodeId ?? "").endsWith(":list")
-    ? "list"
-    : "single";
-  const materializedFields = (await context.session.readProjection(
-    workspaceId,
-    context.perspective,
-    "materializedFields",
-  )) as Record<string, readonly MaterializedField[]>;
-  const materialized = (materializedFields[owner.nodeId] ?? []).find(
-    (entry) => entry.fieldDefinitionId === field.nodeId,
-  );
-  return {
-    fieldDefinitionId: field.nodeId,
-    fieldLabel: field.label,
-    fieldDescriptor: field.descriptor,
-    ownerNodeId: owner.nodeId,
-    ownerLabel: owner.label,
-    datatype,
-    cardinality,
-    materialized,
-  };
-}
-
-/** Semantic slot identity: concurrent first writes on one slot merge. */
-export function slotId(state: FieldState, role: string): string {
-  return `field:v1:${state.ownerNodeId}/${state.fieldDefinitionId}/${role}`;
-}
 
 const fieldRemove: CommandDefinition = {
   path: ["field", "remove"],

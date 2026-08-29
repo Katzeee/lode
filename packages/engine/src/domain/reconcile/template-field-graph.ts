@@ -4,6 +4,8 @@ import {
   factObserves,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
+  END_SEQUENCE_ANCHOR as end,
+  START_SEQUENCE_ANCHOR as start,
   type FactAction,
   type FactActionId,
   type FactActionOf,
@@ -172,9 +174,6 @@ export function templateFieldVisibilityCandidates(
 function actionObserves(observer: FactAction, observed: FactAction): boolean {
   return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
-
-const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 function after(occurrenceId: string): SequenceAnchor {
   return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };

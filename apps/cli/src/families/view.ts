@@ -1,12 +1,13 @@
 import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { EditAction, SharedDefaultViewDefinition, ViewOptionsSpec, ViewType } from "@lode/sdk";
+import type { ViewOptionsSpec, ViewType } from "@lode/sdk";
 
-import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
+import { CliError, okOutcome } from "../outcome/index.js";
+import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
+import { workspaceIdOf } from "../intent/index.js";
 import { registerViewPresentationCommands } from "./view-presentation.js";
 import { registerViewOptionCommands } from "./view-options.js";
+import { writeViewActions } from "./view-actions.js";
 
 /**
  * View family: the shared default View authority. Each command emits the
@@ -20,69 +21,6 @@ export function registerViewCommands(catalog: CommandCatalog): void {
   catalog.register(viewColumnAdd);
   catalog.register(viewColumnRemove);
   catalog.register(viewColumnMove);
-}
-
-type HostView = Readonly<{
-  hostNodeId: string;
-  hostLabel: string;
-  viewId: SharedDefaultViewDefinition["viewId"];
-  viewDefinitionNodeId: string;
-  options: ViewOptionsSpec;
-}>;
-
-export async function readHostView(
-  context: Parameters<ProductCommandRun>[0],
-  hostToken: string,
-): Promise<HostView | null> {
-  const workspaceId = workspaceIdOf(context);
-  const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
-    "node",
-    "search",
-  ]);
-  const definitions = (await context.session.readProjection(
-    workspaceId,
-    context.perspective,
-    "sharedDefaultViewDefinitions",
-  )) as Record<string, readonly SharedDefaultViewDefinition[]>;
-  const current = (definitions[host.nodeId] ?? []).at(0);
-  return current === undefined
-    ? null
-    : {
-        hostNodeId: host.nodeId,
-        hostLabel: host.label,
-        viewId: current.viewId,
-        viewDefinitionNodeId: current.viewDefinitionNodeId,
-        options: current.options,
-      };
-}
-
-export async function writeViewActions(
-  context: Parameters<ProductCommandRun>[0],
-  hostToken: string,
-  action: string,
-  build: (current: HostView) => readonly EditAction[],
-) {
-  const workspaceId = workspaceIdOf(context);
-  const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
-    "node",
-    "search",
-  ]);
-  const existing = await readHostView(context, hostToken);
-  if (existing === null) {
-    throw new CliError("unsupported", `Node ${host.descriptor.ref} has no shared default View.`);
-  }
-  const { result, data } = await executeWrite(context, action, build(existing));
-  return writeResult(data, result, {
-    extra: {
-      target: descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
-      on: host.descriptor,
-    },
-    view: writeView(
-      "Updated view",
-      descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
-      `on ${host.label}`,
-    ),
-  });
 }
 
 const viewShow: CommandDefinition = {

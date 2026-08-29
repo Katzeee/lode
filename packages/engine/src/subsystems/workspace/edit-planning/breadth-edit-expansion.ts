@@ -2,6 +2,7 @@ import type { EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, requireAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
+  END_SEQUENCE_ANCHOR as END,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
   URL_DEFINITION_NODE_ID,
@@ -10,8 +11,6 @@ import {
 } from "../../../domain/fact/index.js";
 import { nodeLocation, type MaterializedField, type InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { validatePlainOrOptionsValue } from "./plain-field-value-validation.js";
-
-const END = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 type BreadthEdit = Extract<
   EditAction,

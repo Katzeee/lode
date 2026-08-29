@@ -1,4 +1,4 @@
-import type { FactAction } from "../fact/index.js";
+import { END_SEQUENCE_ANCHOR, type FactAction } from "../fact/index.js";
 import { nodeDeletionActionIds } from "./deletion-finalization.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
 import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
@@ -73,12 +73,7 @@ function applyNodeLifecycle(
       continue;
     }
     if (liveTrash.has(nodeId) && trashNodeId !== undefined) {
-      movePlacement(occurrences, childOccurrences, selectedPlacementId, nodeId, trashNodeId, {
-        after: null,
-        before: null,
-        affinity: "after",
-        fallback: "end",
-      });
+      movePlacement(occurrences, childOccurrences, selectedPlacementId, nodeId, trashNodeId, END_SEQUENCE_ANCHOR);
     }
     const selectedPlacement = occurrences.get(selectedPlacementId);
     if (selectedPlacement?.nodeId === nodeId && liveTrash.has(nodeId) && trashNodeId !== undefined) {

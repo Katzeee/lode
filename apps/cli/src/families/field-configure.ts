@@ -1,27 +1,37 @@
-import type { EditAction } from "@lode/sdk";
+import {
+  FIELD_CARDINALITIES,
+  FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPES,
+  type EditAction,
+  type FieldDatatype,
+} from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { resolveNodeTarget } from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
-import { FIELD_DATATYPES } from "../value/field-values.js";
-
-const TYPE_ENUM = [...FIELD_DATATYPES] as unknown as readonly string[];
-const BOOLEAN_ENUM = ["true", "false"] as const;
-import { cardinalityConfiguration, datatypeConfiguration, optionalityConfiguration } from "./supertag-field-actions.js";
+import {
+  cardinalityConfiguration,
+  datatypeConfiguration,
+  executeWrite,
+  optionalityConfiguration,
+  requiredEndpoint,
+  writeResult,
+  workspaceIdOf,
+} from "../intent/index.js";
+import { BOOLEAN_VALUES } from "../value/field-values.js";
 
 const fieldConfigure: CommandDefinition = {
   path: ["field", "configure"],
   summary: "Reconfigure a Field Definition's datatype, cardinality, or required state.",
   positionals: [["field", "Field Definition target"]],
   options: [
-    { name: "--type", description: "New datatype", value: { kind: "enum" as const, enum: TYPE_ENUM } },
+    { name: "--type", description: "New datatype", value: { kind: "enum" as const, enum: FIELD_DATATYPES } },
     {
       name: "--cardinality",
       description: "single or list",
-      value: { kind: "enum" as const, enum: ["single", "list"] as const },
+      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
     },
-    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_ENUM } },
+    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_VALUES } },
     { name: "--options-from", description: "Supertag providing options", value: { kind: "string" as const } },
   ],
   kind: "write",
@@ -32,7 +42,7 @@ const fieldConfigure: CommandDefinition = {
     const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
       "field",
     ]);
-    const datatype = args.option("--type") as (typeof FIELD_DATATYPES)[number] | undefined;
+    const datatype = args.option("--type") as FieldDatatype | undefined;
     const optionsFrom = args.option("--options-from");
     const optionsSupertagId =
       optionsFrom === undefined
@@ -54,8 +64,8 @@ const fieldConfigure: CommandDefinition = {
       actions.push(datatypeConfiguration(field.nodeId, datatype, optionsSupertagId));
     }
     if (args.option("--cardinality") !== undefined) {
-      const list = args.option("--cardinality") === "list";
-      const endpoint = list ? "system-field-cardinality:v1:list" : "system-field-cardinality:v1:single";
+      const endpoint =
+        args.option("--cardinality") === "list" ? FIELD_CARDINALITY_NODE_IDS.list : FIELD_CARDINALITY_NODE_IDS.single;
       actions.push(cardinalityConfiguration(field.nodeId, endpoint));
     }
     if (args.option("--required") !== undefined) {
@@ -69,10 +79,6 @@ const fieldConfigure: CommandDefinition = {
     });
   },
 };
-
-function requiredEndpoint(required: boolean): string {
-  return required ? "system-field-optionality:v1:required" : "system-field-optionality:v1:not-required";
-}
 
 export function registerFieldConfigureCommands(catalog: CommandCatalog): void {
   catalog.register(fieldConfigure);

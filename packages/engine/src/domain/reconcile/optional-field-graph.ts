@@ -1,5 +1,6 @@
 import {
   OPTIONAL_FIELDS_DEFINITION_NODE_ID,
+  START_SEQUENCE_ANCHOR as start,
   type FactAction,
   type FactActionId,
   type FactActionOf,
@@ -110,8 +111,6 @@ export function optionalFieldPlacement(
   const value = values[placementId];
   return value ? { ...value, derived: true } : null;
 }
-
-const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
 function after(occurrenceId: string): SequenceAnchor {
   return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };

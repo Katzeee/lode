@@ -1,15 +1,14 @@
 import { requireAuthoredActionBatch, type AuthoredActionBatch } from "../action-batch.js";
 import {
+  END_SEQUENCE_ANCHOR as END,
   fieldDefinitionEndpointOccurrenceId,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
   type FieldAction,
+  START_SEQUENCE_ANCHOR as START,
 } from "../../../../domain/fact/index.js";
 import type { InterpretedProjection } from "../../../../domain/reconcile/index.js";
 import { createNodeUnlessPresent, createOccurrenceUnlessPresent } from "./generated-lifecycle.js";
-
-const END = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-const START = { after: null, before: null, affinity: "before", fallback: "start" } as const;
 
 export function expandFieldAction(action: FieldAction, available: InterpretedProjection): AuthoredActionBatch {
   switch (action.kind) {

@@ -2,6 +2,7 @@ import {
   factActionsOfKind,
   isFactActionId,
   SEARCH_EXPRESSION_DEFINITION_NODE_ID,
+  START_SEQUENCE_ANCHOR as start,
   type FactAction,
   type FactActionId,
   type FactActionOf,
@@ -115,5 +116,3 @@ export function expressionHostParent(expressionHostId: string): string {
     ? `${expressionHostId}/projection/view-filter/node`
     : metanodeNodeId(expressionHostId);
 }
-
-const start = { after: null, before: null, affinity: "before", fallback: "start" } as const;

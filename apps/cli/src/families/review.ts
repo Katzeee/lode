@@ -1,4 +1,4 @@
-import type { ConflictIssue, ConflictQuery, ReviewQuery } from "@lode/sdk";
+import { RESOLUTION_DECISIONS, type ConflictIssue, type ConflictQuery, type ReviewQuery } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
@@ -263,7 +263,7 @@ const conflictResolve: CommandDefinition = {
     {
       name: "--decision",
       description: "Terminal decision for a Resolution conflict",
-      value: { kind: "enum" as const, enum: ["accept", "reject"] as const },
+      value: { kind: "enum" as const, enum: RESOLUTION_DECISIONS },
     },
   ],
   kind: "write",

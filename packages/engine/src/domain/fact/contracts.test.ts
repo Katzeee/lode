@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
+import {
+  FIELD_CARDINALITY_NODE_IDS as SDK_FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPE_NODE_IDS as SDK_FIELD_DATATYPE_NODE_IDS,
+  FIELD_OPTIONALITY_NODE_IDS as SDK_FIELD_OPTIONALITY_NODE_IDS,
+  workspaceSchemaNodeId as sdkWorkspaceSchemaNodeId,
+} from "@lode/sdk";
 
 import {
+  FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPE_NODE_IDS,
+  FIELD_OPTIONALITY_NODE_IDS,
   canonicalDigest,
   canonicalJson,
   buildFactSnapshot,
@@ -8,6 +17,7 @@ import {
   makeFact,
   parseFactBody,
   validateReceipts,
+  workspaceSchemaNodeId,
   type AuthorityReceipt,
 } from "./index.js";
 import { uniqueFacts } from "../../../tests/support/facts.js";
@@ -40,6 +50,23 @@ function actionFact(sequence: number, overrides: Partial<Parameters<typeof makeF
 }
 
 describe("production Fact contracts", () => {
+  it("keeps the public Field schema vocabulary aligned with Fact schema identities", () => {
+    expect(SDK_FIELD_DATATYPE_NODE_IDS).toEqual({
+      plain: FIELD_DATATYPE_NODE_IDS.plain,
+      options: FIELD_DATATYPE_NODE_IDS.options,
+      "options-from-supertag": FIELD_DATATYPE_NODE_IDS.optionsFromSupertag,
+      number: FIELD_DATATYPE_NODE_IDS.number,
+      checkbox: FIELD_DATATYPE_NODE_IDS.checkbox,
+      date: FIELD_DATATYPE_NODE_IDS.date,
+    });
+    expect(SDK_FIELD_CARDINALITY_NODE_IDS).toEqual(FIELD_CARDINALITY_NODE_IDS);
+    expect(SDK_FIELD_OPTIONALITY_NODE_IDS).toEqual({
+      required: FIELD_OPTIONALITY_NODE_IDS.yes,
+      optional: FIELD_OPTIONALITY_NODE_IDS.no,
+    });
+    expect(sdkWorkspaceSchemaNodeId("workspace / id")).toBe(workspaceSchemaNodeId("workspace / id"));
+  });
+
   it("AUTH-1 facts are the only domain authority", () => {
     const fact = actionFact(1);
     const interpretation = buildFactSnapshot("workspace", uniqueFacts([fact]));

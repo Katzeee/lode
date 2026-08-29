@@ -1,5 +1,6 @@
 import { CliError } from "../outcome/index.js";
 import type { CommandDefinition } from "../catalog/index.js";
+import { EDIT_INTENTS, PROJECTION_PERSPECTIVES } from "@lode/sdk";
 import { ParsedArgs } from "./context.js";
 export { ParsedArgs, validateGlobalsFor } from "./context.js";
 export type { CommandContext } from "./context.js";
@@ -47,8 +48,6 @@ export type InputFileReader = Readonly<{
   readStdin(): Promise<string>;
 }>;
 
-const PERSPECTIVES = ["origin", "review"] as const;
-const INTENTS = ["direct", "proposal"] as const;
 const FORMATS = ["human", "json"] as const;
 
 export type CommandLookup = Readonly<{
@@ -180,8 +179,8 @@ function baseGlobals(
   set("home", read("--home"));
   set("workspace", read("--workspace"));
   set("actor", read("--actor"));
-  set("perspective", enumerated("--perspective", PERSPECTIVES));
-  set("intent", enumerated("--intent", INTENTS));
+  set("perspective", enumerated("--perspective", PROJECTION_PERSPECTIVES));
+  set("intent", enumerated("--intent", EDIT_INTENTS));
   set("format", enumerated("--format", FORMATS));
   set("requestId", read("--request-id"));
   const limit = read("--limit");

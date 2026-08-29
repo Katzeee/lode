@@ -3,7 +3,7 @@ import type { TemplateField } from "@lode/sdk";
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
 import { resolveNodeTarget } from "../target/index.js";
-import { readTemplateFields } from "./supertag-field.js";
+import { readTemplateFields } from "./supertag-field-state.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 
 const fieldSetDefault: CommandDefinition = {

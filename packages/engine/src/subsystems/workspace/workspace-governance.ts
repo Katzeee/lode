@@ -4,6 +4,7 @@ import { GovernanceAuthorizationError, GovernancePreconditionError } from "@lode
 import { isActorId, isPeerId, sealToPublicKey } from "../../crypto/index.js";
 import { projectGovernance, syncAdmittedPeers, type GovernanceState } from "../../domain/governance/index.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   workspaceGenesisActions,
   type FactBody,
   type FactSnapshot,
@@ -37,8 +38,6 @@ class GovernanceError extends GovernancePreconditionError {
 export function governanceStateOf(snapshot: FactSnapshot): GovernanceState {
   return projectGovernance(snapshot.facts);
 }
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 /** Creates a governed workspace authority: establish, first Peer, genesis, label. */
 export async function establishGovernedWorkspace(

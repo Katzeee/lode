@@ -24,9 +24,8 @@ import {
   workspaceSchemaNodeId,
 } from "./identity.js";
 import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE } from "./intrinsic-node-type-types.js";
+import { END_SEQUENCE_ANCHOR as end } from "./fact-value-types.js";
 import type { GraphAction } from "./types.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 export function workspaceGenesisActions(workspaceId: string): readonly [GraphAction, ...GraphAction[]] {
   return [

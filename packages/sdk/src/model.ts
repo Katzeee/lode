@@ -14,11 +14,11 @@ import type {
   IntrinsicNodeType,
   ViewType,
   TemplateFieldVisibility,
-  ViewSortDirection,
 } from "./protocol-enums/model.js";
-import type { ProjectionPerspective } from "./protocol-enums/projection.js";
-import type { ResolutionDecision } from "./protocol-enums/review.js";
-import type { EditIntent } from "./protocol-enums/engine.js";
+import { viewSortDirection, type ViewSortDirection } from "./protocol-enums/model.js";
+import { projectionPerspective, type ProjectionPerspective } from "./protocol-enums/projection.js";
+import { resolutionDecision, type ResolutionDecision } from "./protocol-enums/review.js";
+import { editIntent, type EditIntent } from "./protocol-enums/engine.js";
 
 export type WorkspaceId = string;
 export type ReplicaId = string;
@@ -26,6 +26,10 @@ export type ActorId = string;
 export type InvocationId = string;
 export type HistoryChannelId = string;
 export type { EditIntent, ResolutionDecision, ProjectionPerspective };
+export const EDIT_INTENTS: readonly EditIntent[] = editIntent.values;
+export const PROJECTION_PERSPECTIVES: readonly ProjectionPerspective[] = projectionPerspective.values;
+export const RESOLUTION_DECISIONS: readonly ResolutionDecision[] = resolutionDecision.values;
+export const VIEW_SORT_DIRECTIONS: readonly ViewSortDirection[] = viewSortDirection.values;
 
 export type JsonValue =
   null | boolean | number | string | readonly JsonValue[] | Readonly<{ [key: string]: JsonValue }>;

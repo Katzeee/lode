@@ -1,18 +1,31 @@
-import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type {
-  EditAction,
-  FieldDefinitionConfiguration,
-  MaterializedField,
-  TemplateField,
-  TypedFieldValue,
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_CARDINALITIES,
+  FIELD_CARDINALITY_NODE_IDS,
+  FIELD_DATATYPES,
+  workspaceSchemaNodeId,
+  type EditAction,
+  type FieldDatatype,
+  type FieldDefinitionConfiguration,
+  type MaterializedField,
+  type TemplateField,
+  type TypedFieldValue,
 } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
-import { datatypeOfEndpoint, FIELD_DATATYPES } from "../value/field-values.js";
-import { cardinalityConfiguration, datatypeConfiguration, optionalityConfiguration } from "./supertag-field-actions.js";
+import {
+  cardinalityConfiguration,
+  datatypeConfiguration,
+  executeWrite,
+  identity,
+  optionalityConfiguration,
+  requiredEndpoint,
+  writeResult,
+  workspaceIdOf,
+} from "../intent/index.js";
+import { BOOLEAN_VALUES, datatypeOfEndpoint } from "../value/field-values.js";
 import { registerFieldValueCommands } from "./field-values.js";
 import { registerFieldConfigureCommands } from "./field-configure.js";
 
@@ -31,9 +44,6 @@ export function registerFieldCommands(catalog: CommandCatalog): void {
   registerFieldValueCommands(catalog);
 }
 
-const TYPE_ENUM = [...FIELD_DATATYPES] as unknown as readonly string[];
-const BOOLEAN_ENUM = ["true", "false"] as const;
-
 const fieldCreate: CommandDefinition = {
   path: ["field", "create"],
   summary: "Create a workspace Field Definition.",
@@ -42,17 +52,17 @@ const fieldCreate: CommandDefinition = {
     {
       name: "--type",
       description: "Field datatype (default plain)",
-      value: { kind: "enum" as const, enum: TYPE_ENUM },
+      value: { kind: "enum" as const, enum: FIELD_DATATYPES },
     },
     {
       name: "--cardinality",
       description: "single (default) or list",
-      value: { kind: "enum" as const, enum: ["single", "list"] as const },
+      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
     },
     {
       name: "--required",
       description: "Required toggle (default false)",
-      value: { kind: "enum" as const, enum: BOOLEAN_ENUM },
+      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
     },
     {
       name: "--options-from",
@@ -79,14 +89,14 @@ const fieldCreate: CommandDefinition = {
         ? undefined
         : (await resolveNodeTarget(context.session, workspaceId, context.perspective, optionsFrom, ["supertag"]))
             .nodeId;
-    const datatype = (rawDatatype ?? "plain") as (typeof FIELD_DATATYPES)[number];
+    const datatype = (rawDatatype ?? "plain") as FieldDatatype;
     const fieldDefinitionId = identity(context.requestId, "field-definition");
     const actions: EditAction[] = [
       {
         kind: "node-create",
         nodeId: fieldDefinitionId,
         occurrenceId: `${fieldDefinitionId}-original`,
-        parentNodeId: `workspace-schema:v1:${encodeURIComponent(workspaceId)}`,
+        parentNodeId: workspaceSchemaNodeId(workspaceId),
         anchor: end,
         intrinsicNodeType: "field-definition",
         seed: { text: [{ value: name, attributes: {} }] },
@@ -94,7 +104,7 @@ const fieldCreate: CommandDefinition = {
       datatypeConfiguration(fieldDefinitionId, datatype, optionsSupertagId),
     ];
     if (args.option("--cardinality") === "list") {
-      actions.push(cardinalityConfiguration(fieldDefinitionId, "system-field-cardinality:v1:list"));
+      actions.push(cardinalityConfiguration(fieldDefinitionId, FIELD_CARDINALITY_NODE_IDS.list));
     }
     if (args.option("--required") !== undefined) {
       actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
@@ -281,7 +291,3 @@ const fieldMakeDiscoverable: CommandDefinition = {
     });
   },
 };
-
-function requiredEndpoint(required: boolean): string {
-  return required ? "system-field-optionality:v1:required" : "system-field-optionality:v1:not-required";
-}
