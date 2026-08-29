@@ -1,5 +1,5 @@
 import { graphActionKindsInFamily, type AuthoredAction, type TextAction } from "../fact/index.js";
-import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, textAtoms, type InterpretedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
 type RichTextSpliceAction = Extract<AuthoredAction, { kind: "rich-text-splice" }>;
@@ -23,7 +23,7 @@ function validateTextAuthoredIntent(action: TextAction, context: AuthoredIntentC
   }
 }
 
-function validateTextSplice(action: RichTextSpliceAction, available: ScopedProjection): RichTextSpliceAction {
+function validateTextSplice(action: RichTextSpliceAction, available: InterpretedProjection): RichTextSpliceAction {
   if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, action.nodeId)) {
     throw new Error("Text target Node is absent from the observed projection");
   }
@@ -44,7 +44,7 @@ function validateTextSplice(action: RichTextSpliceAction, available: ScopedProje
   return action;
 }
 
-function validateTextMark(action: RichTextMarkAction, available: ScopedProjection): RichTextMarkAction {
+function validateTextMark(action: RichTextMarkAction, available: InterpretedProjection): RichTextMarkAction {
   if (!isPresentNodeOutsideTrash(available.identity.workspaceNodeId, available, action.nodeId)) {
     throw new Error("Text mark target Node is absent from the observed projection");
   }

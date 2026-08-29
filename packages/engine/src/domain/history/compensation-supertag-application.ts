@@ -1,12 +1,12 @@
 import type { FactAction, SupertagAction } from "../fact/index.js";
-import { sequenceAnchorAt, type ScopedProjection } from "../reconcile/index.js";
+import { sequenceAnchorAt, type InterpretedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateSupertagApplication(
   target: FactAction &
     Readonly<{ action: Extract<SupertagAction, { kind: "supertag-application-add" | "supertag-membership-remove" }> }>,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   const current = applications(projection, authoredAction.hostNodeId, authoredAction.supertagId);
@@ -38,7 +38,7 @@ export function compensateSupertagApplication(
   });
 }
 
-function applications(projection: ScopedProjection, hostNodeId: string, supertagId: string) {
+function applications(projection: InterpretedProjection, hostNodeId: string, supertagId: string) {
   return (projection.supertagApplications[hostNodeId] ?? []).filter(
     (application) => application.supertagId === supertagId,
   );

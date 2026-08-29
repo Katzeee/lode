@@ -1,10 +1,10 @@
 import { FIELD_CARDINALITY_NODE_IDS, FIELD_DATATYPE_NODE_IDS } from "../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
 
 export function validatePlainOrOptionsValue(
   fieldDefinitionId: string,
   ownerNodeId: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): void {
   const configurations = available.fieldDefinitionConfigurations[fieldDefinitionId] ?? [];
   const datatypes = configurations.filter((configuration) => configuration.kind === "datatype");

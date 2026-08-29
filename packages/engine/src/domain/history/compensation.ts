@@ -7,7 +7,7 @@ import {
   type GraphAction,
 } from "../fact/index.js";
 import { deriveActivation, resolutionsByAction } from "../activation/index.js";
-import { rebuildGeneration, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { rebuildGeneration, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { normalizeCompensationTargets } from "./compensation-normalization.js";
 import { compensateAction } from "./compensation-rules.js";
 import { fieldDefinitionConfigurationCompensations } from "./compensation-field-definition.js";
@@ -27,7 +27,7 @@ export type InvocationCompensation =
 export function planInvocationCompensation(
   targetFacts: readonly Fact[],
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): InvocationCompensation {
   let remainingFacts = snapshot.facts;
   let remainingGeneration = generation;
@@ -68,7 +68,7 @@ export function planInvocationCompensation(
 export function planCompensation(
   targetFacts: readonly FactAction[],
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): Compensation {
   const intent = targetFacts[0]?.intent;
   if (!intent || targetFacts.some((fact) => fact.intent !== intent)) {
@@ -141,7 +141,7 @@ export function planCompensation(
 }
 
 function typedFieldValueCompensations(
-  projection: ScopedProjectionGeneration["origin"],
+  projection: InterpretedProjectionGeneration["origin"],
   planned: readonly GraphAction[],
 ): readonly GraphAction[] {
   const result: GraphAction[] = [];

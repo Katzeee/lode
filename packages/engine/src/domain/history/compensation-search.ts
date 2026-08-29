@@ -9,11 +9,14 @@ import {
   searchExpressionActionId,
   searchExpressionProjectionIdentity,
   occurrenceAnchor,
-  type ScopedProjection,
+  type InterpretedProjection,
 } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
-export function compensateSearchAction(target: FactAction, counterfactual: ScopedProjection): CompensationStep | null {
+export function compensateSearchAction(
+  target: FactAction,
+  counterfactual: InterpretedProjection,
+): CompensationStep | null {
   const action = target.action;
   if (!isSearchAction(action)) {
     return null;
@@ -59,7 +62,7 @@ export function compensateSearchAction(target: FactAction, counterfactual: Scope
 }
 
 function findProjectedExpression(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   expressionId: FactActionId,
 ): SearchExpressionSpec | null {
   const nodeId = searchExpressionProjectionIdentity(expressionId).expressionNodeId;

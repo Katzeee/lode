@@ -7,12 +7,12 @@ import {
   type SearchExpressionSpec,
   type SequenceAnchor,
 } from "../../../domain/fact/index.js";
-import { searchExpressionProjectionIdentity, type ScopedProjection } from "../../../domain/reconcile/index.js";
+import { searchExpressionProjectionIdentity, type InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 
 export function prepareSearchExpressionCreation(
   edit: Extract<EditAction, { kind: "search-expression-create" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (available.nodes[edit.searchNodeId]?.intrinsicNodeType !== "search") {
@@ -33,7 +33,7 @@ export function searchExpressionDraftActions(
   hostId: string,
   draft: SearchExpressionDraft,
   anchor: Extract<EditAction, { kind: "search-expression-create" }>["anchor"],
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
   options: Readonly<{ actionOffset?: number; parentExpressionId?: FactActionId | null }> = {},
 ): readonly [
@@ -63,7 +63,7 @@ export function prepareSearchExpressionEdit(
         "search-expression-add" | "search-expression-configure" | "search-expression-move" | "search-expression-remove";
     }
   >,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   const current = available.searchExpressions[edit.searchNodeId];
@@ -90,7 +90,7 @@ export function prepareExpressionAddition(
   parentExpressionId: FactActionId,
   draft: SearchExpressionDraft,
   anchor: SequenceAnchor,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   requireChildAcceptingParent(expression, parentExpressionId);
@@ -113,7 +113,7 @@ type ExpressionEdit = Readonly<
 export function prepareExpressionEdit(
   expression: SearchExpressionSpec,
   edit: ExpressionEdit,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const current = requireExpression(expression, edit.expressionId);
   if (edit.kind === "search-expression-configure") {
@@ -288,7 +288,7 @@ function clauseOf(expression: SearchExpressionSpec): SearchClause {
   return clause;
 }
 
-function validateSearchClauseTargets(clause: SearchClause, available: ScopedProjection): void {
+function validateSearchClauseTargets(clause: SearchClause, available: InterpretedProjection): void {
   if (clause.kind === "supertag") {
     if (available.nodes[clause.supertagId]?.intrinsicNodeType !== "supertag-definition") {
       throw new Error("Search Expression Supertag is not active");

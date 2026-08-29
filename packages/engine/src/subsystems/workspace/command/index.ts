@@ -55,13 +55,13 @@ export class WorkspaceCommandExecutor {
     }
     const bound = bindWorkspaceCommand(command);
     const state = this.options.projection.current;
-    const { readPlan } = bound;
+    const { factReadPlan } = bound;
     const scopedFacts =
-      readPlan.kind === "all"
+      factReadPlan.kind === "all"
         ? snapshot.facts
-        : readPlan.kind === "facts"
-          ? this.options.facts.relatedFacts(readPlan.factIds)
-          : this.options.facts.relatedFactsOwningActions(readPlan.actionIds);
+        : factReadPlan.kind === "facts"
+          ? this.options.facts.relatedFacts(factReadPlan.factIds)
+          : this.options.facts.relatedFactsOwningActions(factReadPlan.actionIds);
     const commandSnapshot = { facts: scopedFacts, frontier: snapshot.frontier };
     let planned: ReturnType<typeof bound.plan>;
     try {

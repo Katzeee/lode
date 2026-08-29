@@ -12,8 +12,8 @@ import {
   searchExpressionActionId,
   searchExpressionProjectionIdentity,
   occurrenceAnchor,
-  type ScopedProjection,
-  type ScopedProjectionGeneration,
+  type InterpretedProjection,
+  type InterpretedProjectionGeneration,
 } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
@@ -69,7 +69,7 @@ export const searchExpressionReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function candidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactActionId, FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<FactActionId, FactAction[]>();
@@ -98,7 +98,7 @@ function candidates(
 
 function expressionEffect(
   expressionId: FactActionId,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): SearchExpressionDecisionEffect {
   return {
     kind: "search-expression",
@@ -110,7 +110,7 @@ function expressionEffect(
 
 function expressionState(
   expressionId: FactActionId,
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): SearchExpressionDecisionState | null {
   const identity = searchExpressionProjectionIdentity(expressionId);
   if (!projection.nodes[identity.expressionNodeId]) {
@@ -128,7 +128,7 @@ function expressionState(
 }
 
 function locateExpression(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   nodeId: string,
 ): Readonly<{ hostId: string; expression: SearchExpressionSpec }> | null {
   for (const [hostId, search] of Object.entries(projection.searchExpressions)) {

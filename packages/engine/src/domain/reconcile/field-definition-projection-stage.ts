@@ -1,11 +1,11 @@
 import { projectFieldDefinitionConfigurations } from "./field-definition-configurations.js";
-import { projectionRule } from "./projection-rule.js";
+import { projectionStage } from "./projection-stage.js";
 
-export const fieldDefinitionProjectionRule = projectionRule({
-  key: "field-definition",
-  dependencies: ["activation", "node", "node-graph"],
-  evaluate: (context) => ({
-    fieldDefinitionConfigurations: projectFieldDefinitionConfigurations(
+export const fieldDefinitionProjectionStage = projectionStage({
+  key: "fieldDefinitionConfigurations",
+  dependencies: ["activation", "storedNodes", "nodeGraphStructure"],
+  project: (context) =>
+    projectFieldDefinitionConfigurations(
       context.workspaceNodeId,
       context.activation.actions,
       context.storedNodes,
@@ -14,5 +14,4 @@ export const fieldDefinitionProjectionRule = projectionRule({
       context.nodeGraphStructure.nodeOwners,
       context.nodeGraphStructure.workspaceSystemNodes,
     ),
-  }),
 });

@@ -1,5 +1,5 @@
 import type { FactAction } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import type { InterpretedProjection } from "../reconcile/index.js";
 import { compensateContentAction } from "./compensation-content.js";
 import { compensateSupertagAction } from "./compensation-supertag.js";
 import { compensateInlineReferenceAction } from "./compensation-inline-reference.js";
@@ -14,8 +14,8 @@ export function compensateAction(
   target: FactAction<CompensationTargetAction>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const policy = COMPENSATION_POLICY_BY_ACTION.get(target.action.kind);
   if (policy === undefined) {

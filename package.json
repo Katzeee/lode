@@ -14,6 +14,7 @@
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",
     "test:cli": "npm run test --workspace=@lode/app-cli",
+    "benchmark:projection-rebuild": "npm run benchmark:projection-rebuild --workspace=@lode/engine --",
     "typecheck": "npm run typecheck:build && npm run typecheck:test",
     "typecheck:build": "npm run typecheck --workspaces --if-present",
     "typecheck:test": "npm run typecheck:test --workspaces --if-present",

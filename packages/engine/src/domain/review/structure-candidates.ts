@@ -1,5 +1,5 @@
 import type { FactAction, FactSnapshot } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { pendingProposalActions } from "../activation/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { childSequenceParent } from "./structure-space.js";
@@ -7,7 +7,7 @@ import { childSequenceParent } from "./structure-space.js";
 export function mergeLocalStructureCandidates(
   candidates: readonly HunkCandidate[],
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly HunkCandidate[] {
   const result: HunkCandidate[] = [];
   const bySpace = new Map<string, HunkCandidate>();
@@ -61,7 +61,7 @@ function structureRegion(
   candidate: HunkCandidate,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
   affected: ReadonlySet<string>,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): number {
   const parent = childSequenceParent(candidate.diffSpace.identity);
   const origin = generation.origin.childOccurrences[parent] ?? [];

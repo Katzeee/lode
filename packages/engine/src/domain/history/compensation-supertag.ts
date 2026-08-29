@@ -6,15 +6,15 @@ import {
   type FactActionId,
   type SupertagAction,
 } from "../fact/index.js";
-import { sequenceAnchorAt, type ScopedProjection, type TemplateField } from "../reconcile/index.js";
+import { sequenceAnchorAt, type InterpretedProjection, type TemplateField } from "../reconcile/index.js";
 import { compensateSupertagApplication } from "./compensation-supertag-application.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateSupertagAction(
   target: FactAction,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   const action = target.action;
   if (!isSupertagAction(action)) {
@@ -103,8 +103,8 @@ function compensateTemplateField(
     }
   >,
   actionId: FactActionId,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   if (action.kind === "template-field-add") {
     return templateFieldById(projection, actionId)
@@ -163,8 +163,8 @@ function compensateTemplateField(
 
 function compensateTemplateNodeRelation(
   action: Extract<GraphAction, { kind: "template-member-add" | "template-member-remove" }>,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   if (action.kind === "template-member-add") {
     return contains(projection, action)
@@ -186,14 +186,17 @@ function compensateTemplateNodeRelation(
     : noCompensation();
 }
 
-function templateFieldById(projection: ScopedProjection, templateFieldId: FactActionId): TemplateField | undefined {
+function templateFieldById(
+  projection: InterpretedProjection,
+  templateFieldId: FactActionId,
+): TemplateField | undefined {
   return Object.values(projection.templateFields)
     .flat()
     .find((field) => field.factActionId === templateFieldId);
 }
 
 function templateFieldsForPair(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   supertagId: string,
   fieldDefinitionId: string,
 ): readonly TemplateField[] {
@@ -205,7 +208,7 @@ function ready(actions: readonly GraphAction[]): CompensationStep {
   return first ? { kind: "ready", actions: [first, ...actions.slice(1)] } : noCompensation();
 }
 
-function contains(projection: ScopedProjection, action: SupertagAction): boolean {
+function contains(projection: InterpretedProjection, action: SupertagAction): boolean {
   if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
     return (projection.supertagApplications[action.hostNodeId] ?? []).some(
       (application) => application.supertagId === action.supertagId,
@@ -236,7 +239,7 @@ function contains(projection: ScopedProjection, action: SupertagAction): boolean
 }
 
 function templateMemberOccurrence(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   supertagId: string,
   templateNodeId: string,
 ): string | null {

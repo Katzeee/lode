@@ -14,6 +14,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "benchmark:projection-rebuild": "tsx tests/benchmark/projection-rebuild.benchmark.ts",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
     "lint": "eslint .",

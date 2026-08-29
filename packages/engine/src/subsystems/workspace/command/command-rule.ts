@@ -3,7 +3,7 @@ import type { AuthorityReceipt, FactActionId, FactId, FactSnapshot, FactBody } f
 import type { ProjectionGeneration } from "../../../domain/reconcile/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 
-export type WorkspaceCommandReadPlan =
+export type WorkspaceCommandFactReadPlan =
   | Readonly<{
       kind: "all";
     }>
@@ -31,6 +31,6 @@ export type WorkspaceCommandPlanningContext = Readonly<{
 }>;
 
 export type BoundWorkspaceCommand = Readonly<{
-  readPlan: WorkspaceCommandReadPlan;
+  factReadPlan: WorkspaceCommandFactReadPlan;
   plan(context: WorkspaceCommandPlanningContext): WorkspaceCommandPlan;
 }>;

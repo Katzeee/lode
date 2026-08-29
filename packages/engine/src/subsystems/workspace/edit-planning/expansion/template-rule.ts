@@ -4,11 +4,11 @@ import {
   type TemplateAction,
 } from "../../../../domain/fact/index.js";
 import type { AuthoredActionBatch } from "../action-batch.js";
-import { occurrenceAnchor, textAtoms, type ScopedProjection } from "../../../../domain/reconcile/index.js";
+import { occurrenceAnchor, textAtoms, type InterpretedProjection } from "../../../../domain/reconcile/index.js";
 import { createNodeUnlessPresent, nodeSeed } from "./generated-lifecycle.js";
 import { requireAuthoredActionBatch } from "./action-batch.js";
 
-export function expandTemplateAction(action: TemplateAction, available: ScopedProjection): AuthoredActionBatch {
+export function expandTemplateAction(action: TemplateAction, available: InterpretedProjection): AuthoredActionBatch {
   const source = available.nodes[action.templateNodeId];
   const instanceNodeId = templateInstanceNodeId(action.ownerNodeId, action.templateNodeId);
   const instanceOccurrenceId = templateInstanceOccurrenceId(action.ownerNodeId, action.templateNodeId);

@@ -1,5 +1,5 @@
 import { canonicalJson, compareCausalOrder, isFieldDefinitionAction, type FactAction } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { OwnerDecisionEffect } from "./types.js";
@@ -38,7 +38,7 @@ export const fieldDefinitionLifecycleReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function candidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();
@@ -64,7 +64,7 @@ function candidates(
   });
 }
 
-function ownerEffect(fieldDefinitionId: string, generation: ScopedProjectionGeneration): OwnerDecisionEffect {
+function ownerEffect(fieldDefinitionId: string, generation: InterpretedProjectionGeneration): OwnerDecisionEffect {
   return {
     kind: "owner",
     identity: fieldDefinitionId,

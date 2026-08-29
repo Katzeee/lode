@@ -5,13 +5,13 @@ import {
   type SupertagAction,
   type SequenceAnchor,
 } from "../fact/index.js";
-import { definitionNodeState, isPresentNodeOutsideTrash, type ScopedProjection } from "../reconcile/index.js";
+import { definitionNodeState, isPresentNodeOutsideTrash, type InterpretedProjection } from "../reconcile/index.js";
 import { validateTemplateFieldIntent } from "./supertag-template-field.js";
 
 export function validateSupertagAuthoredIntent(
   action: SupertagAction,
-  previous: ScopedProjection,
-  available: ScopedProjection,
+  previous: InterpretedProjection,
+  available: InterpretedProjection,
 ): SupertagAction {
   if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
     return completeApplication(action, previous, available);
@@ -27,8 +27,8 @@ export function validateSupertagAuthoredIntent(
 
 function completeApplication(
   action: Extract<AuthoredAction, { kind: "supertag-application-add" | "supertag-membership-remove" }>,
-  previous: ScopedProjection,
-  available: ScopedProjection,
+  previous: InterpretedProjection,
+  available: InterpretedProjection,
 ): Extract<AuthoredAction, { kind: "supertag-application-add" | "supertag-membership-remove" }> {
   const removing = action.kind === "supertag-membership-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
@@ -53,8 +53,8 @@ function completeApplication(
 
 function completeExtension(
   action: Extract<AuthoredAction, { kind: "supertag-extension-add" | "supertag-extension-remove" }>,
-  previous: ScopedProjection,
-  available: ScopedProjection,
+  previous: InterpretedProjection,
+  available: InterpretedProjection,
 ): Extract<AuthoredAction, { kind: "supertag-extension-add" | "supertag-extension-remove" }> {
   const removing = action.kind === "supertag-extension-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
@@ -79,8 +79,8 @@ function completeExtension(
 
 function completeTemplateNodeRelation(
   action: Extract<AuthoredAction, { kind: "template-member-add" | "template-member-remove" }>,
-  previous: ScopedProjection,
-  available: ScopedProjection,
+  previous: InterpretedProjection,
+  available: InterpretedProjection,
 ): Extract<AuthoredAction, { kind: "template-member-add" | "template-member-remove" }> {
   const removing = action.kind === "template-member-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
@@ -96,7 +96,7 @@ function completeTemplateNodeRelation(
 
 function assertTemplateNodeAddition(
   action: Extract<AuthoredAction, { kind: "template-member-add" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): void {
   assertNode(available, action.templateNodeId, "Template");
   const existing = templateOccurrenceFor(available, action.supertagId, action.templateNodeId);
@@ -130,7 +130,7 @@ function assertRelationAnchor(identities: readonly string[], anchor: SequenceAnc
 }
 
 function assertDefinition(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   definitionId: string,
   label: string,
   intrinsicNodeType: DefinitionIntrinsicNodeType,
@@ -143,14 +143,14 @@ function assertDefinition(
   throw new Error(`${label} type is absent from the observed projection`);
 }
 
-function assertNode(projection: ScopedProjection, nodeId: string, label: string): void {
+function assertNode(projection: InterpretedProjection, nodeId: string, label: string): void {
   if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, nodeId)) {
     throw new Error(`${label} Node is absent from the observed projection`);
   }
 }
 
 function templateOccurrenceFor(
-  projection: Pick<ScopedProjection, "occurrences">,
+  projection: Pick<InterpretedProjection, "occurrences">,
   supertagId: string,
   templateNodeId: string,
 ): string | null {

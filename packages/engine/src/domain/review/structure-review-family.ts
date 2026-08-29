@@ -1,5 +1,5 @@
 import { canonicalJson, compareCausalOrder, type FactAction, type PlacementAction } from "../fact/index.js";
-import { impactAddress, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { impactAddress, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { mergeLocalStructureCandidates } from "./structure-candidates.js";
@@ -97,7 +97,7 @@ function occurrenceScopes(action: PlacementAction, context: ReviewScopeContext):
 }
 
 function structureCandidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const grouped = new Map<string, FactAction[]>();
@@ -119,7 +119,7 @@ function structureCandidates(
 function candidatesForOccurrence(
   occurrenceId: string,
   facts: readonly FactAction[],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly HunkCandidate[] {
   const ordered = [...facts].sort(compareCausalOrder);
   const action = ordered.at(-1)?.action;

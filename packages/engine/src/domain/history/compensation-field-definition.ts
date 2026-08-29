@@ -1,11 +1,15 @@
 import { canonicalJson, isFieldDefinitionAction, type GraphAction, type FactAction } from "../fact/index.js";
-import type { FieldDefinitionConfiguration, ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import type {
+  FieldDefinitionConfiguration,
+  InterpretedProjection,
+  InterpretedProjectionGeneration,
+} from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateFieldDefinitionConfiguration(
   target: FactAction,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   if (!isFieldDefinitionAction(target.action)) {
     return null;
@@ -42,8 +46,8 @@ export function compensateFieldDefinitionConfiguration(
 }
 
 export function fieldDefinitionConfigurationCompensations(
-  current: ScopedProjectionGeneration["origin"],
-  counterfactual: ScopedProjectionGeneration["origin"],
+  current: InterpretedProjectionGeneration["origin"],
+  counterfactual: InterpretedProjectionGeneration["origin"],
   planned: readonly GraphAction[],
 ): readonly GraphAction[] {
   const result: GraphAction[] = [];
@@ -74,7 +78,7 @@ export function fieldDefinitionConfigurationCompensations(
   return result;
 }
 
-function hasOtherUses(projection: ScopedProjection, fieldDefinitionId: string, templateFieldId: string): boolean {
+function hasOtherUses(projection: InterpretedProjection, fieldDefinitionId: string, templateFieldId: string): boolean {
   return (
     Object.values(projection.templateFields)
       .flat()

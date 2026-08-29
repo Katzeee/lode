@@ -1,5 +1,5 @@
 import { compareCausalOrder, templateInstanceNodeId, type FactAction } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewEffectEntry, ReviewFamilyRule } from "./review-family.js";
@@ -78,7 +78,7 @@ export const lifecycleReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function lifecycleCandidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();
@@ -100,7 +100,7 @@ function lifecycleCandidates(
 
 function candidatesForGroup(
   facts: readonly FactAction[],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly HunkCandidate[] {
   if (!candidateHasEffect(facts, generation)) {
     return [];
@@ -133,7 +133,7 @@ function candidatesForGroup(
   }));
 }
 
-function lifecycleEffect(fact: FactAction, generation: ScopedProjectionGeneration): ReviewEffectEntry | null {
+function lifecycleEffect(fact: FactAction, generation: InterpretedProjectionGeneration): ReviewEffectEntry | null {
   const action = fact.action;
   if (!isLifecycleReviewAction(action)) {
     return null;
@@ -159,11 +159,11 @@ function lifecycleEffect(fact: FactAction, generation: ScopedProjectionGeneratio
       };
 }
 
-function lifecyclePresence(projection: ScopedProjectionGeneration["origin"], nodeId: string): boolean {
+function lifecyclePresence(projection: InterpretedProjectionGeneration["origin"], nodeId: string): boolean {
   return nodeLocation(projection.identity.workspaceNodeId, projection, nodeId) === "active";
 }
 
-function candidateHasEffect(facts: readonly FactAction[], generation: ScopedProjectionGeneration): boolean {
+function candidateHasEffect(facts: readonly FactAction[], generation: InterpretedProjectionGeneration): boolean {
   return facts.some((fact) => {
     if (lifecycleEffect(fact, generation) !== null) {
       return true;
@@ -190,7 +190,7 @@ function actionIdentity(fact: FactAction): string {
   return fact.id;
 }
 
-function templateInstances(generation: ScopedProjectionGeneration) {
+function templateInstances(generation: InterpretedProjectionGeneration) {
   return [...generation.origin.templateNodeInstances, ...generation.review.templateNodeInstances];
 }
 

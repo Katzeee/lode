@@ -1,7 +1,7 @@
 import { expandEditAction, type EditAction } from "../../../domain/edit/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import type { GraphAction, FactActionId } from "../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { locateInlineReference, nodeLocation } from "../../../domain/reconcile/index.js";
 import { prepareFieldDefinitionConfiguration } from "./field-definition-configuration.js";
 import { prepareViewEdit } from "./view-planning.js";
@@ -39,7 +39,7 @@ type StructuralEdit = Extract<
 
 export function expandPlanningEdit(
   edit: EditAction,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (isStructuralEdit(edit)) {
@@ -127,7 +127,7 @@ function isViewEdit(edit: EditAction): edit is Parameters<typeof prepareViewEdit
   );
 }
 
-function expandStructuralEdit(edit: StructuralEdit, available: ScopedProjection): AuthoredActionBatch {
+function expandStructuralEdit(edit: StructuralEdit, available: InterpretedProjection): AuthoredActionBatch {
   if (edit.kind === "node-create") {
     if (nodeLocation(available.identity.workspaceNodeId, available, edit.parentNodeId) !== "active") {
       throw new Error("Node Original parent is absent from the current Projection");
@@ -184,14 +184,14 @@ function isStructuralEdit(edit: EditAction): edit is StructuralEdit {
 
 function prepareNodeDeletion(
   edit: Extract<EditAction, { kind: "node-delete" }>,
-  _available: ScopedProjection,
+  _available: InterpretedProjection,
 ): AuthoredActionBatch {
   return singleAuthoredActionBatch({ kind: "node-trash", nodeId: edit.nodeId });
 }
 
 function prepareNodeRestore(
   edit: Extract<EditAction, { kind: "node-restore" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const occurrence = available.occurrences[edit.occurrenceId];
   if (
@@ -218,7 +218,7 @@ export function assertNoWorkspaceCreation(workspaceId: string, operations: reado
 
 function prepareInlineReferenceAliasCreation(
   edit: Extract<EditAction, { kind: "inline-reference-alias-create" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const location = locateInlineReference(available.nodes, edit.inlineReferenceId);
   if (!location || location.hostNodeId !== edit.hostNodeId) {
@@ -251,7 +251,7 @@ function prepareInlineReferenceAliasCreation(
   return authoredActionBatch([first, ...actions.slice(1)]);
 }
 
-function prepareReferencePromotion(occurrenceId: string, available: ScopedProjection): GraphAction {
+function prepareReferencePromotion(occurrenceId: string, available: InterpretedProjection): GraphAction {
   const occurrence = available.occurrences[occurrenceId];
   if (!occurrence) {
     throw new Error("Reference promotion target is absent from the current Projection");

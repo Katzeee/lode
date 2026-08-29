@@ -7,7 +7,7 @@ import {
   type FactSnapshot,
   type ResolutionDecision,
 } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { collectReviewCandidates } from "./review-plan.js";
 import { createReviewEvidenceContext, evidenceForTargets, type ReviewEvidenceContext } from "./evidence.js";
@@ -15,7 +15,7 @@ import type { DecisionEvidence, ReviewHunk, ReviewQuery, ReviewSelection, Select
 
 export function queryReview(
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   page?: Readonly<{
     pending: ReadonlyMap<FactAction["id"], FactAction>;
     context?: ReviewEvidenceContext;
@@ -42,7 +42,7 @@ export function validateReviewSelection(
   decision: ResolutionDecision,
   actorId: string,
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): SelectionValidation {
   const current = evidenceForTargets(
     snapshot,
@@ -67,7 +67,7 @@ export function validateReviewSelection(
 
 function candidateToHunk(
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   candidate: HunkCandidate,
   context: ReviewEvidenceContext,
   cache: Map<string, DecisionEvidence>,
@@ -145,12 +145,12 @@ function linkAssociatedHunks(hunks: readonly ReviewHunk[]): readonly ReviewHunk[
   }));
 }
 
-function assertGeneration(snapshot: FactSnapshot, generation: ScopedProjectionGeneration): void {
+function assertGeneration(snapshot: FactSnapshot, generation: InterpretedProjectionGeneration): void {
   if (!frontierEquals(generation.identity.frontier, snapshot.frontier)) {
     throw new Error("Review query requires the complete generation at the FactSnapshot frontier");
   }
 }
 
-function stale(generation: ScopedProjectionGeneration, reason: string): SelectionValidation {
+function stale(generation: InterpretedProjectionGeneration, reason: string): SelectionValidation {
   return { kind: "stale", currentGenerationId: generation.identity.generationId, reason };
 }

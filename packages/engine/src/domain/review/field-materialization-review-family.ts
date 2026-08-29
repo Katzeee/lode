@@ -5,7 +5,7 @@ import {
   materializedFieldOccurrenceId,
   type FactAction,
 } from "../fact/index.js";
-import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { impactAddress, type InterpretedProjection, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import type { FieldMaterializationDecisionEffect } from "./types.js";
 import { associatedNodeScope, fieldContentRemovalScopes, reviewScope } from "./review-scope.js";
@@ -57,7 +57,7 @@ export const fieldMaterializationReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function materializedFieldCandidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();
@@ -87,7 +87,7 @@ function materializedFieldCandidates(
 
 function fieldMaterializationEffect(
   fact: FactAction,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): FieldMaterializationDecisionEffect {
   const action = fact.action;
   if (!isFieldMaterializationAction(action)) {
@@ -110,7 +110,7 @@ function materializedFieldAddress(ownerNodeId: string, fieldDefinitionId: string
   return impactAddress("materialized-field", ownerNodeId, fieldDefinitionId);
 }
 
-function materializedField(projection: ScopedProjection, ownerNodeId: string, fieldDefinitionId: string) {
+function materializedField(projection: InterpretedProjection, ownerNodeId: string, fieldDefinitionId: string) {
   return projection.materializedFields[ownerNodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId);
 }
 

@@ -8,13 +8,13 @@ import {
   templateFieldInstanceValueOccurrenceId,
   type GraphAction,
 } from "../../../domain/fact/index.js";
-import { projectFieldAvailability, type ScopedProjection } from "../../../domain/reconcile/index.js";
+import { projectFieldAvailability, type InterpretedProjection } from "../../../domain/reconcile/index.js";
 
 type SupertagApplicationCreation = Extract<EditAction, { kind: "supertag-application-create" }>;
 
 export function prepareSupertagApplicationCreation(
   edit: SupertagApplicationCreation,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (available.nodes[edit.hostNodeId] === undefined) {
     throw new Error("Supertag Application host is not an active Node");
@@ -44,7 +44,7 @@ export function prepareSupertagApplicationCreation(
 function materializeStaticDefaults(
   ownerNodeId: string,
   appliedSupertagId: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): readonly GraphAction[] {
   const applications = {
     ...available.supertagApplications,

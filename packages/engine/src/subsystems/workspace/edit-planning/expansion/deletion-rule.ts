@@ -1,10 +1,10 @@
 import type { GraphAction } from "../../../../domain/fact/index.js";
 import { singleAuthoredActionBatch, type AuthoredActionBatch } from "../action-batch.js";
-import { nodeLocation, type ScopedProjection } from "../../../../domain/reconcile/index.js";
+import { nodeLocation, type InterpretedProjection } from "../../../../domain/reconcile/index.js";
 
 function expandNodeDeletion(
   action: Readonly<{ kind: "node-delete"; nodeId: string }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const trashNodeId = available.workspaceSystemNodes.trash;
   const ownerNodeId = available.nodeOwners[action.nodeId];
@@ -24,7 +24,7 @@ function expandNodeDeletion(
 
 export function expandPlacementRemoval(
   action: Extract<GraphAction, { kind: "placement-remove" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const occurrence = available.occurrences[action.placementId];
   return occurrence && available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId

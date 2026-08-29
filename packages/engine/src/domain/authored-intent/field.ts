@@ -1,5 +1,5 @@
 import { graphActionKindsInFamily, type FieldContentRemovalAction, type FieldAction } from "../fact/index.js";
-import { assertMaterializedField, type ScopedProjection } from "../reconcile/index.js";
+import { assertMaterializedField, type InterpretedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
 const FIELD_ACTION_KINDS = graphActionKindsInFamily("field");
@@ -24,7 +24,7 @@ function validateFieldAuthoredIntent(action: FieldAction, context: AuthoredInten
 
 function validateFieldContentRemoval(
   action: FieldContentRemovalAction,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): FieldContentRemovalAction {
   const field =
     action.kind === "field-value-remove"

@@ -20,7 +20,7 @@ export async function createWorkspaceStaging(stagedStorage: WorkspaceStorageStag
     workspace,
     replica,
     promote: async () => {
-      void workspace.label;
+      workspace.validate();
       await workspace.close();
       return stagedStorage.promote();
     },

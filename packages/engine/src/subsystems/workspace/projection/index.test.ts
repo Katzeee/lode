@@ -19,7 +19,7 @@ describe("Workspace Projection state", () => {
     const current = projection.current;
     expect(current.generation.origin.nodes.node).toMatchObject({ nodeId: "node" });
     expect(current.generation.review.identity).toEqual(current.generation.identity);
-    expect(current.indexes.origin.lookups.occurrenceIdsByNode.get("node")).toEqual(["node-original"]);
+    expect(current.indexes.origin.sectionIdentities.nodes).toContain("node");
     expect(current.generation.identity.frontier).toEqual(current.snapshot.frontier);
     expect(events).toEqual(["projection-published"]);
   });

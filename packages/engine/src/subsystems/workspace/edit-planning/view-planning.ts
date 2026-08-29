@@ -1,6 +1,6 @@
 import type { EditAction } from "../../../domain/edit/index.js";
 import { VIEW_SORT_NODE_NAME_NODE_ID, type GraphAction, type FactActionId } from "../../../domain/fact/index.js";
-import type { ScopedProjection, SharedDefaultViewDefinition } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection, SharedDefaultViewDefinition } from "../../../domain/reconcile/index.js";
 import { sortViewChildrenByNodeName, supportsSharedDefaultViewHost } from "../../../domain/view/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
@@ -36,7 +36,7 @@ type ViewEdit = Extract<
 
 export function prepareViewEdit(
   edit: ViewEdit,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (edit.kind === "shared-default-view-create") {
@@ -130,7 +130,7 @@ type ViewOptionEdit = Exclude<
 function prepareViewOptionEdit(
   edit: ViewOptionEdit,
   view: SharedDefaultViewDefinition,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (edit.kind === "view-column-add" || edit.kind === "view-column-remove" || edit.kind === "view-column-move") {
@@ -205,7 +205,7 @@ function prepareViewOptionEdit(
 function prepareViewColumnEdit(
   edit: Extract<ViewOptionEdit, { kind: "view-column-add" | "view-column-remove" | "view-column-move" }>,
   view: SharedDefaultViewDefinition,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (edit.kind === "view-column-add") {
     requireFieldDefinition(edit.fieldDefinitionId, available);
@@ -238,7 +238,7 @@ function prepareViewColumnEdit(
 function nodeNameSort(
   edit: Extract<EditAction, { kind: "view-sort-by-node-name" }>,
   view: SharedDefaultViewDefinition,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const sort: GraphAction = view.options.sort
     ? {
@@ -276,7 +276,7 @@ function nodeNameSort(
 function requireView(
   hostNodeId: string,
   viewId: FactActionId,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): SharedDefaultViewDefinition {
   const view = (available.sharedDefaultViewDefinitions[hostNodeId] ?? []).find(
     (candidate) => candidate.viewId === viewId,
@@ -290,7 +290,7 @@ function requireView(
   return view;
 }
 
-function requireFieldDefinition(fieldDefinitionId: string, available: ScopedProjection): void {
+function requireFieldDefinition(fieldDefinitionId: string, available: InterpretedProjection): void {
   if (available.nodes[fieldDefinitionId]?.intrinsicNodeType !== "field-definition") {
     throw new Error("View option Field Definition is not active");
   }

@@ -33,7 +33,7 @@ export function bindWorkspaceCommand(command: AcceptedEngineCommand): BoundWorks
 
 function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
   return {
-    readPlan: {
+    factReadPlan: {
       kind: "all",
     },
     plan({ workspaceId, snapshot, generation, replicaId }) {
@@ -56,7 +56,7 @@ function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCommand {
 
 function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudicationCommand): BoundWorkspaceCommand {
   return {
-    readPlan:
+    factReadPlan:
       command.kind === "resolve-review"
         ? { kind: "action-ids", actionIds: command.selection.proposalActionIds }
         : {
@@ -111,7 +111,7 @@ function planResolutionAdjudication(
 function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceCommand {
   const selection = command.selection;
   return {
-    readPlan: {
+    factReadPlan: {
       kind: "all",
     },
     plan({ snapshot, generation }) {

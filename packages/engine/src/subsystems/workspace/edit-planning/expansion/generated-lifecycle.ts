@@ -1,11 +1,11 @@
 import type { IntrinsicNodeType, GraphAction, NodeSeed, SequenceAnchor } from "../../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../../domain/reconcile/index.js";
 
 export function createNodeUnlessPresent(
   nodeId: string,
   ownerNodeId: string,
   originalPlacement: Readonly<{ placementId: string; anchor: SequenceAnchor }> | null,
-  available: ScopedProjection,
+  available: InterpretedProjection,
   options: Readonly<{ seed?: NodeSeed; intrinsicNodeType?: IntrinsicNodeType }> = {},
 ): readonly GraphAction[] {
   return available.nodes[nodeId]
@@ -27,7 +27,7 @@ export function createOccurrenceUnlessPresent(
   nodeId: string,
   parentNodeId: string,
   anchor: SequenceAnchor,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): readonly GraphAction[] {
   return available.occurrences[occurrenceId]
     ? []

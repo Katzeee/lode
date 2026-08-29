@@ -12,13 +12,13 @@ import {
   isViewAction,
   type GraphAction,
 } from "../../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../../domain/reconcile/index.js";
 import { expandPlacementRemoval } from "./deletion-rule.js";
 import { expandFieldAction } from "./field-rule.js";
 import { expandSupertagAction } from "./supertag-rule.js";
 import { expandTemplateAction } from "./template-rule.js";
 
-export function expandAction(action: GraphAction, available: ScopedProjection): AuthoredActionBatch {
+export function expandAction(action: GraphAction, available: InterpretedProjection): AuthoredActionBatch {
   if (isSupertagAction(action)) {
     return expandSupertagAction(action, available);
   }

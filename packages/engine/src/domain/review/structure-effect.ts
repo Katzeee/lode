@@ -6,11 +6,11 @@ import {
   type PlacementAction,
   type SequenceAnchor,
 } from "../fact/index.js";
-import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjection, InterpretedProjectionGeneration } from "../reconcile/index.js";
 
 export type StructuralPlacementAction = PlacementAction | Extract<AuthoredAction, { kind: "field-value-remove" }>;
 
-export function occurrenceIdsForNode(generation: ScopedProjectionGeneration, nodeId: string): readonly string[] {
+export function occurrenceIdsForNode(generation: InterpretedProjectionGeneration, nodeId: string): readonly string[] {
   return [...Object.values(generation.origin.occurrences), ...Object.values(generation.review.occurrences)]
     .filter((occurrence) => occurrence.nodeId === nodeId)
     .map((occurrence) => occurrence.occurrenceId)
@@ -20,7 +20,7 @@ export function occurrenceIdsForNode(generation: ScopedProjectionGeneration, nod
 
 export function structureEffect(
   occurrenceId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   anchor: SequenceAnchor | null,
 ) {
   const origin = generation.origin.occurrences[occurrenceId];
@@ -67,7 +67,7 @@ export function actionAnchor(action: StructuralPlacementAction): SequenceAnchor 
   }
 }
 
-function placementRelation(projection: ScopedProjection, occurrenceId: string, anchor: SequenceAnchor) {
+function placementRelation(projection: InterpretedProjection, occurrenceId: string, anchor: SequenceAnchor) {
   const occurrence = projection.occurrences[occurrenceId];
   if (!occurrence) {
     return null;

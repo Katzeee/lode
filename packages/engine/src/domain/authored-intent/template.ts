@@ -5,7 +5,7 @@ import {
   type AuthoredAction,
   type SequenceAnchor,
 } from "../fact/index.js";
-import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
+import { occurrenceAnchor, type InterpretedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentFamily } from "./policy.js";
 
 const TEMPLATE_ACTION_KINDS = graphActionKindsInFamily("template");
@@ -20,7 +20,7 @@ export const templateAuthoredIntent = {
 
 function validateTemplateDetachment(
   action: Extract<AuthoredAction, { kind: "template-node-detach" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): Extract<AuthoredAction, { kind: "template-node-detach" }> {
   const instance = available.templateNodeInstances.find(
     (candidate) =>

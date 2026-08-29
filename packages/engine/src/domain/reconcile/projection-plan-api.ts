@@ -1,6 +1,6 @@
 import type { FactSnapshot, ProjectionPerspective } from "../fact/index.js";
 import { PROJECTION_PLAN } from "./projection-plan.js";
-import { createProjectionPlanContext } from "./projection-plan-context.js";
+import { createProjectionPlanState } from "./projection-plan-context.js";
 import type { Projection, ProjectionActivation, ProjectionVersions } from "./projection-types.js";
 
 export function projectWithPlan(
@@ -13,13 +13,13 @@ export function projectWithPlan(
   projection: Projection;
   activation: ProjectionActivation;
 }> {
-  const context = createProjectionPlanContext(workspaceId, snapshot, perspective, versions, originActivation);
-  PROJECTION_PLAN.run(context);
-  if (!context.projection) {
+  const state = createProjectionPlanState(workspaceId, snapshot, perspective, versions, originActivation);
+  PROJECTION_PLAN.run(state);
+  if (!state.projection || !state.activation) {
     throw new Error("Projection owner plan did not assemble a Projection");
   }
   return {
-    projection: context.projection,
-    activation: context.activation.evidence,
+    projection: state.projection,
+    activation: state.activation.evidence,
   };
 }

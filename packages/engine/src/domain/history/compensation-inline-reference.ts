@@ -1,11 +1,11 @@
 import type { FactAction } from "../fact/index.js";
-import { locateInlineReference, type ScopedProjection } from "../reconcile/index.js";
+import { locateInlineReference, type InterpretedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateInlineReferenceAction(
   target: FactAction,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   const authoredAction = target.action;
   if (

@@ -1,5 +1,5 @@
 import { canonicalDigest, type FactId, type FactSnapshot, type HistoryChannelId } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { planInvocationCompensation } from "./compensation.js";
 import { historySteps, rebuildHistoryState, type HistoryState } from "./state.js";
 import type { HistoryPlan, HistoryQuery, HistorySelection } from "./types.js";
@@ -20,7 +20,7 @@ export function validateHistorySelection(
   operation: "undo" | "redo",
   selection: HistorySelection,
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): HistoryPlan {
   const state = rebuildHistoryState(snapshot, selection.channelId);
   const targetStepId = operation === "undo" ? (state.undoStack.at(-1) ?? null) : (state.redoStack.at(-1) ?? null);

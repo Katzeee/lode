@@ -5,12 +5,12 @@ import {
   FIELD_OPTIONALITY_NODE_IDS,
   type FieldDefinitionConfigurationValue,
 } from "../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 
 export function prepareFieldDefinitionConfiguration(
   edit: ConfigureFieldDefinitionEdit,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (available.nodes[edit.fieldDefinitionId]?.intrinsicNodeType !== "field-definition") {
     throw new Error("Field configuration host is not an active Field Definition Node");

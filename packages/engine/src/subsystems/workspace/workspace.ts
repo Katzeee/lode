@@ -73,8 +73,11 @@ export class Workspace {
     return this.options.workspaceId;
   }
   get label(): string {
+    return this.validate().label;
+  }
+  validate(): Readonly<{ label: string }> {
     const state = this.projection.current;
-    return validateWorkspaceSnapshot(this.workspaceId, state.snapshot, state.generation).label;
+    return validateWorkspaceSnapshot(this.workspaceId, state.snapshot, state.generation);
   }
   get facts(): FactAuthorityPort {
     return this.options.facts;

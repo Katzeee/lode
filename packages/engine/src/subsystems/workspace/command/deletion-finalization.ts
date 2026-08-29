@@ -8,7 +8,7 @@ type FinalizeDeletionsCommand = Extract<AcceptedEngineCommand, { kind: "finalize
 
 export function bindDeletionFinalizationCommand(command: FinalizeDeletionsCommand): BoundWorkspaceCommand {
   return {
-    readPlan: {
+    factReadPlan: {
       kind: "all",
     },
     plan({ generation }) {

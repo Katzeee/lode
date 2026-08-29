@@ -1,11 +1,11 @@
-import { projectionRule } from "./projection-rule.js";
+import { projectionStage } from "./projection-stage.js";
 import { projectSharedDefaultViewDefinitions } from "./shared-default-view-definitions.js";
 
-export const viewProjectionRule = projectionRule({
-  key: "view",
-  dependencies: ["activation", "node", "node-graph", "supertag-relations"],
-  evaluate: (context) => ({
-    sharedDefaultViewDefinitions: projectSharedDefaultViewDefinitions(
+export const viewProjectionStage = projectionStage({
+  key: "sharedDefaultViewDefinitions",
+  dependencies: ["activation", "storedNodes", "nodeGraphStructure", "supertagRelations"],
+  project: (context) =>
+    projectSharedDefaultViewDefinitions(
       context.workspaceNodeId,
       context.activation.actions,
       context.storedNodes,
@@ -16,5 +16,4 @@ export const viewProjectionRule = projectionRule({
       context.nodeGraphStructure.workspaceSystemNodes,
       context.supertagRelations.materializedFields,
     ),
-  }),
 });

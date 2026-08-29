@@ -4,7 +4,7 @@ import {
   type AuthoredAction,
   type PlacementAction,
 } from "../fact/index.js";
-import { isPresentNodeOutsideTrash, type ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, type InterpretedProjection } from "../reconcile/index.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
 type MutablePlacementAction = Extract<AuthoredAction, { kind: "placement-move" | "placement-remove" }>;
@@ -31,8 +31,8 @@ function validatePlacementAuthoredIntent(action: PlacementAction, context: Autho
 
 function completePlacementCreate(
   action: Extract<AuthoredAction, { kind: "placement-create" }>,
-  available: ScopedProjection,
-  resulting: ScopedProjection,
+  available: InterpretedProjection,
+  resulting: InterpretedProjection,
 ): Extract<AuthoredAction, { kind: "placement-create" }> {
   if (!isPresentNodeOutsideTrash(resulting.identity.workspaceNodeId, resulting, action.nodeId)) {
     throw new Error("Occurrence Node is absent from the observed projection");
@@ -48,8 +48,8 @@ function completePlacementCreate(
 
 function validateMutableOccurrence(
   action: MutablePlacementAction,
-  available: ScopedProjection,
-  resulting: ScopedProjection,
+  available: InterpretedProjection,
+  resulting: InterpretedProjection,
 ): MutablePlacementAction {
   if (action.placementId === workspaceTrashOccurrenceId(available.identity.workspaceNodeId)) {
     throw new Error("Workspace Trash role cannot be moved or deleted");
@@ -65,14 +65,14 @@ function validateMutableOccurrence(
   return action;
 }
 
-function assertPlacementParent(projection: ScopedProjection, parentNodeId: string): void {
+function assertPlacementParent(projection: InterpretedProjection, parentNodeId: string): void {
   if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, parentNodeId)) {
     throw new Error("Parent Node is absent from the observed projection");
   }
 }
 
 function assertUniquePlacement(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   nodeId: string,
   parentNodeId: string,
   excludedOccurrenceId?: string,

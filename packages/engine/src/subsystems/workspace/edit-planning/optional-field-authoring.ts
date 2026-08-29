@@ -4,12 +4,12 @@ import {
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   workspaceSchemaNodeId,
 } from "../../../domain/fact/index.js";
-import type { ScopedProjection } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 
 export function prepareSupertagOptionalFieldContributionAddition(
   edit: Extract<EditAction, { kind: "supertag-optional-field-contribution-add" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (available.nodes[edit.supertagId]?.intrinsicNodeType !== SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE) {
     throw new Error("Optional Field host is not an active Supertag Definition");
@@ -40,7 +40,7 @@ export function prepareSupertagOptionalFieldContributionAddition(
 
 export function prepareSupertagOptionalFieldContributionRemoval(
   edit: Extract<EditAction, { kind: "supertag-optional-field-contribution-remove" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (
     !(available.optionalFieldContributions[edit.supertagId] ?? []).some(

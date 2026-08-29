@@ -1,5 +1,5 @@
 import { graphActionKindsInFamily, type GraphAction, type GraphNodeAction } from "../fact/index.js";
-import { metanodeHostNodeId, type ScopedProjection } from "../reconcile/index.js";
+import { metanodeHostNodeId, type InterpretedProjection } from "../reconcile/index.js";
 import { isPresentNodeOutsideTrash, nodeLocation } from "../reconcile/node-graph.js";
 import type { AuthoredIntentContext, AuthoredIntentFamily } from "./policy.js";
 
@@ -36,8 +36,8 @@ function validateNodeAuthoredIntent(action: GraphNodeAction, context: AuthoredIn
 
 function assertNodeCreationTarget(
   action: Extract<GraphAction, { kind: "node-create" }>,
-  available: ScopedProjection,
-  resulting: ScopedProjection,
+  available: InterpretedProjection,
+  resulting: InterpretedProjection,
 ): void {
   if (available.nodes[action.nodeId] !== undefined) {
     throw new Error("Node identity already exists");
@@ -62,7 +62,7 @@ function assertNodeCreationTarget(
 
 function assertNodeDeletionTarget(
   action: Extract<GraphAction, { kind: "node-trash" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): void {
   if (action.nodeId === available.identity.workspaceNodeId) {
     throw new Error("Workspace Node cannot be deleted");
@@ -80,7 +80,7 @@ function assertNodeDeletionTarget(
 
 function assertNodeRestoreTarget(
   action: Extract<GraphAction, { kind: "node-restore" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): void {
   const occurrence = available.occurrences[action.placementId];
   if (
@@ -94,7 +94,7 @@ function assertNodeRestoreTarget(
 
 function assertOriginalPromotionTarget(
   action: Extract<GraphAction, { kind: "original-promote" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): void {
   const placement = available.occurrences[action.placementId];
   if (placement?.nodeId !== action.nodeId) {
@@ -103,7 +103,7 @@ function assertOriginalPromotionTarget(
   assertOwnerAcyclic(action.nodeId, placement.parentNodeId, available);
 }
 
-function belongsToSystemRole(nodeId: string, projection: ScopedProjection): boolean {
+function belongsToSystemRole(nodeId: string, projection: InterpretedProjection): boolean {
   const protectedRoots = new Set(Object.values(projection.workspaceSystemNodes));
   let cursor: string | null | undefined = nodeId;
   const seen = new Set<string>();
@@ -117,7 +117,7 @@ function belongsToSystemRole(nodeId: string, projection: ScopedProjection): bool
   return false;
 }
 
-function assertOwnerAcyclic(nodeId: string, ownerNodeId: string, projection: ScopedProjection): void {
+function assertOwnerAcyclic(nodeId: string, ownerNodeId: string, projection: InterpretedProjection): void {
   let cursor: string | null | undefined = ownerNodeId;
   const seen = new Set<string>();
   while (cursor !== null && cursor !== undefined) {

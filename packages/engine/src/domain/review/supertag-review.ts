@@ -1,10 +1,10 @@
 import { isSupertagAction, type FactAction, type SupertagAction } from "../fact/index.js";
-import { impactAddress, type ScopedProjection, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { impactAddress, type InterpretedProjection, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { SupertagRelationDecisionEffect } from "./types.js";
 
 export function supertagRelationEffect(
   fact: FactAction,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): SupertagRelationDecisionEffect {
   const action = fact.action;
   if (!isSupertagAction(action)) {
@@ -24,7 +24,7 @@ export function supertagRelationEffect(
 
 function restoredTemplateFieldIdentities(
   templateFieldId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly [string, string] {
   const field = [...Object.values(generation.origin.templateFields), ...Object.values(generation.review.templateFields)]
     .flat()
@@ -35,7 +35,7 @@ function restoredTemplateFieldIdentities(
 export function addSupertagRelationImpacts(
   impacts: Set<string>,
   fact: FactAction,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): void {
   const action = fact.action;
   if (!isSupertagAction(action)) {
@@ -55,14 +55,14 @@ export function addSupertagRelationImpacts(
   }
 }
 
-export function supertagRelationAddress(action: SupertagAction, generation: ScopedProjectionGeneration): string {
+export function supertagRelationAddress(action: SupertagAction, generation: InterpretedProjectionGeneration): string {
   const relation = supertagRelationKind(action);
   const [ownerId, targetId] = supertagRelationIdentities(action, generation);
   return impactAddress(`supertag-${relation}`, ownerId, targetId);
 }
 
 function relationIndex(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   relation: SupertagRelationDecisionEffect["relation"],
   ownerId: string,
   targetId: string,
@@ -99,7 +99,7 @@ function relationIndex(
         : projection.supertagTemplateNodes[ownerId];
   const index =
     relation === "application"
-      ? (values as ScopedProjection["supertagApplications"][string] | undefined)?.findIndex(
+      ? (values as InterpretedProjection["supertagApplications"][string] | undefined)?.findIndex(
           (application) => application.supertagId === targetId,
         )
       : (values as readonly string[] | undefined)?.indexOf(targetId);
@@ -130,7 +130,7 @@ function supertagRelationKind(action: SupertagAction): SupertagRelationDecisionE
 
 function supertagRelationIdentities(
   action: SupertagAction,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly [string, string] {
   if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
     return [action.hostNodeId, action.supertagId];

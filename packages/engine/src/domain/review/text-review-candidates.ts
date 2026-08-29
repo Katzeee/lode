@@ -8,13 +8,13 @@ import {
   type Fact,
   type TextAtomId,
 } from "../fact/index.js";
-import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { textAtoms, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { hasTextEffect, textEffect } from "./text-review-effect.js";
 
 export function textCandidates(
   snapshot: Readonly<{ facts: readonly Fact[] }>,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   allPending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const pending = factActionsOfKinds([...allPending.values()], ["rich-text-splice", "rich-text-mark"]);
@@ -95,7 +95,7 @@ function overlappingMarkGroups(facts: readonly FactAction[]): readonly FactActio
 function textContinuityGroups(
   facts: readonly FactAction[],
   snapshot: Readonly<{ facts: readonly Fact[] }>,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   nodeId: string,
 ): readonly Readonly<{ targets: readonly FactAction[]; bridges: readonly TextAtomId[] }>[] {
   const atoms = textAtoms(generation.review.nodes[nodeId]);

@@ -1,11 +1,11 @@
 import { canonicalJson, type FactAction, type JsonValue, type PreviousValue } from "../fact/index.js";
-import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { textAtoms, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { TextDecisionEffect } from "./types.js";
 
 export function textEffect(
   nodeId: string,
   targets: readonly FactAction[],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): TextDecisionEffect {
   const origin = textAtoms(generation.origin.nodes[nodeId]);
   const review = textAtoms(generation.review.nodes[nodeId]);

@@ -13,7 +13,7 @@ import {
   textAtoms,
   type FieldDefinitionConfiguration,
   type MaterializedField,
-  type ScopedProjection,
+  type InterpretedProjection,
 } from "../../../domain/reconcile/index.js";
 
 const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -30,7 +30,10 @@ type TypedFieldValueEdit = Extract<
   }
 >;
 
-export function prepareTypedFieldValue(edit: TypedFieldValueEdit, available: ScopedProjection): AuthoredActionBatch {
+export function prepareTypedFieldValue(
+  edit: TypedFieldValueEdit,
+  available: InterpretedProjection,
+): AuthoredActionBatch {
   requireActive(edit.ownerNodeId, available, "Field owner");
   const datatype = configuredDatatype(edit.fieldDefinitionId, available);
   if (edit.kind === "field-number-value-set") {
@@ -61,7 +64,7 @@ export function prepareTypedFieldValue(edit: TypedFieldValueEdit, available: Sco
 function setOwnedTextValue(
   edit: Extract<TypedFieldValueEdit, { kind: "field-number-value-set" | "field-date-value-set" }>,
   value: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const field = fieldFor(edit, available);
   const fieldNodeId = materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId);
@@ -106,7 +109,7 @@ function setOwnedTextValue(
 function setReferenceValue(
   edit: Extract<TypedFieldValueEdit, { kind: "field-checkbox-value-set" | "field-options-from-supertag-value-set" }>,
   targetNodeId: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   requireActive(targetNodeId, available, "Typed Field target");
   const field = fieldFor(edit, available);
@@ -131,7 +134,7 @@ function setReferenceValue(
 function clearTypedFieldValue(
   edit: Extract<TypedFieldValueEdit, { kind: "typed-field-value-clear" }>,
   datatype: Extract<FieldDefinitionConfiguration, { kind: "datatype" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   if (
     datatype.datatypeNodeId !== FIELD_DATATYPE_NODE_IDS.number &&
@@ -189,7 +192,7 @@ function clearTypedFieldValue(
 
 function configuredDatatype(
   fieldDefinitionId: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): Extract<FieldDefinitionConfiguration, { kind: "datatype" }> {
   const values = (available.fieldDefinitionConfigurations[fieldDefinitionId] ?? []).filter(
     (configuration): configuration is Extract<FieldDefinitionConfiguration, { kind: "datatype" }> =>
@@ -215,7 +218,7 @@ function requireDatatype(
   }
 }
 
-function matchesSupertag(targetNodeId: string, sourceSupertagId: string, available: ScopedProjection): boolean {
+function matchesSupertag(targetNodeId: string, sourceSupertagId: string, available: InterpretedProjection): boolean {
   return (available.supertagApplications[targetNodeId] ?? []).some(
     (application) =>
       application.supertagId === sourceSupertagId ||
@@ -223,7 +226,7 @@ function matchesSupertag(targetNodeId: string, sourceSupertagId: string, availab
   );
 }
 
-function fieldFor(edit: TypedFieldValueEdit, available: ScopedProjection): MaterializedField | undefined {
+function fieldFor(edit: TypedFieldValueEdit, available: InterpretedProjection): MaterializedField | undefined {
   return available.materializedFields[edit.ownerNodeId]?.find(
     (field) => field.fieldDefinitionId === edit.fieldDefinitionId,
   );
@@ -231,7 +234,7 @@ function fieldFor(edit: TypedFieldValueEdit, available: ScopedProjection): Mater
 
 function singleValue(
   field: MaterializedField,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): Readonly<{ occurrenceId: string; nodeId: string }> {
   if (field.valueOccurrenceIds.length !== 1) {
     throw new Error("Typed single-value Field must contain exactly one value endpoint");
@@ -247,24 +250,24 @@ function singleValue(
   return { occurrenceId, nodeId: occurrence.nodeId };
 }
 
-function requireUnusedFieldIdentity(edit: TypedFieldValueEdit, available: ScopedProjection): void {
+function requireUnusedFieldIdentity(edit: TypedFieldValueEdit, available: InterpretedProjection): void {
   requireUnusedNode(materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
   requireUnusedOccurrence(materializedFieldOccurrenceId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
 }
 
-function requireActive(nodeId: string, available: ScopedProjection, label: string): void {
+function requireActive(nodeId: string, available: InterpretedProjection, label: string): void {
   if (nodeLocation(available.identity.workspaceNodeId, available, nodeId) !== "active") {
     throw new Error(`${label} is not an active Node`);
   }
 }
 
-function requireUnusedNode(nodeId: string, available: ScopedProjection, label: string): void {
+function requireUnusedNode(nodeId: string, available: InterpretedProjection, label: string): void {
   if (available.nodes[nodeId] !== undefined) {
     throw new Error(`${label} identity already exists`);
   }
 }
 
-function requireUnusedOccurrence(occurrenceId: string, available: ScopedProjection, label: string): void {
+function requireUnusedOccurrence(occurrenceId: string, available: InterpretedProjection, label: string): void {
   if (available.occurrences[occurrenceId] !== undefined) {
     throw new Error(`${label} Occurrence identity already exists`);
   }

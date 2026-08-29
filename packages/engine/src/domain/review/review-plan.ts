@@ -7,7 +7,7 @@ import {
   type AuthoredAction,
   type ProposableAction,
 } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { fieldMaterializationReviewFamily } from "./field-materialization-review-family.js";
 import { lifecycleReviewFamily } from "./lifecycle-review-family.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
@@ -43,7 +43,7 @@ const FAMILY_BY_ACTION = compileReviewFamilies(REVIEW_FAMILIES);
 
 export function collectReviewCandidates(
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactActionId, FactAction>,
 ): readonly HunkCandidate[] {
   const context = { snapshot, generation, pending };
@@ -60,7 +60,7 @@ export function reviewPaginationScopeKeys(
 
 export function normalizedReviewEffects(
   targets: readonly FactAction[],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly DecisionEffect[] {
   const effects = new Map<string, DecisionEffect>();
   for (const fact of targets) {
@@ -83,7 +83,7 @@ function familyFor(kind: AuthoredAction["kind"]): ReviewFamilyRule {
 
 export function associatedReviewImpacts(
   targets: readonly FactAction[],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): readonly string[] {
   const impacts = new Set<string>();
   for (const family of REVIEW_FAMILIES) {

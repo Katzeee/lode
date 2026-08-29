@@ -3,7 +3,7 @@ import {
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   type SupertagAction,
 } from "../fact/index.js";
-import type { ScopedProjection, TemplateField } from "../reconcile/index.js";
+import type { InterpretedProjection, TemplateField } from "../reconcile/index.js";
 
 type TemplateFieldAction = Exclude<
   SupertagAction,
@@ -20,8 +20,8 @@ type TemplateFieldAction = Exclude<
 
 export function validateTemplateFieldIntent(
   action: TemplateFieldAction,
-  previous: ScopedProjection,
-  available: ScopedProjection,
+  previous: InterpretedProjection,
+  available: InterpretedProjection,
 ): TemplateFieldAction {
   switch (action.kind) {
     case "template-field-add":
@@ -69,19 +69,19 @@ export function validateTemplateFieldIntent(
   }
 }
 
-function findTemplateField(projection: ScopedProjection, templateFieldId: string): TemplateField | undefined {
+function findTemplateField(projection: InterpretedProjection, templateFieldId: string): TemplateField | undefined {
   return Object.values(projection.templateFields)
     .flat()
     .find((field) => field.factActionId === templateFieldId);
 }
 
-function assertSupertag(projection: ScopedProjection, nodeId: string): void {
+function assertSupertag(projection: InterpretedProjection, nodeId: string): void {
   if (projection.nodes[nodeId]?.intrinsicNodeType !== SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE) {
     throw new Error("Template Field host is not an active Supertag Definition");
   }
 }
 
-function assertFieldDefinition(projection: ScopedProjection, nodeId: string): void {
+function assertFieldDefinition(projection: InterpretedProjection, nodeId: string): void {
   if (projection.nodes[nodeId]?.intrinsicNodeType !== FIELD_DEFINITION_INTRINSIC_NODE_TYPE) {
     throw new Error("Template Field target is not an active Field Definition");
   }

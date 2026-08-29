@@ -1,12 +1,12 @@
 import { isViewAction, type FactAction, type FactActionId, type ViewAction } from "../fact/index.js";
-import { sequenceAnchorAt, type ScopedProjection } from "../reconcile/index.js";
+import { sequenceAnchorAt, type InterpretedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateViewAction(
   target: FactAction,
   _activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   const action = target.action;
   if (!isViewAction(action)) {
@@ -138,7 +138,7 @@ function compensateViewOption(
   return { kind: "ready", actions: [{ kind: "view-filter-remove", viewId }] };
 }
 
-function targetViewId(action: ViewAction, projection: ScopedProjection) {
+function targetViewId(action: ViewAction, projection: InterpretedProjection) {
   if ("viewId" in action) {
     return action.viewId;
   }
@@ -163,7 +163,7 @@ function targetViewId(action: ViewAction, projection: ScopedProjection) {
     : null;
 }
 
-function findView(projection: ScopedProjection, viewId: string) {
+function findView(projection: InterpretedProjection, viewId: string) {
   return Object.values(projection.sharedDefaultViewDefinitions)
     .flat()
     .find((view) => view.viewId === viewId);

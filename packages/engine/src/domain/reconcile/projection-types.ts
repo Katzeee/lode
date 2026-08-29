@@ -272,18 +272,18 @@ export type ProjectionGeneration = Readonly<{
   }>;
 }>;
 
-type ScopedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
+type InterpretedProjectionSectionName = Exclude<ProjectionSectionName, "conflictIssues">;
 
-export type ScopedProjection = Readonly<{
+export type InterpretedProjection = Readonly<{
   perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
 }> &
-  Pick<ProjectionSections, ScopedProjectionSectionName>;
+  Pick<ProjectionSections, InterpretedProjectionSectionName>;
 
-export type ScopedProjectionGeneration = Readonly<{
+export type InterpretedProjectionGeneration = Readonly<{
   identity: ProjectionIdentity;
-  origin: ScopedProjection;
-  review: ScopedProjection;
+  origin: InterpretedProjection;
+  review: InterpretedProjection;
 }>;
 
 export type ProjectionActivation = Readonly<{

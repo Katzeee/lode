@@ -1,11 +1,11 @@
 import { compareCausalOrder, type FactAction } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import type { InterpretedProjection } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
 import type { CompensationTargetAction } from "./compensation-policy.js";
 
 export function normalizeCompensationTargets(
   targets: readonly FactAction<CompensationTargetAction>[],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): readonly FactAction<CompensationTargetAction>[] {
   const result: FactAction<CompensationTargetAction>[] = [];
   const grouped = new Map<string, FactAction<CompensationTargetAction>[]>();
@@ -27,7 +27,7 @@ export function normalizeCompensationTargets(
 
 function normalizeOwnerChanges(
   group: readonly FactAction<CompensationTargetAction>[],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): readonly FactAction<CompensationTargetAction>[] {
   const ordered = [...group].sort(compareCausalOrder);
   const lifecycle = lifecycleRepresentatives(ordered, projection);
@@ -44,7 +44,7 @@ function normalizeOwnerChanges(
 
 function lifecycleRepresentatives(
   ordered: readonly FactAction<CompensationTargetAction>[],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): readonly FactAction<CompensationTargetAction>[] | null {
   const authoredAction = ordered[0]?.action;
   if (!authoredAction) {

@@ -1,5 +1,5 @@
 import { canonicalJson, compareCausalOrder, isViewAction, type FactAction, type FactActionId } from "../fact/index.js";
-import type { ScopedProjection, ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjection, InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { ViewDefinitionDecisionEffect, ViewDefinitionDecisionState } from "./types.js";
@@ -63,7 +63,7 @@ export const viewDefinitionReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function candidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactActionId, FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<FactActionId, FactAction[]>();
@@ -95,7 +95,7 @@ function candidates(
 
 function viewDefinitionEffect(
   viewId: FactActionId,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): ViewDefinitionDecisionEffect {
   return {
     kind: "view-definition",
@@ -105,7 +105,7 @@ function viewDefinitionEffect(
   };
 }
 
-function stateFor(viewId: FactActionId, projection: ScopedProjection): ViewDefinitionDecisionState | null {
+function stateFor(viewId: FactActionId, projection: InterpretedProjection): ViewDefinitionDecisionState | null {
   const definition = findView(projection, viewId);
   return definition
     ? {
@@ -119,7 +119,7 @@ function stateFor(viewId: FactActionId, projection: ScopedProjection): ViewDefin
     : null;
 }
 
-function viewIdFor(fact: FactAction, generation: ScopedProjectionGeneration): FactActionId | null {
+function viewIdFor(fact: FactAction, generation: InterpretedProjectionGeneration): FactActionId | null {
   if (!isViewAction(fact.action)) {
     return null;
   }
@@ -183,7 +183,7 @@ function actionTarget(fact: FactAction): string {
   return fact.action.filterId;
 }
 
-function findView(projection: ScopedProjection, viewId: FactActionId) {
+function findView(projection: InterpretedProjection, viewId: FactActionId) {
   return Object.values(projection.sharedDefaultViewDefinitions)
     .flat()
     .find((view) => view.viewId === viewId);

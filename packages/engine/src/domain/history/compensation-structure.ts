@@ -6,7 +6,7 @@ import {
   type GraphAction,
   type FactAction,
 } from "../fact/index.js";
-import { occurrenceAnchor, type ScopedProjection } from "../reconcile/index.js";
+import { occurrenceAnchor, type InterpretedProjection } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/node-graph.js";
 import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
@@ -18,8 +18,8 @@ export function compensateStructureAction(
   target: FactAction<CompensationTargetAction>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   const authoredAction = target.action;
   if (authoredAction.kind === "field-value-remove") {
@@ -56,7 +56,7 @@ function compensateNodeCreate(
   target: FactAction,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   const location =
@@ -92,8 +92,8 @@ function compensateNodeTrash(
   target: FactAction,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (
@@ -137,7 +137,7 @@ function compensateOccurrenceCreate(
   target: FactAction,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (
@@ -164,8 +164,8 @@ function compensateOccurrenceCreate(
 
 function compensateOccurrenceDelete(
   occurrenceId: string,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   if (projection.occurrences[occurrenceId]) {
     return noCompensation();
@@ -193,8 +193,8 @@ function compensateOccurrenceDelete(
 
 function compensateMaterializedFieldClear(
   action: Extract<FactAction["action"], { kind: "materialized-field-clear" }>,
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const previousOccurrenceIds = materializedFieldOccurrenceIds(
     counterfactual,
@@ -223,7 +223,7 @@ function compensateMaterializedFieldClear(
 }
 
 function materializedFieldOccurrenceIds(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   ownerNodeId: string,
   fieldDefinitionId: string,
 ): readonly string[] {
@@ -241,8 +241,8 @@ function materializedFieldOccurrenceIds(
 function compensateMove(
   target: FactAction,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (authoredAction.kind !== "placement-move") {

@@ -6,13 +6,13 @@ import {
   type FactActionId,
   type FactSnapshot,
 } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { associatedReviewImpacts, normalizedReviewEffects } from "./review-plan.js";
 import type { DecisionEvidence } from "./types.js";
 
 export function evidenceForTargets(
   snapshot: FactSnapshot,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   targetIds: readonly FactActionId[],
   context = createReviewEvidenceContext(snapshot),
 ): DecisionEvidence | null {

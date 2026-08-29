@@ -5,12 +5,12 @@ import {
   workspaceSchemaNodeId,
   type FactActionId,
 } from "../../../domain/fact/index.js";
-import type { ScopedProjection, TemplateField } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection, TemplateField } from "../../../domain/reconcile/index.js";
 import { singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 
 export function prepareSupertagTemplateFieldCreation(
   edit: Extract<EditAction, { kind: "supertag-template-field-create" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   assertSupertag(available, edit.supertagId);
   if (available.nodes[edit.fieldDefinitionId] !== undefined) {
@@ -31,7 +31,7 @@ export function prepareSupertagTemplateFieldCreation(
 
 export function prepareExistingSupertagTemplateFieldAddition(
   edit: Extract<EditAction, { kind: "supertag-template-field-add-existing" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   assertSupertag(available, edit.supertagId);
   if (
@@ -51,7 +51,7 @@ export function prepareExistingSupertagTemplateFieldAddition(
 
 export function prepareSupertagTemplateFieldDiscoverability(
   edit: Extract<EditAction, { kind: "supertag-template-field-make-discoverable" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const field = requireTemplateField(available, edit.supertagId, edit.templateFieldId);
   if (field.fieldDefinitionOwner !== "template-field") {
@@ -65,7 +65,7 @@ export function prepareSupertagTemplateFieldDiscoverability(
 
 export function prepareSupertagTemplateFieldRemoval(
   edit: Extract<EditAction, { kind: "supertag-template-field-remove" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const field = requireTemplateField(available, edit.supertagId, edit.templateFieldId);
   return singleAuthoredActionBatch({
@@ -77,7 +77,7 @@ export function prepareSupertagTemplateFieldRemoval(
 
 export function prepareSupertagTemplateFieldVisibility(
   edit: Extract<EditAction, { kind: "supertag-template-field-visibility-set" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const field = requireTemplateField(available, edit.supertagId, edit.templateFieldId);
   if (field.visibility === edit.visibility && !field.visibilityConflicted) {
@@ -92,7 +92,7 @@ export function prepareSupertagTemplateFieldVisibility(
 
 export function prepareSupertagTemplateFieldStaticDefault(
   edit: Extract<EditAction, { kind: "supertag-template-field-static-default-set" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   const field = requireTemplateField(available, edit.supertagId, edit.templateFieldId);
   if (
@@ -110,7 +110,7 @@ export function prepareSupertagTemplateFieldStaticDefault(
 }
 
 function requireTemplateField(
-  available: ScopedProjection,
+  available: InterpretedProjection,
   supertagId: string,
   templateFieldId: FactActionId,
 ): TemplateField {
@@ -123,14 +123,14 @@ function requireTemplateField(
   return field;
 }
 
-function assertSupertag(available: ScopedProjection, supertagId: string): void {
+function assertSupertag(available: InterpretedProjection, supertagId: string): void {
   if (available.nodes[supertagId]?.intrinsicNodeType !== SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE) {
     throw new Error("Template Field host is not an active Supertag Definition");
   }
 }
 
 function assertFieldDefinitionIsNotExposed(
-  available: ScopedProjection,
+  available: InterpretedProjection,
   supertagId: string,
   fieldDefinitionId: string,
 ): void {

@@ -8,7 +8,7 @@ import {
   type GraphAction,
   type NodeSeed,
 } from "../../../domain/fact/index.js";
-import { nodeLocation, type MaterializedField, type ScopedProjection } from "../../../domain/reconcile/index.js";
+import { nodeLocation, type MaterializedField, type InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { validatePlainOrOptionsValue } from "./plain-field-value-validation.js";
 
 const END = { after: null, before: null, affinity: "after", fallback: "end" } as const;
@@ -20,7 +20,7 @@ type BreadthEdit = Extract<
   }
 >;
 
-export function expandBreadthEdit(edit: BreadthEdit, available: ScopedProjection): AuthoredActionBatch {
+export function expandBreadthEdit(edit: BreadthEdit, available: InterpretedProjection): AuthoredActionBatch {
   switch (edit.kind) {
     case "field-value-create":
       return expandFieldValueCreate(edit, available);
@@ -33,7 +33,7 @@ export function expandBreadthEdit(edit: BreadthEdit, available: ScopedProjection
 
 function expandFieldValueCreate(
   edit: Extract<BreadthEdit, { kind: "field-value-create" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   requireActiveNode(edit.ownerNodeId, available, "Field owner");
   validatePlainOrOptionsValue(edit.fieldDefinitionId, edit.ownerNodeId, available);
@@ -69,7 +69,7 @@ function expandFieldValueCreate(
 
 function expandUrlNodeCreate(
   edit: Extract<BreadthEdit, { kind: "url-node-create" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   requireActiveNode(edit.parentNodeId, available, "URL Node parent");
   const fieldNodeId = materializedFieldNodeId(edit.nodeId, URL_DEFINITION_NODE_ID);
@@ -112,7 +112,7 @@ function expandUrlNodeCreate(
 
 function expandCodeNodeConfigure(
   edit: Extract<BreadthEdit, { kind: "code-node-configure" }>,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): AuthoredActionBatch {
   requireActiveNode(edit.nodeId, available, "Code Node");
   if (fieldFor(available, edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID) !== undefined) {
@@ -146,7 +146,7 @@ function expandCodeNodeConfigure(
 function ensureMaterializedField(
   ownerNodeId: string,
   fieldDefinitionId: string,
-  available: ScopedProjection,
+  available: InterpretedProjection,
 ): readonly GraphAction[] {
   const existing = fieldFor(available, ownerNodeId, fieldDefinitionId);
   if (existing !== undefined) {
@@ -160,26 +160,26 @@ function ensureMaterializedField(
 }
 
 function fieldFor(
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
   ownerNodeId: string,
   fieldDefinitionId: string,
 ): MaterializedField | undefined {
   return projection.materializedFields[ownerNodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId);
 }
 
-function requireActiveNode(nodeId: string, available: ScopedProjection, label: string): void {
+function requireActiveNode(nodeId: string, available: InterpretedProjection, label: string): void {
   if (nodeLocation(available.identity.workspaceNodeId, available, nodeId) !== "active") {
     throw new Error(`${label} is not an active Node`);
   }
 }
 
-function requireUnusedNode(nodeId: string, available: ScopedProjection, label: string): void {
+function requireUnusedNode(nodeId: string, available: InterpretedProjection, label: string): void {
   if (available.nodes[nodeId] !== undefined) {
     throw new Error(`${label} identity already exists`);
   }
 }
 
-function requireUnusedOccurrence(occurrenceId: string, available: ScopedProjection, label: string): void {
+function requireUnusedOccurrence(occurrenceId: string, available: InterpretedProjection, label: string): void {
   if (available.occurrences[occurrenceId] !== undefined) {
     throw new Error(`${label} Occurrence identity already exists`);
   }

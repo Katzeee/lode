@@ -1,12 +1,12 @@
 import { actionIdentityProducers, type FactAction } from "../fact/index.js";
 import { isPresentNodeOutsideTrash } from "./node-graph.js";
-import { projectionRule } from "./projection-rule.js";
+import { projectionStage } from "./projection-stage.js";
 import { deriveSupertagRelations } from "./supertag-relations.js";
 
-export const supertagProjectionRule = projectionRule({
-  key: "supertag-relations",
-  dependencies: ["activation", "node", "content", "node-graph"],
-  evaluate(context) {
+export const supertagProjectionStage = projectionStage({
+  key: "supertagRelations",
+  dependencies: ["activation", "storedNodes", "contentNodes", "nodeGraphStructure"],
+  project(context) {
     const effectiveNodes = Object.fromEntries(context.contentNodes);
     const activeNodeIds = new Set(
       [...context.storedNodes.keys()].filter((nodeId) =>
@@ -21,19 +21,17 @@ export const supertagProjectionRule = projectionRule({
         ),
       ),
     );
-    return {
-      supertagRelations: deriveSupertagRelations(
-        context.activation.actions,
-        context.workspaceNodeId,
-        effectiveNodes,
-        activeNodeIds,
-        knownNodeIds(context.activation.actions),
-        context.nodeGraphStructure.occurrences,
-        context.nodeGraphStructure.childOccurrences,
-        context.nodeGraphStructure.metanodes,
-        context.nodeGraphStructure.nodeOwners,
-      ),
-    };
+    return deriveSupertagRelations(
+      context.activation.actions,
+      context.workspaceNodeId,
+      effectiveNodes,
+      activeNodeIds,
+      knownNodeIds(context.activation.actions),
+      context.nodeGraphStructure.occurrences,
+      context.nodeGraphStructure.childOccurrences,
+      context.nodeGraphStructure.metanodes,
+      context.nodeGraphStructure.nodeOwners,
+    );
   },
 });
 

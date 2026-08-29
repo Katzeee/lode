@@ -1,10 +1,10 @@
-import { textAtoms, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { textAtoms, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { occurrenceIdsForNode } from "./structure-effect.js";
 
 export function addNodeReviewImpacts(
   impacts: Set<string>,
   nodeId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): void {
   impacts.add(nodeId);
   for (const occurrenceId of occurrenceIdsForNode(generation, nodeId)) {

@@ -1,10 +1,10 @@
-import { impactAddress, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { impactAddress, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 
 export function addAffectedFieldImpacts(
   impacts: Set<string>,
   ownerNodeId: string,
   fieldDefinitionId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): void {
   for (const field of [
     ...(generation.origin.materializedFields[ownerNodeId] ?? []),

@@ -1,5 +1,5 @@
 import type { FactAction, FactActionId, FactSnapshot, ProposableAction, TextAtomId } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { DecisionEffect, ReviewHunk } from "./types.js";
 import type { ReviewScopeContext } from "./review-scope.js";
 
@@ -11,7 +11,7 @@ export type HunkCandidate = Readonly<{
 
 type ReviewFamilyContext = Readonly<{
   snapshot: FactSnapshot;
-  generation: ScopedProjectionGeneration;
+  generation: InterpretedProjectionGeneration;
   pending: ReadonlyMap<FactActionId, FactAction>;
 }>;
 
@@ -28,7 +28,7 @@ export type ReviewFamilyRule = Readonly<{
   effect(
     fact: FactAction,
     targets: readonly FactAction[],
-    generation: ScopedProjectionGeneration,
+    generation: InterpretedProjectionGeneration,
   ): ReviewEffectEntry | null;
-  addImpacts(impacts: Set<string>, targets: readonly FactAction[], generation: ScopedProjectionGeneration): void;
+  addImpacts(impacts: Set<string>, targets: readonly FactAction[], generation: InterpretedProjectionGeneration): void;
 }>;

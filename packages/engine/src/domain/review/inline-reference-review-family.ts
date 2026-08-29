@@ -1,5 +1,5 @@
 import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
-import { locateInlineReference, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { locateInlineReference, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { InlineReferenceDecisionEffect, InlineReferenceDecisionState } from "./types.js";
@@ -61,7 +61,7 @@ export const inlineReferenceReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function inlineReferenceCandidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();
@@ -90,7 +90,7 @@ function inlineReferenceCandidates(
 
 function inlineReferenceEffect(
   inlineReferenceId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): InlineReferenceDecisionEffect {
   return {
     kind: "inline-reference",
@@ -101,7 +101,7 @@ function inlineReferenceEffect(
 }
 
 function stateFor(
-  nodes: ScopedProjectionGeneration["origin"]["nodes"],
+  nodes: InterpretedProjectionGeneration["origin"]["nodes"],
   inlineReferenceId: string,
 ): InlineReferenceDecisionState | null {
   const location = locateInlineReference(nodes, inlineReferenceId);

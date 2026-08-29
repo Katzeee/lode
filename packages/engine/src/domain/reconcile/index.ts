@@ -14,8 +14,8 @@ export type {
   TemplateField,
   SearchExpression,
   SharedDefaultViewDefinition,
-  ScopedProjection,
-  ScopedProjectionGeneration,
+  InterpretedProjection,
+  InterpretedProjectionGeneration,
 } from "./projection-types.js";
 export { isProjectionSectionEntry, isProjectionSectionValue } from "./projection-section-shape.js";
 export { rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";

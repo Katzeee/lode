@@ -1,11 +1,11 @@
 import { FIELD_DEFINITION_INTRINSIC_NODE_TYPE, SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE } from "../fact/index.js";
-import { impactAddress, type ScopedProjectionGeneration } from "../reconcile/index.js";
+import { impactAddress, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { addAffectedFieldImpacts } from "./field-impacts.js";
 
 export function addDefinitionLifecycleImpacts(
   impacts: Set<string>,
   definitionId: string,
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): void {
   const originIntrinsicNodeType = generation.origin.nodes[definitionId]?.intrinsicNodeType;
   const reviewIntrinsicNodeType = generation.review.nodes[definitionId]?.intrinsicNodeType;
@@ -39,11 +39,11 @@ export function addDefinitionLifecycleImpacts(
   }
 }
 
-function projectionNodeIds(generation: ScopedProjectionGeneration): readonly string[] {
+function projectionNodeIds(generation: InterpretedProjectionGeneration): readonly string[] {
   return [...new Set([...Object.keys(generation.origin.nodes), ...Object.keys(generation.review.nodes)])];
 }
 
-function supertagInstanceNodeIds(generation: ScopedProjectionGeneration, supertagId: string): ReadonlySet<string> {
+function supertagInstanceNodeIds(generation: InterpretedProjectionGeneration, supertagId: string): ReadonlySet<string> {
   return new Set(
     [generation.origin, generation.review].flatMap((projection) => {
       const instanceSupertags = new Set([supertagId, ...(projection.supertagInstanceSupertags[supertagId] ?? [])]);

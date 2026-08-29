@@ -7,15 +7,15 @@ import {
   type GraphAction,
   type TextAtomId,
 } from "../fact/index.js";
-import { isPresentNodeOutsideTrash, textAtoms, type ScopedProjection } from "../reconcile/index.js";
+import { isPresentNodeOutsideTrash, textAtoms, type InterpretedProjection } from "../reconcile/index.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateContentAction(
   target: FactAction,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep | null {
   const authoredAction = target.action;
   if (!isTextAction(authoredAction)) {
@@ -32,8 +32,8 @@ export function compensateContentAction(
 function compensateTextSplice(
   target: FactAction,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (authoredAction.kind !== "rich-text-splice") {
@@ -168,8 +168,8 @@ function compensateTextMark(
   target: FactAction,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
-  projection: ScopedProjection,
-  counterfactual: ScopedProjection,
+  projection: InterpretedProjection,
+  counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (authoredAction.kind !== "rich-text-mark") {

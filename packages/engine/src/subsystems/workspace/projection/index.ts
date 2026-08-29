@@ -8,7 +8,6 @@ import { createReviewReadModel, type ReviewReadModel } from "../../../domain/rev
 import {
   createProjectionReadIndexes,
   type ProjectionGenerationReadIndexes,
-  type ProjectionLookupIndexName,
   type ProjectionReadIndex,
 } from "./read-index.js";
 
@@ -19,7 +18,7 @@ export type WorkspaceProjectionState = Readonly<{
   indexes: ProjectionGenerationReadIndexes;
 }>;
 
-export type { ProjectionGenerationReadIndexes, ProjectionLookupIndexName, ProjectionReadIndex };
+export type { ProjectionGenerationReadIndexes, ProjectionReadIndex };
 
 type WorkspaceProjectionEvent = Readonly<{
   kind: "projection-published" | "projection-failed" | "projection-recovered";

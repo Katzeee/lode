@@ -1,10 +1,10 @@
 import { compareCausalOrder, isSupertagAction, type FactAction } from "../fact/index.js";
-import type { ScopedProjectionGeneration } from "../reconcile/index.js";
+import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
 import { supertagRelationAddress, supertagRelationEffect } from "./supertag-review.js";
 
 export function supertagCandidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();

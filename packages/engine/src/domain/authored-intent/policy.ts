@@ -1,5 +1,5 @@
 import type { GraphAction } from "../fact/index.js";
-import type { ScopedProjection } from "../reconcile/index.js";
+import type { InterpretedProjection } from "../reconcile/index.js";
 import { fieldAuthoredIntent } from "./field.js";
 import { fieldDefinitionAuthoredIntent } from "./field-definition.js";
 import { nodeAuthoredIntent } from "./node.js";
@@ -13,9 +13,9 @@ import { viewAuthoredIntent } from "./view.js";
 
 export type AuthoredIntentContext = Readonly<{
   projections(): Readonly<{
-    previous: ScopedProjection;
-    available: ScopedProjection;
-    resulting: ScopedProjection;
+    previous: InterpretedProjection;
+    available: InterpretedProjection;
+    resulting: InterpretedProjection;
   }>;
 }>;
 

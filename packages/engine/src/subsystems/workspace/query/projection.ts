@@ -53,7 +53,7 @@ export function querySupertagInstances(
   query: SupertagInstancesQueryRequest,
   state: WorkspaceProjectionState,
 ): SupertagInstancesResult {
-  const nodeIds = state.indexes[query.perspective].lookups.nodeIdsBySupertag.get(query.supertagId) ?? [];
+  const nodeIds = state.indexes[query.perspective].nodeIdsBySupertag.get(query.supertagId) ?? [];
   const page = pageIdentities(nodeIds, query.after ?? null, query.limit ?? 50);
   return {
     generationId: state.generation.identity.generationId,

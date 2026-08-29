@@ -2,8 +2,8 @@ import { canonicalJson, compareCausalOrder, isFieldDefinitionConfigAction, type 
 import {
   fieldConfigurationProjectionIdentity,
   type FieldDefinitionConfiguration,
-  type ScopedProjection,
-  type ScopedProjectionGeneration,
+  type InterpretedProjection,
+  type InterpretedProjectionGeneration,
 } from "../reconcile/index.js";
 import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
@@ -47,7 +47,7 @@ export const fieldDefinitionConfigurationReviewFamily = {
 } satisfies ReviewFamilyRule;
 
 function candidates(
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
   pending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
   const groups = new Map<string, FactAction[]>();
@@ -82,7 +82,7 @@ function candidates(
 function configurationEffect(
   fieldDefinitionId: string,
   configurationKind: FieldDefinitionConfiguration["kind"],
-  generation: ScopedProjectionGeneration,
+  generation: InterpretedProjectionGeneration,
 ): FieldDefinitionConfigurationDecisionEffect {
   return {
     kind: "field-definition-configuration",
@@ -96,7 +96,7 @@ function configurationEffect(
 function configurationState(
   fieldDefinitionId: string,
   configurationKind: FieldDefinitionConfiguration["kind"],
-  projection: ScopedProjection,
+  projection: InterpretedProjection,
 ): FieldDefinitionConfigurationDecisionState | null {
   const configuration = (projection.fieldDefinitionConfigurations[fieldDefinitionId] ?? []).find(
     (candidate) => candidate.kind === configurationKind,
