@@ -22,11 +22,7 @@ export function prepareSearchExpressionCreation(
     throw new Error("Search Node already has a Search Expression");
   }
   const actions = searchExpressionDraftActions(edit.searchNodeId, edit.expression, edit.anchor, available, actionId);
-  const first = actions[0];
-  if (!first) {
-    throw new Error("Search Expression draft is empty");
-  }
-  return authoredActionBatch([first, ...actions.slice(1)]);
+  return authoredActionBatch(actions);
 }
 
 export function searchExpressionDraftActions(

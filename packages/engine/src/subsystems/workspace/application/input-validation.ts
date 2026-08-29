@@ -52,33 +52,5 @@ export function parseEngineCommand(value: unknown): AcceptedEngineCommand {
 }
 
 export function parseEngineQuery(value: unknown): EngineQuery {
-  const query = parseSdkEngineQuery(value);
-  switch (query.kind) {
-    case "projection":
-      return {
-        ...query,
-        section: query.section ?? "nodes",
-        after: query.after ?? null,
-        limit: query.limit ?? 100,
-      };
-    case "review":
-    case "conflicts":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "supertag-instances":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "backlinks":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "search-results":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "view-rows":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "outline":
-      return { ...query, after: query.after ?? null, limit: query.limit ?? 50 };
-    case "debug-node":
-      return query;
-    case "history":
-    case "invocation":
-    case "trash-evidence":
-      return query;
-  }
+  return parseSdkEngineQuery(value);
 }

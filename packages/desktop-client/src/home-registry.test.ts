@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -77,6 +77,13 @@ describe("home registry (lode.toml)", () => {
   it("treats a missing registry as empty", async () => {
     const configDir = await temporaryDirectory();
     expect(await readHomeRegistry(configDir)).toEqual({ homes: {} });
+  });
+
+  it("does not reinterpret an unreadable registry path as an empty registry", async () => {
+    const configDir = await temporaryDirectory();
+    await mkdir(join(configDir, "lode.toml"));
+    await expect(readHomeRegistry(configDir)).rejects.toThrow(/Cannot read lode\.toml/u);
+    await expect(writeHomeRegistry(configDir, () => {})).rejects.toThrow(/Cannot read lode\.toml/u);
   });
 
   it("refuses duplicate registration of the same normalized path", () => {

@@ -1,6 +1,5 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction } from "@lode/sdk";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 export function templateFieldCreateAction(supertagId: string, fieldDefinitionId: string, name: string): EditAction {
   return {

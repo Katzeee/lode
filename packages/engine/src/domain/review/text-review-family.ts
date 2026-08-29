@@ -11,17 +11,11 @@ export const textReviewFamily = {
   actionKinds: TEXT_ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isTextAction(action)) {
-      throw new Error("Text Review family received another AuthoredAction family");
-    }
     return [reviewScope("node-content", action.nodeId), associatedNodeScope(action.nodeId)];
   },
   candidates: ({ snapshot, generation, pending }) => textCandidates(snapshot, generation, pending),
   effect(fact, targets, generation) {
     const action = fact.action;
-    if (!isTextAction(action)) {
-      throw new Error("Text Review family received another AuthoredAction family");
-    }
     const textTargets = targets.filter(
       (target) => isTextAction(target.action) && target.action.nodeId === action.nodeId,
     );
@@ -36,4 +30,4 @@ export const textReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof TEXT_ACTION_KINDS)[number]>;

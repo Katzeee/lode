@@ -1,4 +1,10 @@
-import type { ProjectedNode, TextAtomId, TrashEvidenceResult } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR,
+  type ProjectedNode,
+  type SequenceAnchor,
+  type TextAtomId,
+  type TrashEvidenceResult,
+} from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -171,7 +177,7 @@ const nodeRestore: CommandDefinition = {
         nodeId: target.nodeId,
         occurrenceId: evidence.occurrenceId,
         parentNodeId: evidence.parentNodeId,
-        anchor: evidence.anchor ?? { after: null, before: null, affinity: "after", fallback: "end" },
+        anchor: evidence.anchor ?? END_SEQUENCE_ANCHOR,
       },
     ]);
     return writeResult(data, result, {
@@ -198,15 +204,10 @@ async function readTrashEvidence(context: CommandContext, nodeId: string): Promi
  * The replacement text takes the position of the first deleted text atom so
  * inline references keep their relative place; with no text atoms it appends.
  */
-function replacementAnchor(node: ProjectedNode): Readonly<{
-  after: string | null;
-  before: string | null;
-  affinity: "after" | "before";
-  fallback: "start" | "end";
-}> {
+function replacementAnchor(node: ProjectedNode): SequenceAnchor {
   const firstTextIndex = node.content.findIndex((item) => item.kind === "text");
   if (firstTextIndex === -1) {
-    return { after: null, before: null, affinity: "after", fallback: "end" };
+    return END_SEQUENCE_ANCHOR;
   }
   const previous = node.content[firstTextIndex - 1];
   if (previous !== undefined) {
@@ -216,7 +217,7 @@ function replacementAnchor(node: ProjectedNode): Readonly<{
   if (following !== undefined) {
     return { after: null, before: following.id, affinity: "before", fallback: "start" };
   }
-  return { after: null, before: null, affinity: "after", fallback: "end" };
+  return END_SEQUENCE_ANCHOR;
 }
 
 export function registerNodePlacementCommands(catalog: CommandCatalog): void {

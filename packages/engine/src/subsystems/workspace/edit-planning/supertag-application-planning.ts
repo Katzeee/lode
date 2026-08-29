@@ -1,5 +1,5 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import type { AuthoredActionBatch } from "./action-batch.js";
+import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   materializedFieldNodeId,
@@ -25,7 +25,7 @@ export function prepareSupertagApplicationCreation(
   if ((available.supertagApplications[edit.hostNodeId] ?? []).some((item) => item.supertagId === edit.supertagId)) {
     throw new Error("Node already has this Supertag Application");
   }
-  const actions: GraphAction[] = [
+  return authoredActionBatch([
     {
       kind: "supertag-application-add",
       hostNodeId: edit.hostNodeId,
@@ -33,12 +33,17 @@ export function prepareSupertagApplicationCreation(
       anchor: edit.anchor,
     },
     ...materializeStaticDefaults(edit.hostNodeId, edit.supertagId, available),
-  ];
-  const first = actions[0];
-  if (!first) {
-    throw new Error("Supertag Application creation must produce actions");
-  }
-  return [first, ...actions.slice(1)];
+  ]);
+}
+
+export function prepareSupertagApplicationRemoval(
+  edit: Extract<EditAction, { kind: "supertag-remove" }>,
+): AuthoredActionBatch {
+  return singleAuthoredActionBatch({
+    kind: "supertag-membership-remove",
+    hostNodeId: edit.hostNodeId,
+    supertagId: edit.supertagId,
+  });
 }
 
 function materializeStaticDefaults(

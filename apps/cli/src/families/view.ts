@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction, SharedDefaultViewDefinition, ViewOptionsSpec, ViewType } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
@@ -20,8 +21,6 @@ export function registerViewCommands(catalog: CommandCatalog): void {
   catalog.register(viewColumnRemove);
   catalog.register(viewColumnMove);
 }
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 type HostView = Readonly<{
   hostNodeId: string;

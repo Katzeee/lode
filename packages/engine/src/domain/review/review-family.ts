@@ -20,13 +20,16 @@ export type ReviewEffectEntry = Readonly<{
   effect: DecisionEffect;
 }>;
 
-export type ReviewFamilyRule = Readonly<{
+type ReviewAction<Kind extends ProposableAction["kind"]> = Extract<ProposableAction, { kind: Kind }>;
+type ReviewFact<Kind extends ProposableAction["kind"]> = FactAction<ReviewAction<Kind>>;
+
+export type ReviewFamilyRule<Kind extends ProposableAction["kind"] = ProposableAction["kind"]> = Readonly<{
   key: string;
-  actionKinds: readonly ProposableAction["kind"][];
-  scopes(fact: FactAction, context: ReviewScopeContext): readonly string[];
+  actionKinds: readonly Kind[];
+  scopes(fact: ReviewFact<Kind>, context: ReviewScopeContext): readonly string[];
   candidates(context: ReviewFamilyContext): readonly HunkCandidate[];
   effect(
-    fact: FactAction,
+    fact: ReviewFact<Kind>,
     targets: readonly FactAction[],
     generation: InterpretedProjectionGeneration,
   ): ReviewEffectEntry | null;

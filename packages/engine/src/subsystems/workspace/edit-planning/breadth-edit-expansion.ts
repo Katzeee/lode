@@ -1,5 +1,5 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
+import { authoredActionBatch, requireAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
   materializedFieldNodeId,
@@ -47,7 +47,7 @@ function expandFieldValueCreate(
   if (existingValue !== undefined) {
     requireActiveNode(edit.valueNodeId, available, "Existing Field Value");
   }
-  return nonemptyBatch([
+  return requireAuthoredActionBatch([
     ...prefix,
     existingValue === undefined
       ? {
@@ -187,12 +187,4 @@ function requireUnusedOccurrence(occurrenceId: string, available: InterpretedPro
 
 function textSeed(value: string): NodeSeed {
   return { text: [{ value, attributes: {} }] };
-}
-
-function nonemptyBatch(actions: readonly GraphAction[]): AuthoredActionBatch {
-  const first = actions[0];
-  if (first === undefined) {
-    throw new Error("Composite edit contains no actions");
-  }
-  return authoredActionBatch([first, ...actions.slice(1)]);
 }

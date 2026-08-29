@@ -270,6 +270,40 @@ describe("production Fact authority store", () => {
     expect(local.snapshot().facts).toHaveLength(2);
   });
 
+  it("rejects a non-Fact replica update before changing memory or durable authority", async () => {
+    const documents = new InMemoryDocumentStore();
+    const authority = await open(documents, "101");
+    const foreign = new LoroDoc();
+    foreign.setPeerId("202");
+    foreign.getMap("not-facts").set("intrusion", true);
+    foreign.commit();
+
+    await expect(authority.replication.importUpdate(foreign.export({ mode: "update" }))).rejects.toThrow(
+      "non-Fact container",
+    );
+
+    expect(authority.snapshot()).toEqual({ facts: [], frontier: {} });
+    expect(await documents.load(FACT_AUTHORITY_DOCUMENT_ID)).toBeNull();
+  });
+
+  it("keeps replicated authority unchanged when durable import fails", async () => {
+    const source = await open(new InMemoryDocumentStore(), "202");
+    await source.commit({
+      invocationId: "remote",
+      request: { side: "remote" },
+      writes: [edit("remote")],
+      lineage: null,
+      publishedFrontier: {},
+    });
+    const target = await open(new FailingDocumentStore(), "101");
+
+    await expect(target.replication.importUpdate(await source.replication.exportUpdate())).rejects.toThrow(
+      "injected append failure",
+    );
+
+    expect(target.snapshot()).toEqual({ facts: [], frontier: {} });
+  });
+
   it("SYNC-3 workspace replica sequences are isolated", async () => {
     const first = await open(new InMemoryDocumentStore(), "101");
     const second = await open(new InMemoryDocumentStore(), "202");

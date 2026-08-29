@@ -1,4 +1,4 @@
-import type { AuthoredActionBatch } from "../action-batch.js";
+import { requireAuthoredActionBatch, type AuthoredActionBatch } from "../action-batch.js";
 import {
   fieldDefinitionEndpointOccurrenceId,
   materializedFieldNodeId,
@@ -7,7 +7,6 @@ import {
 } from "../../../../domain/fact/index.js";
 import type { InterpretedProjection } from "../../../../domain/reconcile/index.js";
 import { createNodeUnlessPresent, createOccurrenceUnlessPresent } from "./generated-lifecycle.js";
-import { requireAuthoredActionBatch } from "./action-batch.js";
 
 const END = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const START = { after: null, before: null, affinity: "before", fallback: "start" } as const;

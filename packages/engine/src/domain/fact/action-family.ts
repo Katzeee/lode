@@ -1,11 +1,12 @@
 import {
   actionBelongsToFamily,
+  actionHasAdmission,
   isCatalogGraphAction,
   isCatalogGraphActionKind,
   type ActionFamily,
   type ActionInFamily,
 } from "./action-catalog.js";
-import type { AuthoredAction, FactAction, GraphAction } from "./types.js";
+import type { AuthoredAction, FactAction, GraphAction, ProposableAction } from "./types.js";
 
 export type NodeAction = ActionInFamily<"node">;
 export type GraphNodeAction = Extract<GraphAction, NodeAction>;
@@ -97,6 +98,10 @@ export function isGraphAction(action: AuthoredAction): action is GraphAction {
 
 export function isGraphActionKind(kind: AuthoredAction["kind"]): kind is GraphAction["kind"] {
   return isCatalogGraphActionKind(kind);
+}
+
+export function isProposableAction(action: AuthoredAction): action is ProposableAction {
+  return actionHasAdmission(action, "proposable");
 }
 
 function actionBelongsTo<Action extends AuthoredAction, Family extends ActionFamily>(

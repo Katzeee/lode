@@ -18,18 +18,16 @@ import {
   WorkspaceSyncRequestSchema,
   IdentityService,
   WorkspaceGovernanceService,
-  type ActorSummary,
-  type GovernanceSummary,
-  type HomePeerMaterial,
 } from "@lode/protocol/proto";
 import {
   createTransportEngineApplication,
+  parseEndpoint,
   type EngineApplicationContract,
   type EngineTransport,
   type Unsubscribe,
 } from "@lode/sdk";
-import type { WorkspaceSummary } from "@lode/sdk/host";
-import { createGovernanceSurface, createIdentitySurface } from "./identity-surface.js";
+import type { EngineIdentity, WorkspaceSummary } from "@lode/sdk/host";
+import { createGovernanceSurface, createIdentitySurface, type DesktopGovernanceSurface } from "./identity-surface.js";
 
 type ConnectTransport = Readonly<{
   daemon: Client<typeof DaemonService>;
@@ -191,45 +189,14 @@ export type DaemonStatusView = Readonly<{
 }>;
 
 export type DesktopClient = EngineApplicationContract &
+  EngineIdentity &
+  DesktopGovernanceSurface &
   Readonly<{
     status(): Promise<DaemonStatusView>;
     shutdown(): Promise<void>;
     listWorkspaces(): Promise<readonly WorkspaceSummary[]>;
     createWorkspace(workspaceId: string, name: string, actorId: string): Promise<void>;
     adoptWorkspace(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
-    governanceSummary(workspaceId: string): Promise<GovernanceSummary>;
-    admitActor(
-      input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-    ): Promise<void>;
-    removeActor(
-      input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-    ): Promise<void>;
-    transferOwner(
-      input: Readonly<{ workspaceId: string; actingActorId: string; nextOwnerActorId: string; requestId?: string }>,
-    ): Promise<void>;
-    admitPeer(
-      input: Readonly<{
-        workspaceId: string;
-        actingActorId: string;
-        peerId: string;
-        peerKxPublicKey: string;
-        requestId?: string;
-      }>,
-    ): Promise<void>;
-    revokePeer(
-      input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
-    ): Promise<void>;
-    rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
-    listActors(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
-    createActor(
-      input: Readonly<{ label: string; passphrase: string }>,
-    ): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>>;
-    importActor(
-      input: Readonly<{ recoveryPhrase: string; passphrase: string; label: string }>,
-    ): Promise<Readonly<{ actorId: string }>>;
-    unlockVault(passphrase: string): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
-    lockVault(): Promise<void>;
-    peerMaterial(): Promise<HomePeerMaterial>;
     syncWorkspace(workspaceId: string, remoteEndpoint: string): Promise<Readonly<{ pulled: number; pushed: number }>>;
     close(): void;
   }>;
@@ -257,36 +224,19 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
 }
 
 function dialTarget(endpoint: string): SocketDial {
-  let url: URL;
-  try {
-    url = new URL(endpoint);
-  } catch {
-    throw new Error(`Invalid desktop daemon endpoint: ${endpoint}`);
-  }
-  switch (url.protocol) {
-    case "tcp:":
-    case "http:": {
-      const host = url.hostname || "127.0.0.1";
-      const port = url.port === "" ? 0 : Number.parseInt(url.port, 10);
-      return { tcpUrl: `http://${host}:${port}` };
-    }
-    case "unix:":
-      if (url.pathname === "") {
-        throw new Error(`unix:// endpoint requires a path: ${endpoint}`);
-      }
+  const parsed = parseEndpoint(endpoint);
+  switch (parsed.scheme) {
+    case "tcp":
+      return { tcpUrl: `http://${parsed.host}:${parsed.port}` };
+    case "unix":
       return {
         authority: "http://lode.local",
-        createConnection: () => net.connect(url.pathname),
+        createConnection: () => net.connect(parsed.socketPath),
       };
-    case "pipe:":
-      if (url.host === "") {
-        throw new Error(`pipe:// endpoint requires a pipe name: ${endpoint}`);
-      }
+    case "pipe":
       return {
         authority: "http://lode.local",
-        createConnection: () => net.connect(`\\\\.\\pipe\\${url.host}`),
+        createConnection: () => net.connect(`\\\\.\\pipe\\${parsed.pipeName}`),
       };
-    default:
-      throw new Error(`Unsupported desktop daemon endpoint: ${endpoint}`);
   }
 }

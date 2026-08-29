@@ -1,4 +1,4 @@
-import type { ProjectedNode, ProjectionPerspective } from "@lode/sdk";
+import { END_SEQUENCE_ANCHOR, type ProjectedNode, type ProjectionPerspective, type SequenceAnchor } from "@lode/sdk";
 
 import { CliError, type TargetCandidate } from "../outcome/index.js";
 import type { DesktopSession } from "../session/index.js";
@@ -281,11 +281,9 @@ export async function anchorFor(
   parentNodeId: string,
   before: string | undefined,
   after: string | undefined,
-): Promise<
-  Readonly<{ after: string | null; before: string | null; affinity: "after" | "before"; fallback: "start" | "end" }>
-> {
+): Promise<SequenceAnchor> {
   if (before === undefined && after === undefined) {
-    return { after: null, before: null, affinity: "after", fallback: "end" };
+    return END_SEQUENCE_ANCHOR;
   }
   const token = before ?? after;
   const anchor = await resolveOccurrenceTarget(session, workspaceId, perspective, token ?? "", {

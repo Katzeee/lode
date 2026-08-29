@@ -1,4 +1,5 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -34,8 +35,11 @@ export async function readHomeRegistry(configDir: string): Promise<HomeRegistryF
   let text: string;
   try {
     text = await readFile(registryFile(configDir), "utf8");
-  } catch {
-    return { homes: {} };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return { homes: {} };
+    }
+    throw new Error(`Cannot read lode.toml: ${describe(error)}`, { cause: error });
   }
   let document: unknown;
   try {
@@ -55,18 +59,24 @@ export async function writeHomeRegistry(
   let text: string;
   try {
     text = await readFile(registryFile(configDir), "utf8");
-  } catch {
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw new Error(`Cannot read lode.toml: ${describe(error)}`, { cause: error });
+    }
     text = "";
   }
   const document = (text.length === 0 ? {} : parse(text)) as HomeRegistryDocument;
   update(document);
-  // ponytail: atomic rename prevents torn files; concurrent writers still
-  // last-write-win — fine for a single-user local tool.
   const target = registryFile(configDir);
-  const temporary = `${target}.tmp`;
+  const temporary = `${target}.${randomUUID()}.tmp`;
   await mkdir(dirname(target), { recursive: true });
-  await writeFile(temporary, stringify(document), "utf8");
-  await rename(temporary, target);
+  try {
+    await writeFile(temporary, stringify(document), "utf8");
+    await rename(temporary, target);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => {});
+    throw error;
+  }
 }
 
 /** Normalizes a user-provided home path for registration and uniqueness. */
@@ -109,4 +119,12 @@ function toRegistry(document: unknown): HomeRegistryFile {
     }
   }
   return { defaultHome, homes };
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function describe(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

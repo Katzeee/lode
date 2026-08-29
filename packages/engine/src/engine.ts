@@ -78,7 +78,7 @@ function identityOperations(identity: IdentityCapability): EngineApi["identity"]
       vaultExists: identity.vault.exists(),
       actors: await identity.vault.unlock(passphrase),
     }),
-    lockVault: () => Promise.resolve(identity.vault.lock()),
+    lockVault: () => identity.vault.lock(),
     peerMaterial: () => {
       return Promise.resolve({
         peerId: identity.peer.peerId(),

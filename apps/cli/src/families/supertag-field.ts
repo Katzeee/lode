@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction, TemplateField } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
@@ -27,8 +28,6 @@ export function registerSupertagFieldCommands(catalog: CommandCatalog): void {
   catalog.register(fieldAddExisting);
   registerSupertagFieldPlacementCommands(catalog);
 }
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const TYPE_ENUM = ["plain", "options", "options-from-supertag", "number", "checkbox", "date"] as const;
 const BOOLEAN_ENUM = ["true", "false"] as const;

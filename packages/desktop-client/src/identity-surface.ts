@@ -11,12 +11,10 @@ import {
   RotateTransitRequestSchema,
   TransferOwnerRequestSchema,
   UnlockVaultRequestSchema,
-  type ActorSummary,
-  type GovernanceSummary,
-  type HomePeerMaterial,
 } from "@lode/protocol/proto";
 import type { Client } from "@connectrpc/connect";
 import type { IdentityService, WorkspaceGovernanceService } from "@lode/protocol/proto";
+import type { EngineGovernance, EngineIdentity } from "@lode/sdk/host";
 
 /** The identity and governance client surfaces: one authenticated bundle each. */
 export type SurfaceClients = Readonly<{
@@ -24,21 +22,10 @@ export type SurfaceClients = Readonly<{
   governance: Client<typeof WorkspaceGovernanceService>;
 }>;
 
-export function createIdentitySurface(
-  clients: SurfaceClients,
-  headers: () => Headers,
-): Readonly<{
-  listActors(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
-  createActor(
-    input: Readonly<{ label: string; passphrase: string }>,
-  ): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>>;
-  importActor(
-    input: Readonly<{ recoveryPhrase: string; passphrase: string; label: string }>,
-  ): Promise<Readonly<{ actorId: string }>>;
-  unlockVault(passphrase: string): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummary[] }>>;
-  lockVault(): Promise<void>;
-  peerMaterial(): Promise<HomePeerMaterial>;
-}> {
+export type DesktopGovernanceSurface = Omit<EngineGovernance, "summary"> &
+  Readonly<{ governanceSummary: EngineGovernance["summary"] }>;
+
+export function createIdentitySurface(clients: SurfaceClients, headers: () => Headers): EngineIdentity {
   return {
     listActors: () => clients.identity.listActors(create(EmptySchema), { headers: headers() }),
     createActor: (input) =>
@@ -54,37 +41,20 @@ export function createIdentitySurface(
   };
 }
 
-export function createGovernanceSurface(
-  clients: SurfaceClients,
-  headers: () => Headers,
-): Readonly<{
-  governanceSummary(workspaceId: string): Promise<GovernanceSummary>;
-  admitActor(
-    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-  ): Promise<void>;
-  removeActor(
-    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-  ): Promise<void>;
-  transferOwner(
-    input: Readonly<{ workspaceId: string; actingActorId: string; nextOwnerActorId: string; requestId?: string }>,
-  ): Promise<void>;
-  admitPeer(
-    input: Readonly<{
-      workspaceId: string;
-      actingActorId: string;
-      peerId: string;
-      peerKxPublicKey: string;
-      requestId?: string;
-    }>,
-  ): Promise<void>;
-  revokePeer(
-    input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
-  ): Promise<void>;
-  rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
-}> {
+export function createGovernanceSurface(clients: SurfaceClients, headers: () => Headers): DesktopGovernanceSurface {
   return {
-    governanceSummary: (workspaceId) =>
-      clients.governance.summary(create(GovernanceSummaryRequestSchema, { workspaceId }), { headers: headers() }),
+    governanceSummary: async (workspaceId) => {
+      const summary = await clients.governance.summary(create(GovernanceSummaryRequestSchema, { workspaceId }), {
+        headers: headers(),
+      });
+      return {
+        established: summary.established,
+        ownerActorId: summary.ownerActorId ?? null,
+        memberActorIds: summary.memberActorIds,
+        epoch: summary.epoch,
+        peers: summary.peers,
+      };
+    },
     admitActor: async (input) => {
       await clients.governance.admitActor(
         create(AdmitActorRequestSchema, { ...input, requestId: input.requestId ?? undefined }),

@@ -32,9 +32,6 @@ export const structureReviewFamily = {
   actionKinds: STRUCTURE_ACTION_KINDS,
   scopes(fact, context) {
     const action = fact.action;
-    if (!isStructureReviewAction(action)) {
-      throw new Error("Structure Review family received another AuthoredAction family");
-    }
     return action.kind === "field-value-remove"
       ? fieldContentRemovalScopes(action, context)
       : occurrenceScopes(action, context);
@@ -43,9 +40,6 @@ export const structureReviewFamily = {
     mergeLocalStructureCandidates(structureCandidates(generation, pending), snapshot, generation),
   effect(fact, _targets, generation) {
     const action = fact.action;
-    if (!isStructureReviewAction(action)) {
-      throw new Error("Structure Review family received another AuthoredAction family");
-    }
     const occurrenceId = structuralOccurrenceId(action);
     const effect = structureEffect(occurrenceId, generation, actionAnchor(action));
     return structureEffectChanged(effect) ? { identity: `structure/${occurrenceId}`, effect } : null;
@@ -69,7 +63,7 @@ export const structureReviewFamily = {
       impacts.add(impactAddress("occurrence", occurrenceId, "review", canonicalJson(effect.reviewRelation)));
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof STRUCTURE_ACTION_KINDS)[number]>;
 
 function occurrenceScopes(action: PlacementAction, context: ReviewScopeContext): readonly string[] {
   if (action.kind === "placement-create") {

@@ -16,18 +16,12 @@ export const fieldDefinitionConfigurationReviewFamily = {
   actionKinds: ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isFieldDefinitionConfigAction(action)) {
-      throw new Error("Field Definition configuration Review family received another AuthoredAction family");
-    }
     const identity = configurationIdentity(action.fieldDefinitionId, action.configuration.kind);
     return [reviewScope("field-definition-configuration", identity), associatedNodeScope(action.fieldDefinitionId)];
   },
   candidates: ({ generation, pending }) => candidates(generation, pending),
   effect(fact, _targets, generation) {
     const action = fact.action;
-    if (!isFieldDefinitionConfigAction(action)) {
-      throw new Error("Field Definition configuration Review family received another AuthoredAction family");
-    }
     const effect = configurationEffect(action.fieldDefinitionId, action.configuration.kind, generation);
     return canonicalJson(effect.origin) === canonicalJson(effect.review)
       ? null
@@ -44,7 +38,7 @@ export const fieldDefinitionConfigurationReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;
 
 function candidates(
   generation: InterpretedProjectionGeneration,

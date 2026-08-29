@@ -35,6 +35,7 @@ export class LoroFactStore {
     private document: LoroDoc,
     private updatesSinceSnapshot: number,
     private pending: readonly PendingFactSpan[],
+    private pendingUpdates: readonly SyncBytes[],
   ) {
     const state = readFactState(document, options.workspaceId);
     this.cache = new FactStoreCache(options.workspaceId);
@@ -54,13 +55,16 @@ export class LoroFactStore {
     const document = createDocument(options.loroPeerId);
     const loaded = await options.documents.load(FACT_AUTHORITY_DOCUMENT_ID);
     let pending: readonly PendingFactSpan[] = [];
+    let pendingUpdates: readonly SyncBytes[] = [];
     if (loaded?.snapshot) {
       pending = updatePendingSpans(pending, document.import(loaded.snapshot), document.oplogVersion());
     }
     for (const bytes of loaded?.updates ?? []) {
       pending = updatePendingSpans(pending, document.import(bytes), document.oplogVersion());
+      pendingUpdates = pending.length > 0 ? [...pendingUpdates, bytes] : [];
     }
-    return new LoroFactStore(options, document, loaded?.updates.length ?? 0, pending);
+    assertFactDocumentShape(document);
+    return new LoroFactStore(options, document, loaded?.updates.length ?? 0, pending, pendingUpdates);
   }
 
   snapshot(): FactSnapshot {
@@ -111,12 +115,21 @@ export class LoroFactStore {
   }
 
   private async importUpdate(bytes: SyncBytes): Promise<void> {
+    const staged = this.document.fork();
+    for (const pendingUpdate of this.pendingUpdates) {
+      staged.import(pendingUpdate);
+    }
+    importFactRecords(staged, this.options.workspaceId, bytes);
+    assertFactDocumentShape(staged);
+    const stagedState = readFactState(staged, this.options.workspaceId);
+    const existingFactIds = new Set(this.cache.allFacts().map((fact) => fact.id));
+    const facts = stagedState.facts.filter((fact) => !existingFactIds.has(fact.id));
+    const snapshot = this.cache.previewAppend(facts, stagedState.frontier);
     await this.options.documents.appendUpdate(FACT_AUTHORITY_DOCUMENT_ID, bytes);
     const imported = importFactRecords(this.document, this.options.workspaceId, bytes);
-    const facts = imported.facts;
-    const snapshot = this.cache.previewAppend(facts, versionFrontier(this.document.version()));
     this.cache.append(facts, snapshot);
     this.pending = updatePendingSpans(this.pending, imported.status, this.document.oplogVersion());
+    this.pendingUpdates = this.pending.length > 0 ? [...this.pendingUpdates, bytes] : [];
     this.updatesSinceSnapshot += 1;
     await this.compactIfNeeded();
   }
@@ -143,6 +156,17 @@ function createDocument(peerId: `${number}`): LoroDoc {
   document.setChangeMergeInterval(-1);
   document.getList(FACT_LIST_ID);
   return document;
+}
+
+function assertFactDocumentShape(document: LoroDoc): void {
+  const root: unknown = document.toJSON();
+  if (typeof root !== "object" || root === null || Array.isArray(root)) {
+    throw new Error("Fact authority document root is malformed");
+  }
+  const record = root as Readonly<Record<string, unknown>>;
+  if (Object.keys(record).length !== 1 || !Array.isArray(record[FACT_LIST_ID])) {
+    throw new Error("Fact authority update changed a non-Fact container");
+  }
 }
 
 function appendFactRecords(

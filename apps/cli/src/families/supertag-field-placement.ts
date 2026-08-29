@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
@@ -7,7 +8,6 @@ import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { readOptionalContributions, readTemplateFields } from "./supertag-field.js";
 import { optionalContributionActions } from "./supertag-field-actions.js";
 
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const BOOLEAN_ENUM = ["true", "false"] as const;
 
 const fieldRemove: CommandDefinition = {

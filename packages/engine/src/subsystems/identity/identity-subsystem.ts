@@ -15,8 +15,8 @@ export function createIdentitySubsystemDefinition(persistence: EngineSubsystemRe
         init: async () => {
           identity = await Identity.open(await persistenceCapability.identityStorage.open());
         },
-        stop: () => {
-          identity?.lock();
+        stop: async () => {
+          await identity?.lock();
           identity = undefined;
         },
       };

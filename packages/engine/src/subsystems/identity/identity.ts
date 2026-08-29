@@ -22,6 +22,7 @@ import type { ActorSummary } from "./capability.js";
 export class Identity {
   private unlockedKeys = new Map<string, SigningKeyPair>();
   private readonly vault: VaultStore;
+  private operationTail = Promise.resolve();
 
   private constructor(
     vaultStore: VaultStore,
@@ -54,7 +55,13 @@ export class Identity {
   }
 
   /** Creates a fresh Actor and returns its recovery phrase exactly once. */
-  async createActor(
+  createActor(
+    input: Readonly<{ label: string; passphrase: string }>,
+  ): Promise<Readonly<{ actorId: string; phrase: string }>> {
+    return this.runExclusive(() => this.createActorOnce(input));
+  }
+
+  private async createActorOnce(
     input: Readonly<{ label: string; passphrase: string }>,
   ): Promise<Readonly<{ actorId: string; phrase: string }>> {
     const key = await this.sessionKey(input.passphrase);
@@ -70,7 +77,13 @@ export class Identity {
   }
 
   /** Restores an Actor from its recovery phrase; importing twice is idempotent. */
-  async importActor(
+  importActor(
+    input: Readonly<{ phrase: string; passphrase: string; label: string }>,
+  ): Promise<Readonly<{ actorId: string }>> {
+    return this.runExclusive(() => this.importActorOnce(input));
+  }
+
+  private async importActorOnce(
     input: Readonly<{ phrase: string; passphrase: string; label: string }>,
   ): Promise<Readonly<{ actorId: string }>> {
     const key = await this.sessionKey(input.passphrase);
@@ -87,13 +100,17 @@ export class Identity {
     return { actorId };
   }
 
-  async unlock(passphrase: string): Promise<readonly ActorSummary[]> {
-    await this.sessionKey(passphrase);
-    return this.listActors();
+  unlock(passphrase: string): Promise<readonly ActorSummary[]> {
+    return this.runExclusive(async () => {
+      await this.sessionKey(passphrase);
+      return this.listActors();
+    });
   }
 
-  lock(): void {
-    this.unlockedKeys = new Map();
+  lock(): Promise<void> {
+    return this.runExclusive(() => {
+      this.unlockedKeys = new Map();
+    });
   }
 
   isActorUnlocked(actorId: string): boolean {
@@ -126,5 +143,14 @@ export class Identity {
       }
     }
     return key;
+  }
+
+  private runExclusive<Output>(operation: () => Output | Promise<Output>): Promise<Output> {
+    const result = this.operationTail.then(operation);
+    this.operationTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }

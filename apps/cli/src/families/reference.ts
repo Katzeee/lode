@@ -1,4 +1,11 @@
-import type { BacklinksResult, EditAction, ProjectedNode } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR,
+  START_SEQUENCE_ANCHOR,
+  type BacklinksResult,
+  type EditAction,
+  type ProjectedNode,
+  type SequenceAnchor,
+} from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
@@ -260,15 +267,12 @@ const referenceBacklinks: CommandDefinition = {
  */
 type ContentItem = ProjectedNode["content"][number];
 
-function contentAnchor(
-  host: Readonly<{ content: readonly ContentItem[] }>,
-  at: string | undefined,
-): Readonly<{ after: string | null; before: string | null; affinity: "after" | "before"; fallback: "start" | "end" }> {
+function contentAnchor(host: Readonly<{ content: readonly ContentItem[] }>, at: string | undefined): SequenceAnchor {
   if (at === undefined || at === "end") {
-    return { after: null, before: null, affinity: "after", fallback: "end" };
+    return END_SEQUENCE_ANCHOR;
   }
   if (at === "start") {
-    return { after: null, before: null, affinity: "after", fallback: "start" };
+    return START_SEQUENCE_ANCHOR;
   }
   const offset = Number.parseInt(at, 10);
   if (!Number.isSafeInteger(offset) || offset < 0 || String(offset) !== at) {
@@ -281,7 +285,7 @@ function contentAnchor(
     if (position + length > offset) {
       if (item.kind === "text") {
         return previousItemId === null
-          ? { after: null, before: null, affinity: "after", fallback: "start" }
+          ? START_SEQUENCE_ANCHOR
           : { after: previousItemId, before: null, affinity: "after", fallback: "start" };
       }
       return previousItemId === null
@@ -294,7 +298,7 @@ function contentAnchor(
   if (offset > position) {
     throw new CliError("invalid-value", `--at ${offset} is beyond the end of the content (${position} positions).`);
   }
-  return { after: null, before: null, affinity: "after", fallback: "end" };
+  return END_SEQUENCE_ANCHOR;
 }
 
 function graphemeCount(value: string): number {

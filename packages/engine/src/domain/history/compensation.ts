@@ -9,10 +9,10 @@ import {
 import { deriveActivation, resolutionsByAction } from "../activation/index.js";
 import { rebuildGeneration, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { normalizeCompensationTargets } from "./compensation-normalization.js";
-import { compensateAction } from "./compensation-rules.js";
+import { compensateAction, isCompensationTargetAction } from "./compensation-plan.js";
 import { fieldDefinitionConfigurationCompensations } from "./compensation-field-definition.js";
 import type { CompensationBatch } from "./types.js";
-import { isCompensationTargetAction, type CompensationTargetAction } from "./compensation-policy.js";
+import type { CompensationTargetAction } from "./compensation-types.js";
 
 export type Compensation =
   | Readonly<{ kind: "ready"; actions: readonly GraphAction[] }>
@@ -127,7 +127,12 @@ export function planCompensation(
     if (!active.has(target.id)) {
       continue;
     }
-    const planned = compensateAction(target, eligibleIds, activeFacts, projection, counterfactual);
+    const planned = compensateAction(target, {
+      targetIds: eligibleIds,
+      activeFacts,
+      projection,
+      counterfactual,
+    });
     if (planned.kind === "stale") {
       return planned;
     }

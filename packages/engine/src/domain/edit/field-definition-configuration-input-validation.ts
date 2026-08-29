@@ -1,12 +1,13 @@
 import { FIELD_DATATYPE_NODE_IDS, parseAuthoredAction } from "../fact/index.js";
 import type { ConfigureFieldDefinitionEdit } from "./field-definition-configuration-edit-types.js";
+import { exactInputKeys, nonemptyInputString } from "./input-validation-primitives.js";
 
 export function parseFieldDefinitionConfigure(edit: Record<string, unknown>): ConfigureFieldDefinitionEdit {
   const kind = edit.kind;
-  const fieldDefinitionId = nonemptyString(edit.fieldDefinitionId, "Field Definition identity");
+  const fieldDefinitionId = nonemptyInputString(edit.fieldDefinitionId, "Field Definition identity");
   if (kind === "field-datatype-configure") {
-    exactKeys(edit, ["kind", "fieldDefinitionId", "datatypeNodeId", "optionsSupertagId"]);
-    const datatypeNodeId = nonemptyString(edit.datatypeNodeId, "Field Datatype endpoint Node identity");
+    exactInputKeys(edit, ["kind", "fieldDefinitionId", "datatypeNodeId", "optionsSupertagId"]);
+    const datatypeNodeId = nonemptyInputString(edit.datatypeNodeId, "Field Datatype endpoint Node identity");
     const optionsSupertagId = optionalOptionsSource(edit.optionsSupertagId, datatypeNodeId);
     return {
       kind,
@@ -16,22 +17,22 @@ export function parseFieldDefinitionConfigure(edit: Record<string, unknown>): Co
     };
   }
   if (kind === "field-cardinality-configure") {
-    exactKeys(edit, ["kind", "fieldDefinitionId", "cardinalityNodeId"]);
+    exactInputKeys(edit, ["kind", "fieldDefinitionId", "cardinalityNodeId"]);
     return {
       kind,
       fieldDefinitionId,
-      cardinalityNodeId: nonemptyString(edit.cardinalityNodeId, "Field Cardinality endpoint Node identity"),
+      cardinalityNodeId: nonemptyInputString(edit.cardinalityNodeId, "Field Cardinality endpoint Node identity"),
     };
   }
   if (kind === "field-optionality-configure") {
-    exactKeys(edit, ["kind", "fieldDefinitionId", "optionalityNodeId"]);
+    exactInputKeys(edit, ["kind", "fieldDefinitionId", "optionalityNodeId"]);
     return {
       kind,
       fieldDefinitionId,
-      optionalityNodeId: nonemptyString(edit.optionalityNodeId, "Field Optionality endpoint Node identity"),
+      optionalityNodeId: nonemptyInputString(edit.optionalityNodeId, "Field Optionality endpoint Node identity"),
     };
   }
-  exactKeys(edit, ["kind", "fieldDefinitionId", "expression"]);
+  exactInputKeys(edit, ["kind", "fieldDefinitionId", "expression"]);
   const action = parseAuthoredAction({
     kind: "field-configuration-set",
     fieldDefinitionId,
@@ -54,21 +55,5 @@ function optionalOptionsSource(value: unknown, datatypeNodeId: string): string |
     }
     return undefined;
   }
-  return nonemptyString(value, "Options source Supertag identity");
-}
-
-function exactKeys(value: Record<string, unknown>, keys: readonly string[]): void {
-  const expected = new Set(keys);
-  for (const key of Object.keys(value)) {
-    if (!expected.has(key)) {
-      throw new Error(`Unknown edit property: ${key}`);
-    }
-  }
-}
-
-function nonemptyString(value: unknown, label: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} is invalid`);
-  }
-  return value;
+  return nonemptyInputString(value, "Options source Supertag identity");
 }

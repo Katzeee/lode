@@ -97,6 +97,7 @@ export {
   isViewAction,
   isNodeAction,
   isPlacementAction,
+  isProposableAction,
   isSupertagAction,
   isTemplateAction,
   isTextAction,

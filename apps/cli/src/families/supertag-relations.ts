@@ -1,11 +1,10 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction, SupertagInstancesResult } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
 import { descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const supertagInstances: CommandDefinition = {
   path: ["supertag", "instances"],

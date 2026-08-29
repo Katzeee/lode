@@ -50,8 +50,11 @@ export function selectHome(
 async function readTextOrNone(path: string): Promise<string | null> {
   try {
     return (await readFile(path, "utf8")).trim();
-  } catch {
-    return null;
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return null;
+    }
+    throw new HomeConfigurationError(`Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -124,4 +127,8 @@ export async function ensureRunningDaemon(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
 }

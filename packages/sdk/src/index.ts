@@ -1,5 +1,6 @@
 export * from "./contract.js";
 export * from "./edit.js";
+export { parseEndpoint, type ParsedEndpoint } from "./endpoint.js";
 export type { FactActionId, FactId } from "./fact-identities.js";
 export * from "./history.js";
 export * from "./model.js";

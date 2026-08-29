@@ -1,5 +1,5 @@
 import type { EngineApi } from "@lode/sdk/host";
-import { parseEndpoint } from "./endpoint.js";
+import { parseEndpoint } from "@lode/sdk";
 import { ConnectServerResource } from "./resources/connect-server-resource.js";
 import type { DaemonStatusIdentity } from "./connect-server.js";
 

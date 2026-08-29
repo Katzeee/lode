@@ -159,7 +159,7 @@ class WorkspaceCollection {
   private async openResident(storage: WorkspaceStorage): Promise<WorkspaceRegistryEntry> {
     const stored = await this.open(storage, this.events);
     try {
-      void stored.label;
+      stored.validate();
       return { workspace: stored, replica: createWorkspaceReplica(stored) };
     } catch (error) {
       return failWorkspaceCleanup(error, () => stored.close(), "Workspace validation failed to close storage");

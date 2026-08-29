@@ -1,5 +1,5 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
+import { authoredActionBatch, requireAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   CHECKBOX_VALUE_NODE_IDS,
   FIELD_DATATYPE_NODE_IDS,
@@ -183,11 +183,7 @@ function clearTypedFieldValue(
     },
     materialization(edit),
   ];
-  const first = actions[0];
-  if (first === undefined) {
-    throw new Error("Typed Field clear contains no actions");
-  }
-  return authoredActionBatch([first, ...actions.slice(1)]);
+  return requireAuthoredActionBatch(actions);
 }
 
 function configuredDatatype(

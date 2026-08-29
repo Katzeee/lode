@@ -66,7 +66,7 @@ export const searchExpressionReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof SEARCH_ACTION_KINDS)[number]>;
 
 function candidates(
   generation: InterpretedProjectionGeneration,

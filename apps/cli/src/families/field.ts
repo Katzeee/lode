@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type {
   EditAction,
   FieldDefinitionConfiguration,
@@ -32,7 +33,6 @@ export function registerFieldCommands(catalog: CommandCatalog): void {
 
 const TYPE_ENUM = [...FIELD_DATATYPES] as unknown as readonly string[];
 const BOOLEAN_ENUM = ["true", "false"] as const;
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const fieldCreate: CommandDefinition = {
   path: ["field", "create"],

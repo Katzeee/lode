@@ -33,13 +33,17 @@ export class NodePersistenceBackend implements PersistenceBackend {
 
   async listWorkspaceIds(): Promise<readonly string[]> {
     this.assertOpen();
-    const names = await readdir(this.workspaceDirectory()).catch(() => [] as string[]);
+    const names = await directoryEntries(this.workspaceDirectory());
     return names.flatMap(decodeWorkspaceFile).sort();
   }
 
   async openWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorage> {
     this.assertOpen();
-    return this.openPhysical(workspaceId, this.finalFile(workspaceId));
+    const file = this.finalFile(workspaceId);
+    if (!(await exists(file))) {
+      throw new Error(`Workspace storage does not exist: ${workspaceId}`);
+    }
+    return this.openPhysical(workspaceId, file);
   }
 
   async stageWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorageStage> {
@@ -90,7 +94,7 @@ export class NodePersistenceBackend implements PersistenceBackend {
   async discardStagedWorkspaces(): Promise<void> {
     this.assertOpen();
     const directory = this.workspaceDirectory();
-    const names = await readdir(directory).catch(() => [] as string[]);
+    const names = await directoryEntries(directory);
     for (const name of names) {
       if (name.startsWith(STAGING_PREFIX) && name.endsWith(SQLITE_SUFFIX)) {
         await this.removeSqliteFiles(join(directory, name));
@@ -153,7 +157,25 @@ async function exists(file: string): Promise<boolean> {
   try {
     await access(file);
     return true;
-  } catch {
-    return false;
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return false;
+    }
+    throw error;
   }
+}
+
+async function directoryEntries(directory: string): Promise<string[]> {
+  try {
+    return await readdir(directory);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function hasCode(error: unknown, code: string): boolean {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === code;
 }

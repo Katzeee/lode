@@ -1,12 +1,14 @@
 import { expandEditAction, type EditAction } from "../../../domain/edit/index.js";
-import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
-import type { GraphAction, FactActionId } from "../../../domain/fact/index.js";
+import type { AuthoredActionBatch } from "./action-batch.js";
+import type { FactActionId } from "../../../domain/fact/index.js";
 import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
-import { locateInlineReference, nodeLocation } from "../../../domain/reconcile/index.js";
 import { prepareFieldDefinitionConfiguration } from "./field-definition-configuration.js";
 import { prepareViewEdit } from "./view-planning.js";
 import { prepareSearchExpressionCreation, prepareSearchExpressionEdit } from "./search-expression-planning.js";
-import { prepareSupertagApplicationCreation } from "./supertag-application-creation.js";
+import {
+  prepareSupertagApplicationCreation,
+  prepareSupertagApplicationRemoval,
+} from "./supertag-application-planning.js";
 import {
   prepareSupertagOptionalFieldContributionAddition,
   prepareSupertagOptionalFieldContributionRemoval,
@@ -21,21 +23,8 @@ import {
   prepareSupertagTemplateFieldVisibility,
 } from "./template-field-authoring.js";
 import { prepareTypedFieldValue } from "./typed-field-value.js";
-
-type StructuralEdit = Extract<
-  EditAction,
-  {
-    kind:
-      | "node-create"
-      | "node-delete"
-      | "node-restore"
-      | "reference-promote"
-      | "occurrence-create"
-      | "occurrence-delete"
-      | "occurrence-restore"
-      | "occurrence-move";
-  }
->;
+import { isStructuralEdit, prepareStructuralEdit } from "./structural-edit-planning.js";
+import { prepareInlineReferenceAliasCreation } from "./inline-reference-planning.js";
 
 export function expandPlanningEdit(
   edit: EditAction,
@@ -43,7 +32,7 @@ export function expandPlanningEdit(
   actionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (isStructuralEdit(edit)) {
-    return expandStructuralEdit(edit, available);
+    return prepareStructuralEdit(edit, available);
   }
   if (
     edit.kind === "field-number-value-set" ||
@@ -61,11 +50,7 @@ export function expandPlanningEdit(
     return prepareSupertagApplicationCreation(edit, available);
   }
   if (edit.kind === "supertag-remove") {
-    return singleAuthoredActionBatch({
-      kind: "supertag-membership-remove",
-      hostNodeId: edit.hostNodeId,
-      supertagId: edit.supertagId,
-    });
+    return prepareSupertagApplicationRemoval(edit);
   }
   if (edit.kind === "supertag-template-field-create") {
     return prepareSupertagTemplateFieldCreation(edit, available);
@@ -125,143 +110,4 @@ function isViewEdit(edit: EditAction): edit is Parameters<typeof prepareViewEdit
     edit.kind === "shared-default-view-remove" ||
     edit.kind.startsWith("view-")
   );
-}
-
-function expandStructuralEdit(edit: StructuralEdit, available: InterpretedProjection): AuthoredActionBatch {
-  if (edit.kind === "node-create") {
-    if (nodeLocation(available.identity.workspaceNodeId, available, edit.parentNodeId) !== "active") {
-      throw new Error("Node Original parent is absent from the current Projection");
-    }
-    return expandEditAction(edit);
-  }
-  if (edit.kind === "node-delete") {
-    return prepareNodeDeletion(edit, available);
-  }
-  if (edit.kind === "node-restore") {
-    return prepareNodeRestore(edit, available);
-  }
-  if (edit.kind === "reference-promote") {
-    return singleAuthoredActionBatch(prepareReferencePromotion(edit.occurrenceId, available));
-  }
-  if (edit.kind === "occurrence-create" || edit.kind === "occurrence-restore") {
-    return singleAuthoredActionBatch({
-      kind: "placement-create",
-      placementId: edit.occurrenceId,
-      nodeId: edit.nodeId,
-      parentNodeId: edit.parentNodeId,
-      anchor: edit.anchor,
-    });
-  }
-  if (edit.kind === "occurrence-delete") {
-    return singleAuthoredActionBatch({ kind: "placement-remove", placementId: edit.occurrenceId });
-  }
-  const field = Object.values(available.materializedFields)
-    .flat()
-    .find((candidate) => candidate.valueOccurrenceIds.includes(edit.occurrenceId));
-  if (field !== undefined && edit.parentNodeId !== field.fieldNodeId) {
-    throw new Error("Field Values can only be reordered within their Field");
-  }
-  return singleAuthoredActionBatch({
-    kind: "placement-move",
-    placementId: edit.occurrenceId,
-    parentNodeId: edit.parentNodeId,
-    anchor: edit.anchor,
-  });
-}
-
-function isStructuralEdit(edit: EditAction): edit is StructuralEdit {
-  return [
-    "node-create",
-    "node-delete",
-    "node-restore",
-    "reference-promote",
-    "occurrence-create",
-    "occurrence-delete",
-    "occurrence-restore",
-    "occurrence-move",
-  ].includes(edit.kind);
-}
-
-function prepareNodeDeletion(
-  edit: Extract<EditAction, { kind: "node-delete" }>,
-  _available: InterpretedProjection,
-): AuthoredActionBatch {
-  return singleAuthoredActionBatch({ kind: "node-trash", nodeId: edit.nodeId });
-}
-
-function prepareNodeRestore(
-  edit: Extract<EditAction, { kind: "node-restore" }>,
-  available: InterpretedProjection,
-): AuthoredActionBatch {
-  const occurrence = available.occurrences[edit.occurrenceId];
-  if (
-    nodeLocation(available.identity.workspaceNodeId, available, edit.nodeId) !== "trash" ||
-    nodeLocation(available.identity.workspaceNodeId, available, edit.parentNodeId) !== "active" ||
-    occurrence?.nodeId !== edit.nodeId
-  ) {
-    throw new Error("Restore target or destination context is absent");
-  }
-  return singleAuthoredActionBatch({
-    kind: "node-restore",
-    nodeId: edit.nodeId,
-    placementId: edit.occurrenceId,
-    parentNodeId: edit.parentNodeId,
-    anchor: edit.anchor,
-  });
-}
-
-export function assertNoWorkspaceCreation(workspaceId: string, operations: readonly EditAction[]): void {
-  if (operations.some((operation) => operation.kind === "node-create" && operation.nodeId === workspaceId)) {
-    throw new Error("Workspace identity is created only by Workspace genesis");
-  }
-}
-
-function prepareInlineReferenceAliasCreation(
-  edit: Extract<EditAction, { kind: "inline-reference-alias-create" }>,
-  available: InterpretedProjection,
-): AuthoredActionBatch {
-  const location = locateInlineReference(available.nodes, edit.inlineReferenceId);
-  if (!location || location.hostNodeId !== edit.hostNodeId) {
-    throw new Error("Inline Reference is absent from the requested host Node");
-  }
-  if (location.reference.aliasNodeId !== null) {
-    throw new Error("Inline Reference already has an Alias");
-  }
-  if (available.nodes[edit.aliasNodeId] !== undefined) {
-    throw new Error("Inline Alias Node identity already exists");
-  }
-  const actions: GraphAction[] = [
-    {
-      kind: "node-create",
-      nodeId: edit.aliasNodeId,
-      ownerNodeId: edit.hostNodeId,
-      originalPlacement: null,
-      ...(edit.seed === undefined ? {} : { seed: edit.seed }),
-    },
-    {
-      kind: "inline-alias-attach",
-      inlineReferenceId: edit.inlineReferenceId,
-      aliasNodeId: edit.aliasNodeId,
-    },
-  ];
-  const first = actions[0];
-  if (!first) {
-    throw new Error("Inline Alias creation contains no actions");
-  }
-  return authoredActionBatch([first, ...actions.slice(1)]);
-}
-
-function prepareReferencePromotion(occurrenceId: string, available: InterpretedProjection): GraphAction {
-  const occurrence = available.occurrences[occurrenceId];
-  if (!occurrence) {
-    throw new Error("Reference promotion target is absent from the current Projection");
-  }
-  if (available.nodeOwners[occurrence.nodeId] === occurrence.parentNodeId) {
-    throw new Error("Reference promotion target is already the Original Occurrence");
-  }
-  return {
-    kind: "original-promote",
-    nodeId: occurrence.nodeId,
-    placementId: occurrence.occurrenceId,
-  };
 }

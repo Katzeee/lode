@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readCliPreferences, readSyncEndpoint, setSyncEndpoint } from "./index.js";
+import {
+  readCliPreferences,
+  readSyncEndpoint,
+  readWorkspaceActor,
+  setSyncEndpoint,
+  setWorkspaceActor,
+} from "./index.js";
 
 const directories: string[] = [];
 
@@ -58,10 +64,30 @@ describe("home-scoped sync endpoint persistence", () => {
     expect(await readSyncEndpoint(home, "ws-work")).toBe("tcp://127.0.0.1:5101");
   });
 
-  it("keeps a torn store readable as empty", async () => {
+  it("rejects a torn store instead of replacing its configuration", async () => {
     const home = await temporaryDirectory();
     await writeFile(join(home, "sync-endpoints.json"), "{not json", "utf8");
-    expect(await readSyncEndpoint(home, "ws-personal")).toBeNull();
+    await expect(readSyncEndpoint(home, "ws-personal")).rejects.toThrow(/sync-endpoints\.json is malformed/u);
+    await expect(setSyncEndpoint(home, "ws-personal", "tcp://127.0.0.1:5100")).rejects.toThrow(
+      /sync-endpoints\.json is malformed/u,
+    );
+  });
+});
+
+describe("home-scoped Workspace Actor persistence", () => {
+  it("stores and reads the acting Actor per workspace", async () => {
+    const home = await temporaryDirectory();
+    expect(await readWorkspaceActor(home, "ws-personal")).toBeNull();
+    await setWorkspaceActor(home, "ws-personal", "actor_one");
+    await setWorkspaceActor(home, "ws-work", "actor_two");
+    expect(await readWorkspaceActor(home, "ws-personal")).toBe("actor_one");
+    expect(await readWorkspaceActor(home, "ws-work")).toBe("actor_two");
+  });
+
+  it("rejects invalid stored shapes", async () => {
+    const home = await temporaryDirectory();
+    await writeFile(join(home, "workspace-actors.json"), JSON.stringify({ workspaceActors: [] }), "utf8");
+    await expect(readWorkspaceActor(home, "ws-personal")).rejects.toThrow(/workspace-actors\.json is malformed/u);
   });
 });
 

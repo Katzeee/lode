@@ -17,9 +17,6 @@ export const fieldMaterializationReviewFamily = {
   actionKinds: FIELD_MATERIALIZATION_ACTION_KINDS,
   scopes(fact, context) {
     const action = fact.action;
-    if (!isFieldMaterializationAction(action)) {
-      throw new Error("Field materialization Review family received another AuthoredAction family");
-    }
     if (action.kind === "materialized-field-clear") {
       return fieldContentRemovalScopes(action, context);
     }
@@ -32,10 +29,6 @@ export const fieldMaterializationReviewFamily = {
   },
   candidates: ({ generation, pending }) => materializedFieldCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const action = fact.action;
-    if (!isFieldMaterializationAction(action)) {
-      throw new Error("Field materialization Review family received another AuthoredAction family");
-    }
     const effect = fieldMaterializationEffect(fact, generation);
     return effect.originFieldNodeId === effect.reviewFieldNodeId
       ? null
@@ -54,7 +47,7 @@ export const fieldMaterializationReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof FIELD_MATERIALIZATION_ACTION_KINDS)[number]>;
 
 function materializedFieldCandidates(
   generation: InterpretedProjectionGeneration,

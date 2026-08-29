@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction, SearchExpressionDraft, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
@@ -19,8 +20,6 @@ export function registerSearchCommands(catalog: CommandCatalog): void {
   catalog.register(searchEdit);
   catalog.register(searchResults);
 }
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const WHERE = { name: "--where", description: "Filter expression", value: { kind: "string" as const } };
 

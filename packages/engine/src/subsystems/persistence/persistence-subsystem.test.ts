@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -78,6 +78,23 @@ describe("PersistenceSubsystem", () => {
     expect(await built.api.workspaceStorage.list()).toEqual([]);
     expect((await readdir(join(dataRoot, "workspaces"))).some((name) => name.startsWith(".staging-"))).toBe(false);
     await built.lifecycle.stop();
+  });
+
+  it("does not create final storage when asked to open an absent Workspace", async () => {
+    const dataRoot = await temporaryDirectory();
+    const backend = new NodePersistenceBackend(dataRoot);
+
+    await expect(backend.openWorkspace("absent")).rejects.toThrow("Workspace storage does not exist");
+    expect(await backend.listWorkspaceIds()).toEqual([]);
+  });
+
+  it("does not reinterpret an unreadable Workspace directory as an empty registry", async () => {
+    const dataRoot = await temporaryDirectory();
+    await writeFile(join(dataRoot, "workspaces"), "not a directory", "utf8");
+    const backend = new NodePersistenceBackend(dataRoot);
+
+    await expect(backend.listWorkspaceIds()).rejects.toThrow();
+    await expect(backend.discardStagedWorkspaces()).rejects.toThrow();
   });
 
   it("discards a staging artifact acquired concurrently with stop", async () => {

@@ -46,6 +46,18 @@ export type ProtocolDto<Value> =
 
 export type SequenceAnchor = Omit<ProtocolDto<ProtocolSequenceAnchor>, "affinity" | "fallback"> &
   Readonly<{ affinity: AnchorAffinity; fallback: AnchorFallback }>;
+export const START_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
+  after: null,
+  before: null,
+  affinity: "after",
+  fallback: "start",
+});
+export const END_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
+  after: null,
+  before: null,
+  affinity: "after",
+  fallback: "end",
+});
 type PreviousValueCase = NonNullable<ProtocolPreviousValue["state"]>["$case"];
 export type PreviousValue =
   | Readonly<{ kind: Extract<PreviousValueCase, "unset">; value?: never }>

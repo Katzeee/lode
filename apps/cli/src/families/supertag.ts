@@ -1,3 +1,4 @@
+import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction } from "@lode/sdk";
 
 import { okOutcome, writeView } from "../outcome/index.js";
@@ -22,8 +23,6 @@ export function registerSupertagCommands(catalog: CommandCatalog): void {
   registerSupertagRelationCommands(catalog);
   registerSupertagFieldCommands(catalog);
 }
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 const supertagCreate: CommandDefinition = {
   path: ["supertag", "create"],

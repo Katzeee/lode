@@ -6,6 +6,7 @@ import type {
   ProjectionPerspective,
   ProjectionSections,
 } from "@lode/sdk";
+import type { EngineGovernance, EngineIdentity, EngineReplicas, EngineWorkspaces } from "@lode/sdk/host";
 import { engineQueryFailure } from "../outcome/index.js";
 
 /**
@@ -15,77 +16,24 @@ import { engineQueryFailure } from "../outcome/index.js";
  */
 
 type WorkspaceHostPort = Readonly<{
-  list(): Promise<readonly Readonly<{ workspaceId: string; label: string }>[]>;
+  list: EngineWorkspaces["listWorkspaces"];
   create(workspaceId: string, name: string, actorId: string): Promise<void>;
-  adopt(endpoint: string, workspaceId: string): Promise<Readonly<{ workspaceId: string; label: string }>>;
-}>;
-
-type ActorSummaryView = Readonly<{
-  actorId: string;
-  label: string;
-  createdAt: string;
-  unlocked: boolean;
+  adopt(endpoint: string, workspaceId: string): ReturnType<EngineWorkspaces["adoptWorkspace"]>;
 }>;
 
 type IdentityHostPort = Readonly<{
-  list(): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummaryView[] }>>;
-  create(
-    input: Readonly<{ label: string; passphrase: string }>,
-  ): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>>;
-  importActor(
-    input: Readonly<{ recoveryPhrase: string; passphrase: string; label: string }>,
-  ): Promise<Readonly<{ actorId: string }>>;
-  unlock(passphrase: string): Promise<Readonly<{ vaultExists: boolean; actors: readonly ActorSummaryView[] }>>;
-  lock(): Promise<void>;
-  peerMaterial(): Promise<
-    Readonly<{ peerId: string; peerIdentityPublicKey: string; peerKxPublicKey: string; actorIds: readonly string[] }>
-  >;
+  list: EngineIdentity["listActors"];
+  create: EngineIdentity["createActor"];
+  importActor: EngineIdentity["importActor"];
+  unlock: EngineIdentity["unlockVault"];
+  lock: EngineIdentity["lockVault"];
+  peerMaterial: EngineIdentity["peerMaterial"];
 }>;
 
-type GovernancePeerView = Readonly<{
-  peerId: string;
-  peerKxPublicKey: string;
-  admittedAtEpoch: number;
-  admittedByActorId: string;
-  syncAdmitted: boolean;
-}>;
-
-type GovernanceSummaryView = Readonly<{
-  established: boolean;
-  ownerActorId?: string;
-  memberActorIds: readonly string[];
-  epoch: number;
-  peers: readonly GovernancePeerView[];
-}>;
-
-type GovernanceHostPort = Readonly<{
-  summary(workspaceId: string): Promise<GovernanceSummaryView>;
-  admitActor(
-    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-  ): Promise<void>;
-  removeActor(
-    input: Readonly<{ workspaceId: string; actingActorId: string; actorId: string; requestId?: string }>,
-  ): Promise<void>;
-  transferOwner(
-    input: Readonly<{ workspaceId: string; actingActorId: string; nextOwnerActorId: string; requestId?: string }>,
-  ): Promise<void>;
-  admitPeer(
-    input: Readonly<{
-      workspaceId: string;
-      actingActorId: string;
-      peerId: string;
-      peerKxPublicKey: string;
-      requestId?: string;
-    }>,
-  ): Promise<void>;
-  revokePeer(
-    input: Readonly<{ workspaceId: string; actingActorId: string; peerId: string; requestId?: string }>,
-  ): Promise<void>;
-  rotateTransit(input: Readonly<{ workspaceId: string; actingActorId: string; requestId?: string }>): Promise<void>;
-}>;
+type GovernanceHostPort = EngineGovernance;
 
 type ReplicaHostPort = Readonly<{
-  run(workspaceId: string, remoteEndpoint: string): Promise<Readonly<{ pulled: number; pushed: number }>>;
+  run(workspaceId: string, remoteEndpoint: string): ReturnType<EngineReplicas["synchronize"]>;
 }>;
 
 export type DesktopSession = Readonly<{

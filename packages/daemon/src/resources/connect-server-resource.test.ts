@@ -4,7 +4,7 @@ import { connect } from "node:http2";
 import { describe, expect, it } from "vitest";
 
 import type { EngineApi } from "@lode/sdk/host";
-import { parseEndpoint } from "../endpoint.js";
+import { parseEndpoint } from "@lode/sdk";
 import { ConnectServerResource } from "./connect-server-resource.js";
 
 const status = { homeName: "test", daemonVersion: "test", homePath: "test" };

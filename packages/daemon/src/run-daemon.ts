@@ -120,8 +120,11 @@ function toError(value: unknown): Error {
 async function readHomeToken(path: string): Promise<string | null> {
   try {
     return (await readFile(path, "utf8")).trim();
-  } catch {
-    return null;
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return null;
+    }
+    throw new Error(`Cannot read daemon access token at ${path}`, { cause: error });
   }
 }
 

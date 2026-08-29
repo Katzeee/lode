@@ -60,7 +60,7 @@ export const viewDefinitionReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof VIEW_ACTION_KINDS)[number]>;
 
 function candidates(
   generation: InterpretedProjectionGeneration,

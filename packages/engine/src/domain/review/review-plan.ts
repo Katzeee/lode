@@ -1,10 +1,10 @@
 import {
   canonicalJson,
+  isProposableAction,
   stableStringCompare,
   type FactAction,
   type FactActionId,
   type FactSnapshot,
-  type AuthoredAction,
   type ProposableAction,
 } from "../fact/index.js";
 import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
@@ -54,6 +54,9 @@ export function reviewPaginationScopeKeys(
   fact: FactAction,
   occurrence: (occurrenceId: string) => Readonly<{ nodeId: string; parentNodeId: string }> | null,
 ): readonly string[] {
+  if (!isProposableFact(fact)) {
+    throw new Error(`Review scope requires a Proposable Action: ${fact.action.kind}`);
+  }
   const family = familyFor(fact.action.kind);
   return family.scopes(fact, { occurrence });
 }
@@ -64,6 +67,9 @@ export function normalizedReviewEffects(
 ): readonly DecisionEffect[] {
   const effects = new Map<string, DecisionEffect>();
   for (const fact of targets) {
+    if (!isProposableFact(fact)) {
+      throw new Error(`Review effect requires a Proposable Action: ${fact.action.kind}`);
+    }
     const family = familyFor(fact.action.kind);
     const entry = family.effect(fact, targets, generation);
     if (entry) {
@@ -73,12 +79,16 @@ export function normalizedReviewEffects(
   return [...effects.values()].sort((left, right) => stableStringCompare(canonicalJson(left), canonicalJson(right)));
 }
 
-function familyFor(kind: AuthoredAction["kind"]): ReviewFamilyRule {
-  const family = FAMILY_BY_ACTION.get(kind as ReviewedActionKind);
+function familyFor(kind: ProposableAction["kind"]): ReviewFamilyRule {
+  const family = FAMILY_BY_ACTION.get(kind);
   if (!family) {
     throw new Error(`Review AuthoredAction has no family owner: ${kind}`);
   }
   return family;
+}
+
+function isProposableFact(fact: FactAction): fact is FactAction<ProposableAction> {
+  return isProposableAction(fact.action);
 }
 
 export function associatedReviewImpacts(

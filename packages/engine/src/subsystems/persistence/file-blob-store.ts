@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { BlobStore } from "./blob-store.js";
@@ -18,11 +19,16 @@ export class FileBlobStore implements BlobStore {
   }
 
   async write(bytes: Uint8Array): Promise<void> {
-    const temporary = `${this.file}.tmp`;
+    const temporary = `${this.file}.${randomUUID()}.tmp`;
     await mkdir(dirname(this.file), { recursive: true });
-    await writeFile(temporary, bytes, { mode: 0o600 });
-    await rename(temporary, this.file);
-    await chmod(this.file, 0o600).catch(() => {});
+    try {
+      await writeFile(temporary, bytes, { mode: 0o600 });
+      await rename(temporary, this.file);
+      await chmod(this.file, 0o600).catch(() => {});
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {});
+      throw error;
+    }
   }
 }
 

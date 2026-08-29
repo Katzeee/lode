@@ -56,6 +56,13 @@ describe("home daemon connections", () => {
     expect(await probeDaemon({ name: "main", path: home })).toBeNull();
   });
 
+  it("does not reinterpret an unreadable endpoint path as a stopped daemon", async () => {
+    const home = await temporaryHome();
+    await writeFile(join(home, "token"), `${accessToken}\n`, "utf8");
+    await mkdir(join(home, "endpoint"));
+    await expect(probeDaemon({ name: "main", path: home })).rejects.toThrow(/Cannot read/u);
+  });
+
   it("probe-only connects to a live daemon through its endpoint file", async () => {
     const home = await temporaryHome();
     const daemon = await startHomeDaemon(home);

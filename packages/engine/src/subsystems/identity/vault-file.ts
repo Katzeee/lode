@@ -73,13 +73,14 @@ export class VaultStore {
     }
     const salt = generateVaultSalt();
     const key = await deriveVaultKey(passphrase, salt, DEFAULT_VAULT_KDF_PARAMETERS);
-    this.vault = {
+    const vault: VaultFile = {
       version: VAULT_VERSION,
       kdf: { algo: "scrypt", salt: toBase64(salt), params: DEFAULT_VAULT_KDF_PARAMETERS },
       canary: toBase64(aeadSeal(key, new TextEncoder().encode(VAULT_CANARY))),
       entries: [],
     };
-    await this.persist();
+    await this.persist(vault);
+    this.vault = vault;
   }
 
   /** Verifies the passphrase and returns the key that unlocks every entry. */
@@ -106,11 +107,12 @@ export class VaultStore {
     if (this.vault.entries.some((existing) => existing.actorId === entry.actorId)) {
       throw new Error(`Actor ${entry.actorId} already exists in this Home`);
     }
-    this.vault = {
+    const vault: VaultFile = {
       ...this.vault,
       entries: [...this.vault.entries, { ...entry, seed: toBase64(aeadSeal(key, seed)) }],
     };
-    await this.persist();
+    await this.persist(vault);
+    this.vault = vault;
   }
 
   openEntrySeed(key: Uint8Array, entry: VaultEntry): Uint8Array {
@@ -133,11 +135,8 @@ export class VaultStore {
     }
   }
 
-  private async persist(): Promise<void> {
-    if (this.vault === undefined) {
-      return;
-    }
-    await this.store.write(new TextEncoder().encode(`${JSON.stringify(this.vault, null, 2)}\n`));
+  private async persist(vault: VaultFile): Promise<void> {
+    await this.store.write(new TextEncoder().encode(`${JSON.stringify(vault, null, 2)}\n`));
   }
 }
 

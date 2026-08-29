@@ -27,9 +27,6 @@ export const lifecycleReviewFamily = {
   actionKinds: LIFECYCLE_ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isLifecycleReviewAction(action)) {
-      throw new Error("Lifecycle Review family received another AuthoredAction family");
-    }
     if (action.kind === "template-node-detach") {
       return [
         reviewScope("template-detachment", action.ownerNodeId, action.templateNodeId),
@@ -43,10 +40,6 @@ export const lifecycleReviewFamily = {
   },
   candidates: ({ generation, pending }) => lifecycleCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    const action = fact.action;
-    if (!isLifecycleReviewAction(action)) {
-      throw new Error("Lifecycle Review family received another AuthoredAction family");
-    }
     return lifecycleEffect(fact, generation);
   },
   addImpacts(impacts, targets, generation) {
@@ -75,7 +68,7 @@ export const lifecycleReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof LIFECYCLE_ACTION_KINDS)[number]>;
 
 function lifecycleCandidates(
   generation: InterpretedProjectionGeneration,

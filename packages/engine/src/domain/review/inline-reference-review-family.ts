@@ -16,9 +16,6 @@ export const inlineReferenceReviewFamily = {
   actionKinds: INLINE_REFERENCE_ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isInlineReferenceAction(action)) {
-      throw new Error("Inline Reference Review family received another AuthoredAction family");
-    }
     return [
       reviewScope("inline-reference", action.inlineReferenceId),
       ...(action.kind === "inline-reference-create"
@@ -31,9 +28,6 @@ export const inlineReferenceReviewFamily = {
   candidates: ({ generation, pending }) => inlineReferenceCandidates(generation, pending),
   effect(fact, _targets, generation) {
     const action = fact.action;
-    if (!isInlineReferenceAction(action)) {
-      throw new Error("Inline Reference Review family received another AuthoredAction family");
-    }
     const effect = inlineReferenceEffect(action.inlineReferenceId, generation);
     return canonicalJson(effect.origin) === canonicalJson(effect.review)
       ? null
@@ -58,7 +52,7 @@ export const inlineReferenceReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof INLINE_REFERENCE_ACTION_KINDS)[number]>;
 
 function inlineReferenceCandidates(
   generation: InterpretedProjectionGeneration,

@@ -12,7 +12,7 @@ import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
 import { compensateNodeOwner } from "./compensation-owner.js";
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
-import type { CompensationTargetAction } from "./compensation-policy.js";
+import type { CompensationTargetAction } from "./compensation-types.js";
 
 export function compensateStructureAction(
   target: FactAction<CompensationTargetAction>,

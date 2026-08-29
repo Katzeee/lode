@@ -17,8 +17,9 @@ import type {
   ReplicaExchangeProof,
   ReplicaExchangeWire,
 } from "@lode/engine/host";
+import { parseEndpoint, type ParsedEndpoint } from "@lode/sdk";
 
-import { canonicalAddress, dialTarget, listenTarget, parseEndpoint, type ParsedEndpoint } from "./endpoint.js";
+import { canonicalAddress, dialTarget, listenTarget } from "./endpoint.js";
 import { createPeerExchangeServer } from "./peer-exchange-server.js";
 
 /**

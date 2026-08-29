@@ -1,4 +1,4 @@
-import { canonicalJson, isSupertagAction, type AuthoredAction } from "../fact/index.js";
+import { canonicalJson, isSupertagAction } from "../fact/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { ReviewFamilyRule } from "./review-family.js";
 import { supertagCandidates } from "./supertag-candidates.js";
@@ -26,9 +26,6 @@ export const supertagReviewFamily = {
   actionKinds: ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isSupertagReviewAction(action)) {
-      throw new Error("Supertag Review family received another AuthoredAction family");
-    }
     if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
       return [
         reviewScope("supertag-application", action.hostNodeId, action.supertagId),
@@ -72,9 +69,6 @@ export const supertagReviewFamily = {
   },
   candidates: ({ generation, pending }) => supertagCandidates(generation, pending),
   effect(fact, _targets, generation) {
-    if (!isSupertagAction(fact.action)) {
-      throw new Error("Supertag Review family received another AuthoredAction family");
-    }
     const effect = supertagRelationEffect(fact, generation);
     return effect.originIndex === effect.reviewIndex
       ? null
@@ -91,10 +85,4 @@ export const supertagReviewFamily = {
       addSupertagRelationImpacts(impacts, fact, generation);
     }
   },
-} satisfies ReviewFamilyRule;
-
-function isSupertagReviewAction(
-  action: AuthoredAction,
-): action is Extract<AuthoredAction, { kind: (typeof ACTION_KINDS)[number] }> {
-  return ACTION_KINDS.includes(action.kind as (typeof ACTION_KINDS)[number]);
-}
+} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;

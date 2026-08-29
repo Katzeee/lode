@@ -1,6 +1,7 @@
 import { chmod } from "node:fs/promises";
+import type { ParsedEndpoint } from "@lode/sdk";
 import type { EngineApi } from "@lode/sdk/host";
-import { canonicalAddress, type ParsedEndpoint, listenTarget } from "../endpoint.js";
+import { canonicalAddress, listenTarget } from "../endpoint.js";
 import { createLodeServer, type DaemonStatusIdentity } from "../connect-server.js";
 
 /** Hosts the daemon's generated services without joining their lifecycle to the Engine internals. */

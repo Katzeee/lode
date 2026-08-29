@@ -11,9 +11,6 @@ export const fieldDefinitionLifecycleReviewFamily = {
   actionKinds: ACTION_KINDS,
   scopes(fact) {
     const action = fact.action;
-    if (!isLifecycleAction(action)) {
-      throw new Error("Field Definition lifecycle Review family received another action");
-    }
     return [
       reviewScope("field-definition-owner", action.fieldDefinitionId),
       associatedNodeScope(action.fieldDefinitionId),
@@ -22,9 +19,6 @@ export const fieldDefinitionLifecycleReviewFamily = {
   candidates: ({ generation, pending }) => candidates(generation, pending),
   effect(fact, _targets, generation) {
     const action = fact.action;
-    if (!isLifecycleAction(action)) {
-      throw new Error("Field Definition lifecycle Review family received another action");
-    }
     const effect = ownerEffect(action.fieldDefinitionId, generation);
     return effect.origin === effect.review ? null : { identity: canonicalJson(effect), effect };
   },
@@ -35,7 +29,7 @@ export const fieldDefinitionLifecycleReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule;
+} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;
 
 function candidates(
   generation: InterpretedProjectionGeneration,

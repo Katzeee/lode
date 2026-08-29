@@ -1,4 +1,9 @@
-import type { FieldDefinitionConfiguration, MaterializedField } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  type FieldDefinitionConfiguration,
+  type MaterializedField,
+  type SequenceAnchor,
+} from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
 import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
@@ -27,8 +32,6 @@ const ON_OPTION = {
   value: { kind: "string" as const },
   required: true,
 } as const;
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 export type FieldState = Readonly<{
   fieldDefinitionId: string;
@@ -172,12 +175,7 @@ const fieldMove: CommandDefinition = {
       },
     );
     const anchorToken = args.option("--before") ?? args.option("--after");
-    let anchor: {
-      after: string | null;
-      before: string | null;
-      affinity: "after" | "before";
-      fallback: "start" | "end";
-    } = end;
+    let anchor: SequenceAnchor = end;
     if (anchorToken !== undefined) {
       const anchorTarget = await resolveOccurrenceTarget(
         context.session,
