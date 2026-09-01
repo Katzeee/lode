@@ -7,8 +7,9 @@ import type {
   PhysicalIdentityStorage,
   PhysicalWorkspaceStorage,
   PhysicalWorkspaceStorageStage,
-} from "./backend.js";
+} from "@lode/engine";
 import { FileBlobStore } from "./file-blob-store.js";
+import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 import { SqliteWorkspaceStore } from "./sqlite-workspace-store.js";
 import { SqliteDocumentStore } from "./sqlite-document-store.js";
 
@@ -134,7 +135,7 @@ export class NodePersistenceBackend implements PersistenceBackend {
   }
 
   private async openPhysical(workspaceId: string, file: string): Promise<PhysicalWorkspaceStorage> {
-    const store = await SqliteWorkspaceStore.open(file);
+    const store = await SqliteWorkspaceStore.open(await openSqliteDatabase(file));
     return { workspaceId, documents: new SqliteDocumentStore(store), close: () => store.close() };
   }
 

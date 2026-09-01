@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomUnsigned64 } from "../../crypto/index.js";
 import type { WorkspaceStorage } from "../persistence/index.js";
 import type { EventSink } from "../event/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
@@ -72,7 +72,7 @@ async function loadOrCreateLocalReplica(documents: WorkspaceStorage["metadata"])
 function createLoroPeerId(): `${number}` {
   let value = 0n;
   while (value === 0n) {
-    value = randomBytes(8).readBigUInt64BE();
+    value = randomUnsigned64();
   }
   return `${value}` as `${number}`;
 }

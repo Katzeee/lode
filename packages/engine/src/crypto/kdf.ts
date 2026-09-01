@@ -1,4 +1,6 @@
-import { randomBytes, scrypt as scryptWithNode } from "node:crypto";
+import { scryptAsync } from "@noble/hashes/scrypt.js";
+
+import { randomBytes } from "./random.js";
 
 /**
  * Passphrase hardening for the Actor Vault. Parameters travel with the vault
@@ -22,19 +24,12 @@ export function deriveVaultKey(
   salt: Uint8Array,
   parameters: VaultKdfParameters,
 ): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    scryptWithNode(
-      passphrase,
-      Buffer.from(salt),
-      32,
-      { ...parameters, maxmem: 128 * parameters.n * parameters.r * 2 },
-      (error, key) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-        resolve(new Uint8Array(key));
-      },
-    );
+  return scryptAsync(new TextEncoder().encode(passphrase), salt, {
+    N: parameters.n,
+    r: parameters.r,
+    p: parameters.p,
+    dkLen: 32,
+    maxmem: 128 * parameters.n * parameters.r * 2,
+    asyncTick: 8,
   });
 }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { BlobStore } from "./blob-store.js";
+import type { BlobStore } from "@lode/engine";
 
 export class FileBlobStore implements BlobStore {
   constructor(private readonly file: string) {}

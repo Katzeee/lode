@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { NodePersistenceBackend } from "../persistence/node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { Identity } from "./identity.js";
 
 const temporaryDirectories: string[] = [];

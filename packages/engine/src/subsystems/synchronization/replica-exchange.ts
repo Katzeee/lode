@@ -1,6 +1,13 @@
-import { createHash, randomUUID } from "node:crypto";
-
-import { aeadOpen, aeadSeal, peerPublicKeyFromId, verifyBytes } from "../../crypto/index.js";
+import {
+  aeadOpen,
+  aeadSeal,
+  base64ToBytes,
+  bytesToBase64,
+  peerPublicKeyFromId,
+  randomUuid,
+  sha256Hex,
+  verifyBytes,
+} from "../../crypto/index.js";
 import type { ReplicaPeer, SyncProfileEntry } from "./sync-exchange.js";
 import { projectGovernance, syncAdmittedPeers, type GovernanceState } from "../../domain/governance/index.js";
 import type { FactSnapshot } from "../../domain/fact/index.js";
@@ -38,7 +45,7 @@ type ChallengeInput = Readonly<{
 
 /** The exact bytes a Peer signs for one request. */
 function peerChallenge(input: ChallengeInput): Uint8Array {
-  const digest = createHash("sha256").update(input.payload).digest("hex");
+  const digest = sha256Hex(input.payload);
   const canonical = [
     REPLICA_EXCHANGE_PROTOCOL,
     input.workspaceId,
@@ -74,7 +81,7 @@ export class ReplicaExchangeGateway {
       JSON.stringify({
         entries: entries.map((entry) => ({
           documentId: entry.documentId,
-          version: Buffer.from(entry.version).toString("base64"),
+          version: bytesToBase64(entry.version),
         })),
       }),
     );
@@ -181,7 +188,7 @@ export class OutboundExchange {
   }
 
   private proof(documentId: string, payload: Uint8Array): ReplicaExchangeProof {
-    const nonce = randomUUID();
+    const nonce = randomUuid();
     const peerId = this.identity.peerId();
     return {
       workspaceId: this.workspaceId,
@@ -232,9 +239,9 @@ function decodeBase64(value: string): Uint8Array {
 }
 
 function decodeCanonicalBase64(value: string, label: string): Uint8Array {
-  const decoded = Buffer.from(value, "base64");
-  if (decoded.toString("base64") !== value) {
+  const decoded = base64ToBytes(value);
+  if (bytesToBase64(decoded) !== value) {
     throw new ReplicaExchangeRejected(`${label} is not canonical base64`);
   }
-  return new Uint8Array(decoded);
+  return decoded;
 }

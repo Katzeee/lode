@@ -1,7 +1,9 @@
 import {
+  bytesToHex,
   ed25519PublicFromSeed,
   generateExchangeKeyPair,
   generateSigningKeyPair,
+  hexToBytes,
   peerIdFromPublicKey,
   x25519PublicFromSecret,
   type ExchangeKeyPair,
@@ -59,8 +61,8 @@ function createPeerMaterial(): PeerMaterial {
 // ponytail: recompute publics from seeds rather than storing them, so the file
 // can never disagree with its own secrets.
 function materialFromFile(file: PeerFile): PeerMaterial {
-  const identitySeed = new Uint8Array(Buffer.from(file.identitySeed, "hex"));
-  const exchangeSecret = new Uint8Array(Buffer.from(file.exchangeSecret, "hex"));
+  const identitySeed = hexToBytes(file.identitySeed);
+  const exchangeSecret = hexToBytes(file.exchangeSecret);
   if (identitySeed.length !== 32 || exchangeSecret.length !== 32) {
     throw new Error("Peer identity material is corrupt");
   }
@@ -79,8 +81,8 @@ async function persistPeerMaterial(store: BlobStore, material: PeerMaterial): Pr
   const stored: PeerFile = {
     version: PEER_FILE_VERSION,
     peerId: material.peerId,
-    identitySeed: Buffer.from(material.identity.seed).toString("hex"),
-    exchangeSecret: Buffer.from(material.exchange.secret).toString("hex"),
+    identitySeed: bytesToHex(material.identity.seed),
+    exchangeSecret: bytesToHex(material.exchange.secret),
   };
   await store.write(new TextEncoder().encode(`${JSON.stringify(stored, null, 2)}\n`));
 }

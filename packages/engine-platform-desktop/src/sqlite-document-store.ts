@@ -1,4 +1,4 @@
-import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "./document-store.js";
+import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "@lode/engine";
 import type { SqliteWorkspaceStore } from "./sqlite-workspace-store.js";
 
 export class SqliteDocumentStore implements DocumentStore {

@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../daemon/src/daemon.js";
 import { DesktopPeerTransport } from "../../daemon/src/peer-exchange-transport.js";
-import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { createEngine } from "@lode/engine";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 
 import { ensureRunningDaemon, probeDaemon, selectHome } from "./home-connection.js";
 

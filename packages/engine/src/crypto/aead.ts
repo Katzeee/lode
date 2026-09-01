@@ -1,4 +1,8 @@
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
+import { gcm } from "@noble/ciphers/aes.js";
+import { hkdf } from "@noble/hashes/hkdf.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+
+import { randomBytes } from "./random.js";
 
 /**
  * Authenticated encryption for identity-bearing material: the transit key
@@ -20,9 +24,11 @@ export class AeadAuthenticationError extends Error {
 export function aeadSeal(key: Uint8Array, plaintext: Uint8Array): Uint8Array {
   assertKey(key);
   const nonce = randomBytes(NONCE_LENGTH);
-  const cipher = createCipheriv("aes-256-gcm", Buffer.from(key), nonce);
-  const ciphertext = Buffer.concat([cipher.update(Buffer.from(plaintext)), cipher.final(), cipher.getAuthTag()]);
-  return new Uint8Array(Buffer.concat([nonce, ciphertext]));
+  const ciphertextAndTag = gcm(key, nonce).encrypt(plaintext);
+  const sealed = new Uint8Array(nonce.length + ciphertextAndTag.length);
+  sealed.set(nonce);
+  sealed.set(ciphertextAndTag, nonce.length);
+  return sealed;
 }
 
 export function aeadOpen(key: Uint8Array, blob: Uint8Array): Uint8Array {
@@ -30,26 +36,16 @@ export function aeadOpen(key: Uint8Array, blob: Uint8Array): Uint8Array {
   if (blob.length < NONCE_LENGTH + TAG_LENGTH) {
     throw new Error("Sealed blob is truncated");
   }
-  const nonce = Buffer.from(blob.subarray(0, NONCE_LENGTH));
-  const ciphertext = Buffer.from(blob.subarray(NONCE_LENGTH, blob.length - TAG_LENGTH));
-  const tag = Buffer.from(blob.subarray(blob.length - TAG_LENGTH));
-  const decipher = createDecipheriv("aes-256-gcm", Buffer.from(key), nonce);
-  decipher.setAuthTag(tag);
-  const opened = decipher.update(ciphertext);
   try {
-    return new Uint8Array(Buffer.concat([opened, decipher.final()]));
+    return gcm(key, blob.subarray(0, NONCE_LENGTH)).decrypt(blob.subarray(NONCE_LENGTH));
   } catch {
-    // With a validated key and fixed GCM shape, final() rejects only when the
-    // authentication tag does not match the ciphertext.
     throw new AeadAuthenticationError();
   }
 }
 
 /** HKDF-SHA256 over a shared secret into a 32-byte content key. */
 export function deriveContentKey(sharedSecret: Uint8Array, salt: Uint8Array, info: string): Uint8Array {
-  return new Uint8Array(
-    hkdfSync("sha256", Buffer.from(sharedSecret), Buffer.from(salt), Buffer.from(info), KEY_LENGTH),
-  );
+  return hkdf(sha256, sharedSecret, salt, new TextEncoder().encode(info), KEY_LENGTH);
 }
 
 function assertKey(key: Uint8Array): void {

@@ -12,7 +12,7 @@ let store: SqliteWorkspaceStore;
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "be-workspace-"));
   filePath = join(tempDir, "workspace.sqlite");
-  store = await SqliteWorkspaceStore.open(filePath);
+  store = await SqliteWorkspaceStore.open(await openSqliteDatabase(filePath));
 });
 
 afterEach(async () => {
@@ -94,7 +94,7 @@ describe("SqliteWorkspaceStore — content sub-doc streams", () => {
     expect(snapshots?.count).toBe(1);
 
     await store.close();
-    store = await SqliteWorkspaceStore.open(filePath);
+    store = await SqliteWorkspaceStore.open(await openSqliteDatabase(filePath));
     await expect(store.appendUpdate({ subDoc: "facts", updateBytes: new Uint8Array([4]) })).resolves.toBe(4);
     const loaded = await store.loadDocBytes("facts");
     expect(loaded?.snapshotBytes ? [...loaded.snapshotBytes] : []).toEqual([30]);

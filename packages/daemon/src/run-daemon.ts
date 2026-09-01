@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 
-import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { createDesktopEngine } from "@lode/engine-platform-desktop";
 import { defaultExchangeEndpoint, startDaemon, type Daemon } from "./daemon.js";
 import { defaultEndpoint, socketPathOf } from "./endpoint.js";
 import { homePaths, resolveLodeHome } from "./home.js";
@@ -37,8 +37,8 @@ export async function runDaemon(argv: string[]): Promise<void> {
         resolveStop = resolve;
       });
       const peerTransport = new DesktopPeerTransport(exchangeListen);
-      const engine = createEngine({
-        persistence: new NodePersistenceBackend(options.dataRoot ?? paths.data),
+      const engine = createDesktopEngine({
+        dataRoot: options.dataRoot ?? paths.data,
         peerTransport,
       });
       for (const signal of ["SIGINT", "SIGTERM"] as const) {

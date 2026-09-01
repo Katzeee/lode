@@ -45,7 +45,14 @@ const architecturePlugin = {
             }
             const relative = filename.slice(sourceIndex + engineSource.length);
             const topLevel = relative.split("/")[0];
-            const allowed = new Set(["crypto", "decoding", "domain", "subsystems", "engine.ts", "host.ts"]);
+            const allowed = new Set([
+              "crypto",
+              "decoding",
+              "domain",
+              "subsystems",
+              "engine.ts",
+              "index.ts",
+            ]);
             if (!allowed.has(topLevel)) {
               context.report({
                 node,
@@ -58,6 +65,54 @@ const architecturePlugin = {
             }
           },
         };
+      },
+    },
+    "engine-platform-direction": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const filename = context.filename.replaceAll("\\", "/");
+        if (filename.endsWith(".test.ts") || filename.includes("/tests/")) {
+          return {};
+        }
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (!source) {
+            return;
+          }
+          const insideEngine = filename.includes("/packages/engine/src/");
+          const insideMobile = filename.includes("/packages/engine-platform-mobile/src/");
+          const insideDesktop = filename.includes("/packages/engine-platform-desktop/src/");
+          if (
+            insideEngine &&
+            (source === "@lode/engine-platform-desktop" || source === "@lode/engine-platform-mobile")
+          ) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "Shared Engine code cannot depend on a platform implementation." },
+            });
+            return;
+          }
+          if (
+            insideMobile &&
+            (source.startsWith("node:") ||
+              source === "better-sqlite3" ||
+              source === "@lode/engine-platform-desktop")
+          ) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "The mobile platform cannot depend on desktop or Node-only modules." },
+            });
+          }
+          if (insideDesktop && source === "@lode/engine-platform-mobile") {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "The desktop platform cannot depend on the mobile platform." },
+            });
+          }
+        });
       },
     },
     "engine-transport-neutral": {
@@ -167,7 +222,7 @@ const architecturePlugin = {
           }
           const valid =
             node.type === "ImportDeclaration" &&
-            source === "@lode/engine/host" &&
+            source === "@lode/engine" &&
             node.importKind === "type" &&
             node.specifiers.every(
               (specifier) => specifier.type === "ImportSpecifier" && allowed.has(specifier.imported.name),
@@ -178,7 +233,7 @@ const architecturePlugin = {
               messageId: "restricted",
               data: {
                 message:
-                  "Daemon Peer adapters import only named Engine-owned Peer Transport port types from @lode/engine/host.",
+                  "Daemon Peer adapters import only named Engine-owned Peer Transport port types from @lode/engine.",
               },
             });
           }
@@ -258,7 +313,7 @@ export default tseslint.config(
     ],
   },
   {
-    files: ["**/*.ts"],
+    files: ["**/*.{ts,tsx}"],
     extends: [eslint.configs.recommended, ...tseslint.configs.recommendedTypeChecked, prettier],
     plugins: { "node-import": nodeImport, unicorn, architecture: architecturePlugin },
     languageOptions: {
@@ -298,6 +353,28 @@ export default tseslint.config(
       "unicorn/prefer-ternary": "error",
       "unicorn/consistent-empty-array-spread": "error",
       "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
+    },
+  },
+  {
+    files: ["apps/mobile/src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: { project: "apps/mobile/tsconfig.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
+    files: ["packages/engine/src/crypto/bytes.ts"],
+    rules: {
+      "node-import/prefer-node-protocol": "off",
+    },
+  },
+  {
+    files: [
+      "packages/engine/src/**/*.ts",
+      "packages/engine-platform-desktop/src/**/*.ts",
+      "packages/engine-platform-mobile/src/**/*.ts",
+    ],
+    rules: {
+      "architecture/engine-platform-direction": "error",
     },
   },
   {

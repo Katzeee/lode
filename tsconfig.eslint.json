@@ -7,6 +7,8 @@
   "include": [
     "apps/cli/src/**/*.ts",
     "apps/cli/tests/**/*.ts",
+    "apps/mobile/src/**/*.ts",
+    "apps/mobile/src/**/*.tsx",
     "packages/node-endpoint/src/**/*.ts",
     "packages/desktop-client/src/**/*.ts",
     "packages/desktop-client/tests/**/*.ts",
@@ -18,7 +20,9 @@
     "packages/daemon/src/**/*.ts",
     "packages/daemon/tests/**/*.ts",
     "packages/engine/src/**/*.ts",
-    "packages/engine/tests/**/*.ts"
+    "packages/engine/tests/**/*.ts",
+    "packages/engine-platform-desktop/src/**/*.ts",
+    "packages/engine-platform-mobile/src/**/*.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
 }

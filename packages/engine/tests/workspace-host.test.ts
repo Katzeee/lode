@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Engine } from "../src/engine.js";
-import { NodePersistenceBackend } from "../src/subsystems/persistence/node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import type { TrashEvidenceResult } from "@lode/sdk";
 import { createTestEngine, createWorkspaceAs, type TestEngineOptions } from "./support/create-test-engine.js";
 import { END_SEQUENCE_ANCHOR as end } from "../src/domain/fact/index.js";

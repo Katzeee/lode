@@ -1,5 +1,4 @@
-import type { LoroDoc } from "loro-crdt";
-import { VersionVector } from "loro-crdt";
+import { VersionVector, type LoroDoc } from "loro-crdt/base64";
 
 import {
   type Fact,

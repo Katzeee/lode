@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256Hex } from "../../crypto/index.js";
 
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
@@ -23,7 +23,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 export function canonicalDigest(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex");
+  return sha256Hex(new TextEncoder().encode(canonicalJson(value)));
 }
 
 export function stableStringCompare(left: string, right: string): number {

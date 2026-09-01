@@ -10,6 +10,9 @@ export {
   type ExchangeKeyPair,
 } from "./keys.js";
 export { openWithSecret, sealToPublicKey } from "./kx.js";
+export { base64ToBytes, bytesToBase64, bytesToHex, hexToBytes, isBase64Bytes } from "./bytes.js";
+export { sha256Bytes, sha256Hex } from "./digest.js";
+export { randomBytes, randomUnsigned64, randomUuid } from "./random.js";
 export { actorIdFromPublicKey, isActorId, isPeerId, peerIdFromPublicKey, peerPublicKeyFromId } from "./identity-ids.js";
 export {
   DEFAULT_VAULT_KDF_PARAMETERS,

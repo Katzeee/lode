@@ -146,9 +146,7 @@ async function staleArchitecturePathDiagnostics(repository) {
       }
     }
   }
-  return stale.size === 0
-    ? []
-    : [{ category: "stale architecture-rule path", details: [...stale].sort() }];
+  return stale.size === 0 ? [] : [{ category: "stale architecture-rule path", details: [...stale].sort() }];
 }
 
 function noRestrictedImportGroups(config) {
@@ -173,9 +171,7 @@ function noRestrictedImportRegexes(config) {
     return [];
   }
   return patterns.flatMap((pattern) =>
-    pattern !== null && typeof pattern === "object" && typeof pattern.regex === "string"
-      ? [pattern.regex]
-      : [],
+    pattern !== null && typeof pattern === "object" && typeof pattern.regex === "string" ? [pattern.regex] : [],
   );
 }
 
@@ -187,7 +183,9 @@ function expandRegexLiteralAlternatives(pattern) {
   return group[1]
     .split("|")
     .flatMap((alternative) =>
-      expandRegexLiteralAlternatives(`${pattern.slice(0, group.index)}${alternative}${pattern.slice(group.index + group[0].length)}`),
+      expandRegexLiteralAlternatives(
+        `${pattern.slice(0, group.index)}${alternative}${pattern.slice(group.index + group[0].length)}`,
+      ),
     );
 }
 
@@ -200,8 +198,10 @@ function restrictedImportCandidates(repository, config) {
   const ignores = Array.isArray(config.ignores) ? config.ignores : [];
   const importers = repository.allSourceFiles.filter((file) => {
     const displayed = displayPath(repository.repositoryRoot, file);
-    return files.some((pattern) => globMatches(pattern, displayed)) &&
-      !ignores.some((pattern) => globMatches(pattern, displayed));
+    return (
+      files.some((pattern) => globMatches(pattern, displayed)) &&
+      !ignores.some((pattern) => globMatches(pattern, displayed))
+    );
   });
   const candidates = new Set();
   for (const importer of importers) {
@@ -248,8 +248,14 @@ function packageDependencyDiagnostics(repository, packageImports) {
   const productionFiles = new Set(repository.productionFiles);
   const diagnostics = [];
   for (const workspace of repository.workspaces.values()) {
-    const productionImports = importedPackages(packageImports, (file) => productionFiles.has(file) && within(file, workspace.root));
-    const testImports = importedPackages(packageImports, (file) => !productionFiles.has(file) && within(file, workspace.root));
+    const productionImports = importedPackages(
+      packageImports,
+      (file) => productionFiles.has(file) && within(file, workspace.root),
+    );
+    const testImports = importedPackages(
+      packageImports,
+      (file) => !productionFiles.has(file) && within(file, workspace.root),
+    );
     const declaredDependencies = new Set(Object.keys(workspace.manifest.dependencies ?? {}));
     for (const dependency of declaredDependencies) {
       if (productionImports.has(dependency)) {
@@ -423,7 +429,11 @@ function globRegexSource(pattern) {
     if (character === "{") {
       const close = pattern.indexOf("}", index + 1);
       if (close !== -1) {
-        result += `(?:${pattern.slice(index + 1, close).split(",").map(escapeRegex).join("|")})`;
+        result += `(?:${pattern
+          .slice(index + 1, close)
+          .split(",")
+          .map(escapeRegex)
+          .join("|")})`;
         index = close;
         continue;
       }

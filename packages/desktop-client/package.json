@@ -30,6 +30,7 @@
   "devDependencies": {
     "@lode/daemon": "file:../daemon",
     "@lode/engine": "file:../engine",
+    "@lode/engine-platform-desktop": "file:../engine-platform-desktop",
     "@types/node": "^20.0.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.9"

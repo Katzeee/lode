@@ -2,10 +2,13 @@ import {
   aeadOpen,
   aeadSeal,
   AeadAuthenticationError,
+  base64ToBytes,
+  bytesToBase64,
   isActorId,
   DEFAULT_VAULT_KDF_PARAMETERS,
   deriveVaultKey,
   generateVaultSalt,
+  isBase64Bytes,
   VAULT_CANARY,
   type VaultKdfParameters,
 } from "../../crypto/index.js";
@@ -215,19 +218,13 @@ function isVaultEntry(value: unknown): value is VaultEntry {
 }
 
 function isSealedBase64(value: unknown): value is string {
-  return typeof value === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(value) && Buffer.from(value, "base64").length >= 28;
-}
-
-function isBase64Bytes(value: unknown, length: number): value is string {
-  return (
-    typeof value === "string" && /^[A-Za-z0-9+/]+={0,2}$/.test(value) && Buffer.from(value, "base64").length === length
-  );
+  return isBase64Bytes(value) && base64ToBytes(value).length >= 28;
 }
 
 function toBase64(value: Uint8Array): string {
-  return Buffer.from(value).toString("base64");
+  return bytesToBase64(value);
 }
 
 function fromBase64(value: string): Uint8Array {
-  return new Uint8Array(Buffer.from(value, "base64"));
+  return base64ToBytes(value);
 }

@@ -17,7 +17,7 @@ import type {
   ReplicaExchangeHandler,
   ReplicaExchangeProof,
   ReplicaExchangeWire,
-} from "@lode/engine/host";
+} from "@lode/engine";
 import { parseEndpoint, type ParsedEndpoint } from "@lode/sdk";
 
 import { canonicalAddress, listenTarget } from "./endpoint.js";

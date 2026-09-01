@@ -18,7 +18,7 @@ test("accepts an acyclic reachable workspace", async () => {
 
 test("rejects runtime cycles through every supported module syntax", async (t) => {
   const importers = {
-    "dynamic import": 'export const value = import(`./index.js`);\n',
+    "dynamic import": "export const value = import(`./index.js`);\n",
     "import equals": 'import root = require("./index.js"); export const value = root;\n',
     "require call": 'export const value = require("./index.js");\n',
     "static import": 'import { root } from "./index.js"; export const value = root;\n',
@@ -60,8 +60,7 @@ test("rejects runtime cycles through aliased CommonJS loaders", async (t) => {
     "called require": 'export const value = require.call(null, "./index.cjs");\n',
     "applied require": 'export const value = require.apply(null, ["./index.cjs"]);\n',
     "module require": 'export const value = module.require("./index.cjs");\n',
-    "destructured module require":
-      'const { require: load } = module; export const value = load("./index.cjs");\n',
+    "destructured module require": 'const { require: load } = module; export const value = load("./index.cjs");\n',
     "computed destructured module require":
       'const { ["require"]: load } = module; export const value = load("./index.cjs");\n',
     "aliased module require":
@@ -85,8 +84,7 @@ test("rejects runtime cycles through aliased CommonJS loaders", async (t) => {
     "CommonJS namespace createRequire":
       'const moduleApi = require("node:module"); const load = moduleApi.createRequire(__filename); export const value = load("./index.cjs");\n',
     "global require": 'export const value = globalThis.require("./index.cjs");\n',
-    "self-referenced global require":
-      'export const value = globalThis.globalThis.require("./index.cjs");\n',
+    "self-referenced global require": 'export const value = globalThis.globalThis.require("./index.cjs");\n',
     "global module require": 'export const value = globalThis.module.require("./index.cjs");\n',
     "global process createRequire":
       'const load = globalThis.process.getBuiltinModule("node:module").createRequire(__filename); export const value = load("./index.cjs");\n',
@@ -134,8 +132,7 @@ test("rejects runtime cycles through runtime-acquired createRequire", async (t) 
       await withFixture(
         {
           "packages/a/src/index.mts": importer,
-          "packages/a/src/value.mts":
-            'import { root } from "./index.mjs"; export const value = root;\n',
+          "packages/a/src/value.mts": 'import { root } from "./index.mjs"; export const value = root;\n',
         },
         async (result) => assert.deepEqual(categories(result), ["runtime import cycle"]),
         ["packages/a/src/**/*.mts"],
@@ -165,7 +162,10 @@ test("rejects bidirectional sibling modules loaded through require aliases", asy
 
 test("rejects non-static runtime module loads that cannot be placed in the graph", async () => {
   await withFixture(
-    { "packages/a/src/index.cts": 'const load = require; const target = "./value.cjs"; export const root = load(target);\n' },
+    {
+      "packages/a/src/index.cts":
+        'const load = require; const target = "./value.cjs"; export const root = load(target);\n',
+    },
     async (result) => assert.deepEqual(categories(result), ["non-static runtime module load"]),
     ["packages/a/src/**/*.cts"],
     { exports: { ".": { require: "./dist/index.cjs" } } },
@@ -175,16 +175,15 @@ test("rejects non-static runtime module loads that cannot be placed in the graph
 test("rejects computed dynamic imports and escaped CommonJS loaders", async (t) => {
   for (const [name, source] of Object.entries({
     "computed dynamic import": 'const target = "./value.js"; export const root = import(target);\n',
-    "computed require call":
-      'const target = "./value.cjs"; export const root = require.call(null, target);\n',
+    "computed require call": 'const target = "./value.cjs"; export const root = require.call(null, target);\n',
     "computed require apply":
       'const parameters = ["./value.cjs"]; export const root = require.apply(null, parameters);\n',
     "exported require alias": "export const load = require;\n",
-    "exported destructured createRequire":
-      'export const { createRequire } = require("node:module");\n',
+    "exported destructured createRequire": 'export const { createRequire } = require("node:module");\n',
     "exported destructured module require": "export const { require: load } = module;\n",
-    "exported computed destructured module require": "export const { [\"require\"]: load } = module;\n",
-    "passed require alias": "declare function register(load: unknown): void; register(require); export const root = 1;\n",
+    "exported computed destructured module require": 'export const { ["require"]: load } = module;\n',
+    "passed require alias":
+      "declare function register(load: unknown): void; register(require); export const root = 1;\n",
     "passed CommonJS module alias":
       "declare function register(load: unknown): void; const runtimeModule = module; register(runtimeModule); export const root = 1;\n",
     "passed namespace createRequire":
@@ -194,8 +193,7 @@ test("rejects computed dynamic imports and escaped CommonJS loaders", async (t) 
     "dynamic module namespace object rest":
       'const { ...moduleApi } = await import("node:module"); void moduleApi; export const root = 1;\n',
     "eval-based loader": 'const load = eval("require"); export const root = load("./value.cjs");\n',
-    "Function-based loader":
-      'const load = Function("return require")(); export const root = load("./value.cjs");\n',
+    "Function-based loader": 'const load = Function("return require")(); export const root = load("./value.cjs");\n',
     "called Function loader":
       'const load = Function.call(null, "return require")(); export const root = load("./value.cjs");\n',
     "applied Function loader":
@@ -218,32 +216,27 @@ test("rejects computed dynamic imports and escaped CommonJS loaders", async (t) 
       'const target = "./value.cjs"; export const root = require("node:module")._load(target);\n',
     "destructured internal Module loader":
       'const { _load } = require("node:module"); const target = "./value.cjs"; export const root = _load(target);\n',
-    "child Module loader":
-      'require("./holder.cjs"); export const root = module.children[0]!.require("./value.cjs");\n',
+    "child Module loader": 'require("./holder.cjs"); export const root = module.children[0]!.require("./value.cjs");\n',
     "passed process loader capability":
-      'declare function acquire(value: typeof process): unknown; export const root = acquire(process);\n',
+      "declare function acquire(value: typeof process): unknown; export const root = acquire(process);\n",
     "passed global loader capability":
-      'declare function acquire(value: typeof globalThis): unknown; export const root = acquire(globalThis);\n',
+      "declare function acquire(value: typeof globalThis): unknown; export const root = acquire(globalThis);\n",
     "static namespace object rest":
       'import * as Module from "node:module"; const { ...copy } = Module; export const root = copy.createRequire(import.meta.url);\n',
     "computed module destructuring":
       'const member = "require"; const { [member]: load } = module; export const root = load("./value.cjs");\n',
-    "computed global member":
-      'const member = "requ" + "ire"; export const root = globalThis[member]("./value.cjs");\n',
+    "computed global member": 'const member = "requ" + "ire"; export const root = globalThis[member]("./value.cjs");\n',
     "computed process member":
       'const member = "getBuiltin" + "Module"; export const root = process[member]("node:module");\n',
-    "process object rest":
-      'const { ...copy } = process; export const root = copy.getBuiltinModule("node:module");\n',
-    "global object rest":
-      'const { ...copy } = globalThis; export const root = copy.eval("require");\n',
+    "process object rest": 'const { ...copy } = process; export const root = copy.getBuiltinModule("node:module");\n',
+    "global object rest": 'const { ...copy } = globalThis; export const root = copy.eval("require");\n',
     "cached child Module loader":
       'const target = require.resolve("./holder.cjs"); export const root = require.cache[target]!.require("./value.cjs");\n',
     "require main relative loader": 'export const root = require.main!.require("./value.cjs");\n',
     "module parent relative loader": 'export const root = module.parent!.require("./value.cjs");\n',
     "legacy process main module loader": 'export const root = process.mainModule!.require("./value.cjs");\n',
     "called Module require": 'export const root = module.require.call(module.parent, "./value.cjs");\n',
-    "applied Module require":
-      'export const root = module.require.apply(module.parent, ["./value.cjs"]);\n',
+    "applied Module require": 'export const root = module.require.apply(module.parent, ["./value.cjs"]);\n',
     "bound Module require":
       'const load = module.require.bind(module.parent); export const root = load("./value.cjs");\n',
     "vm runInThisContext loader":
@@ -271,14 +264,13 @@ test("rejects computed dynamic imports and escaped CommonJS loaders", async (t) 
     "descriptor Function constructor":
       'const Factory = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Math.max), "constructor")?.value; const load = Factory("return require")(); export const root = load("./value.cjs");\n',
     "process dlopen":
-      'declare const target: string; process.dlopen({ exports: {} } as NodeModule, target); export const root = 1;\n',
+      "declare const target: string; process.dlopen({ exports: {} } as NodeModule, target); export const root = 1;\n",
     "process binding": 'export const root = process.binding("module_wrap");\n',
     "process linked binding": 'export const root = process._linkedBinding("module_wrap");\n',
   })) {
     await t.test(name, async () => {
-      await withFixture(
-        { "packages/a/src/index.ts": source },
-        async (result) => assert.deepEqual(categories(result), ["non-static runtime module load"]),
+      await withFixture({ "packages/a/src/index.ts": source }, async (result) =>
+        assert.deepEqual(categories(result), ["non-static runtime module load"]),
       );
     });
   }
@@ -369,8 +361,7 @@ test("counts an aliased require resolver as a production package dependency", as
 test("counts import.meta resolve as a production package dependency", async () => {
   await withFixture(
     {
-      "packages/a/src/index.ts":
-        'export const path = import.meta.resolve("undeclared-tool/cli");\n',
+      "packages/a/src/index.ts": 'export const path = import.meta.resolve("undeclared-tool/cli");\n',
     },
     async (result) => assert.deepEqual(categories(result), ["undeclared production dependency"]),
   );
@@ -422,10 +413,8 @@ test("maps relative mjs and cjs specifiers only to their matching source formats
     await t.test(format.source, async () => {
       await withFixture(
         {
-          [`packages/a/src/index.${format.source}`]:
-            `import { value } from "./value.${format.emitted}"; export const root = value;\n`,
-          [`packages/a/src/value.${format.source}`]:
-            `import { root } from "./index.${format.emitted}"; export const value = root;\n`,
+          [`packages/a/src/index.${format.source}`]: `import { value } from "./value.${format.emitted}"; export const root = value;\n`,
+          [`packages/a/src/value.${format.source}`]: `import { root } from "./index.${format.emitted}"; export const value = root;\n`,
           "packages/a/src/value.ts": "export const shadow = 1;\n",
         },
         async (result) => assert.deepEqual(categories(result), ["runtime import cycle"]),
@@ -446,8 +435,7 @@ test("resolves package imports through the importing workspace manifest", async 
   await withFixture(
     {
       "packages/a/src/index.mts": 'import { value } from "#value"; export const root = value;\n',
-      "packages/a/src/value.mts":
-        'import { root } from "./index.mjs"; export const value = root;\n',
+      "packages/a/src/value.mts": 'import { root } from "./index.mjs"; export const value = root;\n',
     },
     async (result) => assert.deepEqual(categories(result), ["runtime import cycle"]),
     ["packages/a/src/**/*.mts"],
@@ -473,10 +461,8 @@ test("resolves nested conditions and export fallback arrays", async (t) => {
     await t.test(name, async () => {
       await withFixture(
         {
-          "packages/a/src/a.mts":
-            'import { b } from "@fixture/a/b"; export const a = b;\n',
-          "packages/a/src/b.mts":
-            'import { a } from "@fixture/a/a"; export const b = a;\n',
+          "packages/a/src/a.mts": 'import { b } from "@fixture/a/b"; export const a = b;\n',
+          "packages/a/src/b.mts": 'import { a } from "@fixture/a/a"; export const b = a;\n',
           "packages/a/src/unused-a.mts": "export const unusedA = 1;\n",
           "packages/a/src/unused-b.mts": "export const unusedB = 1;\n",
         },
@@ -491,8 +477,7 @@ test("resolves nested conditions and export fallback arrays", async (t) => {
 test("rejects a workspace export with no active runtime condition", async () => {
   await withFixture(
     {
-      "packages/a/src/index.ts":
-        'import { value } from "@fixture/a/value"; export const root = value;\n',
+      "packages/a/src/index.ts": 'import { value } from "@fixture/a/value"; export const root = value;\n',
       "packages/a/src/value.ts": "export const value = 1;\n",
     },
     async (result) => assert.deepEqual(categories(result), ["unresolved workspace import"]),
@@ -509,10 +494,8 @@ test("rejects a workspace export with no active runtime condition", async () => 
 test("resolves reciprocal workspace imports through main entries", async () => {
   await withFixture(
     {
-      "packages/a/src/index.ts":
-        'import { value as other } from "@fixture/b"; export const value = other;\n',
-      "packages/b/src/index.ts":
-        'import { value as other } from "@fixture/a"; export const value = other;\n',
+      "packages/a/src/index.ts": 'import { value as other } from "@fixture/b"; export const value = other;\n',
+      "packages/b/src/index.ts": 'import { value as other } from "@fixture/a"; export const value = other;\n',
     },
     async (result) =>
       assert.deepEqual(categories(result), ["runtime import cycle", "bidirectional directory dependency"]),
@@ -531,10 +514,8 @@ test("resolves reciprocal workspace imports through top-level export forms", asy
     await t.test(name, async () => {
       await withFixture(
         {
-          "packages/a/src/index.ts":
-            'import { value as other } from "@fixture/b"; export const value = other;\n',
-          "packages/b/src/index.ts":
-            'import { value as other } from "@fixture/a"; export const value = other;\n',
+          "packages/a/src/index.ts": 'import { value as other } from "@fixture/b"; export const value = other;\n',
+          "packages/b/src/index.ts": 'import { value as other } from "@fixture/a"; export const value = other;\n',
           ...(typeof exports === "object"
             ? {
                 "packages/a/src/index.cts": "export const commonJsA = 1;\n",
@@ -555,9 +536,8 @@ test("resolves reciprocal workspace imports through top-level export forms", asy
 });
 
 test("does not classify a type-only self edge as a runtime cycle", async () => {
-  await withFixture(
-    { "packages/a/src/index.ts": 'export type Self = import("./index.js").Self;\n' },
-    async (result) => assert.deepEqual(result.diagnostics, []),
+  await withFixture({ "packages/a/src/index.ts": 'export type Self = import("./index.js").Self;\n' }, async (result) =>
+    assert.deepEqual(result.diagnostics, []),
   );
 });
 
@@ -578,10 +558,8 @@ test("rejects bidirectional sibling directory modules", async () => {
 test("rejects bidirectional apex and descendant directory modules", async () => {
   await withFixture(
     {
-      "packages/a/src/index.ts":
-        'import type { Child } from "./child/item.js"; export type Root = { child: Child };\n',
-      "packages/a/src/child/item.ts":
-        'import type { Root } from "../index.js"; export type Child = { root: Root };\n',
+      "packages/a/src/index.ts": 'import type { Child } from "./child/item.js"; export type Root = { child: Child };\n',
+      "packages/a/src/child/item.ts": 'import type { Root } from "../index.js"; export type Child = { root: Root };\n',
     },
     async (result) => assert.deepEqual(categories(result), ["bidirectional directory dependency"]),
   );
@@ -603,10 +581,8 @@ test("rejects bidirectional parent and nested directory modules", async () => {
 test("allows bidirectional type dependencies inside one directory module", async () => {
   await withFixture(
     {
-      "packages/a/src/index.ts":
-        'import type { Peer } from "./peer.js"; export type Root = { peer: Peer };\n',
-      "packages/a/src/peer.ts":
-        'import type { Root } from "./index.js"; export type Peer = { root: Root };\n',
+      "packages/a/src/index.ts": 'import type { Peer } from "./peer.js"; export type Root = { peer: Peer };\n',
+      "packages/a/src/peer.ts": 'import type { Root } from "./index.js"; export type Peer = { root: Root };\n',
     },
     async (result) => assert.deepEqual(result.diagnostics, []),
   );
@@ -659,10 +635,7 @@ test("rejects each stale arm of a partially live brace selector", async () => {
     { "packages/a/src/index.ts": "export const root = 1;\n" },
     async (result) => {
       assert.deepEqual(categories(result), ["stale architecture-rule path"]);
-      assert.deepEqual(result.diagnostics[0].details, [
-        "packages/b/src/**/*.ts",
-        "packages/c/src/**/*.ts",
-      ]);
+      assert.deepEqual(result.diagnostics[0].details, ["packages/b/src/**/*.ts", "packages/c/src/**/*.ts"]);
     },
     ["packages/{a,b,c}/src/**/*.ts"],
   );
@@ -721,10 +694,7 @@ test("rejects stale restricted-import regex paths", async () => {
     {},
     {},
     {
-      "no-restricted-imports": [
-        "error",
-        { patterns: [{ regex: "^\\./(?:live|removed-module)\\.js$" }] },
-      ],
+      "no-restricted-imports": ["error", { patterns: [{ regex: "^\\./(?:live|removed-module)\\.js$" }] }],
     },
   );
 });
@@ -792,7 +762,7 @@ test("enforces Engine layer restrictions with concrete import patterns", async (
     },
     {
       name: "persistence cannot import workspace",
-      filePath: "packages/engine/src/subsystems/persistence/sql-database.ts",
+      filePath: "packages/engine/src/subsystems/persistence/scoped-document-store.ts",
       source: 'import "../workspace/index.js";\n',
     },
     {
@@ -813,11 +783,43 @@ test("enforces Engine layer restrictions with concrete import patterns", async (
   }
 });
 
+test("enforces one-way Engine platform package dependencies", async (t) => {
+  const cases = [
+    {
+      name: "core cannot import desktop",
+      filePath: "packages/engine/src/index.ts",
+      source: 'import "@lode/engine-platform-desktop";\n',
+    },
+    {
+      name: "mobile cannot import Node builtins",
+      filePath: "packages/engine-platform-mobile/src/index.ts",
+      source: 'import "node:fs";\n',
+    },
+    {
+      name: "mobile cannot import desktop",
+      filePath: "packages/engine-platform-mobile/src/index.ts",
+      source: 'import "@lode/engine-platform-desktop";\n',
+    },
+    {
+      name: "desktop cannot import mobile",
+      filePath: "packages/engine-platform-desktop/src/index.ts",
+      source: 'import "@lode/engine-platform-mobile";\n',
+    },
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      assert.ok(
+        (await lintRuleIds(fixture.source, fixture.filePath)).includes(
+          "architecture/engine-platform-direction",
+        ),
+      );
+    });
+  }
+});
+
 test("enforces the CLI product boundary after specialized configs are merged", async () => {
   const filePath = "apps/cli/src/families/field.ts";
-  assert.ok(
-    (await lintRuleIds('import "@lode/engine/host";\n', filePath)).includes("architecture/cli-product-boundary"),
-  );
+  assert.ok((await lintRuleIds('import "@lode/engine";\n', filePath)).includes("architecture/cli-product-boundary"));
   assert.ok((await lintRuleIds('import "@lode/daemon";\n', filePath)).includes("architecture/cli-product-boundary"));
   assert.ok(
     !(await lintRuleIds('import "@lode/daemon";\n', "apps/cli/src/bin/lode-daemon.ts")).includes(

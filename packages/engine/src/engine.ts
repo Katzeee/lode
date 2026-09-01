@@ -2,6 +2,7 @@ import type { EngineApplicationContract, EngineCommand, WriteResult } from "@lod
 import { WorkspaceNotFoundError, type EngineApi } from "@lode/sdk/host";
 
 import { projectGovernance } from "./domain/governance/index.js";
+import { bytesToBase64 } from "./crypto/index.js";
 import type { PersistenceBackend } from "./subsystems/persistence/backend.js";
 import type { PeerTransportPort } from "./subsystems/connection/index.js";
 import { createConnectionSubsystemDefinition } from "./subsystems/connection/connection-subsystem.js";
@@ -81,8 +82,8 @@ function identityOperations(identity: IdentityCapability): EngineApi["identity"]
     peerMaterial: () => {
       return Promise.resolve({
         peerId: identity.peer.peerId(),
-        peerIdentityPublicKey: Buffer.from(identity.peer.identityPublicKey()).toString("base64"),
-        peerKxPublicKey: Buffer.from(identity.peer.exchangePublicKey()).toString("base64"),
+        peerIdentityPublicKey: bytesToBase64(identity.peer.identityPublicKey()),
+        peerKxPublicKey: bytesToBase64(identity.peer.exchangePublicKey()),
         actorIds: identity.vault.listActors().map((actor) => actor.actorId),
       });
     },

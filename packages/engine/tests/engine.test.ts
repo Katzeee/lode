@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createEngine, type Engine } from "../src/engine.js";
 import type { PersistenceBackend } from "../src/subsystems/persistence/backend.js";
-import { NodePersistenceBackend } from "../src/subsystems/persistence/node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import type {
   PeerTransportPort,
   ReplicaExchangeHandler,

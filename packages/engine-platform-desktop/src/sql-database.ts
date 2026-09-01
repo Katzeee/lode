@@ -1,5 +1,5 @@
 /**
- * Storage code executes SQL through this async boundary without depending on better-sqlite3.
+ * Desktop storage executes SQL through this async boundary without exposing better-sqlite3.
  * SQL remains owned by each store; this interface owns connection and transaction execution.
  */
 export type SqlParam = null | number | bigint | string | Uint8Array;
@@ -15,12 +15,11 @@ export type SqlDatabase = {
   close(): Promise<void>;
 };
 
-/** View-preserving Uint8Array → Buffer copy for BLOB binding (loro-crdt bytes may be array views). */
-export function bytesToBuffer(bytes: Uint8Array): Buffer {
-  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+/** Exact-view byte copy for SQL BLOB binding; Loro may return a view into a larger buffer. */
+export function bytesForSql(bytes: Uint8Array): Uint8Array {
+  return bytes.slice();
 }
 
-/** Wrap a returned BLOB (Buffer) as a plain Uint8Array. */
-export function rowBytes(value: Buffer | Uint8Array): Uint8Array {
+export function rowBytes(value: Uint8Array): Uint8Array {
   return new Uint8Array(value);
 }

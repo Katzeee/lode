@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { createEngine } from "@lode/engine";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 
 import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../../../packages/daemon/src/daemon.js";
 import { DesktopPeerTransport } from "../../../../packages/daemon/src/peer-exchange-transport.js";

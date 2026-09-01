@@ -1,4 +1,5 @@
 import { PUBLIC_KEY_LENGTH } from "./keys.js";
+import { bytesToHex, hexToBytes } from "./bytes.js";
 
 /**
  * Identity encodings. An Actor id is the hex Ed25519 public key; a Peer id is
@@ -41,12 +42,12 @@ function publicKeyFromId(value: string, prefix: string): Uint8Array | null {
   if (hex.length !== HEX_LENGTH || !HEX_PATTERN.test(hex)) {
     return null;
   }
-  return new Uint8Array(Buffer.from(hex, "hex"));
+  return hexToBytes(hex);
 }
 
 function toHex(publicKey: Uint8Array): string {
   if (publicKey.length !== PUBLIC_KEY_LENGTH) {
     throw new Error("Public key must be 32 bytes");
   }
-  return Buffer.from(publicKey).toString("hex");
+  return bytesToHex(publicKey);
 }

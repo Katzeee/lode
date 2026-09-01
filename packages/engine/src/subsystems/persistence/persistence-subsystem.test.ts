@@ -11,7 +11,7 @@ import type {
 } from "./backend.js";
 import { InMemoryPersistenceBackend } from "../../../tests/support/persistence/in-memory-persistence-backend.js";
 import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
-import { NodePersistenceBackend } from "./node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { buildEngineSubsystems } from "../index.js";
 import type { PersistenceCapability } from "./capability.js";
 import { createPersistenceSubsystemDefinition } from "./persistence-subsystem.js";

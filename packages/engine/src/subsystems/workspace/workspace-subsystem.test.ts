@@ -12,7 +12,7 @@ import type {
   PhysicalWorkspaceStorage,
   PhysicalWorkspaceStorageStage,
 } from "../persistence/backend.js";
-import { NodePersistenceBackend } from "../persistence/node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { SyncExchange } from "../synchronization/sync-exchange.js";
 import { InMemoryReplicaPeer } from "../../../tests/support/sync.js";
 import {

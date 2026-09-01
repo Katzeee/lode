@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { createEngine } from "@lode/engine";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../../../packages/daemon/src/daemon.js";

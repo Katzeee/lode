@@ -14,7 +14,7 @@ import {
   type PeerExchangeSendRequest,
 } from "@lode/protocol/proto";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import type { ReplicaExchangeHandler, ReplicaExchangeProof } from "@lode/engine/host";
+import type { ReplicaExchangeHandler, ReplicaExchangeProof } from "@lode/engine";
 
 /**
  * The remote replica-exchange listener: one HTTP/2 server publishing only

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ReplicaExchangeHandler } from "@lode/engine/host";
+import type { ReplicaExchangeHandler } from "@lode/engine";
 
 import { DesktopPeerTransport } from "./peer-exchange-transport.js";
 

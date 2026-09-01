@@ -26,7 +26,8 @@
     "@lode/node-endpoint": "file:../node-endpoint",
     "@lode/protocol": "file:../protocol",
     "@lode/sdk": "file:../sdk",
-    "@lode/engine": "file:../engine"
+    "@lode/engine": "file:../engine",
+    "@lode/engine-platform-desktop": "file:../engine-platform-desktop"
   },
   "devDependencies": {
     "@lode/desktop-client": "file:../desktop-client",

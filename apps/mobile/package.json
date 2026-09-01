@@ -1,0 +1,43 @@
+{
+  "name": "@lode/app-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/App.js",
+  "exports": {
+    ".": "./dist/App.js",
+    "./engine-host": "./dist/engine-host/index.js"
+  },
+  "scripts": {
+    "android": "react-native run-android",
+    "build:host": "npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-mobile && node scripts/build-engine-host.mjs",
+    "build:android": "node ../../scripts/mobile/build-android.mjs",
+    "lint": "eslint src",
+    "start": "react-native start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lode/engine": "file:../../packages/engine",
+    "@lode/engine-platform-mobile": "file:../../packages/engine-platform-mobile",
+    "react": "19.2.3",
+    "react-native": "0.87.1",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-webview": "^14.0.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.2.0",
+    "@react-native-community/cli-platform-android": "20.2.0",
+    "@react-native/babel-preset": "0.87.1",
+    "@react-native/metro-config": "0.87.1",
+    "@react-native/typescript-config": "0.87.1",
+    "@types/react": "^19.2.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3"
+  },
+  "engines": {
+    "node": ">=22.11.0"
+  }
+}

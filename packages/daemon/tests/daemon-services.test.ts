@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createDesktopClient } from "../../desktop-client/src/desktop-client.js";
-import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
+import { createEngine } from "@lode/engine";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { Code } from "@connectrpc/connect";
 import { afterEach, describe, expect, it } from "vitest";
 

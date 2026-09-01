@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@lode/engine": "file:../../packages/engine",
+    "@lode/engine-platform-desktop": "file:../../packages/engine-platform-desktop",
     "@types/node": "^20.19.39",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

@@ -1,17 +1,15 @@
-import { bytesToBuffer, rowBytes } from "./sql-database.js";
+import { bytesForSql, rowBytes } from "./sql-database.js";
 import type { SqlDatabase } from "./sql-database.js";
-import { openSqliteDatabase } from "./better-sqlite-adapter.js";
 
 /**
- * The per-workspace SQLite byte store keeps independently sequenced document updates and compacted
+ * The desktop per-workspace SQLite byte store keeps independently sequenced document updates and compacted
  * snapshots. Document identities remain opaque here so the persistence leaf has no knowledge of
  * Facts, CRDT containers, or derived materializations.
  */
 export class SqliteWorkspaceStore {
   private constructor(private readonly db: SqlDatabase) {}
 
-  static async open(filePath: string): Promise<SqliteWorkspaceStore> {
-    const db = await openSqliteDatabase(filePath);
+  static async open(db: SqlDatabase): Promise<SqliteWorkspaceStore> {
     await db.exec(`
       CREATE TABLE IF NOT EXISTS content_updates (
         sub_doc TEXT NOT NULL,
@@ -54,7 +52,7 @@ export class SqliteWorkspaceStore {
            VALUES (?, ?, ?, ?)`,
           input.subDoc,
           nextSeq,
-          bytesToBuffer(input.updateBytes),
+          bytesForSql(input.updateBytes),
           Date.now(),
         );
         nextByDocument.set(input.subDoc, nextSeq + 1);
@@ -75,7 +73,7 @@ export class SqliteWorkspaceStore {
            created_at = excluded.created_at`,
         input.subDoc,
         input.coveredUpdateSeq,
-        bytesToBuffer(input.snapshotBytes),
+        bytesForSql(input.snapshotBytes),
         Date.now(),
       );
       await this.db.run(
@@ -103,14 +101,14 @@ export class SqliteWorkspaceStore {
     const snapshot =
       snapshotSeq === null
         ? null
-        : await this.db.get<{ snapshot_bytes: Buffer }>(
+        : await this.db.get<{ snapshot_bytes: Uint8Array }>(
             `SELECT snapshot_bytes
              FROM content_snapshots
              WHERE sub_doc = ? AND covered_update_seq = ?`,
             subDoc,
             snapshotSeq,
           );
-    const updates = await this.db.all<{ update_bytes: Buffer }>(
+    const updates = await this.db.all<{ update_bytes: Uint8Array }>(
       `SELECT update_bytes
        FROM content_updates
        WHERE sub_doc = ? AND seq > ?

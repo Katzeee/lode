@@ -1,7 +1,13 @@
-import { randomBytes, randomUUID } from "node:crypto";
-
 import { GovernanceAuthorizationError, GovernancePreconditionError } from "@lode/sdk/host";
-import { isActorId, isPeerId, sealToPublicKey } from "../../crypto/index.js";
+import {
+  base64ToBytes,
+  bytesToBase64,
+  isActorId,
+  isPeerId,
+  randomBytes,
+  randomUuid,
+  sealToPublicKey,
+} from "../../crypto/index.js";
 import { projectGovernance, syncAdmittedPeers, type GovernanceState } from "../../domain/governance/index.js";
 import {
   END_SEQUENCE_ANCHOR as end,
@@ -277,7 +283,7 @@ function requireMember(state: GovernanceState, actorId: string): void {
 }
 
 function governanceInvocation(workspaceId: WorkspaceId, action: string, requestId?: string): string {
-  return `governance/${workspaceId}/${action}/${requestId ?? randomUUID()}`;
+  return `governance/${workspaceId}/${action}/${requestId ?? randomUuid()}`;
 }
 
 function governanceBody(actorId: string, action: GovernanceAction): FactBody {
@@ -305,9 +311,9 @@ function decodePublicKey(value: string): Uint8Array {
 }
 
 function decodeBase64(value: string): Uint8Array {
-  return new Uint8Array(Buffer.from(value, "base64"));
+  return base64ToBytes(value);
 }
 
 function toBase64(value: Uint8Array): string {
-  return Buffer.from(value).toString("base64");
+  return bytesToBase64(value);
 }

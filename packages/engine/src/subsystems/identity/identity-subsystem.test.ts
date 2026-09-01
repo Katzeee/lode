@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { NodePersistenceBackend } from "../persistence/node-persistence-backend.js";
+import { NodePersistenceBackend } from "@lode/engine-platform-desktop";
 import { buildEngineSubsystems } from "../index.js";
 import { createPersistenceSubsystemDefinition } from "../persistence/persistence-subsystem.js";
 import { createIdentitySubsystemDefinition } from "./identity-subsystem.js";

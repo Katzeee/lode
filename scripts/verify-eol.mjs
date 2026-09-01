@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const output = execFileSync("git", ["ls-files", "--eol", "-z"], { encoding: "utf8" });
 const violations = [];
@@ -23,7 +24,7 @@ for (const record of output.split("\0")) {
   if (indexEol !== "i/lf" && indexEol !== "i/none") {
     violations.push(`${path}: ${indexEol}; the Git index must normalize text to LF`);
   }
-  if (worktreeEol !== `w/${expectedEol}` && worktreeEol !== "w/none") {
+  if (existsSync(path) && worktreeEol !== `w/${expectedEol}` && worktreeEol !== "w/none") {
     violations.push(`${path}: ${worktreeEol}; .gitattributes requires w/${expectedEol}`);
   }
 }
