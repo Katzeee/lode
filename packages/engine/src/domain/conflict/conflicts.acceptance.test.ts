@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { uniqueFacts } from "../../../tests/support/facts.js";
 import { buildFactSnapshot } from "../fact/index.js";
-import { frontierOf, factActionId, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
+import { factActionId, makeFact, type FactSnapshot, type SequenceAnchor } from "../fact/index.js";
+import { frontierOf } from "../fact/frontier.js";
 import { rebuildGeneration } from "../reconcile/index.js";
 import { projectionText } from "../../../tests/support/reconcile/projection.js";
 import {

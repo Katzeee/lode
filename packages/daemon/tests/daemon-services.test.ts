@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createDesktopClient } from "@lode/desktop-client";
+import { createDesktopClient } from "../../desktop-client/src/desktop-client.js";
 import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 import { Code } from "@connectrpc/connect";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,6 +31,7 @@ async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: str
     exchangeAddress: peerTransport.address,
     accessToken,
     status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
+    onShutdown: () => undefined,
   });
   return daemon;
 }

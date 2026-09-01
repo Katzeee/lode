@@ -1,5 +1,6 @@
 import { okOutcome } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { fileOption, readCommand, writeCommand } from "../command/index.js";
 
 /**
  * Identity family: non-interactive Actor and Peer identity management. Every
@@ -7,19 +8,13 @@ import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
  * reads stdin); the recovery phrase is printed exactly once, at creation.
  */
 
-const PASSPHRASE_FILE = {
-  name: "--passphrase-file",
-  description: "File holding the vault passphrase ('-' for stdin)",
-  value: { kind: "file" as const },
+const PASSPHRASE_FILE = fileOption("--passphrase-file", "File holding the vault passphrase ('-' for stdin)", {
   required: true,
-};
+});
 
-const PHRASE_FILE = {
-  name: "--phrase-file",
-  description: "File holding the BIP-39 recovery phrase ('-' for stdin)",
-  value: { kind: "file" as const },
+const PHRASE_FILE = fileOption("--phrase-file", "File holding the BIP-39 recovery phrase ('-' for stdin)", {
   required: true,
-};
+});
 
 export function registerIdentityCommands(catalog: CommandCatalog): void {
   catalog.register(identityCreate);
@@ -30,13 +25,11 @@ export function registerIdentityCommands(catalog: CommandCatalog): void {
   catalog.register(identityExport);
 }
 
-const identityCreate: CommandDefinition = {
+const identityCreate = writeCommand({
   path: ["identity", "create"],
   summary: "Create a new Actor and print its recovery phrase once.",
   positionals: [["label", "Display label for the Actor"]],
   options: [PASSPHRASE_FILE],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const created = await context.session.identity.create({
@@ -57,15 +50,13 @@ const identityCreate: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const identityImport: CommandDefinition = {
+const identityImport = writeCommand({
   path: ["identity", "import"],
   summary: "Restore an Actor from its recovery phrase.",
   positionals: [["label", "Display label for the Actor"]],
   options: [PASSPHRASE_FILE, PHRASE_FILE],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const imported = await context.session.identity.importActor({
@@ -83,15 +74,11 @@ const identityImport: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const identityList: CommandDefinition = {
+const identityList = readCommand({
   path: ["identity", "list"],
   summary: "List Actors held by this Home and their unlock state.",
-  positionals: [],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context) => {
     const listed = await context.session.identity.list();
@@ -114,15 +101,12 @@ const identityList: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const identityUnlock: CommandDefinition = {
+const identityUnlock = writeCommand({
   path: ["identity", "unlock"],
   summary: "Unlock the Actor Vault with its passphrase.",
-  positionals: [],
   options: [PASSPHRASE_FILE],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const unlocked = await context.session.identity.unlock(args.requiredOption("--passphrase-file"));
@@ -141,29 +125,21 @@ const identityUnlock: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const identityLock: CommandDefinition = {
+const identityLock = writeCommand({
   path: ["identity", "lock"],
   summary: "Lock the Actor Vault; signing stops, sync continues.",
-  positionals: [],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context) => {
     await context.session.identity.lock();
     return okOutcome({ locked: true }, { view: { kind: "text", lines: ["Vault locked."] } });
   },
-};
+});
 
-const identityExport: CommandDefinition = {
+const identityExport = readCommand({
   path: ["identity", "export"],
   summary: "Print this Home's admission material (public keys only).",
-  positionals: [],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context) => {
     const material = await context.session.identity.peerMaterial();
@@ -181,4 +157,4 @@ const identityExport: CommandDefinition = {
       },
     );
   },
-};
+});

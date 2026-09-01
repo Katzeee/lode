@@ -8,7 +8,7 @@ import type { CliOutcome, HumanView } from "../outcome/index.js";
  */
 
 /** The full renderable result of one invocation. */
-export type RenderedOutcome = Readonly<{
+type RenderedOutcome = Readonly<{
   outcome: CliOutcome;
   exitCode: number;
 }>;

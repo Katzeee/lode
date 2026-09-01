@@ -29,7 +29,7 @@ export const NODE_KIND_INTRINSICS: Readonly<
 
 const LINK_PREFIX = "lode://workspace/";
 
-export type ParsedSelector =
+type ParsedSelector =
   | Readonly<{ form: "link"; workspaceId: string; kind: TargetKind; identity: string }>
   | Readonly<{ form: "ref"; kind: TargetKind; identity: string }>
   | Readonly<{ form: "label"; label: string }>;
@@ -89,7 +89,7 @@ export function nodeLabel(node: ProjectedNode): string {
   return node.content.flatMap((item) => (item.kind === "text" ? [item.value] : [])).join("");
 }
 
-export type WorkspaceEntry = Readonly<{ workspaceId: string; label: string }>;
+type WorkspaceEntry = Readonly<{ workspaceId: string; label: string }>;
 
 /**
  * Resolves a workspace selector (canonical link, workspace: ref, or exact

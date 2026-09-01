@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  assertHomePathAvailable,
   homeNamePattern,
   normalizeHomePath,
   readHomeRegistry,
+  registeredHomeAtPath,
   writeHomeRegistry,
 } from "./home-registry.js";
 
@@ -90,10 +90,8 @@ describe("home registry (lode.toml)", () => {
     const registry = {
       homes: { main: { path: "/srv/lode/personal" } },
     };
-    expect(() => assertHomePathAvailable(registry, normalizeHomePath("/srv/lode/personal/../personal"))).toThrow(
-      'already registered as home "main"',
-    );
-    expect(() => assertHomePathAvailable(registry, normalizeHomePath("/mnt/other"))).not.toThrow();
+    expect(registeredHomeAtPath(registry, normalizeHomePath("/srv/lode/personal/../personal"))).toBe("main");
+    expect(registeredHomeAtPath(registry, normalizeHomePath("/mnt/other"))).toBeUndefined();
     expect(homeNamePattern.test("main")).toBe(true);
     expect(homeNamePattern.test("2fast")).toBe(false);
     expect(homeNamePattern.test("Work")).toBe(false);

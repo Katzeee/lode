@@ -212,6 +212,31 @@ const architecturePlugin = {
         });
       },
     },
+    "cli-product-boundary": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const filename = context.filename.replaceAll("\\", "/");
+        const daemonEntry = filename.endsWith("/apps/cli/src/bin/lode-daemon.ts");
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (typeof source !== "string") {
+            return;
+          }
+          const importsEngine = source === "@lode/engine" || source.startsWith("@lode/engine/");
+          const importsDaemon = source === "@lode/daemon" || source.startsWith("@lode/daemon/");
+          if (importsEngine || (importsDaemon && !daemonEntry)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message:
+                  "Desktop commands reach product behavior through @lode/sdk and @lode/desktop-client; only the daemon binary entry owns @lode/daemon.",
+              },
+            });
+          }
+        });
+      },
+    },
   },
 };
 
@@ -229,7 +254,6 @@ export default tseslint.config(
       "packages/daemon/vitest.config.ts",
       "packages/engine/vitest.config.ts",
       "packages/engine/tests/benchmark/**",
-      "packages/logger/vitest.config.ts",
       "experiments/**",
     ],
   },
@@ -379,7 +403,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{conflict,history,reconcile,review}/**"],
+              group: ["../conflict/**", "../history/**", "../reconcile/**", "../review/**"],
               message: "Fact activation is a lower-level policy and depends only on Fact vocabulary.",
             },
           ],
@@ -396,12 +420,8 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{history,review}/**"],
+              group: ["../history/**", "../review/**"],
               message: "Projection reconciliation cannot depend on its Review or History consumers.",
-            },
-            {
-              regex: "^(?:\\./|(?:\\.\\./)+)direct-tail/(?!index\\.js$).+",
-              message: "Incremental Projection eligibility is consumed through its family-rule funnel.",
             },
           ],
         },
@@ -417,7 +437,7 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../{history,reconcile,review}/**"],
+              group: ["../history/**", "../reconcile/**", "../review/**"],
               message: "Conflict policy exposes issues to Projection and cannot depend back on it.",
             },
           ],
@@ -436,7 +456,11 @@ export default tseslint.config(
             {
               group: [
                 "../../domain/**",
-                "../{connection,event,identity,synchronization,workspace}/**",
+                "../connection/**",
+                "../event/**",
+                "../identity/**",
+                "../synchronization/**",
+                "../workspace/**",
                 "loro-crdt",
                 "@lode/sdk",
                 "@lode/sdk/**",
@@ -465,9 +489,15 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../../domain/{history,reconcile,review}/**",
+                "../../../domain/history/**",
+                "../../../domain/reconcile/**",
+                "../../../domain/review/**",
                 "../application/**",
-                "../{authority-coordination,command,edit-planning,projection,query}/**",
+                "../authority-coordination/**",
+                "../command/**",
+                "../edit-planning/**",
+                "../projection/**",
+                "../query/**",
                 "../workspace*.js",
               ],
               message:
@@ -479,7 +509,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/engine/src/subsystems/workspace/authority/authority-commit-plan.ts"],
+    files: ["packages/engine/src/subsystems/workspace/authority/loro-fact-*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -487,37 +517,16 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../../../domain/{history,reconcile,review}/**",
-                "../../persistence/**",
+                "../../../domain/history/**",
+                "../../../domain/reconcile/**",
+                "../../../domain/review/**",
                 "../application/**",
-                "../{authority-coordination,command,edit-planning,projection,query}/**",
-                "../replica-sync.js",
+                "../authority-coordination/**",
+                "../command/**",
+                "../edit-planning/**",
+                "../projection/**",
+                "../query/**",
                 "../workspace*.js",
-                "./fact-authority.js",
-                "./loro-*.js",
-              ],
-              message:
-                "Authority commit planning is a policy seam and cannot depend on persistence, replication, or the store facade.",
-            },
-          ],
-        },
-      ],
-    },
-  },
-  {
-    files: ["packages/engine/src/subsystems/workspace/authority/loro-fact-store.ts"],
-    rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../../../domain/{history,reconcile,review}/**",
-                "../application/**",
-                "../{authority-coordination,command,edit-planning,projection,query}/**",
-                "../workspace*.js",
-                "./authority-commit-plan.js",
                 "./fact-authority.js",
               ],
               message:
@@ -570,9 +579,18 @@ export default tseslint.config(
           patterns: [
             {
               group: [
-                "../{authority,authority-coordination,command,edit-planning,projection,query}/**",
+                "../authority/**",
+                "../authority-coordination/**",
+                "../command/**",
+                "../edit-planning/**",
+                "../projection/**",
+                "../query/**",
                 "../workspace*.js",
-                "../../{connection,event,identity,persistence,synchronization}/**",
+                "../../connection/**",
+                "../../event/**",
+                "../../identity/**",
+                "../../persistence/**",
+                "../../synchronization/**",
                 "loro-crdt",
                 "@bufbuild/**",
               ],
@@ -645,10 +663,9 @@ export default tseslint.config(
                 "@lode/daemon/**",
                 "@lode/desktop-client",
                 "@connectrpc/**",
-                "@bufbuild/**",
               ],
               message:
-                "The SDK can depend on generated protocol contracts, but not an implementation or transport library.",
+                "The SDK owns the wire codec on generated contracts and the protobuf runtime, but cannot depend on an engine implementation or transport library.",
             },
           ],
         },
@@ -677,37 +694,20 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/{cli,gui,tui}/**/*.ts"],
+    files: ["apps/cli/src/**/*.ts"],
     ignores: ["**/*.test.ts", "**/tests/**"],
     rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: ["@lode/engine", "@lode/engine/**", "@lode/daemon", "@lode/daemon/**"],
-              message: "Desktop apps reach product behavior through @lode/sdk and @lode/desktop-client.",
-            },
-          ],
-        },
-      ],
+      "architecture/cli-product-boundary": "error",
     },
   },
   {
-    // CLI MVP one-way module architecture (see the CLI README's ownership table).
+    // CLI one-way module architecture.
     files: ["apps/cli/src/**/*.ts"],
     ignores: [
       "**/*.test.ts",
-      "apps/cli/src/domain-cli.ts",
-      "apps/cli/src/domain-command-support.ts",
-      "apps/cli/src/domain-data-mutations.ts",
-      "apps/cli/src/domain-structure-mutations.ts",
-      "apps/cli/src/cli.ts",
       "apps/cli/src/composition.ts",
       "apps/cli/src/session/index.ts",
-      "apps/cli/src/diagnostics/index.ts",
       "apps/cli/src/manage/**/*.ts",
-      "apps/cli/src/daemon-launch.ts",
     ],
     rules: {
       "no-restricted-imports": [
@@ -737,7 +737,6 @@ export default tseslint.config(
                 "@lode/desktop-client",
                 "@lode/desktop-client/**",
                 "../output/index.js",
-                "../../output/index.js",
                 "node:process",
                 "node:fs",
                 "node:fs/promises",
@@ -747,18 +746,13 @@ export default tseslint.config(
               message:
                 "Product families compose the SDK contract through shared modules; they own no transport, rendering, or process access.",
             },
-            {
-              regex: "^\\.\\./(?:\\.\\./)?families/[a-z-]+\\.js$",
-              message:
-                "Command families never import each other; cross-family actions belong to the user command path's family.",
-            },
           ],
         },
       ],
     },
   },
   {
-    files: ["apps/cli/src/{output,target,value,invocation,catalog}/**/*.ts"],
+    files: ["apps/cli/src/{output,target,value,command,invocation,catalog}/**/*.ts"],
     ignores: ["**/*.test.ts"],
     rules: {
       "no-restricted-imports": [
@@ -770,12 +764,11 @@ export default tseslint.config(
                 "@lode/desktop-client",
                 "@lode/desktop-client/**",
                 "../families/**",
-                "../../families/**",
                 "../output/index.js",
-                "../../output/index.js",
                 "node:process",
               ],
-              message: "Target/value/invocation/catalog/output modules stay below families and never render or dial.",
+              message:
+                "Target/value/command/invocation/catalog/output modules stay below families and never render or dial.",
             },
           ],
         },
@@ -842,7 +835,7 @@ export default tseslint.config(
   },
   {
     files: ["packages/engine/src/**/*.ts"],
-    ignores: ["**/*.test.ts", "packages/engine/src/subsystems/workspace/authority/loro-fact-store.ts"],
+    ignores: ["**/*.test.ts", "packages/engine/src/subsystems/workspace/authority/loro-fact-*.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",

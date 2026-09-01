@@ -1,12 +1,7 @@
 import { defineAction, defineActionFamily } from "./action-definition.js";
 import { VIEW_SORT_NODE_NAME_NODE_ID } from "./identity.js";
-import {
-  anchorIdentities,
-  fieldDefinitionIdentities,
-  identity,
-  relationKey,
-} from "./action-semantics/contribution-helpers.js";
-import { SELF_FACT_ACTION } from "./action-semantics/types.js";
+import { anchorIdentities, fieldDefinitionIdentities, identity, relationKey } from "./action-contribution-helpers.js";
+import { SELF_FACT_ACTION } from "./action-contribution-types.js";
 import { enumField, factActionIdField, nonemptyStringField, sequenceAnchorField } from "./action-field-decoders.js";
 
 const viewTypeField = enumField(["outline", "table"] as const);
@@ -16,6 +11,7 @@ export const viewActionDefinitions = defineActionFamily({
   addSharedDefault: defineAction(
     "shared-default-view-add",
     "proposable",
+    "internal",
     {
       hostNodeId: nonemptyStringField,
       viewType: viewTypeField,
@@ -37,6 +33,7 @@ export const viewActionDefinitions = defineActionFamily({
   removeSharedDefault: defineAction(
     "shared-default-view-remove",
     "proposable",
+    "composite",
     {
       hostNodeId: nonemptyStringField,
     },
@@ -53,6 +50,7 @@ export const viewActionDefinitions = defineActionFamily({
   restoreSharedDefault: defineAction(
     "shared-default-view-restore",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
     },
@@ -69,6 +67,7 @@ export const viewActionDefinitions = defineActionFamily({
   setMode: defineAction(
     "view-mode-set",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
       viewType: viewTypeField,
@@ -88,6 +87,7 @@ export const viewActionDefinitions = defineActionFamily({
   addColumn: defineAction(
     "view-column-add",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
       fieldDefinitionId: nonemptyStringField,
@@ -110,6 +110,7 @@ export const viewActionDefinitions = defineActionFamily({
   removeColumn: defineAction(
     "view-column-remove",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
       fieldDefinitionId: nonemptyStringField,
@@ -128,6 +129,7 @@ export const viewActionDefinitions = defineActionFamily({
   moveColumn: defineAction(
     "view-column-move",
     "proposable",
+    "internal",
     {
       columnId: factActionIdField,
       anchor: sequenceAnchorField,
@@ -148,6 +150,7 @@ export const viewActionDefinitions = defineActionFamily({
   addSort: defineAction(
     "view-sort-add",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
       fieldDefinitionId: nonemptyStringField,
@@ -171,6 +174,7 @@ export const viewActionDefinitions = defineActionFamily({
   configureSort: defineAction(
     "view-sort-configure",
     "proposable",
+    "internal",
     {
       sortId: factActionIdField,
       fieldDefinitionId: nonemptyStringField,
@@ -189,17 +193,18 @@ export const viewActionDefinitions = defineActionFamily({
       },
     ],
   ),
-  removeSort: defineAction("view-sort-remove", "proposable", { viewId: factActionIdField }, (action) => [
+  removeSort: defineAction("view-sort-remove", "proposable", "internal", { viewId: factActionIdField }, (action) => [
     identity({ kind: "fact-action", factActionId: action.viewId }, "relate", "require"),
     { kind: "causal-collection", collection: "view-sort", operation: "remove-observed", key: action.viewId },
   ]),
-  restoreSort: defineAction("view-sort-restore", "proposable", { sortId: factActionIdField }, (action) => [
+  restoreSort: defineAction("view-sort-restore", "proposable", "internal", { sortId: factActionIdField }, (action) => [
     identity({ kind: "fact-action", factActionId: action.sortId }, "relate", "require"),
     { kind: "causal-collection", collection: "view-sort", operation: "restore", entryId: action.sortId },
   ]),
   addGroup: defineAction(
     "view-group-add",
     "proposable",
+    "internal",
     {
       viewId: factActionIdField,
       fieldDefinitionId: nonemptyStringField,
@@ -216,7 +221,7 @@ export const viewActionDefinitions = defineActionFamily({
       },
     ],
   ),
-  removeGroup: defineAction("view-group-remove", "proposable", { viewId: factActionIdField }, (action) => [
+  removeGroup: defineAction("view-group-remove", "proposable", "internal", { viewId: factActionIdField }, (action) => [
     identity({ kind: "fact-action", factActionId: action.viewId }, "relate", "require"),
     {
       kind: "causal-collection",
@@ -225,7 +230,7 @@ export const viewActionDefinitions = defineActionFamily({
       key: action.viewId,
     },
   ]),
-  addFilter: defineAction("view-filter-add", "proposable", { viewId: factActionIdField }, (action) => [
+  addFilter: defineAction("view-filter-add", "proposable", "internal", { viewId: factActionIdField }, (action) => [
     identity({ kind: "fact-action", factActionId: action.viewId }, "relate", "require"),
     {
       kind: "causal-collection",
@@ -235,14 +240,26 @@ export const viewActionDefinitions = defineActionFamily({
       entryId: SELF_FACT_ACTION,
     },
   ]),
-  removeFilter: defineAction("view-filter-remove", "proposable", { viewId: factActionIdField }, (action) => [
-    identity({ kind: "fact-action", factActionId: action.viewId }, "relate", "require"),
-    { kind: "causal-collection", collection: "view-filter", operation: "remove-observed", key: action.viewId },
-  ]),
-  restoreFilter: defineAction("view-filter-restore", "proposable", { filterId: factActionIdField }, (action) => [
-    identity({ kind: "fact-action", factActionId: action.filterId }, "relate", "require"),
-    { kind: "causal-collection", collection: "view-filter", operation: "restore", entryId: action.filterId },
-  ]),
+  removeFilter: defineAction(
+    "view-filter-remove",
+    "proposable",
+    "internal",
+    { viewId: factActionIdField },
+    (action) => [
+      identity({ kind: "fact-action", factActionId: action.viewId }, "relate", "require"),
+      { kind: "causal-collection", collection: "view-filter", operation: "remove-observed", key: action.viewId },
+    ],
+  ),
+  restoreFilter: defineAction(
+    "view-filter-restore",
+    "proposable",
+    "internal",
+    { filterId: factActionIdField },
+    (action) => [
+      identity({ kind: "fact-action", factActionId: action.filterId }, "relate", "require"),
+      { kind: "causal-collection", collection: "view-filter", operation: "restore", entryId: action.filterId },
+    ],
+  ),
 });
 
 function viewFieldDefinitionIdentities(fieldDefinitionId: string) {

@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@lode/sdk": "file:../sdk",
+    "@lode/system-schema": "file:../system-schema",
     "@scure/bip39": "^2.3.0",
     "better-sqlite3": "^12.0.0",
     "loro-crdt": "^1.11.0"

@@ -1,4 +1,5 @@
 import type { RejectedResult, WriteResult } from "@lode/sdk";
+import { AuthoredIntentViolation } from "../../../domain/authored-intent/index.js";
 import type { AcceptedEngineCommand } from "../application/input-validation.js";
 import {
   frontierCovers,
@@ -9,22 +10,22 @@ import {
 } from "../../../domain/fact/index.js";
 import { historyBody } from "../../../domain/history/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
+import { FactValidationError, InvocationConflictError, ProjectionUnavailableError } from "../authority/errors.js";
 import type { WorkspaceProjection } from "../projection/index.js";
 import {
-  executionErrorResult,
   finishWorkspaceReceipt,
   pendingResult,
   publishedResult,
   rejectedResult,
-} from "../workspace-results.js";
-import type { WorkspaceEventPublisher } from "../workspace-event-publisher.js";
+} from "../application/result-mapping.js";
+import { EditPlanningRejection } from "../edit-planning/index.js";
 import { bindWorkspaceCommand } from "./command-rules.js";
 
 type WorkspaceCommandExecutorOptions = Readonly<{
   workspaceId: string;
   facts: WorkspaceCommandAuthority;
   projection: WorkspaceProjection;
-  events?: WorkspaceEventPublisher;
+  publishAuthorityAdvance(frontier: FactSnapshot["frontier"]): void;
 }>;
 
 type WorkspaceCommandAuthority = Pick<
@@ -72,7 +73,10 @@ export class WorkspaceCommandExecutor {
         replicaId: this.options.facts.replicaId,
       });
     } catch (error) {
-      return this.rejected("invalid-input", error instanceof Error ? error.message : String(error));
+      if (error instanceof EditPlanningRejection || error instanceof AuthoredIntentViolation) {
+        return this.rejected("invalid-input", error.message);
+      }
+      throw error;
     }
     if ("status" in planned) {
       return planned;
@@ -96,7 +100,7 @@ export class WorkspaceCommandExecutor {
       return executionErrorResult(error, this.options.projection.identity.generationId);
     }
     if (committed.created) {
-      this.options.events?.publish("authority-advanced", committed.receipt.committedFrontier, null);
+      this.options.publishAuthorityAdvance(committed.receipt.committedFrontier);
     }
     return this.publishToReceipt(committed.receipt);
   }
@@ -136,4 +140,17 @@ export class WorkspaceCommandExecutor {
   private rejected(code: Parameters<typeof rejectedResult>[0], message: string): RejectedResult {
     return rejectedResult(code, message, this.options.projection.identity.generationId);
   }
+}
+
+function executionErrorResult(error: unknown, currentGenerationId: string): WriteResult {
+  if (error instanceof FactValidationError) {
+    return rejectedResult("invalid-input", error.message, currentGenerationId);
+  }
+  if (error instanceof InvocationConflictError) {
+    return rejectedResult("invocation-conflict", error.message, currentGenerationId);
+  }
+  if (error instanceof ProjectionUnavailableError) {
+    return rejectedResult("projection-unavailable", error.message, currentGenerationId);
+  }
+  throw error;
 }

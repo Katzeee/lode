@@ -1,16 +1,21 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand, TypedFieldValue } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
-import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_DATATYPE_NODE_IDS,
+  materializedFieldNodeId,
+} from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
-import { syncPair } from "../../../tests/support/sync.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { FactReplication } from "./fact-replication.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("typed Field Values", () => {
   it("keeps typed value identity and three-state semantics through Proposal, History, clear, and restart", async () => {
@@ -190,7 +195,7 @@ describe("typed Field Values", () => {
       left.workspace,
       command("sync-typed-values", "typed-values", [numberSet(-3), checkboxSet(true, "checkbox-value-yes")]),
     );
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
     expect(await value(right.workspace, "origin", "number-field")).toMatchObject({
@@ -211,11 +216,17 @@ async function establishFixture(workspace: Workspace): Promise<void> {
       nodeAt("owner", "workspace", "owner-occurrence"),
       nodeAt("option-alpha", "workspace", "option-alpha-occurrence"),
       nodeAt("not-an-option", "workspace", "not-an-option-occurrence"),
-      nodeAt("option-tag", "workspace", "option-tag-occurrence", "supertag-definition"),
-      nodeAt("number-field", "workspace", "number-field-definition-occurrence", "field-definition"),
-      nodeAt("date-field", "workspace", "date-field-definition-occurrence", "field-definition"),
-      nodeAt("checkbox-field", "workspace", "checkbox-field-definition-occurrence", "field-definition"),
-      nodeAt("options-field", "workspace", "options-field-definition-occurrence", "field-definition"),
+      nodeAt("option-tag", "workspace", "option-tag-occurrence", { intrinsicNodeType: "supertag-definition" }),
+      nodeAt("number-field", "workspace", "number-field-definition-occurrence", {
+        intrinsicNodeType: "field-definition",
+      }),
+      nodeAt("date-field", "workspace", "date-field-definition-occurrence", { intrinsicNodeType: "field-definition" }),
+      nodeAt("checkbox-field", "workspace", "checkbox-field-definition-occurrence", {
+        intrinsicNodeType: "field-definition",
+      }),
+      nodeAt("options-field", "workspace", "options-field-definition-occurrence", {
+        intrinsicNodeType: "field-definition",
+      }),
     ]),
   );
   await execute(
@@ -315,22 +326,6 @@ function clear(
   };
 }
 
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "field-definition",
-): EditAction {
-  return {
-    kind: "node-create",
-    nodeId,
-    parentNodeId,
-    occurrenceId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
-}
-
 async function value(
   workspace: Workspace,
   perspective: "origin" | "review",
@@ -380,5 +375,5 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
     loroPeerId,
     documents: documents,
   });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }) };
 }

@@ -5,16 +5,10 @@ import {
   nonempty,
   nullableString,
   object,
-  safeInteger,
+  ShapeValidationError,
 } from "../../decoding/index.js";
-import { isReplicaId } from "./fact.js";
 import { isFactActionId } from "./identities.js";
-import type { FactFrontier, JsonValue, SequenceAnchor, TextAtomId } from "./types.js";
-
-export function parseJsonValue(value: unknown): JsonValue {
-  assertJsonValue(value, "Value");
-  return value as JsonValue;
-}
+import type { JsonValue, SequenceAnchor, TextAtomId } from "./fact-value-types.js";
 
 export function parseJsonRecord(value: unknown): Record<string, JsonValue> {
   const result = object(value, "JSON object");
@@ -22,17 +16,6 @@ export function parseJsonRecord(value: unknown): Record<string, JsonValue> {
     assertJsonValue(child, "Value");
   }
   return result as Record<string, JsonValue>;
-}
-
-export function parseFactFrontier(value: unknown): FactFrontier {
-  const frontier = object(value, "Fact frontier");
-  for (const [replicaId, sequence] of Object.entries(frontier)) {
-    if (!isReplicaId(replicaId)) {
-      throw new Error("Invalid frontier Replica identity");
-    }
-    safeInteger(sequence, 0, "frontier sequence");
-  }
-  return frontier as FactFrontier;
 }
 
 export function parseSequenceAnchor(value: unknown): SequenceAnchor {
@@ -57,7 +40,7 @@ export function parseTextAtomId(value: unknown): TextAtomId {
     !/^(?:0|[1-9]\d*)$/.test(suffix) ||
     !Number.isSafeInteger(Number(suffix))
   ) {
-    throw new Error("Atom identity is invalid");
+    throw new ShapeValidationError("Atom identity is invalid");
   }
   return candidate as TextAtomId;
 }

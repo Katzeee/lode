@@ -1,3 +1,4 @@
+import { openTestWorkspace } from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "@lode/sdk";
@@ -7,12 +8,11 @@ import {
   materializedFieldOccurrenceId,
   type ProjectionPerspective,
 } from "../../domain/fact/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const FIELD_NODE_ID = materializedFieldNodeId("owner", "field-definition");
 const FIELD_OCCURRENCE_ID = materializedFieldOccurrenceId("owner", "field-definition");
 
@@ -163,7 +163,7 @@ describe("instance Field content deletion", () => {
 function explicitFieldProgram(): readonly EditAction[] {
   return [
     nodeAt("owner", "workspace", "owner-occurrence"),
-    nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
+    nodeAt("field-definition", "workspace", "field-definition-original", { intrinsicNodeType: "field-definition" }),
     nodeAt(FIELD_NODE_ID, "owner", FIELD_OCCURRENCE_ID),
     nodeAt("value-a", FIELD_NODE_ID, "value-a-occurrence"),
     nodeAt("value-b", FIELD_NODE_ID, "value-b-occurrence"),
@@ -173,22 +173,6 @@ function explicitFieldProgram(): readonly EditAction[] {
       fieldDefinitionId: "field-definition",
     },
   ];
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "field-definition",
-): EditAction {
-  return {
-    kind: "node-create",
-    occurrenceId,
-    nodeId,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
 }
 
 function valueDeletion(valueOccurrenceId: string): EditAction {
@@ -254,7 +238,7 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   });
   return {
     facts,
-    workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }),
+    workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }),
   };
 }
 

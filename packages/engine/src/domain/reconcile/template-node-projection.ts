@@ -134,36 +134,6 @@ function activeTemplateOccurrenceId(
   return result;
 }
 
-export function authoredStructureWithoutProjectedTemplates(
-  instances: readonly TemplateNodeInstance[],
-  effectiveOccurrences: ReadonlyMap<string, MutableOccurrence>,
-  effectiveChildren: ReadonlyMap<string, readonly string[]>,
-): Readonly<{
-  occurrences: Map<string, MutableOccurrence>;
-  childOccurrences: Map<string, string[]>;
-}> {
-  const occurrences = new Map([...effectiveOccurrences].map(([id, occurrence]) => [id, { ...occurrence }]));
-  const childOccurrences = new Map(
-    [...effectiveChildren].map(([parentNodeId, occurrenceIds]) => [parentNodeId, [...occurrenceIds]]),
-  );
-  const occurrenceIds = new Set<string>();
-  for (const instance of instances) {
-    const occurrence = occurrences.get(instance.instanceOccurrenceId);
-    const stillProjected = instance.instanceNodeId === null && occurrence?.nodeId === instance.templateNodeId;
-    if (stillProjected) {
-      occurrenceIds.add(instance.instanceOccurrenceId);
-      occurrences.delete(instance.instanceOccurrenceId);
-    }
-  }
-  for (const [parent, childIds] of childOccurrences) {
-    childOccurrences.set(
-      parent,
-      childIds.filter((occurrenceId) => !occurrenceIds.has(occurrenceId)),
-    );
-  }
-  return { occurrences, childOccurrences };
-}
-
 function detachments(active: readonly FactAction[]): ReadonlyMap<string, readonly FactAction[]> {
   const result = new Map<string, FactAction[]>();
   for (const fact of active) {

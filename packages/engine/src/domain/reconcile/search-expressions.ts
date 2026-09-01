@@ -7,6 +7,7 @@ import {
   type FactActionId,
   type SearchClause,
   type SearchExpressionSpec,
+  visitSearchExpression,
 } from "../fact/index.js";
 import { nodeLocation } from "./node-graph.js";
 import type { MutableNode, MutableOccurrence } from "./projection-state.js";
@@ -148,7 +149,7 @@ function validSearchExpression(
   nodes: ReadonlyMap<string, MutableNode>,
 ): boolean {
   let valid = true;
-  visit(expression, (clause) => {
+  visitSearchExpression(expression, (clause) => {
     const [nodeId, intrinsicNodeType] = supportTarget(clause);
     if (clause.kind === "field-value" && clause.value.kind === "node") {
       valid &&= nodeLocation(workspaceNodeId, graph, clause.value.nodeId) === "active";
@@ -161,15 +162,6 @@ function validSearchExpression(
     }
   });
   return valid;
-}
-
-function visit(expression: SearchExpressionSpec, visitor: (clause: SearchExpressionSpec) => void): void {
-  visitor(expression);
-  if (expression.kind === "and" || expression.kind === "or") {
-    expression.operands.forEach((child) => visit(child, visitor));
-  } else if (expression.kind === "not") {
-    visit(expression.operand, visitor);
-  }
 }
 
 function supportTarget(

@@ -67,13 +67,12 @@ import type {
   FieldCheckboxValueSetAction as ProtocolFieldCheckboxValueSetAction,
   FieldOptionsFromSupertagValueSetAction as ProtocolFieldOptionsFromSupertagValueSetAction,
   TypedFieldValueClearAction as ProtocolTypedFieldValueClearAction,
-} from "@lode/protocol/dto/edit";
+} from "@lode/protocol/proto";
 import type {
   JsonValue,
   NodeSeed,
   IntrinsicNodeType,
   PreviousValue,
-  ProtocolDto,
   SequenceAnchor,
   TextAtomId,
   ViewType,
@@ -83,8 +82,7 @@ import type {
   ViewSortDirection,
   TemplateFieldVisibility,
 } from "./model.js";
-
-type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
+import type { WithKind } from "./protocol-dto.js";
 
 type NodeCreateAction = Omit<
   WithKind<ProtocolNodeCreateAction, "node-create">,

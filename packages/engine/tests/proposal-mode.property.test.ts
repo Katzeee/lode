@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  frontierOf,
   factActionId,
   factActionsFromFacts,
   buildFactSnapshot,
@@ -12,7 +11,9 @@ import {
   type FactSnapshot,
   type GraphAction,
 } from "../src/domain/fact/index.js";
+import { frontierOf } from "../src/domain/fact/frontier.js";
 import { uniqueFacts } from "./support/facts.js";
+import { shuffle } from "./support/permutation.js";
 import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration } from "../src/domain/reconcile/index.js";
 import { baseFixture, HistoryFixture } from "./support/history/history-test-helpers.js";
 import { supertagApplicationActions } from "./support/reconcile/supertag-application-test-helpers.js";
@@ -208,7 +209,9 @@ describe("seeded Proposal Mode property and permutation contracts", () => {
     }
   });
 
-  it("seeded History programs cover representative action owners through Undo and Redo", () => {
+  // Four seeds × every history lifecycle case × two intents; runs past the default
+  // 15s timeout when the machine is loaded by the rest of the suite.
+  it("seeded History programs cover representative action owners through Undo and Redo", { timeout: 60_000 }, () => {
     for (let seed = 1; seed <= 4; seed += 1) {
       for (const [index, ownerCase] of shuffle([...historyLifecycleCases()], seed).entries()) {
         for (const intent of ["direct", "proposal"] as const) {
@@ -728,20 +731,6 @@ function fact(
 
 function records(facts: readonly Fact[]): readonly Fact[] {
   return facts;
-}
-
-function shuffle<T>(values: readonly T[], seed: number): T[] {
-  const result = [...values];
-  let state = seed >>> 0;
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    const target = state % (index + 1);
-    [result[index], result[target]] = [
-      required(result[target], "shuffle target"),
-      required(result[index], "shuffle source"),
-    ];
-  }
-  return result;
 }
 
 function required<T>(value: T | undefined, label: string): T {

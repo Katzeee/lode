@@ -1,14 +1,13 @@
-import { frontierCovers } from "../../../domain/fact/index.js";
+import { frontierCovers, type FactFrontier } from "../../../domain/fact/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 import type { WorkspaceProjection } from "../projection/index.js";
-import type { WorkspaceEventPublisher } from "../workspace-event-publisher.js";
 
-export { ensureWorkspaceGenesis } from "./genesis.js";
+export { workspaceGenesisFact } from "./genesis-validation.js";
 
 type WorkspaceAuthorityCoordinatorOptions = Readonly<{
   facts: Pick<FactAuthorityPort, "snapshot">;
   projection: WorkspaceProjection;
-  events?: WorkspaceEventPublisher;
+  publishAuthorityAdvance(frontier: FactFrontier): void;
 }>;
 
 export class WorkspaceAuthorityCoordinator {
@@ -19,7 +18,7 @@ export class WorkspaceAuthorityCoordinator {
     if (frontierCovers(this.options.projection.identity.frontier, snapshot.frontier)) {
       return;
     }
-    this.options.events?.publish("authority-advanced", snapshot.frontier, null);
+    this.options.publishAuthorityAdvance(snapshot.frontier);
     this.options.projection.advance(snapshot);
   }
 }

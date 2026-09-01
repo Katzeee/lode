@@ -3,8 +3,7 @@ import { sequenceAnchorAt, type InterpretedProjection } from "../reconcile/index
 import { noCompensation, type CompensationStep } from "./compensation-types.js";
 
 export function compensateSupertagApplication(
-  target: FactAction &
-    Readonly<{ action: Extract<SupertagAction, { kind: "supertag-application-add" | "supertag-membership-remove" }> }>,
+  target: FactAction<Extract<SupertagAction, { kind: "supertag-application-add" | "supertag-membership-remove" }>>,
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {

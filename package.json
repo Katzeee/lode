@@ -9,7 +9,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/logger && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",
@@ -20,10 +20,13 @@
     "typecheck:test": "npm run typecheck:test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "lint:fix": "npm run lint:fix --workspaces --if-present",
+    "generate:wire": "node scripts/generate-wire-proto.mjs",
+    "verify:wire": "node scripts/generate-wire-proto.mjs --check",
+    "verify:eol": "node scripts/verify-eol.mjs",
     "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
-    "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/fact-sot.completeness.test.ts tests/proposal-mode.property.test.ts",
-    "verify:import-cycles": "node scripts/verify-import-cycles.mjs",
-    "verify": "npm run build && npm run typecheck && npm run lint && npm run test && npm run verify:import-cycles && npm run verify:acceptance-catalog",
+    "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/proposal-mode.property.test.ts",
+    "verify:architecture": "node --test scripts/architecture/architecture-verification.test.mjs && node scripts/verify-architecture.mjs",
+    "verify": "npm run verify:eol && npm run build && npm run verify:wire && npm run typecheck && npm run lint && npm run test && npm run verify:architecture && npm run verify:acceptance-catalog",
     "prepare": "husky"
   },
   "lint-staged": {

@@ -24,8 +24,8 @@ export function classify(error: unknown): CliError {
     return new CliError("conflict", message);
   }
   if (
-    ["unavailable", "unknown", "canceled", "deadline_exceeded", "internal"].includes(code) ||
-    /^\[(?:unavailable|canceled|deadline_exceeded|unavailable)\]/u.test(message)
+    ["unavailable", "canceled", "deadline_exceeded"].includes(code) ||
+    /^\[(?:unavailable|canceled|deadline_exceeded)\]/u.test(message)
   ) {
     return new CliError("transport", message);
   }
@@ -49,7 +49,7 @@ export function renderResult(
     error: result.error ?? null,
     warnings: result.warnings ?? [],
   };
-  return dispatchRender(outcome, format, io);
+  return dispatchRender(outcome, format, io, result.status === "outcome-unknown" ? 5 : 0);
 }
 
 export function renderFailure(
@@ -67,11 +67,10 @@ export function renderFailure(
     ...errorOutcome(error),
     view: null,
   };
-  return dispatchRender(outcome, options.format ?? "human", options.io);
+  return dispatchRender(outcome, options.format ?? "human", options.io, error.exitCode);
 }
 
-function dispatchRender(outcome: CliOutcome, format: "human" | "json", io: Io): number {
-  const exitCode = exitCodeFor(outcome);
+function dispatchRender(outcome: CliOutcome, format: "human" | "json", io: Io, exitCode: number): number {
   const result = { outcome, exitCode };
   if (format === "json") {
     renderJson(result, io);
@@ -79,43 +78,6 @@ function dispatchRender(outcome: CliOutcome, format: "human" | "json", io: Io): 
     renderHuman(result, io);
   }
   return exitCode;
-}
-
-function exitCodeFor(outcome: CliOutcome): number {
-  switch (outcome.status) {
-    case "ok":
-    case "committed-pending":
-      return 0;
-    case "outcome-unknown":
-      return 5;
-    case "error":
-      if (outcome.error === null) {
-        return 1;
-      }
-      switch (outcome.error.code) {
-        case "usage":
-        case "configuration-missing":
-        case "target-not-found":
-        case "ambiguous-target":
-        case "unsupported":
-          return 2;
-        case "invalid-value":
-          // A domain rejection keeps the invalid-value code but exits 3.
-          return outcome.error.details.engineCode === undefined ? 2 : 3;
-        case "conflict":
-        case "stale-selection":
-        case "invocation-conflict":
-          return 3;
-        case "unavailable":
-        case "authorization":
-        case "transport":
-          return 4;
-        case "outcome-unknown":
-          return 5;
-        case "internal":
-          return 1;
-      }
-  }
 }
 
 export function argvIncludesFormat(argv: readonly string[]): "human" | "json" | undefined {

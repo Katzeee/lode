@@ -1,3 +1,7 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 import {
   FIELD_CARDINALITY_NODE_IDS,
@@ -7,14 +11,11 @@ import {
 } from "../../domain/fact/index.js";
 
 import type { EditCommand } from "@lode/sdk";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { FactReplication } from "./fact-replication.js";
-import { syncPair } from "../../../tests/support/sync.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Field Definition configuration", () => {
   it("projects semantic configurations across Proposal and History and rejects ordinary values", async () => {
@@ -22,7 +23,7 @@ describe("Field Definition configuration", () => {
     await execute(
       workspace,
       command("field-fixture", "setup", [
-        nodeAt("status", "workspace", "status-original", "field-definition"),
+        nodeAt("status", "workspace", "status-original", { intrinsicNodeType: "field-definition" }),
         nodeAt("ordinary", "workspace", "ordinary-original"),
       ]),
     );
@@ -205,7 +206,7 @@ describe("Field Definition configuration", () => {
     await execute(
       left.workspace,
       command("sync-field-fixture", "sync-setup", [
-        nodeAt("status", "workspace", "status-original", "field-definition"),
+        nodeAt("status", "workspace", "status-original", { intrinsicNodeType: "field-definition" }),
       ]),
     );
     await execute(
@@ -234,7 +235,7 @@ describe("Field Definition configuration", () => {
       ]),
     );
 
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
     expect(configurationOfKind(await configurations(right.workspace, "origin"), "optionality")).toMatchObject({
@@ -249,10 +250,10 @@ describe("Field Definition configuration", () => {
     await execute(
       left.workspace,
       command("concurrent-field-fixture", "concurrent-setup", [
-        nodeAt("status", "workspace", "status-original", "field-definition"),
+        nodeAt("status", "workspace", "status-original", { intrinsicNodeType: "field-definition" }),
       ]),
     );
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
 
@@ -277,7 +278,7 @@ describe("Field Definition configuration", () => {
       ]),
     );
 
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
     const candidates = (await configurations(left.workspace, "origin")).status?.filter(
@@ -312,7 +313,7 @@ describe("Field Definition configuration", () => {
         },
       ]),
     );
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await left.workspace.reconcileAuthorityAdvance();
     await right.workspace.reconcileAuthorityAdvance();
     const merged = (await configurations(left.workspace, "origin")).status?.filter(
@@ -331,7 +332,9 @@ describe("Field Definition configuration", () => {
     const workspace = await setup();
     await execute(
       workspace,
-      command("field", "setup", [nodeAt("status", "workspace", "status-original", "field-definition")]),
+      command("field", "setup", [
+        nodeAt("status", "workspace", "status-original", { intrinsicNodeType: "field-definition" }),
+      ]),
     );
     await execute(
       workspace,
@@ -387,7 +390,7 @@ async function open(loroPeerId: `${number}`) {
     loroPeerId,
     documents: new InMemoryDocumentStore(),
   });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }) };
 }
 
 async function configurations(workspace: Workspace, perspective: "origin" | "review") {
@@ -408,24 +411,6 @@ function configurationOfKind(
   kind: "datatype" | "cardinality" | "optionality" | "initialization-expression",
 ) {
   return values.status?.find((configuration) => configuration.kind === kind);
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "field-definition",
-  text?: string,
-) {
-  return {
-    kind: "node-create" as const,
-    nodeId,
-    occurrenceId,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-    ...(text === undefined ? {} : { seed: { text: [{ value: text, attributes: {} }] } }),
-  };
 }
 
 function command(

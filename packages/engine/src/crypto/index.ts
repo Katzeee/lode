@@ -1,4 +1,4 @@
-export { aeadOpen, aeadSeal } from "./aead.js";
+export { AeadAuthenticationError, aeadOpen, aeadSeal } from "./aead.js";
 export {
   generateSigningKeyPair,
   generateExchangeKeyPair,

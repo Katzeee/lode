@@ -1,4 +1,4 @@
-import type { JsonValue, SequenceAnchor } from "./types.js";
+import type { JsonValue, SequenceAnchor } from "./fact-value-types.js";
 
 export type NodeSeed = Readonly<{
   text: readonly Readonly<{

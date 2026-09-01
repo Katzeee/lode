@@ -1,4 +1,5 @@
 import {
+  afterSequenceAnchor as after,
   causalMaxima,
   factActionsOfKind,
   factObserves,
@@ -59,12 +60,6 @@ export function templateFieldStates(active: readonly FactAction[]): readonly Tem
   });
 }
 
-export function templateFieldStateByAction(
-  active: readonly FactAction[],
-): ReadonlyMap<FactActionId, TemplateFieldState> {
-  return new Map(templateFieldStates(active).map((state) => [state.addition.id, state]));
-}
-
 export function templateFieldPlacementIds(
   action: FactAction,
   states: ReadonlyMap<FactActionId, TemplateFieldState>,
@@ -123,7 +118,7 @@ function fieldDefinitionOwner(
     lifecycle.filter(
       (action) =>
         action.action.fieldDefinitionId === addition.action.fieldDefinition.fieldDefinitionId &&
-        actionObserves(action, addition),
+        factObserves(action, addition),
     ),
     (left, right) => left.action.fieldDefinitionId === right.action.fieldDefinitionId,
   );
@@ -169,12 +164,4 @@ export function templateFieldVisibilityCandidates(
     (candidate) => candidate.entryId === templateFieldId,
   );
   return factActionsOfKind(state?.registers.get("visibility")?.candidates ?? [], "template-field-visibility-set");
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
-}
-
-function after(occurrenceId: string): SequenceAnchor {
-  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
 }

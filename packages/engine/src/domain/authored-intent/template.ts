@@ -6,22 +6,22 @@ import {
   type SequenceAnchor,
 } from "../fact/index.js";
 import { occurrenceAnchor, type InterpretedProjection } from "../reconcile/index.js";
-import type { AuthoredIntentFamily } from "./policy.js";
+import { AuthoredIntentViolation, type AuthoredIntentFamily } from "./contract.js";
 
 const TEMPLATE_ACTION_KINDS = graphActionKindsInFamily("template");
 
 export const templateAuthoredIntent = {
   key: "template",
   actionKinds: TEMPLATE_ACTION_KINDS,
-  validate(action, context) {
-    return validateTemplateDetachment(action, context.projections().available);
+  assert(action, context) {
+    assertTemplateDetachment(action, context.available);
   },
 } satisfies AuthoredIntentFamily<(typeof TEMPLATE_ACTION_KINDS)[number]>;
 
-function validateTemplateDetachment(
+function assertTemplateDetachment(
   action: Extract<AuthoredAction, { kind: "template-node-detach" }>,
   available: InterpretedProjection,
-): Extract<AuthoredAction, { kind: "template-node-detach" }> {
+): void {
   const instance = available.templateNodeInstances.find(
     (candidate) =>
       candidate.ownerNodeId === action.ownerNodeId &&
@@ -29,7 +29,7 @@ function validateTemplateDetachment(
       candidate.state === "linked",
   );
   if (!instance) {
-    throw new Error("Template Node instance is absent or already detached");
+    throw new AuthoredIntentViolation("Template Node instance is absent or already detached");
   }
   const expectedAnchor = occurrenceAnchor(available, instance.instanceOccurrenceId);
   if (
@@ -37,9 +37,8 @@ function validateTemplateDetachment(
     action.instanceOccurrenceId !== templateInstanceOccurrenceId(action.ownerNodeId, action.templateNodeId) ||
     !sameAnchor(action.anchor, expectedAnchor)
   ) {
-    throw new Error("Template Node detachment does not match the current instance");
+    throw new AuthoredIntentViolation("Template Node detachment does not match the current instance");
   }
-  return action;
 }
 
 function sameAnchor(left: SequenceAnchor, right: SequenceAnchor): boolean {

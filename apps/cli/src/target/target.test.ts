@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { descriptor, nodeLabel, parseSelector, resolveNodeTarget, resolveWorkspaceFromList } from "./index.js";
+import { descriptor, nodeLabel, resolveNodeTarget, resolveWorkspaceFromList } from "./index.js";
+import { parseSelector } from "./selector.js";
 import { CliError } from "../outcome/index.js";
 import type { DesktopSession } from "../session/index.js";
 import type { ProjectionPerspective, ProjectionPageSection, ProjectedNode } from "@lode/sdk";

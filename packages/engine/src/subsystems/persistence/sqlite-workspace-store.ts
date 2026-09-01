@@ -124,48 +124,6 @@ export class SqliteWorkspaceStore {
     };
   }
 
-  /** Distinct content sub-doc names that have any persisted bytes. */
-  async listSubDocs(
-    query: Readonly<{
-      prefix?: string;
-      after?: string;
-      limit?: number;
-    }> = {},
-  ): Promise<string[]> {
-    const filters: string[] = [];
-    const parameters: string[] = [];
-    if (query.prefix !== undefined) {
-      filters.push("sub_doc LIKE ?");
-      parameters.push(`${query.prefix}%`);
-    }
-    if (query.after !== undefined) {
-      filters.push("sub_doc > ?");
-      parameters.push(query.after);
-    }
-    const where = filters.length > 0 ? `WHERE ${filters.join(" AND ")}` : "";
-    const limit = query.limit === undefined ? "" : "LIMIT ?";
-    const rows = await this.db.all<{ sub_doc: string }>(
-      `SELECT DISTINCT sub_doc FROM (
-          SELECT sub_doc FROM content_updates
-          UNION
-          SELECT sub_doc FROM content_snapshots
-       )
-       ${where}
-       ORDER BY sub_doc ASC
-       ${limit}`,
-      ...parameters,
-      ...(query.limit === undefined ? [] : [query.limit]),
-    );
-    return rows.map((row) => row.sub_doc);
-  }
-
-  async deleteSubDoc(subDoc: string): Promise<void> {
-    await this.db.transaction(async () => {
-      await this.db.run(`DELETE FROM content_updates WHERE sub_doc = ?`, subDoc);
-      await this.db.run(`DELETE FROM content_snapshots WHERE sub_doc = ?`, subDoc);
-    });
-  }
-
   async close(): Promise<void> {
     await this.db.close();
   }

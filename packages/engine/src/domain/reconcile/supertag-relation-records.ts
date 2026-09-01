@@ -9,12 +9,6 @@ export function materializedFieldRecord(
   );
 }
 
-export function appendUnique(values: string[], value: string): void {
-  if (!values.includes(value)) {
-    values.push(value);
-  }
-}
-
 export function relationRecord(
   values: ReadonlyMap<string, readonly string[]>,
 ): Readonly<Record<string, readonly string[]>> {

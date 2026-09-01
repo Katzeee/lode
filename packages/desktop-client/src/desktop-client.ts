@@ -1,33 +1,29 @@
-import net, { type Socket } from "node:net";
-
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
-import { createClient, type Client } from "@connectrpc/connect";
+import { Code, ConnectError, createClient, type Client } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
+import { dialNodeEndpoint, type NodeEndpointDial } from "@lode/node-endpoint";
 import {
   AdoptWorkspaceRequestSchema,
   CreateWorkspaceRequestSchema,
   DaemonService,
-  EngineCommandSchema,
-  EngineEventSchema,
-  EngineQuerySchema,
   EngineService,
   EngineWorkspaceService,
-  QueryResultSchema,
-  WriteResultSchema,
   WorkspaceSyncRequestSchema,
   IdentityService,
   WorkspaceGovernanceService,
+  type EngineEvent as ProtocolEngineEvent,
 } from "@lode/protocol/proto";
 import {
   createTransportEngineApplication,
-  parseEndpoint,
   type EngineApplicationContract,
   type EngineTransport,
+  type EventFailureListener,
   type Unsubscribe,
 } from "@lode/sdk";
 import type { EngineIdentity, WorkspaceSummary } from "@lode/sdk/host";
 import { createGovernanceSurface, createIdentitySurface, type DesktopGovernanceSurface } from "./identity-surface.js";
+import { consumeEventStream } from "./event-stream.js";
 
 type ConnectTransport = Readonly<{
   daemon: Client<typeof DaemonService>;
@@ -113,44 +109,27 @@ class SocketEngineTransport {
 
   private engineTransport(): EngineTransport {
     return {
-      execute: async (bytes) => {
-        const request = fromBinary(EngineCommandSchema, bytes);
-        const response = await this.transport.application.execute(request, { headers: this.requestHeaders });
-        return toBinary(WriteResultSchema, response);
+      execute: async (command) => {
+        try {
+          const response = await this.transport.application.execute(command, { headers: this.requestHeaders });
+          return { status: "response", message: response };
+        } catch (error) {
+          if (commandExecutionOutcomeIsUnknown(error)) {
+            return { status: "outcome-unknown" };
+          }
+          throw error;
+        }
       },
-      query: async (bytes) => {
-        const request = fromBinary(EngineQuerySchema, bytes);
-        const response = await this.transport.application.query(request, { headers: this.requestHeaders });
-        return toBinary(QueryResultSchema, response);
-      },
-      subscribe: (listener) => this.subscribeBytes(listener),
+      query: async (query) => this.transport.application.query(query, { headers: this.requestHeaders }),
+      subscribe: (listener, onError) => this.subscribeEvents(listener, onError),
     };
   }
 
-  private subscribeBytes(listener: (bytes: Uint8Array) => void): Unsubscribe {
+  private subscribeEvents(listener: (event: ProtocolEngineEvent) => void, onError: EventFailureListener): Unsubscribe {
     const iterator = this.transport.application
       .listenEvents({}, { signal: this.abortEvents.signal, headers: this.requestHeaders })
       [Symbol.asyncIterator]();
-    let active = true;
-    void (async () => {
-      while (active) {
-        let result: Awaited<ReturnType<typeof iterator.next>>;
-        try {
-          result = await iterator.next();
-        } catch {
-          active = false;
-          break;
-        }
-        if (result.done) {
-          break;
-        }
-        listener(toBinary(EngineEventSchema, result.value));
-      }
-    })();
-    return () => {
-      active = false;
-      void iterator.return?.();
-    };
+    return consumeEventStream(iterator, listener, onError, this.abortEvents.signal);
   }
 
   close(): void {
@@ -159,9 +138,33 @@ class SocketEngineTransport {
   }
 }
 
-type SocketDial = Readonly<{ tcpUrl: string }> | Readonly<{ authority: string; createConnection: () => Socket }>;
+export function commandExecutionOutcomeIsUnknown(error: unknown): boolean {
+  if (!(error instanceof ConnectError)) {
+    return false;
+  }
+  switch (error.code) {
+    case Code.Canceled:
+    case Code.DeadlineExceeded:
+    case Code.Unavailable:
+      return true;
+    case Code.Unknown:
+    case Code.InvalidArgument:
+    case Code.NotFound:
+    case Code.AlreadyExists:
+    case Code.PermissionDenied:
+    case Code.ResourceExhausted:
+    case Code.FailedPrecondition:
+    case Code.Aborted:
+    case Code.OutOfRange:
+    case Code.Unimplemented:
+    case Code.Internal:
+    case Code.DataLoss:
+    case Code.Unauthenticated:
+      return false;
+  }
+}
 
-function createSocketTransport(dial: SocketDial): ConnectTransport {
+function createSocketTransport(dial: NodeEndpointDial): ConnectTransport {
   const sessionManager =
     "tcpUrl" in dial
       ? new Http2SessionManager(dial.tcpUrl)
@@ -204,7 +207,7 @@ export type DesktopClient = EngineApplicationContract &
   }>;
 
 export function createDesktopClient(endpoint: string, accessToken: string): DesktopClient {
-  const socketTransport = createSocketTransport(dialTarget(endpoint));
+  const socketTransport = createSocketTransport(dialNodeEndpoint(endpoint));
   const transport = new SocketEngineTransport(socketTransport, accessToken);
   const headers = () => new Headers({ authorization: `Bearer ${accessToken}` });
   const identitySurface = createIdentitySurface(socketTransport, headers);
@@ -212,7 +215,7 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
   return {
     execute: (command) => transport.application.execute(command),
     query: (query) => transport.application.query(query),
-    subscribe: (listener) => transport.application.subscribe(listener),
+    subscribe: (listener, onError) => transport.application.subscribe(listener, onError),
     status: () => transport.status(),
     shutdown: () => transport.shutdown(),
     listWorkspaces: () => transport.listWorkspaces(),
@@ -223,22 +226,4 @@ export function createDesktopClient(endpoint: string, accessToken: string): Desk
     syncWorkspace: (workspaceId, remoteEndpoint) => transport.syncWorkspace(workspaceId, remoteEndpoint),
     close: () => transport.close(),
   };
-}
-
-function dialTarget(endpoint: string): SocketDial {
-  const parsed = parseEndpoint(endpoint);
-  switch (parsed.scheme) {
-    case "tcp":
-      return { tcpUrl: `http://${parsed.host}:${parsed.port}` };
-    case "unix":
-      return {
-        authority: "http://lode.local",
-        createConnection: () => net.connect(parsed.socketPath),
-      };
-    case "pipe":
-      return {
-        authority: "http://lode.local",
-        createConnection: () => net.connect(`\\\\.\\pipe\\${parsed.pipeName}`),
-      };
-  }
 }

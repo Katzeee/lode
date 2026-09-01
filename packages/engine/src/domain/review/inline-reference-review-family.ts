@@ -1,17 +1,16 @@
-import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
+import { isInlineReferenceAction, proposableActionKindsInFamily } from "../fact/index.js";
 import { locateInlineReference, type InterpretedProjectionGeneration } from "../reconcile/index.js";
-import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
+import { defineReviewFamily, originReviewChanged } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { InlineReferenceDecisionEffect, InlineReferenceDecisionState } from "./types.js";
 
-const INLINE_REFERENCE_ACTION_KINDS = [
-  "inline-reference-create",
-  "inline-reference-remove",
-  "inline-alias-attach",
-  "inline-alias-detach",
-] as const;
+const INLINE_REFERENCE_ACTION_KINDS = proposableActionKindsInFamily("inlineReference");
 
-export const inlineReferenceReviewFamily = {
+export const inlineReferenceReviewFamily = defineReviewFamily<
+  (typeof INLINE_REFERENCE_ACTION_KINDS)[number],
+  string,
+  InlineReferenceDecisionEffect
+>({
   key: "inline-reference",
   actionKinds: INLINE_REFERENCE_ACTION_KINDS,
   scopes(fact) {
@@ -25,14 +24,11 @@ export const inlineReferenceReviewFamily = {
           : [associatedNodeScope(action.aliasNodeId)]),
     ];
   },
-  candidates: ({ generation, pending }) => inlineReferenceCandidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const action = fact.action;
-    const effect = inlineReferenceEffect(action.inlineReferenceId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? null
-      : { identity: `inline-reference/${action.inlineReferenceId}`, effect };
-  },
+  identify: (fact) => fact.action.inlineReferenceId,
+  effect: (_fact, inlineReferenceId, generation) => inlineReferenceEffect(inlineReferenceId, generation),
+  changed: originReviewChanged,
+  diffKind: "inline-reference",
+  effectIdentity: (inlineReferenceId) => `inline-reference/${inlineReferenceId}`,
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
       const action = fact.action;
@@ -52,35 +48,7 @@ export const inlineReferenceReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule<(typeof INLINE_REFERENCE_ACTION_KINDS)[number]>;
-
-function inlineReferenceCandidates(
-  generation: InterpretedProjectionGeneration,
-  pending: ReadonlyMap<FactAction["id"], FactAction>,
-): readonly HunkCandidate[] {
-  const groups = new Map<string, FactAction[]>();
-  for (const fact of pending.values()) {
-    const action = fact.action;
-    if (!isInlineReferenceAction(action)) {
-      continue;
-    }
-    const values = groups.get(action.inlineReferenceId) ?? [];
-    values.push(fact);
-    groups.set(action.inlineReferenceId, values);
-  }
-  return [...groups].flatMap(([inlineReferenceId, facts]) => {
-    const effect = inlineReferenceEffect(inlineReferenceId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? []
-      : [
-          {
-            diffSpace: { kind: "inline-reference" as const, identity: inlineReferenceId },
-            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  });
-}
+});
 
 function inlineReferenceEffect(
   inlineReferenceId: string,
@@ -108,13 +76,4 @@ function stateFor(
         targetStatus: location.reference.targetStatus,
         anchor: location.anchor,
       };
-}
-
-function isInlineReferenceAction(action: FactAction["action"]): action is Extract<
-  FactAction["action"],
-  {
-    kind: "inline-reference-create" | "inline-reference-remove" | "inline-alias-attach" | "inline-alias-detach";
-  }
-> {
-  return INLINE_REFERENCE_ACTION_KINDS.includes(action.kind as (typeof INLINE_REFERENCE_ACTION_KINDS)[number]);
 }

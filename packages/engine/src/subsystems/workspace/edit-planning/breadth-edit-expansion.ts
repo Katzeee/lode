@@ -7,10 +7,17 @@ import {
   materializedFieldOccurrenceId,
   URL_DEFINITION_NODE_ID,
   type GraphAction,
-  type NodeSeed,
 } from "../../../domain/fact/index.js";
-import { nodeLocation, type MaterializedField, type InterpretedProjection } from "../../../domain/reconcile/index.js";
+import type { InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { validatePlainOrOptionsValue } from "./plain-field-value-validation.js";
+import { EditPlanningRejection } from "./planning-rejection.js";
+import {
+  materializedFieldFor,
+  requireActiveNode,
+  requireUnusedNode,
+  requireUnusedOccurrence,
+  textSeed,
+} from "./projection-guards.js";
 
 type BreadthEdit = Extract<
   EditAction,
@@ -41,7 +48,7 @@ function expandFieldValueCreate(
   requireUnusedOccurrence(edit.valueOccurrenceId, available, "Field Value");
   const existingValue = available.nodes[edit.valueNodeId];
   if (existingValue !== undefined && edit.seed !== undefined) {
-    throw new Error("Existing Field Value Node cannot be reseeded");
+    throw new EditPlanningRejection("Existing Field Value Node cannot be reseeded");
   }
   if (existingValue !== undefined) {
     requireActiveNode(edit.valueNodeId, available, "Existing Field Value");
@@ -114,8 +121,8 @@ function expandCodeNodeConfigure(
   available: InterpretedProjection,
 ): AuthoredActionBatch {
   requireActiveNode(edit.nodeId, available, "Code Node");
-  if (fieldFor(available, edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID) !== undefined) {
-    throw new Error("Code Node already has a language configuration");
+  if (materializedFieldFor(available, edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID) !== undefined) {
+    throw new EditPlanningRejection("Code Node already has a language configuration");
   }
   const fieldNodeId = materializedFieldNodeId(edit.nodeId, CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID);
   requireUnusedNode(fieldNodeId, available, "Code language Field");
@@ -147,7 +154,7 @@ function ensureMaterializedField(
   fieldDefinitionId: string,
   available: InterpretedProjection,
 ): readonly GraphAction[] {
-  const existing = fieldFor(available, ownerNodeId, fieldDefinitionId);
+  const existing = materializedFieldFor(available, ownerNodeId, fieldDefinitionId);
   if (existing !== undefined) {
     return [];
   }
@@ -156,34 +163,4 @@ function ensureMaterializedField(
   requireUnusedNode(fieldNodeId, available, "Field");
   requireUnusedOccurrence(fieldOccurrenceId, available, "Field");
   return [{ kind: "field-materialize", ownerNodeId, fieldDefinitionId }];
-}
-
-function fieldFor(
-  projection: InterpretedProjection,
-  ownerNodeId: string,
-  fieldDefinitionId: string,
-): MaterializedField | undefined {
-  return projection.materializedFields[ownerNodeId]?.find((field) => field.fieldDefinitionId === fieldDefinitionId);
-}
-
-function requireActiveNode(nodeId: string, available: InterpretedProjection, label: string): void {
-  if (nodeLocation(available.identity.workspaceNodeId, available, nodeId) !== "active") {
-    throw new Error(`${label} is not an active Node`);
-  }
-}
-
-function requireUnusedNode(nodeId: string, available: InterpretedProjection, label: string): void {
-  if (available.nodes[nodeId] !== undefined) {
-    throw new Error(`${label} identity already exists`);
-  }
-}
-
-function requireUnusedOccurrence(occurrenceId: string, available: InterpretedProjection, label: string): void {
-  if (available.occurrences[occurrenceId] !== undefined) {
-    throw new Error(`${label} Occurrence identity already exists`);
-  }
-}
-
-function textSeed(value: string): NodeSeed {
-  return { text: [{ value, attributes: {} }] };
 }

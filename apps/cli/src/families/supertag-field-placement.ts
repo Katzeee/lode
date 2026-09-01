@@ -2,38 +2,21 @@ import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
 import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { resolveNodeTarget } from "../target/index.js";
-import { executeWrite, optionalContributionActions, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, stringOption, writeCommand, type ProductCommandRun } from "../command/index.js";
+import { resolveTarget } from "../target/index.js";
+import { executeWrite, optionalContributionActions, runWrite, writeResult } from "../intent/index.js";
 import { BOOLEAN_VALUES } from "../value/field-values.js";
 import { readOptionalContributions, readTemplateFields } from "./supertag-field-state.js";
 
-const fieldRemove: CommandDefinition = {
+const fieldRemove = writeCommand({
   path: ["supertag", "field", "remove"],
   summary: "Remove a template field use; the field definition and instance content stay.",
   positionals: [["supertag", "Supertag target"]],
-  options: [
-    { name: "--field", description: "Field Definition target", value: { kind: "string" as const }, required: true },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--field", "Field Definition target", { required: true })],
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const supertag = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("supertag"),
-      ["supertag"],
-    );
-    const field = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--field"),
-      ["field"],
-    );
+    const supertag = await resolveTarget(context, args.positional("supertag"), ["supertag"]);
+    const field = await resolveTarget(context, args.requiredOption("--field"), ["field"]);
     const use = (await readTemplateFields(context, supertag.nodeId)).find(
       (candidate) => candidate.fieldDefinitionId === field.nodeId,
     );
@@ -71,51 +54,28 @@ const fieldRemove: CommandDefinition = {
       view: writeView("Removed field", field.descriptor, `from ${supertag.label}`),
     });
   },
-};
+});
 
-const fieldPin: CommandDefinition = {
+const fieldPin = writeCommand({
   path: ["supertag", "field", "pin"],
   summary: "Mark a template field as a primary dimension.",
   positionals: [["supertag", "Supertag target"]],
-  options: [
-    { name: "--field", description: "Field Definition target", value: { kind: "string" as const }, required: true },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--field", "Field Definition target", { required: true })],
   run: visibilitySet("pin", "pinned", "Pinned field"),
-};
+});
 
-const fieldUnpin: CommandDefinition = {
+const fieldUnpin = writeCommand({
   path: ["supertag", "field", "unpin"],
   summary: "Return a pinned template field to normal placement.",
   positionals: [["supertag", "Supertag target"]],
-  options: [
-    { name: "--field", description: "Field Definition target", value: { kind: "string" as const }, required: true },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--field", "Field Definition target", { required: true })],
   run: visibilitySet("unpin", "normal", "Unpinned field"),
-};
+});
 
 function visibilitySet(action: string, visibility: "pinned" | "normal", verb: string) {
   return async (context: Parameters<ProductCommandRun>[0], args: Parameters<ProductCommandRun>[1]) => {
-    const workspaceId = workspaceIdOf(context);
-    const supertag = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("supertag"),
-      ["supertag"],
-    );
-    const field = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--field"),
-      ["field"],
-    );
+    const supertag = await resolveTarget(context, args.positional("supertag"), ["supertag"]);
+    const field = await resolveTarget(context, args.requiredOption("--field"), ["field"]);
     const use = (await readTemplateFields(context, supertag.nodeId)).find(
       (candidate) => candidate.fieldDefinitionId === field.nodeId,
     );
@@ -140,38 +100,17 @@ function visibilitySet(action: string, visibility: "pinned" | "normal", verb: st
   };
 }
 
-const fieldSetOptional: CommandDefinition = {
+const fieldSetOptional = writeCommand({
   path: ["supertag", "field", "set-optional"],
   summary: "Move a field between the template and the Optional Field Contribution section.",
   positionals: [["supertag", "Supertag target"]],
   options: [
-    { name: "--field", description: "Field Definition target", value: { kind: "string" as const }, required: true },
-    {
-      name: "--value",
-      description: "true to make optional, false to return to template",
-      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
-      required: true,
-    },
+    stringOption("--field", "Field Definition target", { required: true }),
+    enumOption("--value", BOOLEAN_VALUES, "true to make optional, false to return to template", { required: true }),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const supertag = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("supertag"),
-      ["supertag"],
-    );
-    const field = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--field"),
-      ["field"],
-    );
+  run: runWrite("supertag.field.set-optional", async (context, args) => {
+    const supertag = await resolveTarget(context, args.positional("supertag"), ["supertag"]);
+    const field = await resolveTarget(context, args.requiredOption("--field"), ["field"]);
     const makeOptional = args.requiredOption("--value") === "true";
     const templateUse = (await readTemplateFields(context, supertag.nodeId)).find(
       (candidate) => candidate.fieldDefinitionId === field.nodeId,
@@ -218,17 +157,17 @@ const fieldSetOptional: CommandDefinition = {
         anchor: end,
       });
     }
-    const { result, data } = await executeWrite(context, "supertag.field.set-optional", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: { target: supertag.descriptor, field: field.descriptor },
       view: writeView(
         makeOptional ? "Made field optional" : "Returned field to template",
         field.descriptor,
         `on ${supertag.label}`,
       ),
-    });
-  },
-};
+    };
+  }),
+});
 
 export function registerSupertagFieldPlacementCommands(catalog: CommandCatalog): void {
   catalog.register(fieldRemove);

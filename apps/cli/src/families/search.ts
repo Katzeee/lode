@@ -1,10 +1,11 @@
 import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { EditAction, SearchExpressionDraft, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
+import type { EditAction, SearchExpressionDraft } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, stringOption, writeCommand, type ProductCommandRun } from "../command/index.js";
+import { labelOf, readNodeUniverse, resolveTarget, resource } from "../target/index.js";
+import { identity, runWrite, workspaceIdOf } from "../intent/index.js";
 import { parseExpression } from "../value/expression.js";
 import { compileDraft, renderExpression, renderSpec, resolveAst } from "../value/expression-compile.js";
 
@@ -21,30 +22,26 @@ export function registerSearchCommands(catalog: CommandCatalog): void {
   catalog.register(searchResults);
 }
 
-const WHERE = { name: "--where", description: "Filter expression", value: { kind: "string" as const } };
+const WHERE = stringOption("--where", "Filter expression");
 
 async function compileExpression(
   context: Parameters<ProductCommandRun>[0],
   raw: string,
 ): Promise<Readonly<{ draft: SearchExpressionDraft; rendered: string }>> {
-  const workspaceId = workspaceIdOf(context);
   const ast = parseExpression(raw);
   const resolved = await resolveAst(ast, async (token, role) => {
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, token, [role]);
+    const target = await resolveTarget(context, token, [role]);
     return target.nodeId;
   });
   return { draft: compileDraft(resolved), rendered: renderExpression(resolved) };
 }
 
-const searchCreate: CommandDefinition = {
+const searchCreate = writeCommand({
   path: ["search", "create"],
   summary: "Create a persistent Search Node.",
   positionals: [["name", "Search name"]],
   options: [{ ...WHERE, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("search.create", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
     const name = args.positional("name");
     const expression = await compileExpression(context, args.requiredOption("--where"));
@@ -66,37 +63,23 @@ const searchCreate: CommandDefinition = {
         anchor: end,
       },
     ];
-    const { result, data } = await executeWrite(context, "search.create", actions);
-    const resource = descriptor(workspaceId, "search", searchNodeId, name);
-    return writeResult(data, result, {
-      extra: { target: resource, expression: expression.rendered },
-      view: writeView("Created", resource, `matching ${expression.rendered}`),
-    });
-  },
-};
+    const created = resource(context, "search", searchNodeId, name);
+    return {
+      actions,
+      extra: { target: created, expression: expression.rendered },
+      view: writeView("Created", created, `matching ${expression.rendered}`),
+    };
+  }),
+});
 
-const searchShow: CommandDefinition = {
+const searchShow = readCommand({
   path: ["search", "show"],
   summary: "Show a Search Node's persistent expression.",
   positionals: [["search", "Search target"]],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("search"),
-      ["search"],
-    );
-    const expressions = (await context.session.readProjection(
-      workspaceId,
-      context.perspective,
-      "searchExpressions",
-    )) as Record<string, { expressionNodeId: string; expression: SearchExpressionSpec }>;
+    const target = await resolveTarget(context, args.positional("search"), ["search"]);
+    const expressions = await context.session.readProjection(workspaceId, context.perspective, "searchExpressions");
     const current = expressions[target.nodeId];
     if (current === undefined) {
       throw new CliError("unsupported", `Search ${target.descriptor.ref} has no expression in this projection.`);
@@ -119,67 +102,45 @@ const searchShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const searchEdit: CommandDefinition = {
+const searchEdit = writeCommand({
   path: ["search", "edit"],
   summary: "Replace a Search Node's expression.",
   positionals: [["search", "Search target"]],
   options: [{ ...WHERE, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("search.edit", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("search"),
-      ["search"],
-    );
-    const expressions = (await context.session.readProjection(
-      workspaceId,
-      context.perspective,
-      "searchExpressions",
-    )) as Record<string, { expressionNodeId: string; expression: SearchExpressionSpec }>;
+    const target = await resolveTarget(context, args.positional("search"), ["search"]);
+    const expressions = await context.session.readProjection(workspaceId, context.perspective, "searchExpressions");
     const current = expressions[target.nodeId];
     if (current === undefined) {
       throw new CliError("unsupported", `Search ${target.descriptor.ref} has no expression in this projection.`);
     }
     const expression = await compileExpression(context, args.requiredOption("--where"));
-    const { result, data } = await executeWrite(context, "search.edit", [
-      {
-        kind: "search-expression-remove",
-        searchNodeId: target.nodeId,
-        expressionId: current.expression.expressionId,
-      },
-      { kind: "search-expression-create", searchNodeId: target.nodeId, expression: expression.draft, anchor: end },
-    ]);
-    return writeResult(data, result, {
+    return {
+      actions: [
+        {
+          kind: "search-expression-remove",
+          searchNodeId: target.nodeId,
+          expressionId: current.expression.expressionId,
+        },
+        { kind: "search-expression-create", searchNodeId: target.nodeId, expression: expression.draft, anchor: end },
+      ],
       extra: { target: target.descriptor, expression: expression.rendered },
       view: writeView("Updated", target.descriptor, `to ${expression.rendered}`),
-    });
-  },
-};
+    };
+  }),
+});
 
-const searchResults: CommandDefinition = {
+const searchResults = readCommand({
   path: ["search", "results"],
   summary: "Read a Search Node's current result rows.",
   positionals: [["search", "Search target"]],
-  options: [],
-  kind: "read",
   paginated: true,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("search"),
-      ["search"],
-    );
+    const target = await resolveTarget(context, args.positional("search"), ["search"]);
     const result = await context.session.application.query({
       kind: "search-results",
       workspaceId,
@@ -191,13 +152,13 @@ const searchResults: CommandDefinition = {
     if (result.status !== "ok") {
       throw new CliError("unavailable", `Search results are unavailable: ${result.error.message}`);
     }
-    const results = result.value as unknown as SearchResultsResult;
+    const results = result.value;
     const { nodes } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     return okOutcome(
       {
         resource: target.descriptor,
         items: results.results.map((row) =>
-          descriptor(workspaceId, "node", row.targetNodeId, labelOf(nodes, row.targetNodeId)),
+          resource(context, "node", row.targetNodeId, labelOf(nodes, row.targetNodeId)),
         ),
       },
       {
@@ -210,4 +171,4 @@ const searchResults: CommandDefinition = {
       },
     );
   },
-};
+});

@@ -1,9 +1,14 @@
-import type { SyncableComposite, SyncableDoc } from "./replica-sync.js";
+import type { SyncableDoc } from "./authority/replication.js";
+
+export type SyncableComposite = Readonly<{
+  docs(): SyncableDoc[];
+  heal(): Promise<void>;
+}>;
 
 export class FactReplication implements SyncableComposite {
   constructor(
     private readonly facts: SyncableDoc,
-    private readonly reconcile: () => Promise<void> = () => Promise.resolve(),
+    private readonly reconcile: () => Promise<void>,
   ) {}
 
   docs(): SyncableDoc[] {

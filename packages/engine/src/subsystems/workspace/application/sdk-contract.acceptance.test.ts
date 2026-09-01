@@ -1,7 +1,9 @@
+import { openTestWorkspace } from "../../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
-import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../../tests/support/document-store.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
   materializedFieldNodeId,
   templateInstanceNodeId,
@@ -9,14 +11,10 @@ import {
   workspaceTrashNodeId,
 } from "../../../domain/fact/index.js";
 import { FactAuthority } from "../authority/fact-authority.js";
-import { Workspace } from "../workspace.js";
 import {
   createTransportEngineApplication,
-  decodeEngineQueryResult,
-  decodeWriteResult,
-  encodeEngineCommand,
-  encodeEngineQuery,
   type EngineApplicationContract,
+  type EngineQuery,
   type EngineQueryForKind,
   type EngineQueryInput,
   type EngineQueryKind,
@@ -25,31 +23,13 @@ import {
 } from "@lode/sdk";
 import { createEngineTransportServer } from "../../../../tests/support/application-transport.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../../domain/reconcile/index.js";
-import { createSupertagApplication } from "../../../../tests/support/workspace/edit-test-actions.js";
+import { createSupertagApplication, nodeAt } from "../../../../tests/support/workspace/edit-test-actions.js";
 import { buildEngineSubsystems } from "../../index.js";
 import { createEventSubsystemDefinition } from "../../event/event-subsystem.js";
 import { parseEngineQuery } from "./input-validation.js";
 
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
-
 function nodeAtWorkspace(nodeId: string, intrinsicNodeType?: "supertag-definition" | "field-definition") {
-  return [nodeAt(nodeId, "workspace", `${nodeId}-original`, intrinsicNodeType)];
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "field-definition",
-) {
-  return {
-    kind: "node-create" as const,
-    nodeId,
-    occurrenceId,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
+  return [nodeAt(nodeId, "workspace", undefined, intrinsicNodeType === undefined ? {} : { intrinsicNodeType })];
 }
 
 async function setup() {
@@ -61,44 +41,46 @@ async function setup() {
   const event = createEventSubsystemDefinition();
   const events = buildEngineSubsystems([event] as const, ({ event: capability }) => capability);
   await events.lifecycle.start();
-  const workspace = await Workspace.open({
+  const workspace = await openTestWorkspace({
     workspaceId: "workspace",
     facts,
     versions: CURRENT_PROJECTION_VERSIONS,
     eventSink: events.api,
   });
+  function query<Kind extends EngineQueryKind>(
+    query: EngineQueryInput<Kind>,
+  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
+  async function query(query: EngineQuery): Promise<EngineQueryResult> {
+    let parsed;
+    try {
+      parsed = parseEngineQuery(query);
+    } catch (error) {
+      return {
+        status: "rejected",
+        error: {
+          code: "invalid-input",
+          message: error instanceof Error ? error.message : String(error),
+          currentGenerationId: null,
+        },
+      };
+    }
+    try {
+      const value = await workspace.query(parsed);
+      return { status: "ok", value };
+    } catch (error) {
+      return {
+        status: "rejected",
+        error: {
+          code: "projection-unavailable",
+          message: error instanceof Error ? error.message : String(error),
+          currentGenerationId: null,
+        },
+      };
+    }
+  }
   const direct: EngineApplicationContract = {
     execute: (command: Parameters<typeof workspace.execute>[0]) => workspace.execute(command),
-    query: async <Kind extends EngineQueryKind>(
-      query: EngineQueryInput<Kind>,
-    ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>> => {
-      let parsed;
-      try {
-        parsed = parseEngineQuery(query);
-      } catch (error) {
-        return {
-          status: "rejected",
-          error: {
-            code: "invalid-input",
-            message: error instanceof Error ? error.message : String(error),
-            currentGenerationId: null,
-          },
-        };
-      }
-      try {
-        const value = await workspace.query(parsed as EngineQueryInput<Kind>);
-        return { status: "ok", value } as EngineQueryResult<EngineQueryForKind<Kind>>;
-      } catch (error) {
-        return {
-          status: "rejected",
-          error: {
-            code: "projection-unavailable",
-            message: error instanceof Error ? error.message : String(error),
-            currentGenerationId: null,
-          },
-        };
-      }
-    },
+    query,
     subscribe: events.api.subscribe,
   };
   return {
@@ -204,14 +186,15 @@ describe("transport-neutral SDK contract", () => {
 
   it("ordinary Template Nodes detach through the serialized contract", async () => {
     const { serialized } = await setup();
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
     expect(
       (
         await serialized.execute({
           ...command,
           invocationId: "serialized-template-setup",
           actions: [
-            nodeAt("note-supertag", "workspace", "note-supertag-original", "supertag-definition"),
+            nodeAt("note-supertag", "workspace", "note-supertag-original", {
+              intrinsicNodeType: "supertag-definition",
+            }),
             nodeAt("guidance", "workspace", "guidance-original"),
             nodeAt("note", "workspace", "note-occurrence"),
             {
@@ -278,8 +261,10 @@ describe("transport-neutral SDK contract", () => {
           invocationId: "serialized-field-setup",
           actions: [
             nodeAt("owner", "workspace", "owner-occurrence"),
-            nodeAt("supertag", "workspace", "supertag-original", "supertag-definition"),
-            nodeAt("field-definition", "workspace", "field-definition-original", "field-definition"),
+            nodeAt("supertag", "workspace", "supertag-original", { intrinsicNodeType: "supertag-definition" }),
+            nodeAt("field-definition", "workspace", "field-definition-original", {
+              intrinsicNodeType: "field-definition",
+            }),
             {
               kind: "field-materialize",
               ownerNodeId: "owner",
@@ -377,8 +362,8 @@ describe("transport-neutral SDK contract", () => {
     ).toBe("published");
   });
 
-  it("wire and in-process invalid inputs reject before any authority record is written", async () => {
-    const { direct, facts } = await setup();
+  it("serialized and in-process invalid inputs reject before any authority record is written", async () => {
+    const { direct, serialized, facts } = await setup();
     const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     expect(
       await direct.execute({
@@ -396,14 +381,12 @@ describe("transport-neutral SDK contract", () => {
       status: "rejected",
       error: { code: "invalid-input" },
     });
-    const server = createEngineTransportServer(direct);
     const wireInvalid = {
       ...command,
       invocationId: "",
       actions: [{ kind: "node-delete", nodeId: "node" }],
     } as const;
-    const response = decodeWriteResult(await server.execute(encodeEngineCommand(wireInvalid)));
-    expect(response).toMatchObject({
+    expect(await serialized.execute(wireInvalid)).toMatchObject({
       status: "rejected",
       error: { code: "invalid-input" },
     });
@@ -413,7 +396,7 @@ describe("transport-neutral SDK contract", () => {
       perspective: "origin",
       limit: 0,
     } as const;
-    expect(decodeEngineQueryResult(await server.query(encodeEngineQuery(invalidQuery)), invalidQuery)).toMatchObject({
+    expect(await serialized.query(invalidQuery)).toMatchObject({
       status: "rejected",
       error: { code: "invalid-input" },
     });
@@ -432,7 +415,7 @@ describe("transport-neutral SDK contract", () => {
     expect(facts.receipts()).toHaveLength(1);
   });
 
-  it("pre-send encoding failures and raw malformed envelopes are typed invalid input", async () => {
+  it("rejects pre-send encoding failures and prevents malformed envelopes from reaching authority", async () => {
     const { direct, serialized, facts } = await setup();
     const initialFactIds = facts.snapshot().facts.map(({ id }) => id);
     const invalid = {
@@ -455,9 +438,13 @@ describe("transport-neutral SDK contract", () => {
     });
 
     const server = createEngineTransportServer(direct);
-    for (const malformedBytes of [new Uint8Array(), new Uint8Array([0xff])]) {
-      const response = decodeWriteResult(await server.execute(malformedBytes));
-      expect(response).toMatchObject({ status: "rejected", error: { code: "invalid-input" } });
+    // Structurally invalid wire messages: an unset command oneof and an edit payload with no fields.
+    for (const malformedCommand of [{}, { command: { case: "edit", value: {} } }]) {
+      const execution = await server.execute(malformedCommand as never);
+      if (execution.status !== "response") {
+        throw new Error("In-process transport must answer a malformed command message");
+      }
+      expect(execution.message).toMatchObject({ result: { case: "rejected" } });
     }
     expect(facts.snapshot().facts.map(({ id }) => id)).toEqual(initialFactIds);
     expect(facts.receipts()).toHaveLength(1);
@@ -468,15 +455,15 @@ describe("transport-neutral SDK contract", () => {
     const server = createEngineTransportServer(direct);
     let loseResponse = true;
     const lossy: EngineTransport = {
-      async execute(bytes) {
-        const result = await server.execute(bytes);
+      async execute(message) {
+        const result = await server.execute(message);
         if (loseResponse) {
           loseResponse = false;
-          throw new Error("response lost after execution");
+          return { status: "outcome-unknown" };
         }
         return result;
       },
-      query: (bytes) => server.query(bytes),
+      query: (message) => server.query(message),
       subscribe: server.subscribe,
     };
     const adapter = createTransportEngineApplication(lossy);
@@ -497,20 +484,18 @@ describe("transport-neutral SDK contract", () => {
   });
 
   it("serialized responses and events are closed typed contracts", async () => {
-    const listeners = new Set<(bytes: Uint8Array) => void>();
+    const listeners = new Set<Parameters<EngineTransport["subscribe"]>[0]>();
+    // Structurally invalid wire messages: unset result oneofs and an unspecified event kind.
     const malformed: EngineTransport = {
-      execute: () => Promise.resolve(new Uint8Array([0xff])),
-      query: () => Promise.resolve(new Uint8Array([0xff])),
+      execute: () => Promise.resolve({ status: "response", message: {} as never }),
+      query: () => Promise.resolve({} as never),
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
       },
     };
     const adapter = createTransportEngineApplication(malformed);
-    expect(await adapter.execute(command)).toEqual({
-      status: "outcome-unknown",
-      invocationId: command.invocationId,
-    });
+    await expect(adapter.execute(command)).rejects.toThrow();
     await expect(
       adapter.query({
         kind: "projection",
@@ -519,13 +504,18 @@ describe("transport-neutral SDK contract", () => {
       }),
     ).rejects.toThrow();
     let delivered = 0;
-    adapter.subscribe(() => {
-      delivered += 1;
-    });
+    const eventFailures: unknown[] = [];
+    adapter.subscribe(
+      () => {
+        delivered += 1;
+      },
+      (error) => eventFailures.push(error),
+    );
     for (const listener of listeners) {
-      expect(() => listener(new Uint8Array([0xff]))).toThrow();
+      expect(() => listener({ kind: 0 } as never)).not.toThrow();
     }
     expect(delivered).toBe(0);
+    expect(eventFailures).toHaveLength(1);
   });
 
   it("EVENT-1 events carry publication state and queries carry snapshots", async () => {
@@ -533,8 +523,8 @@ describe("transport-neutral SDK contract", () => {
     const events: unknown[] = [];
     serialized.subscribe(() => {
       throw new Error("injected serialized listener failure");
-    });
-    const unsubscribe = serialized.subscribe((event) => events.push(event));
+    }, rethrow);
+    const unsubscribe = serialized.subscribe((event) => events.push(event), rethrow);
     await serialized.execute(command);
     unsubscribe();
     expect(events).toHaveLength(2);
@@ -557,3 +547,7 @@ describe("transport-neutral SDK contract", () => {
     expect(first).not.toBe(second);
   });
 });
+
+function rethrow(error: unknown): never {
+  throw error;
+}

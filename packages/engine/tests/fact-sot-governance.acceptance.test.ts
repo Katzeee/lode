@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { GovernanceSummary } from "@lode/sdk/host";
 
-import { createEngine } from "../src/engine.js";
 import { stableStringCompare } from "../src/domain/fact/index.js";
 import { projectGovernance, type GovernanceState } from "../src/domain/governance/index.js";
-import { InMemoryPersistenceBackend } from "../src/subsystems/persistence/in-memory-persistence-backend.js";
-import { InMemoryDocumentStore } from "../src/subsystems/persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "./support/document-store.js";
 import { ScopedDocumentStore } from "../src/subsystems/persistence/scoped-document-store.js";
 import { FactAuthority } from "../src/subsystems/workspace/authority/fact-authority.js";
+import { createTestEngine } from "./support/create-test-engine.js";
+import { InMemoryPersistenceBackend } from "./support/persistence/in-memory-persistence-backend.js";
 import { assertFactOracleEquivalence } from "./support/reconcile/fact-oracle-equivalence.js";
 
 const passphrase = "fact-sot-governance-passphrase";
@@ -15,7 +15,7 @@ const passphrase = "fact-sot-governance-passphrase";
 describe("Fact source-of-truth governance", () => {
   it("rebuilds the public Governance summary on a receipt-free Fact replica", async () => {
     const persistence = new InMemoryPersistenceBackend();
-    const engine = createEngine({ persistence });
+    const engine = createTestEngine({ persistence });
     await engine.start();
     try {
       const owner = await engine.api.identity.createActor({ label: "Owner", passphrase });

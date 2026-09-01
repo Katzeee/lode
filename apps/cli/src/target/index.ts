@@ -1,4 +1,5 @@
-export { parseSelector, descriptor, nodeLabel, resolveWorkspaceFromList, type ResourceDescriptor } from "./selector.js";
+export { descriptor, nodeLabel, resolveWorkspaceFromList, type ResourceDescriptor } from "./selector.js";
+export { resolveTarget, resolveOccurrence, resource } from "./context.js";
 export {
   resolveNodeTarget,
   resolveOccurrenceTarget,

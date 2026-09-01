@@ -4,19 +4,20 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createEngine, type Engine, type EngineOptions } from "../src/engine.js";
+import { createEngine, type Engine } from "../src/engine.js";
 import type { PersistenceBackend } from "../src/subsystems/persistence/backend.js";
-import { InMemoryPersistenceBackend } from "../src/subsystems/persistence/in-memory-persistence-backend.js";
 import { NodePersistenceBackend } from "../src/subsystems/persistence/node-persistence-backend.js";
 import type {
   PeerTransportPort,
   ReplicaExchangeHandler,
   ReplicaExchangeWire,
 } from "../src/subsystems/connection/index.js";
+import { createTestEngine, createWorkspaceAs, type TestEngineOptions } from "./support/create-test-engine.js";
+import { END_SEQUENCE_ANCHOR as end } from "../src/domain/fact/index.js";
+import { InMemoryPersistenceBackend } from "./support/persistence/in-memory-persistence-backend.js";
 
 const temporaryDirectories: string[] = [];
 const vaultPassphrase = "engine-composition-passphrase";
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 afterEach(async () => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -26,7 +27,7 @@ afterEach(async () => {
 
 describe("Engine composition", () => {
   it("separates lifecycle ownership from the pure Engine API", async () => {
-    const engine = createEngine();
+    const engine = createTestEngine();
     expect(Object.keys(engine).sort()).toEqual(["api", "start", "stop"]);
     expect(engine.api).not.toHaveProperty("start");
     expect(engine.api).not.toHaveProperty("stop");
@@ -75,7 +76,7 @@ describe("Engine composition", () => {
 
   it("isolates public Engine event subscribers", async () => {
     const engine = await startEngine();
-    const { actorId: actor } = await createWorkspaceAs(engine, "workspace", "Workspace");
+    const { actorId: actor } = await createWorkspaceAs(engine, "workspace", "Workspace", vaultPassphrase);
     const events: string[] = [];
     engine.api.application.subscribe((event) => {
       const key = Object.keys(event.frontier)[0];
@@ -83,8 +84,8 @@ describe("Engine composition", () => {
         (event.frontier as Record<string, number>)[key] = 999;
       }
       throw new Error("injected public listener failure after action attempt");
-    });
-    engine.api.application.subscribe((event) => events.push(event.kind));
+    }, rethrow);
+    engine.api.application.subscribe((event) => events.push(event.kind), rethrow);
 
     const result = await engine.api.application.execute(createNodeCommand(actor));
     expect(result.status).toBe("published");
@@ -103,7 +104,7 @@ describe("Engine composition", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-proposal-engine-"));
     temporaryDirectories.push(dataRoot);
     const first = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
-    const { actorId: actor } = await createWorkspaceAs(first, "workspace", "Workspace");
+    const { actorId: actor } = await createWorkspaceAs(first, "workspace", "Workspace", vaultPassphrase);
     const written = await first.api.application.execute(createNodeCommand(actor));
     await first.api.application.execute({
       ...createNodeCommand(actor),
@@ -221,7 +222,7 @@ describe("Engine composition", () => {
     const dataRoot = await mkdtemp(join(tmpdir(), "lode-review-selection-"));
     temporaryDirectories.push(dataRoot);
     const first = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
-    const { actorId: actor } = await createWorkspaceAs(first, "workspace", "Workspace");
+    const { actorId: actor } = await createWorkspaceAs(first, "workspace", "Workspace", vaultPassphrase);
     expect(
       (
         await first.api.application.execute({
@@ -283,7 +284,7 @@ describe("Engine composition", () => {
       persistence: new NodePersistenceBackend(leftRoot),
       peerTransport: network.transport("left"),
     });
-    const bootstrap = await createWorkspaceAs(left, "workspace", "Workspace");
+    const bootstrap = await createWorkspaceAs(left, "workspace", "Workspace", vaultPassphrase);
     const owner = bootstrap.actorId;
     // The second Home restores the SAME Actor from its recovery phrase and
     // adopts the journal from the first Home's exchange boundary; both Homes
@@ -310,7 +311,7 @@ describe("Engine composition", () => {
       expect(adopted).toEqual({ workspaceId: "workspace", label: "Workspace" });
 
       const events: string[] = [];
-      right.api.application.subscribe((event) => events.push(event.kind));
+      right.api.application.subscribe((event) => events.push(event.kind), rethrow);
       await left.api.application.execute(createNodeCommand(owner));
       await left.api.replicas.synchronize("workspace", "right");
       expect(
@@ -416,18 +417,8 @@ describe("Engine composition", () => {
   });
 });
 
-async function createWorkspaceAs(
-  engine: Engine,
-  workspaceId: string,
-  label: string,
-): Promise<Readonly<{ actorId: string; recoveryPhrase: string }>> {
-  const created = await engine.api.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
-  await engine.api.workspaces.createWorkspace({ workspaceId, label, ownerActorId: created.actorId });
-  return { actorId: created.actorId, recoveryPhrase: created.recoveryPhrase };
-}
-
-async function startEngine(options: EngineOptions = {}): Promise<Engine> {
-  const engine = createEngine(options);
+async function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
+  const engine = createTestEngine(options);
   await engine.start();
   return engine;
 }
@@ -481,4 +472,8 @@ function createNodeCommand(actorId: string) {
       },
     ],
   } as const;
+}
+
+function rethrow(error: unknown): never {
+  throw error;
 }

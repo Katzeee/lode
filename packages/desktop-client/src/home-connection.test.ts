@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
+import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../daemon/src/daemon.js";
+import { DesktopPeerTransport } from "../../daemon/src/peer-exchange-transport.js";
 import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 
-import { ensureRunningDaemon, homeConnectionFiles, probeDaemon, selectHome } from "./home-connection.js";
+import { ensureRunningDaemon, probeDaemon, selectHome } from "./home-connection.js";
 
 const accessToken = "home-connection-test-token";
 const temporaryDirectories: string[] = [];
@@ -78,15 +79,11 @@ describe("home daemon connections", () => {
     const home = await temporaryHome();
     await writeFile(join(home, "token"), `${accessToken}\n`, "utf8");
     let launches = 0;
-    const client = await ensureRunningDaemon(
-      { name: "main", path: home },
-      async (selection) => {
-        launches += 1;
-        const daemon = await startHomeDaemon(selection.path);
-        void daemon;
-      },
-      { timeoutMs: 10_000, pollIntervalMs: 50 },
-    );
+    const client = await ensureRunningDaemon({ name: "main", path: home }, async (selection) => {
+      launches += 1;
+      const daemon = await startHomeDaemon(selection.path);
+      void daemon;
+    });
     expect(launches).toBe(1);
     expect((await client.status()).ready).toBe(true);
     client.close();
@@ -96,13 +93,9 @@ describe("home daemon connections", () => {
     const home = await temporaryHome();
     const daemon = await startHomeDaemon(home);
     let launches = 0;
-    const client = await ensureRunningDaemon(
-      { name: "main", path: home },
-      () => {
-        launches += 1;
-      },
-      { timeoutMs: 10_000, pollIntervalMs: 50 },
-    );
+    const client = await ensureRunningDaemon({ name: "main", path: home }, () => {
+      launches += 1;
+    });
     expect(launches).toBe(0);
     client.close();
     await daemon.stop();
@@ -110,9 +103,7 @@ describe("home daemon connections", () => {
 
   it("fails with a missing token rather than dialing", async () => {
     const home = await temporaryHome();
-    await expect(
-      ensureRunningDaemon({ name: "main", path: home }, () => {}, { timeoutMs: 1_000, pollIntervalMs: 20 }),
-    ).rejects.toThrow(/no access token/u);
+    await expect(ensureRunningDaemon({ name: "main", path: home }, () => {})).rejects.toThrow(/no access token/u);
   });
 });
 
@@ -123,8 +114,7 @@ async function temporaryHome(): Promise<string> {
   return directory;
 }
 
-/** Starts an in-process daemon for the home and publishes its runtime files,
- * standing in for what `lode --internal-daemon` does for real. */
+/** Starts an in-process daemon for the home and publishes its runtime files. */
 async function startHomeDaemon(home: string): Promise<Daemon> {
   await writeFile(join(home, "token"), `${accessToken}\n`, "utf8");
   const listen = "tcp://127.0.0.1:0";
@@ -140,9 +130,9 @@ async function startHomeDaemon(home: string): Promise<Daemon> {
     exchangeAddress: peerTransport.address,
     accessToken,
     status: { homeName: "main", daemonVersion: "test", homePath: home },
+    onShutdown: () => undefined,
   });
   runningDaemons.push(daemon);
-  const files = homeConnectionFiles(home);
-  await writeFile(files.endpoint, `${daemon.address}\n`, "utf8");
+  await writeFile(join(home, "endpoint"), `${daemon.address}\n`, "utf8");
   return daemon;
 }

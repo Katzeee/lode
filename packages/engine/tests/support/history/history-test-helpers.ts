@@ -1,5 +1,5 @@
 import {
-  frontierOf,
+  END_SEQUENCE_ANCHOR,
   factActions,
   graphActionBody,
   makeFact,
@@ -11,6 +11,7 @@ import {
   type GraphAction,
   workspaceGenesisActions,
 } from "../../../src/domain/fact/index.js";
+import { frontierOf } from "../../../src/domain/fact/frontier.js";
 import {
   CURRENT_PROJECTION_VERSIONS,
   rebuildGeneration,
@@ -21,12 +22,7 @@ import { planInvocationCompensation } from "../../../src/domain/history/compensa
 import { withInitialNodeRelations } from "../reconcile/placed-node-test-helpers.js";
 
 const REPLICA = "101";
-export const end = {
-  after: null,
-  before: null,
-  affinity: "after",
-  fallback: "end",
-} as const;
+export const end = END_SEQUENCE_ANCHOR;
 const versions = CURRENT_PROJECTION_VERSIONS;
 
 export class HistoryFixture {

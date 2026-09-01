@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import http2 from "node:http2";
 
-import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError, createContextValues, type HandlerContext } from "@connectrpc/connect";
 import { connectNodeAdapter } from "@connectrpc/connect-node";
 import { EmptySchema, type Empty } from "@bufbuild/protobuf/wkt";
@@ -9,22 +9,16 @@ import {
   AdoptWorkspaceResultSchema,
   DaemonService,
   DaemonStatusSchema,
-  EngineCommandSchema,
-  EngineEventSchema,
-  EngineQuerySchema,
   EngineService,
   EngineWorkspaceService,
   IdentityService,
   ListWorkspacesResultSchema,
-  QueryResultSchema,
   WorkspaceGovernanceService,
   WorkspaceSummarySchema,
   WorkspaceSyncResultSchema,
-  WriteResultSchema,
   type AdoptWorkspaceRequest,
   type CreateWorkspaceRequest,
   type EngineCommand,
-  type EngineEvent as ProtocolEngineEvent,
   type EngineQuery,
   type WorkspaceSyncRequest,
 } from "@lode/protocol/proto";
@@ -32,18 +26,14 @@ import {
   GovernanceAuthorizationError,
   GovernancePreconditionError,
   WorkspaceNotFoundError,
+  engineCommandFromMessage,
+  engineQueryFromMessage,
+  queryResultToMessage,
+  writeResultToMessage,
   type EngineApi,
 } from "@lode/sdk/host";
 import { governanceRoutes, identityRoutes, type UnaryWrapper } from "./control-identity.js";
-import {
-  decodeEngineCommand,
-  decodeEngineQuery,
-  encodeEngineEvent,
-  encodeEngineQueryResult,
-  encodeWriteResult,
-  type EngineEvent,
-  type Unsubscribe,
-} from "@lode/sdk";
+import { eventStream } from "./event-stream.js";
 
 /** Home identity the daemon reports through `DaemonService.Status`. */
 export type DaemonStatusIdentity = Readonly<{
@@ -59,12 +49,21 @@ export type DaemonStatusIdentity = Readonly<{
  * lives on its own listener (peer-exchange-server) with its own
  * workspace-scoped authorization.
  */
+/**
+ * How long a Client Session may take to drain its in-flight streams at
+ * shutdown before it is cut. The grace lets short responses — most notably the
+ * Shutdown RPC's own acknowledgement — reach the client instead of racing the
+ * transport teardown; long-lived streams (event subscriptions) never drain on
+ * their own and rely on the forced cut.
+ */
+const SESSION_DRAIN_GRACE_MS = 500;
+
 export function createLodeServer(
   engine: EngineApi,
   accessToken: string,
   status: DaemonStatusIdentity,
-  onShutdown?: () => void,
-): Readonly<{ server: http2.Http2Server; closeConnections(): void }> {
+  onShutdown: () => void,
+): Readonly<{ server: http2.Http2Server; closeConnections(): Promise<void> }> {
   if (accessToken.length === 0) {
     throw new Error("Desktop daemon access token must not be empty");
   }
@@ -90,9 +89,7 @@ export function createLodeServer(
           }),
         ),
         shutdown: unary(accessToken, () => {
-          if (onShutdown) {
-            setImmediate(onShutdown);
-          }
+          setImmediate(onShutdown);
           return create(EmptySchema);
         }),
       });
@@ -122,12 +119,12 @@ export function createLodeServer(
       });
       router.service(EngineService, {
         execute: unary(accessToken, async (request: EngineCommand) => {
-          const command = decodeEngineCommand(toBinary(EngineCommandSchema, request));
-          return fromBinary(WriteResultSchema, encodeWriteResult(await engine.application.execute(command)));
+          const command = engineCommandFromMessage(request);
+          return writeResultToMessage(await engine.application.execute(command));
         }),
         query: unary(accessToken, async (request: EngineQuery) => {
-          const query = decodeEngineQuery(toBinary(EngineQuerySchema, request));
-          return fromBinary(QueryResultSchema, encodeEngineQueryResult(query, await engine.application.query(query)));
+          const query = engineQueryFromMessage(request);
+          return queryResultToMessage(query, await engine.application.query(query));
         }),
         listenEvents: (_request: Empty, context: HandlerContext) => {
           authenticate(context, accessToken);
@@ -147,12 +144,28 @@ export function createLodeServer(
   });
   return {
     server,
-    closeConnections: () => {
-      for (const session of sessions) {
-        session.destroy(new Error("Daemon Client Session is stopping"), http2.constants.NGHTTP2_CANCEL);
-      }
+    closeConnections: async () => {
+      await Promise.all([...sessions].map((session) => drainSession(session)));
     },
   };
+}
+
+function drainSession(session: http2.Http2Session): Promise<void> {
+  return new Promise((resolve) => {
+    if (session.destroyed) {
+      resolve();
+      return;
+    }
+    const cut = setTimeout(
+      () => session.destroy(new Error("Daemon Client Session is stopping"), http2.constants.NGHTTP2_CANCEL),
+      SESSION_DRAIN_GRACE_MS,
+    );
+    session.once("close", () => {
+      clearTimeout(cut);
+      resolve();
+    });
+    session.close();
+  });
 }
 
 function toProtocolSummary(summary: { workspaceId: string; label: string }) {
@@ -199,56 +212,5 @@ function authenticate(context: HandlerContext, accessToken: string): void {
   const actual = Buffer.from(authorization ?? "");
   if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
     throw new ConnectError("Desktop daemon authentication failed", Code.Unauthenticated);
-  }
-}
-
-function eventStream(
-  subscribe: (listener: (event: EngineEvent) => void) => Unsubscribe,
-  signal: AbortSignal,
-): AsyncIterable<ProtocolEngineEvent> {
-  const queue = new EventQueue();
-  const unsubscribe = subscribe((event) => queue.push(event));
-  signal.addEventListener("abort", () => {
-    unsubscribe();
-    queue.close();
-  });
-  return queue;
-}
-
-class EventQueue implements AsyncIterable<ProtocolEngineEvent> {
-  private readonly values: ProtocolEngineEvent[] = [];
-  private readonly waiters: ((result: IteratorResult<ProtocolEngineEvent>) => void)[] = [];
-  private closed = false;
-
-  push(event: EngineEvent): void {
-    const value = fromBinary(EngineEventSchema, encodeEngineEvent(event));
-    const waiter = this.waiters.shift();
-    if (waiter) {
-      waiter({ value, done: false });
-    } else if (this.values.length < 256) {
-      this.values.push(value);
-    }
-  }
-
-  close(): void {
-    this.closed = true;
-    for (const waiter of this.waiters.splice(0)) {
-      waiter({ value: undefined, done: true });
-    }
-  }
-
-  [Symbol.asyncIterator](): AsyncIterator<ProtocolEngineEvent> {
-    return {
-      next: () => {
-        const value = this.values.shift();
-        if (value) {
-          return Promise.resolve({ value, done: false });
-        }
-        if (this.closed) {
-          return Promise.resolve({ value: undefined, done: true });
-        }
-        return new Promise((resolve) => this.waiters.push(resolve));
-      },
-    };
   }
 }

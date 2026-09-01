@@ -1,20 +1,13 @@
 import { expect } from "vitest";
 
-import { buildFactSnapshot } from "../src/domain/fact/index.js";
-import {
-  canonicalJson,
-  makeFact,
-  type Fact,
-  type FactFrontier,
-  type FactSnapshot,
-  type GraphAction,
-} from "../src/domain/fact/index.js";
+import { canonicalJson, makeFact, type Fact, type FactFrontier, type GraphAction } from "../src/domain/fact/index.js";
 import {
   rebuildGeneration,
   CURRENT_PROJECTION_VERSIONS as versions,
   type ProjectionGeneration,
 } from "../src/domain/reconcile/index.js";
-import { uniqueFacts } from "./support/facts.js";
+import { snapshotOf } from "./support/facts.js";
+import { shuffle } from "./support/permutation.js";
 import {
   withFieldDefinitionEndpoints,
   withInitialNodeRelations,
@@ -42,11 +35,6 @@ export function remoteBranch(
     : [];
 }
 
-function snapshotOf(facts: readonly Fact[]): FactSnapshot {
-  const snapshot = buildFactSnapshot("workspace", uniqueFacts(facts));
-  return snapshot;
-}
-
 export function assertSupertagConvergence(
   prefixCount: number,
   facts: readonly Fact[],
@@ -68,20 +56,4 @@ export function assertSupertagConvergence(
     expect(canonicalJson(restarted)).toBe(expectedSummary);
     inspect(full);
   }
-}
-
-function shuffle(values: Fact[], seed: number): Fact[] {
-  let state = seed >>> 0;
-  for (let index = values.length - 1; index > 0; index -= 1) {
-    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
-    const selected = state % (index + 1);
-    const current = values[index];
-    const replacement = values[selected];
-    if (!current || !replacement) {
-      throw new Error("Shuffle selected an absent Fact");
-    }
-    values[index] = replacement;
-    values[selected] = current;
-  }
-  return values;
 }

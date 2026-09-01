@@ -1,40 +1,29 @@
 import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { ViewRowsResult, ViewType } from "@lode/sdk";
+import type { ViewType } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, writeCommand, type ProductCommandRun } from "../command/index.js";
+import { labelOf, readNodeUniverse, resolveTarget, resource } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { readHostView } from "./view-actions.js";
 
-const viewOutlineMode: CommandDefinition = {
+const viewOutlineMode = writeCommand({
   path: ["view", "outline"],
   summary: "Set the host's shared default View Type to Outline.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context, args) => setMode(context, args.positional("node"), "outline"),
-};
+});
 
-const viewTableMode: CommandDefinition = {
+const viewTableMode = writeCommand({
   path: ["view", "table"],
   summary: "Set the host's shared default View Type to Table.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context, args) => setMode(context, args.positional("node"), "table"),
-};
+});
 
 async function setMode(context: Parameters<ProductCommandRun>[0], hostToken: string, viewType: ViewType) {
-  const workspaceId = workspaceIdOf(context);
-  const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
-    "node",
-    "search",
-  ]);
+  const host = await resolveTarget(context, hostToken, ["node", "search"]);
   const existing = await readHostView(context, hostToken);
   if (existing === null) {
     const { result, data } = await executeWrite(context, `view.${viewType}`, [
@@ -59,32 +48,26 @@ async function setMode(context: Parameters<ProductCommandRun>[0], hostToken: str
   ]);
   return writeResult(data, result, {
     extra: {
-      target: descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
+      target: resource(context, "view", existing.viewDefinitionNodeId, `${host.label} view`),
       on: host.descriptor,
       viewType,
     },
     view: writeView(
       `Set ${viewType} view`,
-      descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`),
+      resource(context, "view", existing.viewDefinitionNodeId, `${host.label} view`),
       `on ${host.label}`,
     ),
   });
 }
 
-const viewRows: CommandDefinition = {
+const viewRows = readCommand({
   path: ["view", "rows"],
   summary: "Read the host's View rows (table or outline presentation).",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "read",
   paginated: true,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "search",
-    ]);
+    const host = await resolveTarget(context, args.positional("node"), ["node", "search"]);
     const result = await context.session.application.query({
       kind: "view-rows",
       workspaceId,
@@ -96,15 +79,13 @@ const viewRows: CommandDefinition = {
     if (result.status !== "ok") {
       throw new CliError("unavailable", `View rows are unavailable: ${result.error.message}`);
     }
-    const rows = result.value as unknown as ViewRowsResult;
+    const rows = result.value;
     const { nodes } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     return okOutcome(
       {
         resource: host.descriptor,
         viewType: rows.viewType,
-        items: rows.rows.map((row) =>
-          descriptor(workspaceId, "node", row.targetNodeId, labelOf(nodes, row.targetNodeId)),
-        ),
+        items: rows.rows.map((row) => resource(context, "node", row.targetNodeId, labelOf(nodes, row.targetNodeId))),
       },
       {
         view: {
@@ -116,7 +97,7 @@ const viewRows: CommandDefinition = {
       },
     );
   },
-};
+});
 
 export function registerViewPresentationCommands(catalog: CommandCatalog): void {
   catalog.register(viewOutlineMode);

@@ -1,6 +1,6 @@
 import { type FactBody, type AuthoredAction } from "./types.js";
 import type { AuthorityReceipt } from "./authority-types.js";
-import { isCatalogActionKind, parseCatalogAction } from "./action-catalog.js";
+import { parseCatalogAction } from "./action-catalog.js";
 import { assertFactBody } from "./fact-body-shape-validation.js";
 import { requireFactId, requireFactIds } from "./identities.js";
 import { assertKeys, assertObject, assertOneOf, requireSafeInteger, requireString } from "../../decoding/index.js";
@@ -46,10 +46,6 @@ export function parseAuthoredAction<Kind extends AuthoredAction["kind"]>(
 export function parseAuthoredAction(value: unknown): AuthoredAction;
 export function parseAuthoredAction(value: unknown): AuthoredAction {
   return parseCatalogAction(value);
-}
-
-export function isAuthoredActionKind(value: unknown): value is AuthoredAction["kind"] {
-  return isCatalogActionKind(value);
 }
 
 function assertFrontier(value: unknown, label: string): void {

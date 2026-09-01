@@ -1,42 +1,27 @@
-export { CURRENT_PROJECTION_VERSIONS, PROJECTION_SECTION_NAMES } from "./projection-types.js";
+export { PROJECTION_SECTION_NAMES } from "./projection-types.js";
+export { CURRENT_PROJECTION_VERSIONS } from "./projection-versions.js";
 export type {
   FieldDefinitionConfiguration,
   InlineReferenceTargetStatus,
   MaterializedField,
   ProjectedNode,
-  ProjectedOccurrence,
   Projection,
   ProjectionGeneration,
   ProjectionSectionName,
-  ProjectionSectionValue,
-  ProjectionSections,
-  ProjectionVersions,
   TemplateField,
   SearchExpression,
   SharedDefaultViewDefinition,
   InterpretedProjection,
   InterpretedProjectionGeneration,
 } from "./projection-types.js";
-export { isProjectionSectionEntry, isProjectionSectionValue } from "./projection-section-shape.js";
-export { rebuildGeneration, snapshotAtFrontier } from "./reconcile.js";
-export { finalizedNodeIds, nodeDeletionActionIds } from "./deletion-finalization.js";
-export {
-  fieldConfigurationProjectionIdentity,
-  metanodeHostNodeId,
-  metanodeNodeId,
-  projectionIdentity,
-} from "./projection-identity.js";
+export type { ProjectionVersions } from "./projection-versions.js";
+export { rebuildGeneration } from "./reconcile.js";
+export { nodeDeletionActionIds } from "./deletion-finalization.js";
+export { fieldConfigurationProjectionIdentity, metanodeHostNodeId } from "./projection-identity.js";
 export { searchExpressionActionId, searchExpressionProjectionIdentity } from "./search-expression-graph.js";
-export {
-  viewProjectionIdentity,
-  viewColumnNodeId,
-  viewSortNodeId,
-  viewGroupNodeId,
-  viewFilterNodeId,
-} from "./view-definition-graph.js";
 export { impactAddress } from "./impact-address.js";
-export { assertMaterializedField } from "./materialized-field.js";
+export { materializedFieldProblem } from "./materialized-field.js";
 export { projectFieldAvailability } from "./field-availability.js";
 export { definitionNodeState } from "./definition-node.js";
 export { occurrenceAnchor, sequenceAnchorAt } from "./sequence.js";
-export { isPresentNodeOutsideTrash, locateInlineReference, nodeLocation, textAtoms } from "./node-graph.js";
+export { isActiveNode, locateInlineReference, nodeLocation, textAtoms } from "./node-graph.js";

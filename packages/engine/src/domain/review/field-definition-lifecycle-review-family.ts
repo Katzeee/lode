@@ -1,12 +1,16 @@
-import { canonicalJson, compareCausalOrder, isFieldDefinitionAction, type FactAction } from "../fact/index.js";
+import { canonicalJson, isFieldDefinitionAction, type FactAction } from "../fact/index.js";
 import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
-import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
+import { defineReviewFamily } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { OwnerDecisionEffect } from "./types.js";
 
 const ACTION_KINDS = ["field-definition-make-discoverable", "field-definition-return-to-template-field"] as const;
 
-export const fieldDefinitionLifecycleReviewFamily = {
+export const fieldDefinitionLifecycleReviewFamily = defineReviewFamily<
+  (typeof ACTION_KINDS)[number],
+  string,
+  OwnerDecisionEffect
+>({
   key: "field-definition-lifecycle",
   actionKinds: ACTION_KINDS,
   scopes(fact) {
@@ -16,12 +20,11 @@ export const fieldDefinitionLifecycleReviewFamily = {
       associatedNodeScope(action.fieldDefinitionId),
     ];
   },
-  candidates: ({ generation, pending }) => candidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const action = fact.action;
-    const effect = ownerEffect(action.fieldDefinitionId, generation);
-    return effect.origin === effect.review ? null : { identity: canonicalJson(effect), effect };
-  },
+  identify: (fact) => fact.action.fieldDefinitionId,
+  effect: (_fact, fieldDefinitionId, generation) => ownerEffect(fieldDefinitionId, generation),
+  changed: (effect) => effect.origin !== effect.review,
+  diffKind: "owner",
+  effectIdentity: (_fieldDefinitionId, effect) => canonicalJson(effect),
   addImpacts(impacts, targets) {
     for (const fact of targets) {
       if (isLifecycleAction(fact.action)) {
@@ -29,34 +32,7 @@ export const fieldDefinitionLifecycleReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;
-
-function candidates(
-  generation: InterpretedProjectionGeneration,
-  pending: ReadonlyMap<FactAction["id"], FactAction>,
-): readonly HunkCandidate[] {
-  const groups = new Map<string, FactAction[]>();
-  for (const fact of pending.values()) {
-    if (!isLifecycleAction(fact.action)) {
-      continue;
-    }
-    const values = groups.get(fact.action.fieldDefinitionId) ?? [];
-    values.push(fact);
-    groups.set(fact.action.fieldDefinitionId, values);
-  }
-  return [...groups].flatMap(([fieldDefinitionId, facts]): readonly HunkCandidate[] => {
-    const effect = ownerEffect(fieldDefinitionId, generation);
-    return effect.origin === effect.review
-      ? []
-      : [
-          {
-            diffSpace: { kind: "owner", identity: fieldDefinitionId },
-            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  });
-}
+});
 
 function ownerEffect(fieldDefinitionId: string, generation: InterpretedProjectionGeneration): OwnerDecisionEffect {
   return {

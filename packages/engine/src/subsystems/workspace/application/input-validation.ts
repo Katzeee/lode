@@ -1,9 +1,5 @@
-import {
-  parseEngineCommand as parseSdkEngineCommand,
-  parseEngineQuery as parseSdkEngineQuery,
-  type EngineCommand,
-  type EngineQuery,
-} from "@lode/sdk";
+import { parseEngineCommand as parseSdkEngineCommand, parseEngineQuery as parseSdkEngineQuery } from "@lode/sdk/host";
+import type { EngineCommand, EngineQuery } from "@lode/sdk";
 import { parseEditAction, type EditAction } from "../../../domain/edit/index.js";
 import type { HistorySelection } from "../../../domain/history/index.js";
 import type { ReviewSelection } from "../../../domain/review/index.js";

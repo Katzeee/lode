@@ -1,3 +1,7 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type {
@@ -7,12 +11,11 @@ import type {
   ProjectedOccurrence,
   ProjectionPage,
 } from "@lode/sdk";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { END_SEQUENCE_ANCHOR as end } from "../../domain/fact/index.js";
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Inline Reference product model", () => {
   it("INLINE-1 keeps one ordered identity and an owned Alias through public Undo and Redo", async () => {
@@ -285,7 +288,7 @@ async function setup(): Promise<Workspace> {
     loroPeerId: "101",
     documents: new InMemoryDocumentStore(),
   });
-  return Workspace.open({ workspaceId: "workspace", facts, versions });
+  return openTestWorkspace({ workspaceId: "workspace", facts, versions });
 }
 
 async function createHostAndTarget(workspace: Workspace): Promise<void> {
@@ -315,10 +318,6 @@ function command(
     historyChannelId,
     actions,
   };
-}
-
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string) {
-  return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor: end };
 }
 
 async function nodes(workspace: Workspace, perspective: "origin" | "review"): Promise<ProjectionPage<"nodes">> {

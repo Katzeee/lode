@@ -1,6 +1,10 @@
 import type { EditAction } from "../../../domain/edit/index.js";
 import {
   canonicalJson,
+  findSearchExpression,
+  findSearchExpressionParent,
+  searchClauseFromSpec,
+  searchExpressionChildren,
   type FactActionId,
   type SearchClause,
   type SearchExpressionDraft,
@@ -9,19 +13,26 @@ import {
 } from "../../../domain/fact/index.js";
 import { searchExpressionProjectionIdentity, type InterpretedProjection } from "../../../domain/reconcile/index.js";
 import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
+import { EditPlanningRejection } from "./planning-rejection.js";
 
 export function prepareSearchExpressionCreation(
   edit: Extract<EditAction, { kind: "search-expression-create" }>,
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (available.nodes[edit.searchNodeId]?.intrinsicNodeType !== "search") {
-    throw new Error("Search Expression host is not an active Search Node");
+    throw new EditPlanningRejection("Search Expression host is not an active Search Node");
   }
   if (available.searchExpressions[edit.searchNodeId] !== undefined) {
-    throw new Error("Search Node already has a Search Expression");
+    throw new EditPlanningRejection("Search Node already has a Search Expression");
   }
-  const actions = searchExpressionDraftActions(edit.searchNodeId, edit.expression, edit.anchor, available, actionId);
+  const actions = searchExpressionDraftActions(
+    edit.searchNodeId,
+    edit.expression,
+    edit.anchor,
+    available,
+    finalActionId,
+  );
   return authoredActionBatch(actions);
 }
 
@@ -30,7 +41,7 @@ export function searchExpressionDraftActions(
   draft: SearchExpressionDraft,
   anchor: Extract<EditAction, { kind: "search-expression-create" }>["anchor"],
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
   options: Readonly<{ actionOffset?: number; parentExpressionId?: FactActionId | null }> = {},
 ): readonly [
   Extract<ReturnType<typeof searchAdd>, { kind: "search-expression-add" }>,
@@ -39,14 +50,14 @@ export function searchExpressionDraftActions(
   const actions: Extract<ReturnType<typeof searchAdd>, { kind: "search-expression-add" }>[] = [];
   const actionOffset = options.actionOffset ?? 0;
   appendDraft(actions, draft, hostId, options.parentExpressionId ?? null, anchor, (index) =>
-    actionId(index + actionOffset),
+    finalActionId(index + actionOffset),
   );
   for (const action of actions) {
     validateSearchClauseTargets(action.clause, available);
   }
   const first = actions[0];
   if (!first) {
-    throw new Error("Search Expression draft is empty");
+    throw new EditPlanningRejection("Search Expression draft is empty");
   }
   return [first, ...actions.slice(1)];
 }
@@ -60,11 +71,11 @@ export function prepareSearchExpressionEdit(
     }
   >,
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   const current = available.searchExpressions[edit.searchNodeId];
   if (current === undefined) {
-    throw new Error("Search Node has no Search Expression");
+    throw new EditPlanningRejection("Search Node has no Search Expression");
   }
   if (edit.kind === "search-expression-add") {
     return prepareExpressionAddition(
@@ -74,7 +85,7 @@ export function prepareSearchExpressionEdit(
       edit.expression,
       edit.anchor,
       available,
-      actionId,
+      finalActionId,
     );
   }
   return prepareExpressionEdit(current.expression, edit, available);
@@ -87,11 +98,11 @@ export function prepareExpressionAddition(
   draft: SearchExpressionDraft,
   anchor: SequenceAnchor,
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   requireChildAcceptingParent(expression, parentExpressionId);
   return authoredActionBatch(
-    searchExpressionDraftActions(expressionHostId, draft, anchor, available, actionId, { parentExpressionId }),
+    searchExpressionDraftActions(expressionHostId, draft, anchor, available, finalActionId, { parentExpressionId }),
   );
 }
 
@@ -115,27 +126,27 @@ export function prepareExpressionEdit(
   if (edit.kind === "search-expression-configure") {
     validateSearchClauseTargets(edit.clause, available);
     if (!acceptsChildCount(edit.clause.kind, childCount(current))) {
-      throw new Error("Search Expression configuration would make the Expression tree invalid");
+      throw new EditPlanningRejection("Search Expression configuration would make the Expression tree invalid");
     }
-    if (canonicalJson(clauseOf(current)) === canonicalJson(edit.clause)) {
-      throw new Error("Search Expression configuration has no effect");
+    if (canonicalJson(searchClauseFromSpec(current)) === canonicalJson(edit.clause)) {
+      throw new EditPlanningRejection("Search Expression configuration has no effect");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, expressionId: edit.expressionId, clause: edit.clause });
   }
   if (edit.kind === "search-expression-move") {
-    const currentParent = findParent(expression, edit.expressionId);
+    const currentParent = findSearchExpressionParent(expression, edit.expressionId);
     if (currentParent === undefined) {
-      throw new Error("Search root Expression cannot be moved");
+      throw new EditPlanningRejection("Search root Expression cannot be moved");
     }
     if (edit.parentExpressionId === null) {
-      throw new Error("Search Expression cannot be moved to the root");
+      throw new EditPlanningRejection("Search Expression cannot be moved to the root");
     }
     const nextParent = requireChildAcceptingParent(expression, edit.parentExpressionId);
-    if (containsExpression(current, edit.parentExpressionId)) {
-      throw new Error("Search Expression cannot be moved beneath itself");
+    if (findSearchExpression(current, edit.parentExpressionId) !== undefined) {
+      throw new EditPlanningRejection("Search Expression cannot be moved beneath itself");
     }
     if (currentParent.expressionId !== nextParent.expressionId && !canReleaseChild(currentParent)) {
-      throw new Error("Search Expression move would make its previous parent invalid");
+      throw new EditPlanningRejection("Search Expression move would make its previous parent invalid");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -144,9 +155,9 @@ export function prepareExpressionEdit(
       anchor: edit.anchor,
     });
   }
-  const currentParent = findParent(expression, edit.expressionId);
+  const currentParent = findSearchExpressionParent(expression, edit.expressionId);
   if (currentParent !== undefined && !canReleaseChild(currentParent)) {
-    throw new Error("Search Expression removal would make its parent invalid");
+    throw new EditPlanningRejection("Search Expression removal would make its parent invalid");
   }
   return singleAuthoredActionBatch({ kind: edit.kind, expressionId: edit.expressionId });
 }
@@ -157,15 +168,15 @@ function appendDraft(
   hostId: string,
   parentExpressionId: FactActionId | null,
   anchor: Extract<ReturnType<typeof searchAdd>, { kind: "search-expression-add" }>["anchor"],
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): void {
-  const id = actionId(actions.length);
+  const id = finalActionId(actions.length);
   actions.push(searchAdd(hostId, parentExpressionId, clauseOfDraft(draft), anchor));
   const children =
     draft.kind === "and" || draft.kind === "or" ? draft.operands : draft.kind === "not" ? [draft.operand] : [];
   let previousOccurrenceId: string | null = null;
   for (const child of children) {
-    const childId = actionId(actions.length);
+    const childId = finalActionId(actions.length);
     appendDraft(
       actions,
       child,
@@ -177,7 +188,7 @@ function appendDraft(
         affinity: "after",
         fallback: previousOccurrenceId === null ? "start" : "end",
       },
-      actionId,
+      finalActionId,
     );
     previousOccurrenceId = searchExpressionProjectionIdentity(childId).expressionOccurrenceId;
   }
@@ -193,9 +204,9 @@ function searchAdd(
 }
 
 function requireExpression(expression: SearchExpressionSpec, expressionId: FactActionId): SearchExpressionSpec {
-  const found = findExpression(expression, expressionId);
+  const found = findSearchExpression(expression, expressionId);
   if (!found) {
-    throw new Error("Search Expression identity is absent");
+    throw new EditPlanningRejection("Search Expression identity is absent");
   }
   return found;
 }
@@ -206,53 +217,13 @@ function requireChildAcceptingParent(
 ): Extract<SearchExpressionSpec, { kind: "and" | "or" }> {
   const parent = requireExpression(expression, expressionId);
   if (parent.kind !== "and" && parent.kind !== "or") {
-    throw new Error("Search Expression parent cannot accept another operand");
+    throw new EditPlanningRejection("Search Expression parent cannot accept another operand");
   }
   return parent;
 }
 
-function findExpression(
-  expression: SearchExpressionSpec,
-  expressionId: FactActionId,
-): SearchExpressionSpec | undefined {
-  const nodeId = searchExpressionProjectionIdentity(expressionId).expressionNodeId;
-  if (expression.expressionNodeId === nodeId) {
-    return expression;
-  }
-  const children =
-    expression.kind === "and" || expression.kind === "or"
-      ? expression.operands
-      : expression.kind === "not"
-        ? [expression.operand]
-        : [];
-  return children.map((child) => findExpression(child, expressionId)).find((candidate) => candidate !== undefined);
-}
-
-function findParent(expression: SearchExpressionSpec, expressionId: FactActionId): SearchExpressionSpec | undefined {
-  const children = childrenOf(expression);
-  if (children.some((child) => child.expressionId === expressionId)) {
-    return expression;
-  }
-  return children.map((child) => findParent(child, expressionId)).find((candidate) => candidate !== undefined);
-}
-
-function containsExpression(expression: SearchExpressionSpec, expressionId: FactActionId): boolean {
-  return (
-    expression.expressionId === expressionId ||
-    childrenOf(expression).some((child) => containsExpression(child, expressionId))
-  );
-}
-
-function childrenOf(expression: SearchExpressionSpec): readonly SearchExpressionSpec[] {
-  return expression.kind === "and" || expression.kind === "or"
-    ? expression.operands
-    : expression.kind === "not"
-      ? [expression.operand]
-      : [];
-}
-
 function childCount(expression: SearchExpressionSpec): number {
-  return childrenOf(expression).length;
+  return searchExpressionChildren(expression).length;
 }
 
 function acceptsChildCount(kind: SearchClause["kind"], count: number): boolean {
@@ -276,33 +247,25 @@ function clauseOfDraft(draft: SearchExpressionDraft): SearchClause {
   return draft;
 }
 
-function clauseOf(expression: SearchExpressionSpec): SearchClause {
-  if (expression.kind === "and" || expression.kind === "or" || expression.kind === "not") {
-    return { kind: expression.kind };
-  }
-  const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...clause } = expression;
-  return clause;
-}
-
 function validateSearchClauseTargets(clause: SearchClause, available: InterpretedProjection): void {
   if (clause.kind === "supertag") {
     if (available.nodes[clause.supertagId]?.intrinsicNodeType !== "supertag-definition") {
-      throw new Error("Search Expression Supertag is not active");
+      throw new EditPlanningRejection("Search Expression Supertag is not active");
     }
   } else if (clause.kind === "field-defined" || clause.kind === "field-value" || clause.kind === "date-compare") {
     if (available.nodes[clause.fieldDefinitionId]?.intrinsicNodeType !== "field-definition") {
-      throw new Error("Search Expression Field Definition is not active");
+      throw new EditPlanningRejection("Search Expression Field Definition is not active");
     }
     if (clause.kind === "field-value" && clause.value.kind === "node" && !available.nodes[clause.value.nodeId]) {
-      throw new Error("Search Expression Field value Node is not active");
+      throw new EditPlanningRejection("Search Expression Field value Node is not active");
     }
   } else if (
     (clause.kind === "descendant-of" || clause.kind === "child-of") &&
     clause.target.kind === "node" &&
     !available.nodes[clause.target.nodeId]
   ) {
-    throw new Error("Search Expression scope target is not active");
+    throw new EditPlanningRejection("Search Expression scope target is not active");
   } else if (clause.kind === "links-to" && !available.nodes[clause.targetNodeId]) {
-    throw new Error("Search Expression links-to target is not active");
+    throw new EditPlanningRejection("Search Expression links-to target is not active");
   }
 }

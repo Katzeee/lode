@@ -51,4 +51,8 @@ export const END_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
   fallback: "end",
 });
 
+export function afterSequenceAnchor(occurrenceId: string): SequenceAnchor {
+  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
+}
+
 export type PreviousValue = Readonly<{ kind: "unset" }> | Readonly<{ kind: "set"; value: JsonValue }>;

@@ -1,8 +1,7 @@
 import type { EditAction } from "../../../domain/edit/index.js";
-import { authoredActionBatch, singleAuthoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
+import { authoredActionBatch, type AuthoredActionBatch } from "./action-batch.js";
 import {
   END_SEQUENCE_ANCHOR,
-  SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
   templateFieldInstanceValueNodeId,
@@ -10,6 +9,7 @@ import {
   type GraphAction,
 } from "../../../domain/fact/index.js";
 import { projectFieldAvailability, type InterpretedProjection } from "../../../domain/reconcile/index.js";
+import { EditPlanningRejection } from "./planning-rejection.js";
 
 type SupertagApplicationCreation = Extract<EditAction, { kind: "supertag-application-create" }>;
 
@@ -17,15 +17,6 @@ export function prepareSupertagApplicationCreation(
   edit: SupertagApplicationCreation,
   available: InterpretedProjection,
 ): AuthoredActionBatch {
-  if (available.nodes[edit.hostNodeId] === undefined) {
-    throw new Error("Supertag Application host is not an active Node");
-  }
-  if (available.nodes[edit.supertagId]?.intrinsicNodeType !== SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE) {
-    throw new Error("Supertag Application endpoint is not an active Supertag Definition");
-  }
-  if ((available.supertagApplications[edit.hostNodeId] ?? []).some((item) => item.supertagId === edit.supertagId)) {
-    throw new Error("Node already has this Supertag Application");
-  }
   return authoredActionBatch([
     {
       kind: "supertag-application-add",
@@ -35,16 +26,6 @@ export function prepareSupertagApplicationCreation(
     },
     ...materializeStaticDefaults(edit.hostNodeId, edit.supertagId, available),
   ]);
-}
-
-export function prepareSupertagApplicationRemoval(
-  edit: Extract<EditAction, { kind: "supertag-remove" }>,
-): AuthoredActionBatch {
-  return singleAuthoredActionBatch({
-    kind: "supertag-membership-remove",
-    hostNodeId: edit.hostNodeId,
-    supertagId: edit.supertagId,
-  });
 }
 
 function materializeStaticDefaults(
@@ -93,7 +74,7 @@ function materializeStaticDefaults(
       available.occurrences[fieldOccurrenceId] !== undefined ||
       available.occurrences[valueOccurrenceId] !== undefined
     ) {
-      throw new Error("Static default materialization identity already exists");
+      throw new EditPlanningRejection("Static default materialization identity already exists");
     }
     actions.push(
       { kind: "field-materialize", ownerNodeId, fieldDefinitionId },

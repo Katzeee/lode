@@ -11,12 +11,10 @@ import type {
   TemplateFieldVisibilityCandidate as ProtocolTemplateFieldVisibilityCandidate,
   TemplateFieldStaticDefaultCandidate as ProtocolTemplateFieldStaticDefaultCandidate,
   OptionalFieldContribution as ProtocolOptionalFieldContribution,
-} from "@lode/protocol/dto/projection";
-import { ProjectionPageSchema } from "@lode/protocol/proto";
+} from "@lode/protocol/proto";
 import type {
   IntrinsicNodeType,
   ProjectionIdentity,
-  ProtocolDto,
   ProjectionPerspective,
   TextAtomId,
   ViewType,
@@ -25,6 +23,7 @@ import type {
   SearchExpressionSpec,
   ViewOptionsSpec,
 } from "./model.js";
+import type { ProtocolDto } from "./protocol-dto.js";
 import type { ConflictIssue } from "./review.js";
 import type { FactActionId } from "./fact-identities.js";
 import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
@@ -233,17 +232,6 @@ export type ProjectionSections = NodeGraph &
   ViewProjection;
 
 export type ProjectionPageSection = ProjectionSection;
-export const PROJECTION_PAGE_SECTIONS = (ProjectionPageSchema.oneofs[0]?.fields.map(
-  (field) => field.localName as ProjectionPageSection,
-) ?? []) satisfies readonly (keyof ProjectionSections)[];
-export type ProjectionPageValue<Section extends ProjectionPageSection = ProjectionPageSection> =
-  Section extends ProjectionPageSection
-    ? ProjectionSections[Section] extends readonly (infer Item)[]
-      ? Item
-      : ProjectionSections[Section] extends Readonly<Record<string, infer Item>>
-        ? Item
-        : never
-    : never;
 export type ProjectionPage<Section extends ProjectionPageSection = ProjectionPageSection> =
   Section extends ProjectionPageSection
     ? Readonly<{

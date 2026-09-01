@@ -9,7 +9,6 @@ import { queryBacklinks } from "./backlinks.js";
 import { querySearchResults } from "./search-results.js";
 import { queryViewRows } from "./view-rows.js";
 import { queryOutline } from "./outline.js";
-import { queryDebugNode } from "./debug-node.js";
 import { queryTrashEvidence } from "./trash-evidence.js";
 
 type WorkspaceQueryAuthority = Pick<FactAuthorityPort, "factsOwningActions" | "receipt" | "relatedFactsOwningActions">;
@@ -40,8 +39,6 @@ export async function queryWorkspace(query: EngineQuery, context: WorkspaceQuery
       return queryViewRows(query, context.state.generation);
     case "outline":
       return queryOutline(query, context.state.generation);
-    case "debug-node":
-      return queryDebugNode(query, context.state.generation);
     case "trash-evidence":
       return queryTrashEvidence(query, context.state.snapshot, context.state.generation);
     case "review":

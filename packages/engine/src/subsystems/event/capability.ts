@@ -1,4 +1,4 @@
-import type { EngineEvent, Unsubscribe } from "@lode/sdk";
+import type { EngineEvent, EventFailureListener, Unsubscribe } from "@lode/sdk";
 
 export type EventSink = Readonly<{
   publish(event: EngineEvent): void;
@@ -6,5 +6,5 @@ export type EventSink = Readonly<{
 
 export type EventCapability = EventSink &
   Readonly<{
-    subscribe(listener: (event: EngineEvent) => void): Unsubscribe;
+    subscribe(listener: (event: EngineEvent) => void, onError: EventFailureListener): Unsubscribe;
   }>;

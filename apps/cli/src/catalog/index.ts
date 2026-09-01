@@ -1,62 +1,10 @@
-import type { CommandResult } from "../outcome/index.js";
-import type { CommandContext, GlobalOptions, ParsedArgs } from "../invocation/index.js";
+import type { CommandDefinition } from "../command/index.js";
 
 /**
  * Registry-driven command catalog. The same `CommandDefinition` records drive
  * dispatch, argument parsing, and help text — there is no second command list
  * and no central family/action switch.
  */
-
-type OptionSpec = Readonly<{
-  name: string;
-  description: string;
-  value?: Readonly<{ kind: "string" | "enum" | "file"; enum?: readonly string[] }>;
-  repeatable?: boolean;
-  required?: boolean;
-  conflicts?: readonly string[];
-}>;
-
-type PositionalSpec = readonly [name: string, description: string] | readonly [string, string, "optional"];
-
-type CommandMetadata = Readonly<{
-  /** Command path, e.g. `["node", "create"]`. Globally unique. */
-  readonly path: readonly string[];
-  /** One-line user-facing summary for help. */
-  readonly summary: string;
-  /** Positional arguments in order. Third element "optional" marks an optional slot. */
-  readonly positionals: readonly PositionalSpec[];
-  /** Named action options. */
-  readonly options: readonly OptionSpec[];
-  /** Read commands reject `--intent`; non-paginated commands reject `--cursor`. */
-  readonly kind: "read" | "write";
-  readonly paginated: boolean;
-  /**
-   * Knowledge-model commands run against the explicit --workspace target;
-   * workspace-management commands resolve their own targets and may run with
-   * none selected.
-   */
-  readonly needsWorkspace: boolean;
-}>;
-
-export type ManagementCommandContext = Readonly<{
-  globals: GlobalOptions;
-  environment: Readonly<Record<string, string | undefined>>;
-  configDir: string;
-}>;
-
-export type ProductCommandRun = (context: CommandContext, args: ParsedArgs) => Promise<CommandResult>;
-
-export type CommandDefinition = CommandMetadata &
-  (
-    | Readonly<{
-        run: ProductCommandRun;
-        runManagement?: never;
-      }>
-    | Readonly<{
-        run?: never;
-        runManagement: (context: ManagementCommandContext, args: ParsedArgs) => Promise<CommandResult>;
-      }>
-  );
 
 export class CommandCatalog {
   private readonly definitions = new Map<string, CommandDefinition>();

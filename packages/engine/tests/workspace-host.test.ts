@@ -4,18 +4,13 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createEngine, type Engine, type EngineOptions } from "../src/engine.js";
+import type { Engine } from "../src/engine.js";
 import { NodePersistenceBackend } from "../src/subsystems/persistence/node-persistence-backend.js";
 import type { TrashEvidenceResult } from "@lode/sdk";
+import { createTestEngine, createWorkspaceAs, type TestEngineOptions } from "./support/create-test-engine.js";
+import { END_SEQUENCE_ANCHOR as end } from "../src/domain/fact/index.js";
 
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 const vaultPassphrase = "workspace-host-passphrase";
-
-async function createWorkspaceAs(engine: Engine, workspaceId: string, label: string): Promise<string> {
-  const actor = await engine.api.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
-  await engine.api.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
-  return actor.actorId;
-}
 
 const temporaryDirectories: string[] = [];
 
@@ -31,8 +26,8 @@ describe("Engine workspace host capabilities", () => {
     temporaryDirectories.push(dataRoot);
 
     const engine = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
-    await createWorkspaceAs(engine, "personal", "Personal");
-    await createWorkspaceAs(engine, "tasks", "Task and Project");
+    await createWorkspaceAs(engine, "personal", "Personal", vaultPassphrase);
+    await createWorkspaceAs(engine, "tasks", "Task and Project", vaultPassphrase);
 
     expect(await engine.api.workspaces.listWorkspaces()).toEqual([
       { workspaceId: "personal", label: "Personal" },
@@ -55,7 +50,7 @@ describe("Engine workspace host capabilities", () => {
 
   it("serves Trash Evidence for restore and clears it after restore", async () => {
     const engine = await startEngine();
-    const tester = await createWorkspaceAs(engine, "workspace", "Workspace");
+    const { actorId: tester } = await createWorkspaceAs(engine, "workspace", "Workspace", vaultPassphrase);
     await engine.api.application.execute({
       kind: "edit",
       workspaceId: "workspace",
@@ -129,11 +124,11 @@ async function trashEvidence(engine: Engine, workspaceId: string, nodeId: string
   if (result.status !== "ok") {
     throw new Error(`trash-evidence query rejected: ${result.error.message}`);
   }
-  return result.value as TrashEvidenceResult;
+  return result.value;
 }
 
-async function startEngine(options?: EngineOptions): Promise<Engine> {
-  const engine = createEngine(options);
+async function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
+  const engine = createTestEngine(options);
   await engine.start();
   return engine;
 }

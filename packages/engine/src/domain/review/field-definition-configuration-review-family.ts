@@ -1,17 +1,21 @@
-import { canonicalJson, compareCausalOrder, isFieldDefinitionConfigAction, type FactAction } from "../fact/index.js";
+import { isFieldDefinitionConfigAction } from "../fact/index.js";
 import {
   fieldConfigurationProjectionIdentity,
   type FieldDefinitionConfiguration,
   type InterpretedProjection,
   type InterpretedProjectionGeneration,
 } from "../reconcile/index.js";
-import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
+import { defineReviewFamily, originReviewChanged } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { FieldDefinitionConfigurationDecisionEffect, FieldDefinitionConfigurationDecisionState } from "./types.js";
 
 const ACTION_KINDS = ["field-configuration-set"] as const;
 
-export const fieldDefinitionConfigurationReviewFamily = {
+export const fieldDefinitionConfigurationReviewFamily = defineReviewFamily<
+  (typeof ACTION_KINDS)[number],
+  string,
+  FieldDefinitionConfigurationDecisionEffect
+>({
   key: "field-definition-configuration",
   actionKinds: ACTION_KINDS,
   scopes(fact) {
@@ -19,14 +23,12 @@ export const fieldDefinitionConfigurationReviewFamily = {
     const identity = configurationIdentity(action.fieldDefinitionId, action.configuration.kind);
     return [reviewScope("field-definition-configuration", identity), associatedNodeScope(action.fieldDefinitionId)];
   },
-  candidates: ({ generation, pending }) => candidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const action = fact.action;
-    const effect = configurationEffect(action.fieldDefinitionId, action.configuration.kind, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? null
-      : { identity: configurationIdentity(action.fieldDefinitionId, action.configuration.kind), effect };
-  },
+  identify: (fact) => configurationIdentity(fact.action.fieldDefinitionId, fact.action.configuration.kind),
+  effect: (fact, _identity, generation) =>
+    configurationEffect(fact.action.fieldDefinitionId, fact.action.configuration.kind, generation),
+  changed: originReviewChanged,
+  diffKind: "field-definition-configuration",
+  effectIdentity: (identity) => identity,
   addImpacts(impacts, targets) {
     for (const fact of targets) {
       const action = fact.action;
@@ -38,40 +40,7 @@ export const fieldDefinitionConfigurationReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;
-
-function candidates(
-  generation: InterpretedProjectionGeneration,
-  pending: ReadonlyMap<FactAction["id"], FactAction>,
-): readonly HunkCandidate[] {
-  const groups = new Map<string, FactAction[]>();
-  for (const fact of pending.values()) {
-    const action = fact.action;
-    if (!isFieldDefinitionConfigAction(action)) {
-      continue;
-    }
-    const key = configurationIdentity(action.fieldDefinitionId, action.configuration.kind);
-    const facts = groups.get(key) ?? [];
-    facts.push(fact);
-    groups.set(key, facts);
-  }
-  return [...groups.entries()].flatMap(([identity, facts]) => {
-    const action = facts[0]?.action;
-    if (!action || !isFieldDefinitionConfigAction(action)) {
-      return [];
-    }
-    const effect = configurationEffect(action.fieldDefinitionId, action.configuration.kind, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? []
-      : [
-          {
-            diffSpace: { kind: "field-definition-configuration" as const, identity },
-            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  });
-}
+});
 
 function configurationEffect(
   fieldDefinitionId: string,

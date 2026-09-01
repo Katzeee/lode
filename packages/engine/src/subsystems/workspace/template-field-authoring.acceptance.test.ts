@@ -1,19 +1,21 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditAction } from "../../domain/edit/index.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   materializedFieldNodeId,
   templateFieldInstanceValueNodeId,
   workspaceSchemaNodeId,
   workspaceTrashNodeId,
 } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { createSupertagApplication, nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Supertag Template Field authoring", () => {
   it("authors a Template Field, makes its Definition discoverable, contributes it optionally, and materializes its default", async () => {
@@ -155,9 +157,9 @@ describe("Supertag Template Field authoring", () => {
     const { workspace } = await open();
     await publish(workspace, "setup", [
       ...setupNodes(),
-      nodeAt("base-a", "workspace", "supertag-definition"),
-      nodeAt("base-b", "workspace", "supertag-definition"),
-      nodeAt("derived", "workspace", "supertag-definition"),
+      nodeAt("base-a", "workspace", undefined, { intrinsicNodeType: "supertag-definition" }),
+      nodeAt("base-b", "workspace", undefined, { intrinsicNodeType: "supertag-definition" }),
+      nodeAt("derived", "workspace", undefined, { intrinsicNodeType: "supertag-definition" }),
       nodeAt("derived-instance", "workspace"),
     ]);
     await publish(workspace, "base-field", [templateFieldCreation("base-a", "shared-definition")]);
@@ -246,26 +248,15 @@ describe("Supertag Template Field authoring", () => {
 
 async function open(documents = new InMemoryDocumentStore(), loroPeerId: `${number}` = "101") {
   const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }) };
 }
 
 function setupNodes(): EditAction[] {
   return [
     nodeAt("task", "workspace"),
-    nodeAt("task-supertag", "workspace", "supertag-definition"),
-    nodeAt("other-supertag", "workspace", "supertag-definition"),
+    nodeAt("task-supertag", "workspace", undefined, { intrinsicNodeType: "supertag-definition" }),
+    nodeAt("other-supertag", "workspace", undefined, { intrinsicNodeType: "supertag-definition" }),
   ];
-}
-
-function nodeAt(nodeId: string, parentNodeId: string, intrinsicNodeType?: "supertag-definition"): EditAction {
-  return {
-    kind: "node-create",
-    nodeId,
-    occurrenceId: `${nodeId}-original`,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType ? { intrinsicNodeType } : {}),
-  };
 }
 
 function templateFieldCreation(supertagId: string, fieldDefinitionId: string): EditAction {

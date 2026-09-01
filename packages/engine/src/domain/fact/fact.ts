@@ -36,7 +36,3 @@ export function factId(workspaceId: WorkspaceId, replicaId: ReplicaId, sequence:
 export function requestDigest(request: unknown): string {
   return canonicalDigest(request);
 }
-
-export function isReplicaId(value: string): boolean {
-  return /^(?:0|[1-9]\d*)$/.test(value);
-}

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -9,7 +9,8 @@ import type {
   PhysicalWorkspaceStorage,
   PhysicalWorkspaceStorageStage,
 } from "./backend.js";
-import { InMemoryPersistenceBackend } from "./in-memory-persistence-backend.js";
+import { InMemoryPersistenceBackend } from "../../../tests/support/persistence/in-memory-persistence-backend.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { NodePersistenceBackend } from "./node-persistence-backend.js";
 import { buildEngineSubsystems } from "../index.js";
 import type { PersistenceCapability } from "./capability.js";
@@ -65,6 +66,24 @@ describe("PersistenceSubsystem", () => {
     await second.lifecycle.stop();
   });
 
+  it("rolls back promoted SQLite storage before the owner accepts it", async () => {
+    const dataRoot = await temporaryDirectory();
+    const built = buildPersistence(new NodePersistenceBackend(dataRoot));
+    await built.lifecycle.start();
+    const staged = await built.api.workspaceStorage.stage("activation-failed");
+    await staged.storage.metadata.writeSnapshot("identity-proof", bytes("stored"));
+
+    const promotion = await staged.promote();
+    expect(await built.api.workspaceStorage.list()).toEqual(["activation-failed"]);
+    await promotion.rollback();
+
+    expect(await built.api.workspaceStorage.list()).toEqual([]);
+    await expect(built.api.workspaceStorage.open("activation-failed")).rejects.toThrow(
+      "Workspace storage does not exist",
+    );
+    await built.lifecycle.stop();
+  });
+
   it("discards orphan staging storage without making it visible", async () => {
     const dataRoot = await temporaryDirectory();
     const abandoned = new NodePersistenceBackend(dataRoot);
@@ -97,6 +116,50 @@ describe("PersistenceSubsystem", () => {
     await expect(backend.discardStagedWorkspaces()).rejects.toThrow();
   });
 
+  it("surfaces a corrupt identity in a reserved Workspace authority filename", async () => {
+    const dataRoot = await temporaryDirectory();
+    const workspaces = join(dataRoot, "workspaces");
+    await mkdir(workspaces, { recursive: true });
+    await writeFile(join(workspaces, "workspace-not+base64.sqlite"), "corrupt", "utf8");
+
+    const backend = new NodePersistenceBackend(dataRoot);
+    await expect(backend.listWorkspaceIds()).rejects.toThrow("Workspace storage filename contains a corrupt identity");
+  });
+
+  it("continues orphan cleanup after an independent staging artifact fails", async () => {
+    const dataRoot = await temporaryDirectory();
+    const workspaces = join(dataRoot, "workspaces");
+    const invalid = join(workspaces, ".staging-0.sqlite");
+    const removable = join(workspaces, ".staging-1.sqlite");
+    await mkdir(invalid, { recursive: true });
+    await writeFile(removable, "orphan", "utf8");
+
+    const backend = new NodePersistenceBackend(dataRoot);
+    await expect(backend.discardStagedWorkspaces()).rejects.toThrow();
+    await expect(access(removable)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(access(invalid)).resolves.toBeUndefined();
+  });
+
+  it("attempts every resource and backend close and reports every failure", async () => {
+    const closeAttempts: string[] = [];
+    const backend = failingCloseBackend(closeAttempts);
+    const { lifecycle, api } = buildPersistence(backend);
+    await lifecycle.start();
+    await api.workspaceStorage.open("first");
+    await api.workspaceStorage.open("second");
+
+    const stopping = lifecycle.stop();
+    await expect(stopping).rejects.toBeInstanceOf(AggregateError);
+    await expect(stopping).rejects.toMatchObject({
+      errors: [
+        expect.objectContaining({ message: "close second" }),
+        expect.objectContaining({ message: "close first" }),
+        expect.objectContaining({ message: "close backend" }),
+      ],
+    });
+    expect(closeAttempts).toEqual(["second", "first", "backend"]);
+  });
+
   it("discards a staging artifact acquired concurrently with stop", async () => {
     const dataRoot = await temporaryDirectory();
     const backend = new GatedStageBackend(new NodePersistenceBackend(dataRoot));
@@ -117,6 +180,28 @@ describe("PersistenceSubsystem", () => {
 function buildPersistence(backend: PersistenceBackend) {
   const persistence = createPersistenceSubsystemDefinition(backend);
   return buildEngineSubsystems([persistence], (capabilities): PersistenceCapability => capabilities.persistence);
+}
+
+function failingCloseBackend(closeAttempts: string[]): PersistenceBackend {
+  return {
+    openIdentityStorage: () => Promise.reject(new Error("Identity storage is not part of this test")),
+    listWorkspaceIds: () => Promise.resolve(["first", "second"]),
+    openWorkspace: (workspaceId) =>
+      Promise.resolve({
+        workspaceId,
+        documents: new InMemoryDocumentStore(),
+        close: () => {
+          closeAttempts.push(workspaceId);
+          throw new Error(`close ${workspaceId}`);
+        },
+      }),
+    stageWorkspace: () => Promise.reject(new Error("Workspace staging is not part of this test")),
+    discardStagedWorkspaces: () => Promise.resolve(),
+    close: () => {
+      closeAttempts.push("backend");
+      throw new Error("close backend");
+    },
+  };
 }
 
 class GatedStageBackend implements PersistenceBackend {

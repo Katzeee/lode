@@ -14,7 +14,7 @@ export function lodeConfigDir(): string {
 
 export const homeNamePattern = /^[a-z][a-z0-9-]*$/u;
 
-export type HomeEntry = Readonly<{ path: string }>;
+type HomeEntry = Readonly<{ path: string }>;
 
 export type HomeRegistryFile = Readonly<{
   defaultHome?: string;
@@ -22,7 +22,7 @@ export type HomeRegistryFile = Readonly<{
 }>;
 
 /** Everything in lode.toml as raw data — unknown keys ride along untouched. */
-export type HomeRegistryDocument = Record<string, unknown> & {
+type HomeRegistryDocument = Record<string, unknown> & {
   default_home?: string;
   homes?: Record<string, { path?: unknown }>;
 };
@@ -74,9 +74,24 @@ export async function writeHomeRegistry(
     await writeFile(temporary, stringify(document), "utf8");
     await rename(temporary, target);
   } catch (error) {
-    await rm(temporary, { force: true }).catch(() => {});
+    try {
+      await rm(temporary, { force: true });
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [toError(error), toError(cleanupError)],
+        "Home registry write and cleanup failed",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
+    }
     throw error;
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 /** Normalizes a user-provided home path for registration and uniqueness. */
@@ -84,12 +99,13 @@ export function normalizeHomePath(path: string): string {
   return resolve(path);
 }
 
-export function assertHomePathAvailable(registry: HomeRegistryFile, normalizedPath: string): void {
+export function registeredHomeAtPath(registry: HomeRegistryFile, normalizedPath: string): string | undefined {
   for (const [name, entry] of Object.entries(registry.homes)) {
     if (normalizeHomePath(entry.path) === normalizedPath) {
-      throw new Error(`Path ${normalizedPath} is already registered as home "${name}"`);
+      return name;
     }
   }
+  return undefined;
 }
 
 function toRegistry(document: unknown): HomeRegistryFile {

@@ -107,8 +107,6 @@ describe("SqliteWorkspaceStore — content sub-doc streams", () => {
     await store.appendUpdate({ subDoc: "s3", updateBytes: new Uint8Array([8]) });
     await store.appendUpdate({ subDoc: "s17", updateBytes: new Uint8Array([9]) });
 
-    expect((await store.listSubDocs()).sort()).toEqual(["s17", "s3", "tree"]);
-
     const tree = await store.loadDocBytes("tree");
     expect(tree?.updateBytes.map((b) => [...b])).toEqual([[1, 2]]);
     const s3 = await store.loadDocBytes("s3");

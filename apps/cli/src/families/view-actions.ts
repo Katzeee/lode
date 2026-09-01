@@ -1,9 +1,9 @@
 import type { EditAction, SharedDefaultViewDefinition, ViewOptionsSpec } from "@lode/sdk";
 
-import type { ProductCommandRun } from "../catalog/index.js";
+import type { ProductCommandRun } from "../command/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 import { CliError, writeView } from "../outcome/index.js";
-import { descriptor, resolveNodeTarget } from "../target/index.js";
+import { resolveTarget, resource } from "../target/index.js";
 
 type HostView = Readonly<{
   hostNodeId: string;
@@ -18,15 +18,12 @@ export async function readHostView(
   hostToken: string,
 ): Promise<HostView | null> {
   const workspaceId = workspaceIdOf(context);
-  const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
-    "node",
-    "search",
-  ]);
-  const definitions = (await context.session.readProjection(
+  const host = await resolveTarget(context, hostToken, ["node", "search"]);
+  const definitions = await context.session.readProjection(
     workspaceId,
     context.perspective,
     "sharedDefaultViewDefinitions",
-  )) as Record<string, readonly SharedDefaultViewDefinition[]>;
+  );
   const current = (definitions[host.nodeId] ?? []).at(0);
   return current === undefined
     ? null
@@ -45,17 +42,13 @@ export async function writeViewActions(
   action: string,
   build: (current: HostView) => readonly EditAction[],
 ) {
-  const workspaceId = workspaceIdOf(context);
-  const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, hostToken, [
-    "node",
-    "search",
-  ]);
+  const host = await resolveTarget(context, hostToken, ["node", "search"]);
   const existing = await readHostView(context, hostToken);
   if (existing === null) {
     throw new CliError("unsupported", `Node ${host.descriptor.ref} has no shared default View.`);
   }
   const { result, data } = await executeWrite(context, action, build(existing));
-  const view = descriptor(workspaceId, "view", existing.viewDefinitionNodeId, `${host.label} view`);
+  const view = resource(context, "view", existing.viewDefinitionNodeId, `${host.label} view`);
   return writeResult(data, result, {
     extra: { target: view, on: host.descriptor },
     view: writeView("Updated view", view, `on ${host.label}`),

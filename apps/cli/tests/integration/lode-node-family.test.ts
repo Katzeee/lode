@@ -85,7 +85,11 @@ ${created.stderr}`,
 
       const missing = await run(["node", "show", "Nope"]);
       expect(missing.exitCode).toBe(2);
-      expect(missing.envelope).toMatchObject({ status: "error", error: { code: "target-not-found" } });
+      expect(missing.envelope).toMatchObject({
+        workspace: { ref: "workspace:workspace", label: "Node Family" },
+        status: "error",
+        error: { code: "target-not-found" },
+      });
 
       const ambiguous = await run(["node", "show", "Draft"]);
       expect(ambiguous.exitCode).toBe(2);

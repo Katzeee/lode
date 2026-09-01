@@ -2,13 +2,12 @@ import {
   FIELD_CARDINALITY_NODE_IDS,
   type FieldCardinality,
   type FieldDatatype,
-  type FieldDefinitionConfiguration,
   type MaterializedField,
 } from "@lode/sdk";
 
-import type { ProductCommandRun } from "../catalog/index.js";
+import type { ProductCommandRun } from "../command/index.js";
 import { workspaceIdOf } from "../intent/index.js";
-import { resolveNodeTarget } from "../target/index.js";
+import { resolveTarget } from "../target/index.js";
 import type { descriptor } from "../target/index.js";
 import { datatypeOfEndpoint } from "../value/field-values.js";
 
@@ -29,13 +28,13 @@ export async function readFieldState(
   ownerToken: string,
 ): Promise<FieldState> {
   const workspaceId = workspaceIdOf(context);
-  const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, fieldToken, ["field"]);
-  const owner = await resolveNodeTarget(context.session, workspaceId, context.perspective, ownerToken, ["node"]);
-  const configurations = (await context.session.readProjection(
+  const field = await resolveTarget(context, fieldToken, ["field"]);
+  const owner = await resolveTarget(context, ownerToken, ["node"]);
+  const configurations = await context.session.readProjection(
     workspaceId,
     context.perspective,
     "fieldDefinitionConfigurations",
-  )) as Record<string, readonly FieldDefinitionConfiguration[]>;
+  );
   const entries = configurations[field.nodeId] ?? [];
   const datatype =
     datatypeOfEndpoint(entries.find((entry) => entry.kind === "datatype")?.datatypeNodeId ?? null) ?? "plain";
@@ -43,11 +42,11 @@ export async function readFieldState(
     entries.find((entry) => entry.kind === "cardinality")?.cardinalityNodeId === FIELD_CARDINALITY_NODE_IDS.list
       ? "list"
       : "single";
-  const materializedFields = (await context.session.readProjection(
+  const materializedFields = await context.session.readProjection(
     workspaceId,
     context.perspective,
     "materializedFields",
-  )) as Record<string, readonly MaterializedField[]>;
+  );
   const materialized = (materializedFields[owner.nodeId] ?? []).find(
     (entry) => entry.fieldDefinitionId === field.nodeId,
   );

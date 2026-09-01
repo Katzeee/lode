@@ -1,9 +1,6 @@
 import { CliError } from "../outcome/index.js";
-import type { CommandDefinition } from "../catalog/index.js";
+import { ParsedArgs, type CommandDefinition, type GlobalOptions } from "../command/index.js";
 import { EDIT_INTENTS, PROJECTION_PERSPECTIVES } from "@lode/sdk";
-import { ParsedArgs } from "./context.js";
-export { ParsedArgs, validateGlobalsFor } from "./context.js";
-export type { CommandContext } from "./context.js";
 
 /**
  * Invocation decoding: argv in, syntactically valid typed input out. No
@@ -23,18 +20,6 @@ const GLOBAL_OPTIONS = [
   "--cursor",
 ] as const;
 
-export type GlobalOptions = Readonly<{
-  home?: string;
-  workspace?: string;
-  actor?: string;
-  perspective?: "origin" | "review";
-  intent?: "direct" | "proposal";
-  format?: "human" | "json";
-  requestId?: string;
-  limit?: number;
-  cursor?: string;
-}>;
-
 export type Invocation =
   | Readonly<{ kind: "version" }>
   | Readonly<{ kind: "help" }>
@@ -50,7 +35,7 @@ export type InputFileReader = Readonly<{
 
 const FORMATS = ["human", "json"] as const;
 
-export type CommandLookup = Readonly<{
+type CommandLookup = Readonly<{
   resolve(path: readonly string[]): CommandDefinition | undefined;
   families(): readonly string[];
 }>;

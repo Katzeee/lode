@@ -1,5 +1,5 @@
 import {
-  frontierOf,
+  END_SEQUENCE_ANCHOR,
   factActionsFromFacts,
   factActions,
   graphActionBody,
@@ -15,6 +15,7 @@ import {
   workspaceGenesisActions,
   workspaceTrashNodeId,
 } from "../../../src/domain/fact/index.js";
+import { frontierOf } from "../../../src/domain/fact/frontier.js";
 import { withFieldDefinitionEndpoints, withInitialNodeRelations } from "./placed-node-test-helpers.js";
 import { fixtureConsequences, fixturePrerequisites } from "./reconcile-test-actions.js";
 import { CURRENT_PROJECTION_VERSIONS } from "../../../src/domain/reconcile/index.js";
@@ -22,12 +23,7 @@ import { supertagApplicationActions, supertagRemovalActions } from "./supertag-a
 
 export const REPLICA = "101";
 export const versions = CURRENT_PROJECTION_VERSIONS;
-export const end = {
-  after: null,
-  before: null,
-  affinity: "after",
-  fallback: "end",
-} as const;
+export const end = END_SEQUENCE_ANCHOR;
 
 export class Facts {
   readonly values: Fact[] = [];

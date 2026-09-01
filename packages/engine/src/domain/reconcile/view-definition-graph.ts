@@ -1,4 +1,5 @@
 import {
+  afterSequenceAnchor as after,
   canonicalJson,
   factActionsOfKind,
   type FactAction,
@@ -62,7 +63,7 @@ type ViewFilterState = Readonly<{
   filterNodeId: string;
 }>;
 
-export function viewProjectionIdentity(viewId: FactActionId): ViewProjectionIdentity {
+function viewProjectionIdentity(viewId: FactActionId): ViewProjectionIdentity {
   const root = `${viewId}/projection/shared-default-view`;
   return {
     attachmentNodeId: `${root}/attachment-node`,
@@ -75,19 +76,19 @@ export function viewProjectionIdentity(viewId: FactActionId): ViewProjectionIden
   };
 }
 
-export function viewColumnNodeId(columnId: FactActionId): string {
+function viewColumnNodeId(columnId: FactActionId): string {
   return `${columnId}/projection/view-column/node`;
 }
 
-export function viewSortNodeId(sortId: FactActionId): string {
+function viewSortNodeId(sortId: FactActionId): string {
   return `${sortId}/projection/view-sort/node`;
 }
 
-export function viewGroupNodeId(groupId: FactActionId): string {
+function viewGroupNodeId(groupId: FactActionId): string {
   return `${groupId}/projection/view-group/node`;
 }
 
-export function viewFilterNodeId(filterId: FactActionId): string {
+function viewFilterNodeId(filterId: FactActionId): string {
   return `${filterId}/projection/view-filter/node`;
 }
 
@@ -107,10 +108,6 @@ export function viewStates(active: readonly FactAction[]): readonly ViewState[] 
       identity: viewProjectionIdentity(addition.id),
     };
   });
-}
-
-export function viewStateByAction(active: readonly FactAction[]): ReadonlyMap<FactActionId, ViewState> {
-  return new Map(viewStates(active).map((state) => [state.addition.id, state]));
 }
 
 export function viewPlacementIds(action: FactAction, states: ReadonlyMap<FactActionId, ViewState>): readonly string[] {
@@ -236,8 +233,4 @@ export function viewFilterStates(active: readonly FactAction[], viewId: FactActi
   return causalCollectionStates(active, "view-filter")
     .filter((state) => state.addition.action.viewId === viewId)
     .map(({ addition, removed }) => ({ addition, removed, filterNodeId: viewFilterNodeId(addition.id) }));
-}
-
-function after(occurrenceId: string): SequenceAnchor {
-  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
 }

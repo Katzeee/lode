@@ -1,10 +1,9 @@
-export type DaemonArgs = Readonly<{
+type DaemonArgs = Readonly<{
   listen?: string;
   exchangeListen?: string;
   dataRoot?: string;
   home?: string;
   homeName?: string;
-  logFile?: string;
   accessToken?: string;
 }>;
 
@@ -15,7 +14,6 @@ export function parseDaemonArgs(argv: string[]): DaemonArgs {
     ...optionalValue(argv, "--data-root", "dataRoot"),
     ...optionalValue(argv, "--home", "home"),
     ...optionalValue(argv, "--home-name", "homeName"),
-    ...optionalValue(argv, "--log-file", "logFile"),
     ...optionalValue(argv, "--access-token", "accessToken"),
   };
 }

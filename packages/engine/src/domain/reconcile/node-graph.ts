@@ -124,10 +124,6 @@ export function isActiveNode(workspaceNodeId: string, graph: NodeLocationGraph, 
   return nodeLocation(workspaceNodeId, graph, nodeId) === "active";
 }
 
-export function isPresentNodeOutsideTrash(workspaceNodeId: string, graph: NodeLocationGraph, nodeId: string): boolean {
-  return nodeLocation(workspaceNodeId, graph, nodeId) === "active";
-}
-
 type NodeGraphState = Readonly<{
   nodes: ReadonlyMap<string, Readonly<{ nodeId: string }>>;
   occurrences: ReadonlyMap<string, Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>>;

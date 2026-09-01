@@ -9,8 +9,9 @@ import {
   type WorkspaceId,
 } from "../../../domain/fact/index.js";
 import type { DocumentStore, DocumentUpdate } from "../../persistence/index.js";
+import { AUTHORITY_SNAPSHOT_UPDATE_INTERVAL } from "./compaction-policy.js";
 
-export function localReceiptsDocumentId(replicaId: ReplicaId): string {
+function localReceiptsDocumentId(replicaId: ReplicaId): string {
   return `receipts/${replicaId}`;
 }
 
@@ -18,7 +19,6 @@ type LocalReceiptStoreOptions = Readonly<{
   workspaceId: WorkspaceId;
   replicaId: ReplicaId;
   documents: DocumentStore;
-  snapshotInterval?: number;
 }>;
 
 export class LocalReceiptStore {
@@ -69,7 +69,7 @@ export class LocalReceiptStore {
   }
 
   private async compactIfNeeded(): Promise<void> {
-    if (this.updatesSinceSnapshot < (this.options.snapshotInterval ?? 64)) {
+    if (this.updatesSinceSnapshot < AUTHORITY_SNAPSHOT_UPDATE_INTERVAL) {
       return;
     }
     try {

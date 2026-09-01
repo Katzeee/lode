@@ -8,7 +8,7 @@ import {
   type FactSnapshot,
   type ResolutionFact,
 } from "../fact/index.js";
-import type { ConflictIssue } from "../conflict/types.js";
+import type { ConflictIssue } from "../conflict/index.js";
 import type { MutableOccurrence } from "./projection-state.js";
 import { resolutionsByAction } from "../activation/index.js";
 import { intrinsicNodeTypeConflicts } from "./intrinsic-node-type-conflicts.js";
@@ -59,7 +59,7 @@ function originalConflicts(
   }
   return [...selections].flatMap(([nodeId, candidates]): readonly ConflictIssue[] => {
     const maximal = candidates.filter(
-      (candidate) => !candidates.some((other) => other.id !== candidate.id && actionObserves(other, candidate)),
+      (candidate) => !candidates.some((other) => other.id !== candidate.id && factObserves(other, candidate)),
     );
     if (new Set(maximal.map(originalPlacementId)).size < 2) {
       return [];
@@ -105,10 +105,6 @@ function originalPlacementId(action: FactAction): string {
     throw new Error("Original candidate does not select a placement");
   }
   return authoredAction.placementId;
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 function unsupportedDirectIntents(

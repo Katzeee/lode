@@ -5,57 +5,65 @@ import {
   type SupertagAction,
   type SequenceAnchor,
 } from "../fact/index.js";
-import { definitionNodeState, isPresentNodeOutsideTrash, type InterpretedProjection } from "../reconcile/index.js";
-import { validateTemplateFieldIntent } from "./supertag-template-field.js";
+import { definitionNodeState, isActiveNode, type InterpretedProjection } from "../reconcile/index.js";
+import { AuthoredIntentViolation } from "./contract.js";
+import { assertTemplateFieldIntent } from "./supertag-template-field.js";
 
-export function validateSupertagAuthoredIntent(
+export function assertSupertagAuthoredIntent(
   action: SupertagAction,
   previous: InterpretedProjection,
   available: InterpretedProjection,
-): SupertagAction {
+): void {
   if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
-    return completeApplication(action, previous, available);
+    assertApplication(action, previous, available);
+    return;
   }
   if (action.kind === "supertag-extension-add" || action.kind === "supertag-extension-remove") {
-    return completeExtension(action, previous, available);
+    assertExtension(action, previous, available);
+    return;
   }
   if (action.kind === "template-member-add" || action.kind === "template-member-remove") {
-    return completeTemplateNodeRelation(action, previous, available);
+    assertTemplateNodeRelation(action, previous, available);
+    return;
   }
-  return validateTemplateFieldIntent(action, previous, available);
+  assertTemplateFieldIntent(action, previous, available);
 }
 
-function completeApplication(
+function assertApplication(
   action: Extract<AuthoredAction, { kind: "supertag-application-add" | "supertag-membership-remove" }>,
   previous: InterpretedProjection,
   available: InterpretedProjection,
-): Extract<AuthoredAction, { kind: "supertag-application-add" | "supertag-membership-remove" }> {
+): void {
   const removing = action.kind === "supertag-membership-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
   assertNode(available, action.hostNodeId, "Supertag Application host");
   if (!removing) {
+    if (
+      (available.supertagApplications[action.hostNodeId] ?? []).some((item) => item.supertagId === action.supertagId)
+    ) {
+      throw new AuthoredIntentViolation("Node already has this Supertag Application");
+    }
     const metanodeId = available.metanodes[action.hostNodeId];
     assertRelationAnchor(
       metanodeId === undefined ? [] : (available.childOccurrences[metanodeId] ?? []),
       action.anchor,
       "Supertag Application",
     );
-    return action;
+    return;
   }
   const application = (previous.supertagApplications[action.hostNodeId] ?? []).find(
     (candidate) => candidate.supertagId === action.supertagId,
   );
   if (application === undefined) {
-    throw new Error("Supertag Application is absent from the observed projection");
+    throw new AuthoredIntentViolation("Supertag Application is absent from the observed projection");
   }
-  return action;
 }
 
-function completeExtension(
+function assertExtension(
   action: Extract<AuthoredAction, { kind: "supertag-extension-add" | "supertag-extension-remove" }>,
   previous: InterpretedProjection,
   available: InterpretedProjection,
-): Extract<AuthoredAction, { kind: "supertag-extension-add" | "supertag-extension-remove" }> {
+): void {
   const removing = action.kind === "supertag-extension-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
   assertDefinition(
@@ -67,31 +75,29 @@ function completeExtension(
   );
   if (!removing) {
     assertRelationAnchor(available.supertagExtensions[action.supertagId] ?? [], action.anchor, "Supertag Extension");
-    return action;
+    return;
   }
-  return withPreviousAnchor(
-    action,
+  assertPreviousIdentity(
     previous.supertagExtensions[action.supertagId] ?? [],
     action.baseSupertagId,
     "Supertag Extension",
   );
 }
 
-function completeTemplateNodeRelation(
+function assertTemplateNodeRelation(
   action: Extract<AuthoredAction, { kind: "template-member-add" | "template-member-remove" }>,
   previous: InterpretedProjection,
   available: InterpretedProjection,
-): Extract<AuthoredAction, { kind: "template-member-add" | "template-member-remove" }> {
+): void {
   const removing = action.kind === "template-member-remove";
   assertDefinition(available, action.supertagId, "Supertag", SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE, removing);
   if (!removing) {
     assertTemplateNodeAddition(action, available);
-    return action;
+    return;
   }
   if (!(previous.supertagTemplateNodes[action.supertagId] ?? []).includes(action.templateNodeId)) {
-    throw new Error("Supertag Template member is absent from the observed projection");
+    throw new AuthoredIntentViolation("Supertag Template member is absent from the observed projection");
   }
-  return action;
 }
 
 function assertTemplateNodeAddition(
@@ -101,7 +107,7 @@ function assertTemplateNodeAddition(
   assertNode(available, action.templateNodeId, "Template");
   const existing = templateOccurrenceFor(available, action.supertagId, action.templateNodeId);
   if (existing) {
-    throw new Error("Supertag already contains the Template Node");
+    throw new AuthoredIntentViolation("Supertag already contains the Template Node");
   }
   assertRelationAnchor(
     available.childOccurrences[action.supertagId] ?? [],
@@ -110,22 +116,16 @@ function assertTemplateNodeAddition(
   );
 }
 
-function withPreviousAnchor<ActionType extends SupertagAction>(
-  action: ActionType,
-  identities: readonly string[],
-  identity: string,
-  label: string,
-): ActionType {
+function assertPreviousIdentity(identities: readonly string[], identity: string, label: string): void {
   const index = identities.indexOf(identity);
   if (index < 0) {
-    throw new Error(`${label} is absent from the observed projection`);
+    throw new AuthoredIntentViolation(`${label} is absent from the observed projection`);
   }
-  return action;
 }
 
 function assertRelationAnchor(identities: readonly string[], anchor: SequenceAnchor, label: string): void {
   if ([anchor.after, anchor.before].some((id) => id !== null && !identities.includes(id))) {
-    throw new Error(`${label} anchor is absent from the observed projection`);
+    throw new AuthoredIntentViolation(`${label} anchor is absent from the observed projection`);
   }
 }
 
@@ -140,12 +140,12 @@ function assertDefinition(
   if (state === "active" || (allowDeleted && state === "deleted")) {
     return;
   }
-  throw new Error(`${label} type is absent from the observed projection`);
+  throw new AuthoredIntentViolation(`${label} type is absent from the observed projection`);
 }
 
 function assertNode(projection: InterpretedProjection, nodeId: string, label: string): void {
-  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, nodeId)) {
-    throw new Error(`${label} Node is absent from the observed projection`);
+  if (!isActiveNode(projection.identity.workspaceNodeId, projection, nodeId)) {
+    throw new AuthoredIntentViolation(`${label} Node is absent from the observed projection`);
   }
 }
 

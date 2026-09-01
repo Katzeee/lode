@@ -1,4 +1,4 @@
-import { ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import {
   ensureRunningDaemon,
   probeDaemon,
@@ -9,9 +9,8 @@ import {
 } from "@lode/desktop-client";
 
 import { CliError, okOutcome, type CommandResult } from "../outcome/index.js";
-import type { CommandDefinition, ManagementCommandContext } from "../catalog/index.js";
-import type { ParsedArgs } from "../invocation/index.js";
-import { launchDaemon } from "../daemon-launch.js";
+import type { CommandDefinition, ManagementCommandContext, ParsedArgs } from "../command/index.js";
+import { launchDaemon } from "./daemon-launch.js";
 
 /**
  * The `daemon` command family: process management for the daemon serving one
@@ -21,7 +20,7 @@ import { launchDaemon } from "../daemon-launch.js";
 
 type DaemonManagementPort = Readonly<{
   /** Never spawns; resolves null when the daemon does not answer Status. */
-  probe(): Promise<{ status: DaemonStatusView; shutdown(): Promise<void> } | null>;
+  probe(): Promise<{ status: DaemonStatusView; shutdown(): Promise<void>; close(): void } | null>;
   /** Spawns through the launcher when missing, then waits for Status ready. */
   ensureStarted(): Promise<DaemonStatusView>;
   /** Waits until the daemon no longer answers Status, or throws. */
@@ -75,15 +74,11 @@ async function daemonPort(context: ManagementCommandContext, args: ParsedArgs): 
         return null;
       }
       const client = probe.client;
-      return { status: probe.status, shutdown: () => client.shutdown() };
+      return { status: probe.status, shutdown: () => client.shutdown(), close: () => client.close() };
     },
     ensureStarted: async () => {
       const client = await ensureRunningDaemon(selection, launchDaemon);
-      try {
-        return await client.status();
-      } finally {
-        client.close();
-      }
+      return withClient(client, () => client.status(), "Daemon status and client cleanup failed");
     },
     waitStopped: () => waitStopped(selection),
   };
@@ -93,7 +88,7 @@ async function waitStopped(selection: HomeSelection, timeoutMs = 10_000): Promis
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    const probe = await probeDaemon(selection).catch(() => null);
+    const probe = await probeDaemon(selection);
     if (probe === null) {
       return;
     }
@@ -112,7 +107,11 @@ async function daemonStatus(port: DaemonManagementPort): Promise<CommandResult> 
   if (probe === null) {
     return okOutcome({ running: false }, { view: { kind: "text", lines: ["Daemon is not running."] } });
   }
-  return statusResult(probe.status, `Daemon is running (version ${probe.status.daemonVersion}).`);
+  return withClient(
+    probe,
+    () => Promise.resolve(statusResult(probe.status, `Daemon is running (version ${probe.status.daemonVersion}).`)),
+    "Daemon status and client cleanup failed",
+  );
 }
 
 async function stopDaemon(port: DaemonManagementPort): Promise<CommandResult> {
@@ -120,18 +119,27 @@ async function stopDaemon(port: DaemonManagementPort): Promise<CommandResult> {
   if (probe === null) {
     return okOutcome({ stopped: false, running: false }, { view: { kind: "text", lines: ["Daemon is not running."] } });
   }
-  const homeName = probe.status.homeName;
-  try {
-    await probe.shutdown();
-  } catch (error) {
-    // The socket can reset while the daemon tears the listener down; the
-    // wait below is the source of truth for whether it actually stopped.
-    if (!(error instanceof ConnectError)) {
-      throw error;
-    }
-  }
-  await port.waitStopped();
-  return okOutcome({ stopped: true }, { view: { kind: "text", lines: [`Daemon for home "${homeName}" stopped.`] } });
+  return withClient(
+    probe,
+    async () => {
+      const homeName = probe.status.homeName;
+      try {
+        await probe.shutdown();
+      } catch (error) {
+        // A confirmed disconnect can race the Shutdown response. Only these
+        // transport outcomes defer to the subsequent stopped-state probe.
+        if (!(error instanceof ConnectError) || (error.code !== Code.Unavailable && error.code !== Code.Canceled)) {
+          throw error;
+        }
+      }
+      await port.waitStopped();
+      return okOutcome(
+        { stopped: true },
+        { view: { kind: "text", lines: [`Daemon for home "${homeName}" stopped.`] } },
+      );
+    },
+    "Daemon shutdown and client cleanup failed",
+  );
 }
 
 function statusResult(status: DaemonStatusView, headline: string): CommandResult {
@@ -156,4 +164,29 @@ function statusResult(status: DaemonStatusView, headline: string): CommandResult
       },
     },
   );
+}
+
+async function withClient<Result>(
+  client: Readonly<{ close(): void }>,
+  operation: () => Promise<Result>,
+  message: string,
+): Promise<Result> {
+  let result: Result;
+  try {
+    result = await operation();
+  } catch (error) {
+    try {
+      client.close();
+    } catch (cleanupError) {
+      const failure = new AggregateError([toError(error), toError(cleanupError)], message, { cause: error });
+      throw failure;
+    }
+    throw error;
+  }
+  client.close();
+  return result;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

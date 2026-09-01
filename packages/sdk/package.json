@@ -23,7 +23,9 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
-    "@lode/protocol": "file:../protocol"
+    "@bufbuild/protobuf": "^2.12.1",
+    "@lode/protocol": "file:../protocol",
+    "@lode/system-schema": "file:../system-schema"
   },
   "devDependencies": {
     "typescript": "^5.7.0",

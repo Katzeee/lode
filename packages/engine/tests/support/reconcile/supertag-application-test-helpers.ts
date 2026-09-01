@@ -1,6 +1,4 @@
-import type { GraphAction, SequenceAnchor } from "../../../src/domain/fact/index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { END_SEQUENCE_ANCHOR as end, type GraphAction, type SequenceAnchor } from "../../../src/domain/fact/index.js";
 
 export function supertagApplicationActions(
   hostNodeId: string,

@@ -1,22 +1,14 @@
-import type { InvocationOutcome as ProtocolInvocationOutcome } from "@lode/protocol/dto/engine";
-import {
-  ConflictIssueSchema,
-  DecisionEffectSchema,
-  ReviewQueryResultSchema,
-  ReviewSelectionSchema,
-} from "@lode/protocol/proto";
+import type { InvocationOutcome as ProtocolInvocationOutcome } from "@lode/protocol/proto";
+import { DecisionEffectSchema, ReviewQueryResultSchema, ReviewSelectionSchema } from "@lode/protocol/proto";
 import type { InvocationOutcome } from "./contract.js";
-import type { FieldInitializationExpression, PreviousValue } from "./model.js";
-import type { ConflictIssue, DecisionEffect, ReviewQuery, ReviewSelection } from "./review.js";
-import {
-  conflictIssueKind,
-  decisionEffectKind,
-  protocolConflictIssueCase,
-  protocolDecisionEffectCase,
-  type ProtocolConflictIssueCase,
-  type ProtocolDecisionEffectCase,
-} from "./protocol-cases.js";
+import type { FieldInitializationExpression } from "./model.js";
+import type { DecisionEffect, ReviewQuery, ReviewSelection } from "./review.js";
+import { decisionEffectKind, protocolDecisionEffectCase, type ProtocolDecisionEffectCase } from "./protocol-cases.js";
 import { fromProtocolMessage, toProtocolMessage } from "./protocol-message-codec.js";
+import { required, selectedCase, unsupportedProtocolCase, unsupportedProtocolValue } from "./protocol-decoding.js";
+import type { ProtocolDto } from "./protocol-dto.js";
+import { fromPreviousValue, toPreviousValue } from "./protocol-previous-value-codec.js";
+import { fromProtocolValue, toProtocolValue } from "./protocol-value-codec.js";
 import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 import { fromSearchClause, toSearchClause } from "./protocol-search-expression-codec.js";
 
@@ -61,6 +53,13 @@ export function fromReviewQuery(value: unknown): ReviewQuery {
 function toDecisionEffect(effect: DecisionEffect): Record<string, unknown> {
   const value = toProtocolValue(effect) as Record<string, unknown>;
   delete value.kind;
+  if (effect.kind === "text") {
+    value.markChanges = effect.markChanges.map((change) => ({
+      ...(toProtocolValue(change) as Record<string, unknown>),
+      origin: toPreviousValue(change.origin),
+      review: toPreviousValue(change.review),
+    }));
+  }
   if (effect.kind === "field-definition-configuration") {
     value.origin = fieldDefinitionConfigurationStateToProtocol(effect.origin);
     value.review = fieldDefinitionConfigurationStateToProtocol(effect.review);
@@ -73,30 +72,41 @@ function toDecisionEffect(effect: DecisionEffect): Record<string, unknown> {
     value.origin = searchExpressionStateToProtocol(effect.origin);
     value.review = searchExpressionStateToProtocol(effect.review);
   }
-  const wrapped = { effect: { $case: protocolDecisionEffectCase(effect.kind), value } };
+  const wrapped = { effect: { case: protocolDecisionEffectCase(effect.kind), value } };
   return toProtocolMessage(DecisionEffectSchema, wrapped) as Record<string, unknown>;
 }
 
 function fromDecisionEffect(value: unknown): DecisionEffect {
   const decodedMessage = fromProtocolMessage(DecisionEffectSchema, value) as Record<string, unknown>;
-  const selected = required(
-    (decodedMessage as { effect?: { $case: ProtocolDecisionEffectCase; value: unknown } | null }).effect,
+  const selected = selectedCase(
+    (
+      decodedMessage as {
+        effect?: { case: ProtocolDecisionEffectCase; value: unknown } | { case: undefined } | null;
+      }
+    ).effect,
     "Decision effect",
   );
   const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  if (selected.$case === "fieldDefinitionConfiguration") {
+  if (selected.case === "text") {
+    decoded.markChanges = (decoded.markChanges as readonly Record<string, unknown>[]).map((change) => ({
+      ...change,
+      origin: fromPreviousValue(change.origin),
+      review: fromPreviousValue(change.review),
+    }));
+  }
+  if (selected.case === "fieldDefinitionConfiguration") {
     decoded.origin = fieldDefinitionConfigurationStateFromProtocol(decoded.origin);
     decoded.review = fieldDefinitionConfigurationStateFromProtocol(decoded.review);
   }
-  if (selected.$case === "viewDefinition") {
+  if (selected.case === "viewDefinition") {
     decoded.origin = viewDefinitionStateFromProtocol(decoded.origin);
     decoded.review = viewDefinitionStateFromProtocol(decoded.review);
   }
-  if (selected.$case === "searchExpression") {
+  if (selected.case === "searchExpression") {
     decoded.origin = searchExpressionStateFromProtocol(decoded.origin);
     decoded.review = searchExpressionStateFromProtocol(decoded.review);
   }
-  return { ...decoded, kind: decisionEffectKind(selected.$case) } as DecisionEffect;
+  return { ...decoded, kind: decisionEffectKind(selected.case) } as DecisionEffect;
 }
 
 function searchExpressionStateToProtocol(
@@ -132,17 +142,17 @@ function fieldDefinitionConfigurationStateToProtocol(
     return null;
   }
   if (state.kind === "datatype") {
-    return { configuration: { $case: "datatypeNodeId", value: state.datatypeNodeId } };
+    return { configuration: { case: "datatypeNodeId", value: state.datatypeNodeId } };
   }
   if (state.kind === "cardinality") {
-    return { configuration: { $case: "cardinalityNodeId", value: state.cardinalityNodeId } };
+    return { configuration: { case: "cardinalityNodeId", value: state.cardinalityNodeId } };
   }
   if (state.kind === "optionality") {
-    return { configuration: { $case: "optionalityNodeId", value: state.optionalityNodeId } };
+    return { configuration: { case: "optionalityNodeId", value: state.optionalityNodeId } };
   }
   return {
     configuration: {
-      $case: "initializationExpression",
+      case: "initializationExpression",
       value: withoutExpressionKind(state.expression),
     },
   };
@@ -153,27 +163,31 @@ function fieldDefinitionConfigurationStateFromProtocol(value: unknown): unknown 
     return null;
   }
   const state = value as Record<string, unknown>;
-  const selected = required(
-    (state as { configuration?: { $case: string; value: unknown } | null }).configuration,
+  const selected = selectedCase(
+    (
+      state as {
+        configuration?: { case: string; value: unknown } | { case: undefined } | null;
+      }
+    ).configuration,
     "Field Definition configuration state",
   );
-  if (selected.$case === "datatypeNodeId") {
+  if (selected.case === "datatypeNodeId") {
     return { kind: "datatype", datatypeNodeId: selected.value };
   }
-  if (selected.$case === "cardinalityNodeId") {
+  if (selected.case === "cardinalityNodeId") {
     return { kind: "cardinality", cardinalityNodeId: selected.value };
   }
-  if (selected.$case === "optionalityNodeId") {
+  if (selected.case === "optionalityNodeId") {
     return { kind: "optionality", optionalityNodeId: selected.value };
   }
-  if (selected.$case === "initializationExpression") {
+  if (selected.case === "initializationExpression") {
     const expression = selected.value as Record<string, unknown>;
     return {
       kind: "initialization-expression",
       expression: { kind: "find-field-values", ...expression },
     };
   }
-  throw new Error(`Unknown Field Definition configuration state: ${selected.$case}`);
+  throw new Error(`Unknown Field Definition configuration state: ${selected.case}`);
 }
 
 function withoutExpressionKind(expression: FieldInitializationExpression): Record<string, unknown> {
@@ -181,90 +195,45 @@ function withoutExpressionKind(expression: FieldInitializationExpression): Recor
   return value;
 }
 
-export function toConflictIssue(issue: ConflictIssue): Record<string, unknown> {
-  const value = toProtocolValue(issue) as Record<string, unknown>;
-  delete value.kind;
-  const wrapped = { issue: { $case: protocolConflictIssueCase(issue.kind), value } };
-  return toProtocolMessage(ConflictIssueSchema, wrapped) as Record<string, unknown>;
-}
-
-export function fromConflictIssue(value: unknown): ConflictIssue {
-  const decodedMessage = fromProtocolMessage(ConflictIssueSchema, value) as Record<string, unknown>;
-  const selected = required(
-    (decodedMessage as { issue?: { $case: ProtocolConflictIssueCase; value: unknown } | null }).issue,
-    "Conflict issue",
-  );
-  const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  return { ...decoded, kind: conflictIssueKind(selected.$case) } as ConflictIssue;
-}
-
 export function toInvocationOutcome(value: InvocationOutcome): Record<string, unknown> {
-  return {
-    result: {
-      $case: value.status === "committed-projection-pending" ? "committedProjectionPending" : value.status,
-      value: toProtocolValue(value),
-    },
-  };
+  switch (value.status) {
+    case "absent":
+      return { result: { case: "absent", value: {} } };
+    case "published":
+      return { result: { case: "published", value: toProtocolValue(withoutStatus(value)) } };
+    case "committed-projection-pending":
+      return {
+        result: {
+          case: "committedProjectionPending",
+          value: toProtocolValue(withoutStatus(value)),
+        },
+      };
+    default:
+      return unsupportedProtocolValue(value, "Invocation outcome");
+  }
 }
 
-export function fromInvocationOutcome(value: ProtocolInvocationOutcome): InvocationOutcome {
-  const selected = required(value.result, "Invocation outcome");
-  const status = selected.$case === "committedProjectionPending" ? "committed-projection-pending" : selected.$case;
-  return { ...(fromProtocolValue(selected.value) as Record<string, unknown>), status } as InvocationOutcome;
+export function fromInvocationOutcome(value: ProtocolDto<ProtocolInvocationOutcome>): InvocationOutcome {
+  const selected = selectedCase(value.result, "Invocation outcome");
+  switch (selected.case) {
+    case "absent":
+      return { status: "absent" };
+    case "published":
+      return {
+        ...(fromProtocolValue(selected.value) as Record<string, unknown>),
+        status: "published",
+      } as InvocationOutcome;
+    case "committedProjectionPending":
+      return {
+        ...(fromProtocolValue(selected.value) as Record<string, unknown>),
+        status: "committed-projection-pending",
+      } as InvocationOutcome;
+    default:
+      return unsupportedProtocolCase(selected, "Invocation outcome");
+  }
 }
 
-export function toProtocolValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(toProtocolValue);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-  if (isPreviousValue(value)) {
-    return value.kind === "unset"
-      ? { state: { $case: "unset", value: {} } }
-      : { state: { $case: "set", value: value.value } };
-  }
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toProtocolValue(item)]));
-}
-
-export function fromProtocolValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(fromProtocolValue);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-  if (isProtocolPreviousValue(value)) {
-    return value.state.$case === "unset"
-      ? { kind: "unset" }
-      : { kind: "set", value: fromProtocolValue(value.state.value) };
-  }
-  if ("issue" in value && value.issue !== null) {
-    return fromConflictIssue(value);
-  }
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fromProtocolValue(item)]));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function required<Value>(value: Value | null | undefined, label: string): Value {
-  if (value === null || value === undefined) {
-    throw new Error(`${label} is missing`);
-  }
-  return value;
-}
-
-function isPreviousValue(value: Record<string, unknown>): value is PreviousValue {
-  return value.kind === "unset" || (value.kind === "set" && "value" in value);
-}
-
-function isProtocolPreviousValue(
-  value: Record<string, unknown>,
-): value is { state: { $case: "unset" | "set"; value: unknown } } {
-  return (
-    isRecord(value.state) && (value.state.$case === "unset" || value.state.$case === "set") && "value" in value.state
-  );
+function withoutStatus<Value extends InvocationOutcome>(value: Value): Omit<Value, "status"> {
+  const { status: _status, ...body } = value;
+  return body;
 }

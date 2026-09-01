@@ -6,49 +6,47 @@ import {
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   graphActionKindsInFamily,
 } from "../fact/index.js";
-import type { AuthoredIntentFamily } from "./policy.js";
+import { AuthoredIntentViolation, type AuthoredIntentFamily } from "./contract.js";
 
 const ACTION_KINDS = graphActionKindsInFamily("fieldDefinition");
 
 export const fieldDefinitionAuthoredIntent = {
   key: "field-definition",
   actionKinds: ACTION_KINDS,
-  validate(action, context) {
-    const available = context.projections().available;
+  assert(action, context) {
+    const { available } = context;
     if (available.nodes[action.fieldDefinitionId]?.intrinsicNodeType !== FIELD_DEFINITION_INTRINSIC_NODE_TYPE) {
-      throw new Error("Field configuration host is not an active Field Definition Node");
+      throw new AuthoredIntentViolation("Field configuration host is not an active Field Definition Node");
     }
     if (action.kind !== "field-configuration-set") {
-      return action;
+      return;
     }
     const configuration = action.configuration;
     if (configuration.kind === "datatype") {
       if (!(Object.values(FIELD_DATATYPE_NODE_IDS) as readonly string[]).includes(configuration.datatypeNodeId)) {
-        throw new Error("Field Datatype is not a built-in System Definition");
+        throw new AuthoredIntentViolation("Field Datatype is not a built-in System Definition");
       }
       if (
         configuration.optionsSupertagId !== undefined &&
         available.nodes[configuration.optionsSupertagId]?.intrinsicNodeType !== SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE
       ) {
-        throw new Error("Options source is not an active Supertag Definition");
+        throw new AuthoredIntentViolation("Options source is not an active Supertag Definition");
       }
     } else if (
       configuration.kind === "cardinality" &&
       !(Object.values(FIELD_CARDINALITY_NODE_IDS) as readonly string[]).includes(configuration.cardinalityNodeId)
     ) {
-      throw new Error("Field Cardinality is not a built-in System Definition");
+      throw new AuthoredIntentViolation("Field Cardinality is not a built-in System Definition");
     } else if (
       configuration.kind === "optionality" &&
       !(Object.values(FIELD_OPTIONALITY_NODE_IDS) as readonly string[]).includes(configuration.optionalityNodeId)
     ) {
-      throw new Error("Field Optionality is not a built-in System Definition");
+      throw new AuthoredIntentViolation("Field Optionality is not a built-in System Definition");
     } else if (
       configuration.kind === "initialization-expression" &&
-      available.nodes[configuration.expression.sourceFieldDefinitionId]?.intrinsicNodeType !==
-        FIELD_DEFINITION_INTRINSIC_NODE_TYPE
+      configuration.expression.sourceFieldDefinitionId !== action.fieldDefinitionId
     ) {
-      throw new Error("Initialization source is not an active Field Definition Node");
+      throw new AuthoredIntentViolation("Ancestor Field initialization reads the configured Field Definition");
     }
-    return action;
   },
 } satisfies AuthoredIntentFamily<(typeof ACTION_KINDS)[number]>;

@@ -1,76 +1,51 @@
 import {
   compareCausalOrder,
   fieldDefinitionEndpointOccurrenceId,
-  isNodeAction,
-  isPlacementAction,
   type GraphAction,
   type FactAction,
 } from "../fact/index.js";
-import { occurrenceAnchor, type InterpretedProjection } from "../reconcile/index.js";
-import { nodeLocation } from "../reconcile/node-graph.js";
+import { nodeLocation, occurrenceAnchor, type InterpretedProjection } from "../reconcile/index.js";
 import { deriveSupport } from "../activation/index.js";
 import { hasAlternateNodeCreator, hasIndependentOccurrenceWork } from "./compensation-lifecycle.js";
 import { compensateNodeOwner } from "./compensation-owner.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
-import type { CompensationTargetAction } from "./compensation-types.js";
+import {
+  noCompensation,
+  type CompensationCatalog,
+  type CompensationStep,
+  type CompensationTargetAction,
+} from "./compensation-types.js";
 
-export function compensateStructureAction(
-  target: FactAction<CompensationTargetAction>,
-  targetIds: ReadonlySet<string>,
-  activeFacts: readonly FactAction[],
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  const authoredAction = target.action;
-  if (authoredAction.kind === "field-value-remove") {
-    return compensateOccurrenceDelete(authoredAction.valuePlacementId, projection, counterfactual);
-  }
-  if (authoredAction.kind === "materialized-field-clear") {
-    return compensateMaterializedFieldClear(authoredAction, projection, counterfactual);
-  }
-  if (isNodeAction(authoredAction)) {
-    switch (authoredAction.kind) {
-      case "node-create":
-      case "node-restore":
-        return compensateNodeCreate(target, targetIds, activeFacts, projection);
-      case "original-promote":
-        return compensateNodeOwner(target, activeFacts, projection, counterfactual);
-      case "node-trash":
-        return compensateNodeTrash(target, targetIds, activeFacts, projection, counterfactual);
-    }
-  }
-  if (isPlacementAction(authoredAction)) {
-    switch (authoredAction.kind) {
-      case "placement-create":
-        return compensateOccurrenceCreate(target, targetIds, activeFacts, projection);
-      case "placement-remove":
-        return compensateOccurrenceDelete(authoredAction.placementId, projection, counterfactual);
-      case "placement-move":
-        return compensateMove(target, activeFacts, projection, counterfactual);
-    }
-  }
-  return null;
-}
+export const STRUCTURE_COMPENSATIONS = {
+  "node-create": ({ targetIds, activeFacts, projection }, target) =>
+    compensateNodeCreate(target, targetIds, activeFacts, projection),
+  "node-restore": ({ targetIds, activeFacts, projection }, target) =>
+    compensateNodeCreate(target, targetIds, activeFacts, projection),
+  "node-trash": ({ targetIds, activeFacts, projection, counterfactual }, target) =>
+    compensateNodeTrash(target, targetIds, activeFacts, projection, counterfactual),
+  "original-promote": ({ activeFacts, projection, counterfactual }, target) =>
+    compensateNodeOwner(target, activeFacts, projection, counterfactual),
+  "placement-create": ({ targetIds, activeFacts, projection }, target) =>
+    compensateOccurrenceCreate(target, targetIds, activeFacts, projection),
+  "placement-remove": ({ projection, counterfactual }, { action }) =>
+    compensateOccurrenceDelete(action.placementId, projection, counterfactual),
+  "placement-move": ({ activeFacts, projection, counterfactual }, target) =>
+    compensateMove(target, activeFacts, projection, counterfactual),
+  "field-value-remove": ({ projection, counterfactual }, { action }) =>
+    compensateOccurrenceDelete(action.valuePlacementId, projection, counterfactual),
+  "materialized-field-clear": ({ projection, counterfactual }, { action }) =>
+    compensateMaterializedFieldClear(action, projection, counterfactual),
+} satisfies Partial<CompensationCatalog>;
 
 function compensateNodeCreate(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "node-create" | "node-restore" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  const location =
-    authoredAction.kind === "node-create" || authoredAction.kind === "node-restore"
-      ? nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)
-      : "absent";
-  const ownedByDetachedRelation =
-    (authoredAction.kind === "node-create" || authoredAction.kind === "node-restore") &&
-    location === "absent" &&
-    projection.nodeOwners[authoredAction.nodeId] != null;
-  if (
-    (authoredAction.kind !== "node-create" && authoredAction.kind !== "node-restore") ||
-    (location !== "active" && !ownedByDetachedRelation)
-  ) {
+  const location = nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId);
+  const ownedByDetachedRelation = location === "absent" && projection.nodeOwners[authoredAction.nodeId] != null;
+  if (location !== "active" && !ownedByDetachedRelation) {
     return noCompensation();
   }
   if (hasAlternateNodeCreator(target, targetIds, activeFacts)) {
@@ -82,24 +57,18 @@ function compensateNodeCreate(
   if (reverseDependencies.length > 0) {
     return { kind: "stale", reason: "Deleting the created Node would remove later work" };
   }
-  if (authoredAction.kind === "node-restore") {
-    return { kind: "ready", actions: [{ kind: "node-trash", nodeId: authoredAction.nodeId }] };
-  }
   return { kind: "ready", actions: [{ kind: "node-trash", nodeId: authoredAction.nodeId }] };
 }
 
 function compensateNodeTrash(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "node-trash" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  if (
-    authoredAction.kind !== "node-trash" ||
-    nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId) !== "trash"
-  ) {
+  if (nodeLocation(projection.identity.workspaceNodeId, projection, authoredAction.nodeId) !== "trash") {
     return noCompensation();
   }
   const independentDelete = activeFacts.some(
@@ -134,14 +103,13 @@ function compensateNodeTrash(
 }
 
 function compensateOccurrenceCreate(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "placement-create" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
   if (
-    authoredAction.kind !== "placement-create" ||
     !projection.occurrences[authoredAction.placementId] ||
     hasIndependentOccurrenceWork(target, targetIds, activeFacts) ||
     activeFacts.some(
@@ -192,7 +160,7 @@ function compensateOccurrenceDelete(
 }
 
 function compensateMaterializedFieldClear(
-  action: Extract<FactAction["action"], { kind: "materialized-field-clear" }>,
+  action: Extract<CompensationTargetAction, { kind: "materialized-field-clear" }>,
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
@@ -239,15 +207,12 @@ function materializedFieldOccurrenceIds(
 }
 
 function compensateMove(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "placement-move" }>>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  if (authoredAction.kind !== "placement-move") {
-    return noCompensation();
-  }
   const occurrence = projection.occurrences[authoredAction.placementId];
   const laterRestore = activeFacts.some(
     (fact) =>

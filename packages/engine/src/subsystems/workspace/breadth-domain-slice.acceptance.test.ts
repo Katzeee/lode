@@ -1,36 +1,43 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
-import type { EditCommand } from "@lode/sdk";
-import { materializedFieldNodeId } from "../../domain/fact/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import type { EditCommand, ProjectionPageSection, ProjectionSections } from "@lode/sdk";
+import {
+  CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID,
+  END_SEQUENCE_ANCHOR as end,
+  materializedFieldNodeId,
+  URL_DEFINITION_NODE_ID,
+} from "../../domain/fact/index.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("breadth-first domain slice", () => {
-  it("BREADTH-1 exposes Debug node, Outline, URL Node, Code Node, and Field Value as formal capabilities", async () => {
+  it("BREADTH-1 exposes Projection, Outline, URL Node, Code Node, and Field Value as formal capabilities", async () => {
     const workspace = await setup();
     await publish(
       workspace,
       command("fixture", [
-        nodeAt("debug-target", "workspace", "debug-target-occ", "Debug target"),
-        nodeAt("code-target", "workspace", "code-target-occ", "const answer = 42;"),
-        nodeAt("field-host", "workspace", "field-host-occ", "Field host"),
-        nodeAt("field-definition", "workspace", "field-definition-occ", "Field", "field-definition"),
-        nodeAt("outline-root", "workspace", "outline-root-occ", "Outline root"),
-        nodeAt("outline-b", "outline-root", "outline-b-occ", "B"),
-        nodeAt("outline-a", "outline-root", "outline-a-occ", "A"),
-        nodeAt("outline-grandchild", "outline-b", "outline-grandchild-occ", "Grandchild"),
+        nodeAt("debug-target", "workspace", "debug-target-occ", { text: "Debug target" }),
+        nodeAt("code-target", "workspace", "code-target-occ", { text: "const answer = 42;" }),
+        nodeAt("field-host", "workspace", "field-host-occ", { text: "Field host" }),
+        nodeAt("field-definition", "workspace", "field-definition-occ", {
+          text: "Field",
+          intrinsicNodeType: "field-definition",
+        }),
+        nodeAt("outline-root", "workspace", "outline-root-occ", { text: "Outline root" }),
+        nodeAt("outline-b", "outline-root", "outline-b-occ", { text: "B" }),
+        nodeAt("outline-a", "outline-root", "outline-a-occ", { text: "A" }),
+        nodeAt("outline-grandchild", "outline-b", "outline-grandchild-occ", { text: "Grandchild" }),
       ]),
     );
 
-    expect(await debugNode(workspace, "debug-target")).toMatchObject({
-      available: true,
-      metanodeId: null,
-      metanodeChildOccurrenceIds: [],
-    });
+    expect((await projectionSection(workspace, "nodes"))["debug-target"]).toMatchObject({ nodeId: "debug-target" });
+    expect((await projectionSection(workspace, "metanodes"))["debug-target"]).toBeUndefined();
 
     await publish(
       workspace,
@@ -48,11 +55,9 @@ describe("breadth-first domain slice", () => {
         },
       ]),
     );
-    expect(await debugNode(workspace, "url-node")).toMatchObject({
-      available: true,
-      url: "https://example.com/lode",
-      codeLanguage: null,
-    });
+    expect(await projectedFieldValueText(workspace, "url-node", URL_DEFINITION_NODE_ID)).toBe(
+      "https://example.com/lode",
+    );
 
     await publish(
       workspace,
@@ -66,11 +71,9 @@ describe("breadth-first domain slice", () => {
         },
       ]),
     );
-    expect(await debugNode(workspace, "code-target")).toMatchObject({
-      available: true,
-      codeLanguage: "JavaScript",
-      url: null,
-    });
+    expect(await projectedFieldValueText(workspace, "code-target", CODE_BLOCK_LANGUAGE_DEFINITION_NODE_ID)).toBe(
+      "JavaScript",
+    );
 
     await publish(
       workspace,
@@ -95,7 +98,7 @@ describe("breadth-first domain slice", () => {
         },
       ]),
     );
-    expect((await debugNode(workspace, "field-host")).materializedFields).toEqual([
+    expect((await projectionSection(workspace, "materializedFields"))["field-host"]).toEqual([
       expect.objectContaining({
         fieldDefinitionId: "field-definition",
         fieldNodeId: materializedFieldNodeId("field-host", "field-definition"),
@@ -132,9 +135,9 @@ describe("breadth-first domain slice", () => {
     await publish(
       workspace,
       command("view-fixture", [
-        nodeAt("host", "workspace", "host-occ", "Host"),
-        nodeAt("z-child", "host", "z-child-occ", "z"),
-        nodeAt("a-child", "host", "a-child-occ", "A"),
+        nodeAt("host", "workspace", "host-occ", { text: "Host" }),
+        nodeAt("z-child", "host", "z-child-occ", { text: "z" }),
+        nodeAt("a-child", "host", "a-child-occ", { text: "A" }),
       ]),
     );
     await publish(
@@ -254,9 +257,9 @@ describe("breadth-first domain slice", () => {
     await publish(
       workspace,
       command("proposal-fixture", [
-        nodeAt("proposal-host", "workspace", "proposal-host-occ", "Host"),
-        nodeAt("proposal-z", "proposal-host", "proposal-z-occ", "z"),
-        nodeAt("proposal-a", "proposal-host", "proposal-a-occ", "A"),
+        nodeAt("proposal-host", "workspace", "proposal-host-occ", { text: "Host" }),
+        nodeAt("proposal-z", "proposal-host", "proposal-z-occ", { text: "z" }),
+        nodeAt("proposal-a", "proposal-host", "proposal-a-occ", { text: "A" }),
       ]),
     );
     await publish(
@@ -317,25 +320,7 @@ async function setup(): Promise<Workspace> {
     loroPeerId: "112",
     documents: new InMemoryDocumentStore(),
   });
-  return Workspace.open({ workspaceId: "workspace", facts, versions });
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  text: string,
-  intrinsicNodeType?: "field-definition",
-): EditCommand["actions"][number] {
-  return {
-    kind: "node-create",
-    nodeId,
-    occurrenceId,
-    parentNodeId,
-    anchor: end,
-    seed: textSeed(text),
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
+  return openTestWorkspace({ workspaceId: "workspace", facts, versions });
 }
 
 function textSeed(text: string) {
@@ -391,8 +376,37 @@ async function publish(workspace: Workspace, command: EditCommand): Promise<void
   expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
 }
 
-function debugNode(workspace: Workspace, nodeId: string) {
-  return workspace.query({ kind: "debug-node", workspaceId: "workspace", perspective: "origin", nodeId });
+async function projectedFieldValueText(
+  workspace: Workspace,
+  nodeId: string,
+  fieldDefinitionId: string,
+): Promise<string | null> {
+  const fields = (await projectionSection(workspace, "materializedFields"))[nodeId] ?? [];
+  const field = fields.find((candidate) => candidate.fieldDefinitionId === fieldDefinitionId);
+  const valueOccurrenceId = field?.valueOccurrenceIds[0];
+  if (valueOccurrenceId === undefined) {
+    return null;
+  }
+  const occurrence = (await projectionSection(workspace, "occurrences"))[valueOccurrenceId];
+  const node = occurrence === undefined ? undefined : (await projectionSection(workspace, "nodes"))[occurrence.nodeId];
+  return node?.content.flatMap((item) => (item.kind === "text" ? [item.value] : [])).join("") ?? null;
+}
+
+async function projectionSection<Section extends ProjectionPageSection>(
+  workspace: Workspace,
+  section: Section,
+): Promise<ProjectionSections[Section]> {
+  const page = await workspace.query({
+    kind: "projection",
+    workspaceId: "workspace",
+    perspective: "origin",
+    section,
+  });
+  if (page.section !== section) {
+    throw new Error(`Expected ${section} Projection`);
+  }
+  const selected = (page as unknown as Readonly<Record<string, unknown>>)[section];
+  return selected as ProjectionSections[Section];
 }
 
 function required<T>(value: T | null | undefined, label: string): T {

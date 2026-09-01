@@ -1,16 +1,20 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand, SearchExpressionSpec, SearchResultsResult } from "@lode/sdk";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
-import { syncPair } from "../../../tests/support/sync.js";
-import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
+import { createSupertagApplication, nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_DATATYPE_NODE_IDS,
+  materializedFieldNodeId,
+} from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { FactReplication } from "./fact-replication.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("Search Node product model", () => {
   it("SEARCH-1 evaluates a Supertag expression across Origin, Review, and Trash", async () => {
@@ -267,7 +271,7 @@ describe("Search Node product model", () => {
     expect((await searchProjection(restarted)).searchExpressions.search).toEqual(before);
 
     const right = await openSearchWorkspace(new InMemoryDocumentStore(), "222");
-    await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+    await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
     await right.workspace.reconcileAuthorityAdvance();
     expect(await resultNodeIds(right.workspace, "origin")).toEqual(["matching-candidate"]);
     expect((await searchProjection(right.workspace)).searchExpressions.search).toEqual(before);
@@ -278,8 +282,8 @@ describe("Search Node product model", () => {
     await expectPublished(
       workspace,
       command("defined-search-nodes", "defined-search", [
-        nodeAt("field-supertag", "workspace", "field-supertag-original", "supertag-definition"),
-        nodeAt("search", "workspace", "search-original", "search"),
+        nodeAt("field-supertag", "workspace", "field-supertag-original", { intrinsicNodeType: "supertag-definition" }),
+        nodeAt("search", "workspace", "search-original", { intrinsicNodeType: "search" }),
         nodeAt("effective-candidate", "workspace", "effective-candidate-original"),
         nodeAt("materialized-candidate", "workspace", "materialized-candidate-original"),
       ]),
@@ -428,16 +432,18 @@ async function setup(documents: InMemoryDocumentStore = new InMemoryDocumentStor
 
 async function openSearchWorkspace(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }) };
 }
 
 async function createSearchFixture(workspace: Workspace): Promise<void> {
   await expectPublished(
     workspace,
     command("fixture", "setup", [
-      nodeAt("base-supertag", "workspace", "base-supertag-original", "supertag-definition"),
-      nodeAt("subtype-supertag", "workspace", "subtype-supertag-original", "supertag-definition"),
-      nodeAt("search", "workspace", "search-original", "search"),
+      nodeAt("base-supertag", "workspace", "base-supertag-original", { intrinsicNodeType: "supertag-definition" }),
+      nodeAt("subtype-supertag", "workspace", "subtype-supertag-original", {
+        intrinsicNodeType: "supertag-definition",
+      }),
+      nodeAt("search", "workspace", "search-original", { intrinsicNodeType: "search" }),
       nodeAt("base-candidate", "workspace", "base-candidate-original"),
       nodeAt("subtype-candidate", "workspace", "subtype-candidate-original"),
       { kind: "supertag-extension-add", supertagId: "subtype-supertag", baseSupertagId: "base-supertag", anchor: end },
@@ -451,10 +457,10 @@ async function createComposedSearchFixture(workspace: Workspace): Promise<void> 
   await expectPublished(
     workspace,
     command("composed-fixture-nodes", "setup", [
-      nodeAt("base-supertag", "workspace", "base-supertag-original", "supertag-definition"),
-      nodeAt("date-field", "workspace", "date-field-original", "field-definition"),
+      nodeAt("base-supertag", "workspace", "base-supertag-original", { intrinsicNodeType: "supertag-definition" }),
+      nodeAt("date-field", "workspace", "date-field-original", { intrinsicNodeType: "field-definition" }),
       nodeAt("project", "workspace", "project-original"),
-      nodeAt("search", "project", "search-original", "search"),
+      nodeAt("search", "project", "search-original", { intrinsicNodeType: "search" }),
       nodeAt("linked-target", "workspace", "linked-target-original"),
       nodeAt("matching-candidate", "project", "matching-candidate-original"),
       nodeAt("missing-link-candidate", "project", "missing-link-candidate-original"),
@@ -535,22 +541,6 @@ function composedExpression() {
         value: { kind: "date" as const, value: "2026-08-20" },
       },
     ],
-  };
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "field-definition" | "search",
-): EditCommand["actions"][number] {
-  return {
-    kind: "node-create",
-    nodeId,
-    occurrenceId,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType ? { intrinsicNodeType } : {}),
   };
 }
 

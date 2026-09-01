@@ -10,9 +10,11 @@ import {
   rebuildGeneration,
   type ProjectionGeneration,
 } from "../../../src/domain/reconcile/index.js";
-import { historySteps, queryHistory } from "../../../src/domain/history/index.js";
+import { queryHistory } from "../../../src/domain/history/index.js";
+import { historySteps } from "../../../src/domain/history/state.js";
 import { projectGovernance } from "../../../src/domain/governance/index.js";
 import { uniqueFacts } from "../facts.js";
+import { shuffle } from "../permutation.js";
 
 export { canonicalPublicDomainState } from "./fact-oracle-public-query.js";
 
@@ -93,21 +95,4 @@ function factLabel(fact: Fact): string {
           ? fact.body.action.kind
           : fact.body.operation;
   return `${fact.body.kind}/${semantic}@${fact.id}`;
-}
-
-function shuffle<T>(values: readonly T[], seed: number): T[] {
-  const result = [...values];
-  let state = seed >>> 0;
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    const target = state % (index + 1);
-    const sourceValue = result[index];
-    const targetValue = result[target];
-    if (sourceValue === undefined || targetValue === undefined) {
-      throw new Error("Generated shuffle index is outside its bounded input");
-    }
-    result[index] = targetValue;
-    result[target] = sourceValue;
-  }
-  return result;
 }

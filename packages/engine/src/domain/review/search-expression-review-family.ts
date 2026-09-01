@@ -1,12 +1,11 @@
 import {
-  canonicalJson,
-  compareCausalOrder,
+  findSearchExpression,
   isSearchAction,
   isFactActionId,
+  proposableActionKindsInFamily,
   searchClauseFromSpec,
   type FactAction,
   type FactActionId,
-  type SearchExpressionSpec,
 } from "../fact/index.js";
 import {
   searchExpressionActionId,
@@ -15,19 +14,17 @@ import {
   type InterpretedProjection,
   type InterpretedProjectionGeneration,
 } from "../reconcile/index.js";
-import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
+import { defineReviewFamily, originReviewChanged } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { SearchExpressionDecisionEffect, SearchExpressionDecisionState } from "./types.js";
 
-const SEARCH_ACTION_KINDS = [
-  "search-expression-add",
-  "search-expression-configure",
-  "search-expression-move",
-  "search-expression-remove",
-  "search-expression-restore",
-] as const;
+const SEARCH_ACTION_KINDS = proposableActionKindsInFamily("search");
 
-export const searchExpressionReviewFamily = {
+export const searchExpressionReviewFamily = defineReviewFamily<
+  (typeof SEARCH_ACTION_KINDS)[number],
+  FactActionId,
+  SearchExpressionDecisionEffect
+>({
   key: "search-expression",
   actionKinds: SEARCH_ACTION_KINDS,
   scopes(fact) {
@@ -41,14 +38,11 @@ export const searchExpressionReviewFamily = {
         : []),
     ];
   },
-  candidates: ({ generation, pending }) => candidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const expressionId = expressionIdentity(fact);
-    const effect = expressionEffect(expressionId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? null
-      : { identity: `search-expression/${expressionId}`, effect };
-  },
+  identify: (fact) => expressionIdentity(fact),
+  effect: (_fact, expressionId, generation) => expressionEffect(expressionId, generation),
+  changed: originReviewChanged,
+  diffKind: "search-expression",
+  effectIdentity: (expressionId) => `search-expression/${expressionId}`,
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
       if (!isSearchAction(fact.action)) {
@@ -66,35 +60,7 @@ export const searchExpressionReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule<(typeof SEARCH_ACTION_KINDS)[number]>;
-
-function candidates(
-  generation: InterpretedProjectionGeneration,
-  pending: ReadonlyMap<FactActionId, FactAction>,
-): readonly HunkCandidate[] {
-  const groups = new Map<FactActionId, FactAction[]>();
-  for (const fact of pending.values()) {
-    if (!isSearchAction(fact.action)) {
-      continue;
-    }
-    const id = expressionIdentity(fact);
-    const group = groups.get(id) ?? [];
-    group.push(fact);
-    groups.set(id, group);
-  }
-  return [...groups].flatMap(([expressionId, facts]) => {
-    const effect = expressionEffect(expressionId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? []
-      : [
-          {
-            diffSpace: { kind: "search-expression" as const, identity: expressionId },
-            targets: [...facts].sort(compareCausalOrder).map((fact) => fact.id),
-            bridges: [],
-          },
-        ];
-  });
-}
+});
 
 function expressionEffect(
   expressionId: FactActionId,
@@ -117,7 +83,7 @@ function expressionState(
     return null;
   }
   const occurrence = projection.occurrences[identity.expressionOccurrenceId];
-  const located = locateExpression(projection, identity.expressionNodeId);
+  const located = locateExpression(projection, expressionId);
   return {
     present: occurrence !== undefined,
     hostId: located?.hostId ?? null,
@@ -129,11 +95,11 @@ function expressionState(
 
 function locateExpression(
   projection: InterpretedProjection,
-  nodeId: string,
-): Readonly<{ hostId: string; expression: SearchExpressionSpec }> | null {
+  expressionId: FactActionId,
+): Readonly<{ hostId: string; expression: NonNullable<ReturnType<typeof findSearchExpression>> }> | null {
   for (const [hostId, search] of Object.entries(projection.searchExpressions)) {
-    const expression = findExpression(search.expression, nodeId);
-    if (expression) {
+    const expression = findSearchExpression(search.expression, expressionId);
+    if (expression !== undefined) {
       return { hostId, expression };
     }
   }
@@ -142,28 +108,9 @@ function locateExpression(
     if (!filter) {
       continue;
     }
-    const expression = findExpression(filter.expression, nodeId);
-    if (expression) {
+    const expression = findSearchExpression(filter.expression, expressionId);
+    if (expression !== undefined) {
       return { hostId: filter.filterId, expression };
-    }
-  }
-  return null;
-}
-
-function findExpression(expression: SearchExpressionSpec, nodeId: string): SearchExpressionSpec | null {
-  if (expression.expressionNodeId === nodeId) {
-    return expression;
-  }
-  const children =
-    expression.kind === "and" || expression.kind === "or"
-      ? expression.operands
-      : expression.kind === "not"
-        ? [expression.operand]
-        : [];
-  for (const child of children) {
-    const found = findExpression(child, nodeId);
-    if (found) {
-      return found;
     }
   }
   return null;

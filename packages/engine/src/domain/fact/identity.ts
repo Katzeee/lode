@@ -1,3 +1,17 @@
+import {
+  FIELD_CARDINALITY_NODE_IDS,
+  SYSTEM_FIELD_DATATYPE_NODE_IDS,
+  SYSTEM_FIELD_OPTIONALITY_NODE_IDS,
+  workspaceSchemaNodeId,
+} from "@lode/system-schema";
+
+export {
+  FIELD_CARDINALITY_NODE_IDS,
+  SYSTEM_FIELD_DATATYPE_NODE_IDS as FIELD_DATATYPE_NODE_IDS,
+  SYSTEM_FIELD_OPTIONALITY_NODE_IDS as FIELD_OPTIONALITY_NODE_IDS,
+  workspaceSchemaNodeId,
+};
+
 const FIELD_DEFINITION_ENDPOINT_OCCURRENCE_PREFIX = "field-definition-endpoint-occ:v1:";
 const MATERIALIZED_FIELD_NODE_PREFIX = "materialized-field:v1:";
 const MATERIALIZED_FIELD_OCCURRENCE_PREFIX = "materialized-field-occ:v1:";
@@ -5,7 +19,6 @@ const TEMPLATE_INSTANCE_NODE_PREFIX = "template-instance:v1:";
 const TEMPLATE_INSTANCE_OCCURRENCE_PREFIX = "template-instance-occ:v1:";
 const WORKSPACE_TRASH_NODE_PREFIX = "workspace-trash:v1:";
 const WORKSPACE_TRASH_OCCURRENCE_PREFIX = "workspace-trash-occ:v1:";
-const WORKSPACE_SCHEMA_NODE_PREFIX = "workspace-schema:v1:";
 const TEMPLATE_FIELD_INSTANCE_VALUE_NODE_PREFIX = "template-field-instance-value:v1:";
 const TEMPLATE_FIELD_INSTANCE_VALUE_OCCURRENCE_PREFIX = "template-field-instance-value-occ:v1:";
 export const SYSTEM_DEFINITION_CATALOG_NODE_ID = "system-definition-catalog:v1";
@@ -29,25 +42,9 @@ export const FIELD_CONFIGURATION_DEFINITION_NODE_IDS = {
   optionality: "system-field-configuration-definition:v1:optionality",
   initializationExpression: "system-field-configuration-definition:v1:initialization-expression",
 } as const;
-export const FIELD_DATATYPE_NODE_IDS = {
-  plain: "system-field-datatype:v1:plain",
-  options: "system-field-datatype:v1:options",
-  optionsFromSupertag: "system-field-datatype:v1:options-from-supertag",
-  number: "system-field-datatype:v1:number",
-  checkbox: "system-field-datatype:v1:checkbox",
-  date: "system-field-datatype:v1:date",
-} as const;
 export const CHECKBOX_VALUE_NODE_IDS = {
   yes: "system-checkbox-value:v1:yes",
   no: "system-checkbox-value:v1:no",
-} as const;
-export const FIELD_CARDINALITY_NODE_IDS = {
-  single: "system-field-cardinality:v1:single",
-  list: "system-field-cardinality:v1:list",
-} as const;
-export const FIELD_OPTIONALITY_NODE_IDS = {
-  yes: "system-field-optionality:v1:yes",
-  no: "system-field-optionality:v1:no",
 } as const;
 
 export function workspaceTrashNodeId(workspaceNodeId: string): string {
@@ -56,10 +53,6 @@ export function workspaceTrashNodeId(workspaceNodeId: string): string {
 
 export function workspaceTrashOccurrenceId(workspaceNodeId: string): string {
   return `${WORKSPACE_TRASH_OCCURRENCE_PREFIX}${encodeURIComponent(workspaceNodeId)}`;
-}
-
-export function workspaceSchemaNodeId(workspaceNodeId: string): string {
-  return `${WORKSPACE_SCHEMA_NODE_PREFIX}${encodeURIComponent(workspaceNodeId)}`;
 }
 
 export function fieldDefinitionEndpointOccurrenceId(fieldOccurrenceId: string): string {

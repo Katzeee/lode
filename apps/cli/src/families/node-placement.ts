@@ -7,45 +7,30 @@ import {
 } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import type { CommandContext } from "../invocation/index.js";
-import {
-  anchorFor,
-  descriptor,
-  readNodeUniverse,
-  resolveNodeTarget,
-  resolveOccurrenceTarget,
-} from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { fileOption, stringOption, writeCommand, type CommandContext } from "../command/index.js";
+import { anchorFor, readNodeUniverse, resolveOccurrence, resolveTarget, resource } from "../target/index.js";
+import { runWrite, workspaceIdOf } from "../intent/index.js";
 
-const TEXT_FILE = {
-  name: "--text-file",
-  description: "Read the node text from a UTF-8 file (- for stdin)",
-  value: { kind: "file" as const },
-};
-const UNDER = { name: "--under", description: "Parent node target", value: { kind: "string" as const } };
-const BEFORE = { name: "--before", description: "Place before this occurrence", value: { kind: "string" as const } };
-const AFTER = { name: "--after", description: "Place after this occurrence", value: { kind: "string" as const } };
-const nodeEdit: CommandDefinition = {
+const TEXT_FILE = fileOption("--text-file", "Read the node text from a UTF-8 file (- for stdin)");
+const UNDER = stringOption("--under", "Parent node target");
+const BEFORE = stringOption("--before", "Place before this occurrence");
+const AFTER = stringOption("--after", "Place after this occurrence");
+const nodeEdit = writeCommand({
   path: ["node", "edit"],
   summary: "Replace a node's text, keeping inline references in place.",
   positionals: [["node", "Node target"]],
   options: [
-    { name: "--text", description: "New node text", value: { kind: "string" as const }, conflicts: ["--text-file"] },
+    stringOption("--text", "New node text", { conflicts: ["--text-file"] }),
     { ...TEXT_FILE, conflicts: ["--text"] },
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("node.edit", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
     const text = args.option("--text") ?? args.option("--text-file");
     if (text === undefined) {
       throw new CliError("usage", "node edit requires --text or --text-file.");
     }
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-    ]);
+    const target = await resolveTarget(context, args.positional("node"), ["node"]);
     const { nodes } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     const node = nodes[target.nodeId];
     if (node === undefined) {
@@ -56,59 +41,46 @@ const nodeEdit: CommandDefinition = {
       .map((item) => (item.kind === "text" ? item.id : ""))
       .filter((id) => id.length > 0) as readonly TextAtomId[];
     const insertAnchor = replacementAnchor(node);
-    const { result, data } = await executeWrite(context, "node.edit", [
-      {
-        kind: "rich-text-splice",
-        nodeId: target.nodeId,
-        deleteAtomIds,
-        anchor: insertAnchor,
-        insert: text,
-      },
-    ]);
-    const resource = descriptor(workspaceId, "node", target.nodeId, text);
-    return writeResult(data, result, {
-      extra: { target: resource },
-      view: writeView("Updated", resource),
-    });
-  },
-};
+    const edited = resource(context, "node", target.nodeId, text);
+    return {
+      actions: [
+        {
+          kind: "rich-text-splice",
+          nodeId: target.nodeId,
+          deleteAtomIds,
+          anchor: insertAnchor,
+          insert: text,
+        },
+      ],
+      extra: { target: edited },
+      view: writeView("Updated", edited),
+    };
+  }),
+});
 
-const nodeMove: CommandDefinition = {
+const nodeMove = writeCommand({
   path: ["node", "move"],
   summary: "Move one placement of a node under a new parent.",
   positionals: [["target", "Node or occurrence target"]],
   options: [
     { ...UNDER },
-    {
-      name: "--from",
-      description: "Current parent node, to disambiguate placements",
-      value: { kind: "string" as const },
-    },
+    stringOption("--from", "Current parent node, to disambiguate placements"),
     { ...BEFORE, conflicts: ["--after"] },
     { ...AFTER },
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("node.move", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
     const under = args.option("--under");
     if (under === undefined) {
       throw new CliError("usage", "node move requires --under.");
     }
-    const parent = await resolveNodeTarget(context.session, workspaceId, context.perspective, under, ["node"]);
+    const parent = await resolveTarget(context, under, ["node"]);
     const from = args.option("--from");
-    const fromParentIds =
-      from === undefined
-        ? undefined
-        : [(await resolveNodeTarget(context.session, workspaceId, context.perspective, from, ["node"])).nodeId];
-    const placement = await resolveOccurrenceTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("target"),
-      { nodeKinds: ["node"], fromParentIds },
-    );
+    const fromParentIds = from === undefined ? undefined : [(await resolveTarget(context, from, ["node"])).nodeId];
+    const placement = await resolveOccurrence(context, args.positional("target"), {
+      nodeKinds: ["node"],
+      fromParentIds,
+    });
     const anchor = await anchorFor(
       context.session,
       workspaceId,
@@ -117,53 +89,35 @@ const nodeMove: CommandDefinition = {
       args.option("--before"),
       args.option("--after"),
     );
-    const { result, data } = await executeWrite(context, "node.move", [
-      { kind: "occurrence-move", occurrenceId: placement.occurrenceId, parentNodeId: parent.nodeId, anchor },
-    ]);
-    const resource = descriptor(workspaceId, "node", placement.nodeId, placement.nodeLabel);
-    return writeResult(data, result, {
-      extra: { target: resource, to: descriptor(workspaceId, "node", parent.nodeId, parent.label) },
-      view: writeView("Moved", resource, parent.label),
-    });
-  },
-};
+    const moved = resource(context, "node", placement.nodeId, placement.nodeLabel);
+    return {
+      actions: [{ kind: "occurrence-move", occurrenceId: placement.occurrenceId, parentNodeId: parent.nodeId, anchor }],
+      extra: { target: moved, to: resource(context, "node", parent.nodeId, parent.label) },
+      view: writeView("Moved", moved, parent.label),
+    };
+  }),
+});
 
-const nodeTrash: CommandDefinition = {
+const nodeTrash = writeCommand({
   path: ["node", "trash"],
   summary: "Move a node to Trash (recoverable).",
   positionals: [["node", "Node target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-    ]);
-    const { result, data } = await executeWrite(context, "node.trash", [
-      { kind: "node-delete", nodeId: target.nodeId },
-    ]);
-    return writeResult(data, result, {
+  run: runWrite("node.trash", async (context, args) => {
+    const target = await resolveTarget(context, args.positional("node"), ["node"]);
+    return {
+      actions: [{ kind: "node-delete", nodeId: target.nodeId }],
       extra: { target: target.descriptor },
       view: writeView("Trashed", target.descriptor),
-    });
-  },
-};
+    };
+  }),
+});
 
-const nodeRestore: CommandDefinition = {
+const nodeRestore = writeCommand({
   path: ["node", "restore"],
   summary: "Restore a trashed node to its previous placement.",
   positionals: [["node", "Node target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-    ]);
+  run: runWrite("node.restore", async (context, args) => {
+    const target = await resolveTarget(context, args.positional("node"), ["node"]);
     const evidence = await readTrashEvidence(context, target.nodeId);
     if (!evidence.available) {
       throw new CliError(
@@ -171,21 +125,21 @@ const nodeRestore: CommandDefinition = {
         `Node ${target.descriptor.ref} has no restorable Trash Evidence. It may not be in Trash, or its deletion is entangled with later work.`,
       );
     }
-    const { result, data } = await executeWrite(context, "node.restore", [
-      {
-        kind: "node-restore",
-        nodeId: target.nodeId,
-        occurrenceId: evidence.occurrenceId,
-        parentNodeId: evidence.parentNodeId,
-        anchor: evidence.anchor ?? END_SEQUENCE_ANCHOR,
-      },
-    ]);
-    return writeResult(data, result, {
+    return {
+      actions: [
+        {
+          kind: "node-restore",
+          nodeId: target.nodeId,
+          occurrenceId: evidence.occurrenceId,
+          parentNodeId: evidence.parentNodeId,
+          anchor: evidence.anchor ?? END_SEQUENCE_ANCHOR,
+        },
+      ],
       extra: { target: target.descriptor },
       view: writeView("Restored", target.descriptor),
-    });
-  },
-};
+    };
+  }),
+});
 
 async function readTrashEvidence(context: CommandContext, nodeId: string): Promise<TrashEvidenceResult> {
   const result = await context.session.application.query({
@@ -197,7 +151,7 @@ async function readTrashEvidence(context: CommandContext, nodeId: string): Promi
   if (result.status !== "ok") {
     throw new CliError("unavailable", `Trash Evidence is unavailable: ${result.error.message}`);
   }
-  return result.value as unknown as TrashEvidenceResult;
+  return result.value;
 }
 
 /**

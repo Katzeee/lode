@@ -30,7 +30,7 @@ function measureProjectionOpen(nodes: number): Measurement {
   for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
     globalThis.gc?.();
     const started = performance.now();
-    const projection = WorkspaceProjection.open("workspace", snapshot, CURRENT_PROJECTION_VERSIONS);
+    const projection = WorkspaceProjection.open("workspace", snapshot, CURRENT_PROJECTION_VERSIONS, () => undefined);
     elapsed.push(performance.now() - started);
     if (!frontierEquals(projection.identity.frontier, snapshot.frontier)) {
       throw new Error("Projection benchmark did not publish the measured Fact frontier");

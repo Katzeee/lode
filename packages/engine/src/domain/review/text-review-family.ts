@@ -1,10 +1,11 @@
+import { isTextAction, proposableActionKindsInFamily } from "../fact/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { ReviewFamilyRule } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import { textCandidates } from "./text-review-candidates.js";
-import { hasTextEffect, isTextAction, textEffect } from "./text-review-effect.js";
+import { hasTextEffect, isTextFactAction, textEffect } from "./text-review-effect.js";
 
-const TEXT_ACTION_KINDS = ["rich-text-splice", "rich-text-mark"] as const;
+const TEXT_ACTION_KINDS = proposableActionKindsInFamily("text");
 
 export const textReviewFamily = {
   key: "text",
@@ -16,9 +17,7 @@ export const textReviewFamily = {
   candidates: ({ snapshot, generation, pending }) => textCandidates(snapshot, generation, pending),
   effect(fact, targets, generation) {
     const action = fact.action;
-    const textTargets = targets.filter(
-      (target) => isTextAction(target.action) && target.action.nodeId === action.nodeId,
-    );
+    const textTargets = targets.filter(isTextFactAction).filter((target) => target.action.nodeId === action.nodeId);
     const effect = textEffect(action.nodeId, textTargets, generation);
     return hasTextEffect(effect) ? { identity: `text/${action.nodeId}`, effect } : null;
   },

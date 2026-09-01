@@ -2,7 +2,7 @@ import type { InvocationOutcome, InvocationQuery } from "@lode/sdk";
 import { frontierCovers } from "../../../domain/fact/index.js";
 import type { FactAuthorityPort } from "../authority/authority-contract.js";
 import type { WorkspaceProjectionState } from "../projection/index.js";
-import { pendingResult, publishedResult } from "../workspace-results.js";
+import { pendingResult, publishedResult } from "../application/result-mapping.js";
 
 type InvocationFactReader = Pick<FactAuthorityPort, "receipt">;
 

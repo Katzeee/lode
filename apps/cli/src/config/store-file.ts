@@ -32,9 +32,24 @@ export async function writeConfigurationStore(path: string, value: unknown): Pro
     await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
     await rename(temporary, path);
   } catch (error) {
-    await rm(temporary, { force: true }).catch(() => {});
+    try {
+      await rm(temporary, { force: true });
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [toError(error), toError(cleanupError)],
+        "Configuration write and cleanup failed",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
+    }
     throw error;
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 export function stringMapStore(value: unknown, field: string, label: string): Readonly<Record<string, string>> {

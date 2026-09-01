@@ -1,3 +1,3 @@
 export type { ConflictQuery } from "./types.js";
-export { parseConflictIssue } from "./shape-validation.js";
+export type { ConflictIssue } from "./types.js";
 export { resolutionAdjudicationProblem } from "./conflicts.js";

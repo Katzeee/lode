@@ -1,3 +1,5 @@
+// Generated from the engine edit and action registries by scripts/generate-wire-proto.mjs.
+// Do not edit by hand: change the registry definitions and run `npm run generate:wire`.
 syntax = "proto3";
 
 package lode;
@@ -15,8 +17,14 @@ message NodeCreateAction {
   optional IntrinsicNodeType intrinsic_node_type = 6;
 }
 
-message ReferencePromoteAction { string occurrence_id = 1; }
-message NodeDeleteAction { string node_id = 1; }
+message ReferencePromoteAction {
+  string occurrence_id = 1;
+}
+
+message NodeDeleteAction {
+  string node_id = 1;
+}
+
 message NodeRestoreAction {
   string node_id = 1;
   string occurrence_id = 2;
@@ -48,14 +56,10 @@ message OccurrenceMoveAction {
   SequenceAnchor anchor = 3;
 }
 
-message SupertagApplyAction {
+message SupertagApplicationCreateAction {
   string host_node_id = 1;
   string supertag_id = 2;
-  string application_node_id = 3;
-  string application_occurrence_id = 4;
-  string definition_occurrence_id = 5;
-  SequenceAnchor anchor = 6;
-  string relation_definition_occurrence_id = 7;
+  SequenceAnchor anchor = 3;
 }
 
 message SupertagRemoveAction {
@@ -63,14 +67,16 @@ message SupertagRemoveAction {
   string supertag_id = 2;
 }
 
-message SupertagApplicationCreateAction {
-  string host_node_id = 1;
-  string supertag_id = 2;
+message SupertagExtensionAddAction {
+  string supertag_id = 1;
+  string base_supertag_id = 2;
   SequenceAnchor anchor = 3;
 }
 
-message SupertagExtensionAddAction { string supertag_id = 1; string base_supertag_id = 2; SequenceAnchor anchor = 3; }
-message SupertagExtensionRemoveAction { string supertag_id = 1; string base_supertag_id = 2; }
+message SupertagExtensionRemoveAction {
+  string supertag_id = 1;
+  string base_supertag_id = 2;
+}
 
 message TemplateMemberAddAction {
   string supertag_id = 1;
@@ -151,24 +157,6 @@ message FieldValueCreateAction {
   optional NodeSeed seed = 6;
 }
 
-message UrlNodeCreateAction {
-  string node_id = 1;
-  string occurrence_id = 2;
-  string parent_node_id = 3;
-  SequenceAnchor anchor = 4;
-  optional NodeSeed seed = 5;
-  string url_value_node_id = 6;
-  string url_value_occurrence_id = 7;
-  string url = 8;
-}
-
-message CodeNodeConfigureAction {
-  string node_id = 1;
-  string language_value_node_id = 2;
-  string language_value_occurrence_id = 3;
-  string language = 4;
-}
-
 message FieldValueRemoveAction {
   string value_placement_id = 1;
 }
@@ -176,78 +164,6 @@ message FieldValueRemoveAction {
 message MaterializedFieldClearAction {
   string owner_node_id = 1;
   string field_definition_id = 2;
-}
-
-message RichTextSpliceAction {
-  string node_id = 1;
-  repeated string delete_atom_ids = 2;
-  SequenceAnchor anchor = 3;
-  string insert = 4;
-  map<string, google.protobuf.Value> attributes = 5;
-}
-
-message RichTextMarkAction {
-  string node_id = 1;
-  repeated string atom_ids = 2;
-  string key = 3;
-  PreviousValue value = 4;
-}
-
-message InlineReferenceCreateAction {
-  string inline_reference_id = 1;
-  string host_node_id = 2;
-  string target_node_id = 3;
-  SequenceAnchor anchor = 4;
-}
-
-message InlineReferenceRemoveAction { string inline_reference_id = 1; }
-
-message InlineAliasAttachAction {
-  string inline_reference_id = 1;
-  string alias_node_id = 2;
-}
-
-message InlineAliasDetachAction {
-  string inline_reference_id = 1;
-  string alias_node_id = 2;
-}
-
-message InlineReferenceAliasCreateAction {
-  string inline_reference_id = 1;
-  string host_node_id = 2;
-  string alias_node_id = 3;
-  optional NodeSeed seed = 4;
-}
-
-message SearchExpressionCreateAction {
-  string search_node_id = 1;
-  SearchExpressionDraft expression = 2;
-  SequenceAnchor anchor = 3;
-}
-
-message SearchExpressionAddAction {
-  string search_node_id = 1;
-  string parent_expression_id = 2;
-  SearchExpressionDraft expression = 3;
-  SequenceAnchor anchor = 4;
-}
-
-message SearchExpressionConfigureAction {
-  string search_node_id = 1;
-  string expression_id = 2;
-  SearchClause clause = 3;
-}
-
-message SearchExpressionMoveAction {
-  string search_node_id = 1;
-  string expression_id = 2;
-  google.protobuf.StringValue parent_expression_id = 3;
-  SequenceAnchor anchor = 4;
-}
-
-message SearchExpressionRemoveAction {
-  string search_node_id = 1;
-  string expression_id = 2;
 }
 
 message FieldDatatypeConfigureAction {
@@ -308,13 +224,107 @@ message TypedFieldValueClearAction {
   optional string empty_value_occurrence_id = 4;
 }
 
+message UrlNodeCreateAction {
+  string node_id = 1;
+  string occurrence_id = 2;
+  string parent_node_id = 3;
+  SequenceAnchor anchor = 4;
+  optional NodeSeed seed = 5;
+  string url_value_node_id = 6;
+  string url_value_occurrence_id = 7;
+  string url = 8;
+}
+
+message CodeNodeConfigureAction {
+  string node_id = 1;
+  string language_value_node_id = 2;
+  string language_value_occurrence_id = 3;
+  string language = 4;
+}
+
+message RichTextSpliceAction {
+  string node_id = 1;
+  repeated string delete_atom_ids = 2;
+  SequenceAnchor anchor = 3;
+  string insert = 4;
+  map<string, google.protobuf.Value> attributes = 5;
+}
+
+message RichTextMarkAction {
+  string node_id = 1;
+  repeated string atom_ids = 2;
+  string key = 3;
+  PreviousValue value = 4;
+}
+
+message InlineReferenceCreateAction {
+  string inline_reference_id = 1;
+  string host_node_id = 2;
+  string target_node_id = 3;
+  SequenceAnchor anchor = 4;
+}
+
+message InlineReferenceRemoveAction {
+  string inline_reference_id = 1;
+}
+
+message InlineAliasAttachAction {
+  string inline_reference_id = 1;
+  string alias_node_id = 2;
+}
+
+message InlineAliasDetachAction {
+  string inline_reference_id = 1;
+  string alias_node_id = 2;
+}
+
+message InlineReferenceAliasCreateAction {
+  string inline_reference_id = 1;
+  string host_node_id = 2;
+  string alias_node_id = 3;
+  optional NodeSeed seed = 4;
+}
+
+message SearchExpressionCreateAction {
+  string search_node_id = 1;
+  SearchExpressionDraft expression = 2;
+  SequenceAnchor anchor = 3;
+}
+
+message SearchExpressionAddAction {
+  string search_node_id = 1;
+  string parent_expression_id = 2;
+  SearchExpressionDraft expression = 3;
+  SequenceAnchor anchor = 4;
+}
+
+message SearchExpressionConfigureAction {
+  string search_node_id = 1;
+  string expression_id = 2;
+  SearchClause clause = 3;
+}
+
+message SearchExpressionMoveAction {
+  string search_node_id = 1;
+  string expression_id = 2;
+  google.protobuf.StringValue parent_expression_id = 3;
+  SequenceAnchor anchor = 4;
+}
+
+message SearchExpressionRemoveAction {
+  string search_node_id = 1;
+  string expression_id = 2;
+}
+
 message SharedDefaultViewCreateAction {
   string host_node_id = 1;
   ViewType view_type = 2;
   SequenceAnchor anchor = 3;
 }
 
-message SharedDefaultViewRemoveAction { string host_node_id = 1; }
+message SharedDefaultViewRemoveAction {
+  string host_node_id = 1;
+}
 
 message ViewModeSetAction {
   string host_node_id = 1;
@@ -328,17 +338,69 @@ message ViewColumnAddAction {
   string field_definition_id = 3;
   SequenceAnchor anchor = 4;
 }
-message ViewColumnRemoveAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; }
-message ViewColumnMoveAction { string host_node_id = 1; string view_id = 2; string column_id = 3; SequenceAnchor anchor = 4; }
 
-message ViewSortAddAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; ViewSortDirection direction = 4; }
-message ViewSortConfigureAction { string host_node_id = 1; string view_id = 2; string sort_id = 3; string field_definition_id = 4; ViewSortDirection direction = 5; }
-message ViewSortRemoveAction { string host_node_id = 1; string view_id = 2; }
-message ViewSortByNodeNameAction { string host_node_id = 1; string view_id = 2; ViewSortDirection direction = 3; }
-message ViewGroupAddAction { string host_node_id = 1; string view_id = 2; string field_definition_id = 3; }
-message ViewGroupRemoveAction { string host_node_id = 1; string view_id = 2; }
-message ViewFilterCreateAction { string host_node_id = 1; string view_id = 2; SearchExpressionDraft expression = 3; SequenceAnchor anchor = 4; }
-message ViewFilterRemoveAction { string host_node_id = 1; string view_id = 2; }
+message ViewColumnRemoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string field_definition_id = 3;
+}
+
+message ViewColumnMoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string column_id = 3;
+  SequenceAnchor anchor = 4;
+}
+
+message ViewSortAddAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string field_definition_id = 3;
+  ViewSortDirection direction = 4;
+}
+
+message ViewSortConfigureAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string sort_id = 3;
+  string field_definition_id = 4;
+  ViewSortDirection direction = 5;
+}
+
+message ViewSortRemoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+}
+
+message ViewSortByNodeNameAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  ViewSortDirection direction = 3;
+}
+
+message ViewGroupAddAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  string field_definition_id = 3;
+}
+
+message ViewGroupRemoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+}
+
+message ViewFilterCreateAction {
+  string host_node_id = 1;
+  string view_id = 2;
+  SearchExpressionDraft expression = 3;
+  SequenceAnchor anchor = 4;
+}
+
+message ViewFilterRemoveAction {
+  string host_node_id = 1;
+  string view_id = 2;
+}
+
 message ViewFilterExpressionAddAction {
   string host_node_id = 1;
   string view_id = 2;
@@ -347,6 +409,7 @@ message ViewFilterExpressionAddAction {
   SearchExpressionDraft expression = 5;
   SequenceAnchor anchor = 6;
 }
+
 message ViewFilterExpressionConfigureAction {
   string host_node_id = 1;
   string view_id = 2;
@@ -354,6 +417,7 @@ message ViewFilterExpressionConfigureAction {
   string expression_id = 4;
   SearchClause clause = 5;
 }
+
 message ViewFilterExpressionMoveAction {
   string host_node_id = 1;
   string view_id = 2;
@@ -362,6 +426,7 @@ message ViewFilterExpressionMoveAction {
   google.protobuf.StringValue parent_expression_id = 5;
   SequenceAnchor anchor = 6;
 }
+
 message ViewFilterExpressionRemoveAction {
   string host_node_id = 1;
   string view_id = 2;

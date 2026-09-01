@@ -1,8 +1,13 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import type { EditAction } from "../../domain/edit/index.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   factActionsFromFacts,
   graphActionBody,
   workspaceGenesisActions,
@@ -10,21 +15,15 @@ import {
   workspaceTrashNodeId,
   type EditIntent,
   type FactBody,
-  type ActionBody,
 } from "../../domain/fact/index.js";
-import {
-  CURRENT_PROJECTION_VERSIONS as versions,
-  rebuildGeneration,
-  textAtoms,
-  viewProjectionIdentity,
-} from "../../domain/reconcile/index.js";
+import type { ActionBody } from "../../domain/fact/types.js";
+import { CURRENT_PROJECTION_VERSIONS as versions, rebuildGeneration, textAtoms } from "../../domain/reconcile/index.js";
 import { queryReview } from "../../domain/review/index.js";
 import { queryHistory } from "../../domain/history/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
 import { SyncExchange } from "../synchronization/sync-exchange.js";
-import { FactReplication } from "./fact-replication.js";
-import { InMemoryReplicaPeer, syncPair } from "../../../tests/support/sync.js";
+import { InMemoryReplicaPeer, syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import { shuffle } from "../../../tests/support/permutation.js";
 
 async function replica(peerId: `${number}`) {
   return FactAuthority.open({
@@ -45,7 +44,7 @@ async function domainReplica(peerId: `${number}`) {
 describe("Fact-only production sync", () => {
   it("SYNC-1 only the authority FactAuthorityPort enters domain sync", async () => {
     const store = await replica("101");
-    const composite = new FactReplication(store.replication);
+    const composite = testFactReplication(store.replication);
     expect(composite.docs().map((doc) => doc.id)).toEqual(["facts"]);
   });
 
@@ -88,7 +87,6 @@ describe("Fact-only production sync", () => {
       workspaceId: "workspace",
       loroPeerId: "303" as const,
       documents: targetDocuments,
-      snapshotInterval: 1,
     };
     const target = await FactAuthority.open(targetOptions);
     await target.replication.importUpdate(await dependent.replication.exportUpdate(beforeDependent));
@@ -120,7 +118,7 @@ describe("Fact-only production sync", () => {
 
   it("syncs a same-Definition Template Field re-add", async () => {
     const sourceStore = await replica("621");
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceStore, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceStore, versions });
     const target = await domainReplica("622");
     const publish = async (invocationId: string, actions: readonly EditAction[]) => {
       const result = await source.execute({
@@ -134,7 +132,6 @@ describe("Fact-only production sync", () => {
       });
       expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
     };
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
     await publish("same-definition-fixture", [
       {
@@ -198,9 +195,8 @@ describe("Fact-only production sync", () => {
 
   it("syncs a public Static Default edit", async () => {
     const sourceStore = await replica("641");
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceStore, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceStore, versions });
     const target = await domainReplica("642");
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
     const execute = async (invocationId: string, actions: readonly EditAction[]) => {
       const result = await source.execute({
         kind: "edit",
@@ -252,7 +248,7 @@ describe("Fact-only production sync", () => {
 
   it("syncs Template Field visibility", async () => {
     const sourceStore = await replica("631");
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceStore, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceStore, versions });
     const target = await domainReplica("632");
     const execute = async (invocationId: string, actions: readonly EditAction[]) => {
       const result = await source.execute({
@@ -266,7 +262,6 @@ describe("Fact-only production sync", () => {
       });
       expect(result, JSON.stringify(result)).toMatchObject({ status: "published" });
     };
-    const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
     await execute("visibility-sync-setup", [
       {
         kind: "node-create",
@@ -301,8 +296,8 @@ describe("Fact-only production sync", () => {
   it("syncs a public View removal as its complete removal graph", async () => {
     const sourceStore = await domainReplica("101");
     const targetStore = await domainReplica("202");
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceStore, versions });
-    await Workspace.open({ workspaceId: "workspace", facts: targetStore, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceStore, versions });
+    await openTestWorkspace({ workspaceId: "workspace", facts: targetStore, versions });
     await source.execute({
       kind: "edit",
       workspaceId: "workspace",
@@ -352,22 +347,28 @@ describe("Fact-only production sync", () => {
     await targetStore.replication.importUpdate(await sourceStore.replication.exportUpdate());
 
     const generation = rebuildGeneration("workspace", targetStore.snapshot(), versions);
-    const viewIdentity = viewProjectionIdentity(sourceView.viewId);
+    const children = generation.origin.childOccurrences[sourceView.attachmentNodeId] ?? [];
+    const detachedValueOccurrenceId = children.find(
+      (occurrenceId) => occurrenceId !== sourceView.relationDefinitionOccurrenceId,
+    );
+    const detachedValueNodeId =
+      detachedValueOccurrenceId === undefined
+        ? undefined
+        : generation.origin.occurrences[detachedValueOccurrenceId]?.nodeId;
     expect(generation.origin.sharedDefaultViewDefinitions.host).toBeUndefined();
     expect(generation.origin.nodeOwners[sourceView.attachmentNodeId]).toBeNull();
     expect(generation.origin.nodeOwners[sourceView.viewDefinitionNodeId]).toBe(sourceView.attachmentNodeId);
-    expect(generation.origin.nodeOwners[viewIdentity.detachedValueNodeId]).toBe(sourceView.attachmentNodeId);
-    expect(generation.origin.childOccurrences[sourceView.attachmentNodeId]).toEqual([
-      sourceView.relationDefinitionOccurrenceId,
-      viewIdentity.detachedValueOccurrenceId,
-    ]);
+    expect(detachedValueNodeId).toBeDefined();
+    expect(generation.origin.nodeOwners[detachedValueNodeId ?? "missing"]).toBe(sourceView.attachmentNodeId);
+    expect(children).toHaveLength(2);
+    expect(children[0]).toBe(sourceView.relationDefinitionOccurrenceId);
   });
 
   it("syncs typed View options", async () => {
     const sourceStore = await replica("101");
     const targetStore = await domainReplica("202");
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceStore, versions });
-    await Workspace.open({ workspaceId: "workspace", facts: targetStore, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceStore, versions });
+    await openTestWorkspace({ workspaceId: "workspace", facts: targetStore, versions });
     const published = await source.execute({
       kind: "edit",
       workspaceId: "workspace",
@@ -561,9 +562,9 @@ describe("Fact-only production sync", () => {
       lineage: null,
       publishedFrontier: {},
     });
-    const remote = new FactReplication(b.replication);
+    const remote = testFactReplication(b.replication);
     const transport = new CountingReplicaPeer(new InMemoryReplicaPeer(remote));
-    const exchange = new SyncExchange(new FactReplication(a.replication), transport);
+    const exchange = new SyncExchange(testFactReplication(a.replication), transport);
     await exchange.sync();
     await a.commit({
       invocationId: "tail",
@@ -579,9 +580,9 @@ describe("Fact-only production sync", () => {
       lineage: null,
       publishedFrontier: a.snapshot().frontier,
     });
-    expect(await new SyncExchange(new FactReplication(a.replication), transport).sync()).toMatchObject({ pushed: 1 });
+    expect(await new SyncExchange(testFactReplication(a.replication), transport).sync()).toMatchObject({ pushed: 1 });
     const bytesAfterTail = transport.sentBytes;
-    expect(await new SyncExchange(new FactReplication(a.replication), transport).sync()).toEqual({
+    expect(await new SyncExchange(testFactReplication(a.replication), transport).sync()).toEqual({
       pulled: 0,
       pushed: 0,
     });
@@ -622,10 +623,10 @@ describe("Fact-only production sync", () => {
         publishedFrontier: local.snapshot().frontier,
       });
     }
-    await syncPair(new FactReplication(local.replication), new FactReplication(remote.replication));
+    await syncPair(testFactReplication(local.replication), testFactReplication(remote.replication));
     local = await open();
-    const transport = new CountingReplicaPeer(new InMemoryReplicaPeer(new FactReplication(remote.replication)));
-    const exchange = new SyncExchange(new FactReplication(local.replication), transport);
+    const transport = new CountingReplicaPeer(new InMemoryReplicaPeer(testFactReplication(remote.replication)));
+    const exchange = new SyncExchange(testFactReplication(local.replication), transport);
     expect(await exchange.sync()).toEqual({ pulled: 0, pushed: 0 });
     expect(transport.sentBytes).toBe(0);
     await local.commit({
@@ -642,7 +643,7 @@ describe("Fact-only production sync", () => {
       lineage: null,
       publishedFrontier: local.snapshot().frontier,
     });
-    expect(await new SyncExchange(new FactReplication(local.replication), transport).sync()).toMatchObject({
+    expect(await new SyncExchange(testFactReplication(local.replication), transport).sync()).toMatchObject({
       pushed: 1,
     });
     expect(transport.sentBytes).toBeGreaterThan(0);
@@ -652,8 +653,8 @@ describe("Fact-only production sync", () => {
 
 async function runVisibilityTopology(edges: readonly (readonly [number, number])[]) {
   const stores = await Promise.all([domainReplica("411"), domainReplica("422"), domainReplica("433")]);
-  const composites = stores.map((store) => new FactReplication(store.replication));
-  const setup = await Workspace.open({
+  const composites = stores.map((store) => testFactReplication(store.replication));
+  const setup = await openTestWorkspace({
     workspaceId: "workspace",
     facts: required(stores[0], "visibility setup store"),
     versions,
@@ -694,7 +695,7 @@ async function runVisibilityTopology(edges: readonly (readonly [number, number])
   );
 
   const workspaces = await Promise.all(
-    stores.map((facts) => Workspace.open({ workspaceId: "workspace", facts, versions })),
+    stores.map((facts) => openTestWorkspace({ workspaceId: "workspace", facts, versions })),
   );
   const configure = async (index: 1 | 2, visibility: "normal" | "pinned") => {
     const workspace = required(workspaces[index], `visibility workspace ${index}`);
@@ -754,7 +755,7 @@ async function runVisibilityTopology(edges: readonly (readonly [number, number])
 
 async function runTopology(edges: readonly (readonly [number, number])[]) {
   const stores = await Promise.all([domainReplica("101"), domainReplica("202"), domainReplica("303")]);
-  const composites = stores.map((store) => new FactReplication(store.replication));
+  const composites = stores.map((store) => testFactReplication(store.replication));
   await required(stores[0], "first store").commit({
     invocationId: "workspace-genesis",
     request: { command: "workspace-genesis" },
@@ -896,18 +897,4 @@ class CountingReplicaPeer {
     this.sentBytes += bytes.length;
     await this.inner.send(documentId, bytes);
   }
-}
-
-function shuffle<T>(values: readonly T[], seed: number): T[] {
-  const result = [...values];
-  let state = seed >>> 0;
-  for (let index = result.length - 1; index > 0; index -= 1) {
-    state = (Math.imul(state, 1_664_525) + 1_013_904_223) >>> 0;
-    const target = state % (index + 1);
-    [result[index], result[target]] = [
-      required(result[target], "shuffle target"),
-      required(result[index], "shuffle source"),
-    ];
-  }
-  return result;
 }

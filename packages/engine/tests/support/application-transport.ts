@@ -1,45 +1,60 @@
+import { type EngineApplicationContract, type EngineTransport } from "@lode/sdk";
 import {
-  decodeEngineCommand,
-  decodeEngineQuery,
-  encodeEngineEvent,
-  encodeEngineQueryError,
-  encodeEngineQueryResult,
-  encodeWriteResult,
-  type EngineApplicationContract,
-  type EngineTransport,
-} from "@lode/sdk";
+  engineCommandFromMessage,
+  engineEventToMessage,
+  engineQueryFromMessage,
+  queryResultToMessage,
+  writeResultToMessage,
+} from "@lode/sdk/host";
 
-import { deliverListeners } from "../../src/subsystems/event/index.js";
 import { parseEngineCommand, parseEngineQuery } from "../../src/subsystems/workspace/application/input-validation.js";
 
+/**
+ * Serves an application contract behind the SDK transport seam, forcing every
+ * command, query, and event through the protocol message conversion a real
+ * host performs on each side of the wire.
+ */
 export function createEngineTransportServer(contract: EngineApplicationContract): EngineTransport {
-  const eventListeners = new Set<(bytes: Uint8Array) => void>();
+  const eventListeners = new Set<Parameters<EngineTransport["subscribe"]>[0]>();
   contract.subscribe((event) => {
-    const bytes = encodeEngineEvent(event);
-    deliverListeners(eventListeners, bytes, (value) => value.slice());
-  });
+    const message = engineEventToMessage(event);
+    for (const listener of eventListeners) {
+      try {
+        listener(message);
+      } catch {
+        continue;
+      }
+    }
+  }, rethrow);
   return {
-    async execute(bytes) {
+    async execute(message) {
+      let command: ReturnType<typeof parseEngineCommand>;
       try {
-        const command = parseEngineCommand(decodeEngineCommand(bytes));
-        return encodeWriteResult(await contract.execute(command));
+        command = parseEngineCommand(engineCommandFromMessage(message));
       } catch (error) {
-        return encodeWriteResult(invalidWrite(error));
+        return { status: "response", message: writeResultToMessage(invalidWrite(error)) };
       }
+      return { status: "response", message: writeResultToMessage(await contract.execute(command)) };
     },
-    async query(bytes) {
+    async query(message) {
+      const decoded = engineQueryFromMessage(message);
+      let query: ReturnType<typeof parseEngineQuery>;
       try {
-        const query = parseEngineQuery(decodeEngineQuery(bytes));
-        return encodeEngineQueryResult(query, await contract.query(query));
+        query = parseEngineQuery(decoded);
       } catch (error) {
-        return encodeEngineQueryError(invalidError(error));
+        return queryResultToMessage(decoded, { status: "rejected", error: invalidError(error) });
       }
+      return queryResultToMessage(query, await contract.query(query));
     },
     subscribe(listener) {
       eventListeners.add(listener);
       return () => eventListeners.delete(listener);
     },
   };
+}
+
+function rethrow(error: unknown): never {
+  throw error;
 }
 
 function invalidWrite(error: unknown) {

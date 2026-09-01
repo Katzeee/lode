@@ -1,4 +1,4 @@
-import { exact, object } from "../../decoding/index.js";
+import { exact, object, ShapeValidationError } from "../../decoding/index.js";
 import { field } from "./action-definition.js";
 import { nonemptyStringField } from "./action-field-decoders.js";
 import { parseNodeSeed } from "./node-create-shape.js";
@@ -22,5 +22,5 @@ export const templateFieldDefinitionField = field<TemplateFieldDefinition>((valu
     const seed = definition.seed === undefined ? undefined : parseNodeSeed(definition.seed);
     return seed === undefined ? { kind: "new", fieldDefinitionId } : { kind: "new", fieldDefinitionId, seed };
   }
-  throw new Error(`Unknown Template Field Definition kind: ${String(definition.kind)}`);
+  throw new ShapeValidationError(`Unknown Template Field Definition kind: ${String(definition.kind)}`);
 });

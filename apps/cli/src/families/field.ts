@@ -6,23 +6,19 @@ import {
   workspaceSchemaNodeId,
   type EditAction,
   type FieldDatatype,
-  type FieldDefinitionConfiguration,
-  type MaterializedField,
-  type TemplateField,
-  type TypedFieldValue,
 } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { descriptor, resolveNodeTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, readCommand, stringOption, writeCommand, type CommandDefinition } from "../command/index.js";
+import { resolveTarget, resource } from "../target/index.js";
 import {
   cardinalityConfiguration,
   datatypeConfiguration,
-  executeWrite,
   identity,
   optionalityConfiguration,
   requiredEndpoint,
-  writeResult,
+  runWrite,
   workspaceIdOf,
 } from "../intent/index.js";
 import { BOOLEAN_VALUES, datatypeOfEndpoint } from "../value/field-values.js";
@@ -44,37 +40,17 @@ export function registerFieldCommands(catalog: CommandCatalog): void {
   registerFieldValueCommands(catalog);
 }
 
-const fieldCreate: CommandDefinition = {
+const fieldCreate = writeCommand({
   path: ["field", "create"],
   summary: "Create a workspace Field Definition.",
   positionals: [["name", "Field name"]],
   options: [
-    {
-      name: "--type",
-      description: "Field datatype (default plain)",
-      value: { kind: "enum" as const, enum: FIELD_DATATYPES },
-    },
-    {
-      name: "--cardinality",
-      description: "single (default) or list",
-      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
-    },
-    {
-      name: "--required",
-      description: "Required toggle (default false)",
-      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
-    },
-    {
-      name: "--options-from",
-      description: "Supertag providing options (only with --type options-from-supertag)",
-      value: { kind: "string" as const },
-    },
+    enumOption("--type", FIELD_DATATYPES, "Field datatype (default plain)"),
+    enumOption("--cardinality", FIELD_CARDINALITIES, "single (default) or list"),
+    enumOption("--required", BOOLEAN_VALUES, "Required toggle (default false)"),
+    stringOption("--options-from", "Supertag providing options (only with --type options-from-supertag)"),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
+  run: runWrite("field.create", async (context, args) => {
     const name = args.positional("name");
     const rawDatatype = args.option("--type");
     const optionsFrom = args.option("--options-from");
@@ -85,10 +61,7 @@ const fieldCreate: CommandDefinition = {
       throw new CliError("usage", "--type options-from-supertag requires --options-from.");
     }
     const optionsSupertagId =
-      optionsFrom === undefined
-        ? undefined
-        : (await resolveNodeTarget(context.session, workspaceId, context.perspective, optionsFrom, ["supertag"]))
-            .nodeId;
+      optionsFrom === undefined ? undefined : (await resolveTarget(context, optionsFrom, ["supertag"])).nodeId;
     const datatype = (rawDatatype ?? "plain") as FieldDatatype;
     const fieldDefinitionId = identity(context.requestId, "field-definition");
     const actions: EditAction[] = [
@@ -96,7 +69,7 @@ const fieldCreate: CommandDefinition = {
         kind: "node-create",
         nodeId: fieldDefinitionId,
         occurrenceId: `${fieldDefinitionId}-original`,
-        parentNodeId: workspaceSchemaNodeId(workspaceId),
+        parentNodeId: workspaceSchemaNodeId(workspaceIdOf(context)),
         anchor: end,
         intrinsicNodeType: "field-definition",
         seed: { text: [{ value: name, attributes: {} }] },
@@ -109,30 +82,24 @@ const fieldCreate: CommandDefinition = {
     if (args.option("--required") !== undefined) {
       actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
     }
-    const { result, data } = await executeWrite(context, "field.create", actions);
-    const resource = descriptor(workspaceId, "field", fieldDefinitionId, name);
-    return writeResult(data, result, { extra: { target: resource }, view: writeView("Created", resource) });
-  },
-};
+    const created = resource(context, "field", fieldDefinitionId, name);
+    return { actions, extra: { target: created }, view: writeView("Created", created) };
+  }),
+});
 
-const fieldShow: CommandDefinition = {
+const fieldShow: CommandDefinition = readCommand({
   path: ["field", "show"],
   summary: "Show a Field Definition's configuration, or the instance field on a node (--on).",
   positionals: [["field", "Field Definition target"]],
-  options: [{ name: "--on", description: "Node whose instance field to show", value: { kind: "string" as const } }],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--on", "Node whose instance field to show")],
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
-    const configurations = (await context.session.readProjection(
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
+    const configurations = await context.session.readProjection(
       workspaceId,
       context.perspective,
       "fieldDefinitionConfigurations",
-    )) as Record<string, readonly FieldDefinitionConfiguration[]>;
+    );
     const entries = configurations[field.nodeId] ?? [];
     const datatype =
       datatypeOfEndpoint(entries.find((entry) => entry.kind === "datatype")?.datatypeNodeId ?? null) ?? "plain";
@@ -149,11 +116,7 @@ const fieldShow: CommandDefinition = {
     };
     const ownerToken = args.option("--on");
     if (ownerToken === undefined) {
-      const templateFields = (await context.session.readProjection(
-        workspaceId,
-        context.perspective,
-        "templateFields",
-      )) as Record<string, readonly { fieldDefinitionId: string; visibility: string }[]>;
+      const templateFields = await context.session.readProjection(workspaceId, context.perspective, "templateFields");
       const uses = Object.entries(templateFields).flatMap(([supertagId, fields]) =>
         fields
           .filter((candidate) => candidate.fieldDefinitionId === field.nodeId)
@@ -163,7 +126,7 @@ const fieldShow: CommandDefinition = {
         {
           ...definitionData,
           uses: uses.map((use) => ({
-            supertag: descriptor(workspaceId, "supertag", use.supertagId, use.supertagId),
+            supertag: resource(context, "supertag", use.supertagId, use.supertagId),
             visibility: use.visibility,
           })),
         },
@@ -181,17 +144,11 @@ const fieldShow: CommandDefinition = {
         },
       );
     }
-    const owner = await resolveNodeTarget(context.session, workspaceId, context.perspective, ownerToken, ["node"]);
+    const owner = await resolveTarget(context, ownerToken, ["node"]);
     const [materialized, typed, effective] = await Promise.all([
-      context.session.readProjection(workspaceId, context.perspective, "materializedFields") as Promise<
-        Record<string, readonly MaterializedField[]>
-      >,
-      context.session.readProjection(workspaceId, context.perspective, "typedFieldValues") as Promise<
-        Record<string, readonly TypedFieldValue[]>
-      >,
-      context.session.readProjection(workspaceId, context.perspective, "effectiveFields") as Promise<
-        Record<string, readonly { fieldDefinitionId: string }[]>
-      >,
+      context.session.readProjection(workspaceId, context.perspective, "materializedFields"),
+      context.session.readProjection(workspaceId, context.perspective, "typedFieldValues"),
+      context.session.readProjection(workspaceId, context.perspective, "effectiveFields"),
     ]);
     const ownerMaterialized = (materialized[owner.nodeId] ?? []).find(
       (entry) => entry.fieldDefinitionId === field.nodeId,
@@ -234,7 +191,7 @@ const fieldShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
 function describeTypedValue(value: unknown): string {
   if (typeof value === "object" && value !== null && "value" in value) {
@@ -246,24 +203,17 @@ function describeTypedValue(value: unknown): string {
   return String(value);
 }
 
-const fieldMakeDiscoverable: CommandDefinition = {
+const fieldMakeDiscoverable = writeCommand({
   path: ["field", "make-discoverable"],
   summary: "Move a template-owned field definition into the workspace schema for reuse.",
   positionals: [["field", "Field Definition target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
-    const templateFields = (await context.session.readProjection(
-      workspaceId,
+  run: runWrite("field.make-discoverable", async (context, args) => {
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
+    const templateFields = await context.session.readProjection(
+      workspaceIdOf(context),
       context.perspective,
       "templateFields",
-    )) as Record<string, readonly TemplateField[]>;
+    );
     const owner = Object.entries(templateFields).find(([, fields]) =>
       fields.some(
         (candidate) =>
@@ -278,16 +228,16 @@ const fieldMakeDiscoverable: CommandDefinition = {
     if (supertagId === undefined || templateField === undefined) {
       throw new CliError("unsupported", `Field ${field.descriptor.ref} has no owning template field.`);
     }
-    const { result, data } = await executeWrite(context, "field.make-discoverable", [
-      {
-        kind: "supertag-template-field-make-discoverable",
-        supertagId,
-        templateFieldId: templateField.factActionId,
-      },
-    ]);
-    return writeResult(data, result, {
+    return {
+      actions: [
+        {
+          kind: "supertag-template-field-make-discoverable",
+          supertagId,
+          templateFieldId: templateField.factActionId,
+        },
+      ],
       extra: { target: field.descriptor },
       view: writeView("Made discoverable", field.descriptor),
-    });
-  },
-};
+    };
+  }),
+});

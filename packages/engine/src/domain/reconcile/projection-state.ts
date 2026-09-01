@@ -4,9 +4,9 @@ import {
   type FactAction,
   type FactActionId,
   type IntrinsicNodeType,
+  type SequenceAnchor,
 } from "../fact/index.js";
 import type { InlineReferenceId } from "../fact/index.js";
-import { placeCreatedOccurrence } from "./occurrence-creation.js";
 import {
   createPlacementProjectionContext,
   isPlacementRemovalAction,
@@ -15,7 +15,7 @@ import {
   type PlacementProjectionContext,
 } from "./projection-placement.js";
 import type { TextAtom } from "./projection-types.js";
-import { removePlacement } from "./sequence.js";
+import { insertAtAnchor, listFor, removePlacement } from "./sequence.js";
 
 export type MutableOccurrence = {
   occurrenceId: string;
@@ -57,7 +57,7 @@ export function createOccurrences(
     const liveCreates = actions.filter(
       (action) =>
         placementCreationForAction(workspaceNodeId, action, placementId, context) !== null &&
-        !removalActions.some((removal) => actionObserves(removal, action)),
+        !removalActions.some((removal) => factObserves(removal, action)),
     );
     if (liveCreates.length === 0) {
       return [];
@@ -65,8 +65,8 @@ export function createOccurrences(
     const moves = actions.filter(
       (action) =>
         action.action.kind === "placement-move" &&
-        !removalActions.some((removal) => actionObserves(removal, action)) &&
-        liveCreates.some((create) => actionObserves(action, create)),
+        !removalActions.some((removal) => factObserves(removal, action)) &&
+        liveCreates.some((create) => factObserves(action, create)),
     );
     const candidates = [...liveCreates]
       .sort((left, right) => compareCausalOrder(right, left))
@@ -75,7 +75,7 @@ export function createOccurrences(
         if (!creation) {
           return [];
         }
-        return [...moves.filter((move) => actionObserves(move, create)), create]
+        return [...moves.filter((move) => factObserves(move, create)), create]
           .sort((left, right) => compareCausalOrder(right, left))
           .flatMap((position) => {
             const value = placementPosition(workspaceNodeId, position, placementId, context);
@@ -132,6 +132,69 @@ export function createOccurrences(
   }
 }
 
+function placeCreatedOccurrence(
+  authoredAction: Extract<FactAction["action"], { kind: "placement-create" }>,
+  occurrences: Map<string, MutableOccurrence>,
+  childOccurrences: Map<string, string[]>,
+  nodes: ReadonlyMap<string, MutableNode>,
+): boolean {
+  const existing = occurrences.get(authoredAction.placementId);
+  if (
+    !nodes.has(authoredAction.nodeId) ||
+    (existing !== undefined && existing.nodeId !== authoredAction.nodeId) ||
+    hasPlacement(occurrences, authoredAction.nodeId, authoredAction.parentNodeId, authoredAction.placementId)
+  ) {
+    return false;
+  }
+  if (existing) {
+    const siblings = childOccurrences.get(existing.parentNodeId);
+    const index = siblings?.indexOf(authoredAction.placementId) ?? -1;
+    if (siblings !== undefined && index >= 0) {
+      siblings.splice(index, 1);
+    }
+  }
+  placeOccurrence(
+    occurrences,
+    childOccurrences,
+    newOccurrence(authoredAction.placementId, authoredAction.nodeId, authoredAction.parentNodeId),
+    authoredAction.anchor,
+    nodes,
+  );
+  return occurrences.get(authoredAction.placementId)?.parentNodeId === authoredAction.parentNodeId;
+}
+
+function hasPlacement(
+  occurrences: ReadonlyMap<string, MutableOccurrence>,
+  nodeId: string,
+  parentNodeId: string,
+  excludedOccurrenceId?: string,
+): boolean {
+  return [...occurrences.values()].some(
+    (occurrence) =>
+      occurrence.occurrenceId !== excludedOccurrenceId &&
+      occurrence.nodeId === nodeId &&
+      occurrence.parentNodeId === parentNodeId,
+  );
+}
+
+function newOccurrence(occurrenceId: string, nodeId: string, parentNodeId: string): MutableOccurrence {
+  return { occurrenceId, nodeId, parentNodeId, derived: false };
+}
+
+function placeOccurrence(
+  occurrences: Map<string, MutableOccurrence>,
+  childOccurrences: Map<string, string[]>,
+  occurrence: MutableOccurrence,
+  anchor: SequenceAnchor,
+  nodes: ReadonlyMap<string, MutableNode>,
+): void {
+  if (!nodes.has(occurrence.parentNodeId)) {
+    return;
+  }
+  occurrences.set(occurrence.occurrenceId, occurrence);
+  insertAtAnchor(listFor(childOccurrences, occurrence.parentNodeId), occurrence.occurrenceId, anchor);
+}
+
 function removeOccurrencesWithMissingNodes(
   nodes: ReadonlyMap<string, MutableNode>,
   occurrences: Map<string, MutableOccurrence>,
@@ -173,10 +236,6 @@ function placementPosition(
   return authoredAction.kind === "placement-move"
     ? { parentNodeId: authoredAction.parentNodeId, anchor: authoredAction.anchor }
     : null;
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }
 
 function deleteOccurrence(

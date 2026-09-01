@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createEngine, type Engine, type EngineOptions } from "../../engine.js";
+import type { Engine } from "../../engine.js";
 import { makeFact } from "../../domain/fact/index.js";
 import type {
   PersistenceBackend,
@@ -15,21 +15,20 @@ import type {
 import { NodePersistenceBackend } from "../persistence/node-persistence-backend.js";
 import { SyncExchange } from "../synchronization/sync-exchange.js";
 import { InMemoryReplicaPeer } from "../../../tests/support/sync.js";
+import {
+  createTestEngine,
+  createWorkspaceAs,
+  type TestEngineOptions,
+} from "../../../tests/support/create-test-engine.js";
 import { buildEngineSubsystems } from "../index.js";
 import { createEventSubsystemDefinition } from "../event/event-subsystem.js";
 import { createIdentitySubsystemDefinition } from "../identity/identity-subsystem.js";
 import { createPersistenceSubsystemDefinition } from "../persistence/persistence-subsystem.js";
 import { createWorkspaceSubsystemDefinition } from "./workspace-subsystem.js";
-import { workspaceGenesisFact } from "./workspace-genesis-validation.js";
+import { workspaceGenesisFact } from "./authority-coordination/index.js";
 
 const temporaryDirectories: string[] = [];
 const vaultPassphrase = "catalog-test-passphrase";
-
-async function createWorkspaceAs(engine: Engine, workspaceId: string, label: string): Promise<string> {
-  const actor = await engine.api.identity.createActor({ label: `${label} Owner`, passphrase: vaultPassphrase });
-  await engine.api.workspaces.createWorkspace({ workspaceId, label, ownerActorId: actor.actorId });
-  return actor.actorId;
-}
 
 afterEach(async () => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -94,7 +93,7 @@ describe("Workspace durable inventory", () => {
     const dataRoot = await recordTemporaryHome();
     const engine = await startEngine({ persistence: new NodePersistenceBackend(dataRoot) });
     try {
-      const owner = await createWorkspaceAs(engine, "ws-personal", "Personal");
+      const { actorId: owner } = await createWorkspaceAs(engine, "ws-personal", "Personal", vaultPassphrase);
       expect(await engine.api.workspaces.listWorkspaces()).toEqual([{ workspaceId: "ws-personal", label: "Personal" }]);
       await expect(
         engine.api.application.execute({
@@ -169,7 +168,7 @@ describe("Workspace durable inventory", () => {
       ).toMatchObject({ status: "rejected", error: { code: "workspace-not-found" } });
       await expect(engine.api.replicas.synchronize("ghost", "unreachable")).rejects.toThrow("does not exist");
       expect(await engine.api.workspaces.listWorkspaces()).toEqual([]);
-      await createWorkspaceAs(engine, "ghost", "Ghost");
+      await createWorkspaceAs(engine, "ghost", "Ghost", vaultPassphrase);
       await expect(
         engine.api.workspaces.createWorkspace({ workspaceId: "ghost", label: "Other", ownerActorId: "actor_x" }),
       ).rejects.toThrow("already exists");
@@ -254,6 +253,27 @@ describe("Workspace durable inventory", () => {
     await restarted.lifecycle.stop();
     await source.lifecycle.stop();
   }, 30_000);
+
+  it("removes final storage when activation fails after physical promotion", async () => {
+    const dataRoot = await recordTemporaryHome();
+    const source = await sourceWithWorkspace("activation-failed");
+    const backend = new ActivationFailureBackend(new NodePersistenceBackend(dataRoot));
+    const built = buildWorkspaceSubsystem(dataRoot, backend);
+    await built.lifecycle.start();
+    const staging = await built.api.stage("activation-failed");
+    await new SyncExchange(staging.sync, new InMemoryReplicaPeer(source.api.replica("activation-failed").sync)).sync();
+
+    await expect(staging.promote()).rejects.toThrow("activation failed");
+    expect(await built.api.list()).toEqual([]);
+    expect(await backend.listWorkspaceIds()).toEqual([]);
+
+    await built.lifecycle.stop();
+    const restarted = buildWorkspaceSubsystem(dataRoot);
+    await restarted.lifecycle.start();
+    expect(await restarted.api.list()).toEqual([]);
+    await restarted.lifecycle.stop();
+    await source.lifecycle.stop();
+  }, 30_000);
 });
 
 function buildWorkspaceSubsystem(dataRoot: string, backend: PersistenceBackend = new NodePersistenceBackend(dataRoot)) {
@@ -283,8 +303,8 @@ async function sourceWithWorkspace(workspaceId: string) {
   return source;
 }
 
-async function startEngine(options?: EngineOptions): Promise<Engine> {
-  const engine = createEngine(options);
+async function startEngine(options: TestEngineOptions = {}): Promise<Engine> {
+  const engine = createTestEngine(options);
   await engine.start();
   return engine;
 }
@@ -331,6 +351,53 @@ class GatedPromotionBackend implements PersistenceBackend {
         this.markPromotionEntered();
         await this.promotionGate;
         return stage.promote();
+      },
+    };
+  }
+
+  discardStagedWorkspaces(): Promise<void> {
+    return this.backend.discardStagedWorkspaces();
+  }
+
+  close(): void | Promise<void> {
+    return this.backend.close();
+  }
+}
+
+class ActivationFailureBackend implements PersistenceBackend {
+  constructor(private readonly backend: PersistenceBackend) {}
+
+  openIdentityStorage(): Promise<PhysicalIdentityStorage> {
+    return this.backend.openIdentityStorage();
+  }
+
+  listWorkspaceIds(): Promise<readonly string[]> {
+    return this.backend.listWorkspaceIds();
+  }
+
+  openWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorage> {
+    return this.backend.openWorkspace(workspaceId);
+  }
+
+  async stageWorkspace(workspaceId: string): Promise<PhysicalWorkspaceStorageStage> {
+    const stage = await this.backend.stageWorkspace(workspaceId);
+    return {
+      ...stage,
+      promote: async () => {
+        const promotion = await stage.promote();
+        const documents = promotion.storage.documents;
+        return {
+          ...promotion,
+          storage: {
+            ...promotion.storage,
+            documents: {
+              load: () => Promise.reject(new Error("activation failed")),
+              appendUpdate: (id, value) => documents.appendUpdate(id, value),
+              appendUpdates: (updates) => documents.appendUpdates(updates),
+              writeSnapshot: (id, value) => documents.writeSnapshot(id, value),
+            },
+          },
+        };
       },
     };
   }

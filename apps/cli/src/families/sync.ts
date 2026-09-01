@@ -1,5 +1,6 @@
 import { CliError, okOutcome } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, stringOption, writeCommand } from "../command/index.js";
 import { workspaceIdOf } from "../intent/index.js";
 
 /**
@@ -14,14 +15,10 @@ export function registerSyncCommands(catalog: CommandCatalog): void {
   catalog.register(syncStatus);
 }
 
-const syncConnect: CommandDefinition = {
+const syncConnect = writeCommand({
   path: ["sync", "connect"],
   summary: "Set the remote Replica endpoint for the selected Workspace.",
   positionals: [["endpoint", "Remote daemon endpoint"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const endpoint = args.positional("endpoint");
     await context.persistence.setSyncEndpoint(workspaceIdOf(context), endpoint);
@@ -30,22 +27,12 @@ const syncConnect: CommandDefinition = {
       { view: { kind: "text", lines: [`Connected workspace to ${endpoint}.`, "Run `lode sync run` to exchange."] } },
     );
   },
-};
+});
 
-const syncRun: CommandDefinition = {
+const syncRun = writeCommand({
   path: ["sync", "run"],
   summary: "Run the Fact-only Replica exchange with the connected endpoint.",
-  positionals: [],
-  options: [
-    {
-      name: "--endpoint",
-      description: "Override the connected remote endpoint for this run",
-      value: { kind: "string" as const },
-    },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--endpoint", "Override the connected remote endpoint for this run")],
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
     const endpoint = args.option("--endpoint") ?? (await context.persistence.readSyncEndpoint(workspaceId));
@@ -69,16 +56,11 @@ const syncRun: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const syncStatus: CommandDefinition = {
+const syncStatus = readCommand({
   path: ["sync", "status"],
   summary: "Show the selected Workspace's connection state.",
-  positionals: [],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context) => {
     const workspaceId = workspaceIdOf(context);
     const endpoint = await context.persistence.readSyncEndpoint(workspaceId);
@@ -95,4 +77,4 @@ const syncStatus: CommandDefinition = {
       },
     );
   },
-};
+});

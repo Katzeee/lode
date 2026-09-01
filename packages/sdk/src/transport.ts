@@ -1,4 +1,11 @@
 import type {
+  EngineCommand as ProtocolEngineCommand,
+  EngineEvent as ProtocolEngineEvent,
+  EngineQuery as ProtocolEngineQuery,
+  QueryResult as ProtocolQueryResult,
+  WriteResult as ProtocolWriteResult,
+} from "@lode/protocol/proto";
+import type {
   EngineCommand,
   EngineApplicationContract,
   EngineEvent,
@@ -7,22 +14,27 @@ import type {
   EngineQueryInput,
   EngineQueryKind,
   EngineQueryResult,
+  EventFailureListener,
   Unsubscribe,
 } from "./contract.js";
 import {
-  decodeEngineEvent,
-  decodeEngineQueryResult,
-  decodeWriteResult,
-  encodeEngineCommand,
-  encodeEngineQuery,
+  engineCommandToMessage,
+  engineEventFromMessage,
+  engineQueryToMessage,
+  queryResultFromMessage,
+  writeResultFromMessage,
 } from "./protocol-codec.js";
 import { parseEngineCommand, parseEngineQuery } from "./validation.js";
+import { ProtocolInputEncodingError, ProtocolInputValidationError } from "./protocol-input-error.js";
 
 export type EngineTransport = Readonly<{
-  execute(bytes: Uint8Array): Promise<Uint8Array>;
-  query(bytes: Uint8Array): Promise<Uint8Array>;
-  subscribe?(listener: (bytes: Uint8Array) => void): Unsubscribe;
+  execute(command: ProtocolEngineCommand): Promise<EngineTransportExecution>;
+  query(query: ProtocolEngineQuery): Promise<ProtocolQueryResult>;
+  subscribe(listener: (event: ProtocolEngineEvent) => void, onError: EventFailureListener): Unsubscribe;
 }>;
+
+export type EngineTransportExecution =
+  Readonly<{ status: "response"; message: ProtocolWriteResult }> | Readonly<{ status: "outcome-unknown" }>;
 
 export function createTransportEngineApplication(transport: EngineTransport): EngineApplicationContract {
   async function query<Kind extends EngineQueryKind>(
@@ -30,35 +42,68 @@ export function createTransportEngineApplication(transport: EngineTransport): En
   ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
   async function query(query: EngineQuery): Promise<EngineQueryResult> {
     let parsed: EngineQuery;
-    let bytes: Uint8Array;
     try {
       parsed = parseEngineQuery(query);
-      bytes = encodeEngineQuery(parsed);
     } catch (error) {
-      return { status: "rejected", error: invalidError(error) };
+      if (error instanceof ProtocolInputValidationError) {
+        return { status: "rejected", error: invalidError(error) };
+      }
+      throw error;
     }
-    return decodeEngineQueryResult(await transport.query(bytes), parsed);
+    let message: ProtocolEngineQuery;
+    try {
+      message = engineQueryToMessage(parsed);
+    } catch (error) {
+      if (error instanceof ProtocolInputEncodingError) {
+        return { status: "rejected", error: invalidError(error) };
+      }
+      throw error;
+    }
+    return queryResultFromMessage(await transport.query(message), parsed);
   }
 
   return {
     async execute(command) {
       let parsed: EngineCommand;
-      let bytes: Uint8Array;
       try {
         parsed = parseEngineCommand(command);
-        bytes = encodeEngineCommand(parsed);
       } catch (error) {
-        return { status: "rejected", error: invalidError(error) };
+        if (error instanceof ProtocolInputValidationError) {
+          return { status: "rejected", error: invalidError(error) };
+        }
+        throw error;
       }
+      let message: ProtocolEngineCommand;
       try {
-        return decodeWriteResult(await transport.execute(bytes));
-      } catch {
+        message = engineCommandToMessage(parsed);
+      } catch (error) {
+        if (error instanceof ProtocolInputEncodingError) {
+          return { status: "rejected", error: invalidError(error) };
+        }
+        throw error;
+      }
+      const execution = await transport.execute(message);
+      if (execution.status === "outcome-unknown") {
         return { status: "outcome-unknown", invocationId: parsed.invocationId };
       }
+      return writeResultFromMessage(execution.message);
     },
     query,
-    subscribe(listener: (event: EngineEvent) => void) {
-      return transport.subscribe?.((bytes) => listener(decodeEngineEvent(bytes))) ?? (() => {});
+    subscribe(listener: (event: EngineEvent) => void, onError: EventFailureListener) {
+      return transport.subscribe((message) => {
+        let event: EngineEvent;
+        try {
+          event = engineEventFromMessage(message);
+        } catch (error) {
+          onError(error);
+          return;
+        }
+        try {
+          listener(event);
+        } catch {
+          // One consumer cannot break delivery to the transport's other listeners.
+        }
+      }, onError);
     },
   };
 }

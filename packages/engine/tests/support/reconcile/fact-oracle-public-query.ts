@@ -14,7 +14,6 @@ export const PUBLIC_DOMAIN_QUERY_KINDS = [
   "search-results",
   "view-rows",
   "outline",
-  "debug-node",
   "trash-evidence",
 ] as const satisfies readonly EngineQueryKind[];
 
@@ -67,12 +66,6 @@ export async function canonicalPublicDomainState(
         value: await allOutlineRows(workspace, perspective, nodeId, limit),
       });
       result.push({
-        kind: "debug-node",
-        perspective,
-        nodeId,
-        value: await workspace.query({ kind: "debug-node", workspaceId: "workspace", perspective, nodeId }),
-      });
-      result.push({
         kind: "trash-evidence",
         perspective,
         nodeId,
@@ -92,6 +85,18 @@ export async function canonicalPublicDomainState(
   return canonicalJson(result);
 }
 
+async function drainPages<Page extends Readonly<{ next?: string | null }>>(
+  query: (after: Readonly<{ after?: string }>) => Promise<Page>,
+  collect: (page: Page) => void,
+): Promise<void> {
+  let after: string | undefined;
+  do {
+    const page = await query(after === undefined ? {} : { after });
+    collect(page);
+    after = page.next ?? undefined;
+  } while (after !== undefined);
+}
+
 async function allProjectionPages(
   workspace: Workspace,
   perspective: ProjectionPerspective,
@@ -99,27 +104,20 @@ async function allProjectionPages(
   limit: number,
 ): Promise<unknown> {
   const values: unknown[] = [];
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "projection",
-      workspaceId: "workspace",
-      perspective,
-      section,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    const sectionValue = (page as unknown as Readonly<Record<string, unknown>>)[section];
-    if (Array.isArray(sectionValue)) {
-      const entries: readonly unknown[] = sectionValue;
-      values.push(...entries);
-    } else if (typeof sectionValue === "object" && sectionValue !== null) {
-      values.push(...Object.entries(sectionValue));
-    } else {
-      throw new Error(`Projection section ${section} has no collection value`);
-    }
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) => workspace.query({ kind: "projection", workspaceId: "workspace", perspective, section, ...after, limit }),
+    (page) => {
+      const sectionValue = (page as unknown as Readonly<Record<string, unknown>>)[section];
+      if (Array.isArray(sectionValue)) {
+        const entries: readonly unknown[] = sectionValue;
+        values.push(...entries);
+      } else if (typeof sectionValue === "object" && sectionValue !== null) {
+        values.push(...Object.entries(sectionValue));
+      } else {
+        throw new Error(`Projection section ${section} has no collection value`);
+      }
+    },
+  );
   return { perspective, section, values };
 }
 
@@ -132,33 +130,19 @@ async function allNodeIds(workspace: Workspace, limit: number): Promise<readonly
 
 async function allReviewHunks(workspace: Workspace, limit: number): Promise<readonly unknown[]> {
   const hunks: unknown[] = [];
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "review",
-      workspaceId: "workspace",
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    hunks.push(...page.hunks);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) => workspace.query({ kind: "review", workspaceId: "workspace", ...after, limit }),
+    (page) => hunks.push(...page.hunks),
+  );
   return hunks;
 }
 
 async function allConflicts(workspace: Workspace, limit: number): Promise<readonly unknown[]> {
   const issues: unknown[] = [];
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "conflicts",
-      workspaceId: "workspace",
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    issues.push(...page.issues);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) => workspace.query({ kind: "conflicts", workspaceId: "workspace", ...after, limit }),
+    (page) => issues.push(...page.issues),
+  );
   return issues;
 }
 
@@ -169,19 +153,18 @@ async function allSupertagInstances(
   limit: number,
 ): Promise<readonly string[]> {
   const nodeIds: string[] = [];
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "supertag-instances",
-      workspaceId: "workspace",
-      perspective,
-      supertagId,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    nodeIds.push(...page.nodeIds);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) =>
+      workspace.query({
+        kind: "supertag-instances",
+        workspaceId: "workspace",
+        perspective,
+        supertagId,
+        ...after,
+        limit,
+      }),
+    (page) => nodeIds.push(...page.nodeIds),
+  );
   return nodeIds;
 }
 
@@ -192,19 +175,11 @@ async function allBacklinks(
   limit: number,
 ): Promise<readonly unknown[]> {
   const backlinks: unknown[] = [];
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "backlinks",
-      workspaceId: "workspace",
-      perspective,
-      targetNodeId,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    backlinks.push(...page.backlinks);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) =>
+      workspace.query({ kind: "backlinks", workspaceId: "workspace", perspective, targetNodeId, ...after, limit }),
+    (page) => backlinks.push(...page.backlinks),
+  );
   return backlinks;
 }
 
@@ -216,20 +191,14 @@ async function allSearchResults(
 ): Promise<unknown> {
   const results: unknown[] = [];
   let available: boolean | undefined;
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "search-results",
-      workspaceId: "workspace",
-      perspective,
-      searchNodeId,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    available ??= page.available;
-    results.push(...page.results);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) =>
+      workspace.query({ kind: "search-results", workspaceId: "workspace", perspective, searchNodeId, ...after, limit }),
+    (page) => {
+      available ??= page.available;
+      results.push(...page.results);
+    },
+  );
   return { available: available ?? false, results };
 }
 
@@ -241,26 +210,20 @@ async function allViewRows(
 ): Promise<unknown> {
   const rows: unknown[] = [];
   let shape: unknown;
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "view-rows",
-      workspaceId: "workspace",
-      perspective,
-      hostNodeId,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    shape ??= {
-      available: page.available,
-      viewDefinitionNodeId: page.viewDefinitionNodeId,
-      viewType: page.viewType,
-      options: page.options,
-      optionsConflicted: page.optionsConflicted,
-    };
-    rows.push(...page.rows);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) =>
+      workspace.query({ kind: "view-rows", workspaceId: "workspace", perspective, hostNodeId, ...after, limit }),
+    (page) => {
+      shape ??= {
+        available: page.available,
+        viewDefinitionNodeId: page.viewDefinitionNodeId,
+        viewType: page.viewType,
+        options: page.options,
+        optionsConflicted: page.optionsConflicted,
+      };
+      rows.push(...page.rows);
+    },
+  );
   return { shape: shape ?? null, rows };
 }
 
@@ -272,20 +235,21 @@ async function allOutlineRows(
 ): Promise<unknown> {
   const rows: unknown[] = [];
   let available: boolean | undefined;
-  let after: string | undefined;
-  do {
-    const page = await workspace.query({
-      kind: "outline",
-      workspaceId: "workspace",
-      perspective,
-      rootNodeId,
-      maxDepth: 8,
-      ...(after === undefined ? {} : { after }),
-      limit,
-    });
-    available ??= page.available;
-    rows.push(...page.rows);
-    after = page.next ?? undefined;
-  } while (after !== undefined);
+  await drainPages(
+    (after) =>
+      workspace.query({
+        kind: "outline",
+        workspaceId: "workspace",
+        perspective,
+        rootNodeId,
+        maxDepth: 8,
+        ...after,
+        limit,
+      }),
+    (page) => {
+      available ??= page.available;
+      rows.push(...page.rows);
+    },
+  );
   return { available: available ?? false, rows };
 }

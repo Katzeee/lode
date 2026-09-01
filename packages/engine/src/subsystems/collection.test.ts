@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  EngineSubsystemCollectionStoppedError,
-  EngineSubsystemLifecycleError,
-  buildEngineSubsystems,
-  defineEngineSubsystem,
-} from "./index.js";
+import { buildEngineSubsystems } from "./index.js";
+import { defineEngineSubsystem } from "./definition.js";
 
 describe("EngineSubsystemCollection", () => {
   it("constructs topologically and injects only declared capabilities", () => {
@@ -81,9 +77,9 @@ describe("EngineSubsystemCollection", () => {
     ]);
   });
 
-  it("rolls back the failing init member and reports the first cleanup failure", async () => {
+  it("rolls back every initialized member and reports every cleanup failure", async () => {
     const events: string[] = [];
-    const ready = tracedDefinition("ready", {}, events);
+    const ready = tracedDefinition("ready", {}, events, { stopError: "ready cleanup failed" });
     const broken = tracedDefinition("broken", { ready }, events, {
       initError: "init failed",
       stopError: "broken cleanup failed",
@@ -92,12 +88,12 @@ describe("EngineSubsystemCollection", () => {
 
     const failure = await lifecycle.start().catch((error: unknown) => error);
 
-    expect(failure).toBeInstanceOf(EngineSubsystemLifecycleError);
     expect(failure).toMatchObject({
+      name: "EngineSubsystemLifecycleError",
       primary: { message: "init failed" },
-      cleanupError: { message: "broken cleanup failed" },
+      cleanupErrors: [{ message: "broken cleanup failed" }, { message: "ready cleanup failed" }],
     });
-    expect(events).toEqual(["init:ready", "init:broken", "stop:broken:true"]);
+    expect(events).toEqual(["init:ready", "init:broken", "stop:broken:true", "stop:ready:true"]);
   });
 
   it("rolls back every initialized member when start fails", async () => {
@@ -143,13 +139,13 @@ describe("EngineSubsystemCollection", () => {
     expect(api.accepting()).toBe(false);
     await stopping;
     expect(events).toEqual(["stop:true"]);
-    await expect(lifecycle.start()).rejects.toBeInstanceOf(EngineSubsystemCollectionStoppedError);
+    await expect(lifecycle.start()).rejects.toMatchObject({ name: "EngineSubsystemCollectionStoppedError" });
   });
 
-  it("stops at the first cleanup failure and preserves that result", async () => {
+  it("attempts every cleanup and preserves the aggregate result", async () => {
     const events: string[] = [];
     let attempts = 0;
-    const unrelated = tracedDefinition("unrelated", {}, events);
+    const unrelated = tracedDefinition("unrelated", {}, events, { stopError: "unrelated cleanup failed" });
     const dependency = tracedDefinition("dependency", {}, events);
     const dependent = defineEngineSubsystem({
       id: "dependent",
@@ -170,11 +166,15 @@ describe("EngineSubsystemCollection", () => {
     const second = lifecycle.stop();
 
     expect(first).toBe(second);
-    await expect(first).rejects.toThrow("dependent cleanup failed");
-    await expect(lifecycle.stop()).rejects.toThrow("dependent cleanup failed");
+    const failure = await first.catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure).toMatchObject({
+      errors: [{ message: "dependent cleanup failed" }, { message: "unrelated cleanup failed" }],
+    });
+    await expect(lifecycle.stop()).rejects.toBe(failure);
     expect(attempts).toBe(1);
-    expect(events).not.toContain("stop:dependency:true");
-    expect(events).not.toContain("stop:unrelated:true");
+    expect(events).toContain("stop:dependency:true");
+    expect(events).toContain("stop:unrelated:true");
   });
 });
 

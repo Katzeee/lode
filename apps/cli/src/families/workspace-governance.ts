@@ -1,6 +1,12 @@
 import { CliError, okOutcome, type CommandResult, type HumanView } from "../outcome/index.js";
-import type { CommandDefinition } from "../catalog/index.js";
-import type { CommandContext, ParsedArgs } from "../invocation/index.js";
+import {
+  fileOption,
+  readCommand,
+  writeCommand,
+  type CommandContext,
+  type CommandDefinition,
+  type ParsedArgs,
+} from "../command/index.js";
 import { actorIdOf } from "../intent/index.js";
 import { resolveWorkspaceFromList } from "../target/index.js";
 
@@ -21,20 +27,16 @@ export function registerWorkspaceGovernanceCommands(catalog: { register(definiti
   catalog.register(workspaceRotateTransit);
 }
 
-const admissionFileOption = {
-  name: "--admission-file",
-  description: "Admission material exported by the joining Home ('-' for stdin)",
-  value: { kind: "file" as const },
-  required: true,
-};
+const admissionFileOption = fileOption(
+  "--admission-file",
+  "Admission material exported by the joining Home ('-' for stdin)",
+  { required: true },
+);
 
-const workspaceMembers: CommandDefinition = {
+const workspaceMembers = readCommand({
   path: ["workspace", "members"],
   summary: "List the Actor members of a workspace.",
   positionals: [["workspace", "Workspace label, workspace: ref, or canonical link", "optional"]],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context: CommandContext, args: ParsedArgs): Promise<CommandResult> => {
     const workspaceId = await targetWorkspace(context, args);
@@ -49,15 +51,12 @@ const workspaceMembers: CommandDefinition = {
       { view },
     );
   },
-};
+});
 
-const workspacePeers: CommandDefinition = {
+const workspacePeers = readCommand({
   path: ["workspace", "peers"],
   summary: "List the admitted devices of a workspace.",
   positionals: [["workspace", "Workspace label, workspace: ref, or canonical link", "optional"]],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context: CommandContext, args: ParsedArgs): Promise<CommandResult> => {
     const workspaceId = await targetWorkspace(context, args);
@@ -74,18 +73,15 @@ const workspacePeers: CommandDefinition = {
     };
     return okOutcome({ workspace: workspaceId, epoch: summary.epoch, peers: summary.peers }, { view });
   },
-};
+});
 
-const workspaceAdmitActor: CommandDefinition = {
+const workspaceAdmitActor = writeCommand({
   path: ["workspace", "admit-actor"],
   summary: "Admit an Actor as a workspace member (owner action).",
   positionals: [
     ["workspace", "Workspace label, workspace: ref, or canonical link"],
     ["actor", "Actor id to admit"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -100,18 +96,15 @@ const workspaceAdmitActor: CommandDefinition = {
       { view: { kind: "text", lines: [`Admitted Actor ${args.positional("actor")} to ${workspaceId}.`] } },
     );
   },
-};
+});
 
-const workspaceRemoveActor: CommandDefinition = {
+const workspaceRemoveActor = writeCommand({
   path: ["workspace", "remove-actor"],
   summary: "Remove an Actor's membership (owner action).",
   positionals: [
     ["workspace", "Workspace label, workspace: ref, or canonical link"],
     ["actor", "Actor id to remove"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -126,18 +119,15 @@ const workspaceRemoveActor: CommandDefinition = {
       { view: { kind: "text", lines: [`Removed Actor ${args.positional("actor")} from ${workspaceId}.`] } },
     );
   },
-};
+});
 
-const workspaceTransferOwner: CommandDefinition = {
+const workspaceTransferOwner = writeCommand({
   path: ["workspace", "transfer-owner"],
   summary: "Transfer workspace ownership to a member Actor.",
   positionals: [
     ["workspace", "Workspace label, workspace: ref, or canonical link"],
     ["actor", "Next owner Actor id (must already be a member)"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -152,15 +142,13 @@ const workspaceTransferOwner: CommandDefinition = {
       { view: { kind: "text", lines: [`Ownership of ${workspaceId} transferred to ${args.positional("actor")}.`] } },
     );
   },
-};
+});
 
-const workspaceAdmitPeer: CommandDefinition = {
+const workspaceAdmitPeer = writeCommand({
   path: ["workspace", "admit-peer"],
   summary: "Admit a joining Home's device using its exported admission material.",
   positionals: [["workspace", "Workspace label, workspace: ref, or canonical link"]],
   options: [admissionFileOption],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -185,18 +173,15 @@ const workspaceAdmitPeer: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const workspaceRevokePeer: CommandDefinition = {
+const workspaceRevokePeer = writeCommand({
   path: ["workspace", "revoke-peer"],
   summary: "Revoke a device and rotate the transit key past it (owner action).",
   positionals: [
     ["workspace", "Workspace label, workspace: ref, or canonical link"],
     ["peer", "Peer id to revoke"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -219,15 +204,12 @@ const workspaceRevokePeer: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const workspaceRotateTransit: CommandDefinition = {
+const workspaceRotateTransit = writeCommand({
   path: ["workspace", "rotate-transit"],
   summary: "Rotate the workspace transit key for every admitted device (owner action).",
   positionals: [["workspace", "Workspace label, workspace: ref, or canonical link"]],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -241,7 +223,7 @@ const workspaceRotateTransit: CommandDefinition = {
       { view: { kind: "text", lines: [`Rotated the transit key for ${workspaceId}.`] } },
     );
   },
-};
+});
 
 function parseAdmission(text: string): Readonly<{ peerId: string; peerKxPublicKey: string }> {
   let parsed: unknown;

@@ -1,6 +1,7 @@
 import {
   canonicalJson,
   factActionsFromFacts,
+  isTextAction,
   type Fact,
   type FactAction,
   type FactSnapshot,
@@ -14,12 +15,12 @@ import { fieldDefinitionConfigurationCompensations } from "./compensation-field-
 import type { CompensationBatch } from "./types.js";
 import type { CompensationTargetAction } from "./compensation-types.js";
 
-export type Compensation =
+type Compensation =
   | Readonly<{ kind: "ready"; actions: readonly GraphAction[] }>
   | Readonly<{ kind: "unavailable"; reason: string }>
   | Readonly<{ kind: "stale"; reason: string }>;
 
-export type InvocationCompensation =
+type InvocationCompensation =
   | Readonly<{ kind: "ready"; writes: readonly CompensationBatch[] }>
   | Readonly<{ kind: "unavailable"; reason: string }>
   | Readonly<{ kind: "stale"; reason: string }>;
@@ -65,7 +66,7 @@ export function planInvocationCompensation(
     : { kind: "ready", writes };
 }
 
-export function planCompensation(
+function planCompensation(
   targetFacts: readonly FactAction[],
   snapshot: FactSnapshot,
   generation: InterpretedProjectionGeneration,
@@ -156,9 +157,7 @@ function typedFieldValueCompensations(
         field.state !== "value" ||
         (field.value.kind !== "number" && field.value.kind !== "date") ||
         !planned.some(
-          (authoredAction) =>
-            (authoredAction.kind === "rich-text-splice" || authoredAction.kind === "rich-text-mark") &&
-            authoredAction.nodeId === field.value.valueNodeId,
+          (authoredAction) => isTextAction(authoredAction) && authoredAction.nodeId === field.value.valueNodeId,
         ) ||
         planned.some(
           (authoredAction) =>

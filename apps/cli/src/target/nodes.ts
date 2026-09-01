@@ -1,4 +1,10 @@
-import { END_SEQUENCE_ANCHOR, type ProjectedNode, type ProjectionPerspective, type SequenceAnchor } from "@lode/sdk";
+import {
+  END_SEQUENCE_ANCHOR,
+  type ProjectedNode,
+  type ProjectedOccurrence,
+  type ProjectionPerspective,
+  type SequenceAnchor,
+} from "@lode/sdk";
 
 import { CliError, type TargetCandidate } from "../outcome/index.js";
 import type { DesktopSession } from "../session/index.js";
@@ -11,7 +17,7 @@ import {
   type TargetKind,
 } from "./selector.js";
 
-export type ResolvedNodeTarget = Readonly<{
+type ResolvedNodeTarget = Readonly<{
   nodeId: string;
   label: string;
   kind: TargetKind;
@@ -160,9 +166,7 @@ export async function readNodeUniverse(
   return { nodes: nodes, owners: owners };
 }
 
-type ProjectedOccurrenceLike = Readonly<{ occurrenceId: string; nodeId: string; parentNodeId: string }>;
-
-export type ResolvedOccurrenceTarget = Readonly<{
+type ResolvedOccurrenceTarget = Readonly<{
   occurrenceId: string;
   nodeId: string;
   parentNodeId: string;
@@ -183,14 +187,11 @@ export async function resolveOccurrenceTarget(
   options: Readonly<{ nodeKinds: readonly TargetKind[]; fromParentIds?: readonly string[] }> = { nodeKinds: ["node"] },
 ): Promise<ResolvedOccurrenceTarget> {
   const { nodes, owners } = await readNodeUniverse(session, workspaceId, perspective);
-  const occurrences = (await session.readProjection(workspaceId, perspective, "occurrences")) as Record<
-    string,
-    ProjectedOccurrenceLike
-  >;
+  const occurrences = await session.readProjection(workspaceId, perspective, "occurrences");
   const selector = parseSelector(token);
-  const inFrom = (occurrence: ProjectedOccurrenceLike): boolean =>
+  const inFrom = (occurrence: ProjectedOccurrence): boolean =>
     options.fromParentIds === undefined || options.fromParentIds.includes(occurrence.parentNodeId);
-  const toTarget = (occurrence: ProjectedOccurrenceLike): ResolvedOccurrenceTarget => {
+  const toTarget = (occurrence: ProjectedOccurrence): ResolvedOccurrenceTarget => {
     const node = nodes[occurrence.nodeId];
     const label = node === undefined ? occurrence.nodeId : nodeLabel(node);
     return {
@@ -201,7 +202,7 @@ export async function resolveOccurrenceTarget(
       descriptor: descriptor(workspaceId, "occurrence", occurrence.occurrenceId, label),
     };
   };
-  const occurrenceCandidates = (occurrences: readonly ProjectedOccurrenceLike[]): CliError =>
+  const occurrenceCandidates = (occurrences: readonly ProjectedOccurrence[]): CliError =>
     ambiguousTarget(
       occurrences.map((occurrence) => {
         const parent = nodes[occurrence.parentNodeId];

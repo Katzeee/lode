@@ -24,9 +24,22 @@ export class SyncExchange {
         pulled += result.pulled ? 1 : 0;
         pushed += result.pushed ? 1 : 0;
       }
-    } finally {
-      await this.composite.heal();
+    } catch (error) {
+      try {
+        await this.composite.heal();
+      } catch (cleanupError) {
+        const failure = new AggregateError(
+          [toError(error), toError(cleanupError)],
+          "Replica exchange and healing failed",
+          {
+            cause: error,
+          },
+        );
+        throw failure;
+      }
+      throw error;
     }
+    await this.composite.heal();
     return { pulled, pushed };
   }
 
@@ -52,4 +65,8 @@ export class SyncExchange {
 
 function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

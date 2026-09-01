@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { CommandCatalog } from "./index.js";
-import { buildCatalog } from "../composition.js";
+import { createProductCatalog } from "../product-catalog.js";
 
 describe("command catalog", () => {
   it("gives every registered definition a unique path, parser inputs, handler, and help", () => {
-    const catalog = buildCatalog();
+    const catalog = createProductCatalog();
     const definitions = catalog.all();
     expect(definitions.length).toBeGreaterThan(0);
     const paths = new Set<string>();
@@ -36,7 +36,7 @@ describe("command catalog", () => {
   });
 
   it("derives dispatch and family help from the same registry", () => {
-    const catalog = buildCatalog();
+    const catalog = createProductCatalog();
     expect(catalog.resolve(["workspace", "create"])).toBeDefined();
     expect(catalog.resolve(["workspace", "create"])?.path).toEqual(["workspace", "create"]);
     expect(catalog.resolve(["workspace", "nope"])).toBeUndefined();

@@ -1,5 +1,5 @@
 import { SEARCH_INTRINSIC_NODE_TYPE, WORKSPACE_INTRINSIC_NODE_TYPE, type IntrinsicNodeType } from "../fact/index.js";
-import { evaluateSearchExpression, searchResultRowKey } from "../query/index.js";
+import { evaluateSearch, searchResultRowKey } from "../query/index.js";
 import { nodeLocation, type Projection } from "../reconcile/index.js";
 
 export type ViewChildReference =
@@ -24,21 +24,19 @@ export function supportsSharedDefaultViewHost(intrinsicNodeType: IntrinsicNodeTy
 
 export function viewChildSource(hostNodeId: string, projection: Projection): readonly ViewChildReference[] {
   const host = projection.nodes[hostNodeId];
-  if (
-    host === undefined ||
-    !supportsSharedDefaultViewHost(host.intrinsicNodeType) ||
-    nodeLocation(projection.identity.workspaceNodeId, projection, hostNodeId) !== "active"
-  ) {
+  if (host === undefined || !supportsSharedDefaultViewHost(host.intrinsicNodeType)) {
     return [];
   }
-  if (projection.nodes[hostNodeId]?.intrinsicNodeType === SEARCH_INTRINSIC_NODE_TYPE) {
-    return evaluateSearchExpression(hostNodeId, projection.searchExpressions[hostNodeId], projection).map(
-      (targetNodeId) => ({
-        sourceKind: "search-result" as const,
-        sourceIdentity: searchResultRowKey(hostNodeId, targetNodeId),
-        targetNodeId,
-      }),
-    );
+  if (host.intrinsicNodeType === SEARCH_INTRINSIC_NODE_TYPE) {
+    const evaluated = evaluateSearch(hostNodeId, projection.searchExpressions[hostNodeId], projection);
+    return evaluated.targets.map((targetNodeId) => ({
+      sourceKind: "search-result" as const,
+      sourceIdentity: searchResultRowKey(hostNodeId, targetNodeId),
+      targetNodeId,
+    }));
+  }
+  if (nodeLocation(projection.identity.workspaceNodeId, projection, hostNodeId) !== "active") {
+    return [];
   }
   return (projection.childOccurrences[hostNodeId] ?? []).flatMap((occurrenceId) => {
     const occurrence = projection.occurrences[occurrenceId];

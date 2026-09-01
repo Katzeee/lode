@@ -9,7 +9,7 @@ import type {
   InvocationId,
   ReplicaId,
 } from "../../../domain/fact/index.js";
-import type { SyncableDoc } from "../replica-sync.js";
+import type { SyncableDoc } from "./replication.js";
 
 export type AuthorityCommit = Readonly<{
   invocationId: InvocationId;

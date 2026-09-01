@@ -1,29 +1,14 @@
 import { compareCausalOrder, type FactAction } from "../fact/index.js";
 import type { InterpretedProjection } from "../reconcile/index.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { noCompensation, type CompensationStep, type CompensationTargetAction } from "./compensation-types.js";
 
 export function compensateNodeOwner(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "original-promote" }>>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  return authoredAction.kind === "original-promote"
-    ? compensateOriginalPromotion(target, activeFacts, projection, counterfactual)
-    : noCompensation();
-}
-
-function compensateOriginalPromotion(
-  target: FactAction,
-  activeFacts: readonly FactAction[],
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep {
-  const authoredAction = target.action;
-  if (authoredAction.kind !== "original-promote") {
-    return noCompensation();
-  }
   const winner = activeFacts
     .filter(
       (fact) =>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  END_SEQUENCE_ANCHOR as atEnd,
   factActions,
   graphActionBody,
   makeFact,
@@ -9,8 +10,6 @@ import {
   type ReplicaId,
 } from "../fact/index.js";
 import { causalCollectionStates } from "./causal-collection.js";
-
-const atEnd = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("causal collection", () => {
   it("combines observed removal, restoration, and concurrent registers", () => {

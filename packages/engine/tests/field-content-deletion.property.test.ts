@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildFactSnapshot,
   canonicalJson,
   makeFact,
   materializedFieldNodeId,
@@ -13,7 +12,8 @@ import {
 import { rebuildGeneration, CURRENT_PROJECTION_VERSIONS as versions } from "../src/domain/reconcile/index.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { addDefinitionNode } from "./support/reconcile/placed-node-test-helpers.js";
-import { uniqueFacts } from "./support/facts.js";
+import { snapshotOf } from "./support/facts.js";
+import { shuffle } from "./support/permutation.js";
 
 const deleteReplica = "202";
 const insertReplica = "303";
@@ -234,30 +234,9 @@ function remoteTransaction(
     : [];
 }
 
-function snapshotOf(facts: readonly Fact[]) {
-  const snapshot = buildFactSnapshot("workspace", uniqueFacts(facts));
-  return snapshot;
-}
-
 function summary(result: ReturnType<typeof rebuildGeneration> | null): string {
   if (!result) {
     throw new Error("Expected Field content deletion Reconcile result");
   }
   return canonicalJson(result);
-}
-
-function shuffle(values: Fact[], seed: number): Fact[] {
-  let state = seed >>> 0;
-  for (let index = values.length - 1; index > 0; index -= 1) {
-    state = (state * 1_664_525 + 1_013_904_223) >>> 0;
-    const selected = state % (index + 1);
-    const current = values[index];
-    const replacement = values[selected];
-    if (!current || !replacement) {
-      throw new Error("Shuffle selected an absent Fact");
-    }
-    values[index] = replacement;
-    values[selected] = current;
-  }
-  return values;
 }

@@ -1,7 +1,8 @@
 import type { HistoryQuery } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, writeCommand, type ProductCommandRun } from "../command/index.js";
 import { actorIdOf, CLI_HISTORY_CHANNEL, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
 
 /**
@@ -24,7 +25,7 @@ async function readHistory(context: Parameters<ProductCommandRun>[0]): Promise<H
   if (result.status !== "ok") {
     throw new CliError("unavailable", `History is unavailable: ${result.error.message}`);
   }
-  return result.value as unknown as HistoryQuery;
+  return result.value;
 }
 
 function selectionView(side: "undo" | "redo", history: HistoryQuery): ReturnType<typeof view> {
@@ -39,14 +40,9 @@ function view(...lines: readonly string[]) {
   return { kind: "text" as const, lines };
 }
 
-const historyShow: CommandDefinition = {
+const historyShow = readCommand({
   path: ["history", "show"],
   summary: "Show the CLI history channel's current undo/redo evidence.",
-  positionals: [],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context) => {
     const history = await readHistory(context);
     return okOutcome(
@@ -63,29 +59,19 @@ const historyShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const historyUndo: CommandDefinition = {
+const historyUndo = writeCommand({
   path: ["history", "undo"],
   summary: "Compensate the CLI channel's most recent safely-undoable write.",
-  positionals: [],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context) => compensate(context, "undo"),
-};
+});
 
-const historyRedo: CommandDefinition = {
+const historyRedo = writeCommand({
   path: ["history", "redo"],
   summary: "Restore the CLI channel's most recent undone write.",
-  positionals: [],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context) => compensate(context, "redo"),
-};
+});
 
 async function compensate(context: Parameters<ProductCommandRun>[0], side: "undo" | "redo") {
   const history = await readHistory(context);

@@ -18,27 +18,30 @@ import {
 } from "../../../domain/reconcile/index.js";
 import type { AuthoredActionBatch } from "./action-batch.js";
 
-export type ProspectiveFactProgram = Readonly<{
-  nextActionId(actionIndex: number): FactActionId;
-  append(actions: AuthoredActionBatch): Readonly<{ snapshot: FactSnapshot; generation: ProjectionGeneration }>;
+type ProspectiveFactProgram = Readonly<{
+  finalActionId(actionIndex: number): FactActionId;
+  appendBatch(actions: AuthoredActionBatch): Readonly<{ snapshot: FactSnapshot; generation: ProjectionGeneration }>;
 }>;
 
-export function createProspectiveFactProgram(
-  workspaceId: string,
-  actorId: ActorId,
-  intent: EditIntent,
-  base: FactSnapshot,
-  versions: ProjectionVersions,
-  replicaId: ReplicaId,
-): ProspectiveFactProgram {
+type ProspectiveFactProgramInput = Readonly<{
+  workspaceId: string;
+  actorId: ActorId;
+  intent: EditIntent;
+  snapshot: FactSnapshot;
+  versions: ProjectionVersions;
+  replicaId: ReplicaId;
+}>;
+
+export function createProspectiveFactProgram(input: ProspectiveFactProgramInput): ProspectiveFactProgram {
+  const { workspaceId, actorId, intent, snapshot: base, versions, replicaId } = input;
   const facts: Fact[] = [];
   const firstSequence = (base.frontier[replicaId] ?? 0) + 1;
   const firstLamport = base.facts.reduce((maximum, fact) => Math.max(maximum, fact.coordinate.lamport), 0) + 1;
 
   return {
-    nextActionId: (actionIndex) =>
+    finalActionId: (actionIndex) =>
       factActionId(factId(workspaceId, replicaId, firstSequence + facts.length), actionIndex),
-    append(actions) {
+    appendBatch(actions) {
       const sequence = firstSequence + facts.length;
       const observed =
         facts.length === 0 ? base.frontier : normalizeFrontier({ ...base.frontier, [replicaId]: sequence - 1 });

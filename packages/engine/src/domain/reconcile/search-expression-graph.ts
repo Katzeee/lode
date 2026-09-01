@@ -74,12 +74,6 @@ export function searchExpressionStates(active: readonly FactAction[]): readonly 
   });
 }
 
-export function searchExpressionStateByAction(
-  active: readonly FactAction[],
-): ReadonlyMap<FactActionId, SearchExpressionState> {
-  return new Map(searchExpressionStates(active).map((state) => [state.addition.id, state]));
-}
-
 export function searchExpressionPlacementIds(
   action: FactAction,
   states: ReadonlyMap<FactActionId, SearchExpressionState>,

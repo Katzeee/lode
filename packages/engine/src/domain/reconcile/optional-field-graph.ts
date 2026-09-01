@@ -1,4 +1,5 @@
 import {
+  afterSequenceAnchor as after,
   OPTIONAL_FIELDS_DEFINITION_NODE_ID,
   START_SEQUENCE_ANCHOR as start,
   type FactAction,
@@ -50,12 +51,6 @@ export function optionalFieldStates(active: readonly FactAction[]): readonly Opt
     removed,
     identity: optionalFieldProjectionIdentity(addition.id),
   }));
-}
-
-export function optionalFieldStateByAction(
-  active: readonly FactAction[],
-): ReadonlyMap<FactActionId, OptionalFieldState> {
-  return new Map(optionalFieldStates(active).map((state) => [state.addition.id, state]));
 }
 
 export function optionalFieldPlacementIds(
@@ -110,8 +105,4 @@ export function optionalFieldPlacement(
   };
   const value = values[placementId];
   return value ? { ...value, derived: true } : null;
-}
-
-function after(occurrenceId: string): SequenceAnchor {
-  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
 }

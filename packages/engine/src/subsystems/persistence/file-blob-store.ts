@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { BlobStore } from "./blob-store.js";
@@ -24,12 +24,22 @@ export class FileBlobStore implements BlobStore {
     try {
       await writeFile(temporary, bytes, { mode: 0o600 });
       await rename(temporary, this.file);
-      await chmod(this.file, 0o600).catch(() => {});
     } catch (error) {
-      await rm(temporary, { force: true }).catch(() => {});
+      try {
+        await rm(temporary, { force: true });
+      } catch (cleanupError) {
+        const failure = new AggregateError([toError(error), toError(cleanupError)], "Blob write and cleanup failed", {
+          cause: error,
+        });
+        throw failure;
+      }
       throw error;
     }
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 function isMissingFile(error: unknown): boolean {

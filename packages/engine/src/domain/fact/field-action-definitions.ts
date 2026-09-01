@@ -1,11 +1,6 @@
 import { defineAction, defineActionFamily, field } from "./action-definition.js";
-import {
-  fieldDefinitionIdentities,
-  identity,
-  relationKey,
-  supertagIdentities,
-} from "./action-semantics/contribution-helpers.js";
-import type { IdentityContribution } from "./action-semantics/types.js";
+import { fieldDefinitionIdentities, identity, relationKey, supertagIdentities } from "./action-contribution-helpers.js";
+import type { IdentityContribution } from "./action-contribution-types.js";
 import { factActionIdField, nonemptyStringField } from "./action-field-decoders.js";
 import { parseFieldDefinitionConfiguration } from "./field-definition-config-shape.js";
 import type { FieldDefinitionConfigurationValue } from "./field-definition-config-types.js";
@@ -14,6 +9,7 @@ export const fieldActionDefinitions = defineActionFamily({
   materialize: defineAction(
     "field-materialize",
     "proposable",
+    "direct",
     {
       ownerNodeId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,
@@ -31,12 +27,17 @@ export const fieldActionDefinitions = defineActionFamily({
       ...fieldDefinitionIdentities(action.fieldDefinitionId, "require"),
     ],
   ),
-  removeValue: defineAction("field-value-remove", "proposable", { valuePlacementId: nonemptyStringField }, (action) => [
-    identity({ kind: "occurrence", occurrenceId: action.valuePlacementId }, "relate", "require"),
-  ]),
+  removeValue: defineAction(
+    "field-value-remove",
+    "proposable",
+    "direct",
+    { valuePlacementId: nonemptyStringField },
+    (action) => [identity({ kind: "occurrence", occurrenceId: action.valuePlacementId }, "relate", "require")],
+  ),
   clearMaterialized: defineAction(
     "materialized-field-clear",
     "proposable",
+    "direct",
     {
       ownerNodeId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,
@@ -60,6 +61,7 @@ export const fieldDefinitionActionDefinitions = defineActionFamily({
   configure: defineAction(
     "field-configuration-set",
     "proposable",
+    "internal",
     {
       fieldDefinitionId: nonemptyStringField,
       configuration: fieldConfigurationField,
@@ -74,6 +76,7 @@ export const fieldDefinitionActionDefinitions = defineActionFamily({
   makeDiscoverable: defineAction(
     "field-definition-make-discoverable",
     "proposable",
+    "internal",
     {
       fieldDefinitionId: nonemptyStringField,
     },
@@ -89,6 +92,7 @@ export const fieldDefinitionActionDefinitions = defineActionFamily({
   returnToTemplateField: defineAction(
     "field-definition-return-to-template-field",
     "proposable",
+    "internal",
     {
       fieldDefinitionId: nonemptyStringField,
       templateFieldId: factActionIdField,

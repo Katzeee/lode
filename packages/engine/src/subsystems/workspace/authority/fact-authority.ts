@@ -9,8 +9,8 @@ import type {
 } from "../../../domain/fact/index.js";
 import { frontierEquals, requestDigest, validatePlannedReceiptAppend } from "../../../domain/fact/index.js";
 import type { DocumentStore } from "../../persistence/index.js";
-import type { SyncBytes, SyncableDoc } from "../replica-sync.js";
-import { SerialExecutor } from "../serial-executor.js";
+import type { SyncBytes, SyncableDoc } from "./replication.js";
+import { SerialExecutor } from "./serial-executor.js";
 import type { AuthorityCommit, AuthorityCommitResult, FactAuthorityPort } from "./authority-contract.js";
 import { LoroFactStore } from "./loro-fact-store.js";
 import { LocalReceiptStore } from "./local-receipt-store.js";
@@ -20,7 +20,6 @@ type FactAuthorityOptions = Readonly<{
   workspaceId: WorkspaceId;
   loroPeerId: `${number}`;
   documents: DocumentStore;
-  snapshotInterval?: number;
 }>;
 
 export class FactAuthority implements FactAuthorityPort {
@@ -40,9 +39,13 @@ export class FactAuthority implements FactAuthorityPort {
   }
 
   static async open(options: FactAuthorityOptions): Promise<FactAuthority> {
-    const store = await LoroFactStore.open({ ...options, documents: options.documents });
+    const store = await LoroFactStore.open({
+      workspaceId: options.workspaceId,
+      loroPeerId: options.loroPeerId,
+      documents: options.documents,
+    });
     const receiptStore = await LocalReceiptStore.open(
-      { ...options, replicaId: options.loroPeerId, documents: options.documents },
+      { workspaceId: options.workspaceId, replicaId: options.loroPeerId, documents: options.documents },
       store.allFacts(),
     );
     return new FactAuthority(options, store, receiptStore, options.loroPeerId);

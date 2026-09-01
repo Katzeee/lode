@@ -1,4 +1,4 @@
-import type { ActorId } from "./types.js";
+import type { ActorId } from "./fact-value-types.js";
 
 /**
  * Governance Fact vocabulary: workspace establish, Actor membership, and Peer

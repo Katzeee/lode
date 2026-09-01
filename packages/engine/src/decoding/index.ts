@@ -1,10 +1,13 @@
-export function stringArray(value: unknown, label = "string array"): string[] {
-  return array(value, label, (item) => nonempty(item, label));
+export class ShapeValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ShapeValidationError";
+  }
 }
 
 export function array<T>(value: unknown, label: string, parse: (value: unknown) => T): T[] {
   if (!Array.isArray(value)) {
-    throw new Error(`${label} must be an array`);
+    throw new ShapeValidationError(`${label} must be an array`);
   }
   return value.map(parse);
 }
@@ -16,7 +19,7 @@ export function object(value: unknown, label: string): Record<string, unknown> {
 
 export function exact(value: Record<string, unknown>, keys: readonly string[], label: string): void {
   if (Object.keys(value).length !== keys.length || Object.keys(value).some((key) => !keys.includes(key))) {
-    throw new Error(`${label} has unknown or missing fields`);
+    throw new ShapeValidationError(`${label} has unknown or missing fields`);
   }
 }
 
@@ -36,7 +39,7 @@ export function nullableString(value: unknown, label: string): string | null {
 
 export function booleanValue(value: unknown, label: string): boolean {
   if (typeof value !== "boolean") {
-    throw new Error(`${label} is invalid`);
+    throw new ShapeValidationError(`${label} is invalid`);
   }
   return value;
 }
@@ -48,7 +51,7 @@ export function safeInteger(value: unknown, minimum: number, label: string): num
 
 export function enumValue<const T extends readonly string[]>(value: unknown, allowed: T, label: string): T[number] {
   if (typeof value !== "string" || !allowed.includes(value)) {
-    throw new Error(`${label} is invalid`);
+    throw new ShapeValidationError(`${label} is invalid`);
   }
   return value;
 }
@@ -72,64 +75,46 @@ export function assertJsonValue(value: unknown, label: string): void {
     }
     return;
   }
-  throw new Error(`${label} is not JSON data`);
-}
-
-export function assertNullableString(value: unknown, label: string): void {
-  if (value !== null) {
-    requireString(value, label);
-  }
+  throw new ShapeValidationError(`${label} is not JSON data`);
 }
 
 export function assertOneOf(value: unknown, allowed: readonly string[], label: string): void {
   if (typeof value !== "string" || !allowed.includes(value)) {
-    throw new Error(`Invalid ${label}`);
+    throw new ShapeValidationError(`Invalid ${label}`);
   }
 }
 
 export function requireString(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} is invalid`);
+    throw new ShapeValidationError(`${label} is invalid`);
   }
 }
 
 export function requireStringAllowEmpty(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string") {
-    throw new Error(`${label} is invalid`);
+    throw new ShapeValidationError(`${label} is invalid`);
   }
 }
 
 export function requireSafeInteger(value: unknown, minimum: number, label: string): asserts value is number {
   if (!Number.isSafeInteger(value) || (value as number) < minimum) {
-    throw new Error(`${label} is invalid`);
+    throw new ShapeValidationError(`${label} is invalid`);
   }
 }
 
 export function assertObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (!isRecord(value)) {
-    throw new Error(`${label} must be an object`);
+    throw new ShapeValidationError(`${label} must be an object`);
   }
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-export function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return (
-    isRecord(value) &&
-    Object.keys(value).length === keys.length &&
-    Object.keys(value).every((key) => keys.includes(key))
-  );
-}
-
-export function isStringArray(value: unknown): value is readonly string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 export function assertKeys(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
   const extra = Object.keys(value).find((key) => !allowed.includes(key));
   if (extra) {
-    throw new Error(`${label} contains unknown field: ${extra}`);
+    throw new ShapeValidationError(`${label} contains unknown field: ${extra}`);
   }
 }

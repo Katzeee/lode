@@ -8,19 +8,18 @@ import {
 } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { descriptor, resolveNodeTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, stringOption, writeCommand } from "../command/index.js";
+import { resolveTarget, resource } from "../target/index.js";
 import {
   cardinalityConfiguration,
   datatypeConfiguration,
-  executeWrite,
   identity,
   optionalityConfiguration,
   optionalContributionActions,
   requiredEndpoint,
+  runWrite,
   templateFieldCreateAction,
-  writeResult,
-  workspaceIdOf,
 } from "../intent/index.js";
 import { BOOLEAN_VALUES } from "../value/field-values.js";
 import { registerSupertagFieldDefaultCommands } from "./supertag-field-default.js";
@@ -39,49 +38,24 @@ export function registerSupertagFieldCommands(catalog: CommandCatalog): void {
   registerSupertagFieldPlacementCommands(catalog);
 }
 
-const FIELD_OPTION = {
-  name: "--field",
-  description: "Field name (new) or Field Definition target (existing)",
-  value: { kind: "string" as const },
+const FIELD_OPTION = stringOption("--field", "Field name (new) or Field Definition target (existing)", {
   required: true,
-};
+});
 
-const fieldAddNew: CommandDefinition = {
+const fieldAddNew = writeCommand({
   path: ["supertag", "field", "add-new"],
   summary: "Add a new field to a Supertag template.",
   positionals: [["supertag", "Supertag target"]],
   options: [
     FIELD_OPTION,
-    { name: "--type", description: "Field datatype", value: { kind: "enum" as const, enum: FIELD_DATATYPES } },
-    {
-      name: "--cardinality",
-      description: "single or list",
-      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
-    },
-    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_VALUES } },
-    {
-      name: "--options-from",
-      description: "Supertag providing options (only with --type options-from-supertag)",
-      value: { kind: "string" as const },
-    },
-    {
-      name: "--optional",
-      description: "Add as an Optional Field Contribution instead of a template placement",
-      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
-    },
+    enumOption("--type", FIELD_DATATYPES, "Field datatype"),
+    enumOption("--cardinality", FIELD_CARDINALITIES, "single or list"),
+    enumOption("--required", BOOLEAN_VALUES, "Required toggle"),
+    stringOption("--options-from", "Supertag providing options (only with --type options-from-supertag)"),
+    enumOption("--optional", BOOLEAN_VALUES, "Add as an Optional Field Contribution instead of a template placement"),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const supertag = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("supertag"),
-      ["supertag"],
-    );
+  run: runWrite("supertag.field.add-new", async (context, args) => {
+    const supertag = await resolveTarget(context, args.positional("supertag"), ["supertag"]);
     const name = args.requiredOption("--field");
     const datatype = args.option("--type") as FieldDatatype | undefined;
     const optionsFrom = args.option("--options-from");
@@ -92,10 +66,7 @@ const fieldAddNew: CommandDefinition = {
       throw new CliError("usage", "--type options-from-supertag requires --options-from.");
     }
     const optionsSupertagId =
-      optionsFrom === undefined
-        ? undefined
-        : (await resolveNodeTarget(context.session, workspaceId, context.perspective, optionsFrom, ["supertag"]))
-            .nodeId;
+      optionsFrom === undefined ? undefined : (await resolveTarget(context, optionsFrom, ["supertag"])).nodeId;
     if (args.option("--optional") === "true") {
       throw new CliError(
         "usage",
@@ -113,51 +84,26 @@ const fieldAddNew: CommandDefinition = {
     if (args.option("--required") !== undefined) {
       actions.push(optionalityConfiguration(fieldDefinitionId, requiredEndpoint(args.option("--required") === "true")));
     }
-    const { result, data } = await executeWrite(context, "supertag.field.add-new", actions);
-    const resource = descriptor(workspaceId, "field", fieldDefinitionId, name);
-    return writeResult(data, result, {
-      extra: { target: supertag.descriptor, field: resource },
-      view: writeView("Added field", resource, `to ${supertag.label}`),
-    });
-  },
-};
+    const added = resource(context, "field", fieldDefinitionId, name);
+    return {
+      actions,
+      extra: { target: supertag.descriptor, field: added },
+      view: writeView("Added field", added, `to ${supertag.label}`),
+    };
+  }),
+});
 
-const fieldAddExisting: CommandDefinition = {
+const fieldAddExisting = writeCommand({
   path: ["supertag", "field", "add-existing"],
   summary: "Add a discoverable field definition to a Supertag template.",
   positionals: [["supertag", "Supertag target"]],
   options: [
-    {
-      name: "--field",
-      description: "Existing discoverable Field Definition target",
-      value: { kind: "string" as const },
-      required: true,
-    },
-    {
-      name: "--optional",
-      description: "Add as an Optional Field Contribution instead of a template placement",
-      value: { kind: "enum" as const, enum: BOOLEAN_VALUES },
-    },
+    stringOption("--field", "Existing discoverable Field Definition target", { required: true }),
+    enumOption("--optional", BOOLEAN_VALUES, "Add as an Optional Field Contribution instead of a template placement"),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const supertag = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.positional("supertag"),
-      ["supertag"],
-    );
-    const field = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--field"),
-      ["field"],
-    );
+  run: runWrite("supertag.field.add-existing", async (context, args) => {
+    const supertag = await resolveTarget(context, args.positional("supertag"), ["supertag"]);
+    const field = await resolveTarget(context, args.requiredOption("--field"), ["field"]);
     const optional = args.option("--optional") === "true";
     const actions: readonly EditAction[] = optional
       ? optionalContributionActions(supertag.nodeId, field.nodeId)
@@ -169,10 +115,10 @@ const fieldAddExisting: CommandDefinition = {
             anchor: end,
           },
         ];
-    const { result, data } = await executeWrite(context, "supertag.field.add-existing", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: { target: supertag.descriptor, field: field.descriptor },
       view: writeView("Added field", field.descriptor, `to ${supertag.label}`),
-    });
-  },
-};
+    };
+  }),
+});

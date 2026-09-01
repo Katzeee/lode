@@ -3,14 +3,13 @@
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-export type LodeHomePaths = {
+type LodeHomePaths = {
   data: string;
   token: string;
   endpoint: string;
   /** The remote replica-exchange boundary address shared with other Homes. */
   syncEndpoint: string;
   lock: string;
-  logs: string;
 };
 
 /** Default home for the platform (Win `%APPDATA%\lode`, macOS `~/Library/Application Support/lode`,
@@ -39,6 +38,5 @@ export function homePaths(home: string): LodeHomePaths {
     endpoint: join(home, "endpoint"),
     syncEndpoint: join(home, "sync-endpoint"),
     lock: join(home, "daemon.lock"),
-    logs: join(home, "logs"),
   };
 }

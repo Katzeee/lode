@@ -8,16 +8,13 @@
 // placeholder authority live only here.
 
 import { createHash } from "node:crypto";
-import net from "node:net";
+import type { ListenOptions } from "node:net";
 import { platform } from "node:os";
 import { join } from "node:path";
 import { parseEndpoint, type ParsedEndpoint } from "@lode/sdk";
 
-/** `\\.\pipe\` — the Windows named-pipe path prefix that net.connect / http2.listen consume. */
+/** `\\.\pipe\` — the Windows named-pipe path prefix that http2.listen consumes. */
 const WINDOWS_PIPE_PREFIX = "\\\\.\\pipe\\";
-/** Placeholder HTTP/2 authority for socket dials — the socket IS the channel; the `:authority`
- *  pseudo-header just needs a value. */
-const SOCKET_AUTHORITY = "http://lode.local";
 
 /** The default endpoint when `--listen` is absent: a Unix domain socket on POSIX, a Windows named
  *  pipe on Win32. `pipe://lode-<sha1(home)[:16]>` keeps each home's pipe name distinct. */
@@ -42,7 +39,7 @@ export function socketPathOf(endpoint: string): string | undefined {
 
 /** The shape `http2.Server.listen` consumes for this endpoint — a POSIX socket path, a Windows
  *  pipe path, or a host/port. */
-export function listenTarget(parsed: ParsedEndpoint): net.ListenOptions {
+export function listenTarget(parsed: ParsedEndpoint): ListenOptions {
   switch (parsed.scheme) {
     case "unix":
       return { path: parsed.socketPath };
@@ -64,35 +61,5 @@ export function canonicalAddress(parsed: ParsedEndpoint, boundPort: number): str
       return `unix://${parsed.socketPath}`;
     case "pipe":
       return `pipe://${parsed.pipeName}`;
-  }
-}
-
-function rawSocket(parsed: ParsedEndpoint): net.Socket {
-  switch (parsed.scheme) {
-    case "unix":
-      return net.connect(parsed.socketPath);
-    case "pipe":
-      return net.connect(`${WINDOWS_PIPE_PREFIX}${parsed.pipeName}`);
-    case "tcp":
-      return net.connect(parsed.port, parsed.host);
-  }
-}
-
-/** The dial descriptor used by daemon-to-daemon Fact synchronization. */
-export type EndpointDial =
-  { readonly tcpUrl: string } | { readonly authority: string; readonly createConnection: () => net.Socket };
-
-/** Resolve an endpoint string to the dial descriptor the client transport takes. */
-export function dialTarget(endpoint: string): EndpointDial {
-  const parsed = parseEndpoint(endpoint);
-  switch (parsed.scheme) {
-    case "tcp":
-      return { tcpUrl: `http://${parsed.host}:${parsed.port}` };
-    case "unix":
-    case "pipe":
-      return {
-        authority: SOCKET_AUTHORITY,
-        createConnection: () => rawSocket(parsed),
-      };
   }
 }

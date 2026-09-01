@@ -4,21 +4,27 @@ import {
   factActionsOfKinds,
   factActionsFromFacts,
   factObserves,
+  proposableActionKindsInFamily,
   type FactAction,
   type Fact,
   type TextAtomId,
+  type TextAction,
 } from "../fact/index.js";
 import { textAtoms, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { HunkCandidate } from "./review-family.js";
-import { hasTextEffect, textEffect } from "./text-review-effect.js";
+import { hasTextEffect, isTextFactAction, textEffect } from "./text-review-effect.js";
+
+type TextFactAction = FactAction<TextAction>;
 
 export function textCandidates(
   snapshot: Readonly<{ facts: readonly Fact[] }>,
   generation: InterpretedProjectionGeneration,
   allPending: ReadonlyMap<FactAction["id"], FactAction>,
 ): readonly HunkCandidate[] {
-  const pending = factActionsOfKinds([...allPending.values()], ["rich-text-splice", "rich-text-mark"]);
-  const byNode = new Map<string, FactAction[]>();
+  const pending = factActionsOfKinds([...allPending.values()], proposableActionKindsInFamily("text")).filter(
+    isTextFactAction,
+  );
+  const byNode = new Map<string, TextFactAction[]>();
   for (const fact of pending) {
     const action = fact.action;
     const nodeFacts = byNode.get(action.nodeId) ?? [];
@@ -55,10 +61,10 @@ export function textCandidates(
   return result;
 }
 
-function overlappingMarkGroups(facts: readonly FactAction[]): readonly FactAction[][] {
+function overlappingMarkGroups(facts: readonly TextFactAction[]): readonly TextFactAction[][] {
   const marks = factActionsOfKind(facts, "rich-text-mark");
   const remaining = new Set(marks.map((fact) => fact.id));
-  const groups: FactAction[][] = [];
+  const groups: TextFactAction[][] = [];
   while (remaining.size > 0) {
     const firstId = remaining.values().next().value;
     if (firstId === undefined) {
@@ -93,11 +99,11 @@ function overlappingMarkGroups(facts: readonly FactAction[]): readonly FactActio
 }
 
 function textContinuityGroups(
-  facts: readonly FactAction[],
+  facts: readonly TextFactAction[],
   snapshot: Readonly<{ facts: readonly Fact[] }>,
   generation: InterpretedProjectionGeneration,
   nodeId: string,
-): readonly Readonly<{ targets: readonly FactAction[]; bridges: readonly TextAtomId[] }>[] {
+): readonly Readonly<{ targets: readonly TextFactAction[]; bridges: readonly TextAtomId[] }>[] {
   const atoms = textAtoms(generation.review.nodes[nodeId]);
   const pendingIds = new Set(facts.map((fact) => fact.id));
   const indexed = facts
@@ -114,7 +120,7 @@ function textContinuityGroups(
     return [];
   }
   const factsById = new Map(factActionsFromFacts(snapshot.facts).map((fact) => [fact.id, fact]));
-  const groups: { targets: FactAction[]; bridges: TextAtomId[] }[] = [];
+  const groups: { targets: TextFactAction[]; bridges: TextAtomId[] }[] = [];
   let current = {
     targets: [first.fact],
     bridges: bridgesWithin(first, atoms, pendingIds, factsById),
@@ -150,7 +156,7 @@ function textContinuityGroups(
 }
 
 function bridgesWithin(
-  entry: Readonly<{ fact: FactAction; positions: readonly number[] }>,
+  entry: Readonly<{ fact: TextFactAction; positions: readonly number[] }>,
   atoms: readonly Readonly<{ id: TextAtomId; factActionId: FactAction["id"] }>[],
   pendingIds: ReadonlySet<FactAction["id"]>,
   factsById: ReadonlyMap<FactAction["id"], FactAction>,
@@ -171,8 +177,8 @@ function bridgesWithin(
 
 function isNeutralBridge(
   directActionId: FactAction["id"],
-  left: FactAction,
-  right: FactAction,
+  left: TextFactAction,
+  right: TextFactAction,
   factsById: ReadonlyMap<FactAction["id"], FactAction>,
 ): boolean {
   const direct = factsById.get(directActionId);

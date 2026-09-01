@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { rebuildGeneration } from "../../../domain/reconcile/index.js";
+import { factActionId, factId } from "../../../domain/fact/index.js";
+import { rebuildGeneration, searchExpressionProjectionIdentity } from "../../../domain/reconcile/index.js";
 import { base, end, Facts, versions } from "../../../../tests/support/reconcile/reconcile-test-helpers.js";
 import { prepareEdits } from "./index.js";
 
@@ -11,10 +12,10 @@ describe("Action Fact boundaries", () => {
     const generation = rebuildGeneration("workspace", snapshot, versions);
 
     expect(() =>
-      prepareEdits(
-        "workspace",
-        "actor",
-        [
+      prepareEdits({
+        workspaceId: "workspace",
+        actorId: "actor",
+        edits: [
           {
             kind: "node-create",
             nodeId: "workspace",
@@ -24,11 +25,11 @@ describe("Action Fact boundaries", () => {
           },
         ],
         generation,
-        "direct",
+        intent: "direct",
         snapshot,
-        "101",
-      ),
-    ).toThrow("Workspace identity is created only by Workspace genesis");
+        replicaId: "101",
+      }),
+    ).toThrow("Workspace Node is created only by Workspace bootstrap");
   });
 
   it("emits one non-empty action batch for each Edit", () => {
@@ -36,10 +37,10 @@ describe("Action Fact boundaries", () => {
     const creationSnapshot = creationFacts.snapshot();
     const creationGeneration = rebuildGeneration("workspace", creationSnapshot, versions);
     expect(
-      prepareEdits(
-        "workspace",
-        "actor",
-        [
+      prepareEdits({
+        workspaceId: "workspace",
+        actorId: "actor",
+        edits: [
           {
             kind: "node-create",
             nodeId: "node",
@@ -48,11 +49,11 @@ describe("Action Fact boundaries", () => {
             anchor: end,
           },
         ],
-        creationGeneration,
-        "direct",
-        creationSnapshot,
-        "101",
-      ),
+        generation: creationGeneration,
+        intent: "direct",
+        snapshot: creationSnapshot,
+        replicaId: "101",
+      }),
     ).toMatchObject([
       [
         {
@@ -68,15 +69,15 @@ describe("Action Fact boundaries", () => {
     const deletionSnapshot = deletionFacts.snapshot();
     const deletionGeneration = rebuildGeneration("workspace", deletionSnapshot, versions);
     expect(
-      prepareEdits(
-        "workspace",
-        "actor",
-        [{ kind: "node-delete", nodeId: "node" }],
-        deletionGeneration,
-        "direct",
-        deletionSnapshot,
-        "101",
-      ),
+      prepareEdits({
+        workspaceId: "workspace",
+        actorId: "actor",
+        edits: [{ kind: "node-delete", nodeId: "node" }],
+        generation: deletionGeneration,
+        intent: "direct",
+        snapshot: deletionSnapshot,
+        replicaId: "101",
+      }),
     ).toEqual([[{ kind: "node-trash", nodeId: "node" }]]);
   });
 
@@ -84,18 +85,18 @@ describe("Action Fact boundaries", () => {
     const facts = base();
     const snapshot = facts.snapshot();
     const generation = rebuildGeneration("workspace", snapshot, versions);
-    const writes = prepareEdits(
-      "workspace",
-      "actor",
-      [
+    const writes = prepareEdits({
+      workspaceId: "workspace",
+      actorId: "actor",
+      edits: [
         { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "first" },
         { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "second" },
       ],
       generation,
-      "direct",
+      intent: "direct",
       snapshot,
-      "101",
-    );
+      replicaId: "101",
+    });
 
     expect(writes).toHaveLength(2);
     expect(writes.map(([action]) => action.kind)).toEqual(["rich-text-splice", "rich-text-splice"]);
@@ -107,10 +108,10 @@ describe("Action Fact boundaries", () => {
     const generation = rebuildGeneration("workspace", snapshot, versions);
 
     expect(
-      prepareEdits(
-        "workspace",
-        "actor",
-        [
+      prepareEdits({
+        workspaceId: "workspace",
+        actorId: "actor",
+        edits: [
           {
             kind: "node-create",
             nodeId: "node",
@@ -121,13 +122,61 @@ describe("Action Fact boundaries", () => {
           { kind: "rich-text-splice", nodeId: "node", deleteAtomIds: [], anchor: end, insert: "created" },
         ],
         generation,
-        "direct",
+        intent: "direct",
         snapshot,
-        "101",
-      ),
+        replicaId: "101",
+      }),
     ).toMatchObject([
       [{ kind: "node-create", nodeId: "node" }],
       [{ kind: "rich-text-splice", nodeId: "node", insert: "created" }],
+    ]);
+  });
+
+  it("derives intra-batch Search identities from final Graph Action positions", () => {
+    const facts = new Facts();
+    facts.add({
+      kind: "node-create",
+      nodeId: "search",
+      ownerNodeId: "workspace",
+      originalPlacement: { placementId: "search-original", anchor: end },
+      intrinsicNodeType: "search",
+    });
+    const snapshot = facts.snapshot();
+    const generation = rebuildGeneration("workspace", snapshot, versions);
+    const [batch] = prepareEdits({
+      workspaceId: "workspace",
+      actorId: "actor",
+      edits: [
+        {
+          kind: "search-expression-create",
+          searchNodeId: "search",
+          expression: {
+            kind: "and",
+            operands: [
+              { kind: "text", text: "first" },
+              { kind: "text", text: "second" },
+            ],
+          },
+          anchor: end,
+        },
+      ],
+      generation,
+      intent: "direct",
+      snapshot,
+      replicaId: "101",
+    });
+    const prospectiveFactId = factId("workspace", "101", (snapshot.frontier["101"] ?? 0) + 1);
+    const rootId = factActionId(prospectiveFactId, 0);
+    const firstChildId = factActionId(prospectiveFactId, 1);
+
+    expect(batch).toMatchObject([
+      { kind: "search-expression-add", parentExpressionId: null },
+      { kind: "search-expression-add", parentExpressionId: rootId },
+      {
+        kind: "search-expression-add",
+        parentExpressionId: rootId,
+        anchor: { after: searchExpressionProjectionIdentity(firstChildId).expressionOccurrenceId },
+      },
     ]);
   });
 });

@@ -1,5 +1,5 @@
 import { canonicalJson } from "./canonical.js";
-import { isReplicaId } from "./fact.js";
+import { isReplicaId } from "./identities.js";
 import { frontierEquals, normalizeFrontier } from "./frontier.js";
 import type { AuthorityReceipt } from "./authority-types.js";
 import type { Fact, WorkspaceId } from "./types.js";

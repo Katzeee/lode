@@ -1,166 +1,108 @@
-import { isViewAction, type FactAction, type FactActionId, type ViewAction } from "../fact/index.js";
+import type { FactActionId } from "../fact/index.js";
 import { sequenceAnchorAt, type InterpretedProjection } from "../reconcile/index.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { noCompensation, ready, type CompensationCatalog } from "./compensation-types.js";
 
-export function compensateViewAction(
-  target: FactAction,
-  _activeFacts: readonly FactAction[],
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  const action = target.action;
-  if (!isViewAction(action)) {
-    return null;
-  }
-  if (action.kind === "shared-default-view-add") {
-    return { kind: "ready", actions: [{ kind: "shared-default-view-remove", hostNodeId: action.hostNodeId }] };
-  }
-  if (action.kind === "shared-default-view-remove") {
-    const views = counterfactual.sharedDefaultViewDefinitions[action.hostNodeId] ?? [];
-    return views.length === 0
-      ? noCompensation()
-      : { kind: "ready", actions: views.map((view) => ({ kind: "shared-default-view-restore", viewId: view.viewId })) };
-  }
-  const targetProjection =
-    action.kind === "view-sort-restore" || action.kind === "view-filter-restore" ? projection : counterfactual;
-  const viewId = targetViewId(action, targetProjection);
-  if (!viewId) {
-    return noCompensation();
-  }
-  if (action.kind === "shared-default-view-restore") {
-    const restored = findView(projection, viewId);
+export const VIEW_COMPENSATIONS = {
+  "shared-default-view-add": (_context, { action }) =>
+    ready([{ kind: "shared-default-view-remove", hostNodeId: action.hostNodeId }]),
+  "shared-default-view-remove": ({ counterfactual }, { action }) =>
+    ready(
+      (counterfactual.sharedDefaultViewDefinitions[action.hostNodeId] ?? []).map((view) => ({
+        kind: "shared-default-view-restore",
+        viewId: view.viewId,
+      })),
+    ),
+  "shared-default-view-restore": ({ projection }, { action }) => {
+    const restored = findView(projection, action.viewId);
     return restored
-      ? { kind: "ready", actions: [{ kind: "shared-default-view-remove", hostNodeId: restored.hostNodeId }] }
+      ? ready([{ kind: "shared-default-view-remove", hostNodeId: restored.hostNodeId }])
       : noCompensation();
-  }
-  const view = findView(counterfactual, viewId);
-  if (action.kind === "view-mode-set") {
-    return view
-      ? { kind: "ready", actions: [{ kind: action.kind, viewId, viewType: view.viewType }] }
-      : noCompensation();
-  }
-  return compensateViewOption(action, viewId, view);
-}
-
-type ViewOptionAction = Exclude<
-  ViewAction,
-  { kind: "shared-default-view-add" | "shared-default-view-remove" | "shared-default-view-restore" | "view-mode-set" }
->;
-
-function compensateViewOption(
-  action: ViewOptionAction,
-  viewId: FactActionId,
-  view: ReturnType<typeof findView>,
-): CompensationStep {
-  if (action.kind === "view-column-add") {
-    return {
-      kind: "ready",
-      actions: [{ kind: "view-column-remove", viewId, fieldDefinitionId: action.fieldDefinitionId }],
-    };
-  }
-  if (action.kind === "view-column-remove") {
+  },
+  "view-mode-set": ({ counterfactual }, { action }) => {
+    const view = findView(counterfactual, action.viewId);
+    return view ? ready([{ kind: "view-mode-set", viewId: action.viewId, viewType: view.viewType }]) : noCompensation();
+  },
+  "view-column-add": (_context, { action }) =>
+    ready([{ kind: "view-column-remove", viewId: action.viewId, fieldDefinitionId: action.fieldDefinitionId }]),
+  "view-column-remove": ({ counterfactual }, { action }) => {
+    const view = findView(counterfactual, action.viewId);
     const column = view?.options.columns.find((candidate) => candidate.fieldDefinitionId === action.fieldDefinitionId);
     if (!view || !column) {
       return noCompensation();
     }
     const ids = view.options.columns.map((candidate) => candidate.columnId);
-    return {
-      kind: "ready",
-      actions: [
-        {
-          kind: "view-column-add",
-          viewId,
-          fieldDefinitionId: action.fieldDefinitionId,
-          anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)),
-        },
-      ],
-    };
-  }
-  if (action.kind === "view-column-move") {
+    return ready([
+      {
+        kind: "view-column-add",
+        viewId: action.viewId,
+        fieldDefinitionId: action.fieldDefinitionId,
+        anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)),
+      },
+    ]);
+  },
+  "view-column-move": ({ counterfactual }, { action }) => {
+    const view = Object.values(counterfactual.sharedDefaultViewDefinitions)
+      .flat()
+      .find((candidate) => candidate.options.columns.some((column) => column.columnId === action.columnId));
     const column = view?.options.columns.find((candidate) => candidate.columnId === action.columnId);
     if (!view || !column) {
       return noCompensation();
     }
     const ids = view.options.columns.map((candidate) => candidate.columnId);
-    return {
-      kind: "ready",
-      actions: [
-        { kind: action.kind, columnId: action.columnId, anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)) },
-      ],
-    };
-  }
-  if (action.kind === "view-sort-add") {
-    return { kind: "ready", actions: [{ kind: "view-sort-remove", viewId }] };
-  }
-  if (action.kind === "view-sort-configure") {
-    const sort = view?.options.sort;
-    return !sort
-      ? noCompensation()
-      : {
-          kind: "ready",
-          actions: [
-            {
-              kind: action.kind,
-              sortId: action.sortId,
-              fieldDefinitionId: sort.fieldDefinitionId,
-              direction: sort.direction,
-            },
-          ],
-        };
-  }
-  if (action.kind === "view-sort-remove") {
-    return view?.options.sort
-      ? { kind: "ready", actions: [{ kind: "view-sort-restore", sortId: view.options.sort.sortId }] }
+    return ready([
+      {
+        kind: "view-column-move",
+        columnId: action.columnId,
+        anchor: sequenceAnchorAt(ids, ids.indexOf(column.columnId)),
+      },
+    ]);
+  },
+  "view-sort-add": (_context, { action }) => ready([{ kind: "view-sort-remove", viewId: action.viewId }]),
+  "view-sort-configure": ({ counterfactual }, { action }) => {
+    const sort = viewBySort(counterfactual, action.sortId)?.options.sort;
+    return sort
+      ? ready([
+          {
+            kind: "view-sort-configure",
+            sortId: action.sortId,
+            fieldDefinitionId: sort.fieldDefinitionId,
+            direction: sort.direction,
+          },
+        ])
       : noCompensation();
-  }
-  if (action.kind === "view-sort-restore") {
-    return { kind: "ready", actions: [{ kind: "view-sort-remove", viewId }] };
-  }
-  if (action.kind === "view-group-add") {
-    return { kind: "ready", actions: [{ kind: "view-group-remove", viewId }] };
-  }
-  if (action.kind === "view-group-remove") {
-    return view?.options.group
-      ? {
-          kind: "ready",
-          actions: [{ kind: "view-group-add", viewId, fieldDefinitionId: view.options.group.fieldDefinitionId }],
-        }
+  },
+  "view-sort-remove": ({ counterfactual }, { action }) => {
+    const sort = findView(counterfactual, action.viewId)?.options.sort;
+    return sort ? ready([{ kind: "view-sort-restore", sortId: sort.sortId }]) : noCompensation();
+  },
+  "view-sort-restore": ({ projection }, { action }) => {
+    const view = viewBySort(projection, action.sortId);
+    return view ? ready([{ kind: "view-sort-remove", viewId: view.viewId }]) : noCompensation();
+  },
+  "view-group-add": (_context, { action }) => ready([{ kind: "view-group-remove", viewId: action.viewId }]),
+  "view-group-remove": ({ counterfactual }, { action }) => {
+    const group = findView(counterfactual, action.viewId)?.options.group;
+    return group
+      ? ready([{ kind: "view-group-add", viewId: action.viewId, fieldDefinitionId: group.fieldDefinitionId }])
       : noCompensation();
-  }
-  if (action.kind === "view-filter-add") {
-    return { kind: "ready", actions: [{ kind: "view-filter-remove", viewId }] };
-  }
-  if (action.kind === "view-filter-remove") {
-    return view?.options.filter
-      ? { kind: "ready", actions: [{ kind: "view-filter-restore", filterId: view.options.filter.filterId }] }
-      : noCompensation();
-  }
-  return { kind: "ready", actions: [{ kind: "view-filter-remove", viewId }] };
-}
+  },
+  "view-filter-add": (_context, { action }) => ready([{ kind: "view-filter-remove", viewId: action.viewId }]),
+  "view-filter-remove": ({ counterfactual }, { action }) => {
+    const filter = findView(counterfactual, action.viewId)?.options.filter;
+    return filter ? ready([{ kind: "view-filter-restore", filterId: filter.filterId }]) : noCompensation();
+  },
+  "view-filter-restore": ({ projection }, { action }) => {
+    const view = Object.values(projection.sharedDefaultViewDefinitions)
+      .flat()
+      .find((candidate) => candidate.options.filter?.filterId === action.filterId);
+    return view ? ready([{ kind: "view-filter-remove", viewId: view.viewId }]) : noCompensation();
+  },
+} satisfies Partial<CompensationCatalog>;
 
-function targetViewId(action: ViewAction, projection: InterpretedProjection) {
-  if ("viewId" in action) {
-    return action.viewId;
-  }
-  if (action.kind === "view-column-move") {
-    return (
-      Object.values(projection.sharedDefaultViewDefinitions)
-        .flat()
-        .find((view) => view.options.columns.some((column) => column.columnId === action.columnId))?.viewId ?? null
-    );
-  }
-  if (action.kind === "view-sort-configure" || action.kind === "view-sort-restore") {
-    return (
-      Object.values(projection.sharedDefaultViewDefinitions)
-        .flat()
-        .find((view) => view.options.sort?.sortId === action.sortId)?.viewId ?? null
-    );
-  }
-  return action.kind === "view-filter-restore"
-    ? (Object.values(projection.sharedDefaultViewDefinitions)
-        .flat()
-        .find((view) => view.options.filter?.filterId === action.filterId)?.viewId ?? null)
-    : null;
+function viewBySort(projection: InterpretedProjection, sortId: FactActionId) {
+  return Object.values(projection.sharedDefaultViewDefinitions)
+    .flat()
+    .find((view) => view.options.sort?.sortId === sortId);
 }
 
 function findView(projection: InterpretedProjection, viewId: string) {

@@ -1,6 +1,5 @@
 import { compareCausalOrder, templateInstanceNodeId, type FactAction } from "../fact/index.js";
-import type { InterpretedProjectionGeneration } from "../reconcile/index.js";
-import { nodeLocation } from "../reconcile/node-graph.js";
+import { nodeLocation, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
 import type { HunkCandidate, ReviewEffectEntry, ReviewFamilyRule } from "./review-family.js";
 import { addDefinitionLifecycleImpacts } from "./supertag-definition-impact.js";

@@ -52,7 +52,7 @@ function addIdentitySupport(support: Set<string>, identity: SemanticIdentity, co
   }
 }
 
-export type IdentitySupportContext = Readonly<{
+type IdentitySupportContext = Readonly<{
   nodeExistenceSupport: Map<string, string[]>;
   occurrenceExistenceSupport: Map<string, string[]>;
   viable: Set<string>;

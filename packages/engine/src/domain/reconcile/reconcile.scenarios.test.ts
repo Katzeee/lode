@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { workspaceTrashNodeId, type FactActionId } from "../fact/index.js";
 import { queryReview } from "../review/index.js";
-import { metanodeNodeId, nodeLocation, rebuildGeneration } from "./index.js";
+import { nodeLocation, rebuildGeneration } from "./index.js";
+import { metanodeNodeId } from "./projection-identity.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { renderSemanticTree } from "../../../tests/support/reconcile/semantic-tree.js";
 import { proposalLifecycleCases } from "../../../tests/support/reconcile/proposal-lifecycle-test-helpers.js";

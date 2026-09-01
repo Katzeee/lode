@@ -24,10 +24,19 @@ export class WorkspaceStagingCollection {
       workspace: staging.workspace,
       replica: staging.replica,
       promote: async () => {
-        const finalStorage = await staging.promote();
-        this.stagings.delete(workspaceId);
-        const label = await this.activate(finalStorage);
-        return { workspaceId, label };
+        const promotion = await staging.promote();
+        try {
+          const label = await this.activate(promotion.storage);
+          this.stagings.delete(workspaceId);
+          return { workspaceId, label };
+        } catch (error) {
+          this.stagings.delete(workspaceId);
+          return failWorkspaceCleanup(
+            error,
+            promotion.rollback,
+            "Workspace promotion failed to roll back final storage",
+          );
+        }
       },
       discard: async () => {
         if (this.stagings.get(workspaceId) !== tracked) {
@@ -42,9 +51,25 @@ export class WorkspaceStagingCollection {
   }
 
   async stop(): Promise<void> {
+    const failures: Error[] = [];
     for (const [workspaceId, staging] of [...this.stagings.entries()].reverse()) {
-      await staging.discard();
-      this.stagings.delete(workspaceId);
+      try {
+        await staging.discard();
+      } catch (error) {
+        failures.push(toError(error));
+      } finally {
+        this.stagings.delete(workspaceId);
+      }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Workspace stagings failed to stop cleanly");
     }
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

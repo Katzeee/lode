@@ -1,13 +1,14 @@
-import { SyncExchange, type ReplicaPeer, type SyncProfileEntry } from "./sync-exchange.js";
+import { SyncExchange } from "./sync-exchange.js";
 import { defineEngineSubsystem, type EngineSubsystemReference } from "../definition.js";
 import type { ReplicaConnectionCapability } from "../connection/index.js";
 import type { IdentityCapability } from "../identity/index.js";
 import type { WorkspaceCapability, WorkspaceReplica } from "../workspace/index.js";
 import type { SynchronizationCapability } from "./capability.js";
 import { OutboundExchange, ReplicaExchangeGateway } from "./replica-exchange.js";
+import { createReplicaPeer } from "./replica-peer.js";
 
 type SynchronizationIdentity = Pick<IdentityCapability, "peer">;
-type SynchronizationWorkspace = Pick<WorkspaceCapability, "authority" | "replica">;
+type SynchronizationWorkspace = Pick<WorkspaceCapability, "replica" | "replicaExchange">;
 
 export function createSynchronizationSubsystemDefinition(
   connection: EngineSubsystemReference<ReplicaConnectionCapability>,
@@ -19,11 +20,15 @@ export function createSynchronizationSubsystemDefinition(
     dependencies: { connection, identity, workspace },
     create: ({ connection: connections, identity: identities, workspace: workspaces }, control) => {
       let unregister: (() => void) | undefined;
-      const gateway = new ReplicaExchangeGateway(identities.peer, (workspaceId) => ({
-        workspaceId,
-        facts: workspaces.authority(workspaceId),
-        peer: () => replicaPeer(workspaces.replica(workspaceId)),
-      }));
+      const gateway = new ReplicaExchangeGateway((workspaceId) => {
+        const access = workspaces.replicaExchange(workspaceId);
+        return {
+          workspaceId,
+          facts: access.facts,
+          openTransitKey: access.openTransitKey,
+          peer: () => createReplicaPeer(access.sync),
+        };
+      });
       const exchange = (workspaceId: string, replica: WorkspaceReplica, endpoint: string) => {
         if (control.stopRequested) {
           throw new Error("Synchronization subsystem is stopping");
@@ -49,31 +54,4 @@ export function createSynchronizationSubsystemDefinition(
       };
     },
   });
-}
-
-function replicaPeer(replica: WorkspaceReplica): ReplicaPeer {
-  return {
-    profile: () =>
-      Promise.all(
-        replica.sync.docs().map(async (document): Promise<SyncProfileEntry> => ({
-          documentId: document.id,
-          version: await document.version(),
-        })),
-      ),
-    fetch: async (documentId, from) =>
-      (await replica.sync
-        .docs()
-        .find((candidate) => candidate.id === documentId)
-        ?.exportUpdate(from)) ?? new Uint8Array(),
-    send: async (documentId, bytes) => {
-      try {
-        await replica.sync
-          .docs()
-          .find((candidate) => candidate.id === documentId)
-          ?.importUpdate(bytes);
-      } finally {
-        await replica.sync.heal();
-      }
-    },
-  };
 }

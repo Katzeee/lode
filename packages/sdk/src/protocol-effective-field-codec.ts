@@ -1,11 +1,19 @@
 import type {
+  EffectiveFieldSource as ProtocolEffectiveFieldSource,
+  EffectiveStaticDefault as ProtocolEffectiveStaticDefault,
+} from "@lode/protocol/proto";
+import type { TemplateFieldVisibility as ProtocolTemplateFieldVisibility } from "@lode/protocol/proto";
+
+import type {
   EffectiveField,
   EffectiveFieldSource,
   EffectiveOptionalFieldSource,
   EffectiveStaticDefault,
   OptionalFieldSuggestion,
 } from "./projection.js";
-import { required } from "./protocol-shape-codec.js";
+import { selectedCase, unsupportedProtocolCase, unsupportedProtocolValue } from "./protocol-decoding.js";
+import type { ProtocolDto } from "./protocol-dto.js";
+import { templateFieldVisibility } from "./protocol-enums/model.js";
 
 export function toEffectiveField(value: EffectiveField): Record<string, unknown> {
   return {
@@ -44,46 +52,84 @@ export function fromOptionalFieldSuggestion(value: unknown): OptionalFieldSugges
 
 function toEffectiveFieldSource(source: EffectiveFieldSource): Record<string, unknown> {
   const { kind, ...fields } = source;
-  return { source: { $case: kind, value: fields } };
+  switch (kind) {
+    case "template":
+      return { source: { case: "template", value: fields } };
+    case "optional":
+      return { source: { case: "optional", value: fields } };
+    default:
+      return unsupportedProtocolValue(kind, "Effective Field source kind");
+  }
 }
 
 function fromEffectiveFieldSource(value: unknown): EffectiveFieldSource {
-  const selected = required(
-    (value as { source?: { $case: "template" | "optional"; value: unknown } }).source ?? null,
-    "Effective Field source",
-  );
-  return { kind: selected.$case, ...(selected.value as Record<string, unknown>) } as EffectiveFieldSource;
+  const selected = selectedCase((value as ProtocolDto<ProtocolEffectiveFieldSource>).source, "Effective Field source");
+  switch (selected.case) {
+    case "template":
+      return {
+        kind: "template",
+        ...selected.value,
+        visibility: decodeTemplateFieldVisibility(selected.value.visibility),
+      };
+    case "optional":
+      return { kind: "optional", ...selected.value };
+    default:
+      return unsupportedProtocolCase(selected, "Effective Field source");
+  }
+}
+
+function decodeTemplateFieldVisibility(
+  value: unknown,
+): Extract<EffectiveFieldSource, { kind: "template" }>["visibility"] {
+  if (typeof value === "string") {
+    if (templateFieldVisibility.values.includes(value as "normal" | "pinned")) {
+      return value as "normal" | "pinned";
+    }
+    throw new Error(`Template Field visibility is invalid: ${value}`);
+  }
+  return templateFieldVisibility.decode(value as ProtocolTemplateFieldVisibility);
 }
 
 function toEffectiveStaticDefault(value: EffectiveStaticDefault): Record<string, unknown> {
   const { state, candidates } = value;
-  if (state === "value") {
-    return {
-      candidates,
-      state: {
-        $case: "value",
-        value: { value: value.value, sourceTemplateFieldNodeId: value.sourceTemplateFieldNodeId },
-      },
-    };
+  switch (state) {
+    case "none":
+      return { candidates, state: { case: "none", value: true } };
+    case "value":
+      return {
+        candidates,
+        state: {
+          case: "value",
+          value: { value: value.value, sourceTemplateFieldNodeId: value.sourceTemplateFieldNodeId },
+        },
+      };
+    case "conflict":
+      return { candidates, state: { case: "conflict", value: true } };
+    default:
+      return unsupportedProtocolValue(state, "Effective Static Default state");
   }
-  return { candidates, state: { $case: state, value: true } };
 }
 
 function fromEffectiveStaticDefault(value: unknown): EffectiveStaticDefault {
-  const item = value as Record<string, unknown>;
-  const candidates = item.candidates as EffectiveStaticDefault["candidates"];
-  const selected = required(
-    item.state as { $case: "none" | "value" | "conflict"; value: unknown } | null,
-    "Effective Static Default state",
-  );
-  if (selected.$case === "value") {
-    const resolved = selected.value as Readonly<{ value: string; sourceTemplateFieldNodeId: string }>;
-    return {
-      state: "value",
-      candidates,
-      value: resolved.value,
-      sourceTemplateFieldNodeId: resolved.sourceTemplateFieldNodeId,
-    };
+  const item = value as ProtocolDto<ProtocolEffectiveStaticDefault>;
+  const candidates = item.candidates;
+  const selected = selectedCase(item.state, "Effective Static Default state");
+  switch (selected.case) {
+    case "none":
+      if (candidates.length > 0) {
+        throw new Error("Effective Static Default none state has candidates");
+      }
+      return { state: "none", candidates: [] };
+    case "value":
+      return {
+        state: "value",
+        candidates,
+        value: selected.value.value,
+        sourceTemplateFieldNodeId: selected.value.sourceTemplateFieldNodeId,
+      };
+    case "conflict":
+      return { state: "conflict", candidates };
+    default:
+      return unsupportedProtocolCase(selected, "Effective Static Default state");
   }
-  return { state: selected.$case, candidates } as EffectiveStaticDefault;
 }

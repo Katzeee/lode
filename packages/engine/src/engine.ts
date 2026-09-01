@@ -3,8 +3,7 @@ import { WorkspaceNotFoundError, type EngineApi } from "@lode/sdk/host";
 
 import { projectGovernance } from "./domain/governance/index.js";
 import type { PersistenceBackend } from "./subsystems/persistence/backend.js";
-import { InMemoryPersistenceBackend } from "./subsystems/persistence/in-memory-persistence-backend.js";
-import type { PeerTransportPort, ReplicaExchangeHandler, ReplicaExchangeWire } from "./subsystems/connection/index.js";
+import type { PeerTransportPort } from "./subsystems/connection/index.js";
 import { createConnectionSubsystemDefinition } from "./subsystems/connection/connection-subsystem.js";
 import type { EventCapability } from "./subsystems/event/index.js";
 import { createEventSubsystemDefinition } from "./subsystems/event/event-subsystem.js";
@@ -19,8 +18,8 @@ import { createWorkspaceGovernanceApi } from "./subsystems/workspace/workspace-g
 import { createWorkspaceSubsystemDefinition } from "./subsystems/workspace/workspace-subsystem.js";
 
 export type EngineOptions = Readonly<{
-  persistence?: PersistenceBackend;
-  peerTransport?: PeerTransportPort;
+  persistence: PersistenceBackend;
+  peerTransport: PeerTransportPort;
 }>;
 
 export type Engine = Readonly<{
@@ -29,12 +28,12 @@ export type Engine = Readonly<{
   stop(): Promise<void>;
 }>;
 
-export function createEngine(options: EngineOptions = {}): Engine {
-  const persistence = createPersistenceSubsystemDefinition(options.persistence ?? new InMemoryPersistenceBackend());
+export function createEngine(options: EngineOptions): Engine {
+  const persistence = createPersistenceSubsystemDefinition(options.persistence);
   const event = createEventSubsystemDefinition();
   const identity = createIdentitySubsystemDefinition(persistence);
   const workspace = createWorkspaceSubsystemDefinition(persistence, event, identity);
-  const connection = createConnectionSubsystemDefinition(options.peerTransport ?? new DisconnectedPeerTransport());
+  const connection = createConnectionSubsystemDefinition(options.peerTransport);
   const synchronization = createSynchronizationSubsystemDefinition(connection, identity, workspace);
   const built = buildEngineSubsystems(
     [persistence, event, identity, workspace, connection, synchronization] as const,
@@ -122,22 +121,17 @@ async function adoptWorkspace(
       await staging.discard();
     } catch (discardError) {
       const primary = toError(error);
-      throw new AggregateError([primary, toError(discardError)], "Workspace adoption failed to clean up staging", {
-        cause: discardError,
-      });
+      const failure = new AggregateError(
+        [primary, toError(discardError)],
+        "Workspace adoption failed to clean up staging",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
     }
     throw error;
   }
-}
-
-class DisconnectedPeerTransport implements PeerTransportPort {
-  start(_handler: ReplicaExchangeHandler): void {}
-
-  dial(_endpoint: string): ReplicaExchangeWire {
-    throw new Error("This Engine Host has no Peer Transport");
-  }
-
-  close(): void {}
 }
 
 function wrappedApplication(

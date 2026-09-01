@@ -7,15 +7,21 @@ import {
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
   type GraphAction,
-  type NodeSeed,
 } from "../../../domain/fact/index.js";
 import {
-  nodeLocation,
   textAtoms,
   type FieldDefinitionConfiguration,
   type MaterializedField,
   type InterpretedProjection,
 } from "../../../domain/reconcile/index.js";
+import { EditPlanningRejection } from "./planning-rejection.js";
+import {
+  materializedFieldFor,
+  requireActiveNode,
+  requireUnusedNode,
+  requireUnusedOccurrence,
+  textSeed,
+} from "./projection-guards.js";
 
 type TypedFieldValueEdit = Extract<
   EditAction,
@@ -33,7 +39,7 @@ export function prepareTypedFieldValue(
   edit: TypedFieldValueEdit,
   available: InterpretedProjection,
 ): AuthoredActionBatch {
-  requireActive(edit.ownerNodeId, available, "Field owner");
+  requireActiveNode(edit.ownerNodeId, available, "Field owner");
   const datatype = configuredDatatype(edit.fieldDefinitionId, available);
   if (edit.kind === "field-number-value-set") {
     requireDatatype(datatype, FIELD_DATATYPE_NODE_IDS.number, "Number");
@@ -53,7 +59,7 @@ export function prepareTypedFieldValue(
       datatype.optionsSupertagId === null ||
       !matchesSupertag(edit.targetNodeId, datatype.optionsSupertagId, available)
     ) {
-      throw new Error("Options target does not match the configured Supertag");
+      throw new EditPlanningRejection("Options target does not match the configured Supertag");
     }
     return setReferenceValue(edit, edit.targetNodeId, available);
   }
@@ -84,14 +90,14 @@ function setOwnedTextValue(
   }
   const current = singleValue(field, available);
   if (current.occurrenceId !== edit.valueOccurrenceId || current.nodeId !== edit.valueNodeId) {
-    throw new Error("Typed Field Value identity does not match the materialized value");
+    throw new EditPlanningRejection("Typed Field Value identity does not match the materialized value");
   }
   if (available.nodeOwners[current.nodeId] !== field.fieldNodeId) {
-    throw new Error("Number and Date values must be owned by their Field");
+    throw new EditPlanningRejection("Number and Date values must be owned by their Field");
   }
   const node = available.nodes[current.nodeId];
   if (node === undefined || node.content.some((item) => item.kind !== "text")) {
-    throw new Error("Number and Date values must contain text only");
+    throw new EditPlanningRejection("Number and Date values must contain text only");
   }
   return authoredActionBatch([
     {
@@ -110,7 +116,7 @@ function setReferenceValue(
   targetNodeId: string,
   available: InterpretedProjection,
 ): AuthoredActionBatch {
-  requireActive(targetNodeId, available, "Typed Field target");
+  requireActiveNode(targetNodeId, available, "Typed Field target");
   const field = fieldFor(edit, available);
   const fieldNodeId = materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId);
   if (field === undefined) {
@@ -120,7 +126,7 @@ function setReferenceValue(
   }
   const current = singleValue(field, available);
   if (current.nodeId === targetNodeId) {
-    throw new Error("Typed Field already has the requested value");
+    throw new EditPlanningRejection("Typed Field already has the requested value");
   }
   requireUnusedOccurrence(edit.valueOccurrenceId, available, "Field Value");
   return authoredActionBatch([
@@ -141,15 +147,15 @@ function clearTypedFieldValue(
     datatype.datatypeNodeId !== FIELD_DATATYPE_NODE_IDS.checkbox &&
     datatype.datatypeNodeId !== FIELD_DATATYPE_NODE_IDS.optionsFromSupertag
   ) {
-    throw new Error("Field Datatype does not support typed clear");
+    throw new EditPlanningRejection("Field Datatype does not support typed clear");
   }
   const field = fieldFor(edit, available);
   if (field === undefined) {
-    throw new Error("Typed Field is already unset");
+    throw new EditPlanningRejection("Typed Field is already unset");
   }
   if (datatype.datatypeNodeId === FIELD_DATATYPE_NODE_IDS.checkbox) {
     if (edit.emptyValueNodeId !== undefined || edit.emptyValueOccurrenceId !== undefined) {
-      throw new Error("Checkbox clear removes the Field and does not accept placeholder identities");
+      throw new EditPlanningRejection("Checkbox clear removes the Field and does not accept placeholder identities");
     }
     return authoredActionBatch([
       {
@@ -160,7 +166,7 @@ function clearTypedFieldValue(
     ]);
   }
   if (edit.emptyValueNodeId === undefined || edit.emptyValueOccurrenceId === undefined) {
-    throw new Error("Typed Field clear requires fresh empty value identities");
+    throw new EditPlanningRejection("Typed Field clear requires fresh empty value identities");
   }
   requireUnusedNode(edit.emptyValueNodeId, available, "Empty Field Value");
   requireUnusedOccurrence(edit.emptyValueOccurrenceId, available, "Empty Field Value");
@@ -170,7 +176,7 @@ function clearTypedFieldValue(
     available.nodeOwners[current.nodeId] === field.fieldNodeId &&
     textAtoms(available.nodes[current.nodeId]).length === 0
   ) {
-    throw new Error("Typed Field is already empty");
+    throw new EditPlanningRejection("Typed Field is already empty");
   }
   const actions: GraphAction[] = [
     ...(current === null ? [] : [valueDeletion(current.occurrenceId)]),
@@ -194,11 +200,11 @@ function configuredDatatype(
       configuration.kind === "datatype",
   );
   if (values.length !== 1) {
-    throw new Error("Field Definition must have one unconflicted Datatype configuration");
+    throw new EditPlanningRejection("Field Definition must have one unconflicted Datatype configuration");
   }
   const value = values[0];
   if (value === undefined) {
-    throw new Error("Field Definition has no Datatype configuration");
+    throw new EditPlanningRejection("Field Definition has no Datatype configuration");
   }
   return value;
 }
@@ -209,7 +215,7 @@ function requireDatatype(
   label: string,
 ): void {
   if (actual.datatypeNodeId !== expected) {
-    throw new Error(`Field Definition is not configured as ${label}`);
+    throw new EditPlanningRejection(`Field Definition is not configured as ${label}`);
   }
 }
 
@@ -222,9 +228,7 @@ function matchesSupertag(targetNodeId: string, sourceSupertagId: string, availab
 }
 
 function fieldFor(edit: TypedFieldValueEdit, available: InterpretedProjection): MaterializedField | undefined {
-  return available.materializedFields[edit.ownerNodeId]?.find(
-    (field) => field.fieldDefinitionId === edit.fieldDefinitionId,
-  );
+  return materializedFieldFor(available, edit.ownerNodeId, edit.fieldDefinitionId);
 }
 
 function singleValue(
@@ -232,15 +236,15 @@ function singleValue(
   available: InterpretedProjection,
 ): Readonly<{ occurrenceId: string; nodeId: string }> {
   if (field.valueOccurrenceIds.length !== 1) {
-    throw new Error("Typed single-value Field must contain exactly one value endpoint");
+    throw new EditPlanningRejection("Typed single-value Field must contain exactly one value endpoint");
   }
   const occurrenceId = field.valueOccurrenceIds[0];
   if (occurrenceId === undefined) {
-    throw new Error("Typed Field Value identity is absent");
+    throw new EditPlanningRejection("Typed Field Value identity is absent");
   }
   const occurrence = available.occurrences[occurrenceId];
   if (occurrence === undefined || occurrence.parentNodeId !== field.fieldNodeId) {
-    throw new Error("Typed Field Value is absent from the current Projection");
+    throw new EditPlanningRejection("Typed Field Value is absent from the current Projection");
   }
   return { occurrenceId, nodeId: occurrence.nodeId };
 }
@@ -248,24 +252,6 @@ function singleValue(
 function requireUnusedFieldIdentity(edit: TypedFieldValueEdit, available: InterpretedProjection): void {
   requireUnusedNode(materializedFieldNodeId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
   requireUnusedOccurrence(materializedFieldOccurrenceId(edit.ownerNodeId, edit.fieldDefinitionId), available, "Field");
-}
-
-function requireActive(nodeId: string, available: InterpretedProjection, label: string): void {
-  if (nodeLocation(available.identity.workspaceNodeId, available, nodeId) !== "active") {
-    throw new Error(`${label} is not an active Node`);
-  }
-}
-
-function requireUnusedNode(nodeId: string, available: InterpretedProjection, label: string): void {
-  if (available.nodes[nodeId] !== undefined) {
-    throw new Error(`${label} identity already exists`);
-  }
-}
-
-function requireUnusedOccurrence(occurrenceId: string, available: InterpretedProjection, label: string): void {
-  if (available.occurrences[occurrenceId] !== undefined) {
-    throw new Error(`${label} Occurrence identity already exists`);
-  }
 }
 
 function materialization(edit: TypedFieldValueEdit): GraphAction {
@@ -285,10 +271,6 @@ function valueDeletion(valueOccurrenceId: string): GraphAction {
 
 function occurrence(occurrenceId: string, nodeId: string, parentNodeId: string): GraphAction {
   return { kind: "placement-create", placementId: occurrenceId, nodeId, parentNodeId, anchor: end };
-}
-
-function textSeed(value: string): NodeSeed {
-  return { text: [{ value, attributes: {} }] };
 }
 
 function canonicalNumber(value: number): string {

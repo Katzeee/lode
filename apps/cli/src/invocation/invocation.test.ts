@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { decodeInvocation } from "./index.js";
 import { CliError } from "../outcome/index.js";
-import { buildCatalog } from "../composition.js";
+import { createProductCatalog } from "../product-catalog.js";
 
-const catalog = buildCatalog();
+const catalog = createProductCatalog();
 const files = {
   readFile: async (path: string) => await Promise.resolve(`content of ${path}`),
   readStdin: async () => await Promise.resolve("stdin content"),

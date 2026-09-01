@@ -56,7 +56,7 @@ export function nodeDeletionActionIds(active: readonly FactAction[]): ReadonlyMa
         (restore) =>
           restore.action.kind === "node-restore" &&
           restore.action.nodeId === action.nodeId &&
-          actionObserves(restore, fact),
+          factObserves(restore, fact),
       )
     ) {
       const ids = result.get(action.nodeId) ?? [];
@@ -65,8 +65,4 @@ export function nodeDeletionActionIds(active: readonly FactAction[]): ReadonlyMa
     }
   }
   return result;
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

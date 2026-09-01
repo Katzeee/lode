@@ -1,16 +1,16 @@
 import {
   END_SEQUENCE_ANCHOR,
   START_SEQUENCE_ANCHOR,
-  type BacklinksResult,
   type EditAction,
   type ProjectedNode,
   type SequenceAnchor,
 } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { anchorFor, descriptor, labelOf, readNodeUniverse, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, identity, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, stringOption, writeCommand } from "../command/index.js";
+import { anchorFor, labelOf, readNodeUniverse, resolveTarget, resource } from "../target/index.js";
+import { identity, runWrite, workspaceIdOf } from "../intent/index.js";
 import { registerReferenceInlineCommands } from "./reference-inline.js";
 
 /**
@@ -28,34 +28,20 @@ export function registerReferenceCommands(catalog: CommandCatalog): void {
   catalog.register(referenceBacklinks);
 }
 
-const UNDER = { name: "--under", description: "Parent node target", value: { kind: "string" as const } };
-const ON = { name: "--on", description: "Host node for the inline reference", value: { kind: "string" as const } };
-const BEFORE = { name: "--before", description: "Place before this occurrence", value: { kind: "string" as const } };
-const AFTER = { name: "--after", description: "Place after this occurrence", value: { kind: "string" as const } };
+const UNDER = stringOption("--under", "Parent node target");
+const ON = stringOption("--on", "Host node for the inline reference");
+const BEFORE = stringOption("--before", "Place before this occurrence");
+const AFTER = stringOption("--after", "Place after this occurrence");
 
-const referenceAdd: CommandDefinition = {
+const referenceAdd = writeCommand({
   path: ["reference", "add"],
   summary: "Place an existing node as a block reference under a parent.",
   positionals: [["node", "Referenced node target"]],
   options: [{ ...UNDER, required: true }, { ...BEFORE, conflicts: ["--after"] }, { ...AFTER }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("reference.add", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "supertag",
-      "field",
-      "search",
-    ]);
-    const parent = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--under"),
-      ["node"],
-    );
+    const target = await resolveTarget(context, args.positional("node"), ["node", "supertag", "field", "search"]);
+    const parent = await resolveTarget(context, args.requiredOption("--under"), ["node"]);
     const anchor = await anchorFor(
       context.session,
       workspaceId,
@@ -74,50 +60,35 @@ const referenceAdd: CommandDefinition = {
         anchor,
       },
     ];
-    const { result, data } = await executeWrite(context, "reference.add", actions);
-    const occurrence = descriptor(workspaceId, "occurrence", occurrenceId, target.label);
-    return writeResult(data, result, {
+    const occurrence = resource(context, "occurrence", occurrenceId, target.label);
+    return {
+      actions,
       extra: {
         target: target.descriptor,
         to: parent.descriptor,
         occurrence,
       },
       view: writeView("Referenced", target.descriptor, `under ${parent.label} (${occurrence.ref})`),
-    });
-  },
-};
+    };
+  }),
+});
 
-const referenceAddInline: CommandDefinition = {
+const referenceAddInline = writeCommand({
   path: ["reference", "add-inline"],
   summary: "Insert an inline reference into a host node's content.",
   positionals: [["node", "Referenced node target"]],
   options: [
     { ...ON, required: true },
-    {
-      name: "--at",
-      description: "Display position: start, end, or a zero-based offset over grapheme clusters and inline references",
-      value: { kind: "string" as const },
-    },
-    { name: "--alias", description: "Host-owned alias text", value: { kind: "string" as const } },
+    stringOption(
+      "--at",
+      "Display position: start, end, or a zero-based offset over grapheme clusters and inline references",
+    ),
+    stringOption("--alias", "Host-owned alias text"),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("reference.add-inline", async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "supertag",
-      "field",
-      "search",
-    ]);
-    const host = await resolveNodeTarget(
-      context.session,
-      workspaceId,
-      context.perspective,
-      args.requiredOption("--on"),
-      ["node"],
-    );
+    const target = await resolveTarget(context, args.positional("node"), ["node", "supertag", "field", "search"]);
+    const host = await resolveTarget(context, args.requiredOption("--on"), ["node"]);
     const { nodes } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     const hostNode = nodes[host.nodeId];
     if (hostNode === undefined) {
@@ -143,50 +114,37 @@ const referenceAddInline: CommandDefinition = {
         seed: { text: [{ value: alias, attributes: {} }] },
       });
     }
-    const { result, data } = await executeWrite(context, "reference.add-inline", actions);
-    const reference = descriptor(workspaceId, "reference", inlineReferenceId, target.label);
-    return writeResult(data, result, {
+    const reference = resource(context, "reference", inlineReferenceId, target.label);
+    return {
+      actions,
       extra: { target: target.descriptor, on: host.descriptor, reference },
       view: writeView("Referenced inline", target.descriptor, `in ${host.label} (${reference.ref})`),
-    });
-  },
-};
+    };
+  }),
+});
 
-const referenceOriginal: CommandDefinition = {
+const referenceOriginal = readCommand({
   path: ["reference", "original"],
   summary: "Show where a node's Original placement lives.",
   positionals: [["node", "Node target"]],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "supertag",
-      "field",
-      "search",
-    ]);
+    const target = await resolveTarget(context, args.positional("node"), ["node", "supertag", "field", "search"]);
     const { nodes, owners } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     const owner = owners[target.nodeId] ?? null;
-    const occurrences = (await context.session.readProjection(
-      workspaceId,
-      context.perspective,
-      "occurrences",
-    )) as Record<string, { occurrenceId: string; nodeId: string; parentNodeId: string }>;
+    const occurrences = await context.session.readProjection(workspaceId, context.perspective, "occurrences");
     const original = Object.values(occurrences).find(
       (occurrence) => occurrence.nodeId === target.nodeId && occurrence.parentNodeId === owner,
     );
     if (owner === null || original === undefined) {
       throw new CliError("unsupported", `Node ${target.descriptor.ref} has no Original placement in this projection.`);
     }
-    const parentResource = descriptor(workspaceId, "node", owner, labelOf(nodes, owner));
+    const parentResource = resource(context, "node", owner, labelOf(nodes, owner));
     return okOutcome(
       {
         target: target.descriptor,
         owner: parentResource,
-        occurrence: descriptor(workspaceId, "occurrence", original.occurrenceId, target.label),
+        occurrence: resource(context, "occurrence", original.occurrenceId, target.label),
       },
       {
         view: {
@@ -200,24 +158,16 @@ const referenceOriginal: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const referenceBacklinks: CommandDefinition = {
+const referenceBacklinks = readCommand({
   path: ["reference", "backlinks"],
   summary: "List block and inline references pointing at a node.",
   positionals: [["node", "Referenced node target"]],
-  options: [],
-  kind: "read",
   paginated: true,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "supertag",
-      "field",
-      "search",
-    ]);
+    const target = await resolveTarget(context, args.positional("node"), ["node", "supertag", "field", "search"]);
     const result = await context.session.application.query({
       kind: "backlinks",
       workspaceId,
@@ -229,7 +179,7 @@ const referenceBacklinks: CommandDefinition = {
     if (result.status !== "ok") {
       throw new CliError("unavailable", `Backlinks are unavailable: ${result.error.message}`);
     }
-    const backlinks = result.value as unknown as BacklinksResult;
+    const backlinks = result.value;
     const { nodes } = await readNodeUniverse(context.session, workspaceId, context.perspective);
     return okOutcome(
       {
@@ -258,7 +208,7 @@ const referenceBacklinks: CommandDefinition = {
       },
     );
   },
-};
+});
 
 /**
  * `--at` positions count Unicode grapheme clusters in text atoms and each

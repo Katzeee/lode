@@ -1,9 +1,9 @@
 import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { ViewOptionsSpec, ViewType } from "@lode/sdk";
 
 import { CliError, okOutcome } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { descriptor, resolveNodeTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, stringOption, writeCommand } from "../command/index.js";
+import { resolveTarget, resource } from "../target/index.js";
 import { workspaceIdOf } from "../intent/index.js";
 import { registerViewPresentationCommands } from "./view-presentation.js";
 import { registerViewOptionCommands } from "./view-options.js";
@@ -23,25 +23,18 @@ export function registerViewCommands(catalog: CommandCatalog): void {
   catalog.register(viewColumnMove);
 }
 
-const viewShow: CommandDefinition = {
+const viewShow = readCommand({
   path: ["view", "show"],
   summary: "Show the host's shared default View: type and options.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const workspaceId = workspaceIdOf(context);
-    const host = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("node"), [
-      "node",
-      "search",
-    ]);
-    const definitions = (await context.session.readProjection(
+    const host = await resolveTarget(context, args.positional("node"), ["node", "search"]);
+    const definitions = await context.session.readProjection(
       workspaceId,
       context.perspective,
       "sharedDefaultViewDefinitions",
-    )) as Record<string, readonly { viewType: ViewType; viewDefinitionNodeId: string; options: ViewOptionsSpec }[]>;
+    );
     const current = (definitions[host.nodeId] ?? []).at(0);
     if (current === undefined) {
       return okOutcome(
@@ -51,7 +44,7 @@ const viewShow: CommandDefinition = {
     }
     return okOutcome(
       {
-        resource: descriptor(workspaceId, "view", current.viewDefinitionNodeId, `${host.label} view`),
+        resource: resource(context, "view", current.viewDefinitionNodeId, `${host.label} view`),
         on: host.descriptor,
         viewType: current.viewType,
         options: current.options,
@@ -70,21 +63,15 @@ const viewShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const viewColumnAdd: CommandDefinition = {
+const viewColumnAdd = writeCommand({
   path: ["view", "column", "add"],
   summary: "Append a field column to the host's View.",
   positionals: [["field", "Field Definition target"]],
-  options: [{ name: "--on", description: "View host target", value: { kind: "string" as const }, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--on", "View host target", { required: true })],
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     return writeViewActions(context, args.requiredOption("--on"), "view.column.add", (current) => {
       if (current.options.columns.some((column) => column.fieldDefinitionId === field.nodeId)) {
         throw new CliError("invalid-value", `Column for ${field.descriptor.ref} already exists.`);
@@ -100,21 +87,15 @@ const viewColumnAdd: CommandDefinition = {
       ];
     });
   },
-};
+});
 
-const viewColumnRemove: CommandDefinition = {
+const viewColumnRemove = writeCommand({
   path: ["view", "column", "remove"],
   summary: "Remove a field column from the host's View.",
   positionals: [["field", "Field Definition target"]],
-  options: [{ name: "--on", description: "View host target", value: { kind: "string" as const }, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--on", "View host target", { required: true })],
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     return writeViewActions(context, args.requiredOption("--on"), "view.column.remove", (current) => [
       {
         kind: "view-column-remove",
@@ -124,40 +105,24 @@ const viewColumnRemove: CommandDefinition = {
       },
     ]);
   },
-};
+});
 
-const viewColumnMove: CommandDefinition = {
+const viewColumnMove = writeCommand({
   path: ["view", "column", "move"],
   summary: "Reorder a field column before or after another.",
   positionals: [["field", "Field Definition target"]],
   options: [
-    { name: "--on", description: "View host target", value: { kind: "string" as const }, required: true },
-    {
-      name: "--before",
-      description: "Move before this field column",
-      value: { kind: "string" as const },
-      conflicts: ["--after"],
-    },
-    {
-      name: "--after",
-      description: "Move after this field column",
-      value: { kind: "string" as const },
-      conflicts: ["--before"],
-    },
+    stringOption("--on", "View host target", { required: true }),
+    stringOption("--before", "Move before this field column", { conflicts: ["--after"] }),
+    stringOption("--after", "Move after this field column", { conflicts: ["--before"] }),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     const anchorToken = args.option("--before") ?? args.option("--after");
     if (anchorToken === undefined) {
       throw new CliError("usage", "view column move needs --before or --after.");
     }
-    const anchor = await resolveNodeTarget(context.session, workspaceId, context.perspective, anchorToken, ["field"]);
+    const anchor = await resolveTarget(context, anchorToken, ["field"]);
     return writeViewActions(context, args.requiredOption("--on"), "view.column.move", (current) => {
       const moved = current.options.columns.find((column) => column.fieldDefinitionId === field.nodeId);
       const target = current.options.columns.find((column) => column.fieldDefinitionId === anchor.nodeId);
@@ -178,4 +143,4 @@ const viewColumnMove: CommandDefinition = {
       ];
     });
   },
-};
+});

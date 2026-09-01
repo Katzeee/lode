@@ -37,4 +37,26 @@ describe("SqlDatabase (better-sqlite3 adapter)", () => {
     expect(rolledBack).toBeUndefined();
     await db.close();
   });
+
+  it("preserves the transaction failure when rollback also fails", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "be-sqlite-"));
+    const db = await openSqliteDatabase(join(tempDir, "test.sqlite"));
+    const primary = new Error("primary transaction failure");
+
+    let failure: unknown;
+    try {
+      await db.transaction(async () => {
+        await db.exec("ROLLBACK");
+        throw primary;
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    const errors = (failure as AggregateError).errors;
+    expect(errors[0]).toBe(primary);
+    expect(errors[1]).toBeInstanceOf(Error);
+    await db.close();
+  });
 });

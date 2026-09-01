@@ -1,4 +1,4 @@
-import type { FactId, HistoryChannelId, HistoryOperation } from "./types.js";
+import type { FactId, HistoryChannelId, HistoryOperation } from "./fact-value-types.js";
 
 export type ReceiptLineage = Readonly<{
   channelId: HistoryChannelId;

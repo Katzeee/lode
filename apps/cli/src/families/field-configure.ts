@@ -7,48 +7,34 @@ import {
 } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { resolveNodeTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, stringOption, writeCommand } from "../command/index.js";
+import { resolveTarget } from "../target/index.js";
 import {
   cardinalityConfiguration,
   datatypeConfiguration,
-  executeWrite,
   optionalityConfiguration,
   requiredEndpoint,
-  writeResult,
-  workspaceIdOf,
+  runWrite,
 } from "../intent/index.js";
 import { BOOLEAN_VALUES } from "../value/field-values.js";
 
-const fieldConfigure: CommandDefinition = {
+const fieldConfigure = writeCommand({
   path: ["field", "configure"],
   summary: "Reconfigure a Field Definition's datatype, cardinality, or required state.",
   positionals: [["field", "Field Definition target"]],
   options: [
-    { name: "--type", description: "New datatype", value: { kind: "enum" as const, enum: FIELD_DATATYPES } },
-    {
-      name: "--cardinality",
-      description: "single or list",
-      value: { kind: "enum" as const, enum: FIELD_CARDINALITIES },
-    },
-    { name: "--required", description: "Required toggle", value: { kind: "enum" as const, enum: BOOLEAN_VALUES } },
-    { name: "--options-from", description: "Supertag providing options", value: { kind: "string" as const } },
+    enumOption("--type", FIELD_DATATYPES, "New datatype"),
+    enumOption("--cardinality", FIELD_CARDINALITIES, "single or list"),
+    enumOption("--required", BOOLEAN_VALUES, "Required toggle"),
+    stringOption("--options-from", "Supertag providing options"),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+  run: runWrite("field.configure", async (context, args) => {
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     const datatype = args.option("--type") as FieldDatatype | undefined;
     const optionsFrom = args.option("--options-from");
     const optionsSupertagId =
-      optionsFrom === undefined
-        ? undefined
-        : (await resolveNodeTarget(context.session, workspaceId, context.perspective, optionsFrom, ["supertag"]))
-            .nodeId;
+      optionsFrom === undefined ? undefined : (await resolveTarget(context, optionsFrom, ["supertag"])).nodeId;
     if (optionsFrom !== undefined && datatype !== "options-from-supertag") {
       throw new CliError("usage", "--options-from is only valid with --type options-from-supertag.");
     }
@@ -72,13 +58,13 @@ const fieldConfigure: CommandDefinition = {
       const endpoint = requiredEndpoint(args.option("--required") === "true");
       actions.push(optionalityConfiguration(field.nodeId, endpoint));
     }
-    const { result, data } = await executeWrite(context, "field.configure", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: { target: field.descriptor },
       view: writeView("Configured", field.descriptor),
-    });
-  },
-};
+    };
+  }),
+});
 
 export function registerFieldConfigureCommands(catalog: CommandCatalog): void {
   catalog.register(fieldConfigure);

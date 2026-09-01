@@ -1,7 +1,7 @@
 import { resolutionAdjudicationProblem } from "../../../domain/conflict/index.js";
 import { validateReviewSelection } from "../../../domain/review/index.js";
 import type { AcceptedAdjudicationCommand, AcceptedReviewCommand } from "../application/input-validation.js";
-import { rejectedResult } from "../workspace-results.js";
+import { rejectedResult } from "../application/result-mapping.js";
 import type { BoundWorkspaceCommand, WorkspaceCommandPlanningContext } from "./command-rule.js";
 
 export function bindReviewCommand(command: AcceptedReviewCommand | AcceptedAdjudicationCommand): BoundWorkspaceCommand {

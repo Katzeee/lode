@@ -1,4 +1,4 @@
-import type { SequenceAnchor } from "./types.js";
+import type { SequenceAnchor } from "./fact-value-types.js";
 
 export type ActionRelations = Readonly<{
   nodeIds: readonly string[];

@@ -5,7 +5,7 @@ import {
   type FieldDefinitionConfigurationValue,
   type ProjectionIdentity,
 } from "../fact/index.js";
-import type { ProjectionVersions } from "./projection-types.js";
+import type { ProjectionVersions } from "./projection-versions.js";
 
 export function projectionIdentity(
   workspaceId: string,

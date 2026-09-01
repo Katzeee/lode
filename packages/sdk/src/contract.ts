@@ -29,24 +29,22 @@ import type {
   OutlineQueryRequest as ProtocolOutlineQueryRequest,
   OutlineResult as ProtocolOutlineResult,
   OutlineRow as ProtocolOutlineRow,
-  DebugNodeQueryRequest as ProtocolDebugNodeQueryRequest,
-  DebugNodeResult as ProtocolDebugNodeResult,
   TrashEvidenceQueryRequest as ProtocolTrashEvidenceQueryRequest,
   TrashEvidence as ProtocolTrashEvidence,
-} from "@lode/protocol/dto/engine";
+} from "@lode/protocol/proto";
 import type { EditAction } from "./edit.js";
 import type { HistoryQuery, HistorySelection } from "./history.js";
 import type { FactId } from "./fact-identities.js";
 import type {
   AuthorityReceipt,
-  ProtocolDto,
   ResolutionDecision,
   ProjectionPerspective,
   ViewOptionsSpec,
   ViewType,
   SequenceAnchor,
 } from "./model.js";
-import type { MaterializedField, ProjectedNode, ProjectionPage, ProjectionPageSection } from "./projection.js";
+import type { ProtocolDto, WithKind } from "./protocol-dto.js";
+import type { ProjectionPage, ProjectionPageSection } from "./projection.js";
 import type { ConflictQuery, ReviewQuery, ReviewSelection } from "./review.js";
 import type {
   BacklinkSourceKind,
@@ -57,7 +55,9 @@ import type {
 } from "./protocol-enums/engine.js";
 import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
 
-type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
+/** Cursor window on paged query requests; omitted or null when the caller wants the default page. */
+type PageWindow = Readonly<{ after?: string | null; limit?: number | null }>;
+type WithPageWindow<Value> = Omit<Value, "after" | "limit"> & PageWindow;
 
 export type EditCommand = Omit<WithKind<ProtocolEditCommand, "edit">, "intent" | "actions"> &
   Readonly<{ intent: EditIntent; actions: readonly EditAction[] }>;
@@ -94,18 +94,21 @@ type OutcomeUnknownResult = Omit<ProtocolDto<ProtocolOutcomeUnknownResult>, "sta
   Readonly<{ status: "outcome-unknown" }>;
 export type WriteResult = PublishedResult | CommittedProjectionPendingResult | RejectedResult | OutcomeUnknownResult;
 
-export type ProjectionQuery = Omit<WithKind<ProtocolProjectionQuery, "projection">, "perspective" | "section"> &
+export type ProjectionQuery = WithPageWindow<
+  Omit<WithKind<ProtocolProjectionQuery, "projection">, "perspective" | "section">
+> &
   Readonly<{ perspective: ProjectionPerspective; section?: ProjectionPageSection }>;
-export type ReviewQueryRequest = WithKind<ProtocolReviewQueryRequest, "review">;
+export type ReviewQueryRequest = WithPageWindow<WithKind<ProtocolReviewQueryRequest, "review">>;
 export type HistoryQueryRequest = WithKind<ProtocolHistoryQueryRequest, "history">;
 export type InvocationQuery = WithKind<ProtocolInvocationQuery, "invocation">;
-export type ConflictQueryRequest = WithKind<ProtocolConflictQueryRequest, "conflicts">;
-export type SupertagInstancesQueryRequest = Omit<
-  WithKind<ProtocolSupertagInstancesQueryRequest, "supertag-instances">,
-  "perspective"
+export type ConflictQueryRequest = WithPageWindow<WithKind<ProtocolConflictQueryRequest, "conflicts">>;
+export type SupertagInstancesQueryRequest = WithPageWindow<
+  Omit<WithKind<ProtocolSupertagInstancesQueryRequest, "supertag-instances">, "perspective">
 > &
   Readonly<{ perspective: ProjectionPerspective }>;
-export type BacklinksQueryRequest = Omit<WithKind<ProtocolBacklinksQueryRequest, "backlinks">, "perspective"> &
+export type BacklinksQueryRequest = WithPageWindow<
+  Omit<WithKind<ProtocolBacklinksQueryRequest, "backlinks">, "perspective">
+> &
   Readonly<{ perspective: ProjectionPerspective }>;
 export type SupertagInstancesResult = Omit<ProtocolDto<ProtocolSupertagInstancesResult>, "perspective"> &
   Readonly<{ perspective: ProjectionPerspective }>;
@@ -113,17 +116,15 @@ export type Backlink = Omit<ProtocolDto<ProtocolBacklink>, "sourceKind" | "targe
   Readonly<{ sourceKind: BacklinkSourceKind; targetStatus: InlineReferenceTargetStatus }>;
 export type BacklinksResult = Omit<ProtocolDto<ProtocolBacklinksResult>, "perspective" | "backlinks"> &
   Readonly<{ perspective: ProjectionPerspective; backlinks: readonly Backlink[] }>;
-export type SearchResultsQueryRequest = Omit<
-  WithKind<ProtocolSearchResultsQueryRequest, "search-results">,
-  "perspective"
+export type SearchResultsQueryRequest = WithPageWindow<
+  Omit<WithKind<ProtocolSearchResultsQueryRequest, "search-results">, "perspective">
 > &
   Readonly<{ perspective: ProjectionPerspective }>;
 export type SearchResultReference = ProtocolDto<ProtocolSearchResultReference>;
 export type SearchResultsResult = Omit<ProtocolDto<ProtocolSearchResultsResult>, "perspective" | "results"> &
   Readonly<{ perspective: ProjectionPerspective; results: readonly SearchResultReference[] }>;
-export type ViewRowsQueryRequest = Omit<
-  WithKind<ProtocolViewRowsQueryRequest, "view-rows">,
-  "perspective" | "viewDefinitionNodeId"
+export type ViewRowsQueryRequest = WithPageWindow<
+  Omit<WithKind<ProtocolViewRowsQueryRequest, "view-rows">, "perspective" | "viewDefinitionNodeId">
 > &
   Readonly<{ perspective: ProjectionPerspective; viewDefinitionNodeId?: string }>;
 export type ViewRowReference = Omit<ProtocolDto<ProtocolViewRowReference>, "sourceKind"> &
@@ -139,14 +140,13 @@ export type ViewRowsResult = Omit<
     options: ViewOptionsSpec;
     rows: readonly ViewRowReference[];
   }>;
-export const OUTLINE_MAX_DEPTH = 32;
-export type OutlineQueryRequest = Omit<WithKind<ProtocolOutlineQueryRequest, "outline">, "perspective"> &
+export type OutlineQueryRequest = WithPageWindow<
+  Omit<WithKind<ProtocolOutlineQueryRequest, "outline">, "perspective">
+> &
   Readonly<{ perspective: ProjectionPerspective }>;
 export type OutlineRow = ProtocolDto<ProtocolOutlineRow>;
 export type OutlineResult = Omit<ProtocolDto<ProtocolOutlineResult>, "perspective" | "rows"> &
   Readonly<{ perspective: ProjectionPerspective; rows: readonly OutlineRow[] }>;
-export type DebugNodeQueryRequest = Omit<WithKind<ProtocolDebugNodeQueryRequest, "debug-node">, "perspective"> &
-  Readonly<{ perspective: ProjectionPerspective }>;
 export type TrashEvidenceQueryRequest = Omit<
   WithKind<ProtocolTrashEvidenceQueryRequest, "trash-evidence">,
   "perspective"
@@ -154,19 +154,6 @@ export type TrashEvidenceQueryRequest = Omit<
   Readonly<{ perspective: ProjectionPerspective }>;
 export type TrashEvidenceResult = Omit<ProtocolDto<ProtocolTrashEvidence>, "perspective" | "anchor"> &
   Readonly<{ perspective: ProjectionPerspective; anchor: SequenceAnchor | null }>;
-export type DebugNodeResult = Omit<
-  ProtocolDto<ProtocolDebugNodeResult>,
-  "perspective" | "node" | "ownerNodeId" | "metanodeId" | "materializedFields" | "url" | "codeLanguage"
-> &
-  Readonly<{
-    perspective: ProjectionPerspective;
-    node: ProjectedNode | null;
-    ownerNodeId: string | null;
-    metanodeId: string | null;
-    materializedFields: readonly MaterializedField[];
-    url: string | null;
-    codeLanguage: string | null;
-  }>;
 export type InvocationOutcome = Readonly<{ status: "absent" }> | PublishedResult | CommittedProjectionPendingResult;
 
 export type EngineQueryContract =
@@ -180,7 +167,6 @@ export type EngineQueryContract =
   | Readonly<{ query: SearchResultsQueryRequest; value: SearchResultsResult }>
   | Readonly<{ query: ViewRowsQueryRequest; value: ViewRowsResult }>
   | Readonly<{ query: OutlineQueryRequest; value: OutlineResult }>
-  | Readonly<{ query: DebugNodeQueryRequest; value: DebugNodeResult }>
   | Readonly<{ query: TrashEvidenceQueryRequest; value: TrashEvidenceResult }>;
 export type EngineQuery = EngineQueryContract["query"];
 export type EngineQueryKind = EngineQuery["kind"];
@@ -190,17 +176,18 @@ export type EngineQueryValueForKind<Kind extends EngineQueryKind> = Extract<
   EngineQueryContract,
   Readonly<{ query: Readonly<{ kind: Kind }> }>
 >["value"];
-export type EngineQueryValue<Query extends EngineQuery = EngineQuery> = Query extends EngineQuery
-  ? EngineQueryValueForKind<Query["kind"]>
-  : never;
+// Deliberately non-distributive: a distributive conditional fails to reduce for the concrete
+// intersection request types, widening every query result to the full value union.
+export type EngineQueryValue<Query extends EngineQuery = EngineQuery> = EngineQueryValueForKind<Query["kind"]>;
 export type EngineQueryResult<Query extends EngineQuery = EngineQuery> =
   Readonly<{ status: "ok"; value: EngineQueryValue<Query> }> | Readonly<{ status: "rejected"; error: EngineError }>;
 export type EngineEvent = Omit<ProtocolDto<ProtocolEngineEvent>, "kind"> & Readonly<{ kind: EngineEventKind }>;
 export type Unsubscribe = () => void;
+export type EventFailureListener = (error: unknown) => void;
 export type EngineApplicationContract = Readonly<{
   execute(command: EngineCommand): Promise<WriteResult>;
   query<Kind extends EngineQueryKind>(
     query: EngineQueryInput<Kind>,
   ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
-  subscribe(listener: (event: EngineEvent) => void): Unsubscribe;
+  subscribe(listener: (event: EngineEvent) => void, onError: EventFailureListener): Unsubscribe;
 }>;

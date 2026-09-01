@@ -1,14 +1,19 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand, ViewRowsResult } from "@lode/sdk";
-import { createSupertagApplication } from "../../../tests/support/workspace/edit-test-actions.js";
-import { FIELD_DATATYPE_NODE_IDS, materializedFieldNodeId } from "../../domain/fact/index.js";
+import { createSupertagApplication, nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
+import {
+  END_SEQUENCE_ANCHOR as end,
+  FIELD_DATATYPE_NODE_IDS,
+  materializedFieldNodeId,
+} from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("View Definition product model", () => {
   it("VIEW-1 applies one shared default to ordinary and Search sources and preserves it while the host is trashed", async () => {
@@ -336,7 +341,7 @@ async function setup(
   loroPeerId: `${number}` = "301",
 ): Promise<Workspace> {
   const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
-  return Workspace.open({ workspaceId: "workspace", facts, versions });
+  return openTestWorkspace({ workspaceId: "workspace", facts, versions });
 }
 
 async function createFixture(workspace: Workspace): Promise<void> {
@@ -346,10 +351,10 @@ async function createFixture(workspace: Workspace): Promise<void> {
       nodeAt("host", "workspace", "host-original"),
       nodeAt("child-a", "host", "child-a-original"),
       nodeAt("child-b", "host", "child-b-original"),
-      nodeAt("supertag", "workspace", "supertag-original", "supertag-definition"),
+      nodeAt("supertag", "workspace", "supertag-original", { intrinsicNodeType: "supertag-definition" }),
       nodeAt("candidate", "workspace", "candidate-original"),
       { kind: "rich-text-splice", nodeId: "candidate", deleteAtomIds: [], anchor: end, insert: "Candidate" },
-      nodeAt("search", "workspace", "search-original", "search"),
+      nodeAt("search", "workspace", "search-original", { intrinsicNodeType: "search" }),
       createSupertagApplication("candidate", "supertag"),
     ]),
   );
@@ -374,8 +379,8 @@ async function createTableFixture(workspace: Workspace): Promise<void> {
       nodeAt("row-a", "host", "row-a-original"),
       nodeAt("row-b", "host", "row-b-original"),
       nodeAt("row-c", "host", "row-c-original"),
-      nodeAt("status-field", "workspace", "status-field-original", "field-definition"),
-      nodeAt("date-field", "workspace", "date-field-original", "field-definition"),
+      nodeAt("status-field", "workspace", "status-field-original", { intrinsicNodeType: "field-definition" }),
+      nodeAt("date-field", "workspace", "date-field-original", { intrinsicNodeType: "field-definition" }),
       ...plainField("row-a", "status", "Backlog"),
       ...plainField("row-b", "status", "Done"),
       ...plainField("row-c", "status", "Backlog"),
@@ -476,22 +481,6 @@ async function historySelection(workspace: Workspace, channelId: string, operati
     throw new Error(`Expected View ${operation}`);
   }
   return history[operation];
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "field-definition" | "search",
-): EditCommand["actions"][number] {
-  return {
-    kind: "node-create",
-    nodeId,
-    occurrenceId,
-    parentNodeId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
 }
 
 function command(

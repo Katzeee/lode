@@ -14,8 +14,8 @@ type LocalReplica = Readonly<{
 export async function createWorkspaceFromStorage(
   storage: WorkspaceStorage,
   options: Readonly<{
-    eventSink?: EventSink;
-  }> = {},
+    eventSink: EventSink;
+  }>,
 ) {
   try {
     const local = await loadOrCreateLocalReplica(storage.metadata);
@@ -24,11 +24,10 @@ export async function createWorkspaceFromStorage(
       loroPeerId: local.loroPeerId,
       documents: storage.facts,
     });
-    const workspace = await Workspace.open({
+    const workspace = Workspace.open({
       workspaceId: storage.workspaceId,
       facts,
       versions: CURRENT_PROJECTION_VERSIONS,
-      seedGenesis: false,
       eventSink: options.eventSink,
       storage,
     });
@@ -42,9 +41,10 @@ async function failAfterRelease(primary: unknown, release: () => Promise<void>):
   try {
     await release();
   } catch (releaseError) {
-    throw new AggregateError([toError(primary), toError(releaseError)], "Workspace failed to open cleanly", {
-      cause: releaseError,
+    const failure = new AggregateError([toError(primary), toError(releaseError)], "Workspace failed to open cleanly", {
+      cause: primary,
     });
+    throw failure;
   }
   throw primary;
 }

@@ -1,12 +1,13 @@
 import type { FactAction, FactSnapshot, ProjectionIdentity, ProjectionPerspective } from "../fact/index.js";
 import { projectionIdentity } from "./projection-identity.js";
-import type { Projection, ProjectionActivation, ProjectionSections, ProjectionVersions } from "./projection-types.js";
+import type { Projection, ProjectionActivation, ProjectionSections } from "./projection-types.js";
+import type { ProjectionVersions } from "./projection-versions.js";
 import type { AuthoredStructure, MutableNode } from "./projection-state.js";
 import type { TemplateStructureProjection } from "./template-node-projection.js";
 import type { SupertagRelations } from "./supertag-relations.js";
 import type { NodeGraphStructure } from "./node-graph-structure.js";
 
-export type ProjectionActivationArtifact = Readonly<{
+type ProjectionActivationArtifact = Readonly<{
   actions: readonly FactAction[];
   evidence: ProjectionActivation;
 }>;

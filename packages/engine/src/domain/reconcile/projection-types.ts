@@ -7,7 +7,7 @@ import type {
 } from "../fact/index.js";
 import type { SearchExpressionSpec } from "../fact/index.js";
 import type { ViewOptionsSpec } from "../fact/index.js";
-import type { ConflictIssue } from "../conflict/types.js";
+import type { ConflictIssue } from "../conflict/index.js";
 import type { NodeGraph } from "./node-graph.js";
 import type { WorkspaceSystemNodes } from "./workspace-system-nodes.js";
 import type { EffectiveField, OptionalFieldSuggestion } from "./effective-field-types.js";
@@ -247,15 +247,6 @@ export type ProjectionSectionName =
     ? (typeof PROJECTION_SECTION_NAMES)[number]
     : never;
 
-export type ProjectionSectionValue<Section extends ProjectionSectionName = ProjectionSectionName> =
-  Section extends ProjectionSectionName
-    ? ProjectionSections[Section] extends readonly (infer Item)[]
-      ? Item
-      : ProjectionSections[Section] extends Readonly<Record<string, infer Item>>
-        ? Item
-        : never
-    : never;
-
 export type Projection = Readonly<{
   perspective: ProjectionPerspective;
   identity: ProjectionIdentity;
@@ -290,22 +281,3 @@ export type ProjectionActivation = Readonly<{
   activeActionIds: readonly FactActionId[];
   supportByAction: Readonly<Record<string, readonly FactActionId[]>>;
 }>;
-
-export type ProjectionVersions = Readonly<{
-  rulesVersion: string;
-  schemaVersion: string;
-}>;
-
-export const CURRENT_PROJECTION_VERSIONS: ProjectionVersions = {
-  rulesVersion: "proposal-rules-1",
-  schemaVersion: "lode-schema-2",
-};
-
-export function assertSupportedProjectionVersions(versions: ProjectionVersions): void {
-  if (
-    versions.rulesVersion !== CURRENT_PROJECTION_VERSIONS.rulesVersion ||
-    versions.schemaVersion !== CURRENT_PROJECTION_VERSIONS.schemaVersion
-  ) {
-    throw new Error(`Unsupported projection versions: ${versions.rulesVersion}/${versions.schemaVersion}`);
-  }
-}

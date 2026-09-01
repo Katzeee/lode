@@ -29,7 +29,7 @@ export type TargetCandidate = Readonly<{
   parents: readonly string[];
 }>;
 
-export type CliErrorDetails = Readonly<Record<string, unknown>> & { engineCode?: EngineErrorCode };
+type CliErrorDetails = Readonly<Record<string, unknown>> & { engineCode?: EngineErrorCode };
 
 export class CliError extends Error {
   readonly exitCode: 1 | 2 | 3 | 4;
@@ -76,8 +76,9 @@ function exitCodeFor(code: CliErrorCode): 1 | 2 | 3 | 4 {
 }
 
 type CliStatus = "ok" | "committed-pending" | "outcome-unknown" | "error";
+type CommandStatus = Exclude<CliStatus, "error">;
 
-export type CliPage = Readonly<{ count: number; next: string | null }>;
+type CliPage = Readonly<{ count: number; next: string | null }>;
 
 /**
  * Family-provided presentation view derived from the same command data the
@@ -110,7 +111,7 @@ export type CliOutcome<Data = unknown> = Readonly<{
 
 /** What a family handler returns; the pipeline attaches command/workspace. */
 export type CommandResult<Data = unknown> = Readonly<{
-  status: CliStatus;
+  status: CommandStatus;
   data: Data | null;
   page?: CliPage | null;
   view?: HumanView | null;

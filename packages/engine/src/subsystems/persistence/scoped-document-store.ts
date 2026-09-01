@@ -10,12 +10,6 @@ export class ScopedDocumentStore implements DocumentStore {
     return this.documents.load(this.scoped(id));
   }
 
-  async listIds(query: Readonly<{ prefix?: string; after?: string; limit?: number }> = {}): Promise<string[]> {
-    const prefix = this.scoped(query.prefix ?? "");
-    const after = query.after === undefined ? undefined : this.scoped(query.after);
-    return (await this.documents.listIds({ ...query, prefix, after })).map((id) => id.slice(this.namespace.length + 1));
-  }
-
   appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
     return this.documents.appendUpdate(this.scoped(id), bytes);
   }
@@ -26,10 +20,6 @@ export class ScopedDocumentStore implements DocumentStore {
 
   writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
     return this.documents.writeSnapshot(this.scoped(id), bytes);
-  }
-
-  delete(id: string): Promise<void> {
-    return this.documents.delete(this.scoped(id));
   }
 
   private scoped(id: string): string {

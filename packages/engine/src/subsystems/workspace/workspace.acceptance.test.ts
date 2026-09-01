@@ -1,38 +1,38 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EngineEvent, EditCommand } from "@lode/sdk";
 import {
   canonicalJson,
+  END_SEQUENCE_ANCHOR as end,
   factActionId,
   factActionsFromFacts,
   factId,
   SYSTEM_DEFINITION_CATALOG_NODE_ID,
   workspaceTrashNodeId,
-  type SequenceAnchor,
 } from "../../domain/fact/index.js";
 import type { ReviewQuery } from "../../domain/review/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
 import type { DocumentStore, DocumentUpdate } from "../persistence/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { localReceiptsDocumentId } from "./authority/local-receipt-store.js";
-import { FactReplication } from "./fact-replication.js";
-import { syncPair } from "../../../tests/support/sync.js";
-import { Workspace } from "./workspace.js";
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import {
+  documentsContaining,
+  FACT_AUTHORITY_DOCUMENT_ID,
+  InMemoryDocumentStore,
+} from "../../../tests/support/document-store.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import type { EventSink } from "../event/index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 function eventCollector(events: EngineEvent[]): EventSink {
   return { publish: (event) => events.push(event) };
 }
 
 function nodeAtWorkspace(nodeId: string) {
-  return [nodeAt(nodeId, "workspace", `${nodeId}-original`)];
-}
-
-function nodeAt(nodeId: string, parentNodeId: string, occurrenceId: string, anchor: SequenceAnchor = end) {
-  return { kind: "node-create" as const, nodeId, occurrenceId, parentNodeId, anchor };
+  return [nodeAt(nodeId, "workspace")];
 }
 
 async function setup(documents: DocumentStore = new InMemoryDocumentStore(), eventSink?: EventSink) {
@@ -43,7 +43,7 @@ async function setup(documents: DocumentStore = new InMemoryDocumentStore(), eve
   });
   return {
     facts,
-    workspace: await Workspace.open({
+    workspace: await openTestWorkspace({
       workspaceId: "workspace",
       facts,
       versions,
@@ -60,7 +60,7 @@ async function setupReplica(documents: DocumentStore, loroPeerId: `${number}`, s
   });
   return {
     facts,
-    workspace: await Workspace.open({
+    workspace: await openTestWorkspace({
       workspaceId: "workspace",
       facts,
       versions,
@@ -188,8 +188,8 @@ describe("Proposal Workspace coordinator", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactReplication(a.facts.replication), new FactReplication(b.facts.replication));
-    await syncPair(new FactReplication(a.facts.replication), new FactReplication(c.facts.replication));
+    await syncPair(testFactReplication(a.facts.replication), testFactReplication(b.facts.replication));
+    await syncPair(testFactReplication(a.facts.replication), testFactReplication(c.facts.replication));
     await b.workspace.reconcileAuthorityAdvance();
     await c.workspace.reconcileAuthorityAdvance();
 
@@ -222,8 +222,8 @@ describe("Proposal Workspace coordinator", () => {
         })
       ).status,
     ).toBe("published");
-    await syncPair(new FactReplication(b.facts.replication), new FactReplication(a.facts.replication));
-    await syncPair(new FactReplication(c.facts.replication), new FactReplication(a.facts.replication));
+    await syncPair(testFactReplication(b.facts.replication), testFactReplication(a.facts.replication));
+    await syncPair(testFactReplication(c.facts.replication), testFactReplication(a.facts.replication));
     await a.workspace.reconcileAuthorityAdvance();
 
     const conflicts = await a.workspace.query({
@@ -298,10 +298,7 @@ describe("Proposal Workspace coordinator", () => {
             nodeAt("outline-root-node", "workspace", "outline-root-occurrence"),
             nodeAt("p1-node", "outline-root-node", "p1"),
             nodeAt("p2-node", "outline-root-node", "p2", {
-              after: "p1",
-              before: null,
-              affinity: "after",
-              fallback: "end",
+              anchor: { after: "p1", before: null, affinity: "after", fallback: "end" },
             }),
             nodeAt("shared", "p1-node", "shared-occ"),
           ],
@@ -1071,10 +1068,7 @@ describe("Proposal Workspace coordinator", () => {
           actions: [
             nodeAt("first-root", "workspace", "first-root-occurrence"),
             nodeAt("second-root", "workspace", "second-root-occurrence", {
-              after: "first-root-occurrence",
-              before: null,
-              affinity: "after",
-              fallback: "end",
+              anchor: { after: "first-root-occurrence", before: null, affinity: "after", fallback: "end" },
             }),
           ],
         })
@@ -1156,10 +1150,7 @@ describe("Proposal Workspace coordinator", () => {
             nodeAt("parent-node", "workspace", "parent"),
             nodeAt("old-node", "workspace", "old-original"),
             nodeAt("new-node", "workspace", "new-original", {
-              after: "parent",
-              before: null,
-              affinity: "after",
-              fallback: "end",
+              anchor: { after: "parent", before: null, affinity: "after", fallback: "end" },
             }),
             {
               kind: "occurrence-create",
@@ -1364,7 +1355,7 @@ describe("Proposal Workspace coordinator", () => {
     await expectUnsupportedDirect(restarted.workspace, directActionId, "direct-author");
 
     const remote = await setupReplica(new InMemoryDocumentStore(), "303", false);
-    await syncPair(new FactReplication(restarted.facts.replication), new FactReplication(remote.facts.replication));
+    await syncPair(testFactReplication(restarted.facts.replication), testFactReplication(remote.facts.replication));
     await remote.workspace.reconcileAuthorityAdvance();
     await expectUnsupportedDirect(remote.workspace, directActionId, "direct-author");
 
@@ -1379,7 +1370,7 @@ describe("Proposal Workspace coordinator", () => {
     await expectNoUnsupportedDirect(remote.workspace);
     expect(await projectedText(remote.workspace, "proposal-node")).toBe("preserved intent");
 
-    await syncPair(new FactReplication(remote.facts.replication), new FactReplication(restarted.facts.replication));
+    await syncPair(testFactReplication(remote.facts.replication), testFactReplication(restarted.facts.replication));
     await restarted.workspace.reconcileAuthorityAdvance();
     await expectNoUnsupportedDirect(restarted.workspace);
     expect(await projectedText(restarted.workspace, "proposal-node")).toBe("preserved intent");
@@ -1530,10 +1521,7 @@ describe("Proposal Workspace coordinator", () => {
             nodeAt("placement-root-node", "workspace", "placement-root"),
             nodeAt("node-a", "placement-root-node", "parent-a"),
             nodeAt("node-b", "placement-root-node", "parent-b", {
-              after: "parent-a",
-              before: null,
-              affinity: "after",
-              fallback: "end",
+              anchor: { after: "parent-a", before: null, affinity: "after", fallback: "end" },
             }),
             nodeAt("node-child", "node-a", "child"),
           ],
@@ -1782,13 +1770,13 @@ describe("Proposal Workspace coordinator", () => {
       loroPeerId: "101",
       documents,
     });
-    const restarted = await Workspace.open({ workspaceId: "workspace", facts: restartedFacts, versions });
+    const restarted = await openTestWorkspace({ workspaceId: "workspace", facts: restartedFacts, versions });
     expect(
       await restarted.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
     ).toMatchObject({ nodes: { node: { nodeId: "node" } } });
   });
 
-  it("restart rebuilds identical History after every Invocation Receipt is deleted", async () => {
+  it("restart rebuilds identical History when local Invocation Receipts are absent", async () => {
     const documents = new InMemoryDocumentStore();
     const { workspace: first } = await setup(documents);
     expect((await first.execute(createNode("fact-owned-history"))).status).toBe("published");
@@ -1796,13 +1784,13 @@ describe("Proposal Workspace coordinator", () => {
     expect(before.undo).not.toBeNull();
     await first.close();
 
-    await documents.delete(localReceiptsDocumentId("101"));
+    const authorityOnlyDocuments = await documentsContaining(documents, FACT_AUTHORITY_DOCUMENT_ID);
     const restartedFacts = await FactAuthority.open({
       workspaceId: "workspace",
       loroPeerId: "101",
-      documents,
+      documents: authorityOnlyDocuments,
     });
-    const restarted = await Workspace.open({ workspaceId: "workspace", facts: restartedFacts, versions });
+    const restarted = await openTestWorkspace({ workspaceId: "workspace", facts: restartedFacts, versions });
 
     await expect(restarted.query({ kind: "history", workspaceId: "workspace", channelId: "desktop" })).resolves.toEqual(
       before,
@@ -1848,7 +1836,7 @@ describe("Proposal Workspace coordinator", () => {
         documents,
       });
     const firstFacts = await openFacts();
-    const first = await Workspace.open({ workspaceId: "workspace", facts: firstFacts, versions });
+    const first = await openTestWorkspace({ workspaceId: "workspace", facts: firstFacts, versions });
     await first.execute(createNode());
     await firstFacts.commit({
       invocationId: "tail",
@@ -1872,7 +1860,7 @@ describe("Proposal Workspace coordinator", () => {
       publishedFrontier: firstFacts.snapshot().frontier,
     });
 
-    const restarted = await Workspace.open({ workspaceId: "workspace", facts: await openFacts(), versions });
+    const restarted = await openTestWorkspace({ workspaceId: "workspace", facts: await openFacts(), versions });
     expect(
       await restarted.query({ kind: "projection", workspaceId: "workspace", perspective: "origin" }),
     ).toMatchObject({ nodes: { node: { nodeId: "node" }, "tail-node": { nodeId: "tail-node" } } });

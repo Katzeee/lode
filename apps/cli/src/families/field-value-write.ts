@@ -1,35 +1,23 @@
 import { END_SEQUENCE_ANCHOR as end } from "@lode/sdk";
-import type { EditAction, TextAtomId } from "@lode/sdk";
+import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
-import { descriptor, resolveNodeTarget } from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { stringOption, writeCommand, type ProductCommandRun } from "../command/index.js";
+import { resolveTarget, resource } from "../target/index.js";
+import { runWrite, workspaceIdOf } from "../intent/index.js";
 import { parseFieldValue } from "../value/field-values.js";
 import { readFieldState, slotId, type FieldState } from "./field-state.js";
 
-const VALUE_OPTION = {
-  name: "--value",
-  description: "Field value (repeatable)",
-  value: { kind: "string" as const },
-  repeatable: true,
-} as const;
-const ON_OPTION = {
-  name: "--on",
-  description: "Node owning the instance field",
-  value: { kind: "string" as const },
-  required: true,
-} as const;
+const VALUE_OPTION = stringOption("--value", "Field value (repeatable)", { repeatable: true });
+const ON_OPTION = stringOption("--on", "Node owning the instance field", { required: true });
 
-const fieldSet: CommandDefinition = {
+const fieldSet = writeCommand({
   path: ["field", "set"],
   summary: "Set the value of a Single field.",
   positionals: [["field", "Field Definition target"]],
   options: [ON_OPTION, { ...VALUE_OPTION, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("field.set", async (context, args) => {
     const state = await readFieldState(context, args.positional("field"), args.requiredOption("--on"));
     if (state.cardinality === "list") {
       throw new CliError("usage", "field set is for Single fields; use field add for List fields.");
@@ -43,16 +31,16 @@ const fieldSet: CommandDefinition = {
       throw new CliError("usage", "field set takes exactly one --value.");
     }
     const actions = await setValueActions(context, state, raw);
-    const { result, data } = await executeWrite(context, "field.set", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: {
         target: state.fieldDescriptor,
-        on: descriptor(workspaceIdOf(context), "node", state.ownerNodeId, state.ownerLabel),
+        on: resource(context, "node", state.ownerNodeId, state.ownerLabel),
       },
       view: writeView("Set", state.fieldDescriptor, `on ${state.ownerLabel}`),
-    });
-  },
-};
+    };
+  }),
+});
 
 async function setValueActions(
   context: Parameters<ProductCommandRun>[0],
@@ -69,21 +57,14 @@ async function setValueActions(
   if (parsed.kind === "plain") {
     if (state.materialized !== undefined) {
       const valueOccurrenceId = state.materialized.valueOccurrenceIds.at(0);
-      const occurrences = (await context.session.readProjection(
-        workspaceId,
-        context.perspective,
-        "occurrences",
-      )) as Record<string, { occurrenceId: string; nodeId: string }>;
+      const occurrences = await context.session.readProjection(workspaceId, context.perspective, "occurrences");
       const valueNodeId = valueOccurrenceId === undefined ? undefined : occurrences[valueOccurrenceId]?.nodeId;
       if (valueNodeId === undefined) {
         throw new CliError("unsupported", "The materialized field has no plain value to replace.");
       }
-      const nodes = (await context.session.readProjection(workspaceId, context.perspective, "nodes")) as Record<
-        string,
-        { content: readonly { kind: string; id?: string }[] }
-      >;
+      const nodes = await context.session.readProjection(workspaceId, context.perspective, "nodes");
       const deleteAtomIds = (nodes[valueNodeId]?.content ?? []).flatMap((item) =>
-        item.kind === "text" && item.id !== undefined ? [item.id as TextAtomId] : [],
+        item.kind === "text" && item.id !== undefined ? [item.id] : [],
       );
       return [{ kind: "rich-text-splice", nodeId: valueNodeId, deleteAtomIds, anchor: end, insert: parsed.text }];
     }
@@ -100,10 +81,7 @@ async function setValueActions(
     ];
   }
   if (parsed.kind === "options-from-supertag") {
-    const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, parsed.targetToken, [
-      "node",
-      "supertag",
-    ]);
+    const target = await resolveTarget(context, parsed.targetToken, ["node", "supertag"]);
     return [{ kind: "field-options-from-supertag-value-set", ...base, targetNodeId: target.nodeId }];
   }
   if (parsed.kind === "number") {
@@ -115,15 +93,12 @@ async function setValueActions(
   return [{ kind: "field-checkbox-value-set", ...base, value: parsed.value }];
 }
 
-const fieldAdd: CommandDefinition = {
+const fieldAdd = writeCommand({
   path: ["field", "add"],
   summary: "Append values to a List field atomically.",
   positionals: [["field", "Field Definition target"]],
   options: [ON_OPTION, { ...VALUE_OPTION, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
+  run: runWrite("field.add", async (context, args) => {
     const state = await readFieldState(context, args.positional("field"), args.requiredOption("--on"));
     if (state.cardinality !== "list") {
       throw new CliError("usage", "field add is for List fields; use field set for Single fields.");
@@ -152,16 +127,16 @@ const fieldAdd: CommandDefinition = {
         seed: { text: [{ value: parsed.text, attributes: {} }] },
       });
     }
-    const { result, data } = await executeWrite(context, "field.add", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: {
         target: state.fieldDescriptor,
-        on: descriptor(workspaceIdOf(context), "node", state.ownerNodeId, state.ownerLabel),
+        on: resource(context, "node", state.ownerNodeId, state.ownerLabel),
       },
       view: writeView("Added", state.fieldDescriptor, `to ${state.ownerLabel}`),
-    });
-  },
-};
+    };
+  }),
+});
 
 export function registerFieldValueWriteCommands(catalog: CommandCatalog): void {
   catalog.register(fieldSet);

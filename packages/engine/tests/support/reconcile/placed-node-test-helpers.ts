@@ -5,14 +5,13 @@ import {
   type FactAction,
   type GraphAction,
   type IntrinsicNodeType,
+  END_SEQUENCE_ANCHOR as end,
 } from "../../../src/domain/fact/index.js";
 
 type PlacedNodeFacts = Readonly<{
   add(authoredAction: GraphAction, intent?: "direct" | "proposal"): FactAction;
   addTransaction(actions: readonly GraphAction[], intent?: "direct" | "proposal"): readonly FactAction[];
 }>;
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 export function withInitialNodeRelations(actions: readonly GraphAction[]): readonly GraphAction[] {
   const initialPlacements = new Map(

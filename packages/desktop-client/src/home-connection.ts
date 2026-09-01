@@ -19,11 +19,11 @@ export class HomeConfigurationError extends Error {
 /** Spawns the daemon for a Home. Provided by the composition root — the
  * desktop-client never depends on a daemon implementation. Resolves once the
  * process is started; readiness is observed through Status polling. */
-export type DaemonLauncher = (selection: HomeSelection) => void | Promise<void>;
+type DaemonLauncher = (selection: HomeSelection) => void | Promise<void>;
 
-export type HomeConnectionFiles = Readonly<{ endpoint: string; token: string }>;
+type HomeConnectionFiles = Readonly<{ endpoint: string; token: string }>;
 
-export function homeConnectionFiles(homePath: string): HomeConnectionFiles {
+function homeConnectionFiles(homePath: string): HomeConnectionFiles {
   return { endpoint: join(homePath, "endpoint"), token: join(homePath, "token") };
 }
 
@@ -84,36 +84,37 @@ export async function probeDaemon(
   try {
     return { client, status: await client.status() };
   } catch (error) {
-    if (error instanceof ConnectError && error.code === Code.Unauthenticated) {
-      throw error;
+    try {
+      client.close();
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [toError(error), toError(cleanupError)],
+        "Daemon probe failed to close its client",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
     }
-    client.close();
-    return null;
+    if (error instanceof ConnectError && error.code === Code.Unavailable) {
+      return null;
+    }
+    throw error;
   }
 }
-
-export type EnsureRunningOptions = Readonly<{
-  /** Wall-clock budget for waiting on a freshly launched daemon. */
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-}>;
 
 /** Resolves a connected client for the Home's daemon, launching it through the
  * provided launcher when no live daemon answers the Status handshake. A stale
  * endpoint file is treated as "not running": only a successful handshake counts. */
-export async function ensureRunningDaemon(
-  selection: HomeSelection,
-  launcher: DaemonLauncher,
-  options: EnsureRunningOptions = {},
-): Promise<DesktopClient> {
+export async function ensureRunningDaemon(selection: HomeSelection, launcher: DaemonLauncher): Promise<DesktopClient> {
   await readHomeToken(homeConnectionFiles(selection.path));
   const probe = await probeDaemon(selection);
   if (probe) {
     return probe.client;
   }
   await launcher(selection);
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const pollIntervalMs = options.pollIntervalMs ?? 100;
+  const timeoutMs = 30_000;
+  const pollIntervalMs = 100;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await delay(pollIntervalMs);
@@ -131,4 +132,8 @@ function delay(ms: number): Promise<void> {
 
 function isMissingFile(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "ENOENT";
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

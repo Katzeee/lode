@@ -159,14 +159,7 @@ function sortByGroup(
   fieldDefinitionId: string,
   projection: Projection,
 ): readonly ViewChildReference[] {
-  return children
-    .map((child, index) => ({
-      child,
-      index,
-      key: fieldSemanticValues(child.targetNodeId, fieldDefinitionId, projection).keys.join("|"),
-    }))
-    .sort((left, right) => stableStringCompare(left.key, right.key) || left.index - right.index)
-    .map(({ child }) => child);
+  return sortByField(children, fieldDefinitionId, "ascending", projection);
 }
 
 function fieldSemanticValues(

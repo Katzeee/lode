@@ -4,6 +4,7 @@ import { constants, type ServerHttp2Session } from "node:http2";
 import { create } from "@bufbuild/protobuf";
 import { createClient } from "@connectrpc/connect";
 import { createGrpcTransport, Http2SessionManager } from "@connectrpc/connect-node";
+import { dialNodeEndpoint } from "@lode/node-endpoint";
 import {
   PeerAuthenticationSchema,
   PeerExchangeFetchRequestSchema,
@@ -19,7 +20,7 @@ import type {
 } from "@lode/engine/host";
 import { parseEndpoint, type ParsedEndpoint } from "@lode/sdk";
 
-import { canonicalAddress, dialTarget, listenTarget } from "./endpoint.js";
+import { canonicalAddress, listenTarget } from "./endpoint.js";
 import { createPeerExchangeServer } from "./peer-exchange-server.js";
 
 /**
@@ -30,7 +31,7 @@ import { createPeerExchangeServer } from "./peer-exchange-server.js";
  */
 
 function dialPeerExchange(endpoint: string): Readonly<{ wire: ReplicaExchangeWire; close(): void }> {
-  const dial = dialTarget(endpoint);
+  const dial = dialNodeEndpoint(endpoint);
   const manager =
     "tcpUrl" in dial
       ? new Http2SessionManager(dial.tcpUrl)
@@ -105,10 +106,16 @@ class PeerConnectionPool {
   };
 
   close(): void {
+    const failures: Error[] = [];
     for (const dial of this.dials.values()) {
-      dial.close();
+      try {
+        dial.close();
+      } catch (error) {
+        failures.push(toError(error));
+      }
     }
     this.dials.clear();
+    throwCleanupFailures(failures, "Peer connections failed to close cleanly");
   }
 }
 
@@ -157,7 +164,21 @@ export class DesktopPeerTransport implements PeerTransportPort {
     if (this.endpoint.scheme === "tcp") {
       this.boundPort = (server.address() as { port: number }).port;
     } else if (this.endpoint.scheme === "unix") {
-      await chmod(this.endpoint.socketPath, 0o600).catch(() => {});
+      try {
+        await chmod(this.endpoint.socketPath, 0o600);
+      } catch (error) {
+        try {
+          await this.close();
+        } catch (cleanupError) {
+          const failure = new AggregateError(
+            [toError(error), toError(cleanupError)],
+            "Peer listener setup and cleanup failed",
+            { cause: error },
+          );
+          throw failure;
+        }
+        throw error;
+      }
     }
   }
 
@@ -166,17 +187,17 @@ export class DesktopPeerTransport implements PeerTransportPort {
   }
 
   async close(): Promise<void> {
-    let failure: Error | undefined;
+    const failures: Error[] = [];
     try {
       this.connections.close();
     } catch (error) {
-      failure = toError(error);
+      failures.push(toError(error));
     }
     for (const session of this.inboundSessions) {
       try {
         session.destroy(new Error("Desktop Peer Transport is stopping"), constants.NGHTTP2_CANCEL);
       } catch (error) {
-        failure ??= toError(error);
+        failures.push(toError(error));
       }
     }
     this.inboundSessions.clear();
@@ -188,12 +209,19 @@ export class DesktopPeerTransport implements PeerTransportPort {
           server.close((error) => (error ? reject(error) : resolve()));
         });
       } catch (error) {
-        failure ??= toError(error);
+        failures.push(toError(error));
       }
     }
-    if (failure) {
-      throw failure;
-    }
+    throwCleanupFailures(failures, "Desktop Peer Transport failed to close cleanly");
+  }
+}
+
+function throwCleanupFailures(failures: readonly Error[], message: string): void {
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, message);
   }
 }
 

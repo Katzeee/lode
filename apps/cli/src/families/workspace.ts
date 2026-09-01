@@ -1,8 +1,6 @@
-import type { OutlineResult, ProjectedNode } from "@lode/sdk";
-
 import { CliError, okOutcome, type CommandResult, type HumanView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import type { CommandContext, ParsedArgs } from "../invocation/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { readCommand, writeCommand, type CommandContext, type ParsedArgs } from "../command/index.js";
 import { actorIdOf } from "../intent/index.js";
 import { descriptor, nodeLabel, resolveWorkspaceFromList } from "../target/index.js";
 
@@ -26,13 +24,10 @@ async function workspaceByToken(context: CommandContext, token: string): Promise
   return entry.workspaceId;
 }
 
-const workspaceCreate: CommandDefinition = {
+const workspaceCreate = writeCommand({
   path: ["workspace", "create"],
   summary: "Create a governed workspace owned by the selected Actor.",
   positionals: [["name", "Name of the new workspace"]],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const name = args.positional("name");
@@ -57,18 +52,15 @@ const workspaceCreate: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const workspaceAdopt: CommandDefinition = {
+const workspaceAdopt = writeCommand({
   path: ["workspace", "adopt"],
   summary: "Adopt a remote workspace by pulling its authoritative Fact document from an exchange endpoint.",
   positionals: [
     ["endpoint", "Remote peer-exchange endpoint"],
     ["workspace", "Workspace id to adopt"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const endpoint = args.positional("endpoint");
@@ -89,18 +81,15 @@ const workspaceAdopt: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const workspaceUseActor: CommandDefinition = {
+const workspaceUseActor = writeCommand({
   path: ["workspace", "use-actor"],
   summary: "Set the Actor this Home acts as inside a workspace.",
   positionals: [
     ["workspace", "Workspace label, workspace: ref, or canonical link"],
     ["actor", "Actor id held by this Home"],
   ],
-  options: [],
-  kind: "write",
-  paginated: false,
   needsWorkspace: false,
   run: async (context, args) => {
     const workspaceId = await workspaceByToken(context, args.positional("workspace"));
@@ -121,15 +110,11 @@ const workspaceUseActor: CommandDefinition = {
       { view: { kind: "text", lines: [`Workspace ${workspaceId} now acts as ${actorId}.`] } },
     );
   },
-};
+});
 
-const workspaceList: CommandDefinition = {
+const workspaceList = readCommand({
   path: ["workspace", "list"],
   summary: "List workspaces known to the daemon.",
-  positionals: [],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context) => {
     const workspaces = await context.session.workspaces.list();
@@ -147,15 +132,12 @@ const workspaceList: CommandDefinition = {
       { view },
     );
   },
-};
+});
 
-const workspaceShow: CommandDefinition = {
+const workspaceShow = readCommand({
   path: ["workspace", "show"],
   summary: "Show the workspace and its top-level outline.",
   positionals: [["workspace", "Workspace label, workspace: ref, or canonical link", "optional"]],
-  options: [],
-  kind: "read",
-  paginated: false,
   needsWorkspace: false,
   run: async (context: CommandContext, args: ParsedArgs): Promise<CommandResult> => {
     const token = args.optionalPositional("workspace") ?? context.workspaceChoice;
@@ -180,14 +162,12 @@ const workspaceShow: CommandDefinition = {
     if (result.status !== "ok") {
       throw new CliError("unavailable", `Workspace outline is unavailable: ${result.error.message}`);
     }
-    const outline = result.value as unknown as OutlineResult;
+    const outline = result.value;
     const [nodes, systemNodes] = await Promise.all([
-      context.session.readProjection(workspaceId, context.perspective, "nodes") as Promise<
-        Record<string, ProjectedNode>
-      >,
+      context.session.readProjection(workspaceId, context.perspective, "nodes"),
       context.session.readProjection(workspaceId, context.perspective, "workspaceSystemNodes"),
     ]);
-    const trashNodeId = (systemNodes as { trash?: string }).trash;
+    const trashNodeId = systemNodes.trash;
     const visibleRows = outline.rows.filter((row) => row.nodeId !== trashNodeId);
     const rows = visibleRows.map((row) => {
       const node = nodes[row.nodeId];
@@ -206,4 +186,4 @@ const workspaceShow: CommandDefinition = {
       },
     );
   },
-};
+});

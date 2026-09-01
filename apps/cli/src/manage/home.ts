@@ -1,17 +1,19 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { mkdir, readFile, readdir, rmdir, stat, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 import {
   homeNamePattern,
+  normalizeHomePath,
   probeDaemon,
   readHomeRegistry,
+  registeredHomeAtPath,
   writeHomeRegistry,
   type HomeRegistryFile,
 } from "@lode/desktop-client";
 
 import { CliError, okOutcome, type CommandResult } from "../outcome/index.js";
-import type { CommandDefinition, ManagementCommandContext } from "../catalog/index.js";
+import type { CommandDefinition, ManagementCommandContext } from "../command/index.js";
 
 /**
  * The `home` command family: registration-level management of Lode Homes.
@@ -128,7 +130,7 @@ async function addHome(name: string, path: string, port: HomeManagementPort): Pr
   if (registry.homes[name] !== undefined) {
     throw new CliError("conflict", `Home "${name}" is already registered at ${registry.homes[name]?.path}`);
   }
-  const normalized = await initializeHome(resolve(path), registry);
+  const normalized = await initializeHome(normalizeHomePath(path), registry);
   const first = registry.defaultHome === undefined;
   await port.writeRegistry((document) => {
     const homes = (document["homes"] as Record<string, { path: string }>) ?? {};
@@ -151,26 +153,19 @@ async function addHome(name: string, path: string, port: HomeManagementPort): Pr
 
 /** Empty directory → initialize; valid home → register as-is; anything else → refuse. */
 async function initializeHome(normalized: string, registry: HomeRegistryFile): Promise<string> {
-  const existing = await stat(normalized).catch(() => null);
+  const existing = await statOrNull(normalized);
   if (existing === null) {
     throw new CliError("invalid-value", `Path does not exist: ${normalized}`);
   }
   if (!existing.isDirectory()) {
     throw new CliError("invalid-value", `Path is not a directory: ${normalized}`);
   }
-  for (const [registered, entry] of Object.entries(registry.homes)) {
-    if (resolve(entry.path) === normalized) {
-      throw new CliError("conflict", `Path ${normalized} is already registered as home "${registered}"`);
-    }
+  const registered = registeredHomeAtPath(registry, normalized);
+  if (registered !== undefined) {
+    throw new CliError("conflict", `Path ${normalized} is already registered as home "${registered}"`);
   }
-  const token = await readFile(join(normalized, "token"), "utf8").then(
-    (value) => value.trim().length > 0,
-    () => false,
-  );
-  const data = await stat(join(normalized, "data")).then(
-    (entry) => entry.isDirectory(),
-    () => false,
-  );
+  const token = await fileHasText(join(normalized, "token"));
+  const data = (await statOrNull(join(normalized, "data")))?.isDirectory() === true;
   if (token && data) {
     return normalized;
   }
@@ -180,10 +175,56 @@ async function initializeHome(normalized: string, registry: HomeRegistryFile): P
       `Directory is not empty and not a Lode Home (needs token + data/): ${normalized}`,
     );
   }
-  await mkdir(join(normalized, "data"), { recursive: true });
-  await mkdir(join(normalized, "logs"), { recursive: true });
-  await writeFile(join(normalized, "token"), `${randomBytes(32).toString("hex")}\n`, { mode: 0o600, flag: "wx" });
+  const dataPath = join(normalized, "data");
+  await mkdir(dataPath);
+  try {
+    await writeFile(join(normalized, "token"), `${randomBytes(32).toString("hex")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    try {
+      await rmdir(dataPath);
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [toError(error), toError(cleanupError)],
+        "Home initialization failed to roll back",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
+    }
+    throw error;
+  }
   return normalized;
+}
+
+async function statOrNull(path: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
+  try {
+    return await stat(path);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function fileHasText(path: string): Promise<boolean> {
+  try {
+    return (await readFile(path, "utf8")).trim().length > 0;
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function hasCode(value: unknown, code: string): boolean {
+  return typeof value === "object" && value !== null && "code" in value && value.code === code;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }
 
 async function useHome(name: string, port: HomeManagementPort): Promise<CommandResult> {

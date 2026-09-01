@@ -1,54 +1,22 @@
-import { array, booleanValue, enumValue, exact, nonempty, object, stringValue } from "../../decoding/index.js";
+import {
+  array,
+  booleanValue,
+  enumValue,
+  exact,
+  nonempty,
+  object,
+  ShapeValidationError,
+  stringValue,
+} from "../../decoding/index.js";
 import { requireFactActionId } from "./identities.js";
-import type { FactActionId } from "./types.js";
-
-export type SearchFieldValue =
-  | Readonly<{ kind: "node"; nodeId: string }>
-  | Readonly<{ kind: "text"; value: string }>
-  | Readonly<{ kind: "number"; value: number }>
-  | Readonly<{ kind: "checkbox"; value: boolean }>
-  | Readonly<{ kind: "date"; value: string }>;
-
-export type SearchScopeTarget =
-  Readonly<{ kind: "node"; nodeId: string }> | Readonly<{ kind: "parent" }> | Readonly<{ kind: "grandparent" }>;
-
-export type SearchExpressionSpec = Readonly<{ expressionId: FactActionId; expressionNodeId: string }> &
-  (
-    | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionSpec[] }>
-    | Readonly<{ kind: "not"; operand: SearchExpressionSpec }>
-    | Readonly<{ kind: "supertag"; supertagId: string }>
-    | Readonly<{ kind: "text"; text: string }>
-    | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
-    | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
-    | Readonly<{
-        kind: "date-compare";
-        fieldDefinitionId: string;
-        operator: "lt" | "gt";
-        date: string;
-      }>
-    | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
-    | Readonly<{ kind: "links-to"; targetNodeId: string }>
-  );
-
-export type SearchClause =
-  | Readonly<{ kind: "and" | "or" | "not" }>
-  | Readonly<{ kind: "supertag"; supertagId: string }>
-  | Readonly<{ kind: "text"; text: string }>
-  | Readonly<{ kind: "field-defined"; fieldDefinitionId: string; defined: boolean }>
-  | Readonly<{ kind: "field-value"; fieldDefinitionId: string; value: SearchFieldValue }>
-  | Readonly<{ kind: "date-compare"; fieldDefinitionId: string; operator: "lt" | "gt"; date: string }>
-  | Readonly<{ kind: "descendant-of" | "child-of"; target: SearchScopeTarget }>
-  | Readonly<{ kind: "links-to"; targetNodeId: string }>;
-
-export type SearchExpressionDraft =
-  | Readonly<{ kind: "and" | "or"; operands: readonly SearchExpressionDraft[] }>
-  | Readonly<{ kind: "not"; operand: SearchExpressionDraft }>
-  | Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
-
-export function parseSearchExpressionSpec(value: unknown): SearchExpressionSpec {
-  const identities = new Set<string>();
-  return parseExpression(value, identities, 0);
-}
+import type { FactActionId } from "./fact-value-types.js";
+import type {
+  SearchClause,
+  SearchExpressionDraft,
+  SearchExpressionSpec,
+  SearchFieldValue,
+  SearchScopeTarget,
+} from "./search-expression-types.js";
 
 export function parseSearchClause(value: unknown): SearchClause {
   const clause = object(value, "Search clause");
@@ -62,7 +30,7 @@ export function parseSearchClause(value: unknown): SearchClause {
     0,
   );
   if (parsed.kind === "and" || parsed.kind === "or" || parsed.kind === "not") {
-    throw new Error("Search logical clause cannot contain operands");
+    throw new ShapeValidationError("Search logical clause cannot contain operands");
   }
   const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...result } = parsed;
   return result;
@@ -70,7 +38,7 @@ export function parseSearchClause(value: unknown): SearchClause {
 
 export function parseSearchExpressionDraft(value: unknown, depth = 0): SearchExpressionDraft {
   if (depth > 64) {
-    throw new Error("Search Expression nesting is too deep");
+    throw new ShapeValidationError("Search Expression nesting is too deep");
   }
   const draft = object(value, "Search Expression draft");
   if (draft.kind === "and" || draft.kind === "or") {
@@ -79,7 +47,7 @@ export function parseSearchExpressionDraft(value: unknown, depth = 0): SearchExp
       parseSearchExpressionDraft(operand, depth + 1),
     );
     if (operands.length === 0) {
-      throw new Error("Search logical Expression has no operands");
+      throw new ShapeValidationError("Search logical Expression has no operands");
     }
     return { kind: draft.kind, operands };
   }
@@ -90,23 +58,15 @@ export function parseSearchExpressionDraft(value: unknown, depth = 0): SearchExp
   return parseSearchClause(draft) as Exclude<SearchClause, { kind: "and" | "or" | "not" }>;
 }
 
-export function searchClauseFromSpec(expression: SearchExpressionSpec): SearchClause {
-  if (expression.kind === "and" || expression.kind === "or" || expression.kind === "not") {
-    return { kind: expression.kind };
-  }
-  const { expressionId: _expressionId, expressionNodeId: _expressionNodeId, ...clause } = expression;
-  return clause;
-}
-
 function parseExpression(value: unknown, identities: Set<string>, depth: number): SearchExpressionSpec {
   if (depth > 64) {
-    throw new Error("Search Expression nesting is too deep");
+    throw new ShapeValidationError("Search Expression nesting is too deep");
   }
   const expression = object(value, "Search Expression");
   const expressionId = requireFactActionId(expression.expressionId, "Search Expression identity");
   const expressionNodeId = nonempty(expression.expressionNodeId, "Search Expression Node identity");
   if (identities.has(expressionNodeId)) {
-    throw new Error(`Search Expression repeats a Node identity: ${expressionNodeId}`);
+    throw new ShapeValidationError(`Search Expression repeats a Node identity: ${expressionNodeId}`);
   }
   identities.add(expressionNodeId);
   const kind = enumValue(
@@ -132,7 +92,7 @@ function parseExpression(value: unknown, identities: Set<string>, depth: number)
       parseExpression(operand, identities, depth + 1),
     );
     if (operands.length === 0) {
-      throw new Error("Search logical Expression has no operands");
+      throw new ShapeValidationError("Search logical Expression has no operands");
     }
     return { expressionId, expressionNodeId, kind, operands };
   }
@@ -237,7 +197,7 @@ function parseFieldValue(value: unknown): SearchFieldValue {
   if (kind === "number") {
     exact(candidate, ["kind", "value"], "Search Number Field value");
     if (typeof candidate.value !== "number" || !Number.isFinite(candidate.value)) {
-      throw new Error("Search Number Field value is invalid");
+      throw new ShapeValidationError("Search Number Field value is invalid");
     }
     return { kind, value: candidate.value };
   }
@@ -262,6 +222,6 @@ function parseScopeTarget(value: unknown): SearchScopeTarget {
 
 function assertDate(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
-    throw new Error("Search Date value is invalid");
+    throw new ShapeValidationError("Search Date value is invalid");
   }
 }

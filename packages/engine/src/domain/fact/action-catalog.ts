@@ -1,6 +1,7 @@
 import {
   type ActionAdmission,
   type ActionContributionsOf,
+  type ActionEditAccess,
   type ActionFamilyDefinition,
   type ActionOf,
   type AnyActionDefinition,
@@ -16,7 +17,8 @@ import {
 import { supertagActionDefinitions } from "./supertag-action-definitions.js";
 import { textActionDefinitions } from "./text-action-definitions.js";
 import { viewActionDefinitions } from "./view-action-definitions.js";
-import type { CollectionName, SemanticContribution } from "./action-semantics/types.js";
+import type { CollectionName, SemanticContribution } from "./action-contribution-types.js";
+import { ShapeValidationError } from "../../decoding/index.js";
 
 export const ACTION_DEFINITIONS = {
   node: nodeActionDefinitions,
@@ -36,9 +38,9 @@ type DefinitionByFamily = {
   [Family in keyof typeof ACTION_DEFINITIONS]: ValueOf<(typeof ACTION_DEFINITIONS)[Family]>;
 };
 
-export type AuthoredActionDefinition = ValueOf<DefinitionByFamily>;
+type AuthoredActionDefinition = ValueOf<DefinitionByFamily>;
 export type AuthoredAction = ActionOf<AuthoredActionDefinition>;
-export type AuthoredActionKind = AuthoredAction["kind"];
+type AuthoredActionKind = AuthoredAction["kind"];
 export type ActionFamily = keyof typeof ACTION_DEFINITIONS;
 
 type DefinitionWithAdmission<Admission extends ActionAdmission> = Extract<
@@ -49,6 +51,16 @@ type DefinitionWithAdmission<Admission extends ActionAdmission> = Extract<
 export type ProposableAction = ActionOf<DefinitionWithAdmission<"proposable">>;
 export type TerminalAction = ActionOf<DefinitionWithAdmission<"terminal">>;
 export type GraphAction = ActionOf<DefinitionWithAdmission<"proposable" | "direct-only">>;
+
+type DefinitionWithEditAccess<Access extends ActionEditAccess> = Extract<
+  AuthoredActionDefinition,
+  Readonly<{ editAccess: Access }>
+>;
+
+export type GraphActionKindWithEditAccess<Access extends ActionEditAccess> = Extract<
+  GraphAction,
+  ActionOf<DefinitionWithEditAccess<Access>>
+>["kind"];
 
 type DefinitionInFamily<Family extends ActionFamily> = DefinitionByFamily[Family];
 type ActionKindInFamily<Family extends ActionFamily> =
@@ -96,19 +108,15 @@ export function parseCatalogAction(value: unknown): AuthoredAction {
   const kind = readActionKind(value);
   const definition = kind === undefined ? undefined : DEFINITION_BY_KIND.get(kind as AuthoredActionKind);
   if (!definition) {
-    throw new Error(`Unknown AuthoredAction kind: ${String(kind)}`);
+    throw new ShapeValidationError(`Unknown AuthoredAction kind: ${String(kind)}`);
   }
   return definition.parse(value);
-}
-
-export function isCatalogActionKind(value: unknown): value is AuthoredActionKind {
-  return typeof value === "string" && DEFINITION_BY_KIND.has(value as AuthoredActionKind);
 }
 
 export function catalogActionContributions(action: AuthoredAction): readonly SemanticContribution[] {
   const definition = DEFINITION_BY_KIND.get(action.kind);
   if (definition === undefined) {
-    throw new Error(`Unknown AuthoredAction kind: ${action.kind}`);
+    throw new ShapeValidationError(`Unknown AuthoredAction kind: ${action.kind}`);
   }
   return contributionsFromDefinition(definition, action);
 }
@@ -136,6 +144,26 @@ export function graphActionKindsInFamily<Family extends ActionFamily>(
     .map((definition) => definition.kind) as unknown as readonly Extract<ActionInFamily<Family>, GraphAction>["kind"][];
 }
 
+export function proposableActionKindsInFamily<Family extends ActionFamily>(
+  family: Family,
+): readonly Extract<ActionInFamily<Family>, ProposableAction>["kind"][] {
+  const definitions = Object.values(ACTION_DEFINITIONS[family]) as unknown as readonly AuthoredActionDefinition[];
+  return definitions
+    .filter((definition) => definition.admission === "proposable")
+    .map((definition) => definition.kind) as unknown as readonly Extract<
+    ActionInFamily<Family>,
+    ProposableAction
+  >["kind"][];
+}
+
+export function actionHasEditAccess<Access extends ActionEditAccess>(
+  action: AuthoredAction,
+  access: Access,
+): action is Extract<GraphAction, ActionOf<DefinitionWithEditAccess<Access>>> {
+  const definition = DEFINITION_BY_KIND.get(action.kind);
+  return definition !== undefined && definition.admission !== "terminal" && definition.editAccess === access;
+}
+
 export function actionHasAdmission<Admission extends ActionAdmission>(
   action: AuthoredAction,
   admission: Admission,
@@ -145,10 +173,6 @@ export function actionHasAdmission<Admission extends ActionAdmission>(
 
 export function isCatalogGraphAction(action: AuthoredAction): action is GraphAction {
   return DEFINITION_BY_KIND.get(action.kind)?.admission !== "terminal";
-}
-
-export function isCatalogGraphActionKind(kind: AuthoredActionKind): kind is GraphAction["kind"] {
-  return DEFINITION_BY_KIND.get(kind)?.admission !== "terminal";
 }
 
 function readActionKind(value: unknown): string | undefined {

@@ -93,6 +93,28 @@ describe("generated protobuf SDK codec", () => {
     expect(decodeEngineCommand(encodeEngineCommand(command))).toEqual(command);
   });
 
+  it("round-trips rich-text PreviousValue through the action-owned codec", () => {
+    const command: EngineCommand = {
+      kind: "edit",
+      workspaceId: "workspace",
+      invocationId: "mark",
+      actorId: "actor",
+      intent: "direct",
+      historyChannelId: "desktop",
+      actions: [
+        {
+          kind: "rich-text-mark",
+          nodeId: "node",
+          atomIds: ["g1/workspace/replica/1/actions/0#0"],
+          key: "bold",
+          value: { kind: "set", value: { issue: "literal" } },
+        },
+      ],
+    };
+
+    expect(decodeEngineCommand(encodeEngineCommand(command))).toEqual(command);
+  });
+
   it("round-trips Template Field visibility edits and optional suggestions", () => {
     const command: EngineCommand = {
       kind: "edit",
@@ -309,6 +331,33 @@ describe("generated protobuf SDK codec", () => {
     const result: EngineQueryResult<typeof query> = {
       status: "ok",
       value: { channelId: "desktop", undo: selection, redo: null },
+    };
+
+    expect(decodeEngineQueryResult(encodeEngineQueryResult(query, result), query)).toEqual(result);
+  });
+
+  it("round-trips nullable-string sections whose wrapper map values carry null", () => {
+    const query = {
+      kind: "projection",
+      workspaceId: "workspace",
+      perspective: "origin",
+      section: "nodeOwners",
+    } as const;
+    const result: EngineQueryResult<typeof query> = {
+      status: "ok",
+      value: {
+        identity: {
+          workspaceNodeId: "workspace",
+          generationId: "generation",
+          frontier: { replica: 2 },
+          rulesVersion: "rules",
+          schemaVersion: "projection-schema",
+        },
+        perspective: "origin",
+        section: "nodeOwners",
+        next: null,
+        nodeOwners: { child: "parent", workspace: null },
+      },
     };
 
     expect(decodeEngineQueryResult(encodeEngineQueryResult(query, result), query)).toEqual(result);
@@ -862,6 +911,20 @@ describe("generated protobuf SDK codec", () => {
                     optionalityNodeId: "system-field-optionality:v1:no",
                   },
                 },
+                {
+                  kind: "text",
+                  nodeId: "field",
+                  addedAtomIds: [],
+                  deletedAtomIds: [],
+                  markChanges: [
+                    {
+                      atomId: "g1/workspace/101/3/actions/0#0",
+                      key: "comment",
+                      origin: { kind: "unset" },
+                      review: { kind: "set", value: { issue: "literal" } },
+                    },
+                  ],
+                },
               ],
               associatedImpactIds: ["field", "optionality"],
             },
@@ -932,14 +995,6 @@ describe("generated protobuf SDK codec", () => {
       limit: 20,
     } as const;
     expect(decodeEngineQuery(encodeEngineQuery(outlineQuery))).toEqual(outlineQuery);
-    const debugQuery = {
-      kind: "debug-node",
-      workspaceId: "workspace",
-      perspective: "review",
-      nodeId: "node",
-    } as const;
-    expect(decodeEngineQuery(encodeEngineQuery(debugQuery))).toEqual(debugQuery);
-
     const outlineResult: EngineQueryResult<typeof outlineQuery> = {
       status: "ok",
       value: {
@@ -955,37 +1010,6 @@ describe("generated protobuf SDK codec", () => {
     expect(decodeEngineQueryResult(encodeEngineQueryResult(outlineQuery, outlineResult), outlineQuery)).toEqual(
       outlineResult,
     );
-    const debugResult: EngineQueryResult<typeof debugQuery> = {
-      status: "ok",
-      value: {
-        generationId: "generation",
-        frontier: { replica: 1 },
-        perspective: "review",
-        nodeId: "node",
-        available: true,
-        node: {
-          nodeId: "node",
-          intrinsicNodeType: null,
-          content: [
-            {
-              kind: "text",
-              id: "g1/workspace/101/1/actions/0#0",
-              value: "Node",
-              attributes: {},
-              factActionId: "g1/workspace/101/1/actions/0",
-            },
-          ],
-        },
-        ownerNodeId: "workspace",
-        metanodeId: "meta",
-        childOccurrenceIds: ["child-occ"],
-        metanodeChildOccurrenceIds: [],
-        materializedFields: [],
-        url: null,
-        codeLanguage: "JavaScript",
-      },
-    };
-    expect(decodeEngineQueryResult(encodeEngineQueryResult(debugQuery, debugResult), debugQuery)).toEqual(debugResult);
   });
 
   it("rejects fields outside the generated action schema", () => {

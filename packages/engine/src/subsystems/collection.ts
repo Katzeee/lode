@@ -14,27 +14,27 @@ type ErasedFactory = (
 ) => EngineSubsystemProduct<unknown>;
 type StopSignal = { requested: boolean };
 
-export class EngineSubsystemCollectionStoppedError extends Error {
+class EngineSubsystemCollectionStoppedError extends Error {
   constructor() {
     super("Engine subsystem collection is stopping or stopped");
     this.name = "EngineSubsystemCollectionStoppedError";
   }
 }
 
-export class EngineSubsystemLifecycleError extends Error {
+class EngineSubsystemLifecycleError extends Error {
   readonly primary: Error;
-  readonly cleanupError: Error | undefined;
+  readonly cleanupErrors: readonly Error[];
 
-  constructor(primary: Error, cleanupError?: Error) {
+  constructor(primary: Error, cleanupErrors: readonly Error[] = []) {
     super(
-      cleanupError
-        ? `Engine subsystem startup failed: ${primary.message}; rollback failed: ${cleanupError.message}`
+      cleanupErrors.length > 0
+        ? `Engine subsystem startup failed: ${primary.message}; ${cleanupErrors.length} rollback operation(s) failed`
         : `Engine subsystem startup failed: ${primary.message}`,
-      { cause: cleanupError ?? primary },
+      { cause: primary },
     );
     this.name = "EngineSubsystemLifecycleError";
     this.primary = primary;
-    this.cleanupError = cleanupError;
+    this.cleanupErrors = cleanupErrors;
   }
 }
 
@@ -75,10 +75,9 @@ class EngineSubsystemCollection {
     } catch (error) {
       const primary = toError(error);
       this.stopSignal.requested = true;
-      try {
-        await this.stopInitialized();
-      } catch (cleanupError) {
-        const failure = new EngineSubsystemLifecycleError(primary, toError(cleanupError));
+      const cleanupErrors = await this.stopInitialized();
+      if (cleanupErrors.length > 0) {
+        const failure = new EngineSubsystemLifecycleError(primary, cleanupErrors);
         this.rollbackFailure = failure;
         throw failure;
       }
@@ -93,21 +92,36 @@ class EngineSubsystemCollection {
   }
 
   private async stopOnce(): Promise<void> {
+    // The start caller owns its already-delivered primary failure. Stop waits
+    // only so it can report the separately owned rollback outcome below.
     await this.startPromise?.catch(() => undefined);
     if (this.rollbackFailure) {
       throw this.rollbackFailure;
     }
-    await this.stopInitialized();
+    const failures = await this.stopInitialized();
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Engine subsystems failed to stop cleanly");
+    }
   }
 
-  private async stopInitialized(): Promise<void> {
+  private async stopInitialized(): Promise<readonly Error[]> {
+    const failures: Error[] = [];
     for (const node of [...this.nodes].reverse()) {
       if (!node.initBegun || node.stopped) {
         continue;
       }
-      await node.product.stop?.();
-      node.stopped = true;
+      try {
+        await node.product.stop?.();
+      } catch (error) {
+        failures.push(toError(error));
+      } finally {
+        node.stopped = true;
+      }
     }
+    return failures;
   }
 }
 

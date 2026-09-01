@@ -1,5 +1,5 @@
 import type { GraphAction } from "../fact/index.js";
-import type { InterpretedProjection } from "../reconcile/index.js";
+import type { AuthoredIntentContext, AuthoredIntentFamily } from "./contract.js";
 import { fieldAuthoredIntent } from "./field.js";
 import { fieldDefinitionAuthoredIntent } from "./field-definition.js";
 import { nodeAuthoredIntent } from "./node.js";
@@ -10,22 +10,6 @@ import { textAuthoredIntent } from "./text.js";
 import { inlineReferenceAuthoredIntent } from "./inline-reference.js";
 import { searchAuthoredIntent } from "./search.js";
 import { viewAuthoredIntent } from "./view.js";
-
-export type AuthoredIntentContext = Readonly<{
-  projections(): Readonly<{
-    previous: InterpretedProjection;
-    available: InterpretedProjection;
-    resulting: InterpretedProjection;
-  }>;
-}>;
-
-type ActionOf<Kind extends GraphAction["kind"]> = Extract<GraphAction, { kind: Kind }>;
-
-export type AuthoredIntentFamily<Kind extends GraphAction["kind"] = GraphAction["kind"]> = Readonly<{
-  key: string;
-  actionKinds: readonly Kind[];
-  validate(action: ActionOf<Kind>, context: AuthoredIntentContext): ActionOf<Kind>;
-}>;
 
 const AUTHORED_INTENT_FAMILIES = [
   nodeAuthoredIntent,
@@ -47,12 +31,12 @@ type ValidatedActionKind =
 
 const FAMILY_BY_ACTION = compileAuthoredIntentFamilies(AUTHORED_INTENT_FAMILIES);
 
-export function validateAuthoredIntent(action: GraphAction, context: AuthoredIntentContext): GraphAction {
+export function assertAuthoredIntent(action: GraphAction, context: AuthoredIntentContext): void {
   const family = FAMILY_BY_ACTION.get(action.kind);
   if (family === undefined) {
     throw new Error(`Graph Action ${action.kind} has no Authored Intent policy`);
   }
-  return family.validate(action, context);
+  family.assert(action, context);
 }
 
 function compileAuthoredIntentFamilies(

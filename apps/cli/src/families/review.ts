@@ -1,7 +1,8 @@
 import { RESOLUTION_DECISIONS, type ConflictIssue, type ConflictQuery, type ReviewQuery } from "@lode/sdk";
 
 import { CliError, okOutcome, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition, ProductCommandRun } from "../catalog/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, readCommand, writeCommand, type ProductCommandRun } from "../command/index.js";
 import { actorIdOf, invocationId, writeResult, workspaceIdOf } from "../intent/index.js";
 
 /**
@@ -34,17 +35,13 @@ async function readReview(
   if (result.status !== "ok") {
     throw new CliError("unavailable", `Review is unavailable: ${result.error.message}`);
   }
-  return result.value as unknown as ReviewQuery;
+  return result.value;
 }
 
-const reviewList: CommandDefinition = {
+const reviewList = readCommand({
   path: ["review", "list"],
   summary: "List pending Review hunks as opaque review: refs.",
-  positionals: [],
-  options: [],
-  kind: "read",
   paginated: true,
-  needsWorkspace: true,
   run: async (context) => {
     const review = await readReview(context, context.cursor, context.limit);
     return okOutcome(
@@ -64,16 +61,12 @@ const reviewList: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const reviewShow: CommandDefinition = {
+const reviewShow = readCommand({
   path: ["review", "show"],
   summary: "Show one pending Review hunk with fresh evidence.",
   positionals: [["review", "review: ref from review list"]],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const hunk = await hunkByRef(context, args.positional("review"));
     return okOutcome(
@@ -100,7 +93,7 @@ const reviewShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
 async function hunkByRef(context: Parameters<ProductCommandRun>[0], reference: string) {
   if (!reference.startsWith("review:")) {
@@ -118,27 +111,19 @@ async function hunkByRef(context: Parameters<ProductCommandRun>[0], reference: s
   return hunk;
 }
 
-const reviewAccept: CommandDefinition = {
+const reviewAccept = writeCommand({
   path: ["review", "accept"],
   summary: "Accept a pending Review hunk with its current evidence.",
   positionals: [["review", "review: ref from review list"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context, args) => resolve(context, args.positional("review"), "accept"),
-};
+});
 
-const reviewReject: CommandDefinition = {
+const reviewReject = writeCommand({
   path: ["review", "reject"],
   summary: "Reject a pending Review hunk with its current evidence.",
   positionals: [["review", "review: ref from review list"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: (context, args) => resolve(context, args.positional("review"), "reject"),
-};
+});
 
 async function resolve(context: Parameters<ProductCommandRun>[0], token: string, decision: "accept" | "reject") {
   const hunk = await hunkByRef(context, token);
@@ -176,17 +161,13 @@ async function readConflicts(
   if (result.status !== "ok") {
     throw new CliError("unavailable", `Conflicts are unavailable: ${result.error.message}`);
   }
-  return result.value as unknown as ConflictQuery;
+  return result.value;
 }
 
-const conflictList: CommandDefinition = {
+const conflictList = readCommand({
   path: ["conflict", "list"],
   summary: "List open Engine conflicts as opaque conflict: refs.",
-  positionals: [],
-  options: [],
-  kind: "read",
   paginated: true,
-  needsWorkspace: true,
   run: async (context) => {
     const conflicts = await readConflicts(context, context.cursor, context.limit);
     return okOutcome(
@@ -201,16 +182,12 @@ const conflictList: CommandDefinition = {
       },
     );
   },
-};
+});
 
-const conflictShow: CommandDefinition = {
+const conflictShow = readCommand({
   path: ["conflict", "show"],
   summary: "Show one open conflict with its typed candidates.",
   positionals: [["conflict", "conflict: ref from conflict list"]],
-  options: [],
-  kind: "read",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const issue = await issueByRef(context, args.positional("conflict"));
     return okOutcome(
@@ -223,7 +200,7 @@ const conflictShow: CommandDefinition = {
       },
     );
   },
-};
+});
 
 function describeResolution(issue: ConflictIssue): string {
   switch (issue.kind) {
@@ -255,20 +232,11 @@ async function issueByRef(context: Parameters<ProductCommandRun>[0], token: stri
   return issue;
 }
 
-const conflictResolve: CommandDefinition = {
+const conflictResolve = writeCommand({
   path: ["conflict", "resolve"],
   summary: "Resolve a conflict through its typed resolution path.",
   positionals: [["conflict", "conflict: ref from conflict list"]],
-  options: [
-    {
-      name: "--decision",
-      description: "Terminal decision for a Resolution conflict",
-      value: { kind: "enum" as const, enum: RESOLUTION_DECISIONS },
-    },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [enumOption("--decision", RESOLUTION_DECISIONS, "Terminal decision for a Resolution conflict")],
   run: async (context, args) => {
     const issue = await issueByRef(context, args.positional("conflict"));
     if (issue.kind !== "resolution-conflict") {
@@ -301,4 +269,4 @@ const conflictResolve: CommandDefinition = {
       }),
     });
   },
-};
+});

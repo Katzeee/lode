@@ -1,5 +1,5 @@
 import { actionIdentityProducers, type FactAction } from "../fact/index.js";
-import { isPresentNodeOutsideTrash } from "./node-graph.js";
+import { isActiveNode } from "./node-graph.js";
 import { projectionStage } from "./projection-stage.js";
 import { deriveSupertagRelations } from "./supertag-relations.js";
 
@@ -10,7 +10,7 @@ export const supertagProjectionStage = projectionStage({
     const effectiveNodes = Object.fromEntries(context.contentNodes);
     const activeNodeIds = new Set(
       [...context.storedNodes.keys()].filter((nodeId) =>
-        isPresentNodeOutsideTrash(
+        isActiveNode(
           context.workspaceNodeId,
           {
             nodes: effectiveNodes,

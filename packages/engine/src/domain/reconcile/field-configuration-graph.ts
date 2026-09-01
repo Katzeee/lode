@@ -1,4 +1,5 @@
 import {
+  afterSequenceAnchor as anchorAfter,
   END_SEQUENCE_ANCHOR as end,
   FIELD_CONFIGURATION_DEFINITION_NODE_IDS,
   type FactAction,
@@ -142,8 +143,4 @@ function configurationDefinitionNodeId(
       : kind === "optionality"
         ? FIELD_CONFIGURATION_DEFINITION_NODE_IDS.optionality
         : FIELD_CONFIGURATION_DEFINITION_NODE_IDS.initializationExpression;
-}
-
-function anchorAfter(occurrenceId: string): SequenceAnchor {
-  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
 }

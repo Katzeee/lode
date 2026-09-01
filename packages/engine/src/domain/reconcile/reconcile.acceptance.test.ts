@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { FIELD_DATATYPE_CATALOG_NODE_ID, FIELD_DATATYPE_NODE_IDS, workspaceTrashNodeId } from "../fact/index.js";
+import { FIELD_DATATYPE_NODE_IDS, workspaceTrashNodeId } from "../fact/index.js";
+import { FIELD_DATATYPE_CATALOG_NODE_ID } from "../fact/identity.js";
 import { rebuildGeneration } from "./index.js";
 import { projectSnapshot, projectionText } from "../../../tests/support/reconcile/projection.js";
 import { fullSurface } from "../../../tests/support/reconcile/full-surface-test-fixture.js";

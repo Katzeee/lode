@@ -1,5 +1,5 @@
 import type { HistoryQuery, HistorySelection } from "./history.js";
-import { fromProtocolValue, toProtocolValue } from "./protocol-shape-codec.js";
+import { fromProtocolValue, toProtocolValue } from "./protocol-value-codec.js";
 
 export function toHistorySelection(selection: HistorySelection): Record<string, unknown> {
   return toProtocolValue(selection) as Record<string, unknown>;

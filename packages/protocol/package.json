@@ -6,14 +6,10 @@
     "./proto": {
       "types": "./dist/proto.d.ts",
       "import": "./dist/proto.js"
-    },
-    "./dto/*": {
-      "types": "./dist/dto-gen/lode/*.d.ts",
-      "import": "./dist/dto-gen/lode/*.js"
     }
   },
   "scripts": {
-    "generate": "buf generate && node scripts/prepare-ts-proto-output.mjs",
+    "generate": "buf generate",
     "clean": "node ../../scripts/clean-package-dist.mjs",
     "prebuild": "npm run generate && npm run clean",
     "build": "tsc",
@@ -28,7 +24,6 @@
   "devDependencies": {
     "@bufbuild/buf": "^1.71.0",
     "@bufbuild/protoc-gen-es": "^2.12.1",
-    "ts-proto": "^2.12.0",
     "typescript": "^5.7.0"
   }
 }

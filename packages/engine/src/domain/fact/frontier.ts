@@ -1,4 +1,5 @@
-import type { CausalCoordinate, Fact, FactFrontier } from "./types.js";
+import type { CausalCoordinate, FactFrontier } from "./fact-value-types.js";
+import type { Fact } from "./types.js";
 import { stableStringCompare } from "./canonical.js";
 
 export function normalizeFrontier(frontier: FactFrontier): FactFrontier {

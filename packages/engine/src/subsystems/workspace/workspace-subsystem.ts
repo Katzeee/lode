@@ -1,17 +1,9 @@
-import type {
-  EngineCommand,
-  EngineQuery,
-  EngineQueryForKind,
-  EngineQueryInput,
-  EngineQueryKind,
-  EngineQueryResult,
-  WriteResult,
-} from "@lode/sdk";
 import { WorkspaceNotFoundError } from "@lode/sdk/host";
 
-import { parseEngineCommand, parseEngineQuery, type AcceptedEngineCommand } from "./application/input-validation.js";
+import { createWorkspaceApplication } from "./workspace-application.js";
 import { establishGovernedWorkspace } from "./workspace-governance.js";
-import { SerialExecutor } from "./serial-executor.js";
+import { openOwnTransitKey } from "./workspace-governance.js";
+import { SerialExecutor } from "./authority/serial-executor.js";
 import { createWorkspaceFromStorage } from "./workspace-storage.js";
 import type { Workspace } from "./workspace.js";
 import { defineEngineSubsystem, type EngineSubsystemReference } from "../definition.js";
@@ -20,7 +12,6 @@ import type { EventSink } from "../event/index.js";
 import type { IdentityCapability } from "../identity/index.js";
 import type { PersistenceCapability, WorkspaceStorage, WorkspaceStorageFactory } from "../persistence/index.js";
 import type { StagedWorkspaceReplica, WorkspaceCapability, WorkspaceReplica } from "./capability.js";
-import { invalidInput, invalidWrite, workspaceNotFound, workspaceUnavailable } from "./workspace-errors.js";
 import { createWorkspaceReplica, failWorkspaceCleanup } from "./workspace-staging.js";
 import { WorkspaceStagingCollection } from "./workspace-staging-collection.js";
 
@@ -61,10 +52,10 @@ class WorkspaceCollection {
   private readonly transitions = new SerialExecutor();
 
   readonly capability: WorkspaceCapability = {
-    application: {
-      execute: (command) => this.execute(command),
-      query: (query) => this.query(query),
-    },
+    application: createWorkspaceApplication({
+      resolve: (workspaceId) => this.residents.get(workspaceId)?.workspace,
+      stopRequested: () => this.control.stopRequested,
+    }),
     list: () => {
       this.assertRunning();
       return Promise.resolve(this.summaries());
@@ -82,6 +73,15 @@ class WorkspaceCollection {
     replica: (workspaceId) => {
       this.assertRunning();
       return this.resident(workspaceId).replica;
+    },
+    replicaExchange: (workspaceId) => {
+      this.assertRunning();
+      const resident = this.resident(workspaceId);
+      return {
+        facts: resident.workspace.facts,
+        sync: resident.replica.sync,
+        openTransitKey: (state) => openOwnTransitKey(this.identity.peer, state),
+      };
     },
   };
 
@@ -111,11 +111,22 @@ class WorkspaceCollection {
   }
 
   private async stopWorkspaces(): Promise<void> {
-    await this.stagings.stop();
-    for (const [workspaceId, resident] of [...this.residents.entries()].reverse()) {
-      await resident.workspace.close();
-      this.residents.delete(workspaceId);
+    const failures: Error[] = [];
+    try {
+      await this.stagings.stop();
+    } catch (error) {
+      failures.push(toError(error));
     }
+    for (const [workspaceId, resident] of [...this.residents.entries()].reverse()) {
+      try {
+        await resident.workspace.close();
+      } catch (error) {
+        failures.push(toError(error));
+      } finally {
+        this.residents.delete(workspaceId);
+      }
+    }
+    throwCleanupFailures(failures);
   }
 
   private summaries() {
@@ -170,42 +181,6 @@ class WorkspaceCollection {
     return createWorkspaceFromStorage(storage, { eventSink });
   }
 
-  private execute(command: EngineCommand): Promise<WriteResult> {
-    if (this.control.stopRequested) {
-      return Promise.resolve({ status: "rejected", error: workspaceUnavailable("Engine is stopping") });
-    }
-    let parsed: AcceptedEngineCommand;
-    try {
-      parsed = parseEngineCommand(command);
-    } catch (error) {
-      return Promise.resolve(invalidWrite(error));
-    }
-    const resident = this.residents.get(parsed.workspaceId);
-    return resident
-      ? resident.workspace.executeAccepted(parsed)
-      : Promise.resolve({ status: "rejected", error: workspaceNotFound(parsed.workspaceId) });
-  }
-
-  private query<Kind extends EngineQueryKind>(
-    query: EngineQueryInput<Kind>,
-  ): Promise<EngineQueryResult<EngineQueryForKind<Kind>>>;
-  private async query(query: EngineQuery): Promise<EngineQueryResult> {
-    if (this.control.stopRequested) {
-      return { status: "rejected", error: workspaceUnavailable("Engine is stopping") };
-    }
-    let parsed: EngineQuery;
-    try {
-      parsed = parseEngineQuery(query);
-    } catch (error) {
-      return { status: "rejected", error: invalidInput(error) };
-    }
-    const resident = this.residents.get(parsed.workspaceId);
-    if (!resident) {
-      return { status: "rejected", error: workspaceNotFound(parsed.workspaceId) };
-    }
-    return { status: "ok", value: await resident.workspace.query(parsed) };
-  }
-
   private assertAbsent(workspaceId: string): void {
     if (this.residents.has(workspaceId)) {
       throw new Error(`Workspace ${workspaceId} already exists`);
@@ -225,4 +200,17 @@ class WorkspaceCollection {
     }
     return resident;
   }
+}
+
+function throwCleanupFailures(failures: readonly Error[]): void {
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Workspace subsystem failed to stop cleanly");
+  }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

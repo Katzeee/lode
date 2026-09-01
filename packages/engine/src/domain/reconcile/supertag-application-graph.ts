@@ -1,4 +1,5 @@
 import {
+  afterSequenceAnchor as after,
   NODE_SUPERTAGS_DEFINITION_NODE_ID,
   START_SEQUENCE_ANCHOR as start,
   type FactAction,
@@ -9,7 +10,7 @@ import {
 import { causalCollectionStates } from "./causal-collection.js";
 import { metanodeNodeId } from "./projection-identity.js";
 
-export type SupertagApplicationProjectionIdentity = Readonly<{
+type SupertagApplicationProjectionIdentity = Readonly<{
   applicationNodeId: string;
   applicationOccurrenceId: string;
   relationDefinitionOccurrenceId: string;
@@ -24,7 +25,7 @@ type SupertagApplicationState = Readonly<{
   identity: SupertagApplicationProjectionIdentity;
 }>;
 
-export function supertagApplicationProjectionIdentity(actionId: FactActionId): SupertagApplicationProjectionIdentity {
+function supertagApplicationProjectionIdentity(actionId: FactActionId): SupertagApplicationProjectionIdentity {
   const root = `${actionId}/projection/supertag-application`;
   return {
     applicationNodeId: `${root}/node`,
@@ -101,14 +102,4 @@ export function supertagApplicationPlacement(
         derived: true,
       }
     : null;
-}
-
-export function supertagApplicationStateByAction(
-  active: readonly FactAction[],
-): ReadonlyMap<FactActionId, SupertagApplicationState> {
-  return new Map(supertagApplicationStates(active).map((state) => [state.addition.id, state]));
-}
-
-function after(occurrenceId: string): SequenceAnchor {
-  return { after: occurrenceId, before: null, affinity: "after", fallback: "end" };
 }

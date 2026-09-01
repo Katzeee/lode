@@ -7,20 +7,18 @@
   "include": [
     "apps/cli/src/**/*.ts",
     "apps/cli/tests/**/*.ts",
-    "apps/daemon/src/**/*.ts",
-    "apps/daemon/tests/**/*.ts",
+    "packages/node-endpoint/src/**/*.ts",
     "packages/desktop-client/src/**/*.ts",
     "packages/desktop-client/tests/**/*.ts",
     "packages/protocol/src/**/*.ts",
     "packages/protocol/tests/**/*.ts",
     "packages/sdk/src/**/*.ts",
     "packages/sdk/tests/**/*.ts",
-    "packages/logger/src/**/*.ts",
+    "packages/system-schema/src/**/*.ts",
     "packages/daemon/src/**/*.ts",
     "packages/daemon/tests/**/*.ts",
     "packages/engine/src/**/*.ts",
-    "packages/engine/tests/**/*.ts",
-    "packages/transport/src/**/*.ts"
+    "packages/engine/tests/**/*.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
 }

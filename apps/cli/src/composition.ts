@@ -11,8 +11,8 @@ import {
 
 import { CliError, type TargetCandidate } from "./outcome/index.js";
 import { argvIncludesFormat, classify, renderFailure, renderResult } from "./rendering.js";
-import { CommandCatalog } from "./catalog/index.js";
-import { decodeInvocation, validateGlobalsFor, type InputFileReader, type Invocation } from "./invocation/index.js";
+import { validateGlobalsFor } from "./command/index.js";
+import { decodeInvocation, type InputFileReader, type Invocation } from "./invocation/index.js";
 import {
   readCliPreferences,
   readSyncEndpoint,
@@ -23,26 +23,10 @@ import {
 import { openSession } from "./session/index.js";
 import type { Io } from "./output/index.js";
 import { resolveWorkspaceFromList } from "./target/index.js";
-import { registerWorkspaceCommands } from "./families/workspace.js";
-import { registerWorkspaceGovernanceCommands } from "./families/workspace-governance.js";
-import { registerNodeCommands } from "./families/node.js";
-import { registerReferenceCommands } from "./families/reference.js";
-import { registerSupertagCommands } from "./families/supertag.js";
-import { registerFieldCommands } from "./families/field.js";
-import { registerSearchCommands } from "./families/search.js";
-import { registerViewCommands } from "./families/view.js";
-import { registerHistoryCommands } from "./families/history.js";
-import { registerReviewCommands } from "./families/review.js";
-import { registerSyncCommands } from "./families/sync.js";
-import { registerIdentityCommands } from "./families/identity.js";
-import { daemonCommands } from "./manage/daemon.js";
-import { homeCommands } from "./manage/home.js";
-import { launchDaemon } from "./daemon-launch.js";
-import { runDiagnosticCli } from "./diagnostics/index.js";
+import { launchDaemon } from "./manage/daemon-launch.js";
+import { createProductCatalog } from "./product-catalog.js";
 
 const CLI_VERSION = "0.1.0";
-
-const DIAGNOSTIC_COMMANDS = new Set(["execute", "query"]);
 
 /**
  * Composition root: the only place that knows every module. It builds the
@@ -57,44 +41,9 @@ type ProcessInputs = Readonly<{
   io: Io;
 }>;
 
-export function buildCatalog(): CommandCatalog {
-  const catalog = new CommandCatalog();
-  for (const register of [
-    registerWorkspaceCommands,
-    registerWorkspaceGovernanceCommands,
-    registerIdentityCommands,
-    registerNodeCommands,
-    registerReferenceCommands,
-    registerSupertagCommands,
-    registerFieldCommands,
-    registerSearchCommands,
-    registerViewCommands,
-    registerHistoryCommands,
-    registerReviewCommands,
-    registerSyncCommands,
-  ]) {
-    register(catalog);
-  }
-  for (const definition of [...homeCommands(), ...daemonCommands()]) {
-    catalog.register(definition);
-  }
-  return catalog;
-}
-
 export async function runLode(inputs: ProcessInputs): Promise<number> {
   const { argv, environment, io } = inputs;
-  const first = argv[0];
-  if (first !== undefined && DIAGNOSTIC_COMMANDS.has(first)) {
-    try {
-      await runDiagnosticCli(argv, (text) => io.stdout(text), environment);
-      return 0;
-    } catch (error) {
-      io.stderr(`${error instanceof Error ? error.message : String(error)}\n`);
-      return 1;
-    }
-  }
-
-  const catalog = buildCatalog();
+  const catalog = createProductCatalog();
   let invocation: Invocation;
   try {
     invocation = await decodeInvocation(argv, catalog, fileReader());
@@ -131,10 +80,13 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
   const { definition, globals, args } = invocation;
   const command = definition.path.join(".");
   const configDir = environment.LODE_CONFIG_DIR ?? lodeConfigDir();
+  let failureFormat = globals.format ?? "human";
+  let failureWorkspace: Readonly<{ ref: string; label: string }> | null = null;
   try {
     validateGlobalsFor(definition, globals);
     const preferences = await readCliPreferences(registryFile(configDir));
     const format = globals.format ?? preferences.defaultFormat ?? "human";
+    failureFormat = format;
 
     if (definition.runManagement !== undefined) {
       const result = await definition.runManagement({ globals, environment, configDir }, args);
@@ -144,7 +96,7 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
     const selection = selectHome(await readHomeRegistry(configDir), globals.home, environment.LODE_HOME);
     const client = await ensureRunningDaemon(selection, launchDaemon);
     const session = openSession(client);
-    try {
+    return await withSession(session, async () => {
       const workspaceChoice = globals.workspace ?? null;
       let workspace: Readonly<{ workspaceId: string; label: string }> | null = null;
       if (definition.needsWorkspace) {
@@ -153,6 +105,7 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
           throw missingWorkspace(workspaces);
         }
         workspace = resolveWorkspaceFromList(workspaces, workspaceChoice);
+        failureWorkspace = { ref: `workspace:${workspace.workspaceId}`, label: workspace.label };
       }
       const selectedActor =
         globals.actor ?? (workspace === null ? null : await readWorkspaceActor(selection.path, workspace.workspaceId));
@@ -177,13 +130,11 @@ export async function runLode(inputs: ProcessInputs): Promise<number> {
         args,
       );
       return renderResult(command, workspace, result, format, io);
-    } finally {
-      session.close();
-    }
+    });
   } catch (error) {
     const classified =
       error instanceof HomeConfigurationError ? new CliError("configuration-missing", error.message) : classify(error);
-    return renderFailure(classified, { command, workspace: null, io, format: globals.format ?? "human" });
+    return renderFailure(classified, { command, workspace: failureWorkspace, io, format: failureFormat });
   }
 }
 
@@ -222,4 +173,34 @@ function commandPathOf(argv: readonly string[]): string {
     .filter((token) => !token.startsWith("-"))
     .slice(0, 3)
     .join(".");
+}
+
+async function withSession<Result>(
+  session: Readonly<{ close(): void }>,
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  let result: Result;
+  try {
+    result = await operation();
+  } catch (error) {
+    try {
+      session.close();
+    } catch (cleanupError) {
+      const failure = new AggregateError(
+        [toError(error), toError(cleanupError)],
+        "CLI command and session cleanup failed",
+        {
+          cause: error,
+        },
+      );
+      throw failure;
+    }
+    throw error;
+  }
+  session.close();
+  return result;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

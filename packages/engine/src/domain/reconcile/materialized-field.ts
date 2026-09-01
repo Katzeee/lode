@@ -19,7 +19,7 @@ type MaterializedFieldProjection = Pick<
   | "workspaceSystemNodes"
 >;
 
-function materializedFieldProblem(
+export function materializedFieldProblem(
   authoredAction: Extract<AuthoredAction, { kind: "field-materialize" }>,
   projection: MaterializedFieldProjection,
 ): string | null {
@@ -53,14 +53,4 @@ function materializedFieldProblem(
     return "Materialized Field semantic identity is absent";
   }
   return null;
-}
-
-export function assertMaterializedField(
-  authoredAction: Extract<AuthoredAction, { kind: "field-materialize" }>,
-  projection: MaterializedFieldProjection,
-): void {
-  const problem = materializedFieldProblem(authoredAction, projection);
-  if (problem) {
-    throw new Error(problem);
-  }
 }

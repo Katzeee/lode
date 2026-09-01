@@ -1,46 +1,27 @@
-import { canonicalJson, compareCausalOrder, isViewAction, type FactAction, type FactActionId } from "../fact/index.js";
+import { isViewAction, proposableActionKindsInFamily, type FactAction, type FactActionId } from "../fact/index.js";
 import type { InterpretedProjection, InterpretedProjectionGeneration } from "../reconcile/index.js";
-import type { HunkCandidate, ReviewFamilyRule } from "./review-family.js";
+import { defineReviewFamily, originReviewChanged } from "./review-family.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
 import type { ViewDefinitionDecisionEffect, ViewDefinitionDecisionState } from "./types.js";
 
-const VIEW_ACTION_KINDS = [
-  "shared-default-view-add",
-  "shared-default-view-remove",
-  "shared-default-view-restore",
-  "view-mode-set",
-  "view-column-add",
-  "view-column-remove",
-  "view-column-move",
-  "view-sort-add",
-  "view-sort-configure",
-  "view-sort-remove",
-  "view-sort-restore",
-  "view-group-add",
-  "view-group-remove",
-  "view-filter-add",
-  "view-filter-remove",
-  "view-filter-restore",
-] as const;
+const VIEW_ACTION_KINDS = proposableActionKindsInFamily("view");
 
-export const viewDefinitionReviewFamily = {
+export const viewDefinitionReviewFamily = defineReviewFamily<
+  (typeof VIEW_ACTION_KINDS)[number],
+  FactActionId,
+  ViewDefinitionDecisionEffect
+>({
   key: "view-definition",
   actionKinds: VIEW_ACTION_KINDS,
   scopes(fact) {
     const identity = actionTarget(fact);
     return [reviewScope("view-definition", identity), associatedNodeScope(identity)];
   },
-  candidates: ({ generation, pending }) => candidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const viewId = viewIdFor(fact, generation);
-    if (!viewId) {
-      return null;
-    }
-    const effect = viewDefinitionEffect(viewId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? null
-      : { identity: `view-definition/${viewId}`, effect };
-  },
+  identify: (fact, generation) => viewIdFor(fact, generation),
+  effect: (_fact, viewId, generation) => viewDefinitionEffect(viewId, generation),
+  changed: originReviewChanged,
+  diffKind: "view-definition",
+  effectIdentity: (viewId) => `view-definition/${viewId}`,
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
       if (!isViewAction(fact.action)) {
@@ -60,38 +41,7 @@ export const viewDefinitionReviewFamily = {
       }
     }
   },
-} satisfies ReviewFamilyRule<(typeof VIEW_ACTION_KINDS)[number]>;
-
-function candidates(
-  generation: InterpretedProjectionGeneration,
-  pending: ReadonlyMap<FactActionId, FactAction>,
-): readonly HunkCandidate[] {
-  const groups = new Map<FactActionId, FactAction[]>();
-  for (const fact of pending.values()) {
-    if (!isViewAction(fact.action)) {
-      continue;
-    }
-    const viewId = viewIdFor(fact, generation);
-    if (!viewId) {
-      continue;
-    }
-    const group = groups.get(viewId) ?? [];
-    group.push(fact);
-    groups.set(viewId, group);
-  }
-  return [...groups].flatMap(([viewId, facts]) => {
-    const effect = viewDefinitionEffect(viewId, generation);
-    return canonicalJson(effect.origin) === canonicalJson(effect.review)
-      ? []
-      : [
-          {
-            diffSpace: { kind: "view-definition" as const, identity: viewId },
-            targets: [...facts].sort(compareCausalOrder).map(({ id }) => id),
-            bridges: [],
-          },
-        ];
-  });
-}
+});
 
 function viewDefinitionEffect(
   viewId: FactActionId,

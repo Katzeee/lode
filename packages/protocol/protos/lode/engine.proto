@@ -193,12 +193,6 @@ message OutlineQueryRequest {
   optional uint32 limit = 6;
 }
 
-message DebugNodeQueryRequest {
-  string workspace_id = 1;
-  ProjectionPerspective perspective = 2;
-  string node_id = 3;
-}
-
 message TrashEvidenceQueryRequest {
   string workspace_id = 1;
   ProjectionPerspective perspective = 2;
@@ -217,8 +211,7 @@ message EngineQuery {
     SearchResultsQueryRequest search_results = 8;
     ViewRowsQueryRequest view_rows = 9;
     OutlineQueryRequest outline = 10;
-    DebugNodeQueryRequest debug_node = 11;
-    TrashEvidenceQueryRequest trash_evidence = 12;
+    TrashEvidenceQueryRequest trash_evidence = 11;
   }
 }
 
@@ -329,22 +322,6 @@ message OutlineResult {
   bool available = 7;
 }
 
-message DebugNodeResult {
-  string generation_id = 1;
-  map<string, uint64> frontier = 2;
-  ProjectionPerspective perspective = 3;
-  string node_id = 4;
-  bool available = 5;
-  ProjectedNode node = 6;
-  google.protobuf.StringValue owner_node_id = 7;
-  google.protobuf.StringValue metanode_id = 8;
-  repeated string child_occurrence_ids = 9;
-  repeated string metanode_child_occurrence_ids = 10;
-  repeated MaterializedField materialized_fields = 11;
-  google.protobuf.StringValue url = 12;
-  google.protobuf.StringValue code_language = 13;
-}
-
 message TrashEvidence {
   string generation_id = 1;
   map<string, uint64> frontier = 2;
@@ -379,8 +356,7 @@ message QueryResult {
     SearchResultsResult search_results = 9;
     ViewRowsResult view_rows = 10;
     OutlineResult outline = 11;
-    DebugNodeResult debug_node = 12;
-    TrashEvidence trash_evidence = 13;
+    TrashEvidence trash_evidence = 12;
   }
 }
 
@@ -395,10 +371,6 @@ service EngineService {
   rpc Execute(EngineCommand) returns (WriteResult);
   rpc Query(EngineQuery) returns (QueryResult);
   rpc ListenEvents(google.protobuf.Empty) returns (stream EngineEvent);
-}
-
-message WorkspaceRequest {
-  string workspace_id = 1;
 }
 
 message WorkspaceSummary {
@@ -431,8 +403,4 @@ service EngineWorkspaceService {
   rpc ListWorkspaces(google.protobuf.Empty) returns (ListWorkspacesResult);
   rpc CreateWorkspace(CreateWorkspaceRequest) returns (google.protobuf.Empty);
   rpc AdoptWorkspace(AdoptWorkspaceRequest) returns (AdoptWorkspaceResult);
-}
-
-service EngineLifecycleService {
-  rpc Close(google.protobuf.Empty) returns (google.protobuf.Empty);
 }

@@ -17,7 +17,19 @@ export type CompensationRuleContext = Readonly<{
   counterfactual: InterpretedProjection;
 }>;
 
-export type CompensationRule = (
+export type CompensationEntry<Kind extends CompensationTargetAction["kind"] = CompensationTargetAction["kind"]> = (
   context: CompensationRuleContext,
-  target: FactAction<CompensationTargetAction>,
-) => CompensationStep | null;
+  target: FactAction<Extract<CompensationTargetAction, { kind: Kind }>>,
+) => CompensationStep;
+
+/**
+ * One inverse per action kind. Totality is enforced by the mapped type: adding
+ * an action without declaring its compensation fails to compile.
+ */
+export type CompensationCatalog = Readonly<{
+  [Kind in CompensationTargetAction["kind"]]: CompensationEntry<Kind>;
+}>;
+
+export function ready(actions: readonly GraphAction[]): CompensationStep {
+  return actions.length === 0 ? noCompensation() : { kind: "ready", actions };
+}

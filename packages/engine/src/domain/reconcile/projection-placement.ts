@@ -1,28 +1,21 @@
 import { factObserves, materializedFieldOccurrenceId, type FactAction } from "../fact/index.js";
+import { statesByAction } from "./causal-collection.js";
 import { activeFieldConfigurationActions } from "./field-configuration-actions.js";
 import { fieldConfigurationPlacement, fieldConfigurationPlacementIds } from "./field-configuration-graph.js";
-import {
-  optionalFieldPlacement,
-  optionalFieldPlacementIds,
-  optionalFieldStateByAction,
-} from "./optional-field-graph.js";
+import { optionalFieldPlacement, optionalFieldPlacementIds, optionalFieldStates } from "./optional-field-graph.js";
 import { templateMemberOccurrenceId } from "./projection-identity.js";
 import {
   searchExpressionPlacement,
   searchExpressionPlacementIds,
-  searchExpressionStateByAction,
+  searchExpressionStates,
 } from "./search-expression-graph.js";
 import {
   supertagApplicationPlacement,
   supertagApplicationPlacementIds,
-  supertagApplicationStateByAction,
+  supertagApplicationStates,
 } from "./supertag-application-graph.js";
-import {
-  templateFieldPlacement,
-  templateFieldPlacementIds,
-  templateFieldStateByAction,
-} from "./template-field-graph.js";
-import { viewPlacement, viewPlacementIds, viewStateByAction } from "./view-definition-graph.js";
+import { templateFieldPlacement, templateFieldPlacementIds, templateFieldStates } from "./template-field-graph.js";
+import { viewPlacement, viewPlacementIds, viewStates } from "./view-definition-graph.js";
 
 export type PlacementProjectionContext = ReturnType<typeof createPlacementProjectionContext>;
 
@@ -37,11 +30,11 @@ export function createPlacementProjectionContext(active: readonly FactAction[]) 
   return {
     active,
     activeFieldConfigurations: new Set(activeFieldConfigurationActions(active).map(({ id }) => id)),
-    applicationStates: supertagApplicationStateByAction(active),
-    templateFieldStates: templateFieldStateByAction(active),
-    optionalFieldStates: optionalFieldStateByAction(active),
-    searchExpressionStates: searchExpressionStateByAction(active),
-    views: viewStateByAction(active),
+    applicationStates: statesByAction(supertagApplicationStates(active)),
+    templateFieldStates: statesByAction(templateFieldStates(active)),
+    optionalFieldStates: statesByAction(optionalFieldStates(active)),
+    searchExpressionStates: statesByAction(searchExpressionStates(active)),
+    views: statesByAction(viewStates(active)),
   };
 }
 
@@ -66,7 +59,7 @@ export function placementIdsForAction(action: FactAction, context: PlacementProj
       return creation.kind === "field-materialize" &&
         creation.ownerNodeId === authoredAction.ownerNodeId &&
         creation.fieldDefinitionId === authoredAction.fieldDefinitionId &&
-        actionObserves(action, candidate)
+        factObserves(action, candidate)
         ? [materializedFieldOccurrenceId(creation.ownerNodeId, creation.fieldDefinitionId)]
         : [];
     });
@@ -80,7 +73,7 @@ export function placementIdsForAction(action: FactAction, context: PlacementProj
       return addition.kind === "template-member-add" &&
         addition.supertagId === authoredAction.supertagId &&
         addition.templateNodeId === authoredAction.templateNodeId &&
-        actionObserves(action, candidate)
+        factObserves(action, candidate)
         ? [templateMemberOccurrenceId(candidate.id)]
         : [];
     });
@@ -156,8 +149,4 @@ export function isPlacementRemovalAction(action: FactAction): boolean {
     action.action.kind === "materialized-field-clear" ||
     action.action.kind === "template-member-remove"
   );
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

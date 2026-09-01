@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { isNodeAction, isPlacementAction, isSupertagAction, isTextAction, type AuthoredAction } from "./index.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import {
+  END_SEQUENCE_ANCHOR as end,
+  isNodeAction,
+  isPlacementAction,
+  isSupertagAction,
+  isTextAction,
+  type AuthoredAction,
+} from "./index.js";
 
 describe("AuthoredAction family", () => {
   it("classifies domain families without inferring them from naming conventions", () => {

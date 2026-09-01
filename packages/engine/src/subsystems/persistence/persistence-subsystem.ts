@@ -48,9 +48,15 @@ class StorageResources {
 
   async closeAll(): Promise<void> {
     await Promise.all([...this.operations]);
+    const failures: Error[] = [];
     for (const release of [...this.releases].reverse()) {
-      await release();
+      try {
+        await release();
+      } catch (error) {
+        failures.push(...errorsFrom(error));
+      }
     }
+    throwCleanupFailures(failures, "Persistence storage resources failed to close");
   }
 }
 
@@ -64,8 +70,18 @@ export function createPersistenceSubsystemDefinition(backend: PersistenceBackend
         capability: createCapability(backend, registry, control),
         init: () => backend.discardStagedWorkspaces(),
         stop: async () => {
-          await registry.closeAll();
-          await backend.close();
+          const failures: Error[] = [];
+          try {
+            await registry.closeAll();
+          } catch (error) {
+            failures.push(...errorsFrom(error));
+          }
+          try {
+            await backend.close();
+          } catch (error) {
+            failures.push(...errorsFrom(error));
+          }
+          throwCleanupFailures(failures, "Persistence subsystem failed to close cleanly");
         },
       };
     },
@@ -137,12 +153,19 @@ function stageWorkspaceStorage(
     await physical.discard();
   });
 
-  const promote = (): Promise<WorkspaceStorage> =>
+  const promote = () =>
     registry.runAccepted(async () => {
       await storage.release();
-      const final = await physical.promote();
+      const promotion = await physical.promote();
       await discardArtifact();
-      return openWorkspaceStorage(final, registry);
+      const finalStorage = openWorkspaceStorage(promotion.storage, registry);
+      return {
+        storage: finalStorage,
+        rollback: async () => {
+          await finalStorage.release();
+          await promotion.rollback();
+        },
+      };
     });
 
   return { storage, promote, discard: discardArtifact };
@@ -153,6 +176,34 @@ function scoped(physical: PhysicalWorkspaceStorage, namespace: string): Document
 }
 
 async function failAfterCleanup(primary: unknown, cleanup: () => void | Promise<void>): Promise<never> {
-  await cleanup();
+  try {
+    await cleanup();
+  } catch (cleanupError) {
+    const failure = new AggregateError(
+      [toError(primary), toError(cleanupError)],
+      "Persistence operation and cleanup failed",
+      {
+        cause: primary,
+      },
+    );
+    throw failure;
+  }
   throw primary;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+function errorsFrom(value: unknown): readonly Error[] {
+  return value instanceof AggregateError ? value.errors.map(toError) : [toError(value)];
+}
+
+function throwCleanupFailures(failures: readonly Error[], message: string): void {
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, message);
+  }
 }

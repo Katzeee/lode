@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  END_SEQUENCE_ANCHOR as end,
   factActionsFromFacts,
   factActions,
   factActionId,
-  frontierOf,
   graphActionBody,
   makeFact,
   type Fact,
@@ -12,12 +12,12 @@ import {
   type FactId,
   type GraphAction,
 } from "../fact/index.js";
+import { frontierOf } from "../fact/frontier.js";
 import { projectSnapshot } from "../../../tests/support/reconcile/projection.js";
 import { deriveActivation, deriveSupport } from "./support.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../reconcile/index.js";
 
 const REPLICA = "101";
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("semantic support policy", () => {
   it("DEP-1 support is derived only by owner counterfactual policy", () => {

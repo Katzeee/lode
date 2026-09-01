@@ -1,13 +1,20 @@
 import type {
-  AdoptWorkspaceRequest,
-  CreateWorkspaceRequest,
-  EngineLifecycleService,
   EngineService,
   EngineWorkspaceService,
   IdentityService,
   WorkspaceGovernanceService,
 } from "@lode/protocol/proto";
 import type { EngineApplicationContract } from "./contract.js";
+
+export {
+  engineCommandFromMessage,
+  engineEventToMessage,
+  engineQueryFromMessage,
+  queryResultToMessage,
+  writeResultToMessage,
+} from "./protocol-codec.js";
+export { parseEngineCommand, parseEngineQuery } from "./validation.js";
+export { ProtocolInputValidationError } from "./protocol-input-error.js";
 
 /** Raised when an operation targets a Workspace that is not resident in the Engine. */
 export class WorkspaceNotFoundError extends Error {
@@ -124,17 +131,31 @@ export type EngineReplicas = Readonly<{
   synchronize(workspaceId: string, endpoint: string): Promise<ReplicaSynchronizationResult>;
 }>;
 
-export type EngineApi = Readonly<{
-  application: EngineApplicationContract;
-  identity: EngineIdentity;
-  governance: EngineGovernance;
-  workspaces: EngineWorkspaces;
-  replicas: EngineReplicas;
-}>;
+type HostProtocolCoverageIsComplete =
+  SameMembers<ProtocolApplicationMethod, keyof ApplicationMethodMap> extends true
+    ? SameMembers<keyof EngineApplicationContract, ApplicationMethodMap[keyof ApplicationMethodMap]> extends true
+      ? SameMembers<ProtocolWorkspaceMethod, "listWorkspaces" | "createWorkspace" | "adoptWorkspace"> extends true
+        ? SameMembers<ProtocolIdentityMethod, keyof EngineIdentity> extends true
+          ? SameMembers<ProtocolGovernanceMethod, keyof EngineGovernance>
+          : false
+        : false
+      : false
+    : false;
+
+type CheckedHostApi<Api> = HostProtocolCoverageIsComplete extends true ? Api : never;
+
+export type EngineApi = CheckedHostApi<
+  Readonly<{
+    application: EngineApplicationContract;
+    identity: EngineIdentity;
+    governance: EngineGovernance;
+    workspaces: EngineWorkspaces;
+    replicas: EngineReplicas;
+  }>
+>;
 
 type ProtocolApplicationMethod = keyof (typeof EngineService)["method"];
 type ProtocolWorkspaceMethod = keyof (typeof EngineWorkspaceService)["method"];
-type ProtocolLifecycleMethod = keyof (typeof EngineLifecycleService)["method"];
 type ProtocolIdentityMethod = keyof (typeof IdentityService)["method"];
 type ProtocolGovernanceMethod = keyof (typeof WorkspaceGovernanceService)["method"];
 type ApplicationMethodMap = Readonly<{
@@ -143,23 +164,3 @@ type ApplicationMethodMap = Readonly<{
   listenEvents: "subscribe";
 }>;
 type SameMembers<Left, Right> = [Left] extends [Right] ? ([Right] extends [Left] ? true : false) : false;
-type AssertTrue<Value extends true> = Value;
-
-export type EngineApplicationMethodCoverage = AssertTrue<
-  SameMembers<ProtocolApplicationMethod, keyof ApplicationMethodMap> extends true
-    ? SameMembers<keyof EngineApplicationContract, ApplicationMethodMap[keyof ApplicationMethodMap]>
-    : false
->;
-export type EngineWorkspaceMethodCoverage = AssertTrue<
-  SameMembers<ProtocolWorkspaceMethod, "listWorkspaces" | "createWorkspace" | "adoptWorkspace">
->;
-export type EngineLifecycleMethodCoverage = AssertTrue<SameMembers<ProtocolLifecycleMethod, "close">>;
-export type EngineIdentityMethodCoverage = AssertTrue<
-  SameMembers<ProtocolIdentityMethod, keyof EngineIdentity> extends true
-    ? SameMembers<keyof EngineIdentity, ProtocolIdentityMethod>
-    : false
->;
-export type EngineGovernanceMethodCoverage = AssertTrue<SameMembers<ProtocolGovernanceMethod, keyof EngineGovernance>>;
-type RequireFields<T, K extends keyof T> = K;
-export type WorkspaceCreateRequestShape = RequireFields<CreateWorkspaceRequest, "workspaceId" | "name" | "actorId">;
-export type WorkspaceAdoptRequestShape = RequireFields<AdoptWorkspaceRequest, "endpoint" | "workspaceId">;

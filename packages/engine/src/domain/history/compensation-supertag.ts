@@ -8,37 +8,24 @@ import {
 } from "../fact/index.js";
 import { sequenceAnchorAt, type InterpretedProjection, type TemplateField } from "../reconcile/index.js";
 import { compensateSupertagApplication } from "./compensation-supertag-application.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { noCompensation, ready, type CompensationCatalog, type CompensationEntry } from "./compensation-types.js";
 
-export function compensateSupertagAction(
-  target: FactAction,
-  activeFacts: readonly FactAction[],
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  const action = target.action;
-  if (!isSupertagAction(action)) {
-    return null;
-  }
-  if (hasLaterRelationEdit(target, activeFacts)) {
-    return noCompensation();
-  }
-  if (action.kind === "supertag-application-add" || action.kind === "supertag-membership-remove") {
-    return compensateSupertagApplication(
-      target as FactAction & Readonly<{ action: typeof action }>,
-      projection,
-      counterfactual,
-    );
-  }
-  if (action.kind === "supertag-extension-add") {
-    return contains(projection, action)
+export const SUPERTAG_COMPENSATIONS = {
+  "supertag-application-add": guarded(({ projection, counterfactual }, target) =>
+    compensateSupertagApplication(target, projection, counterfactual),
+  ),
+  "supertag-membership-remove": guarded(({ projection, counterfactual }, target) =>
+    compensateSupertagApplication(target, projection, counterfactual),
+  ),
+  "supertag-extension-add": guarded(({ projection }, { action }) =>
+    contains(projection, action)
       ? ready([
           { kind: "supertag-extension-remove", supertagId: action.supertagId, baseSupertagId: action.baseSupertagId },
         ])
-      : noCompensation();
-  }
-  if (action.kind === "supertag-extension-remove") {
-    return !contains(projection, action) && contains(counterfactual, action)
+      : noCompensation(),
+  ),
+  "supertag-extension-remove": guarded(({ projection, counterfactual }, { action }) =>
+    !contains(projection, action) && contains(counterfactual, action)
       ? ready([
           {
             kind: "supertag-extension-add",
@@ -47,77 +34,40 @@ export function compensateSupertagAction(
             anchor: currentAnchor(counterfactual.supertagExtensions[action.supertagId] ?? [], action.baseSupertagId),
           },
         ])
-      : noCompensation();
-  }
-  if (action.kind === "template-member-add" || action.kind === "template-member-remove") {
-    return compensateTemplateNodeRelation(action, projection, counterfactual);
-  }
-  if (
-    action.kind === "template-field-add" ||
-    action.kind === "template-field-remove" ||
-    action.kind === "template-field-restore" ||
-    action.kind === "template-field-visibility-set" ||
-    action.kind === "template-field-static-default-set"
-  ) {
-    return compensateTemplateField(action, target.id, projection, counterfactual);
-  }
-  if (action.kind === "optional-field-contribution-add") {
-    return contains(projection, action)
+      : noCompensation(),
+  ),
+  "template-member-add": guarded(({ projection }, { action }) =>
+    contains(projection, action)
+      ? ready([
+          { kind: "template-member-remove", supertagId: action.supertagId, templateNodeId: action.templateNodeId },
+        ])
+      : noCompensation(),
+  ),
+  "template-member-remove": guarded(({ projection, counterfactual }, { action }) => {
+    const occurrenceId = templateMemberOccurrence(counterfactual, action.supertagId, action.templateNodeId);
+    return !contains(projection, action) && occurrenceId !== null
       ? ready([
           {
-            kind: "optional-field-contribution-remove",
+            kind: "template-member-add",
             supertagId: action.supertagId,
-            fieldDefinitionId: action.fieldDefinitionId,
+            templateNodeId: action.templateNodeId,
+            anchor: currentAnchor(counterfactual.childOccurrences[action.supertagId] ?? [], occurrenceId),
           },
         ])
       : noCompensation();
-  }
-  const previous = (counterfactual.optionalFieldContributions[action.supertagId] ?? []).find(
-    (field) => field.fieldDefinitionId === action.fieldDefinitionId,
-  );
-  return previous && !contains(projection, action)
-    ? ready([
-        {
-          kind: "optional-field-contribution-add",
-          supertagId: action.supertagId,
-          fieldDefinitionId: action.fieldDefinitionId,
-          anchor: currentAnchor(
-            counterfactual.childOccurrences[previous.nurseryValueNodeId] ?? [],
-            previous.contributionOccurrenceId,
-          ),
-        },
-      ])
-    : noCompensation();
-}
-
-function compensateTemplateField(
-  action: Extract<
-    SupertagAction,
-    {
-      kind:
-        | "template-field-add"
-        | "template-field-remove"
-        | "template-field-restore"
-        | "template-field-visibility-set"
-        | "template-field-static-default-set";
-    }
-  >,
-  actionId: FactActionId,
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep {
-  if (action.kind === "template-field-add") {
-    return templateFieldById(projection, actionId)
+  }),
+  "template-field-add": guarded(({ projection }, target) =>
+    templateFieldById(projection, target.id)
       ? ready([
           {
             kind: "template-field-remove",
-            supertagId: action.supertagId,
-            fieldDefinitionId: action.fieldDefinition.fieldDefinitionId,
+            supertagId: target.action.supertagId,
+            fieldDefinitionId: target.action.fieldDefinition.fieldDefinitionId,
           },
         ])
-      : noCompensation();
-  }
-  if (action.kind === "template-field-remove") {
+      : noCompensation(),
+  ),
+  "template-field-remove": guarded(({ projection, counterfactual }, { action }) => {
     const currentIds = new Set(
       templateFieldsForPair(projection, action.supertagId, action.fieldDefinitionId).map((field) => field.factActionId),
     );
@@ -125,16 +75,16 @@ function compensateTemplateField(
       .filter((field) => !currentIds.has(field.factActionId))
       .map((field): GraphAction => ({ kind: "template-field-restore", templateFieldId: field.factActionId }));
     return restores.length > 0 ? ready(restores) : noCompensation();
-  }
-  if (action.kind === "template-field-restore") {
+  }),
+  "template-field-restore": guarded(({ projection }, { action }) => {
     const field = templateFieldById(projection, action.templateFieldId);
     return field
       ? ready([
           { kind: "template-field-remove", supertagId: field.supertagId, fieldDefinitionId: field.fieldDefinitionId },
         ])
       : noCompensation();
-  }
-  if (action.kind === "template-field-visibility-set") {
+  }),
+  "template-field-visibility-set": guarded(({ projection, counterfactual }, { action }) => {
     const current = templateFieldById(projection, action.templateFieldId);
     const previous = templateFieldById(counterfactual, action.templateFieldId);
     return current && previous
@@ -146,44 +96,60 @@ function compensateTemplateField(
           },
         ])
       : noCompensation();
-  }
-  const current = templateFieldById(projection, action.templateFieldId);
-  const previous = templateFieldById(counterfactual, action.templateFieldId);
-  const previousValues = new Set(previous?.staticDefaultCandidates.map((candidate) => candidate.value) ?? []);
-  return current && previousValues.size <= 1
-    ? ready([
-        {
-          kind: "template-field-static-default-set",
-          templateFieldId: action.templateFieldId,
-          value: previous?.staticDefaultCandidates[0]?.value ?? "",
-        },
-      ])
-    : noCompensation();
-}
-
-function compensateTemplateNodeRelation(
-  action: Extract<GraphAction, { kind: "template-member-add" | "template-member-remove" }>,
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep {
-  if (action.kind === "template-member-add") {
-    return contains(projection, action)
+  }),
+  "template-field-static-default-set": guarded(({ projection, counterfactual }, { action }) => {
+    const current = templateFieldById(projection, action.templateFieldId);
+    const previous = templateFieldById(counterfactual, action.templateFieldId);
+    const previousValues = new Set(previous?.staticDefaultCandidates.map((candidate) => candidate.value) ?? []);
+    return current && previousValues.size <= 1
       ? ready([
-          { kind: "template-member-remove", supertagId: action.supertagId, templateNodeId: action.templateNodeId },
+          {
+            kind: "template-field-static-default-set",
+            templateFieldId: action.templateFieldId,
+            value: previous?.staticDefaultCandidates[0]?.value ?? "",
+          },
         ])
       : noCompensation();
-  }
-  const occurrenceId = templateMemberOccurrence(counterfactual, action.supertagId, action.templateNodeId);
-  return !contains(projection, action) && occurrenceId !== null
-    ? ready([
-        {
-          kind: "template-member-add",
-          supertagId: action.supertagId,
-          templateNodeId: action.templateNodeId,
-          anchor: currentAnchor(counterfactual.childOccurrences[action.supertagId] ?? [], occurrenceId),
-        },
-      ])
-    : noCompensation();
+  }),
+  "optional-field-contribution-add": guarded(({ projection }, { action }) =>
+    contains(projection, action)
+      ? ready([
+          {
+            kind: "optional-field-contribution-remove",
+            supertagId: action.supertagId,
+            fieldDefinitionId: action.fieldDefinitionId,
+          },
+        ])
+      : noCompensation(),
+  ),
+  "optional-field-contribution-remove": guarded(({ projection, counterfactual }, { action }) => {
+    const previous = (counterfactual.optionalFieldContributions[action.supertagId] ?? []).find(
+      (field) => field.fieldDefinitionId === action.fieldDefinitionId,
+    );
+    return previous && !contains(projection, action)
+      ? ready([
+          {
+            kind: "optional-field-contribution-add",
+            supertagId: action.supertagId,
+            fieldDefinitionId: action.fieldDefinitionId,
+            anchor: currentAnchor(
+              counterfactual.childOccurrences[previous.nurseryValueNodeId] ?? [],
+              previous.contributionOccurrenceId,
+            ),
+          },
+        ])
+      : noCompensation();
+  }),
+} satisfies Partial<CompensationCatalog>;
+
+/**
+ * Every supertag inverse is preempted by a later edit of the same relation:
+ * the last writer owns the relation, so an earlier action has no effect left
+ * to compensate.
+ */
+function guarded<Kind extends SupertagAction["kind"]>(entry: CompensationEntry<Kind>): CompensationEntry<Kind> {
+  return (context, target) =>
+    hasLaterRelationEdit(target, context.activeFacts) ? noCompensation() : entry(context, target);
 }
 
 function templateFieldById(
@@ -201,11 +167,6 @@ function templateFieldsForPair(
   fieldDefinitionId: string,
 ): readonly TemplateField[] {
   return (projection.templateFields[supertagId] ?? []).filter((field) => field.fieldDefinitionId === fieldDefinitionId);
-}
-
-function ready(actions: readonly GraphAction[]): CompensationStep {
-  const first = actions[0];
-  return first ? { kind: "ready", actions: [first, ...actions.slice(1)] } : noCompensation();
 }
 
 function contains(projection: InterpretedProjection, action: SupertagAction): boolean {

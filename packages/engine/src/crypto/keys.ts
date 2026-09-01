@@ -52,16 +52,12 @@ export function signBytes(message: Uint8Array, seed: Uint8Array): Uint8Array {
   return copy(signWithNode(null, Buffer.from(message), ed25519PrivateKey(seed)));
 }
 
-/** Constant-shape verification: malformed input is a mismatch, never a crash. */
+/** Length-invalid inputs and cryptographic mismatches are ordinary verification failures. */
 export function verifyBytes(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
   if (publicKey.length !== PUBLIC_KEY_LENGTH || signature.length !== 64) {
     return false;
   }
-  try {
-    return verifyWithNode(null, Buffer.from(message), ed25519PublicKey(publicKey), Buffer.from(signature));
-  } catch {
-    return false;
-  }
+  return verifyWithNode(null, Buffer.from(message), ed25519PublicKey(publicKey), Buffer.from(signature));
 }
 
 /** Raw X25519 shared secret between an ephemeral secret and a peer public key. */

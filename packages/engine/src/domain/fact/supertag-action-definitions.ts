@@ -4,8 +4,8 @@ import {
   identity,
   relationKey,
   supertagIdentities,
-} from "./action-semantics/contribution-helpers.js";
-import { SELF_FACT_ACTION } from "./action-semantics/types.js";
+} from "./action-contribution-helpers.js";
+import { SELF_FACT_ACTION } from "./action-contribution-types.js";
 import { defineAction, defineActionFamily } from "./action-definition.js";
 import {
   enumField,
@@ -20,6 +20,7 @@ export const supertagActionDefinitions = defineActionFamily({
   addApplication: defineAction(
     "supertag-application-add",
     "proposable",
+    "internal",
     {
       hostNodeId: nonemptyStringField,
       supertagId: nonemptyStringField,
@@ -42,6 +43,7 @@ export const supertagActionDefinitions = defineActionFamily({
   removeMembership: defineAction(
     "supertag-membership-remove",
     "proposable",
+    "internal",
     {
       hostNodeId: nonemptyStringField,
       supertagId: nonemptyStringField,
@@ -60,6 +62,7 @@ export const supertagActionDefinitions = defineActionFamily({
   addExtension: defineAction(
     "supertag-extension-add",
     "proposable",
+    "direct",
     {
       supertagId: nonemptyStringField,
       baseSupertagId: nonemptyStringField,
@@ -82,6 +85,7 @@ export const supertagActionDefinitions = defineActionFamily({
   removeExtension: defineAction(
     "supertag-extension-remove",
     "proposable",
+    "direct",
     {
       supertagId: nonemptyStringField,
       baseSupertagId: nonemptyStringField,
@@ -100,6 +104,7 @@ export const supertagActionDefinitions = defineActionFamily({
   addTemplateMember: defineAction(
     "template-member-add",
     "proposable",
+    "direct",
     {
       supertagId: nonemptyStringField,
       templateNodeId: nonemptyStringField,
@@ -122,6 +127,7 @@ export const supertagActionDefinitions = defineActionFamily({
   removeTemplateMember: defineAction(
     "template-member-remove",
     "proposable",
+    "direct",
     {
       supertagId: nonemptyStringField,
       templateNodeId: nonemptyStringField,
@@ -140,6 +146,7 @@ export const supertagActionDefinitions = defineActionFamily({
   addTemplateField: defineAction(
     "template-field-add",
     "proposable",
+    "internal",
     {
       supertagId: nonemptyStringField,
       fieldDefinition: templateFieldDefinitionField,
@@ -169,6 +176,7 @@ export const supertagActionDefinitions = defineActionFamily({
   removeTemplateField: defineAction(
     "template-field-remove",
     "proposable",
+    "internal",
     {
       supertagId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,
@@ -187,6 +195,7 @@ export const supertagActionDefinitions = defineActionFamily({
   restoreTemplateField: defineAction(
     "template-field-restore",
     "proposable",
+    "internal",
     {
       templateFieldId: factActionIdField,
     },
@@ -203,6 +212,7 @@ export const supertagActionDefinitions = defineActionFamily({
   setTemplateFieldVisibility: defineAction(
     "template-field-visibility-set",
     "proposable",
+    "internal",
     {
       templateFieldId: factActionIdField,
       visibility: enumField(["normal", "pinned"] as const),
@@ -222,6 +232,7 @@ export const supertagActionDefinitions = defineActionFamily({
   setTemplateFieldStaticDefault: defineAction(
     "template-field-static-default-set",
     "proposable",
+    "internal",
     {
       templateFieldId: factActionIdField,
       value: stringField,
@@ -241,6 +252,7 @@ export const supertagActionDefinitions = defineActionFamily({
   addOptionalFieldContribution: defineAction(
     "optional-field-contribution-add",
     "proposable",
+    "internal",
     {
       supertagId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,
@@ -263,6 +275,7 @@ export const supertagActionDefinitions = defineActionFamily({
   removeOptionalFieldContribution: defineAction(
     "optional-field-contribution-remove",
     "proposable",
+    "internal",
     {
       supertagId: nonemptyStringField,
       fieldDefinitionId: nonemptyStringField,

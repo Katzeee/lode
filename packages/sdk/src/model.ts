@@ -5,7 +5,7 @@ import type {
   ProjectionIdentity as ProtocolProjectionIdentity,
   ReceiptLineage as ProtocolReceiptLineage,
   SequenceAnchor as ProtocolSequenceAnchor,
-} from "@lode/protocol/dto/model";
+} from "@lode/protocol/proto";
 import type { FactActionId, FactId } from "./fact-identities.js";
 import type {
   AnchorAffinity,
@@ -19,12 +19,8 @@ import { viewSortDirection, type ViewSortDirection } from "./protocol-enums/mode
 import { projectionPerspective, type ProjectionPerspective } from "./protocol-enums/projection.js";
 import { resolutionDecision, type ResolutionDecision } from "./protocol-enums/review.js";
 import { editIntent, type EditIntent } from "./protocol-enums/engine.js";
+import type { ProtocolDto } from "./protocol-dto.js";
 
-export type WorkspaceId = string;
-export type ReplicaId = string;
-export type ActorId = string;
-export type InvocationId = string;
-export type HistoryChannelId = string;
 export type { EditIntent, ResolutionDecision, ProjectionPerspective };
 export const EDIT_INTENTS: readonly EditIntent[] = editIntent.values;
 export const PROJECTION_PERSPECTIVES: readonly ProjectionPerspective[] = projectionPerspective.values;
@@ -33,20 +29,7 @@ export const VIEW_SORT_DIRECTIONS: readonly ViewSortDirection[] = viewSortDirect
 
 export type JsonValue =
   null | boolean | number | string | readonly JsonValue[] | Readonly<{ [key: string]: JsonValue }>;
-export type FactFrontier = Readonly<Record<ReplicaId, number>>;
-
 export type TextAtomId = `${FactActionId}#${number}`;
-export type InlineReferenceId = string;
-
-type IsAny<Value> = 0 extends 1 & Value ? true : false;
-export type ProtocolDto<Value> =
-  IsAny<Value> extends true
-    ? JsonValue
-    : Value extends readonly (infer Item)[]
-      ? readonly ProtocolDto<Item>[]
-      : Value extends object
-        ? { readonly [Key in keyof Value]: ProtocolDto<Value[Key]> }
-        : Value;
 
 export type SequenceAnchor = Omit<ProtocolDto<ProtocolSequenceAnchor>, "affinity" | "fallback"> &
   Readonly<{ affinity: AnchorAffinity; fallback: AnchorFallback }>;
@@ -62,10 +45,17 @@ export const END_SEQUENCE_ANCHOR: SequenceAnchor = Object.freeze({
   affinity: "after",
   fallback: "end",
 });
-type PreviousValueCase = NonNullable<ProtocolPreviousValue["state"]>["$case"];
-export type PreviousValue =
-  | Readonly<{ kind: Extract<PreviousValueCase, "unset">; value?: never }>
-  | Readonly<{ kind: Extract<PreviousValueCase, "set">; value: JsonValue }>;
+type PreviousValueCase = Exclude<ProtocolPreviousValue["state"]["case"], undefined>;
+type PreviousValueByCase = Readonly<{
+  unset: Readonly<{ kind: "unset"; value?: never }>;
+  set: Readonly<{ kind: "set"; value: JsonValue }>;
+}>;
+type PreviousValueCasesAreComplete = [PreviousValueCase] extends [keyof PreviousValueByCase]
+  ? [keyof PreviousValueByCase] extends [PreviousValueCase]
+    ? true
+    : false
+  : false;
+export type PreviousValue = PreviousValueCasesAreComplete extends true ? PreviousValueByCase[PreviousValueCase] : never;
 export type { IntrinsicNodeType };
 export type { ViewType };
 export type { TemplateFieldVisibility };
@@ -141,6 +131,3 @@ export type ReceiptLineage = Omit<ProtocolDto<ProtocolReceiptLineage>, "operatio
 export type AuthorityReceipt = Omit<ProtocolDto<ProtocolAuthorityReceipt>, "factIds" | "lineage"> &
   Readonly<{ factIds: readonly FactId[]; lineage: ReceiptLineage | null }>;
 export type ProjectionIdentity = ProtocolDto<ProtocolProjectionIdentity>;
-
-type AssertNever<Value extends never> = Value;
-export type PreviousValueCoverage = AssertNever<Exclude<PreviousValueCase, PreviousValue["kind"]>>;

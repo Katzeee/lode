@@ -1,11 +1,12 @@
 import { defineAction, defineActionFamily } from "./action-definition.js";
-import { identity } from "./action-semantics/contribution-helpers.js";
+import { identity } from "./action-contribution-helpers.js";
 import { nonemptyStringField, sequenceAnchorField } from "./action-field-decoders.js";
 
 export const inlineReferenceActionDefinitions = defineActionFamily({
   create: defineAction(
     "inline-reference-create",
     "proposable",
+    "direct",
     {
       inlineReferenceId: nonemptyStringField,
       hostNodeId: nonemptyStringField,
@@ -21,6 +22,7 @@ export const inlineReferenceActionDefinitions = defineActionFamily({
   remove: defineAction(
     "inline-reference-remove",
     "proposable",
+    "direct",
     {
       inlineReferenceId: nonemptyStringField,
     },
@@ -31,6 +33,7 @@ export const inlineReferenceActionDefinitions = defineActionFamily({
   attachAlias: defineAction(
     "inline-alias-attach",
     "proposable",
+    "direct",
     {
       inlineReferenceId: nonemptyStringField,
       aliasNodeId: nonemptyStringField,
@@ -47,6 +50,7 @@ export const inlineReferenceActionDefinitions = defineActionFamily({
   detachAlias: defineAction(
     "inline-alias-detach",
     "proposable",
+    "direct",
     {
       inlineReferenceId: nonemptyStringField,
       aliasNodeId: nonemptyStringField,

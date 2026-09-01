@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
 import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 
+import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../../../packages/daemon/src/daemon.js";
+import { DesktopPeerTransport } from "../../../../packages/daemon/src/peer-exchange-transport.js";
 import { runLode } from "../../src/composition.js";
 
 /**
@@ -54,6 +55,7 @@ export async function startHomeHarness(label: string, workspaceLabel: string): P
     exchangeAddress: peerTransport.address,
     accessToken,
     status: { homeName: "main", daemonVersion: "test", homePath: home },
+    onShutdown: () => undefined,
   });
   const actor = await engine.api.identity.createActor({ label: "Harness Actor", passphrase: vaultPassphrase });
   await engine.api.workspaces.createWorkspace({

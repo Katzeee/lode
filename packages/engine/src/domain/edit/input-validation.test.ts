@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { parseEditAction } from "./input-validation.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { END_SEQUENCE_ANCHOR as end } from "../fact/index.js";
 const semanticId = "g1/workspace/101/2/actions/0";
 
 describe("edit input validation", () => {

@@ -13,7 +13,7 @@ export function createEventSubsystemDefinition() {
       let active = false;
       return {
         capability: {
-          subscribe: (listener) => {
+          subscribe: (listener, _onError) => {
             if (!active || control.stopRequested) {
               throw new Error("Event subsystem is not active");
             }

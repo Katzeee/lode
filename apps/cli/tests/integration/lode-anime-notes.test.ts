@@ -2,13 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultExchangeEndpoint, DesktopPeerTransport, startDaemon, type Daemon } from "@lode/daemon";
 import { createEngine, NodePersistenceBackend } from "@lode/engine/host";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createDesktopClient } from "@lode/desktop-client";
-import { runDiagnosticCli } from "../../src/diagnostics/index.js";
+import { defaultExchangeEndpoint, startDaemon, type Daemon } from "../../../../packages/daemon/src/daemon.js";
+import { DesktopPeerTransport } from "../../../../packages/daemon/src/peer-exchange-transport.js";
+import { createDesktopClient } from "../../../../packages/desktop-client/src/desktop-client.js";
 import { animeNotesProgram, reviewApplicationProposal } from "./anime-notes-fixture.js";
+import { engineRequest } from "./engine-request.js";
 
 const workspaceId = "anime-notes";
 const outlineWorkspaceId = "outline-product";
@@ -69,6 +70,7 @@ async function startTestDaemon(options: Readonly<{ listen: string; dataRoot: str
     exchangeAddress: peerTransport.address,
     accessToken: options.accessToken,
     status: { homeName: "test", daemonVersion: "test", homePath: options.dataRoot },
+    onShutdown: () => undefined,
   });
   return daemon;
 }
@@ -633,11 +635,7 @@ async function cliRequest(
   endpoint: string,
   request: unknown,
 ): Promise<Record<string, unknown>> {
-  let output = "";
-  await runDiagnosticCli([operation, endpoint, JSON.stringify(request), "--access-token", accessToken], (text) => {
-    output += text;
-  });
-  return record(JSON.parse(output) as unknown, "CLI response");
+  return engineRequest(operation, endpoint, accessToken, request);
 }
 
 async function temporaryDirectory(label: string): Promise<string> {

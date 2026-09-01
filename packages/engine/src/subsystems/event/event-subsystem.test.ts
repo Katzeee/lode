@@ -10,13 +10,13 @@ describe("EventSubsystem", () => {
     const built = buildEvent();
     const listener = vi.fn();
 
-    expect(() => built.api.subscribe(listener)).toThrow("Event subsystem is not active");
+    expect(() => built.api.subscribe(listener, rethrow)).toThrow("Event subsystem is not active");
     built.api.publish(event);
     await built.lifecycle.start();
     built.api.subscribe(() => {
       throw new Error("listener failed");
-    });
-    built.api.subscribe(listener);
+    }, rethrow);
+    built.api.subscribe(listener, rethrow);
 
     built.api.publish(event);
     expect(listener).toHaveBeenCalledWith(event);
@@ -24,7 +24,7 @@ describe("EventSubsystem", () => {
     await built.lifecycle.stop();
     built.api.publish(event);
     expect(listener).toHaveBeenCalledTimes(1);
-    expect(() => built.api.subscribe(listener)).toThrow("Event subsystem is not active");
+    expect(() => built.api.subscribe(listener, rethrow)).toThrow("Event subsystem is not active");
   });
 
   it("rejects events whose publisher has not made them immutable", async () => {
@@ -50,4 +50,8 @@ function createEvent(): EngineEvent {
     frontier,
     generationId: "generation-1",
   });
+}
+
+function rethrow(error: unknown): never {
+  throw error;
 }

@@ -8,15 +8,15 @@ export function bindEditCommand(command: AcceptedEditCommand): BoundWorkspaceCom
   return {
     factReadPlan: { kind: "all" },
     plan({ workspaceId, snapshot, generation, replicaId }) {
-      const writes = prepareEdits(
+      const writes = prepareEdits({
         workspaceId,
-        command.actorId,
-        command.actions,
+        actorId: command.actorId,
+        edits: command.actions,
         generation,
-        command.intent,
+        intent: command.intent,
         snapshot,
         replicaId,
-      );
+      });
       return {
         writes: writes.map((write) => graphActionBody(command.actorId, command.intent, write)),
         lineage: nextHistoryLineage(snapshot, command.historyChannelId, "normal", null),

@@ -1,18 +1,21 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   FIELD_CARDINALITY_NODE_IDS,
   FIELD_DATATYPE_NODE_IDS,
   materializedFieldNodeId,
 } from "../../domain/fact/index.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Field Value depth", () => {
   it("FIELD-VALUE-1 preserves list identities, nested Plain content, and reorder through Proposal, History, and restart", async () => {
@@ -23,7 +26,7 @@ describe("Field Value depth", () => {
     await publish(opened.workspace, command("alpha", [valueCreate("owner", "field", "alpha", "Alpha")]));
     await publish(
       opened.workspace,
-      command("nested", [nodeAt("nested", "alpha", "nested-occurrence", "Nested child")]),
+      command("nested", [nodeAt("nested", "alpha", "nested-occurrence", { text: "Nested child" })]),
     );
     expect(
       await opened.workspace.execute(
@@ -189,10 +192,16 @@ async function establishFixture(workspace: Workspace): Promise<void> {
   await publish(
     workspace,
     command("fixture", [
-      nodeAt("owner", "workspace", "owner-occurrence", "Owner"),
-      nodeAt("other", "workspace", "other-occurrence", "Other owner"),
-      nodeAt("field", "workspace", "field-definition-occurrence", "Field", "field-definition"),
-      nodeAt("other-field", "workspace", "other-field-definition-occurrence", "Other Field", "field-definition"),
+      nodeAt("owner", "workspace", "owner-occurrence", { text: "Owner" }),
+      nodeAt("other", "workspace", "other-occurrence", { text: "Other owner" }),
+      nodeAt("field", "workspace", "field-definition-occurrence", {
+        text: "Field",
+        intrinsicNodeType: "field-definition",
+      }),
+      nodeAt("other-field", "workspace", "other-field-definition-occurrence", {
+        text: "Other Field",
+        intrinsicNodeType: "field-definition",
+      }),
     ]),
   );
   await publish(
@@ -233,24 +242,6 @@ function valueCreate(ownerNodeId: string, prefix: string, valuePrefix: string, t
     valueOccurrenceId: `${valuePrefix}-occurrence`,
     anchor: end,
     seed: textSeed(text),
-  };
-}
-
-function nodeAt(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  text: string,
-  intrinsicNodeType?: "field-definition",
-): EditAction {
-  return {
-    kind: "node-create",
-    nodeId,
-    parentNodeId,
-    occurrenceId,
-    anchor: end,
-    seed: textSeed(text),
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
   };
 }
 
@@ -330,7 +321,7 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
     loroPeerId,
     documents: documents,
   });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }) };
 }
 
 async function publish(workspace: Workspace, command: EditCommand): Promise<void> {

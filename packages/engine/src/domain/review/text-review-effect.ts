@@ -1,10 +1,17 @@
-import { canonicalJson, type FactAction, type JsonValue, type PreviousValue } from "../fact/index.js";
+import {
+  canonicalJson,
+  isTextAction,
+  type FactAction,
+  type JsonValue,
+  type PreviousValue,
+  type TextAction,
+} from "../fact/index.js";
 import { textAtoms, type InterpretedProjectionGeneration } from "../reconcile/index.js";
 import type { TextDecisionEffect } from "./types.js";
 
 export function textEffect(
   nodeId: string,
-  targets: readonly FactAction[],
+  targets: readonly FactAction<TextAction>[],
   generation: InterpretedProjectionGeneration,
 ): TextDecisionEffect {
   const origin = textAtoms(generation.origin.nodes[nodeId]);
@@ -12,15 +19,8 @@ export function textEffect(
   const originById = new Map(origin.map((atom) => [atom.id, atom]));
   const reviewById = new Map(review.map((atom) => [atom.id, atom]));
   const targetIds = new Set(targets.map((target) => target.id));
-  const targetDeletedIds = new Set(
-    targets.flatMap((target) => (target.action.kind === "rich-text-splice" ? target.action.deleteAtomIds : [])),
-  );
-  const targetMarks = new Set(
-    targets.flatMap((target) => {
-      const action = target.action;
-      return action.kind === "rich-text-mark" ? action.atomIds.map((atomId) => `${atomId}/${action.key}`) : [];
-    }),
-  );
+  const targetDeletedIds = new Set(targets.flatMap((target) => deletedTextAtomIds(target.action)));
+  const targetMarks = new Set(targets.flatMap((target) => markedAttributes(target.action)));
   const addedAtomIds = review
     .filter((atom) => !originById.has(atom.id) && targetIds.has(atom.factActionId))
     .map((atom) => atom.id);
@@ -53,10 +53,34 @@ export function hasTextEffect(effect: TextDecisionEffect): boolean {
   return effect.addedAtomIds.length + effect.deletedAtomIds.length + effect.markChanges.length > 0;
 }
 
-export function isTextAction(
-  action: FactAction["action"],
-): action is Extract<FactAction["action"], { kind: "rich-text-splice" | "rich-text-mark" }> {
-  return action.kind === "rich-text-splice" || action.kind === "rich-text-mark";
+export function isTextFactAction(fact: FactAction): fact is FactAction<TextAction> {
+  return isTextAction(fact.action);
+}
+
+function deletedTextAtomIds(action: TextAction): readonly string[] {
+  switch (action.kind) {
+    case "rich-text-splice":
+      return action.deleteAtomIds;
+    case "rich-text-mark":
+      return [];
+    default:
+      return assertNever(action);
+  }
+}
+
+function markedAttributes(action: TextAction): readonly string[] {
+  switch (action.kind) {
+    case "rich-text-splice":
+      return [];
+    case "rich-text-mark":
+      return action.atomIds.map((atomId) => `${atomId}/${action.key}`);
+    default:
+      return assertNever(action);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unknown Text Action: ${JSON.stringify(value)}`);
 }
 
 function attributeState(values: Readonly<Record<string, JsonValue>>, key: string): PreviousValue {

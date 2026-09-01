@@ -4,15 +4,16 @@ import {
   expressionHostIdentities,
   identity,
   searchClauseIdentities,
-} from "./action-semantics/contribution-helpers.js";
-import { SELF_FACT_ACTION } from "./action-semantics/types.js";
+} from "./action-contribution-helpers.js";
+import { SELF_FACT_ACTION } from "./action-contribution-types.js";
 import {
   factActionIdField,
   nonemptyStringField,
   nullableFactActionIdField,
   sequenceAnchorField,
 } from "./action-field-decoders.js";
-import { parseSearchClause, type SearchClause } from "./search-expression-spec.js";
+import { parseSearchClause } from "./search-expression-spec.js";
+import type { SearchClause } from "./search-expression-types.js";
 
 const searchClauseField = field<SearchClause>((value) => parseSearchClause(value));
 
@@ -20,6 +21,7 @@ export const searchActionDefinitions = defineActionFamily({
   addExpression: defineAction(
     "search-expression-add",
     "proposable",
+    "internal",
     {
       expressionHostId: nonemptyStringField,
       parentExpressionId: nullableFactActionIdField,
@@ -49,6 +51,7 @@ export const searchActionDefinitions = defineActionFamily({
   configureExpression: defineAction(
     "search-expression-configure",
     "proposable",
+    "internal",
     {
       expressionId: factActionIdField,
       clause: searchClauseField,
@@ -69,6 +72,7 @@ export const searchActionDefinitions = defineActionFamily({
   moveExpression: defineAction(
     "search-expression-move",
     "proposable",
+    "internal",
     {
       expressionId: factActionIdField,
       parentExpressionId: nullableFactActionIdField,
@@ -92,6 +96,7 @@ export const searchActionDefinitions = defineActionFamily({
   removeExpression: defineAction(
     "search-expression-remove",
     "proposable",
+    "internal",
     {
       expressionId: factActionIdField,
     },
@@ -108,6 +113,7 @@ export const searchActionDefinitions = defineActionFamily({
   restoreExpression: defineAction(
     "search-expression-restore",
     "proposable",
+    "internal",
     {
       expressionId: factActionIdField,
     },

@@ -1,2 +1,3 @@
-export { type WorkspaceCapability, type WorkspaceReplica } from "./capability.js";
-export type { SyncBytes, SyncableComposite, SyncableDoc } from "./replica-sync.js";
+export { type WorkspaceCapability, type WorkspaceReplica, type WorkspaceReplicaExchange } from "./capability.js";
+export type { SyncBytes, SyncableDoc } from "./authority/replication.js";
+export type { SyncableComposite } from "./fact-replication.js";

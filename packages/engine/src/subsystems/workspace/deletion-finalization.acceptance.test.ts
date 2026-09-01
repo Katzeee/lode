@@ -1,14 +1,16 @@
+import {
+  openTestWorkspace,
+  type TestWorkspace as Workspace,
+} from "../../../tests/support/workspace/open-test-workspace.js";
 import type { EditCommand } from "@lode/sdk";
 import { describe, expect, it } from "vitest";
 
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { FactReplication } from "./fact-replication.js";
-import { Workspace } from "./workspace.js";
-import { syncPair } from "../../../tests/support/sync.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import { END_SEQUENCE_ANCHOR as end } from "../../domain/fact/index.js";
+import { nodeAt } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Deletion Finalization", () => {
   it("records one explicit terminal Action Fact for a Trash root and its owned descendants", async () => {
@@ -17,9 +19,9 @@ describe("Deletion Finalization", () => {
     await expectPublished(
       opened.workspace.execute(
         edit("setup", [
-          nodeCreate("parent", "workspace"),
-          nodeCreate("child", "parent"),
-          nodeCreate("shared", "workspace"),
+          nodeAt("parent", "workspace"),
+          nodeAt("child", "parent"),
+          nodeAt("shared", "workspace"),
           {
             kind: "occurrence-create",
             occurrenceId: "shared-under-parent",
@@ -69,8 +71,8 @@ describe("Deletion Finalization", () => {
     await expectPublished(
       opened.workspace.execute(
         edit("setup-reference", [
-          nodeCreate("host", "workspace"),
-          nodeCreate("target", "workspace"),
+          nodeAt("host", "workspace"),
+          nodeAt("target", "workspace"),
           {
             kind: "inline-reference-create",
             inlineReferenceId: "reference",
@@ -118,7 +120,7 @@ describe("Deletion Finalization", () => {
 
   it("rejects a root that is not currently in Trash", async () => {
     const opened = await open(new InMemoryDocumentStore());
-    await expectPublished(opened.workspace.execute(edit("setup-active", [nodeCreate("active", "workspace")])));
+    await expectPublished(opened.workspace.execute(edit("setup-active", [nodeAt("active", "workspace")])));
     expect(
       await opened.workspace.execute({
         kind: "finalize-deletions",
@@ -134,7 +136,7 @@ describe("Deletion Finalization", () => {
     const primary = await open(new InMemoryDocumentStore(), "101");
     await expectPublished(
       primary.workspace.execute(
-        edit("setup-concurrency", [nodeCreate("target", "workspace"), nodeCreate("later", "workspace")]),
+        edit("setup-concurrency", [nodeAt("target", "workspace"), nodeAt("later", "workspace")]),
       ),
     );
     await expectPublished(primary.workspace.execute(edit("trash-target", [{ kind: "node-delete", nodeId: "target" }])));
@@ -175,11 +177,11 @@ describe("Deletion Finalization", () => {
 
 async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}` = "101", seedGenesis = true) {
   const facts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId, documents });
-  return { facts, workspace: await Workspace.open({ workspaceId: "workspace", facts, versions, seedGenesis }) };
+  return { facts, workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions, seedGenesis }) };
 }
 
 async function sync(left: Awaited<ReturnType<typeof open>>, right: Awaited<ReturnType<typeof open>>): Promise<void> {
-  await syncPair(new FactReplication(left.facts.replication), new FactReplication(right.facts.replication));
+  await syncPair(testFactReplication(left.facts.replication), testFactReplication(right.facts.replication));
   await left.workspace.reconcileAuthorityAdvance();
   await right.workspace.reconcileAuthorityAdvance();
 }
@@ -197,16 +199,6 @@ function edit(
     intent,
     historyChannelId: "deletion-finalization",
     actions,
-  };
-}
-
-function nodeCreate(nodeId: string, parentNodeId: string): EditCommand["actions"][number] {
-  return {
-    kind: "node-create",
-    occurrenceId: `${nodeId}-original`,
-    nodeId,
-    parentNodeId,
-    anchor: end,
   };
 }
 

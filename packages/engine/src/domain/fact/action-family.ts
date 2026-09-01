@@ -2,23 +2,22 @@ import {
   actionBelongsToFamily,
   actionHasAdmission,
   isCatalogGraphAction,
-  isCatalogGraphActionKind,
   type ActionFamily,
   type ActionInFamily,
 } from "./action-catalog.js";
 import type { AuthoredAction, FactAction, GraphAction, ProposableAction } from "./types.js";
 
-export type NodeAction = ActionInFamily<"node">;
+type NodeAction = ActionInFamily<"node">;
 export type GraphNodeAction = Extract<GraphAction, NodeAction>;
 export type PlacementAction = ActionInFamily<"placement">;
 export type SupertagAction = ActionInFamily<"supertag">;
 export type TemplateAction = ActionInFamily<"template">;
 export type FieldAction = ActionInFamily<"field">;
-export type FieldDefinitionAction = ActionInFamily<"fieldDefinition">;
-export type FieldConfigurationSetAction = Extract<FieldDefinitionAction, { kind: "field-configuration-set" }>;
+type FieldDefinitionAction = ActionInFamily<"fieldDefinition">;
+type FieldConfigurationSetAction = Extract<FieldDefinitionAction, { kind: "field-configuration-set" }>;
 export type TextAction = ActionInFamily<"text">;
 export type InlineReferenceAction = ActionInFamily<"inlineReference">;
-export type SearchExpressionAction = ActionInFamily<"search">;
+type SearchExpressionAction = ActionInFamily<"search">;
 export type ViewAction = ActionInFamily<"view">;
 export type FieldContentRemovalAction = Extract<
   FieldAction,
@@ -88,16 +87,8 @@ export function factActionsOfKinds<Kind extends AuthoredAction["kind"]>(
   );
 }
 
-export function isFieldContentRemovalAction(action: AuthoredAction): action is FieldContentRemovalAction {
-  return action.kind === "field-value-remove" || action.kind === "materialized-field-clear";
-}
-
 export function isGraphAction(action: AuthoredAction): action is GraphAction {
   return isCatalogGraphAction(action);
-}
-
-export function isGraphActionKind(kind: AuthoredAction["kind"]): kind is GraphAction["kind"] {
-  return isCatalogGraphActionKind(kind);
 }
 
 export function isProposableAction(action: AuthoredAction): action is ProposableAction {

@@ -1,6 +1,6 @@
-import { exact, object } from "../../decoding/index.js";
+import { exact, object, ShapeValidationError } from "../../decoding/index.js";
 import { templateInstanceNodeId } from "./identity.js";
-import { anchorIdentities, identity } from "./action-semantics/contribution-helpers.js";
+import { anchorIdentities, identity } from "./action-contribution-helpers.js";
 import { defineAction, defineActionFamily, field, optionalField } from "./action-definition.js";
 import { nonemptyStringField, sequenceAnchorField } from "./action-field-decoders.js";
 import { isIntrinsicNodeType, type IntrinsicNodeType } from "./intrinsic-node-type-types.js";
@@ -21,7 +21,7 @@ const nullableOriginalPlacementField = field<OriginalPlacement | null>((value, l
 
 const intrinsicNodeTypeField = field<IntrinsicNodeType>((value) => {
   if (!isIntrinsicNodeType(value)) {
-    throw new Error("Intrinsic Node Type is invalid");
+    throw new ShapeValidationError("Intrinsic Node Type is invalid");
   }
   return value;
 });
@@ -32,6 +32,7 @@ export const nodeActionDefinitions = defineActionFamily({
   workspaceBootstrap: defineAction(
     "workspace-bootstrap",
     "direct-only",
+    "internal",
     {
       workspaceNodeId: nonemptyStringField,
     },
@@ -40,6 +41,7 @@ export const nodeActionDefinitions = defineActionFamily({
   create: defineAction(
     "node-create",
     "proposable",
+    "composite",
     {
       nodeId: nonemptyStringField,
       ownerNodeId: nonemptyStringField,
@@ -68,12 +70,13 @@ export const nodeActionDefinitions = defineActionFamily({
           ]),
     ],
   ),
-  trash: defineAction("node-trash", "proposable", { nodeId: nonemptyStringField }, (action) => [
+  trash: defineAction("node-trash", "proposable", "internal", { nodeId: nonemptyStringField }, (action) => [
     { kind: "node-lifecycle", operation: "trash", nodeId: action.nodeId },
   ]),
   restore: defineAction(
     "node-restore",
     "proposable",
+    "composite",
     {
       nodeId: nonemptyStringField,
       placementId: nonemptyStringField,
@@ -91,12 +94,17 @@ export const nodeActionDefinitions = defineActionFamily({
       },
     ],
   ),
-  finalizeDeletion: defineAction("node-deletion-finalize", "terminal", { nodeId: nonemptyStringField }, (action) => [
-    { kind: "terminal-cutoff", nodeId: action.nodeId },
-  ]),
+  finalizeDeletion: defineAction(
+    "node-deletion-finalize",
+    "terminal",
+    "internal",
+    { nodeId: nonemptyStringField },
+    (action) => [{ kind: "terminal-cutoff", nodeId: action.nodeId }],
+  ),
   promoteOriginal: defineAction(
     "original-promote",
     "proposable",
+    "internal",
     {
       nodeId: nonemptyStringField,
       placementId: nonemptyStringField,
@@ -116,6 +124,7 @@ export const placementActionDefinitions = defineActionFamily({
   create: defineAction(
     "placement-create",
     "proposable",
+    "internal",
     {
       placementId: nonemptyStringField,
       nodeId: nonemptyStringField,
@@ -135,12 +144,13 @@ export const placementActionDefinitions = defineActionFamily({
       identity({ kind: "node", nodeId: action.parentNodeId }, "contribution-owner"),
     ],
   ),
-  remove: defineAction("placement-remove", "proposable", { placementId: nonemptyStringField }, (action) => [
+  remove: defineAction("placement-remove", "proposable", "internal", { placementId: nonemptyStringField }, (action) => [
     { kind: "sequence-position", operation: "remove", occurrenceId: action.placementId },
   ]),
   move: defineAction(
     "placement-move",
     "proposable",
+    "internal",
     {
       placementId: nonemptyStringField,
       parentNodeId: nonemptyStringField,
@@ -163,6 +173,7 @@ export const templateActionDefinitions = defineActionFamily({
   detachNode: defineAction(
     "template-node-detach",
     "proposable",
+    "direct",
     {
       ownerNodeId: nonemptyStringField,
       templateNodeId: nonemptyStringField,

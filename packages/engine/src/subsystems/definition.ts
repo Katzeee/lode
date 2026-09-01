@@ -5,7 +5,7 @@ export type EngineSubsystemReference<Capability> = Readonly<{
   capability?: Capability;
 }>;
 
-export type EngineSubsystemDependencies = Readonly<Record<string, EngineSubsystemReference<unknown>>>;
+type EngineSubsystemDependencies = Readonly<Record<string, EngineSubsystemReference<unknown>>>;
 
 type DependencyCapabilities<Dependencies extends EngineSubsystemDependencies> = Readonly<{
   [Role in keyof Dependencies]: Dependencies[Role] extends EngineSubsystemReference<infer Capability>
@@ -13,7 +13,7 @@ type DependencyCapabilities<Dependencies extends EngineSubsystemDependencies> = 
     : never;
 }>;
 
-export type EngineSubsystemDefinition<
+type EngineSubsystemDefinition<
   Id extends string,
   Dependencies extends EngineSubsystemDependencies,
   Capability,

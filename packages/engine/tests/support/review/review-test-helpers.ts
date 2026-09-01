@@ -1,5 +1,5 @@
 import {
-  frontierOf,
+  END_SEQUENCE_ANCHOR,
   factActions,
   graphActionBody,
   makeFact,
@@ -10,6 +10,7 @@ import {
   type GraphAction,
   workspaceGenesisActions,
 } from "../../../src/domain/fact/index.js";
+import { frontierOf } from "../../../src/domain/fact/frontier.js";
 import {
   CURRENT_PROJECTION_VERSIONS,
   rebuildGeneration,
@@ -22,12 +23,7 @@ export const REPLICA_A = "101";
 export const REPLICA_B = "202";
 export const REPLICA_C = "303";
 export const versions = CURRENT_PROJECTION_VERSIONS;
-export const end = {
-  after: null,
-  before: null,
-  affinity: "after",
-  fallback: "end",
-} as const;
+export const end = END_SEQUENCE_ANCHOR;
 
 export class ReviewFacts {
   readonly values: Fact[] = [];

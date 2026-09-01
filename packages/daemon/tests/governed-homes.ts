@@ -1,4 +1,5 @@
-import { createDesktopClient, type DesktopClient } from "@lode/desktop-client";
+import { createDesktopClient } from "../../desktop-client/src/desktop-client.js";
+import type { DesktopClient } from "@lode/desktop-client";
 
 import type { Daemon } from "../src/daemon.js";
 

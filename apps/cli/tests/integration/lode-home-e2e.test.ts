@@ -39,6 +39,10 @@ describe("home lifecycle through the real CLI binary", () => {
     expect(status.running).toBe(true);
     expect(status.homeName).toBe("main");
     expect(status.homePath).toBe(home);
+    const daemonManifest = JSON.parse(await readFile(join(repositoryRoot, "packages/daemon/package.json"), "utf8")) as {
+      version: string;
+    };
+    expect(status.daemonVersion).toBe(daemonManifest.version);
     expect(status.ready).toBe(true);
     expect(status.workspaces).toEqual([]);
 

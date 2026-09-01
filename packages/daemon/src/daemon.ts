@@ -1,15 +1,15 @@
 import type { EngineApi } from "@lode/sdk/host";
 import { parseEndpoint } from "@lode/sdk";
-import { ConnectServerResource } from "./resources/connect-server-resource.js";
+import { ConnectServerResource } from "./connect-server-resource.js";
 import type { DaemonStatusIdentity } from "./connect-server.js";
 
-export type DaemonOptions = Readonly<{
+type DaemonOptions = Readonly<{
   engine: Readonly<{ api: EngineApi; stop(): Promise<void> }>;
   listen: string;
   exchangeAddress: string;
   accessToken: string;
   status: DaemonStatusIdentity;
-  onShutdown?: () => void;
+  onShutdown(): void;
 }>;
 
 export type Daemon = Readonly<{

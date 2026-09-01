@@ -1,6 +1,5 @@
 import { compareCausalOrder, type FactAction } from "../fact/index.js";
-import type { InterpretedProjection } from "../reconcile/index.js";
-import { nodeLocation } from "../reconcile/node-graph.js";
+import { nodeLocation, type InterpretedProjection } from "../reconcile/index.js";
 import type { CompensationTargetAction } from "./compensation-types.js";
 
 export function normalizeCompensationTargets(

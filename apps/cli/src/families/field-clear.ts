@@ -1,23 +1,18 @@
 import type { EditAction } from "@lode/sdk";
 
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import { descriptor } from "../target/index.js";
-import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { stringOption, writeCommand } from "../command/index.js";
+import { resource } from "../target/index.js";
+import { runWrite } from "../intent/index.js";
 import { readFieldState } from "./field-state.js";
 
-const fieldClear: CommandDefinition = {
+const fieldClear = writeCommand({
   path: ["field", "clear"],
   summary: "Clear a field's content, keeping the Definition and revealing the Effective placeholder.",
   positionals: [["field", "Field Definition target"]],
-  options: [
-    { name: "--on", description: "Node owning the instance field", value: { kind: "string" as const }, required: true },
-  ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
-  run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
+  options: [stringOption("--on", "Node owning the instance field", { required: true })],
+  run: runWrite("field.clear", async (context, args) => {
     const state = await readFieldState(context, args.positional("field"), args.requiredOption("--on"));
     if (state.materialized === undefined) {
       throw new CliError("target-not-found", "This field has no materialized content.");
@@ -41,16 +36,16 @@ const fieldClear: CommandDefinition = {
             fieldDefinitionId: state.fieldDefinitionId,
           },
         ];
-    const { result, data } = await executeWrite(context, "field.clear", actions);
-    return writeResult(data, result, {
+    return {
+      actions,
       extra: {
         target: state.fieldDescriptor,
-        on: descriptor(workspaceId, "node", state.ownerNodeId, state.ownerLabel),
+        on: resource(context, "node", state.ownerNodeId, state.ownerLabel),
       },
       view: writeView("Cleared", state.fieldDescriptor, `on ${state.ownerLabel}`),
-    });
-  },
-};
+    };
+  }),
+});
 
 export function registerFieldClearCommands(catalog: CommandCatalog): void {
   catalog.register(fieldClear);

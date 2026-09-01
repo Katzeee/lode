@@ -1,7 +1,7 @@
 import { graphActionBody } from "../../../domain/fact/index.js";
 import { nextHistoryLineage, validateHistorySelection } from "../../../domain/history/index.js";
 import type { AcceptedHistoryCommand } from "../application/input-validation.js";
-import { rejectedResult } from "../workspace-results.js";
+import { rejectedResult } from "../application/result-mapping.js";
 import type { BoundWorkspaceCommand } from "./command-rule.js";
 
 export function bindHistoryCommand(command: AcceptedHistoryCommand): BoundWorkspaceCommand {

@@ -1,22 +1,28 @@
-import { assertJsonValue, assertKeys, assertObject, requireStringAllowEmpty } from "../../decoding/index.js";
+import {
+  assertJsonValue,
+  assertKeys,
+  assertObject,
+  requireStringAllowEmpty,
+  ShapeValidationError,
+} from "../../decoding/index.js";
 import type { NodeSeed } from "./node-create-types.js";
 
 export function parseNodeSeed(value: unknown): NodeSeed {
   assertOptionalNodeSeed(value);
   if (value === undefined) {
-    throw new Error("Node seed is required");
+    throw new ShapeValidationError("Node seed is required");
   }
   return value as NodeSeed;
 }
 
-export function assertOptionalNodeSeed(value: unknown): void {
+function assertOptionalNodeSeed(value: unknown): void {
   if (value === undefined) {
     return;
   }
   assertObject(value, "Node seed");
   assertKeys(value, ["text"], "Node seed");
   if (!Array.isArray(value.text)) {
-    throw new Error("Node seed text must be an array");
+    throw new ShapeValidationError("Node seed text must be an array");
   }
   for (const atom of value.text) {
     assertObject(atom, "Node seed Text Atom");

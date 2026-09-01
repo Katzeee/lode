@@ -1,48 +1,37 @@
 import {
   canonicalJson,
   compareCausalOrder,
-  isTextAction,
   type FactAction,
   type JsonValue,
   type GraphAction,
   type TextAtomId,
 } from "../fact/index.js";
-import { isPresentNodeOutsideTrash, textAtoms, type InterpretedProjection } from "../reconcile/index.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { isActiveNode, textAtoms, type InterpretedProjection } from "../reconcile/index.js";
+import {
+  noCompensation,
+  type CompensationCatalog,
+  type CompensationStep,
+  type CompensationTargetAction,
+} from "./compensation-types.js";
 
-export function compensateContentAction(
-  target: FactAction,
-  targetIds: ReadonlySet<string>,
-  activeFacts: readonly FactAction[],
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  const authoredAction = target.action;
-  if (!isTextAction(authoredAction)) {
-    return null;
-  }
-  switch (authoredAction.kind) {
-    case "rich-text-splice":
-      return compensateTextSplice(target, activeFacts, projection, counterfactual);
-    case "rich-text-mark":
-      return compensateTextMark(target, targetIds, activeFacts, projection, counterfactual);
-  }
-}
+export const CONTENT_COMPENSATIONS = {
+  "rich-text-splice": ({ activeFacts, projection, counterfactual }, target) =>
+    compensateTextSplice(target, activeFacts, projection, counterfactual),
+  "rich-text-mark": ({ targetIds, activeFacts, projection, counterfactual }, target) =>
+    compensateTextMark(target, targetIds, activeFacts, projection, counterfactual),
+} satisfies Partial<CompensationCatalog>;
 
 function compensateTextSplice(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "rich-text-splice" }>>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  if (authoredAction.kind !== "rich-text-splice") {
-    return noCompensation();
-  }
   const node = projection.nodes[authoredAction.nodeId];
   const atoms = textAtoms(node);
   const content = node?.content ?? [];
-  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
+  if (!isActiveNode(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
     return noCompensation();
   }
   const inserted = atoms.filter((atom) => atom.factActionId === target.id);
@@ -165,17 +154,14 @@ function anchorPrepends(
 }
 
 function compensateTextMark(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "rich-text-mark" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
   projection: InterpretedProjection,
   counterfactual: InterpretedProjection,
 ): CompensationStep {
   const authoredAction = target.action;
-  if (authoredAction.kind !== "rich-text-mark") {
-    return noCompensation();
-  }
-  if (!isPresentNodeOutsideTrash(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
+  if (!isActiveNode(projection.identity.workspaceNodeId, projection, authoredAction.nodeId)) {
     return noCompensation();
   }
   const independentlyMarked = new Set(

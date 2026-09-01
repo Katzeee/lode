@@ -16,7 +16,6 @@ import type { GovernanceBody } from "./governance-types.js";
 
 export type {
   ActorId,
-  CausalCoordinate,
   EditIntent,
   FactActionId,
   FactFrontier,

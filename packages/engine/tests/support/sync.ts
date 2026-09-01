@@ -1,4 +1,5 @@
-import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../src/subsystems/workspace/replica-sync.js";
+import type { SyncBytes, SyncableComposite, SyncableDoc } from "../../src/subsystems/workspace/index.js";
+import { FactReplication } from "../../src/subsystems/workspace/fact-replication.js";
 import {
   SyncExchange,
   type ReplicaPeer,
@@ -33,4 +34,8 @@ export class InMemoryReplicaPeer implements ReplicaPeer {
 export async function syncPair(left: SyncableComposite, right: SyncableComposite): Promise<void> {
   await new SyncExchange(left, new InMemoryReplicaPeer(right)).sync();
   await right.heal();
+}
+
+export function testFactReplication(facts: SyncableDoc): FactReplication {
+  return new FactReplication(facts, () => Promise.resolve());
 }

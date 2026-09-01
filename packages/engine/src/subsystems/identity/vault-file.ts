@@ -1,6 +1,7 @@
 import {
   aeadOpen,
   aeadSeal,
+  AeadAuthenticationError,
   isActorId,
   DEFAULT_VAULT_KDF_PARAMETERS,
   deriveVaultKey,
@@ -89,12 +90,16 @@ export class VaultStore {
       throw new VaultLockedError();
     }
     const key = await deriveVaultKey(passphrase, fromBase64(this.vault.kdf.salt), this.vault.kdf.params);
+    let opened: string;
     try {
-      const opened = new TextDecoder().decode(aeadOpen(key, fromBase64(this.vault.canary)));
-      if (opened !== VAULT_CANARY) {
-        throw new Error("canary mismatch");
+      opened = new TextDecoder().decode(aeadOpen(key, fromBase64(this.vault.canary)));
+    } catch (error) {
+      if (error instanceof AeadAuthenticationError) {
+        throw new VaultPassphraseError();
       }
-    } catch {
+      throw error;
+    }
+    if (opened !== VAULT_CANARY) {
       throw new VaultPassphraseError();
     }
     return key;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { InMemoryBlobStore, type BlobStore } from "../persistence/blob-store.js";
+import type { BlobStore } from "../persistence/blob-store.js";
+import { InMemoryBlobStore } from "../../../tests/support/persistence/in-memory-blob-store.js";
 import { Identity } from "./identity.js";
 
 const passphrase = "identity-test-passphrase";

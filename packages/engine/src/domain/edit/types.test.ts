@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { expandEditAction } from "./types.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { END_SEQUENCE_ANCHOR as end } from "../fact/index.js";
 
 describe("Node creation edits", () => {
   it("expands one user operation only at the Fact boundary", () => {

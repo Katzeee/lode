@@ -8,7 +8,7 @@ import type {
   ReceiptLineage,
 } from "../fact/index.js";
 
-export type HistoryStep = Readonly<{
+type HistoryStep = Readonly<{
   id: FactId;
   body: HistoryBody;
   actionFacts: readonly ActionFact[];

@@ -8,9 +8,14 @@ export type WorkspaceStorage = Readonly<{
   release(): Promise<void>;
 }>;
 
+export type WorkspaceStoragePromotion = Readonly<{
+  storage: WorkspaceStorage;
+  rollback(): Promise<void>;
+}>;
+
 export type WorkspaceStorageStage = Readonly<{
   storage: WorkspaceStorage;
-  promote(): Promise<WorkspaceStorage>;
+  promote(): Promise<WorkspaceStoragePromotion>;
   discard(): Promise<void>;
 }>;
 

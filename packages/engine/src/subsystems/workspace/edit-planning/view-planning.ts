@@ -13,6 +13,7 @@ import {
   prepareExpressionEdit,
   searchExpressionDraftActions,
 } from "./search-expression-planning.js";
+import { EditPlanningRejection } from "./planning-rejection.js";
 
 type ViewEdit = Extract<
   EditAction,
@@ -42,12 +43,12 @@ type ViewEdit = Extract<
 export function prepareViewEdit(
   edit: ViewEdit,
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (edit.kind === "shared-default-view-create") {
     const host = available.nodes[edit.hostNodeId];
     if (!host || !supportsSharedDefaultViewHost(host.intrinsicNodeType)) {
-      throw new Error("View host is not active");
+      throw new EditPlanningRejection("View host is not active");
     }
     return singleAuthoredActionBatch({
       kind: "shared-default-view-add",
@@ -58,14 +59,14 @@ export function prepareViewEdit(
   }
   if (edit.kind === "shared-default-view-remove") {
     if ((available.sharedDefaultViewDefinitions[edit.hostNodeId] ?? []).length === 0) {
-      throw new Error("Shared default View is absent");
+      throw new EditPlanningRejection("Shared default View is absent");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, hostNodeId: edit.hostNodeId });
   }
   const view = requireView(edit.hostNodeId, edit.viewId, available);
   if (edit.kind === "view-mode-set") {
     if (view.viewType === edit.viewType) {
-      throw new Error("View mode update has no effect");
+      throw new EditPlanningRejection("View mode update has no effect");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, viewId: edit.viewId, viewType: edit.viewType });
   }
@@ -77,7 +78,7 @@ export function prepareViewEdit(
   ) {
     const filter = view.options.filter;
     if (filter?.filterId !== edit.filterId) {
-      throw new Error("View Filter is absent");
+      throw new EditPlanningRejection("View Filter is absent");
     }
     if (edit.kind === "view-filter-expression-add") {
       return prepareExpressionAddition(
@@ -87,7 +88,7 @@ export function prepareViewEdit(
         edit.expression,
         edit.anchor,
         available,
-        actionId,
+        finalActionId,
       );
     }
     if (edit.kind === "view-filter-expression-configure") {
@@ -115,7 +116,7 @@ export function prepareViewEdit(
       available,
     );
   }
-  return prepareViewOptionEdit(edit, view, available, actionId);
+  return prepareViewOptionEdit(edit, view, available, finalActionId);
 }
 
 type ViewOptionEdit = Exclude<
@@ -136,7 +137,7 @@ function prepareViewOptionEdit(
   edit: ViewOptionEdit,
   view: SharedDefaultViewDefinition,
   available: InterpretedProjection,
-  actionId: (actionIndex: number) => FactActionId,
+  finalActionId: (actionIndex: number) => FactActionId,
 ): AuthoredActionBatch {
   if (edit.kind === "view-column-add" || edit.kind === "view-column-remove" || edit.kind === "view-column-move") {
     return prepareViewColumnEdit(edit, view, available);
@@ -144,7 +145,7 @@ function prepareViewOptionEdit(
   if (edit.kind === "view-sort-add") {
     requireFieldDefinition(edit.fieldDefinitionId, available);
     if (view.options.sort) {
-      throw new Error("View already has a Sort");
+      throw new EditPlanningRejection("View already has a Sort");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -156,7 +157,7 @@ function prepareViewOptionEdit(
   if (edit.kind === "view-sort-configure") {
     requireFieldDefinition(edit.fieldDefinitionId, available);
     if (view.options.sort?.sortId !== edit.sortId) {
-      throw new Error("View Sort is absent");
+      throw new EditPlanningRejection("View Sort is absent");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -167,7 +168,7 @@ function prepareViewOptionEdit(
   }
   if (edit.kind === "view-sort-remove") {
     if (!view.options.sort) {
-      throw new Error("View Sort is absent");
+      throw new EditPlanningRejection("View Sort is absent");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, viewId: edit.viewId });
   }
@@ -177,7 +178,7 @@ function prepareViewOptionEdit(
   if (edit.kind === "view-group-add") {
     requireFieldDefinition(edit.fieldDefinitionId, available);
     if (view.options.group) {
-      throw new Error("View already has a Group");
+      throw new EditPlanningRejection("View already has a Group");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -187,21 +188,21 @@ function prepareViewOptionEdit(
   }
   if (edit.kind === "view-group-remove") {
     if (!view.options.group) {
-      throw new Error("View Group is absent");
+      throw new EditPlanningRejection("View Group is absent");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, viewId: edit.viewId });
   }
   if (edit.kind === "view-filter-remove") {
     if (!view.options.filter) {
-      throw new Error("View Filter is absent");
+      throw new EditPlanningRejection("View Filter is absent");
     }
     return singleAuthoredActionBatch({ kind: edit.kind, viewId: edit.viewId });
   }
   if (view.options.filter) {
-    throw new Error("View already has a Filter");
+    throw new EditPlanningRejection("View already has a Filter");
   }
-  const filterId = actionId(0);
-  const expressions = searchExpressionDraftActions(filterId, edit.expression, edit.anchor, available, actionId, {
+  const filterId = finalActionId(0);
+  const expressions = searchExpressionDraftActions(filterId, edit.expression, edit.anchor, available, finalActionId, {
     actionOffset: 1,
   });
   return authoredActionBatch([{ kind: "view-filter-add", viewId: edit.viewId }, ...expressions]);
@@ -215,7 +216,7 @@ function prepareViewColumnEdit(
   if (edit.kind === "view-column-add") {
     requireFieldDefinition(edit.fieldDefinitionId, available);
     if (view.options.columns.some((column) => column.fieldDefinitionId === edit.fieldDefinitionId)) {
-      throw new Error("View already has this Column");
+      throw new EditPlanningRejection("View already has this Column");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -226,7 +227,7 @@ function prepareViewColumnEdit(
   }
   if (edit.kind === "view-column-remove") {
     if (!view.options.columns.some((column) => column.fieldDefinitionId === edit.fieldDefinitionId)) {
-      throw new Error("View Column is absent");
+      throw new EditPlanningRejection("View Column is absent");
     }
     return singleAuthoredActionBatch({
       kind: edit.kind,
@@ -235,7 +236,7 @@ function prepareViewColumnEdit(
     });
   }
   if (!view.options.columns.some((column) => column.columnId === edit.columnId)) {
-    throw new Error("View Column is absent");
+    throw new EditPlanningRejection("View Column is absent");
   }
   return singleAuthoredActionBatch({ kind: edit.kind, columnId: edit.columnId, anchor: edit.anchor });
 }
@@ -287,16 +288,16 @@ function requireView(
     (candidate) => candidate.viewId === viewId,
   );
   if (!view) {
-    throw new Error("Shared default View is absent");
+    throw new EditPlanningRejection("Shared default View is absent");
   }
   if (view.optionsConflicted) {
-    throw new Error("View conflict must be resolved before editing");
+    throw new EditPlanningRejection("View conflict must be resolved before editing");
   }
   return view;
 }
 
 function requireFieldDefinition(fieldDefinitionId: string, available: InterpretedProjection): void {
   if (available.nodes[fieldDefinitionId]?.intrinsicNodeType !== "field-definition") {
-    throw new Error("View option Field Definition is not active");
+    throw new EditPlanningRejection("View option Field Definition is not active");
   }
 }

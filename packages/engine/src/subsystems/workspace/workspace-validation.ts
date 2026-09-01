@@ -6,7 +6,7 @@ import {
   type FactSnapshot,
 } from "../../domain/fact/index.js";
 import { textAtoms, type ProjectionGeneration } from "../../domain/reconcile/index.js";
-import { workspaceGenesisFact } from "./workspace-genesis-validation.js";
+import { workspaceGenesisFact } from "./authority-coordination/index.js";
 
 export function validateWorkspaceSnapshot(
   workspaceId: string,

@@ -1,5 +1,4 @@
 import type {
-  EngineCommand,
   EngineQuery,
   EngineQueryInput,
   EngineQueryKind,
@@ -7,16 +6,17 @@ import type {
   EngineQueryValueForKind,
   WriteResult,
 } from "@lode/sdk";
-import { parseEngineCommand, type AcceptedEngineCommand } from "./application/input-validation.js";
+import type { AcceptedEngineCommand } from "./application/input-validation.js";
+import { rejectedResult } from "./application/result-mapping.js";
+import type { FactFrontier } from "../../domain/fact/index.js";
 import type { ProjectionVersions } from "../../domain/reconcile/index.js";
 import type { FactAuthorityPort, ReplicatedFactAuthorityPort } from "./authority/authority-contract.js";
-import type { SyncableDoc } from "./replica-sync.js";
-import { SerialExecutor } from "./serial-executor.js";
-import { ensureWorkspaceGenesis, WorkspaceAuthorityCoordinator } from "./authority-coordination/index.js";
+import type { SyncableDoc } from "./authority/replication.js";
+import { SerialExecutor } from "./authority/serial-executor.js";
+import { WorkspaceAuthorityCoordinator } from "./authority-coordination/index.js";
 import { WorkspaceCommandExecutor } from "./command/index.js";
 import { WorkspaceProjection } from "./projection/index.js";
 import { queryWorkspace } from "./query/index.js";
-import { rejectedResult } from "./workspace-results.js";
 import { WorkspaceEventPublisher } from "./workspace-event-publisher.js";
 import type { EventSink } from "../event/index.js";
 import type { WorkspaceStorage } from "../persistence/index.js";
@@ -26,14 +26,8 @@ type WorkspaceOptions = Readonly<{
   workspaceId: string;
   facts: ReplicatedFactAuthorityPort;
   versions: ProjectionVersions;
-  /**
-   * Seed an untitled genesis Fact into an empty authority. Only for
-   * ungoverned engine-local contexts; production hosts own genesis through
-   * governed creation (attributed to the owner Actor) or staged adoption.
-   */
-  seedGenesis?: boolean;
-  eventSink?: EventSink;
-  storage?: WorkspaceStorage;
+  eventSink: EventSink;
+  storage: WorkspaceStorage;
 }>;
 
 export class Workspace {
@@ -46,22 +40,20 @@ export class Workspace {
     private readonly projection: WorkspaceProjection,
     events: WorkspaceEventPublisher,
   ) {
+    const publishAuthorityAdvance = (frontier: FactFrontier) => events.publish("authority-advanced", frontier, null);
     this.commands = new WorkspaceCommandExecutor({
       workspaceId: options.workspaceId,
       facts: options.facts,
       projection,
-      events,
+      publishAuthorityAdvance,
     });
     this.authority = new WorkspaceAuthorityCoordinator({
       facts: options.facts,
       projection,
-      events,
+      publishAuthorityAdvance,
     });
   }
-  static async open(options: WorkspaceOptions): Promise<Workspace> {
-    if (options.seedGenesis !== false) {
-      await ensureWorkspaceGenesis(options.workspaceId, options.facts);
-    }
+  static open(options: WorkspaceOptions): Workspace {
     const snapshot = options.facts.snapshot();
     const events = new WorkspaceEventPublisher(options.workspaceId, options.eventSink);
     const projection = WorkspaceProjection.open(options.workspaceId, snapshot, options.versions, (event) =>
@@ -84,15 +76,6 @@ export class Workspace {
   }
   get replicationDocument(): SyncableDoc {
     return this.options.facts.replication;
-  }
-  async execute(command: EngineCommand): Promise<WriteResult> {
-    let accepted: AcceptedEngineCommand;
-    try {
-      accepted = parseEngineCommand(command);
-    } catch (error) {
-      return this.rejected("invalid-input", error instanceof Error ? error.message : String(error));
-    }
-    return this.executeAccepted(accepted);
   }
   async executeAccepted(command: AcceptedEngineCommand): Promise<WriteResult> {
     if (this.stopped) {
@@ -126,7 +109,7 @@ export class Workspace {
   async close(): Promise<void> {
     this.stopped = true;
     await this.serial.run(() => Promise.resolve());
-    await this.options.storage?.release();
+    await this.options.storage.release();
   }
 
   private rejected(code: Parameters<typeof rejectedResult>[0], message: string): ReturnType<typeof rejectedResult> {

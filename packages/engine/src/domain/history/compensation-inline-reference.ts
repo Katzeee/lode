@@ -1,89 +1,79 @@
-import type { FactAction } from "../fact/index.js";
-import { locateInlineReference, type InterpretedProjection } from "../reconcile/index.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { locateInlineReference } from "../reconcile/index.js";
+import { noCompensation, type CompensationCatalog } from "./compensation-types.js";
 
-export function compensateInlineReferenceAction(
-  target: FactAction,
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  const authoredAction = target.action;
-  if (
-    authoredAction.kind !== "inline-reference-create" &&
-    authoredAction.kind !== "inline-reference-remove" &&
-    authoredAction.kind !== "inline-alias-attach" &&
-    authoredAction.kind !== "inline-alias-detach"
-  ) {
-    return null;
-  }
-  const location = locateInlineReference(projection.nodes, authoredAction.inlineReferenceId);
-  switch (authoredAction.kind) {
-    case "inline-reference-create":
-      return location?.reference.factActionId !== target.id
-        ? noCompensation()
+export const INLINE_REFERENCE_COMPENSATIONS = {
+  "inline-reference-create": ({ projection }, target) => {
+    const location = locateInlineReference(projection.nodes, target.action.inlineReferenceId);
+    return location?.reference.factActionId !== target.id
+      ? noCompensation()
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: "inline-reference-remove",
+              inlineReferenceId: target.action.inlineReferenceId,
+            },
+          ],
+        };
+  },
+  "inline-reference-remove": ({ projection, counterfactual }, { action }) => {
+    const location = locateInlineReference(projection.nodes, action.inlineReferenceId);
+    const previousLocation = locateInlineReference(counterfactual.nodes, action.inlineReferenceId);
+    const restored =
+      previousLocation === null
+        ? null
         : {
-            kind: "ready",
-            actions: [
-              {
-                kind: "inline-reference-remove",
-                inlineReferenceId: authoredAction.inlineReferenceId,
-              },
-            ],
+            kind: "inline-reference-create" as const,
+            inlineReferenceId: action.inlineReferenceId,
+            hostNodeId: previousLocation.hostNodeId,
+            targetNodeId: previousLocation.reference.targetNodeId,
+            anchor: previousLocation.anchor,
           };
-    case "inline-reference-remove": {
-      const previousLocation = locateInlineReference(counterfactual.nodes, authoredAction.inlineReferenceId);
-      const restored =
-        previousLocation === null
-          ? null
-          : {
-              kind: "inline-reference-create" as const,
-              inlineReferenceId: authoredAction.inlineReferenceId,
-              hostNodeId: previousLocation.hostNodeId,
-              targetNodeId: previousLocation.reference.targetNodeId,
-              anchor: previousLocation.anchor,
-            };
-      return location !== null || restored === null
-        ? noCompensation()
-        : {
-            kind: "ready",
-            actions: [
-              {
-                kind: "inline-reference-create",
-                inlineReferenceId: authoredAction.inlineReferenceId,
-                hostNodeId: restored.hostNodeId,
-                targetNodeId: restored.targetNodeId,
-                anchor: restored.anchor,
-              },
-            ],
-          };
-    }
-    case "inline-alias-attach":
-      return location?.reference.aliasNodeId !== authoredAction.aliasNodeId
-        ? noCompensation()
-        : {
-            kind: "ready",
-            actions: [
-              {
-                kind: "inline-alias-detach",
-                inlineReferenceId: authoredAction.inlineReferenceId,
-                aliasNodeId: authoredAction.aliasNodeId,
-              },
-            ],
-          };
-    case "inline-alias-detach":
-      return location === null ||
-        location.reference.aliasNodeId !== null ||
-        projection.nodes[authoredAction.aliasNodeId] === undefined
-        ? noCompensation()
-        : {
-            kind: "ready",
-            actions: [
-              {
-                kind: "inline-alias-attach",
-                inlineReferenceId: authoredAction.inlineReferenceId,
-                aliasNodeId: authoredAction.aliasNodeId,
-              },
-            ],
-          };
-  }
-}
+    return location !== null || restored === null
+      ? noCompensation()
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: "inline-reference-create",
+              inlineReferenceId: action.inlineReferenceId,
+              hostNodeId: restored.hostNodeId,
+              targetNodeId: restored.targetNodeId,
+              anchor: restored.anchor,
+            },
+          ],
+        };
+  },
+  "inline-alias-attach": ({ projection }, { action }) => {
+    const location = locateInlineReference(projection.nodes, action.inlineReferenceId);
+    return location?.reference.aliasNodeId !== action.aliasNodeId
+      ? noCompensation()
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: "inline-alias-detach",
+              inlineReferenceId: action.inlineReferenceId,
+              aliasNodeId: action.aliasNodeId,
+            },
+          ],
+        };
+  },
+  "inline-alias-detach": ({ projection }, { action }) => {
+    const location = locateInlineReference(projection.nodes, action.inlineReferenceId);
+    return location === null ||
+      location.reference.aliasNodeId !== null ||
+      projection.nodes[action.aliasNodeId] === undefined
+      ? noCompensation()
+      : {
+          kind: "ready",
+          actions: [
+            {
+              kind: "inline-alias-attach",
+              inlineReferenceId: action.inlineReferenceId,
+              aliasNodeId: action.aliasNodeId,
+            },
+          ],
+        };
+  },
+} satisfies Partial<CompensationCatalog>;

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createProjectionPlanState } from "./projection-plan-context.js";
 import { compileProjectionPlan } from "./projection-plan-dag.js";
 import { PROJECTION_PLAN } from "./projection-plan.js";
-import { CURRENT_PROJECTION_VERSIONS } from "./projection-types.js";
+import { CURRENT_PROJECTION_VERSIONS } from "./projection-versions.js";
 
 describe("Projection plan dataflow", () => {
   it("rejects missing dependencies, duplicate Artifact owners, and cycles", () => {

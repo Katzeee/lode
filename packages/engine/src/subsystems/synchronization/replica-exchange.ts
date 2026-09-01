@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { aeadOpen, aeadSeal, peerPublicKeyFromId, verifyBytes } from "../../crypto/index.js";
 import type { ReplicaPeer, SyncProfileEntry } from "./sync-exchange.js";
 import { projectGovernance, syncAdmittedPeers, type GovernanceState } from "../../domain/governance/index.js";
-import { openOwnTransitKey, type GovernanceAuthority } from "../workspace/workspace-governance.js";
+import type { FactSnapshot } from "../../domain/fact/index.js";
 import type { ReplicaExchangeProof, ReplicaExchangeWire, TransitHandshake } from "../connection/index.js";
 import type { PeerIdentityCapability } from "../identity/index.js";
 
@@ -52,16 +52,14 @@ function peerChallenge(input: ChallengeInput): Uint8Array {
 
 type ServingWorkspace = Readonly<{
   workspaceId: string;
-  facts: GovernanceAuthority;
+  facts: Readonly<{ snapshot(): FactSnapshot }>;
+  openTransitKey(state: GovernanceState): Uint8Array;
   peer(): ReplicaPeer;
 }>;
 
 /** The serving side: verify, gate on snapshot, seal under the transit key. */
 export class ReplicaExchangeGateway {
-  constructor(
-    private readonly identity: PeerIdentityCapability,
-    private readonly workspace: (workspaceId: string) => ServingWorkspace,
-  ) {}
+  constructor(private readonly workspace: (workspaceId: string) => ServingWorkspace) {}
 
   async exchangeProfile(
     proof: ReplicaExchangeProof,
@@ -128,7 +126,7 @@ export class ReplicaExchangeGateway {
     if (!syncAdmittedPeers(state).has(proof.peerId)) {
       throw new ReplicaExchangeRejected("Peer is not admitted to this Workspace");
     }
-    const transitKey = openOwnTransitKey(this.identity, state);
+    const transitKey = workspace.openTransitKey(state);
     return { state, workspace, transitKey };
   }
 }
@@ -196,7 +194,7 @@ export class OutboundExchange {
   }
 }
 
-function decodeProfile(bytes: Uint8Array): readonly SyncProfileEntry[] {
+export function decodeProfile(bytes: Uint8Array): readonly SyncProfileEntry[] {
   const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new ReplicaExchangeRejected("Remote profile is malformed");
@@ -205,21 +203,38 @@ function decodeProfile(bytes: Uint8Array): readonly SyncProfileEntry[] {
   if (!Array.isArray(record.entries)) {
     throw new ReplicaExchangeRejected("Remote profile has no entries");
   }
+  const documentIds = new Set<string>();
   return record.entries.map((entry) => {
     if (typeof entry !== "object" || entry === null) {
       throw new ReplicaExchangeRejected("Remote profile entry is malformed");
     }
     const candidate = entry as Readonly<{ documentId?: unknown; version?: unknown }>;
-    if (typeof candidate.documentId !== "string" || typeof candidate.version !== "string") {
+    if (
+      typeof candidate.documentId !== "string" ||
+      candidate.documentId.length === 0 ||
+      typeof candidate.version !== "string"
+    ) {
       throw new ReplicaExchangeRejected("Remote profile entry is malformed");
     }
+    if (documentIds.has(candidate.documentId)) {
+      throw new ReplicaExchangeRejected(`Remote profile repeats document identity ${candidate.documentId}`);
+    }
+    documentIds.add(candidate.documentId);
     return {
       documentId: candidate.documentId,
-      version: new Uint8Array(Buffer.from(candidate.version, "base64")),
+      version: decodeCanonicalBase64(candidate.version, "Remote profile version"),
     };
   });
 }
 
 function decodeBase64(value: string): Uint8Array {
-  return new Uint8Array(Buffer.from(value, "base64"));
+  return decodeCanonicalBase64(value, "Governance envelope");
+}
+
+function decodeCanonicalBase64(value: string, label: string): Uint8Array {
+  const decoded = Buffer.from(value, "base64");
+  if (decoded.toString("base64") !== value) {
+    throw new ReplicaExchangeRejected(`${label} is not canonical base64`);
+  }
+  return new Uint8Array(decoded);
 }

@@ -1,3 +1,5 @@
+import { ProtocolInputValidationError } from "./protocol-input-error.js";
+
 export type FactId = `g${number}/${string}/${string}/${number}`;
 export type FactActionId = `${FactId}/actions/${number}`;
 
@@ -15,23 +17,23 @@ export function factActionIds(value: unknown, label: string, required = true): r
 export function factActionId(value: unknown, label: string): FactActionId {
   const [identity] = factActionIds([value], label);
   if (identity === undefined) {
-    throw new Error(`${label} must be a FactAction identity`);
+    throw new ProtocolInputValidationError(`${label} must be a FactAction identity`);
   }
   return identity;
 }
 
 function identities(value: unknown, label: string, required: boolean, pattern: RegExp): readonly string[] {
   if (!Array.isArray(value) || (required && value.length === 0)) {
-    throw new Error(`${label} must be ${required ? "a non-empty " : "an "}identity array`);
+    throw new ProtocolInputValidationError(`${label} must be ${required ? "a non-empty " : "an "}identity array`);
   }
   const result = value.map((item) => {
     if (typeof item !== "string" || !pattern.test(item)) {
-      throw new Error(`${label} contains an invalid identity`);
+      throw new ProtocolInputValidationError(`${label} contains an invalid identity`);
     }
     return item;
   });
   if (new Set(result).size !== result.length) {
-    throw new Error(`${label} contains duplicate identities`);
+    throw new ProtocolInputValidationError(`${label} contains duplicate identities`);
   }
   return result;
 }

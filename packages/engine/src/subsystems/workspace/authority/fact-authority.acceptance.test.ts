@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { LoroDoc } from "loro-crdt";
 
-import { InMemoryDocumentStore } from "../../persistence/in-memory-document-store.js";
 import type { DocumentStore, DocumentUpdate, LoadedDocumentBytes } from "../../persistence/document-store.js";
 import { InvocationConflictError, ProjectionUnavailableError } from "./errors.js";
 import { FactAuthority } from "./fact-authority.js";
-import { FACT_AUTHORITY_DOCUMENT_ID } from "./loro-fact-store.js";
-import { localReceiptsDocumentId } from "./local-receipt-store.js";
-import { FactReplication } from "../fact-replication.js";
-import { syncPair } from "../../../../tests/support/sync.js";
+import { syncPair, testFactReplication } from "../../../../tests/support/sync.js";
+import {
+  documentsContaining,
+  FACT_AUTHORITY_DOCUMENT_ID,
+  InMemoryDocumentStore,
+  localReceiptsDocumentId,
+} from "../../../../tests/support/document-store.js";
 
 const REPLICA_A = "101";
 const REPLICA_B = "202";
@@ -110,18 +112,27 @@ describe("production Fact authority store", () => {
       workspaceId: "workspace",
       loroPeerId: "101",
       documents: sourceDocuments,
-      snapshotInterval: 1,
     });
+    for (let index = 0; index < 63; index += 1) {
+      await source.commit({
+        invocationId: `before-compaction-${index}`,
+        request: { ...request, nodeId: `before-compaction-${index}` },
+        writes: [edit(`before-compaction-${index}`)],
+        lineage: null,
+        publishedFrontier: source.snapshot().frontier,
+      });
+    }
     const first = await source.commit({
       invocationId: "compaction-failed",
       request,
       writes: [body],
       lineage: null,
-      publishedFrontier: {},
+      publishedFrontier: source.snapshot().frontier,
     });
     expect(first.created).toBe(true);
-    expect(source.snapshot().facts).toHaveLength(1);
+    expect(source.snapshot().facts).toHaveLength(64);
     expect(source.receipt("compaction-failed")).not.toBeNull();
+    expect(sourceDocuments.authoritySnapshotAttempts).toBe(1);
 
     sourceDocuments.failAuthoritySnapshot = false;
     await source.commit({
@@ -131,10 +142,11 @@ describe("production Fact authority store", () => {
       lineage: null,
       publishedFrontier: first.receipt.committedFrontier,
     });
+    expect(sourceDocuments.authoritySnapshotAttempts).toBe(2);
     expect((await sourceDocuments.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(0);
     const destination = await open(new InMemoryDocumentStore(), "202");
-    await syncPair(new FactReplication(source.replication), new FactReplication(destination.replication));
-    expect(destination.snapshot().facts).toHaveLength(2);
+    await syncPair(testFactReplication(source.replication), testFactReplication(destination.replication));
+    expect(destination.snapshot().facts).toHaveLength(65);
   });
 
   it("Invocation retry and identity conflict use the canonical request digest", async () => {
@@ -221,7 +233,8 @@ describe("production Fact authority store", () => {
     const restarted = await open(documentsA, "101");
     expect(restarted.receipt("invocation")).toEqual(committed.receipt);
     expect(restarted.snapshot()).toEqual(storeA.snapshot());
-    expect(await documentsA.listIds()).toEqual([FACT_AUTHORITY_DOCUMENT_ID, localReceiptsDocumentId(REPLICA_A)]);
+    await expect(documentsA.load(FACT_AUTHORITY_DOCUMENT_ID)).resolves.not.toBeNull();
+    await expect(documentsA.load(localReceiptsDocumentId(REPLICA_A))).resolves.not.toBeNull();
 
     const storeB = await open(new InMemoryDocumentStore(), "202");
     await storeB.replication.importUpdate(await storeA.replication.exportUpdate());
@@ -240,8 +253,8 @@ describe("production Fact authority store", () => {
       publishedFrontier: {},
     });
 
-    await documents.delete(localReceiptsDocumentId(REPLICA_A));
-    const reopened = await open(documents, "101");
+    const authorityOnlyDocuments = await documentsContaining(documents, FACT_AUTHORITY_DOCUMENT_ID);
+    const reopened = await open(authorityOnlyDocuments, "101");
 
     expect(reopened.snapshot().facts).toHaveLength(1);
     expect(reopened.receipt("expires-locally")).toBeNull();
@@ -331,9 +344,8 @@ describe("production Fact authority store", () => {
       workspaceId: "workspace",
       loroPeerId: "101",
       documents: documents,
-      snapshotInterval: 16,
     });
-    for (let index = 0; index < 40; index += 1) {
+    for (let index = 0; index < 80; index += 1) {
       await store.commit({
         invocationId: `offline-${index}`,
         request: { index },
@@ -345,7 +357,7 @@ describe("production Fact authority store", () => {
     const restarted = await open(documents);
     const remote = await open(new InMemoryDocumentStore(), "202");
     await remote.replication.importUpdate(await restarted.replication.exportUpdate());
-    expect(restarted.snapshot().facts).toHaveLength(40);
+    expect(restarted.snapshot().facts).toHaveLength(80);
     expect(remote.snapshot()).toEqual(restarted.snapshot());
   });
 
@@ -355,9 +367,8 @@ describe("production Fact authority store", () => {
       workspaceId: "workspace",
       loroPeerId: "101",
       documents: documents,
-      snapshotInterval: 4,
     });
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 129; index += 1) {
       await store.commit({
         invocationId: `compact-${index}`,
         request: { index },
@@ -369,7 +380,7 @@ describe("production Fact authority store", () => {
 
     expect((await documents.load(FACT_AUTHORITY_DOCUMENT_ID))?.updates).toHaveLength(1);
     const restarted = await open(documents);
-    expect(restarted.snapshot().facts).toHaveLength(9);
+    expect(restarted.snapshot().facts).toHaveLength(129);
   });
 });
 
@@ -383,16 +394,8 @@ class RecordingDocumentStore extends InMemoryDocumentStore {
 }
 
 class FailingDocumentStore implements DocumentStore {
-  delete(_id: string): Promise<void> {
-    return Promise.resolve();
-  }
-
   load(_id: string): Promise<LoadedDocumentBytes | null> {
     return Promise.resolve(null);
-  }
-
-  listIds(): Promise<string[]> {
-    return Promise.resolve([]);
   }
 
   appendUpdate(_id: string, _bytes: Uint8Array): Promise<number> {
@@ -410,8 +413,12 @@ class FailingDocumentStore implements DocumentStore {
 
 class FailingAuthoritySnapshotStore extends InMemoryDocumentStore {
   failAuthoritySnapshot = true;
+  authoritySnapshotAttempts = 0;
 
   override writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
+    if (id === FACT_AUTHORITY_DOCUMENT_ID) {
+      this.authoritySnapshotAttempts += 1;
+    }
     if (id === FACT_AUTHORITY_DOCUMENT_ID && this.failAuthoritySnapshot) {
       return Promise.reject(new Error("injected authority snapshot failure"));
     }

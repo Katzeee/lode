@@ -1,10 +1,12 @@
-import { OUTLINE_MAX_DEPTH, type EngineCommand, type EngineQuery } from "./contract.js";
+import type { EngineCommand, EngineQuery } from "./contract.js";
 import { ACTION_KINDS, COMMAND_KINDS, QUERY_KINDS } from "./protocol-cases.js";
 import { editIntent } from "./protocol-enums/engine.js";
-import { projectionPerspective } from "./protocol-enums/projection.js";
+import { projectionPerspective, projectionSection } from "./protocol-enums/projection.js";
 import { resolutionDecision } from "./protocol-enums/review.js";
-import { PROJECTION_PAGE_SECTIONS } from "./projection.js";
 import { factActionIds, factIds } from "./fact-identities.js";
+import { ProtocolInputValidationError } from "./protocol-input-error.js";
+
+const OUTLINE_MAX_DEPTH = 32;
 
 export function parseEngineCommand(value: unknown): EngineCommand {
   const command = record(value, "Engine command");
@@ -17,7 +19,7 @@ export function parseEngineCommand(value: unknown): EngineCommand {
     enumString(command.intent, editIntent.values, "Edit intent");
     nonempty(command.historyChannelId, "History channel");
     if (!Array.isArray(command.actions) || command.actions.length === 0) {
-      throw new Error("Edit command requires a non-empty action batch");
+      throw new ProtocolInputValidationError("Edit command requires a non-empty action batch");
     }
     for (const value of command.actions) {
       const action = record(value, "Edit action");
@@ -38,11 +40,11 @@ export function parseEngineCommand(value: unknown): EngineCommand {
   } else if (kind === "finalize-deletions") {
     exact(command, ["kind", "workspaceId", "invocationId", "actorId", "nodeIds"]);
     if (!Array.isArray(command.nodeIds) || command.nodeIds.length === 0) {
-      throw new Error("Deletion Finalization requires at least one Trash root");
+      throw new ProtocolInputValidationError("Deletion Finalization requires at least one Trash root");
     }
     const nodeIds = command.nodeIds.map((nodeId) => nonempty(nodeId, "Deletion Finalization Node identity"));
     if (new Set(nodeIds).size !== nodeIds.length) {
-      throw new Error("Deletion Finalization roots must be unique");
+      throw new ProtocolInputValidationError("Deletion Finalization roots must be unique");
     }
   }
   return command as EngineCommand;
@@ -57,7 +59,7 @@ export function parseEngineQuery(value: unknown): EngineQuery {
     exact(query, [...pagination, "perspective", "section"]);
     enumString(query.perspective, projectionPerspective.values, "Projection perspective");
     if (query.section !== undefined) {
-      enumString(query.section, PROJECTION_PAGE_SECTIONS, "Projection section");
+      enumString(query.section, projectionSection.values, "Projection section");
     }
     paginationValues(query, 100, "Projection");
   } else if (kind === "supertag-instances") {
@@ -92,13 +94,9 @@ export function parseEngineQuery(value: unknown): EngineQuery {
       (query.maxDepth as number) < 1 ||
       (query.maxDepth as number) > OUTLINE_MAX_DEPTH
     ) {
-      throw new Error(`Outline maximum depth must be between 1 and ${OUTLINE_MAX_DEPTH}`);
+      throw new ProtocolInputValidationError(`Outline maximum depth must be between 1 and ${OUTLINE_MAX_DEPTH}`);
     }
     paginationValues(query, 100, "Outline");
-  } else if (kind === "debug-node") {
-    exact(query, ["kind", "workspaceId", "perspective", "nodeId"]);
-    enumString(query.perspective, projectionPerspective.values, "Debug Node perspective");
-    nonempty(query.nodeId, "Debug Node identity");
   } else if (kind === "trash-evidence") {
     exact(query, ["kind", "workspaceId", "perspective", "nodeId"]);
     enumString(query.perspective, projectionPerspective.values, "Trash Evidence perspective");
@@ -136,27 +134,27 @@ function paginationValues(value: Record<string, unknown>, maximum: number, label
     value.limit !== undefined &&
     (!Number.isSafeInteger(value.limit) || (value.limit as number) < 1 || (value.limit as number) > maximum)
   ) {
-    throw new Error(`${label} page limit must be between 1 and ${maximum}`);
+    throw new ProtocolInputValidationError(`${label} page limit must be between 1 and ${maximum}`);
   }
 }
 
 function exact(value: Record<string, unknown>, allowed: readonly string[]): void {
   const extra = Object.keys(value).find((key) => !allowed.includes(key));
   if (extra) {
-    throw new Error(`Unknown input field: ${extra}`);
+    throw new ProtocolInputValidationError(`Unknown input field: ${extra}`);
   }
 }
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new TypeError(`${label} must be an object`);
+    throw new ProtocolInputValidationError(`${label} must be an object`);
   }
   return value as Record<string, unknown>;
 }
 
 function nonempty(value: unknown, label: string): string {
   if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`${label} must be a non-empty string`);
+    throw new ProtocolInputValidationError(`${label} must be a non-empty string`);
   }
   return value;
 }
@@ -167,7 +165,7 @@ function enumString<const Values extends readonly string[]>(
   label: string,
 ): Values[number] {
   if (typeof value !== "string" || !values.includes(value)) {
-    throw new Error(`${label} is invalid`);
+    throw new ProtocolInputValidationError(`${label} is invalid`);
   }
   return value;
 }

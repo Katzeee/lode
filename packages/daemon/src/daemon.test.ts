@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { EngineApi } from "@lode/sdk/host";
 import { startDaemon } from "./daemon.js";
-import { ConnectServerResource } from "./resources/connect-server-resource.js";
+import { ConnectServerResource } from "./connect-server-resource.js";
 
 describe("Daemon", () => {
   it("reports Engine cleanup failure when listener startup rolls back", async () => {
@@ -31,6 +31,7 @@ describe("Daemon", () => {
           exchangeAddress: "tcp://127.0.0.1:1",
           accessToken: "token",
           status: { homeName: "test", daemonVersion: "test", homePath: "test" },
+          onShutdown: () => undefined,
         }),
       ).rejects.toThrow("Daemon startup failed to roll back cleanly");
     } finally {
@@ -54,6 +55,7 @@ describe("Daemon", () => {
       exchangeAddress: "tcp://127.0.0.1:1",
       accessToken: "token",
       status: { homeName: "test", daemonVersion: "test", homePath: "test" },
+      onShutdown: () => undefined,
     });
 
     await expect(daemon.stop()).rejects.toThrow("injected Engine stop failure");
@@ -77,6 +79,7 @@ describe("Daemon", () => {
       exchangeAddress: "tcp://127.0.0.1:1",
       accessToken: "token",
       status: { homeName: "test", daemonVersion: "test", homePath: "test" },
+      onShutdown: () => undefined,
     });
     try {
       await expect(daemon.stop()).rejects.toThrow("injected listener close failure");

@@ -1,49 +1,39 @@
-import { canonicalJson, isFieldDefinitionAction, type GraphAction, type FactAction } from "../fact/index.js";
+import { canonicalJson, type GraphAction } from "../fact/index.js";
 import type {
   FieldDefinitionConfiguration,
   InterpretedProjection,
   InterpretedProjectionGeneration,
 } from "../reconcile/index.js";
-import { noCompensation, type CompensationStep } from "./compensation-types.js";
+import { noCompensation, type CompensationCatalog } from "./compensation-types.js";
 
-export function compensateFieldDefinitionConfiguration(
-  target: FactAction,
-  projection: InterpretedProjection,
-  counterfactual: InterpretedProjection,
-): CompensationStep | null {
-  if (!isFieldDefinitionAction(target.action)) {
-    return null;
-  }
-  const action = target.action;
-  if (action.kind === "field-configuration-set") {
-    return noCompensation();
-  }
-  if (action.kind === "field-definition-return-to-template-field") {
+export const FIELD_DEFINITION_COMPENSATIONS = {
+  "field-configuration-set": () => noCompensation(),
+  "field-definition-return-to-template-field": (_context, { action }) => ({
+    kind: "ready",
+    actions: [{ kind: "field-definition-make-discoverable", fieldDefinitionId: action.fieldDefinitionId }],
+  }),
+  "field-definition-make-discoverable": ({ projection, counterfactual }, { action }) => {
+    const previousOwner = Object.values(counterfactual.templateFields)
+      .flat()
+      .find(
+        (field) =>
+          field.fieldDefinitionId === action.fieldDefinitionId && field.fieldDefinitionOwner === "template-field",
+      );
+    if (previousOwner === undefined || hasOtherUses(projection, action.fieldDefinitionId, previousOwner.factActionId)) {
+      return noCompensation();
+    }
     return {
       kind: "ready",
-      actions: [{ kind: "field-definition-make-discoverable", fieldDefinitionId: action.fieldDefinitionId }],
+      actions: [
+        {
+          kind: "field-definition-return-to-template-field",
+          fieldDefinitionId: action.fieldDefinitionId,
+          templateFieldId: previousOwner.factActionId,
+        },
+      ],
     };
-  }
-  const previousOwner = Object.values(counterfactual.templateFields)
-    .flat()
-    .find(
-      (field) =>
-        field.fieldDefinitionId === action.fieldDefinitionId && field.fieldDefinitionOwner === "template-field",
-    );
-  if (previousOwner === undefined || hasOtherUses(projection, action.fieldDefinitionId, previousOwner.factActionId)) {
-    return noCompensation();
-  }
-  return {
-    kind: "ready",
-    actions: [
-      {
-        kind: "field-definition-return-to-template-field",
-        fieldDefinitionId: action.fieldDefinitionId,
-        templateFieldId: previousOwner.factActionId,
-      },
-    ],
-  };
-}
+  },
+} satisfies Partial<CompensationCatalog>;
 
 export function fieldDefinitionConfigurationCompensations(
   current: InterpretedProjectionGeneration["origin"],

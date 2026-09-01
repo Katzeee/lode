@@ -36,8 +36,23 @@ export function createWorkspaceReplica(workspace: Workspace): WorkspaceReplica {
 }
 
 async function discard(workspace: Workspace, staged: WorkspaceStorageStage): Promise<void> {
-  await workspace.close();
-  await staged.discard();
+  const failures: Error[] = [];
+  try {
+    await workspace.close();
+  } catch (error) {
+    failures.push(toError(error));
+  }
+  try {
+    await staged.discard();
+  } catch (error) {
+    failures.push(toError(error));
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Workspace staging failed to discard cleanly");
+  }
 }
 
 const silentEvents: EventSink = { publish: () => {} };
@@ -54,7 +69,8 @@ export async function failWorkspaceCleanup(
   try {
     await cleanup();
   } catch (cleanupError) {
-    throw new AggregateError([toError(primary), toError(cleanupError)], message, { cause: cleanupError });
+    const failure = new AggregateError([toError(primary), toError(cleanupError)], message, { cause: primary });
+    throw failure;
   }
   throw primary;
 }

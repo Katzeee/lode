@@ -25,11 +25,10 @@ import type {
   FieldDefinitionConfigurationDecisionEffect as ProtocolFieldDefinitionConfigurationDecisionEffect,
   SearchExpressionDecisionEffect as ProtocolSearchExpressionDecisionEffect,
   SearchExpressionDecisionState as ProtocolSearchExpressionDecisionState,
-} from "@lode/protocol/dto/review";
+} from "@lode/protocol/proto";
 import type {
   IntrinsicNodeType,
   PreviousValue,
-  ProtocolDto,
   ResolutionDecision,
   SequenceAnchor,
   TextAtomId,
@@ -38,6 +37,7 @@ import type {
   ViewOptionsSpec,
   SearchClause,
 } from "./model.js";
+import type { ProtocolDto, WithKind } from "./protocol-dto.js";
 import type { FactActionKind } from "./protocol-enums/fact.js";
 import type { FactActionId, FactId } from "./fact-identities.js";
 import type { InlineReferenceTargetStatus } from "./protocol-enums/model.js";
@@ -48,7 +48,6 @@ import type {
   SupertagRelationKind,
 } from "./protocol-enums/review.js";
 
-type WithKind<Value, Kind extends string> = Omit<ProtocolDto<Value>, "kind"> & Readonly<{ kind: Kind }>;
 type MarkChange = Readonly<{ atomId: TextAtomId; key: string; origin: PreviousValue; review: PreviousValue }>;
 
 type TextDecisionEffect = Omit<

@@ -74,9 +74,25 @@ export class NodePersistenceBackend implements PersistenceBackend {
         await close();
         await this.removeSidecars(stagedFile);
         await rename(stagedFile, final);
+        let opened: PhysicalWorkspaceStorage;
+        try {
+          opened = await this.openPhysical(workspaceId, final);
+        } catch (error) {
+          return failAfterCleanup(error, () => this.removeSqliteFiles(final), "Workspace promotion cleanup failed");
+        }
+        let closeTask: Promise<void> | undefined;
+        const promotedStorage = {
+          ...opened,
+          close: (): Promise<void> => (closeTask ??= Promise.resolve().then(() => opened.close())),
+        };
+        let rollbackTask: Promise<void> | undefined;
         active = false;
         this.staged.delete(workspaceId);
-        return this.openPhysical(workspaceId, final);
+        return {
+          storage: promotedStorage,
+          rollback: (): Promise<void> =>
+            (rollbackTask ??= promotedStorage.close().then(() => this.removeSqliteFiles(final))),
+        };
       },
       discard: async () => {
         this.assertOpen();
@@ -94,13 +110,23 @@ export class NodePersistenceBackend implements PersistenceBackend {
   async discardStagedWorkspaces(): Promise<void> {
     this.assertOpen();
     const directory = this.workspaceDirectory();
-    const names = await directoryEntries(directory);
-    for (const name of names) {
+    const failures: Error[] = [];
+    for (const name of (await directoryEntries(directory)).sort()) {
       if (name.startsWith(STAGING_PREFIX) && name.endsWith(SQLITE_SUFFIX)) {
-        await this.removeSqliteFiles(join(directory, name));
+        try {
+          await this.removeSqliteFiles(join(directory, name));
+        } catch (error) {
+          failures.push(toError(error));
+        }
       }
     }
     this.staged.clear();
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, "Staged Workspace cleanup failed");
+    }
   }
 
   close(): void {
@@ -145,12 +171,11 @@ function decodeWorkspaceFile(name: string): readonly string[] {
     return [];
   }
   const encoded = name.slice(FINAL_PREFIX.length, -SQLITE_SUFFIX.length);
-  try {
-    const workspaceId = Buffer.from(encoded, "base64url").toString("utf8");
-    return Buffer.from(workspaceId, "utf8").toString("base64url") === encoded ? [workspaceId] : [];
-  } catch {
-    return [];
+  const workspaceId = Buffer.from(encoded, "base64url").toString("utf8");
+  if (workspaceId.length === 0 || Buffer.from(workspaceId, "utf8").toString("base64url") !== encoded) {
+    throw new Error(`Workspace storage filename contains a corrupt identity: ${name}`);
   }
+  return [workspaceId];
 }
 
 async function exists(file: string): Promise<boolean> {
@@ -178,4 +203,18 @@ async function directoryEntries(directory: string): Promise<string[]> {
 
 function hasCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === code;
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}
+
+async function failAfterCleanup(primary: unknown, cleanup: () => Promise<void>, message: string): Promise<never> {
+  try {
+    await cleanup();
+  } catch (cleanupError) {
+    const failure = new AggregateError([toError(primary), toError(cleanupError)], message, { cause: primary });
+    throw failure;
+  }
+  throw primary;
 }

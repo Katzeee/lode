@@ -1,29 +1,33 @@
-import { LoroDoc, VersionVector } from "loro-crdt";
+import type { LoroDoc } from "loro-crdt";
+import { VersionVector } from "loro-crdt";
 
 import {
-  factId,
-  normalizeFrontier,
-  parseFactBody,
   type Fact,
   type FactActionId,
   type FactId,
-  type FactFrontier,
   type FactSnapshot,
   type FactBody,
   type WorkspaceId,
 } from "../../../domain/fact/index.js";
 import type { DocumentStore, DocumentUpdate } from "../../persistence/index.js";
-import type { SyncBytes, SyncableDoc } from "../replica-sync.js";
+import type { SyncBytes, SyncableDoc } from "./replication.js";
 import { FactStoreCache } from "./fact-store-cache.js";
+import { AUTHORITY_SNAPSHOT_UPDATE_INTERVAL } from "./compaction-policy.js";
+import {
+  appendFactRecords,
+  assertFactDocumentShape,
+  createFactDocument,
+  importFactRecords,
+  readFactState,
+  versionFrontier,
+} from "./loro-fact-records.js";
 
-export const FACT_AUTHORITY_DOCUMENT_ID = "facts";
-const FACT_LIST_ID = "facts";
+const FACT_AUTHORITY_DOCUMENT_ID = "facts";
 
 type LoroFactStoreOptions = Readonly<{
   workspaceId: WorkspaceId;
   loroPeerId: `${number}`;
   documents: DocumentStore;
-  snapshotInterval?: number;
 }>;
 
 export class LoroFactStore {
@@ -52,7 +56,7 @@ export class LoroFactStore {
   }
 
   static async open(options: LoroFactStoreOptions): Promise<LoroFactStore> {
-    const document = createDocument(options.loroPeerId);
+    const document = createFactDocument(options.loroPeerId);
     const loaded = await options.documents.load(FACT_AUTHORITY_DOCUMENT_ID);
     let pending: readonly PendingFactSpan[] = [];
     let pendingUpdates: readonly SyncBytes[] = [];
@@ -135,7 +139,7 @@ export class LoroFactStore {
   }
 
   private async compactIfNeeded(): Promise<void> {
-    if (this.pending.length > 0 || this.updatesSinceSnapshot < (this.options.snapshotInterval ?? 64)) {
+    if (this.pending.length > 0 || this.updatesSinceSnapshot < AUTHORITY_SNAPSHOT_UPDATE_INTERVAL) {
       return;
     }
     try {
@@ -149,152 +153,6 @@ export class LoroFactStore {
     }
   }
 }
-
-function createDocument(peerId: `${number}`): LoroDoc {
-  const document = new LoroDoc();
-  document.setPeerId(peerId);
-  document.setChangeMergeInterval(-1);
-  document.getList(FACT_LIST_ID);
-  return document;
-}
-
-function assertFactDocumentShape(document: LoroDoc): void {
-  const root: unknown = document.toJSON();
-  if (typeof root !== "object" || root === null || Array.isArray(root)) {
-    throw new Error("Fact authority document root is malformed");
-  }
-  const record = root as Readonly<Record<string, unknown>>;
-  if (Object.keys(record).length !== 1 || !Array.isArray(record[FACT_LIST_ID])) {
-    throw new Error("Fact authority update changed a non-Fact container");
-  }
-}
-
-function appendFactRecords(
-  document: LoroDoc,
-  workspaceId: WorkspaceId,
-  bodies: readonly FactBody[],
-  firstSequence: number,
-): readonly Fact[] {
-  const list = document.getList(FACT_LIST_ID);
-  const facts: Fact[] = [];
-  let factSequence = firstSequence;
-  for (const body of bodies) {
-    list.push(body);
-    document.commit({ message: `fact/${document.peerIdStr}/${factSequence}` });
-    facts.push(readFactAt(document, workspaceId, list.length - 1));
-    factSequence += 1;
-  }
-  return facts;
-}
-
-function readFactState(document: LoroDoc, workspaceId: WorkspaceId): LoroFactState {
-  const list = document.getList(FACT_LIST_ID);
-  const facts: Fact[] = [];
-
-  for (let index = 0; index < list.length; index += 1) {
-    facts.push(readFactAt(document, workspaceId, index));
-  }
-
-  return {
-    facts,
-    frontier: versionFrontier(document.version()),
-  };
-}
-
-function importFactRecords(
-  document: LoroDoc,
-  workspaceId: WorkspaceId,
-  bytes: SyncBytes,
-): Readonly<{ facts: readonly Fact[]; status: ReturnType<LoroDoc["import"]> }> {
-  const list = document.getList(FACT_LIST_ID);
-  const facts: Fact[] = [];
-  let importError: Error | undefined;
-  const unsubscribe = list.subscribe((batch) => {
-    try {
-      for (const event of batch.events) {
-        if (event.target !== `cid:root-${FACT_LIST_ID}:List` || event.diff.type !== "list") {
-          throw new Error("Fact authority import changed a non-Fact container");
-        }
-        let index = 0;
-        for (const delta of event.diff.diff) {
-          if (delta.retain !== undefined) {
-            index += delta.retain;
-          } else if (delta.delete !== undefined) {
-            throw new Error("Fact authority updates cannot remove an existing Fact");
-          } else {
-            for (let offset = 0; offset < delta.insert.length; offset += 1) {
-              facts.push(readFactAt(document, workspaceId, index + offset));
-            }
-            index += delta.insert.length;
-          }
-        }
-      }
-    } catch (error) {
-      importError = error instanceof Error ? error : new Error(String(error));
-    }
-  });
-  let status: ReturnType<LoroDoc["import"]>;
-  try {
-    status = document.import(bytes);
-  } finally {
-    unsubscribe();
-  }
-  if (importError !== undefined) {
-    throw importError;
-  }
-  return { facts, status };
-}
-
-function readFactAt(document: LoroDoc, workspaceId: WorkspaceId, index: number): Fact {
-  const list = document.getList(FACT_LIST_ID);
-  return factFromRecord(document, workspaceId, changeAt(document, index), parseFactBody(list.get(index)));
-}
-
-function changeAt(document: LoroDoc, index: number): ReturnType<LoroDoc["getChangeAt"]> {
-  const list = document.getList(FACT_LIST_ID);
-  const cursor = list.getCursor(index, 0);
-  try {
-    const operationId = cursor?.pos();
-    if (!operationId) {
-      throw new Error(`Fact record has no Loro operation identity at index ${index}`);
-    }
-    const change = document.getChangeAt(operationId);
-    if (change.length !== 1 || operationId.counter !== change.counter) {
-      throw new Error(`One Fact record must occupy one complete Loro Change: ${change.peer}/${change.counter}`);
-    }
-    return change;
-  } finally {
-    cursor?.free();
-  }
-}
-
-function factFromRecord(
-  document: LoroDoc,
-  workspaceId: WorkspaceId,
-  change: ReturnType<LoroDoc["getChangeAt"]>,
-  body: FactBody,
-): Fact {
-  const sequence = change.counter + 1;
-  const baseObserved = new Map(document.frontiersToVV(change.deps).toJSON());
-  return {
-    id: factId(workspaceId, change.peer, sequence),
-    coordinate: {
-      dot: { replicaId: change.peer, sequence },
-      observed: normalizeFrontier(Object.fromEntries(baseObserved)),
-      lamport: change.lamport + 1,
-    },
-    body,
-  };
-}
-
-function versionFrontier(version: VersionVector): FactFrontier {
-  return normalizeFrontier(Object.fromEntries(version.toJSON()));
-}
-
-type LoroFactState = Readonly<{
-  facts: readonly Fact[];
-  frontier: FactFrontier;
-}>;
 
 type PendingFactSpan = Readonly<{ peer: `${number}`; end: number }>;
 

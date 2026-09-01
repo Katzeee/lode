@@ -1,7 +1,7 @@
 import type { ViewOptionsSpec } from "./model.js";
 import { viewSortDirection } from "./protocol-enums/model.js";
 import { fromSearchExpressionSpec, toSearchExpressionSpec } from "./protocol-search-expression-codec.js";
-import { required } from "./protocol-shape-codec.js";
+import { required } from "./protocol-decoding.js";
 import { factActionId } from "./fact-identities.js";
 
 export function toViewOptionsSpec(options: ViewOptionsSpec): Record<string, unknown> {
@@ -57,10 +57,7 @@ export function fromViewOptionsSpec(value: unknown): ViewOptionsSpec {
             sortId: factActionId(sort.sortId, "View sort identity"),
             sortNodeId: string(sort.sortNodeId, "View sort Node identity"),
             fieldDefinitionId: string(sort.fieldDefinitionId, "View sort Field Definition identity"),
-            direction:
-              typeof sort.direction === "string"
-                ? (sort.direction as "ascending" | "descending")
-                : viewSortDirection.decode(sort.direction as never),
+            direction: decodeSortDirection(sort.direction),
           },
     group:
       group === null
@@ -71,6 +68,16 @@ export function fromViewOptionsSpec(value: unknown): ViewOptionsSpec {
             fieldDefinitionId: string(group.fieldDefinitionId, "View group Field Definition identity"),
           },
   };
+}
+
+function decodeSortDirection(value: unknown): "ascending" | "descending" {
+  if (typeof value === "string") {
+    if (viewSortDirection.values.includes(value as "ascending" | "descending")) {
+      return value as "ascending" | "descending";
+    }
+    throw new Error(`View sort direction is invalid: ${value}`);
+  }
+  return viewSortDirection.decode(value as never);
 }
 
 function array(value: unknown, label: string): readonly unknown[] {

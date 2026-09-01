@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  frontierOf,
   materializedFieldNodeId,
   materializedFieldOccurrenceId,
   type Fact,
   type FactFrontier,
 } from "../src/domain/fact/index.js";
+import { frontierOf } from "../src/domain/fact/frontier.js";
 import { end, Facts } from "./support/reconcile/reconcile-test-helpers.js";
 import { addDefinitionNode, addPlacedNode } from "./support/reconcile/placed-node-test-helpers.js";
 import {

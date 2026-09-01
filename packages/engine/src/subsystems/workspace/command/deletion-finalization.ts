@@ -1,7 +1,7 @@
 import { stableStringCompare, terminalActionBody } from "../../../domain/fact/index.js";
 import { nodeLocation } from "../../../domain/reconcile/index.js";
 import type { AcceptedEngineCommand } from "../application/input-validation.js";
-import { rejectedResult } from "../workspace-results.js";
+import { rejectedResult } from "../application/result-mapping.js";
 import type { BoundWorkspaceCommand } from "./command-rule.js";
 
 type FinalizeDeletionsCommand = Extract<AcceptedEngineCommand, { kind: "finalize-deletions" }>;

@@ -1,4 +1,4 @@
-import { create } from "@bufbuild/protobuf";
+import { create, type DescMessage, type MessageInitShape, type MessageShape } from "@bufbuild/protobuf";
 import { EmptySchema } from "@bufbuild/protobuf/wkt";
 import {
   AdmitActorRequestSchema,
@@ -17,7 +17,7 @@ import type { IdentityService, WorkspaceGovernanceService } from "@lode/protocol
 import type { EngineGovernance, EngineIdentity } from "@lode/sdk/host";
 
 /** The identity and governance client surfaces: one authenticated bundle each. */
-export type SurfaceClients = Readonly<{
+type SurfaceClients = Readonly<{
   identity: Client<typeof IdentityService>;
   governance: Client<typeof WorkspaceGovernanceService>;
 }>;
@@ -55,41 +55,26 @@ export function createGovernanceSurface(clients: SurfaceClients, headers: () => 
         peers: summary.peers,
       };
     },
-    admitActor: async (input) => {
-      await clients.governance.admitActor(
-        create(AdmitActorRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
-    removeActor: async (input) => {
-      await clients.governance.removeActor(
-        create(RemoveActorRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
-    transferOwner: async (input) => {
-      await clients.governance.transferOwner(
-        create(TransferOwnerRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
-    admitPeer: async (input) => {
-      await clients.governance.admitPeer(
-        create(AdmitPeerRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
-    revokePeer: async (input) => {
-      await clients.governance.revokePeer(
-        create(RevokePeerRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
-    rotateTransit: async (input) => {
-      await clients.governance.rotateTransit(
-        create(RotateTransitRequestSchema, { ...input, requestId: input.requestId ?? undefined }),
-        { headers: headers() },
-      );
-    },
+    admitActor: decree(AdmitActorRequestSchema, clients.governance.admitActor, headers),
+    removeActor: decree(RemoveActorRequestSchema, clients.governance.removeActor, headers),
+    transferOwner: decree(TransferOwnerRequestSchema, clients.governance.transferOwner, headers),
+    admitPeer: decree(AdmitPeerRequestSchema, clients.governance.admitPeer, headers),
+    revokePeer: decree(RevokePeerRequestSchema, clients.governance.revokePeer, headers),
+    rotateTransit: decree(RotateTransitRequestSchema, clients.governance.rotateTransit, headers),
+  };
+}
+
+/**
+ * A fire-and-forget governance RPC: every decree request carries an optional
+ * dedup requestId whose null form must leave the wire field unset.
+ */
+function decree<Schema extends DescMessage>(
+  schema: Schema,
+  method: (request: MessageShape<Schema>, options: Readonly<{ headers: Headers }>) => Promise<unknown>,
+  headers: () => Headers,
+): (input: Omit<MessageInitShape<Schema>, "requestId"> & Readonly<{ requestId?: string | null }>) => Promise<void> {
+  return async (input) => {
+    const init = { ...input, requestId: input.requestId ?? undefined } as unknown as MessageInitShape<Schema>;
+    await method(create(schema, init), { headers: headers() });
   };
 }

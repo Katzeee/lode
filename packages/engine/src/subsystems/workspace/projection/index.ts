@@ -5,11 +5,7 @@ import {
   type ProjectionVersions,
 } from "../../../domain/reconcile/index.js";
 import { createReviewReadModel, type ReviewReadModel } from "../../../domain/review/index.js";
-import {
-  createProjectionReadIndexes,
-  type ProjectionGenerationReadIndexes,
-  type ProjectionReadIndex,
-} from "./read-index.js";
+import { createProjectionReadIndexes, type ProjectionGenerationReadIndexes } from "./read-index.js";
 
 export type WorkspaceProjectionState = Readonly<{
   snapshot: FactSnapshot;
@@ -17,8 +13,6 @@ export type WorkspaceProjectionState = Readonly<{
   review: ReviewReadModel;
   indexes: ProjectionGenerationReadIndexes;
 }>;
-
-export type { ProjectionGenerationReadIndexes, ProjectionReadIndex };
 
 type WorkspaceProjectionEvent = Readonly<{
   kind: "projection-published" | "projection-failed" | "projection-recovered";
@@ -40,7 +34,7 @@ export class WorkspaceProjection {
     workspaceId: string,
     snapshot: FactSnapshot,
     versions: ProjectionVersions,
-    notify: (event: WorkspaceProjectionEvent) => void = () => undefined,
+    notify: (event: WorkspaceProjectionEvent) => void,
   ): WorkspaceProjection {
     const generation = rebuildGeneration(workspaceId, snapshot, versions);
     return new WorkspaceProjection(workspaceId, versions, createState(snapshot, generation), notify);

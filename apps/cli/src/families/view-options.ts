@@ -1,24 +1,20 @@
 import { END_SEQUENCE_ANCHOR as end, VIEW_SORT_DIRECTIONS } from "@lode/sdk";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { enumOption, stringOption, writeCommand } from "../command/index.js";
 import { CliError } from "../outcome/index.js";
-import { resolveNodeTarget } from "../target/index.js";
-import { workspaceIdOf } from "../intent/index.js";
+import { resolveTarget } from "../target/index.js";
 import { parseExpression } from "../value/expression.js";
 import { compileDraft, resolveAst } from "../value/expression-compile.js";
 import { writeViewActions } from "./view-actions.js";
 
-const viewFilterSet: CommandDefinition = {
+const viewFilterSet = writeCommand({
   path: ["view", "filter", "set"],
   summary: "Set the host's View filter expression.",
   positionals: [["node", "View host target"]],
-  options: [{ name: "--where", description: "Filter expression", value: { kind: "string" as const }, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--where", "Filter expression", { required: true })],
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
     const ast = await resolveAst(parseExpression(args.requiredOption("--where")), async (token, role) => {
-      const target = await resolveNodeTarget(context.session, workspaceId, context.perspective, token, [role]);
+      const target = await resolveTarget(context, token, [role]);
       return target.nodeId;
     });
     const expression = compileDraft(ast);
@@ -35,16 +31,12 @@ const viewFilterSet: CommandDefinition = {
       },
     ]);
   },
-};
+});
 
-const viewFilterClear: CommandDefinition = {
+const viewFilterClear = writeCommand({
   path: ["view", "filter", "clear"],
   summary: "Clear the host's View filter.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) =>
     writeViewActions(context, args.positional("node"), "view.filter.clear", (current) => [
       {
@@ -53,29 +45,18 @@ const viewFilterClear: CommandDefinition = {
         viewId: current.viewId,
       },
     ]),
-};
+});
 
-const viewSortSet: CommandDefinition = {
+const viewSortSet = writeCommand({
   path: ["view", "sort", "set"],
   summary: "Sort the host's View by one field.",
   positionals: [["field", "Field Definition target"]],
   options: [
-    { name: "--on", description: "View host target", value: { kind: "string" as const }, required: true },
-    {
-      name: "--direction",
-      description: "ascending or descending",
-      value: { kind: "enum" as const, enum: VIEW_SORT_DIRECTIONS },
-      required: true,
-    },
+    stringOption("--on", "View host target", { required: true }),
+    enumOption("--direction", VIEW_SORT_DIRECTIONS, "ascending or descending", { required: true }),
   ],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     return writeViewActions(context, args.requiredOption("--on"), "view.sort.set", (current) => {
       const direction = args.requiredOption("--direction") === "descending" ? "descending" : "ascending";
       return current.options.sort === null
@@ -100,16 +81,12 @@ const viewSortSet: CommandDefinition = {
           ];
     });
   },
-};
+});
 
-const viewSortClear: CommandDefinition = {
+const viewSortClear = writeCommand({
   path: ["view", "sort", "clear"],
   summary: "Clear the host's View sort.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) =>
     writeViewActions(context, args.positional("node"), "view.sort.clear", (current) => [
       {
@@ -118,21 +95,15 @@ const viewSortClear: CommandDefinition = {
         viewId: current.viewId,
       },
     ]),
-};
+});
 
-const viewGroupSet: CommandDefinition = {
+const viewGroupSet = writeCommand({
   path: ["view", "group", "set"],
   summary: "Group the host's View by one field.",
   positionals: [["field", "Field Definition target"]],
-  options: [{ name: "--on", description: "View host target", value: { kind: "string" as const }, required: true }],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
+  options: [stringOption("--on", "View host target", { required: true })],
   run: async (context, args) => {
-    const workspaceId = workspaceIdOf(context);
-    const field = await resolveNodeTarget(context.session, workspaceId, context.perspective, args.positional("field"), [
-      "field",
-    ]);
+    const field = await resolveTarget(context, args.positional("field"), ["field"]);
     return writeViewActions(context, args.requiredOption("--on"), "view.group.set", (current) => {
       if (current.options.group?.fieldDefinitionId === field.nodeId) {
         throw new CliError("invalid-value", "View already groups by this Field Definition.");
@@ -150,16 +121,12 @@ const viewGroupSet: CommandDefinition = {
       ];
     });
   },
-};
+});
 
-const viewGroupClear: CommandDefinition = {
+const viewGroupClear = writeCommand({
   path: ["view", "group", "clear"],
   summary: "Clear the host's View grouping.",
   positionals: [["node", "View host target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) =>
     writeViewActions(context, args.positional("node"), "view.group.clear", (current) => [
       {
@@ -168,7 +135,7 @@ const viewGroupClear: CommandDefinition = {
         viewId: current.viewId,
       },
     ]),
-};
+});
 
 export function registerViewOptionCommands(catalog: CommandCatalog): void {
   catalog.register(viewFilterSet);

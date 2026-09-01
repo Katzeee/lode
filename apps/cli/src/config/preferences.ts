@@ -4,7 +4,7 @@ import { parse } from "smol-toml";
 
 import { CliError } from "../outcome/index.js";
 
-export type CliPreferences = Readonly<{
+type CliPreferences = Readonly<{
   defaultFormat?: "human" | "json";
   defaultLimit?: number;
 }>;

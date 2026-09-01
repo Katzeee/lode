@@ -1,5 +1,5 @@
 import { canonicalJson, compareCausalOrder, type FactAction } from "../fact/index.js";
-import type { ConflictIssue } from "../conflict/types.js";
+import type { ConflictIssue } from "../conflict/index.js";
 import { typedNodeCreationsByNode, type TypedNodeCreationFact } from "./intrinsic-node-types.js";
 
 export function intrinsicNodeTypeConflicts(active: readonly FactAction[]): readonly ConflictIssue[] {

@@ -1,19 +1,16 @@
+import { create, fromBinary, toBinary, type MessageInitShape } from "@bufbuild/protobuf";
 import {
-  EngineCommand as ProtocolEngineCommand,
-  EngineEvent as ProtocolEngineEvent,
-  EngineQuery as ProtocolEngineQuery,
-  QueryResult as ProtocolQueryResult,
-  WriteResult as ProtocolWriteResult,
-} from "@lode/protocol/dto/engine";
-import {
-  EditActionSchema,
   EngineCommandSchema,
   EngineEventSchema,
   EngineQuerySchema,
   QueryResultSchema,
   WriteResultSchema,
+  type EngineCommand as ProtocolEngineCommand,
+  type EngineEvent as ProtocolEngineEvent,
+  type EngineQuery as ProtocolEngineQuery,
+  type QueryResult as ProtocolQueryResult,
+  type WriteResult as ProtocolWriteResult,
 } from "@lode/protocol/proto";
-import type { EditAction } from "./edit.js";
 import type { HistoryQuery } from "./history.js";
 import type {
   EngineCommand,
@@ -21,178 +18,192 @@ import type {
   EngineEvent,
   EngineQuery,
   EngineQueryResult,
-  DebugNodeResult,
   InvocationOutcome,
   ViewRowsResult,
   WriteResult,
 } from "./contract.js";
 import type { ProjectionPage } from "./projection.js";
-import type { ConflictIssue, ReviewQuery } from "./review.js";
+import type { ProtocolDto } from "./protocol-dto.js";
+import type { ReviewQuery } from "./review.js";
 import { fromProjectionPage, toProjectionPage } from "./protocol-projection-codec.js";
 import {
   commandKind,
-  actionKind,
   protocolCommandCase,
-  protocolActionCase,
   protocolQueryCase,
   protocolWriteResultCase,
   queryKind,
   writeResultStatus,
-  type ProtocolActionCase,
+  type ProtocolCommandCase,
 } from "./protocol-cases.js";
 import {
   fromInvocationOutcome,
-  fromProtocolValue,
   fromReviewQuery,
   fromReviewSelection,
-  required,
-  toConflictIssue,
   toInvocationOutcome,
-  toProtocolValue,
   toReviewQuery,
   toReviewSelection,
 } from "./protocol-shape-codec.js";
+import { fromConflictQueryResult, toConflictQueryResult } from "./protocol-conflict-codec.js";
+import { selectedCase } from "./protocol-decoding.js";
+import { fromEditAction, toEditAction } from "./protocol-edit-action-codec.js";
 import { fromProtocolMessage, toProtocolMessage } from "./protocol-message-codec.js";
+import { fromProtocolValue, toProtocolValue } from "./protocol-value-codec.js";
 import {
   fromHistoryQuery,
   fromHistorySelection,
   toHistoryQuery,
   toHistorySelection,
 } from "./protocol-history-codec.js";
-import { fromDebugNodeResult, toDebugNodeResult } from "./protocol-debug-node-codec.js";
-import {
-  fromSearchClause,
-  fromSearchExpressionDraft,
-  toSearchClause,
-  toSearchExpressionDraft,
-} from "./protocol-search-expression-codec.js";
 import { fromViewOptionsSpec, toViewOptionsSpec } from "./protocol-view-options-codec.js";
 
-export function encodeEngineCommand(command: EngineCommand): Uint8Array {
+export function engineCommandToMessage(command: EngineCommand): ProtocolEngineCommand {
   const value = toProtocolMessage(EngineCommandSchema, { command: commandValue(command) });
-  return ProtocolEngineCommand.encode(ProtocolEngineCommand.fromPartial(value as never)).finish();
+  return create(EngineCommandSchema, value as MessageInitShape<typeof EngineCommandSchema>);
+}
+
+export function engineCommandFromMessage(message: ProtocolEngineCommand): EngineCommand {
+  const walked = fromProtocolMessage(EngineCommandSchema, message) as ProtocolDto<ProtocolEngineCommand>;
+  const selected = selectedCase(walked.command, "Engine command");
+  const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
+  if (selected.case === "edit") {
+    decoded.actions = selected.value.actions.map(fromEditAction);
+  } else if (selected.case === "resolveReview") {
+    decoded.selection = fromReviewSelection(selected.value.selection);
+  } else if (selected.case === "undo" || selected.case === "redo") {
+    decoded.selection = fromHistorySelection(selected.value.selection);
+  }
+  return { ...decoded, kind: commandKind(selected.case) } as EngineCommand;
+}
+
+export function encodeEngineCommand(command: EngineCommand): Uint8Array {
+  return toBinary(EngineCommandSchema, engineCommandToMessage(command));
 }
 
 export function decodeEngineCommand(bytes: Uint8Array): EngineCommand {
-  const message = fromProtocolMessage(EngineCommandSchema, ProtocolEngineCommand.decode(bytes)) as ReturnType<
-    typeof ProtocolEngineCommand.decode
-  >;
-  const selected = required(message.command, "Engine command");
-  const decoded = fromProtocolValue(selected.value) as Record<string, unknown>;
-  if (selected.$case === "edit") {
-    decoded.actions = selected.value.actions.map(fromEditAction);
-  } else if (selected.$case === "resolveReview") {
-    decoded.selection = fromReviewSelection(selected.value.selection);
-  } else if (selected.$case === "undo" || selected.$case === "redo") {
-    decoded.selection = fromHistorySelection(selected.value.selection);
-  }
-  return { ...decoded, kind: commandKind(selected.$case) } as EngineCommand;
+  return engineCommandFromMessage(fromBinary(EngineCommandSchema, bytes));
 }
 
-export function encodeEngineQuery(query: EngineQuery): Uint8Array {
-  const $case = protocolQueryCase(query.kind);
+export function engineQueryToMessage(query: EngineQuery): ProtocolEngineQuery {
   const message = toProtocolMessage(EngineQuerySchema, {
-    query: { $case, value: toProtocolValue(query) },
+    query: { case: protocolQueryCase(query.kind), value: toProtocolValue(query) },
   });
-  return ProtocolEngineQuery.encode(ProtocolEngineQuery.fromPartial(message as never)).finish();
+  return create(EngineQuerySchema, message as MessageInitShape<typeof EngineQuerySchema>);
 }
 
-export function decodeEngineQuery(bytes: Uint8Array): EngineQuery {
-  const message = fromProtocolMessage(EngineQuerySchema, ProtocolEngineQuery.decode(bytes)) as ReturnType<
-    typeof ProtocolEngineQuery.decode
-  >;
-  const selected = required(message.query, "Engine query");
+export function engineQueryFromMessage(message: ProtocolEngineQuery): EngineQuery {
+  const walked = fromProtocolMessage(EngineQuerySchema, message) as ProtocolDto<ProtocolEngineQuery>;
+  const selected = selectedCase(walked.query, "Engine query");
   const value = fromProtocolValue(selected.value) as Record<string, unknown>;
   for (const key of ["section", "after", "limit", "viewDefinitionNodeId"] as const) {
     if (value[key] === null) {
       delete value[key];
     }
   }
-  return { ...value, kind: queryKind(selected.$case) } as EngineQuery;
+  return { ...value, kind: queryKind(selected.case) } as EngineQuery;
 }
 
-export function encodeWriteResult(result: WriteResult): Uint8Array {
-  const $case = protocolWriteResultCase(result.status);
+export function encodeEngineQuery(query: EngineQuery): Uint8Array {
+  return toBinary(EngineQuerySchema, engineQueryToMessage(query));
+}
+
+export function decodeEngineQuery(bytes: Uint8Array): EngineQuery {
+  return engineQueryFromMessage(fromBinary(EngineQuerySchema, bytes));
+}
+
+export function writeResultToMessage(result: WriteResult): ProtocolWriteResult {
   const message = toProtocolMessage(WriteResultSchema, {
-    result: { $case, value: toProtocolValue(result) },
+    result: { case: protocolWriteResultCase(result.status), value: toProtocolValue(result) },
   });
-  return ProtocolWriteResult.encode(ProtocolWriteResult.fromPartial(message as never)).finish();
+  return create(WriteResultSchema, message as MessageInitShape<typeof WriteResultSchema>);
 }
 
-export function decodeWriteResult(bytes: Uint8Array): WriteResult {
-  const message = fromProtocolMessage(WriteResultSchema, ProtocolWriteResult.decode(bytes)) as ReturnType<
-    typeof ProtocolWriteResult.decode
-  >;
-  const selected = required(message.result, "Engine write result");
+export function writeResultFromMessage(message: ProtocolWriteResult): WriteResult {
+  const walked = fromProtocolMessage(WriteResultSchema, message) as ProtocolDto<ProtocolWriteResult>;
+  const selected = selectedCase(walked.result, "Engine write result");
   return {
     ...(fromProtocolValue(selected.value) as Record<string, unknown>),
-    status: writeResultStatus(selected.$case),
+    status: writeResultStatus(selected.case),
   } as WriteResult;
 }
 
-export function encodeEngineQueryResult(query: EngineQuery, result: EngineQueryResult): Uint8Array {
-  if (result.status === "rejected") {
-    return encodeEngineQueryError(result.error);
-  }
-  const $case = protocolQueryCase(query.kind);
-  const message = toProtocolMessage(QueryResultSchema, {
-    result: { $case, value: toQueryValue(query, result.value) },
-  });
-  return ProtocolQueryResult.encode(ProtocolQueryResult.fromPartial(message as never)).finish();
+export function encodeWriteResult(result: WriteResult): Uint8Array {
+  return toBinary(WriteResultSchema, writeResultToMessage(result));
 }
 
-export function encodeEngineQueryError(error: EngineError): Uint8Array {
-  const message = toProtocolMessage(QueryResultSchema, {
-    result: { $case: "rejected", value: error },
-  });
-  return ProtocolQueryResult.encode(ProtocolQueryResult.fromPartial(message as never)).finish();
+export function decodeWriteResult(bytes: Uint8Array): WriteResult {
+  return writeResultFromMessage(fromBinary(WriteResultSchema, bytes));
+}
+
+export function queryResultToMessage(query: EngineQuery, result: EngineQueryResult): ProtocolQueryResult {
+  const message =
+    result.status === "rejected"
+      ? toProtocolMessage(QueryResultSchema, { result: { case: "rejected", value: errorValue(result.error) } })
+      : toProtocolMessage(QueryResultSchema, {
+          result: { case: protocolQueryCase(query.kind), value: toQueryValue(query, result.value) },
+        });
+  return create(QueryResultSchema, message as MessageInitShape<typeof QueryResultSchema>);
+}
+
+export function queryResultFromMessage<Query extends EngineQuery>(
+  message: ProtocolQueryResult,
+  query: Query,
+): EngineQueryResult<Query> {
+  const walked = fromProtocolMessage(QueryResultSchema, message) as ProtocolDto<ProtocolQueryResult>;
+  const selected = selectedCase(walked.result, "Engine query result");
+  if (selected.case === "rejected") {
+    return { status: "rejected", error: fromProtocolValue(selected.value) } as EngineQueryResult<Query>;
+  }
+  const expected = protocolQueryCase(query.kind);
+  if (selected.case !== expected) {
+    throw new Error(`Engine query result ${selected.case} does not match ${query.kind}`);
+  }
+  const value =
+    selected.case === "invocation"
+      ? fromInvocationOutcome(selected.value)
+      : selected.case === "projection"
+        ? fromProjectionPage(selected.value)
+        : selected.case === "review"
+          ? fromReviewQuery(selected.value)
+          : selected.case === "history"
+            ? fromHistoryQuery(selected.value)
+            : selected.case === "viewRows"
+              ? fromViewRowsResult(selected.value)
+              : selected.case === "conflicts"
+                ? fromConflictQueryResult(selected.value)
+                : fromProtocolValue(selected.value);
+  return { status: "ok", value } as EngineQueryResult<Query>;
+}
+
+export function encodeEngineQueryResult(query: EngineQuery, result: EngineQueryResult): Uint8Array {
+  return toBinary(QueryResultSchema, queryResultToMessage(query, result));
 }
 
 export function decodeEngineQueryResult<Query extends EngineQuery>(
   bytes: Uint8Array,
   query: Query,
 ): EngineQueryResult<Query> {
-  const message = fromProtocolMessage(QueryResultSchema, ProtocolQueryResult.decode(bytes)) as ReturnType<
-    typeof ProtocolQueryResult.decode
-  >;
-  const selected = required(message.result, "Engine query result");
-  if (selected.$case === "rejected") {
-    return { status: "rejected", error: fromProtocolValue(selected.value) } as EngineQueryResult<Query>;
-  }
-  const expected = protocolQueryCase(query.kind);
-  if (selected.$case !== expected) {
-    throw new Error(`Engine query result ${selected.$case} does not match ${query.kind}`);
-  }
-  const value =
-    selected.$case === "invocation"
-      ? fromInvocationOutcome(selected.value)
-      : selected.$case === "projection"
-        ? fromProjectionPage(selected.value)
-        : selected.$case === "review"
-          ? fromReviewQuery(selected.value)
-          : selected.$case === "history"
-            ? fromHistoryQuery(selected.value)
-            : selected.$case === "debugNode"
-              ? fromDebugNodeResult(selected.value)
-              : selected.$case === "viewRows"
-                ? fromViewRowsResult(selected.value)
-                : fromProtocolValue(selected.value);
-  return { status: "ok", value } as EngineQueryResult<Query>;
+  return queryResultFromMessage(fromBinary(QueryResultSchema, bytes), query);
+}
+
+export function engineEventToMessage(event: EngineEvent): ProtocolEngineEvent {
+  const message = toProtocolMessage(EngineEventSchema, toProtocolValue(event));
+  return create(EngineEventSchema, message as MessageInitShape<typeof EngineEventSchema>);
+}
+
+export function engineEventFromMessage(message: ProtocolEngineEvent): EngineEvent {
+  const walked = fromProtocolMessage(EngineEventSchema, message);
+  return fromProtocolValue(walked) as EngineEvent;
 }
 
 export function encodeEngineEvent(event: EngineEvent): Uint8Array {
-  const message = toProtocolMessage(EngineEventSchema, toProtocolValue(event));
-  return ProtocolEngineEvent.encode(ProtocolEngineEvent.fromPartial(message as never)).finish();
+  return toBinary(EngineEventSchema, engineEventToMessage(event));
 }
 
 export function decodeEngineEvent(bytes: Uint8Array): EngineEvent {
-  const message = fromProtocolMessage(EngineEventSchema, ProtocolEngineEvent.decode(bytes));
-  return fromProtocolValue(message) as EngineEvent;
+  return engineEventFromMessage(fromBinary(EngineEventSchema, bytes));
 }
 
-function commandValue(
-  command: EngineCommand,
-): NonNullable<Parameters<typeof ProtocolEngineCommand.fromPartial>[0]["command"]> {
+function commandValue(command: EngineCommand): Readonly<{ case: ProtocolCommandCase; value: unknown }> {
   const value = toProtocolValue(command) as Record<string, unknown>;
   if (command.kind === "edit") {
     value.actions = command.actions.map(toEditAction);
@@ -201,72 +212,11 @@ function commandValue(
   } else if (command.kind === "undo" || command.kind === "redo") {
     value.selection = toHistorySelection(command.selection);
   }
-  return { $case: protocolCommandCase(command.kind), value };
+  return { case: protocolCommandCase(command.kind), value };
 }
 
-function toEditAction(action: EditAction): Record<string, unknown> {
-  assertActionFields(action);
-  const value = toProtocolValue(action) as Record<string, unknown>;
-  if (action.kind === "field-initialization-expression-configure") {
-    const { kind: _kind, ...expression } = action.expression;
-    value.expression = expression;
-  } else if (action.kind === "search-expression-create") {
-    value.expression = toSearchExpressionDraft(action.expression);
-  } else if (action.kind === "search-expression-configure" || action.kind === "view-filter-expression-configure") {
-    value.clause = toSearchClause(action.clause);
-  } else if (action.kind === "search-expression-add" || action.kind === "view-filter-expression-add") {
-    value.expression = toSearchExpressionDraft(action.expression);
-  } else if (action.kind === "view-filter-create") {
-    value.expression = toSearchExpressionDraft(action.expression);
-  }
-  return { action: { $case: protocolActionCase(action.kind), value } };
-}
-
-function fromEditAction(value: unknown): EditAction {
-  const action = required(
-    (value as { action?: { $case: ProtocolActionCase; value: unknown } | null }).action,
-    "Edit action",
-  );
-  const decoded = fromProtocolValue(action.value) as Record<string, unknown>;
-  if (action.$case === "fieldInitializationExpressionConfigure") {
-    const expression = required(
-      decoded.expression as Record<string, unknown> | null,
-      "Field initialization expression",
-    );
-    decoded.expression = { kind: "find-field-values", ...expression };
-  } else if (action.$case === "searchExpressionCreate") {
-    decoded.expression = fromSearchExpressionDraft(decoded.expression);
-  } else if (action.$case === "searchExpressionConfigure" || action.$case === "viewFilterExpressionConfigure") {
-    decoded.clause = fromSearchClause(decoded.clause);
-  } else if (action.$case === "searchExpressionAdd" || action.$case === "viewFilterExpressionAdd") {
-    decoded.expression = fromSearchExpressionDraft(decoded.expression);
-  } else if (action.$case === "viewFilterCreate") {
-    decoded.expression = fromSearchExpressionDraft(decoded.expression);
-  }
-  for (const key of [
-    "seed",
-    "fieldDefinitionSeed",
-    "intrinsicNodeType",
-    "optionsSupertagId",
-    "optionsSupertagOccurrenceId",
-    "emptyValueNodeId",
-    "emptyValueOccurrenceId",
-  ] as const) {
-    if (decoded[key] === null) {
-      delete decoded[key];
-    }
-  }
-  return { ...decoded, kind: actionKind(action.$case) } as EditAction;
-}
-
-function assertActionFields(action: EditAction): void {
-  const $case = protocolActionCase(action.kind);
-  const field = EditActionSchema.oneofs[0]?.fields.find((candidate) => candidate.localName === $case);
-  const allowed = new Set(["kind", ...(field?.message?.fields.map((candidate) => candidate.localName) ?? [])]);
-  const unknown = Object.keys(action).find((key) => !allowed.has(key));
-  if (unknown) {
-    throw new Error(`Unknown input field: ${unknown}`);
-  }
+function errorValue(error: EngineError): unknown {
+  return toProtocolValue(error);
 }
 
 function toQueryValue(query: EngineQuery, value: unknown): unknown {
@@ -283,14 +233,7 @@ function toQueryValue(query: EngineQuery, value: unknown): unknown {
     return toHistoryQuery(value as HistoryQuery);
   }
   if (query.kind === "conflicts") {
-    const result = value as { issues: readonly ConflictIssue[] };
-    return {
-      ...(toProtocolValue(value) as Record<string, unknown>),
-      issues: result.issues.map(toConflictIssue),
-    };
-  }
-  if (query.kind === "debug-node") {
-    return toDebugNodeResult(value as DebugNodeResult);
+    return toConflictQueryResult(value);
   }
   if (query.kind === "view-rows") {
     const result = value as ViewRowsResult;

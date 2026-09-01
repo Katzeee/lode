@@ -1,6 +1,7 @@
 import type { FactSnapshot, ProjectionPerspective } from "../../../src/domain/fact/index.js";
 import { projectWithPlan } from "../../../src/domain/reconcile/projection-plan-api.js";
-import type { Projection, ProjectionVersions } from "../../../src/domain/reconcile/projection-types.js";
+import type { Projection } from "../../../src/domain/reconcile/projection-types.js";
+import type { ProjectionVersions } from "../../../src/domain/reconcile/projection-versions.js";
 
 export function projectSnapshot(
   workspaceId: string,

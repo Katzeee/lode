@@ -12,9 +12,14 @@ export type PhysicalWorkspaceStorage = Readonly<{
   close(): void | Promise<void>;
 }>;
 
+export type PhysicalWorkspacePromotion = Readonly<{
+  storage: PhysicalWorkspaceStorage;
+  rollback(): Promise<void>;
+}>;
+
 export type PhysicalWorkspaceStorageStage = Readonly<{
   storage: PhysicalWorkspaceStorage;
-  promote(): Promise<PhysicalWorkspaceStorage>;
+  promote(): Promise<PhysicalWorkspacePromotion>;
   discard(): Promise<void>;
 }>;
 

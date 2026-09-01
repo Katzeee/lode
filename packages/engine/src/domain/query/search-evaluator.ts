@@ -3,19 +3,21 @@ import type { Projection, SearchExpression } from "../reconcile/index.js";
 import { nodeLocation } from "../reconcile/index.js";
 import type { SearchExpressionSpec, SearchFieldValue, SearchScopeTarget } from "../fact/index.js";
 
-export function evaluateSearchExpression(
+export function evaluateSearch(
   searchNodeId: string,
   expression: SearchExpression | undefined,
   projection: Projection,
-): readonly string[] {
-  if (
-    projection.nodes[searchNodeId]?.intrinsicNodeType !== "search" ||
-    nodeLocation(projection.identity.workspaceNodeId, projection, searchNodeId) !== "active" ||
-    expression === undefined
-  ) {
-    return [];
-  }
-  return evaluateSearchExpressionSpec(expression.expression, projection, searchNodeId);
+): Readonly<{ available: boolean; targets: readonly string[] }> {
+  const available =
+    projection.nodes[searchNodeId]?.intrinsicNodeType === "search" &&
+    nodeLocation(projection.identity.workspaceNodeId, projection, searchNodeId) === "active";
+  return {
+    available,
+    targets:
+      available && expression !== undefined
+        ? evaluateSearchExpressionSpec(expression.expression, projection, searchNodeId)
+        : [],
+  };
 }
 
 function evaluateSearchExpressionSpec(

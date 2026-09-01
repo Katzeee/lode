@@ -1,7 +1,8 @@
 import type { FactSnapshot, ProjectionPerspective } from "../fact/index.js";
 import { PROJECTION_PLAN } from "./projection-plan.js";
 import { createProjectionPlanState } from "./projection-plan-context.js";
-import type { Projection, ProjectionActivation, ProjectionVersions } from "./projection-types.js";
+import type { Projection, ProjectionActivation } from "./projection-types.js";
+import type { ProjectionVersions } from "./projection-versions.js";
 
 export function projectWithPlan(
   workspaceId: string,

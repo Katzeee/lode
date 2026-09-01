@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createDesktopClient } from "@lode/desktop-client";
+import { createDesktopClient } from "../../../../packages/desktop-client/src/desktop-client.js";
 import { array, cliRequest, type DaemonProcess, record, startDaemonProcess } from "./daemon-process-test-helpers.js";
 
 const accessToken = "real-child-process-access-token";

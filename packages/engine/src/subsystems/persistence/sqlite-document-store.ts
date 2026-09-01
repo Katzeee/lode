@@ -9,10 +9,6 @@ export class SqliteDocumentStore implements DocumentStore {
     return bytes ? { snapshot: bytes.snapshotBytes, updates: bytes.updateBytes } : null;
   }
 
-  listIds(query?: Readonly<{ prefix?: string; after?: string; limit?: number }>): Promise<string[]> {
-    return this.store.listSubDocs(query);
-  }
-
   appendUpdate(id: string, bytes: Uint8Array): Promise<number> {
     return this.store.appendUpdate({ subDoc: id, updateBytes: bytes });
   }
@@ -24,9 +20,5 @@ export class SqliteDocumentStore implements DocumentStore {
   async writeSnapshot(id: string, bytes: Uint8Array): Promise<void> {
     const coveredUpdateSeq = await this.store.latestSeq(id);
     await this.store.writeSnapshot({ subDoc: id, coveredUpdateSeq, snapshotBytes: bytes });
-  }
-
-  delete(id: string): Promise<void> {
-    return this.store.deleteSubDoc(id);
   }
 }

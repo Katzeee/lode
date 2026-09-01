@@ -1,7 +1,7 @@
 import type { EditAction, WriteResult } from "@lode/sdk";
 
 import { CliError, engineWriteFailure, type CommandResult, type HumanView } from "../outcome/index.js";
-import type { CommandContext } from "../invocation/index.js";
+import type { CommandContext, ParsedArgs, ProductCommandRun } from "../command/index.js";
 
 /**
  * CLI write-intent conventions: one user action is one Engine invocation on
@@ -34,7 +34,7 @@ export function actorIdOf(context: Readonly<{ actor: unknown; workspace: unknown
   return actor;
 }
 
-export type WriteOutcomeData = Readonly<{
+type WriteOutcomeData = Readonly<{
   intent: "direct" | "proposal";
   requestId: string;
   action: string;
@@ -96,6 +96,28 @@ export function writeResult(
     case "rejected":
       throw engineWriteFailure(result);
   }
+}
+
+export type WritePlan = Readonly<{
+  actions: readonly EditAction[];
+  extra?: Readonly<Record<string, unknown>>;
+  view?: HumanView | null;
+}>;
+
+/**
+ * The fixed tail of every write command: the plan callback owns the per-command
+ * work (resolution, validation, action building) and this wrapper owns the
+ * invocation and outcome reporting.
+ */
+export function runWrite(
+  action: string,
+  plan: (context: CommandContext, args: ParsedArgs) => Promise<WritePlan>,
+): ProductCommandRun {
+  return async (context, args) => {
+    const { actions, extra, view } = await plan(context, args);
+    const { result, data } = await executeWrite(context, action, actions);
+    return writeResult(data, result, { extra, view });
+  };
 }
 
 export function invocationId(requestId: string): string {

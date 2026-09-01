@@ -411,7 +411,7 @@
         },
         {
           "workspace": "engine",
-          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > restart rebuilds identical History after every Invocation Receipt is deleted"
+          "test": "src/subsystems/workspace/workspace.acceptance.test.ts > Proposal Workspace coordinator > restart rebuilds identical History when local Invocation Receipts are absent"
         },
         {
           "workspace": "engine",

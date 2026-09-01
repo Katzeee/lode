@@ -43,7 +43,18 @@ class BetterSqliteDatabase implements SqlDatabase {
       this.raw.exec("COMMIT");
       return result;
     } catch (error) {
-      this.raw.exec("ROLLBACK");
+      try {
+        this.raw.exec("ROLLBACK");
+      } catch (rollbackError) {
+        const failure = new AggregateError(
+          [toError(error), toError(rollbackError)],
+          "SQLite transaction and rollback failed",
+          {
+            cause: error,
+          },
+        );
+        throw failure;
+      }
       throw error;
     }
   }
@@ -51,4 +62,8 @@ class BetterSqliteDatabase implements SqlDatabase {
   async close(): Promise<void> {
     this.raw.close();
   }
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
 }

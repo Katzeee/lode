@@ -1,14 +1,12 @@
 import { factObserves, type FactAction } from "../fact/index.js";
+import type { CompensationTargetAction } from "./compensation-types.js";
 
 export function hasAlternateNodeCreator(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "node-create" | "node-restore" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
 ): boolean {
   const authoredAction = target.action;
-  if (authoredAction.kind !== "node-create" && authoredAction.kind !== "node-restore") {
-    return false;
-  }
   return activeFacts.some((fact) => {
     if (targetIds.has(fact.id)) {
       return false;
@@ -21,14 +19,11 @@ export function hasAlternateNodeCreator(
 }
 
 export function hasIndependentOccurrenceWork(
-  target: FactAction,
+  target: FactAction<Extract<CompensationTargetAction, { kind: "placement-create" }>>,
   targetIds: ReadonlySet<string>,
   activeFacts: readonly FactAction[],
 ): boolean {
   const authoredAction = target.action;
-  if (authoredAction.kind !== "placement-create") {
-    return false;
-  }
   return activeFacts.some((fact) => {
     if (targetIds.has(fact.id)) {
       return false;
@@ -37,9 +32,9 @@ export function hasIndependentOccurrenceWork(
     const alternateCreator =
       candidate.kind === "placement-create" && candidate.placementId === authoredAction.placementId;
     if (alternateCreator) {
-      return !actionObserves(target, fact);
+      return !factObserves(target, fact);
     }
-    if (actionObserves(target, fact)) {
+    if (factObserves(target, fact)) {
       return false;
     }
     return (
@@ -48,8 +43,4 @@ export function hasIndependentOccurrenceWork(
         candidate.nodeId === authoredAction.nodeId)
     );
   });
-}
-
-function actionObserves(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

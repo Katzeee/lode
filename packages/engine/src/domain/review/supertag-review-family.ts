@@ -1,27 +1,17 @@
-import { canonicalJson, isSupertagAction } from "../fact/index.js";
+import { canonicalJson, isSupertagAction, proposableActionKindsInFamily } from "../fact/index.js";
 import { addNodeReviewImpacts } from "./review-node-impact.js";
-import type { ReviewFamilyRule } from "./review-family.js";
-import { supertagCandidates } from "./supertag-candidates.js";
-import { addSupertagRelationImpacts, supertagRelationEffect } from "./supertag-review.js";
+import { defineReviewFamily } from "./review-family.js";
+import { addSupertagRelationImpacts, supertagRelationAddress, supertagRelationEffect } from "./supertag-review.js";
 import { associatedNodeScope, reviewScope } from "./review-scope.js";
+import type { SupertagRelationDecisionEffect } from "./types.js";
 
-const ACTION_KINDS = [
-  "supertag-application-add",
-  "supertag-membership-remove",
-  "supertag-extension-add",
-  "supertag-extension-remove",
-  "template-member-add",
-  "template-member-remove",
-  "template-field-add",
-  "template-field-remove",
-  "template-field-restore",
-  "template-field-visibility-set",
-  "template-field-static-default-set",
-  "optional-field-contribution-add",
-  "optional-field-contribution-remove",
-] as const;
+const ACTION_KINDS = proposableActionKindsInFamily("supertag");
 
-export const supertagReviewFamily = {
+export const supertagReviewFamily = defineReviewFamily<
+  (typeof ACTION_KINDS)[number],
+  string,
+  SupertagRelationDecisionEffect
+>({
   key: "supertag",
   actionKinds: ACTION_KINDS,
   scopes(fact) {
@@ -67,13 +57,12 @@ export const supertagReviewFamily = {
       associatedNodeScope(action.fieldDefinitionId),
     ];
   },
-  candidates: ({ generation, pending }) => supertagCandidates(generation, pending),
-  effect(fact, _targets, generation) {
-    const effect = supertagRelationEffect(fact, generation);
-    return effect.originIndex === effect.reviewIndex
-      ? null
-      : { identity: canonicalJson(["supertag-relation", effect.relation, effect.ownerId, effect.targetId]), effect };
-  },
+  identify: (fact, generation) => supertagRelationAddress(fact.action, generation),
+  effect: (fact, _identity, generation) => supertagRelationEffect(fact, generation),
+  changed: (effect) => effect.originIndex !== effect.reviewIndex,
+  diffKind: (effect) => (effect.relation === "application" ? "supertag-application" : "supertag-template"),
+  effectIdentity: (_identity, effect) =>
+    canonicalJson(["supertag-relation", effect.relation, effect.ownerId, effect.targetId]),
   addImpacts(impacts, targets, generation) {
     for (const fact of targets) {
       if (!isSupertagAction(fact.action)) {
@@ -85,4 +74,4 @@ export const supertagReviewFamily = {
       addSupertagRelationImpacts(impacts, fact, generation);
     }
   },
-} satisfies ReviewFamilyRule<(typeof ACTION_KINDS)[number]>;
+});

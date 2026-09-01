@@ -1,26 +1,28 @@
+import { openTestWorkspace } from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { EditCommand } from "@lode/sdk";
-import { syncPair } from "../../../tests/support/sync.js";
+import { syncPair, testFactReplication } from "../../../tests/support/sync.js";
+import {
+  documentsContaining,
+  FACT_AUTHORITY_DOCUMENT_ID,
+  InMemoryDocumentStore,
+} from "../../../tests/support/document-store.js";
 
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
-import { InMemoryDocumentStore } from "../persistence/index.js";
 import {
   assertFactOracleEquivalence,
   canonicalPublicDomainState,
 } from "../../../tests/support/reconcile/fact-oracle-equivalence.js";
-import { FACT_AUTHORITY_DOCUMENT_ID } from "./authority/loro-fact-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { FactReplication } from "./fact-replication.js";
-import { Workspace } from "./workspace.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
+import { END_SEQUENCE_ANCHOR as end } from "../../domain/fact/index.js";
+import { nodeAt as node } from "../../../tests/support/workspace/edit-test-actions.js";
 
 describe("Fact source-of-truth reconstruction", () => {
   it("rebuilds a public Direct, Proposal, Resolution, and History program from Facts alone", async () => {
     const documents = new InMemoryDocumentStore();
     const sourceFacts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId: "101", documents });
-    const source = await Workspace.open({ workspaceId: "workspace", facts: sourceFacts, versions });
+    const source = await openTestWorkspace({ workspaceId: "workspace", facts: sourceFacts, versions });
 
     await published(
       source.execute({
@@ -47,8 +49,8 @@ describe("Fact source-of-truth reconstruction", () => {
     await published(
       source.execute(
         edit("public-domain-surface", "surface", [
-          node("tag", "workspace", "tag-original", "supertag-definition"),
-          node("search", "workspace", "search-original", "search"),
+          node("tag", "workspace", "tag-original", { intrinsicNodeType: "supertag-definition" }),
+          node("search", "workspace", "search-original", { intrinsicNodeType: "search" }),
           node("candidate", "root", "candidate-original"),
           node("target", "workspace", "target-original"),
           node("trash-me", "workspace", "trash-me-original"),
@@ -244,13 +246,13 @@ describe("Fact source-of-truth reconstruction", () => {
     const update = await sourceFacts.replication.exportUpdate();
     await source.close();
 
-    for (const id of await documents.listIds()) {
-      if (id !== FACT_AUTHORITY_DOCUMENT_ID) {
-        await documents.delete(id);
-      }
-    }
-    const restartedFacts = await FactAuthority.open({ workspaceId: "workspace", loroPeerId: "101", documents });
-    const restarted = await Workspace.open({ workspaceId: "workspace", facts: restartedFacts, versions });
+    const authorityOnlyDocuments = await documentsContaining(documents, FACT_AUTHORITY_DOCUMENT_ID);
+    const restartedFacts = await FactAuthority.open({
+      workspaceId: "workspace",
+      loroPeerId: "101",
+      documents: authorityOnlyDocuments,
+    });
+    const restarted = await openTestWorkspace({ workspaceId: "workspace", facts: restartedFacts, versions });
     expect(await canonicalPublicDomainState(restarted, 2, historyChannels, queryNodeIds)).toBe(expected);
     await expect(
       restarted.query({ kind: "invocation", workspaceId: "workspace", invocationId: "public-redo" }),
@@ -263,7 +265,7 @@ describe("Fact source-of-truth reconstruction", () => {
       documents: replicaDocuments,
     });
     await replicaFacts.replication.importUpdate(update);
-    const replica = await Workspace.open({
+    const replica = await openTestWorkspace({
       workspaceId: "workspace",
       facts: replicaFacts,
       versions,
@@ -279,7 +281,7 @@ describe("Fact source-of-truth reconstruction", () => {
       loroPeerId: "301",
       documents: new InMemoryDocumentStore(),
     });
-    const left = await Workspace.open({ workspaceId: "workspace", facts: leftFacts, versions });
+    const left = await openTestWorkspace({ workspaceId: "workspace", facts: leftFacts, versions });
     await published(
       left.execute({
         ...edit("conflicting-proposal", "conflict", [node("conflicted-node", "workspace", "conflicted-original")]),
@@ -293,8 +295,13 @@ describe("Fact source-of-truth reconstruction", () => {
       loroPeerId: "302",
       documents: new InMemoryDocumentStore(),
     });
-    const right = await Workspace.open({ workspaceId: "workspace", facts: rightFacts, versions, seedGenesis: false });
-    await syncPair(new FactReplication(leftFacts.replication), new FactReplication(rightFacts.replication));
+    const right = await openTestWorkspace({
+      workspaceId: "workspace",
+      facts: rightFacts,
+      versions,
+      seedGenesis: false,
+    });
+    await syncPair(testFactReplication(leftFacts.replication), testFactReplication(rightFacts.replication));
     await right.reconcileAuthorityAdvance();
 
     const leftReview = await left.query({ kind: "review", workspaceId: "workspace" });
@@ -324,7 +331,7 @@ describe("Fact source-of-truth reconstruction", () => {
         selection: rightSelection,
       }),
     );
-    await syncPair(new FactReplication(rightFacts.replication), new FactReplication(leftFacts.replication));
+    await syncPair(testFactReplication(rightFacts.replication), testFactReplication(leftFacts.replication));
     await left.reconcileAuthorityAdvance();
 
     const conflictResult = await left.query({ kind: "conflicts", workspaceId: "workspace" });
@@ -342,7 +349,12 @@ describe("Fact source-of-truth reconstruction", () => {
       documents: new InMemoryDocumentStore(),
     });
     await freshFacts.replication.importUpdate(await leftFacts.replication.exportUpdate());
-    const fresh = await Workspace.open({ workspaceId: "workspace", facts: freshFacts, versions, seedGenesis: false });
+    const fresh = await openTestWorkspace({
+      workspaceId: "workspace",
+      facts: freshFacts,
+      versions,
+      seedGenesis: false,
+    });
     expect(await canonicalPublicDomainState(fresh, 2, ["conflict"], ["conflicted-node"])).toBe(expectedConflict);
     expect(freshFacts.receipts()).toEqual([]);
 
@@ -362,22 +374,6 @@ describe("Fact source-of-truth reconstruction", () => {
     await Promise.all([left.close(), right.close(), fresh.close()]);
   });
 });
-
-function node(
-  nodeId: string,
-  parentNodeId: string,
-  occurrenceId: string,
-  intrinsicNodeType?: "supertag-definition" | "search",
-): EditCommand["actions"][number] {
-  return {
-    kind: "node-create",
-    nodeId,
-    parentNodeId,
-    occurrenceId,
-    anchor: end,
-    ...(intrinsicNodeType === undefined ? {} : { intrinsicNodeType }),
-  };
-}
 
 function edit(invocationId: string, historyChannelId: string, actions: EditCommand["actions"]): EditCommand {
   return {

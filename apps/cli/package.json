@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "lode": "./dist/bin/lode.js"
+    "lode": "./dist/bin/lode.js",
+    "lode-daemon": "./dist/bin/lode-daemon.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-package-dist.mjs",
@@ -19,11 +20,11 @@
     "@connectrpc/connect": "^2.1.2",
     "@lode/daemon": "file:../../packages/daemon",
     "@lode/desktop-client": "file:../../packages/desktop-client",
-    "@lode/engine": "file:../../packages/engine",
     "@lode/sdk": "file:../../packages/sdk",
     "smol-toml": "^1.8.0"
   },
   "devDependencies": {
+    "@lode/engine": "file:../../packages/engine",
     "@types/node": "^20.19.39",
     "typescript": "^5.9.3",
     "vitest": "^4.1.9"

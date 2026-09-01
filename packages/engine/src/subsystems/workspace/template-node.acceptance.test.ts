@@ -1,23 +1,22 @@
+import { openTestWorkspace } from "../../../tests/support/workspace/open-test-workspace.js";
 import { describe, expect, it } from "vitest";
 
 import type { ProjectionPage } from "@lode/sdk";
 import type { EditAction } from "../../domain/edit/index.js";
 import {
+  END_SEQUENCE_ANCHOR as end,
   templateInstanceNodeId,
   templateInstanceOccurrenceId,
   workspaceTrashNodeId,
   type ProjectionPerspective,
 } from "../../domain/fact/index.js";
-import { InMemoryDocumentStore } from "../persistence/in-memory-document-store.js";
+import { InMemoryDocumentStore } from "../../../tests/support/document-store.js";
 import { FactAuthority } from "./authority/fact-authority.js";
-import { Workspace } from "./workspace.js";
 import { CURRENT_PROJECTION_VERSIONS as versions } from "../../domain/reconcile/index.js";
 import {
   createSupertagApplication,
   removeSupertagApplication,
 } from "../../../tests/support/workspace/edit-test-actions.js";
-
-const end = { after: null, before: null, affinity: "after", fallback: "end" } as const;
 
 describe("ordinary Supertag Template Nodes", () => {
   it("projects Template content onto the Workspace Node", async () => {
@@ -448,7 +447,7 @@ async function open(documents: InMemoryDocumentStore, loroPeerId: `${number}`) {
   });
   return {
     facts,
-    workspace: await Workspace.open({ workspaceId: "workspace", facts, versions }),
+    workspace: await openTestWorkspace({ workspaceId: "workspace", facts, versions }),
   };
 }
 

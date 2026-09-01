@@ -1,6 +1,5 @@
 export type {
   ActorId,
-  ActionBody,
   ActionFact,
   FactAction,
   FactActionId,
@@ -19,7 +18,6 @@ export type {
   AuthoredAction,
   GraphAction,
   ProposableAction,
-  TerminalAction,
   PreviousValue,
   ProjectionIdentity,
   ReplicaId,
@@ -32,7 +30,7 @@ export type {
   ProjectionPerspective,
   WorkspaceId,
 } from "./types.js";
-export { END_SEQUENCE_ANCHOR, START_SEQUENCE_ANCHOR } from "./fact-value-types.js";
+export { afterSequenceAnchor, END_SEQUENCE_ANCHOR, START_SEQUENCE_ANCHOR } from "./fact-value-types.js";
 export type { GovernanceAction, PeerId, TransitEnvelope } from "./governance-types.js";
 export type { AuthorityReceipt, ReceiptLineage } from "./authority-types.js";
 export type {
@@ -45,55 +43,51 @@ export type {
   SearchExpressionSpec,
   SearchFieldValue,
   SearchScopeTarget,
-} from "./search-expression-spec.js";
+} from "./search-expression-types.js";
+export { parseSearchClause, parseSearchExpressionDraft } from "./search-expression-spec.js";
 export {
-  parseSearchClause,
-  parseSearchExpressionDraft,
-  parseSearchExpressionSpec,
+  findSearchExpression,
+  findSearchExpressionParent,
   searchClauseFromSpec,
-} from "./search-expression-spec.js";
+  searchExpressionChildren,
+  visitSearchExpression,
+} from "./search-expression-traversal.js";
 export type { ViewColumnSpec, ViewGroupSpec, ViewOptionsSpec, ViewSortSpec } from "./view-options-spec.js";
-export { parseViewOptionsSpec } from "./view-options-spec.js";
 export type { TemplateFieldVisibility } from "./supertag-types.js";
 export type { ViewSortDirection, ViewType } from "./view-definition-types.js";
 export type { NodeSeed } from "./node-create-types.js";
 export { parseNodeSeed } from "./node-create-shape.js";
 export type { DefinitionIntrinsicNodeType, IntrinsicNodeType } from "./intrinsic-node-type-types.js";
 export {
+  isIntrinsicNodeType,
   FIELD_DEFINITION_INTRINSIC_NODE_TYPE,
   FIELD_INTRINSIC_NODE_TYPE,
   SUPERTAG_DEFINITION_INTRINSIC_NODE_TYPE,
   SEARCH_INTRINSIC_NODE_TYPE,
   WORKSPACE_INTRINSIC_NODE_TYPE,
-  isIntrinsicNodeType,
 } from "./intrinsic-node-type-types.js";
 export type {
   FactActionOf,
   FieldAction,
-  FieldConfigurationSetAction,
   FieldContentRemovalAction,
-  FieldDefinitionAction,
   InlineReferenceAction,
-  SearchExpressionAction,
   ViewAction,
   GraphNodeAction,
-  NodeAction,
   PlacementAction,
   SupertagAction,
   TemplateAction,
   TextAction,
 } from "./action-family.js";
-export type { ActionKindAddingToCollection } from "./action-catalog.js";
+export type { ActionKindAddingToCollection, GraphActionKindWithEditAccess } from "./action-catalog.js";
+export { actionHasEditAccess } from "./action-catalog.js";
 export {
   factActionsOfKind,
   factActionsOfKinds,
-  isFieldContentRemovalAction,
   isFieldAction,
   isFieldDefinitionAction,
   isFieldDefinitionConfigAction,
   isInlineReferenceAction,
   isGraphAction,
-  isGraphActionKind,
   isSearchAction,
   isViewAction,
   isNodeAction,
@@ -105,21 +99,13 @@ export {
 } from "./action-family.js";
 export { actionRelations } from "./action-relations.js";
 export {
-  authoredActionContributions,
   actionIdentityProducers,
   actionIdentityRequirements,
   contributionOwnerNodeIds,
   factActionContributions,
   SELF_FACT_ACTION,
-} from "./action-semantics/index.js";
-export type {
-  CollectionContribution,
-  CollectionName,
-  IdentityContribution,
-  IdentityRole,
-  SemanticContribution,
-  SemanticIdentity,
-} from "./action-semantics/index.js";
+} from "./action-semantics.js";
+export type { CollectionContribution, CollectionName, SemanticIdentity } from "./action-semantics.js";
 export { canonicalDigest, canonicalJson, stableStringCompare } from "./canonical.js";
 export {
   causalMaxima,
@@ -127,23 +113,15 @@ export {
   factObserves,
   frontierCovers,
   frontierEquals,
-  frontierOf,
   normalizeFrontier,
 } from "./frontier.js";
-export { factId, isReplicaId, makeFact, requestDigest } from "./fact.js";
+export { factId, makeFact, requestDigest } from "./fact.js";
 export { validateStaticFact } from "./static-validation.js";
-export {
-  isFactActionId,
-  requireFactActionId,
-  requireFactActionIds,
-  requireFactId,
-  requireFactIds,
-} from "./identities.js";
+export { isFactActionId, requireFactActionId, requireFactActionIds, requireFactIds } from "./identities.js";
 export {
   CHECKBOX_VALUE_NODE_IDS,
   FIELD_CARDINALITY_NODE_IDS,
   FIELD_CONFIGURATION_DEFINITION_NODE_IDS,
-  FIELD_DATATYPE_CATALOG_NODE_ID,
   FIELD_DATATYPE_NODE_IDS,
   FIELD_OPTIONALITY_NODE_IDS,
   fieldDefinitionEndpointOccurrenceId,
@@ -166,16 +144,11 @@ export {
   workspaceTrashOccurrenceId,
 } from "./identity.js";
 export { workspaceGenesisActions } from "./workspace-genesis.js";
-export { ACTION_DEFINITIONS, graphActionKindsInFamily } from "./action-catalog.js";
+export { ACTION_DEFINITIONS, graphActionKindsInFamily, proposableActionKindsInFamily } from "./action-catalog.js";
 export { graphActionBody, terminalActionBody } from "./action-body.js";
 export { buildFactSnapshot } from "./snapshot.js";
 export { factActionId, factActionsFromFacts, factActions, owningFactIds } from "./fact-actions.js";
-export { isAuthoredActionKind, parseAuthorityReceipt, parseFactBody, parseAuthoredAction } from "./shape-validation.js";
+export { parseAuthorityReceipt, parseFactBody, parseAuthoredAction } from "./shape-validation.js";
 export { validatePlannedReceiptAppend, validateReceipts } from "./receipt-validation.js";
-export {
-  parseFactFrontier,
-  parseJsonRecord,
-  parseJsonValue,
-  parseSequenceAnchor,
-  parseTextAtomId,
-} from "./serialized-shape.js";
+export { parseSequenceAnchor } from "./serialized-shape.js";
+export { STRING_WIRE, type WireType } from "./wire-type.js";

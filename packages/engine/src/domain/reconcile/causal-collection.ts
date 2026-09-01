@@ -11,7 +11,7 @@ import {
   type FactActionOf,
 } from "../fact/index.js";
 
-export type CausalCollectionRegisterState = Readonly<{
+type CausalCollectionRegisterState = Readonly<{
   values: readonly unknown[];
   candidates: readonly FactAction[];
   conflicted: boolean;
@@ -25,7 +25,7 @@ type UntypedCausalCollectionState = Readonly<{
   registers: ReadonlyMap<string, CausalCollectionRegisterState>;
 }>;
 
-export type CausalCollectionState<Collection extends CollectionName> = Omit<UntypedCausalCollectionState, "addition"> &
+type CausalCollectionState<Collection extends CollectionName> = Omit<UntypedCausalCollectionState, "addition"> &
   Readonly<{ addition: FactActionOf<ActionKindAddingToCollection<Collection>> }>;
 
 type BoundContribution = Readonly<{
@@ -44,6 +44,13 @@ const statesByFacts = new WeakMap<
   readonly FactAction[],
   Map<CollectionName, readonly UntypedCausalCollectionState[]>
 >();
+
+/** Indexes concept-graph states by the collection addition that created them. */
+export function statesByAction<State extends Readonly<{ addition: Readonly<{ id: FactActionId }> }>>(
+  states: readonly State[],
+): ReadonlyMap<FactActionId, State> {
+  return new Map(states.map((state) => [state.addition.id, state]));
+}
 
 export function causalCollectionStates<Collection extends CollectionName>(
   facts: readonly FactAction[],
@@ -78,7 +85,7 @@ function deriveCausalCollectionStates(
         .map((restore) => restore.fact),
     ];
     const removed = supports.every((support) =>
-      removals.some((removal) => removal.contribution.key === contribution.key && observes(removal.fact, support)),
+      removals.some((removal) => removal.contribution.key === contribution.key && factObserves(removal.fact, support)),
     );
     const registerNames = new Set([
       ...Object.keys(contribution.initialRegisters ?? {}),
@@ -160,10 +167,7 @@ function causalMaxima<Contribution extends BoundContribution>(
   values: readonly Contribution[],
 ): readonly Contribution[] {
   return values.filter(
-    (candidate) => !values.some((other) => other.fact.id !== candidate.fact.id && observes(other.fact, candidate.fact)),
+    (candidate) =>
+      !values.some((other) => other.fact.id !== candidate.fact.id && factObserves(other.fact, candidate.fact)),
   );
-}
-
-function observes(observer: FactAction, observed: FactAction): boolean {
-  return observer.factId === observed.factId ? observer.index > observed.index : factObserves(observer, observed);
 }

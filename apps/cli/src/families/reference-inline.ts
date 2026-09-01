@@ -1,18 +1,14 @@
 import { CliError, writeView } from "../outcome/index.js";
-import type { CommandCatalog, CommandDefinition } from "../catalog/index.js";
-import type { CommandContext } from "../invocation/index.js";
-import { descriptor, labelOf, readNodeUniverse, resolveOccurrenceTarget } from "../target/index.js";
+import type { CommandCatalog } from "../catalog/index.js";
+import { writeCommand, type CommandContext } from "../command/index.js";
+import { labelOf, readNodeUniverse, resolveOccurrence, resource } from "../target/index.js";
 import type { ResourceDescriptor } from "../target/index.js";
 import { executeWrite, writeResult, workspaceIdOf } from "../intent/index.js";
 
-const referenceRemove: CommandDefinition = {
+const referenceRemove = writeCommand({
   path: ["reference", "remove"],
   summary: "Remove one reference placement.",
   positionals: [["reference", "Occurrence or inline reference target"]],
-  options: [],
-  kind: "write",
-  paginated: false,
-  needsWorkspace: true,
   run: async (context, args) => {
     const token = args.positional("reference");
     const inline = await findInlineReference(context, token);
@@ -25,11 +21,10 @@ const referenceRemove: CommandDefinition = {
         view: writeView("Removed inline reference", inline.descriptor),
       });
     }
-    const workspaceId = workspaceIdOf(context);
-    const placement = await resolveOccurrenceTarget(context.session, workspaceId, context.perspective, token, {
+    const placement = await resolveOccurrence(context, token, {
       nodeKinds: ["node", "supertag", "field", "search"],
     });
-    const { owners } = await readNodeUniverse(context.session, workspaceId, context.perspective);
+    const { owners } = await readNodeUniverse(context.session, workspaceIdOf(context), context.perspective);
     if (placement.parentNodeId === (owners[placement.nodeId] ?? null)) {
       throw new CliError("invalid-value", `${token} is the Original placement; use node trash or node move instead.`);
     }
@@ -38,15 +33,15 @@ const referenceRemove: CommandDefinition = {
     ]);
     return writeResult(data, result, {
       extra: {
-        target: descriptor(workspaceId, "occurrence", placement.occurrenceId, placement.nodeLabel),
+        target: resource(context, "occurrence", placement.occurrenceId, placement.nodeLabel),
       },
       view: writeView(
         "Removed reference",
-        descriptor(workspaceId, "occurrence", placement.occurrenceId, placement.nodeLabel),
+        resource(context, "occurrence", placement.occurrenceId, placement.nodeLabel),
       ),
     });
   },
-};
+});
 
 async function findInlineReference(
   context: CommandContext,
@@ -66,7 +61,7 @@ async function findInlineReference(
       const label = labelOf(nodes, found.targetNodeId);
       return {
         inlineReferenceId,
-        descriptor: descriptor(workspaceIdOf(context), "reference", inlineReferenceId, label),
+        descriptor: resource(context, "reference", inlineReferenceId, label),
       };
     }
   }
