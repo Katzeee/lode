@@ -18,6 +18,7 @@
     "clean": "node ../../scripts/clean-package-dist.mjs",
     "prebuild": "npm run clean",
     "build": "node scripts/build.mjs",
+    "dev:web": "node scripts/dev-web.mjs",
     "package": "node scripts/package.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -26,11 +27,18 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "@lode/daemon": "file:../../packages/daemon",
+    "@lode/design-system-catalog": "file:../../packages/design-system-catalog",
+    "@lode/design-tokens": "file:../../packages/design-tokens",
     "@lode/desktop-client": "file:../../packages/desktop-client",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "electron": "41.10.7",
+    "lucide-react": "^1.39.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react-dom": "19.2.3",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",
@@ -38,11 +46,13 @@
     "@electron-forge/plugin-auto-unpack-natives": "7.11.2",
     "@electron/asar": "3.4.1",
     "@electron/packager": "18.4.4",
+    "@tailwindcss/cli": "^4.3.3",
     "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "esbuild": "0.28.2",
     "playwright-core": "1.62.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.9"
   }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
@@ -148,6 +149,8 @@ async function verifyArtifact() {
     "/dist/renderer.js",
     "/dist/renderer.css",
     "/dist/index.html",
+    "/dist/assets/fonts/harmonyos_sans_sc.ttf",
+    "/dist/assets/legal/harmonyos sans/license-update.txt",
     "/package.json",
   ]) {
     assert.ok(entries.includes(required), `Packaged app is missing ${required}`);
@@ -158,6 +161,18 @@ async function verifyArtifact() {
     ),
   );
   assert.deepEqual(forbidden, [], `Forbidden development, mobile, user, or signing files are packaged: ${forbidden}`);
+  const sourceFont = await readFile(
+    join(repositoryRoot, "packages", "design-tokens", "assets", "fonts", "HarmonyOS_Sans_SC.ttf"),
+  );
+  const packagedFont = asar.extractFile(
+    packagePath,
+    join("dist", "assets", "fonts", "HarmonyOS_Sans_SC.ttf"),
+  );
+  assert.equal(sha256(packagedFont), sha256(sourceFont), "Packaged HarmonyOS Sans must remain byte-identical");
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function verifyProductionTree() {

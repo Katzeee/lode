@@ -1,9 +1,10 @@
 import { BrowserWindow } from "electron";
 import { join } from "node:path";
+import { tokens } from "@lode/design-tokens";
 
 export async function createDesktopWindow(appPath: string): Promise<BrowserWindow> {
   const window = new BrowserWindow({
-    backgroundColor: "#f3efe6",
+    backgroundColor: tokens.color.sys.light.background,
     height: 760,
     minHeight: 560,
     minWidth: 760,

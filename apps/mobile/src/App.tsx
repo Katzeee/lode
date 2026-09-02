@@ -1,50 +1,33 @@
 import { useCallback, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import {
-  SafeAreaProvider,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { StatusBar, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
-import type {
-  EngineHostState,
-  NativeStorageRequest,
-} from './engine-host-protocol';
+import type { NativeStorageRequest } from './engine-host-protocol';
+import { MobileDesignSystemPage } from './design-system/design-system-page';
 import { describeError, parseHostMessage } from './host-message';
+import { MobileLegalPage } from './legal-page';
 import { database, executeStorageOperation } from './native-database';
-import { styles } from './styles';
-const startingState: EngineHostState = {
-  phase: 'starting',
-  vaultExists: false,
-  actors: [],
-  workspaces: [],
-};
+import { ProductShell } from './product-shell';
+import { startingState, type MobileSurface } from './mobile-shell-state';
+import { ThemeProvider } from './ui/theme';
 
 function App() {
   return (
     <SafeAreaProvider>
-      <StatusBar barStyle="light-content" />
       <MobileShell />
     </SafeAreaProvider>
   );
 }
 
 function MobileShell() {
-  const insets = useSafeAreaInsets();
   const webView = useRef<WebView<object>>(null);
   const [hostState, setHostState] = useState(startingState);
   const [passphrase, setPassphrase] = useState('');
   const [workspaceLabel, setWorkspaceLabel] = useState('My Workspace');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [surface, setSurface] = useState<MobileSurface>('product');
 
   const respondToNative = useCallback(
     (id: string, response: Readonly<Record<string, unknown>>) => {
@@ -141,133 +124,64 @@ function MobileShell() {
     );
   }, [passphrase, workspaceLabel]);
 
-  const ready = hostState.phase !== 'starting';
-  const unlocked = hostState.phase === 'ready';
-
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 },
-        ]}
-      >
-        <Text style={styles.eyebrow}>LODE MOBILE</Text>
-        <Text style={styles.title}>Your local knowledge space</Text>
-        <Text style={styles.intro}>
-          The Engine runs locally and stores its authoritative data in native
-          SQLite. This shell is the starting point for the mobile interface.
-        </Text>
-
-        <View style={styles.statusCard}>
-          <View style={styles.statusHeading}>
-            <View
-              style={[
-                styles.statusDot,
-                unlocked
-                  ? styles.statusReady
-                  : ready
-                    ? styles.statusLocked
-                    : styles.statusStarting,
-              ]}
-            />
-            <Text style={styles.statusTitle}>
-              {unlocked
-                ? 'Engine ready'
-                : ready
-                  ? hostState.vaultExists
-                    ? 'Vault locked'
-                    : 'Ready to initialize'
-                  : 'Starting Engine'}
-            </Text>
-          </View>
-          <Text style={styles.statusDetail}>
-            {hostState.actors.length} actor
-            {hostState.actors.length === 1 ? '' : 's'} ·{' '}
-            {hostState.workspaces.length} workspace
-            {hostState.workspaces.length === 1 ? '' : 's'}
-          </Text>
-        </View>
-
-        {!unlocked && ready ? (
-          <View style={styles.form}>
-            {!hostState.vaultExists ? (
-              <View>
-                <Text style={styles.label}>Workspace name</Text>
-                <TextInput
-                  autoCapitalize="sentences"
-                  onChangeText={setWorkspaceLabel}
-                  placeholder="My Workspace"
-                  placeholderTextColor="#697386"
-                  style={styles.input}
-                  value={workspaceLabel}
-                />
-              </View>
-            ) : null}
-            <View>
-              <Text style={styles.label}>Vault passphrase</Text>
-              <TextInput
-                autoCapitalize="none"
-                onChangeText={setPassphrase}
-                onSubmitEditing={openLocal}
-                placeholder="At least 8 characters"
-                placeholderTextColor="#697386"
-                secureTextEntry
-                style={styles.input}
-                value={passphrase}
-              />
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={openLocal}
-              style={({ pressed }) => [
-                styles.button,
-                pressed && styles.buttonPressed,
-                busy && styles.buttonDisabled,
-              ]}
-            >
-              {busy ? (
-                <ActivityIndicator color="#0d1713" />
-              ) : (
-                <Text style={styles.buttonText}>
-                  {hostState.vaultExists ? 'Unlock Lode' : 'Create local space'}
-                </Text>
-              )}
-            </Pressable>
-          </View>
-        ) : null}
-
-        {unlocked ? (
-          <View style={styles.readyCard}>
-            <Text style={styles.readyTitle}>
-              {hostState.workspaces[0]?.label ?? 'Local Workspace'}
-            </Text>
-            <Text style={styles.readyDetail}>
-              The production Engine is open. Product navigation and editors
-              attach to this shell in the UI phase.
-            </Text>
-          </View>
-        ) : null}
-
-        {error !== null ? (
-          <Text selectable style={styles.error}>
-            {error}
-          </Text>
-        ) : null}
-      </ScrollView>
-
-      <WebView<object>
-        ref={webView}
-        allowFileAccess
-        javaScriptEnabled
-        originWhitelist={['file://*']}
-        source={{ uri: 'file:///android_asset/lode-engine/index.html' }}
-        onMessage={event => receiveHostMessage(event.nativeEvent.data)}
-        style={styles.engineHost}
+      <StatusBar
+        barStyle={surface === 'product' ? 'light-content' : 'dark-content'}
       />
+      {surface === 'design-system' ? (
+        <MobileDesignSystemPage onClose={() => setSurface('product')} />
+      ) : surface === 'legal' ? (
+        <ThemeProvider mode="light">
+          <MobileLegalPage onClose={() => setSurface('product')} />
+        </ThemeProvider>
+      ) : (
+        <ThemeProvider mode="dark">
+          <ProductShell
+            busy={busy}
+            error={error}
+            hostState={hostState}
+            onNavigate={setSurface}
+            onOpenLocal={openLocal}
+            onPassphraseChange={setPassphrase}
+            onWorkspaceLabelChange={setWorkspaceLabel}
+            passphrase={passphrase}
+            workspaceLabel={workspaceLabel}
+          />
+        </ThemeProvider>
+      )}
+
+      <View
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        style={styles.engineHostContainer}
+      >
+        <WebView<object>
+          ref={webView}
+          allowFileAccess
+          javaScriptEnabled
+          originWhitelist={['file://*']}
+          source={{ uri: 'file:///android_asset/lode-engine/index.html' }}
+          onMessage={event => receiveHostMessage(event.nativeEvent.data)}
+          style={styles.engineHost}
+        />
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1 },
+  engineHostContainer: {
+    bottom: 0,
+    height: 1,
+    left: 0,
+    opacity: 0.01,
+    overflow: 'hidden',
+    position: 'absolute',
+    width: 1,
+  },
+  engineHost: { flex: 1 },
+});
 
 export default App;

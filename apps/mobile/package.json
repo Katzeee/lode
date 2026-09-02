@@ -9,6 +9,7 @@
     "./engine-host": "./dist/engine-host/index.js"
   },
   "scripts": {
+    "preandroid": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog",
     "android": "react-native run-android",
     "build:host": "npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-mobile && node scripts/build-engine-host.mjs",
     "build:android": "node ../../scripts/mobile/build-android.mjs",
@@ -17,6 +18,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@lode/design-system-catalog": "file:../../packages/design-system-catalog",
+    "@lode/design-tokens": "file:../../packages/design-tokens",
     "@lode/engine": "file:../../packages/engine",
     "@lode/engine-platform-mobile": "file:../../packages/engine-platform-mobile",
     "react": "19.2.3",

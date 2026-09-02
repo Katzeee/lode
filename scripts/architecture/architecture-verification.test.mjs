@@ -835,7 +835,7 @@ test("enforces the desktop renderer, host, daemon, and mobile boundaries", async
     },
     {
       name: "renderer cannot dial the desktop transport",
-      filePath: "apps/desktop/src/renderer/desktop-app.tsx",
+      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
       source: 'import "@lode/desktop-client";\n',
     },
     {

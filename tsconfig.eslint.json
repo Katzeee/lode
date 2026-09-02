@@ -25,7 +25,9 @@
     "packages/engine/src/**/*.ts",
     "packages/engine/tests/**/*.ts",
     "packages/engine-platform-desktop/src/**/*.ts",
-    "packages/engine-platform-mobile/src/**/*.ts"
+    "packages/engine-platform-mobile/src/**/*.ts",
+    "packages/design-tokens/src/**/*.ts",
+    "packages/design-system-catalog/src/**/*.ts"
   ],
   "exclude": ["**/dist/**", "**/node_modules/**", "packages/engine/tests/benchmark/**"]
 }

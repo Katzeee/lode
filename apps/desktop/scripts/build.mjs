@@ -1,4 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { cp, mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,10 +8,22 @@ import { build } from "esbuild";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDirectory, "..");
+const designAssets = resolve(appRoot, "../../packages/design-tokens/assets");
 const source = join(appRoot, "src");
 const output = join(appRoot, "dist");
+const require = createRequire(import.meta.url);
+const tailwindCli = join(dirname(require.resolve("@tailwindcss/cli/package.json")), "dist/index.mjs");
 
 await mkdir(output, { recursive: true });
+
+const tailwind = spawnSync(
+  process.execPath,
+  [tailwindCli, "-i", join(source, "renderer/app.css"), "-o", join(output, "renderer.css"), "--minify"],
+  { cwd: appRoot, stdio: "inherit" },
+);
+if (tailwind.status !== 0) {
+  throw new Error("Tailwind CSS build failed");
+}
 
 const nodeBundle = {
   bundle: true,
@@ -49,6 +63,7 @@ await Promise.all([
     define: { "process.env.NODE_ENV": '"production"' },
     entryNames: "[name]",
     entryPoints: { renderer: join(source, "renderer.tsx") },
+    external: ["./assets/*"],
     legalComments: "none",
     loader: { ".tsx": "tsx" },
     logLevel: "info",
@@ -61,3 +76,4 @@ await Promise.all([
 ]);
 
 await cp(join(source, "index.html"), join(output, "index.html"));
+await cp(designAssets, join(output, "assets"), { recursive: true });

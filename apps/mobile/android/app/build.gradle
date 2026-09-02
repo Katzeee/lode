@@ -95,6 +95,11 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.lode.mobile"
+    sourceSets {
+        main {
+            assets.srcDir("../../../../packages/design-tokens/assets")
+        }
+    }
     defaultConfig {
         applicationId "com.lode.mobile"
         minSdkVersion rootProject.ext.minSdkVersion

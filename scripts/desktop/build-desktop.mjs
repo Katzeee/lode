@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const workspaces = [
+  "@lode/design-tokens",
+  "@lode/design-system-catalog",
   "@lode/system-schema",
   "@lode/protocol",
   "@lode/sdk",
