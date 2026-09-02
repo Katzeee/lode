@@ -9,7 +9,7 @@ import { Field, FieldDescription, FieldLabel } from "../ui/field.js";
 import { Input } from "../ui/input.js";
 import { Spinner } from "../ui/spinner.js";
 import { Switch } from "../ui/switch.js";
-import { useCatalogTheme } from "./catalog-theme.js";
+import { useCatalogMode } from "./catalog-theme.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
 export function ButtonsPage() {
@@ -155,12 +155,12 @@ const alertCopy = {
 } as const;
 
 export function SurfacesPage() {
-  const theme = useCatalogTheme();
-  const opposite = theme === "light" ? "dark" : "light";
+  const mode = useCatalogMode();
+  const opposite = mode === "light" ? "dark" : "light";
   return (
     <>
       <PageIntro
-        description="Cards structure a page; a data-theme boundary flips a whole region between paper and night without new components."
+        description="Cards structure a page; a data-mode boundary flips a whole region between paper and night without new components."
         title="Surfaces"
       />
       <Specimen className="items-stretch" title="Card">
@@ -183,12 +183,12 @@ export function SurfacesPage() {
         </Card>
       </Specimen>
       <Specimen
-        description={`The same components, scoped with data-theme="${opposite}" inside the ${theme} catalog.`}
+        description={`The same components, scoped with data-mode="${opposite}" inside the ${mode} catalog.`}
         title="Theme boundary"
       >
         <div
           className="max-w-105 flex-1 rounded-xl border border-border bg-card p-6 text-card-foreground shadow-md"
-          data-theme={opposite}
+          data-mode={opposite}
         >
           <p className="mb-2 text-caption font-semibold tracking-widest text-primary uppercase">Engine online</p>
           <h3 className="text-title-small font-medium">Create another Workspace</h3>

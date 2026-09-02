@@ -139,21 +139,28 @@ export function GeometryPage() {
       <Specimen
         className="items-end gap-3"
         title="Spacing rhythm"
-        description="Spacing utilities resolve against the 4px grid."
+        description="Every spacing utility multiplies one rhythm variable; a denser theme retunes the whole page at once."
       >
         {spaceSteps.map(([name, value]) => (
           <div className="flex flex-col flex-nowrap items-center gap-2" key={name}>
-            <span className="w-6 rounded-xs bg-primary/70" style={{ height: `${value}px` }} />
+            <span
+              className="w-6 rounded-xs bg-primary/70"
+              style={{ height: `calc(var(--lode-spacing) * ${value / 4})` }}
+            />
             <span className="font-mono text-caption text-muted-foreground">{name}</span>
           </div>
         ))}
       </Specimen>
-      <Specimen className="gap-5" title="Radii">
+      <Specimen
+        className="gap-5"
+        description="Samples resolve the live radius variables, so themes reshape them."
+        title="Radii"
+      >
         {radii.map(([name, value]) => (
           <div className="flex flex-col flex-nowrap items-center gap-2" key={name}>
             <span
               className="size-16 border border-border bg-accent"
-              style={{ borderRadius: `${Math.min(value, 32)}px` }}
+              style={{ borderRadius: `min(var(--lode-radius-${name}), 32px)` }}
             />
             <span className="font-mono text-caption text-muted-foreground">
               {name} · {value}px

@@ -41,12 +41,13 @@ const shadows = {
   },
 };
 
-const themes = systemThemes(resolved);
-const accents = requiredRecord(requiredRecord(resolved, "color"), "accent");
-for (const [name, accent] of Object.entries(accents)) {
-  validateThemes({
-    light: { ...themes.light, ...requiredRecord(accent, "light") },
-    dark: { ...themes.dark, ...requiredRecord(accent, "dark") },
+const modes = systemModes(resolved);
+const namedThemes = requiredRecord(resolved, "theme");
+for (const [name, theme] of Object.entries(namedThemes)) {
+  const color = requiredRecord(theme, "color");
+  validateModes({
+    light: { ...modes.light, ...requiredRecord(color, "light") },
+    dark: { ...modes.dark, ...requiredRecord(color, "dark") },
   }, name);
 }
 const generated = `// Generated from tokens and licensed design assets. Do not edit.\nexport const tokens = ${JSON.stringify(resolved)} as const;\nexport const fontNotices = ${JSON.stringify(
@@ -66,38 +67,67 @@ if (!sourceOnly) {
   await writeFile(resolve(distDirectory, "theme.css"), themeCss(), "utf8");
 }
 
+// Every theme block restates the full geometry surface (own value or the
+// base default) so a nested theme scope never inherits an ancestor theme's
+// geometry.
+function geometryDeclarations(theme) {
+  const lines = Object.entries(resolved.radius).map(
+    ([name, base]) => `  --lode-radius-${name}: ${theme.radius?.[name] ?? base}px;`,
+  );
+  lines.push(`  --lode-spacing: ${theme.spacing ?? 4}px;`);
+  lines.push(`  --lode-duration-standard: ${theme.motion?.duration?.standard ?? resolved.motion.duration.standard}ms;`);
+  return lines;
+}
+
 function runtimeCss() {
   const declarations = (mode) =>
     [
-      ...Object.entries(themes[mode]).map(([role, value]) => `  --lode-color-${role}: ${value};`),
+      ...Object.entries(modes[mode]).map(([role, value]) => `  --lode-color-${role}: ${value};`),
       ...Object.entries(shadows[mode]).map(([name, value]) => `  --lode-shadow-${name}: ${value};`),
       `  color-scheme: ${mode};`,
     ].join("\n");
-  const accentDeclarations = (roles) =>
-    Object.entries(roles)
-      .map(([role, value]) => `  --lode-color-${role}: ${value};`)
-      .join("\n");
-  // Accent blocks are mode-aware so an accent scope composes with any nested
-  // data-theme boundary. Descendant matches are wrapped in :where() so an
-  // element carrying its own data-accent always beats an ancestor's accent.
-  const accentBlocks = Object.entries(accents).map(
-    ([name, accent]) =>
-      `[data-accent="${name}"]:not([data-theme="dark"]),\n[data-accent="${name}"] :where([data-theme="light"]) {\n${accentDeclarations(accent.light)}\n}\n\n[data-accent="${name}"][data-theme="dark"],\n[data-accent="${name}"] :where([data-theme="dark"]) {\n${accentDeclarations(accent.dark)}\n}`,
+  // The non-color surface a theme (built-in or user CSS) may redefine:
+  // radii, the spacing unit every spacing utility multiplies, fonts, motion.
+  const baseGeometry = [
+    ...Object.entries(resolved.radius).map(([name, value]) => `  --lode-radius-${name}: ${value}px;`),
+    "  --lode-spacing: 4px;",
+    `  --lode-font-sans: ${cssValue(resolveValue(tokens.get("font.family.interface").value, []), "fontFamily")};`,
+    `  --lode-font-mono: ${cssValue(resolveValue(tokens.get("font.family.code").value, []), "fontFamily")};`,
+    `  --lode-duration-standard: ${resolved.motion.duration.standard}ms;`,
+    `  --lode-ease-standard: ${cssValue(resolveValue(tokens.get("motion.easing.standard").value, []), "cubicBezier")};`,
+  ].join("\n");
+  const themeDeclarations = (theme, mode) =>
+    [
+      ...Object.entries(theme.color[mode]).map(([role, value]) => `  --lode-color-${role}: ${value};`),
+      ...geometryDeclarations(theme),
+    ].join("\n");
+  // Theme blocks are mode-aware so a theme scope composes with any nested
+  // data-mode boundary. Descendant matches are wrapped in :where() so an
+  // element carrying its own data-theme always beats an ancestor's theme.
+  // A user theme stylesheet loads after this file and overrides the same
+  // --lode-* variables; that is the entire user-theming contract.
+  const themeBlocks = Object.entries(namedThemes).map(
+    ([name, theme]) =>
+      `[data-theme="${name}"]:not([data-mode="dark"]),\n[data-theme="${name}"] :where([data-mode="light"]) {\n${themeDeclarations(theme, "light")}\n}\n\n[data-theme="${name}"][data-mode="dark"],\n[data-theme="${name}"] :where([data-mode="dark"]) {\n${themeDeclarations(theme, "dark")}\n}`,
   );
-  return `:root,\n[data-theme="light"] {\n${declarations("light")}\n}\n\n[data-theme="dark"] {\n${declarations("dark")}\n}\n\n${accentBlocks.join("\n\n")}\n`;
+  // Everything ships inside a cascade layer so an unlayered user stylesheet
+  // (the custom-theme contract) beats built-in declarations regardless of the
+  // selector specificity the mode/theme scoping needs internally.
+  const body = `:root {\n${baseGeometry}\n}\n\n:root,\n[data-mode="light"] {\n${declarations("light")}\n}\n\n[data-mode="dark"] {\n${declarations("dark")}\n}\n\n${themeBlocks.join("\n\n")}`;
+  return `@layer lode-tokens {\n${body}\n}\n`;
 }
 
 function themeCss() {
   const lines = [];
   lines.push("  /* Only Lode semantic roles exist; the default palette is removed. */");
   lines.push("  --color-*: initial;");
-  for (const role of Object.keys(themes.light)) {
+  for (const role of Object.keys(modes.light)) {
     lines.push(`  --color-${role}: var(--lode-color-${role});`);
   }
   lines.push("");
   lines.push("  --font-*: initial;");
-  lines.push(`  --font-sans: ${cssValue(resolveValue(tokens.get("font.family.interface").value, []), "fontFamily")};`);
-  lines.push(`  --font-mono: ${cssValue(resolveValue(tokens.get("font.family.code").value, []), "fontFamily")};`);
+  lines.push("  --font-sans: var(--lode-font-sans);");
+  lines.push("  --font-mono: var(--lode-font-mono);");
   lines.push("");
   lines.push("  --text-*: initial;");
   for (const name of Object.keys(resolved.font.size)) {
@@ -109,8 +139,8 @@ function themeCss() {
   }
   lines.push("");
   lines.push("  --radius-*: initial;");
-  for (const [name, value] of Object.entries(resolved.radius)) {
-    lines.push(`  --radius-${name}: ${value}px;`);
+  for (const name of Object.keys(resolved.radius)) {
+    lines.push(`  --radius-${name}: var(--lode-radius-${name});`);
   }
   lines.push("");
   lines.push("  --shadow-*: initial;");
@@ -124,19 +154,19 @@ function themeCss() {
   lines.push(`  --breakpoint-xl: ${resolved.layout.breakpoint.large}px;`);
   lines.push(`  --breakpoint-2xl: ${resolved.layout.breakpoint["extra-large"]}px;`);
   lines.push("");
-  lines.push("  /* The 4px rhythm every spacing utility resolves against. */");
-  lines.push("  --spacing: 4px;");
+  lines.push("  /* The rhythm every spacing utility multiplies; themes may retune it. */");
+  lines.push("  --spacing: var(--lode-spacing);");
   lines.push("");
   lines.push("  --ease-*: initial;");
-  lines.push(`  --ease-standard: ${cssValue(resolveValue(tokens.get("motion.easing.standard").value, []), "cubicBezier")};`);
-  lines.push(`  --default-transition-duration: ${resolved.motion.duration.standard}ms;`);
+  lines.push("  --ease-standard: var(--lode-ease-standard);");
+  lines.push("  --default-transition-duration: var(--lode-duration-standard);");
   lines.push("  --default-transition-timing-function: var(--ease-standard);");
   // `inline` makes utilities reference the underlying --lode-* variables
-  // directly, so a nested data-theme scope re-resolves them per element.
+  // directly, so a nested data-mode or data-theme scope re-resolves them per element.
   return `@theme inline {\n${lines.join("\n")}\n}\n`;
 }
 
-function systemThemes(value) {
+function systemModes(value) {
   const color = requiredRecord(value, "color");
   const system = requiredRecord(color, "sys");
   return Object.fromEntries(
@@ -144,7 +174,7 @@ function systemThemes(value) {
   );
 }
 
-function validateThemes(candidate, accentName = "default") {
+function validateModes(candidate, themeName = "default") {
   const lightRoles = Object.keys(candidate.light).sort();
   const darkRoles = Object.keys(candidate.dark).sort();
   if (JSON.stringify(lightRoles) !== JSON.stringify(darkRoles)) {
@@ -177,7 +207,7 @@ function validateThemes(candidate, accentName = "default") {
       const ratio = contrastRatio(theme[foreground], theme[background]);
       if (ratio < 4.5) {
         throw new Error(
-          `${accentName} accent, ${mode} theme: ${foreground} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
+          `${themeName} accent, ${mode} theme: ${foreground} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
         );
       }
     }
@@ -185,7 +215,7 @@ function validateThemes(candidate, accentName = "default") {
       const ratio = contrastRatio(theme[subject], theme[background]);
       if (ratio < 3) {
         throw new Error(
-          `${accentName} accent, ${mode} theme: ${subject} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
+          `${themeName} accent, ${mode} theme: ${subject} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
         );
       }
     }

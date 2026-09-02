@@ -2,7 +2,7 @@ import { findCatalogPage, overviewPage, type CatalogPage } from "@lode/design-sy
 import { useEffect, useState } from "react";
 
 import { CatalogNavigation } from "./catalog-navigation.js";
-import { CatalogThemeContext, type AccentName, type CatalogTheme } from "./catalog-theme.js";
+import { CatalogModeContext, type CatalogMode, type ThemeName } from "./catalog-theme.js";
 import { ButtonsPage, FormsPage, StatusPage, SurfacesPage } from "./component-pages.js";
 import { ColorPage, GeometryPage, TypographyPage } from "./foundation-pages.js";
 import { OverviewPage } from "./overview-page.js";
@@ -16,8 +16,8 @@ function currentCatalogPath(): string {
 
 export function DesktopDesignSystemPage() {
   const [page, setPage] = useState(() => findCatalogPage(currentCatalogPath()) ?? overviewPage);
-  const [theme, setTheme] = useState<CatalogTheme>("light");
-  const [accent, setAccent] = useState<AccentName>("forest");
+  const [mode, setMode] = useState<CatalogMode>("light");
+  const [theme, setTheme] = useState<ThemeName>("forest");
 
   useEffect(() => {
     const previousScrollRestoration = history.scrollRestoration;
@@ -35,34 +35,34 @@ export function DesktopDesignSystemPage() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.dataset.mode = mode;
     document.documentElement.dataset.theme = theme;
-    document.documentElement.dataset.accent = accent;
     return () => {
-      document.documentElement.dataset.theme = "light";
-      delete document.documentElement.dataset.accent;
+      document.documentElement.dataset.mode = "light";
+      delete document.documentElement.dataset.theme;
     };
-  }, [accent, theme]);
+  }, [mode, theme]);
 
   return (
-    <CatalogThemeContext.Provider value={theme}>
+    <CatalogModeContext.Provider value={mode}>
       <div className="mx-auto flex min-h-screen w-full max-w-320 items-start gap-4 px-3 md:gap-10 md:px-10">
-        <CatalogNavigation currentPage={page} onThemeChange={setTheme} theme={theme} />
+        <CatalogNavigation currentPage={page} mode={mode} onModeChange={setMode} />
         <main className="min-w-0 flex-1 py-6 md:py-10">
-          <PageContent accent={accent} onAccentChange={setAccent} page={page} />
+          <PageContent onThemeChange={setTheme} page={page} theme={theme} />
           <footer className="mt-16 border-t border-border pt-6 text-caption text-muted-foreground">
             Lode Design System — one token source, one component layer.
           </footer>
         </main>
       </div>
-    </CatalogThemeContext.Provider>
+    </CatalogModeContext.Provider>
   );
 }
 
 function PageContent({
-  accent,
-  onAccentChange,
+  onThemeChange,
   page,
-}: Readonly<{ accent: AccentName; onAccentChange(accent: AccentName): void; page: CatalogPage }>) {
+  theme,
+}: Readonly<{ onThemeChange(theme: ThemeName): void; page: CatalogPage; theme: ThemeName }>) {
   switch (page.id) {
     case "overview": {
       return <OverviewPage />;
@@ -71,7 +71,7 @@ function PageContent({
       return <ColorPage />;
     }
     case "theming": {
-      return <ThemingPage accent={accent} onAccentChange={onAccentChange} />;
+      return <ThemingPage onThemeChange={onThemeChange} theme={theme} />;
     }
     case "typography": {
       return <TypographyPage />;

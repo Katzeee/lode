@@ -7,38 +7,38 @@ import { Field } from '../ui/field';
 import { Input } from '../ui/input';
 import { Text } from '../ui/text';
 import {
-  accentNames,
+  themeNames,
   ThemeProvider,
   useColors,
-  type AccentName,
   type ThemeMode,
+  type ThemeName,
 } from '../ui/theme';
 import { PageIntro, Specimen } from './specimen';
 
 export function ThemingPage({
-  accent,
-  onAccentChange,
+  onThemeChange,
+  theme,
 }: Readonly<{
-  accent: AccentName;
-  onAccentChange: (accent: AccentName) => void;
+  onThemeChange: (theme: ThemeName) => void;
+  theme: ThemeName;
 }>) {
   return (
     <>
       <PageIntro
-        description="Color has two independent axes. The mode axis resolves the neutral world; the accent axis re-tints every action role. A theme is a choice, never a rewrite."
+        description="Color has two independent axes. The mode axis is a system preference; the theme axis is a complete resolution of every semantic color role. Built-in themes ship on every platform."
         title="Theming"
       />
       <Specimen
-        description="The accent applies to this whole catalog — switch it, then browse any page."
-        title="Accent"
+        description="Switch a theme, then browse any page — the whole catalog renders under it."
+        title="Built-in themes"
       >
         <View style={styles.switcher}>
-          {accentNames.map(name => (
+          {themeNames.map(name => (
             <Button
               key={name}
-              onPress={() => onAccentChange(name)}
+              onPress={() => onThemeChange(name)}
               size="sm"
-              variant={accent === name ? 'primary' : 'outline'}
+              variant={theme === name ? 'primary' : 'outline'}
             >
               {name.charAt(0).toUpperCase() + name.slice(1)}
             </Button>
@@ -46,13 +46,13 @@ export function ThemingPage({
         </View>
       </Specimen>
       <Specimen
-        description="Every accent carries both mode resolutions and passes the same contrast gates."
-        title="Accent × mode"
+        description="Each theme resolves both modes and passes the same contrast gates."
+        title="Theme × mode"
       >
-        {accentNames.map(name =>
+        {themeNames.map(name =>
           (['light', 'dark'] as const).map(mode => (
-            <ThemeProvider accent={name} key={`${name}-${mode}`} mode={mode}>
-              <ThemeFrame accent={name} mode={mode} />
+            <ThemeProvider key={`${name}-${mode}`} mode={mode} name={name}>
+              <ThemeFrame mode={mode} name={name} />
             </ThemeProvider>
           )),
         )}
@@ -62,9 +62,9 @@ export function ThemingPage({
 }
 
 function ThemeFrame({
-  accent,
   mode,
-}: Readonly<{ accent: AccentName; mode: ThemeMode }>) {
+  name,
+}: Readonly<{ mode: ThemeMode; name: ThemeName }>) {
   const colors = useColors();
   return (
     <View
@@ -80,10 +80,10 @@ function ThemeFrame({
           variant="caption"
           weight="semibold"
         >
-          {accent.toUpperCase()} · {mode.toUpperCase()}
+          {name.toUpperCase()} · {mode.toUpperCase()}
         </Text>
-        <Badge dot tone="accent">
-          Accent
+        <Badge dot tone="success">
+          Ready
         </Badge>
       </View>
       <Field label="Vault passphrase">

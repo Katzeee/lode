@@ -18,7 +18,7 @@ import {
 import { Button } from "../ui/button.js";
 import { NavItem, NavRailItem, NavSectionLabel } from "../ui/nav.js";
 import { Separator } from "../ui/separator.js";
-import type { CatalogTheme } from "./catalog-theme.js";
+import type { CatalogMode } from "./catalog-theme.js";
 
 const pageIcons: Readonly<Record<CatalogPageId, LucideIcon>> = {
   overview: House,
@@ -39,8 +39,8 @@ function pageHref(page: CatalogPage): string {
 
 type NavigationProperties = Readonly<{
   currentPage: CatalogPage;
-  onThemeChange(theme: CatalogTheme): void;
-  theme: CatalogTheme;
+  onModeChange(mode: CatalogMode): void;
+  mode: CatalogMode;
 }>;
 
 export function CatalogNavigation(properties: NavigationProperties) {
@@ -52,7 +52,7 @@ export function CatalogNavigation(properties: NavigationProperties) {
   );
 }
 
-function SidebarNavigation({ currentPage, onThemeChange, theme }: NavigationProperties) {
+function SidebarNavigation({ currentPage, mode, onModeChange }: NavigationProperties) {
   return (
     <aside className="sticky top-0 hidden max-h-screen w-63 shrink-0 flex-col gap-6 overflow-y-auto py-10 md:flex">
       <header className="flex min-w-0 items-center gap-2.5">
@@ -67,11 +67,11 @@ function SidebarNavigation({ currentPage, onThemeChange, theme }: NavigationProp
 
       <Button
         className="justify-start"
-        onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
+        onClick={() => onModeChange(mode === "light" ? "dark" : "light")}
         size="sm"
         variant="outline"
       >
-        {theme === "light" ? "Switch to dark theme" : "Switch to light theme"}
+        {mode === "light" ? "Switch to dark mode" : "Switch to light mode"}
       </Button>
 
       <nav className="flex flex-col gap-6">
@@ -104,9 +104,9 @@ function SidebarNavigation({ currentPage, onThemeChange, theme }: NavigationProp
   );
 }
 
-function DockNavigation({ currentPage, onThemeChange, theme }: NavigationProperties) {
-  const ThemeIcon = theme === "light" ? Moon : Sun;
-  const themeLabel = theme === "light" ? "Switch to dark theme" : "Switch to light theme";
+function DockNavigation({ currentPage, mode, onModeChange }: NavigationProperties) {
+  const ThemeIcon = mode === "light" ? Moon : Sun;
+  const themeLabel = mode === "light" ? "Switch to dark mode" : "Switch to light mode";
   return (
     <aside className="sticky top-0 flex max-h-screen w-13 shrink-0 flex-col items-center gap-3 overflow-y-auto py-4 md:hidden">
       <WordmarkLink />
@@ -140,7 +140,7 @@ function DockNavigation({ currentPage, onThemeChange, theme }: NavigationPropert
       <Button
         aria-label={themeLabel}
         className="mt-auto"
-        onClick={() => onThemeChange(theme === "light" ? "dark" : "light")}
+        onClick={() => onModeChange(mode === "light" ? "dark" : "light")}
         size="icon"
         title={themeLabel}
         variant="ghost"

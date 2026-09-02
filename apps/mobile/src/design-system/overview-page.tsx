@@ -18,9 +18,9 @@ const principles = [
       'Product screens render exclusively through the ui components. A visual change lands in one file and reaches every surface.',
   },
   {
-    title: 'Two themes, one vocabulary',
+    title: 'Modes, themes, one vocabulary',
     detail:
-      'Light and dark resolve the same semantic roles. The theme provider switches a whole region wholesale — no per-component theming.',
+      'Light and dark modes and built-in themes all resolve the same semantic roles. The theme provider switches a whole region wholesale — no per-component theming.',
   },
 ] as const;
 

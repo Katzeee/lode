@@ -557,6 +557,12 @@ export default tseslint.config(
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
       "design/no-raw-visual-values": "error",
+    },
+  },
+  {
+    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx"],
+    ignores: ["apps/desktop/src/renderer/ui/**"],
+    rules: {
       "design/product-through-components": "error",
     },
   },

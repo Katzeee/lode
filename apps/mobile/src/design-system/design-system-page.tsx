@@ -14,7 +14,7 @@ import { Text } from '../ui/text';
 import {
   ThemeProvider,
   useColors,
-  type AccentName,
+  type ThemeName,
   type ThemeMode,
 } from '../ui/theme';
 import {
@@ -33,33 +33,33 @@ export function MobileDesignSystemPage({
 }: Readonly<{ onClose: () => void }>) {
   const [page, setPage] = useState<CatalogPage>(overviewPage);
   const [theme, setTheme] = useState<ThemeMode>('light');
-  const [accent, setAccent] = useState<AccentName>('forest');
+  const [themeName, setThemeName] = useState<ThemeName>('forest');
   return (
-    <ThemeProvider accent={accent} mode={theme}>
+    <ThemeProvider mode={theme} name={themeName}>
       <CatalogScreen
-        accent={accent}
-        onAccentChange={setAccent}
         onClose={onClose}
         onNavigate={setPage}
         onThemeChange={setTheme}
+        onThemeNameChange={setThemeName}
         page={page}
         theme={theme}
+        themeName={themeName}
       />
     </ThemeProvider>
   );
 }
 
 function CatalogScreen({
-  accent,
-  onAccentChange,
+  themeName,
+  onThemeNameChange,
   onClose,
   onNavigate,
   onThemeChange,
   page,
   theme,
 }: Readonly<{
-  accent: AccentName;
-  onAccentChange: (accent: AccentName) => void;
+  themeName: ThemeName;
+  onThemeNameChange: (theme: ThemeName) => void;
   onClose: () => void;
   onNavigate: (page: CatalogPage) => void;
   onThemeChange: (mode: ThemeMode) => void;
@@ -104,8 +104,8 @@ function CatalogScreen({
       </View>
 
       <PageContent
-        accent={accent}
-        onAccentChange={onAccentChange}
+        themeName={themeName}
+        onThemeNameChange={onThemeNameChange}
         page={page}
       />
 
@@ -150,12 +150,12 @@ function CatalogIndex({
 }
 
 function PageContent({
-  accent,
-  onAccentChange,
+  themeName,
+  onThemeNameChange,
   page,
 }: Readonly<{
-  accent: AccentName;
-  onAccentChange: (accent: AccentName) => void;
+  themeName: ThemeName;
+  onThemeNameChange: (theme: ThemeName) => void;
   page: CatalogPage;
 }>) {
   switch (page.id) {
@@ -166,7 +166,9 @@ function PageContent({
       return <ColorPage />;
     }
     case 'theming': {
-      return <ThemingPage accent={accent} onAccentChange={onAccentChange} />;
+      return (
+        <ThemingPage onThemeChange={onThemeNameChange} theme={themeName} />
+      );
     }
     case 'typography': {
       return <TypographyPage />;
