@@ -45,14 +45,7 @@ const architecturePlugin = {
             }
             const relative = filename.slice(sourceIndex + engineSource.length);
             const topLevel = relative.split("/")[0];
-            const allowed = new Set([
-              "crypto",
-              "decoding",
-              "domain",
-              "subsystems",
-              "engine.ts",
-              "index.ts",
-            ]);
+            const allowed = new Set(["crypto", "decoding", "domain", "subsystems", "engine.ts", "index.ts"]);
             if (!allowed.has(topLevel)) {
               context.report({
                 node,
@@ -95,9 +88,7 @@ const architecturePlugin = {
           }
           if (
             insideMobile &&
-            (source.startsWith("node:") ||
-              source === "better-sqlite3" ||
-              source === "@lode/engine-platform-desktop")
+            (source.startsWith("node:") || source === "better-sqlite3" || source === "@lode/engine-platform-desktop")
           ) {
             context.report({
               node,
@@ -292,6 +283,71 @@ const architecturePlugin = {
         });
       },
     },
+    "desktop-product-boundary": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const filename = context.filename.replaceAll("\\", "/");
+        const renderer =
+          filename.endsWith("/apps/desktop/src/renderer.tsx") || filename.includes("/apps/desktop/src/renderer/");
+        const preload = filename.endsWith("/apps/desktop/src/preload.cts");
+        const daemonEntry = filename.endsWith("/apps/desktop/src/daemon.ts");
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (typeof source !== "string") {
+            return;
+          }
+          const mobile =
+            source === "@lode/engine-platform-mobile" ||
+            source === "@lode/app-mobile" ||
+            source === "react-native" ||
+            source.startsWith("react-native/");
+          const engine =
+            source === "@lode/engine" ||
+            source.startsWith("@lode/engine/") ||
+            source === "@lode/engine-platform-desktop" ||
+            source === "better-sqlite3";
+          const daemon = source === "@lode/daemon" || source.startsWith("@lode/daemon/");
+          const transport = source === "@lode/desktop-client" || source.startsWith("@lode/desktop-client/");
+          const hostCapability = source === "electron" || source.startsWith("node:");
+          if (mobile) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "Desktop production code cannot depend on mobile packages or React Native." },
+            });
+            return;
+          }
+          if (renderer && (engine || daemon || transport || hostCapability)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message: "The desktop renderer is pure UI and receives product capabilities only through preload.",
+              },
+            });
+            return;
+          }
+          if (preload && (engine || daemon || transport || source.startsWith("node:"))) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "The desktop preload owns only its narrow contextBridge adapter." },
+            });
+            return;
+          }
+          if (!renderer && !preload && (engine || (daemon && !daemonEntry))) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message:
+                  "The desktop host reaches product behavior through @lode/desktop-client; only its daemon entry imports @lode/daemon.",
+              },
+            });
+          }
+        });
+      },
+    },
   },
 };
 
@@ -313,7 +369,7 @@ export default tseslint.config(
     ],
   },
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,cts}"],
     extends: [eslint.configs.recommended, ...tseslint.configs.recommendedTypeChecked, prettier],
     plugins: { "node-import": nodeImport, unicorn, architecture: architecturePlugin },
     languageOptions: {
@@ -359,6 +415,27 @@ export default tseslint.config(
     files: ["apps/mobile/src/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: { project: "apps/mobile/tsconfig.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
+    files: ["apps/desktop/src/**/*.{ts,tsx,cts}"],
+    languageOptions: {
+      parserOptions: { project: "apps/desktop/tsconfig.json", tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "architecture/desktop-product-boundary": "error",
+    },
+  },
+  {
+    files: ["apps/desktop/src/**/*.test.ts"],
+    languageOptions: {
+      parserOptions: { project: "apps/desktop/tsconfig.test.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
+    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx"],
+    rules: {
+      "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
     },
   },
   {

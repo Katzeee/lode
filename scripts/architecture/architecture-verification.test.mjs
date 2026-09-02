@@ -809,9 +809,7 @@ test("enforces one-way Engine platform package dependencies", async (t) => {
   for (const fixture of cases) {
     await t.test(fixture.name, async () => {
       assert.ok(
-        (await lintRuleIds(fixture.source, fixture.filePath)).includes(
-          "architecture/engine-platform-direction",
-        ),
+        (await lintRuleIds(fixture.source, fixture.filePath)).includes("architecture/engine-platform-direction"),
       );
     });
   }
@@ -824,6 +822,53 @@ test("enforces the CLI product boundary after specialized configs are merged", a
   assert.ok(
     !(await lintRuleIds('import "@lode/daemon";\n', "apps/cli/src/bin/lode-daemon.ts")).includes(
       "architecture/cli-product-boundary",
+    ),
+  );
+});
+
+test("enforces the desktop renderer, host, daemon, and mobile boundaries", async (t) => {
+  const cases = [
+    {
+      name: "renderer cannot import Node",
+      filePath: "apps/desktop/src/renderer.tsx",
+      source: 'import "node:fs";\n',
+    },
+    {
+      name: "renderer cannot dial the desktop transport",
+      filePath: "apps/desktop/src/renderer/desktop-app.tsx",
+      source: 'import "@lode/desktop-client";\n',
+    },
+    {
+      name: "preload cannot dial the desktop transport",
+      filePath: "apps/desktop/src/preload.cts",
+      source: 'import "@lode/desktop-client";\n',
+    },
+    {
+      name: "host cannot compose Engine",
+      filePath: "apps/desktop/src/host/desktop-host.ts",
+      source: 'import "@lode/engine-platform-desktop";\n',
+    },
+    {
+      name: "desktop cannot import mobile",
+      filePath: "apps/desktop/src/main.ts",
+      source: 'import "@lode/engine-platform-mobile";\n',
+    },
+    {
+      name: "only daemon entry imports daemon",
+      filePath: "apps/desktop/src/host/desktop-host.ts",
+      source: 'import "@lode/daemon";\n',
+    },
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      assert.ok(
+        (await lintRuleIds(fixture.source, fixture.filePath)).includes("architecture/desktop-product-boundary"),
+      );
+    });
+  }
+  assert.ok(
+    !(await lintRuleIds('import "@lode/daemon";\n', "apps/desktop/src/daemon.ts")).includes(
+      "architecture/desktop-product-boundary",
     ),
   );
 });

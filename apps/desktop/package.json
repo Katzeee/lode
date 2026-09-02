@@ -1,0 +1,49 @@
+{
+  "name": "@lode/app-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The packaged Lode desktop shell",
+  "author": "Lode contributors",
+  "type": "module",
+  "main": "./dist/main.js",
+  "exports": {
+    ".": "./dist/main.js",
+    "./daemon": "./dist/daemon.js",
+    "./preload": {
+      "require": "./dist/preload.cjs"
+    },
+    "./renderer": "./dist/renderer.js"
+  },
+  "scripts": {
+    "clean": "node ../../scripts/clean-package-dist.mjs",
+    "prebuild": "npm run clean",
+    "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc --noEmit -p tsconfig.test.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "dependencies": {
+    "@lode/daemon": "file:../../packages/daemon",
+    "@lode/desktop-client": "file:../../packages/desktop-client",
+    "electron": "41.10.7",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "devDependencies": {
+    "@electron-forge/cli": "7.11.2",
+    "@electron-forge/core": "7.11.2",
+    "@electron-forge/plugin-auto-unpack-natives": "7.11.2",
+    "@electron/asar": "3.4.1",
+    "@electron/packager": "18.4.4",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.62.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}

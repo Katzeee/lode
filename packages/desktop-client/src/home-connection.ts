@@ -21,6 +21,12 @@ export class HomeConfigurationError extends Error {
  * process is started; readiness is observed through Status polling. */
 type DaemonLauncher = (selection: HomeSelection) => void | Promise<void>;
 
+export type DaemonReadinessOptions = Readonly<{
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
+}>;
+
 type HomeConnectionFiles = Readonly<{ endpoint: string; token: string }>;
 
 function homeConnectionFiles(homePath: string): HomeConnectionFiles {
@@ -106,18 +112,23 @@ export async function probeDaemon(
 /** Resolves a connected client for the Home's daemon, launching it through the
  * provided launcher when no live daemon answers the Status handshake. A stale
  * endpoint file is treated as "not running": only a successful handshake counts. */
-export async function ensureRunningDaemon(selection: HomeSelection, launcher: DaemonLauncher): Promise<DesktopClient> {
+export async function ensureRunningDaemon(
+  selection: HomeSelection,
+  launcher: DaemonLauncher,
+  options: DaemonReadinessOptions = {},
+): Promise<DesktopClient> {
   await readHomeToken(homeConnectionFiles(selection.path));
   const probe = await probeDaemon(selection);
   if (probe) {
     return probe.client;
   }
+  throwIfAborted(options.signal);
   await launcher(selection);
-  const timeoutMs = 30_000;
-  const pollIntervalMs = 100;
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 100;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await delay(pollIntervalMs);
+    await delay(pollIntervalMs, options.signal);
     const probe = await probeDaemon(selection);
     if (probe) {
       return probe.client;
@@ -126,8 +137,31 @@ export async function ensureRunningDaemon(selection: HomeSelection, launcher: Da
   throw new Error(`Daemon for home "${selection.name}" did not become ready within ${timeoutMs}ms`);
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", aborted);
+      resolve();
+    }, ms);
+    const aborted = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal));
+    };
+    signal?.addEventListener("abort", aborted, { once: true });
+    if (signal?.aborted === true) {
+      aborted();
+    }
+  });
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted === true) {
+    throw abortReason(signal);
+  }
+}
+
+function abortReason(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error("Daemon readiness wait was canceled");
 }
 
 function isMissingFile(error: unknown): boolean {

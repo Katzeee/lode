@@ -20,6 +20,7 @@
 *.ico    binary
 *.pdf    binary
 *.zip    binary
+*.jar    binary
 *.gz     binary
 *.tar    binary
 *.sqlite binary

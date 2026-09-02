@@ -9,7 +9,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli",
+    "build": "npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
+    "build:desktop": "node scripts/desktop/build-desktop.mjs",
     "build:mobile-host": "npm run build:host --workspace=@lode/app-mobile",
     "build:mobile:android": "node scripts/mobile/build-android.mjs",
     "test": "npm run test --workspaces --if-present",
@@ -26,6 +27,7 @@
     "verify:wire": "node scripts/generate-wire-proto.mjs --check",
     "verify:eol": "node scripts/verify-eol.mjs",
     "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
+    "verify:desktop": "node scripts/desktop/verify-desktop.mjs",
     "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/proposal-mode.property.test.ts",
     "verify:architecture": "node --test scripts/architecture/architecture-verification.test.mjs && node scripts/verify-architecture.mjs",
     "verify": "npm run verify:eol && npm run build && npm run verify:wire && npm run typecheck && npm run lint && npm run test && npm run verify:architecture && npm run verify:acceptance-catalog",
@@ -54,6 +56,7 @@
   "allowScripts": {
     "@bufbuild/buf@1.71.0": true,
     "better-sqlite3@12.11.1": true,
-    "esbuild@0.28.1": true
+    "electron@41.10.7": true,
+    "esbuild@0.28.2": true
   }
 }

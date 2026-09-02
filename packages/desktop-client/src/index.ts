@@ -4,6 +4,7 @@ export {
   HomeConfigurationError,
   probeDaemon,
   selectHome,
+  type DaemonReadinessOptions,
   type HomeSelection,
 } from "./home-connection.js";
 export {
