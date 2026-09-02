@@ -9,6 +9,7 @@ import {
   Palette,
   Shapes,
   Sun,
+  SunMoon,
   TextCursorInput,
   Type,
   type LucideIcon,
@@ -22,6 +23,7 @@ import type { CatalogTheme } from "./catalog-theme.js";
 const pageIcons: Readonly<Record<CatalogPageId, LucideIcon>> = {
   overview: House,
   color: Palette,
+  theming: SunMoon,
   typography: Type,
   geometry: Shapes,
   buttons: MousePointerClick,

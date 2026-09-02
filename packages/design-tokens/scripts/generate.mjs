@@ -42,7 +42,13 @@ const shadows = {
 };
 
 const themes = systemThemes(resolved);
-validateThemes(themes);
+const accents = requiredRecord(requiredRecord(resolved, "color"), "accent");
+for (const [name, accent] of Object.entries(accents)) {
+  validateThemes({
+    light: { ...themes.light, ...requiredRecord(accent, "light") },
+    dark: { ...themes.dark, ...requiredRecord(accent, "dark") },
+  }, name);
+}
 const generated = `// Generated from tokens and licensed design assets. Do not edit.\nexport const tokens = ${JSON.stringify(resolved)} as const;\nexport const fontNotices = ${JSON.stringify(
   {
     harmonyOsSans: {
@@ -67,7 +73,18 @@ function runtimeCss() {
       ...Object.entries(shadows[mode]).map(([name, value]) => `  --lode-shadow-${name}: ${value};`),
       `  color-scheme: ${mode};`,
     ].join("\n");
-  return `:root,\n[data-theme="light"] {\n${declarations("light")}\n}\n\n[data-theme="dark"] {\n${declarations("dark")}\n}\n`;
+  const accentDeclarations = (roles) =>
+    Object.entries(roles)
+      .map(([role, value]) => `  --lode-color-${role}: ${value};`)
+      .join("\n");
+  // Accent blocks are mode-aware so an accent scope composes with any nested
+  // data-theme boundary. Descendant matches are wrapped in :where() so an
+  // element carrying its own data-accent always beats an ancestor's accent.
+  const accentBlocks = Object.entries(accents).map(
+    ([name, accent]) =>
+      `[data-accent="${name}"]:not([data-theme="dark"]),\n[data-accent="${name}"] :where([data-theme="light"]) {\n${accentDeclarations(accent.light)}\n}\n\n[data-accent="${name}"][data-theme="dark"],\n[data-accent="${name}"] :where([data-theme="dark"]) {\n${accentDeclarations(accent.dark)}\n}`,
+  );
+  return `:root,\n[data-theme="light"] {\n${declarations("light")}\n}\n\n[data-theme="dark"] {\n${declarations("dark")}\n}\n\n${accentBlocks.join("\n\n")}\n`;
 }
 
 function themeCss() {
@@ -127,7 +144,7 @@ function systemThemes(value) {
   );
 }
 
-function validateThemes(candidate) {
+function validateThemes(candidate, accentName = "default") {
   const lightRoles = Object.keys(candidate.light).sort();
   const darkRoles = Object.keys(candidate.dark).sort();
   if (JSON.stringify(lightRoles) !== JSON.stringify(darkRoles)) {
@@ -159,13 +176,17 @@ function validateThemes(candidate) {
     for (const [foreground, background] of textPairs) {
       const ratio = contrastRatio(theme[foreground], theme[background]);
       if (ratio < 4.5) {
-        throw new Error(`${mode} theme ${foreground} on ${background} has insufficient contrast: ${ratio.toFixed(2)}`);
+        throw new Error(
+          `${accentName} accent, ${mode} theme: ${foreground} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
+        );
       }
     }
     for (const [subject, background] of componentPairs) {
       const ratio = contrastRatio(theme[subject], theme[background]);
       if (ratio < 3) {
-        throw new Error(`${mode} theme ${subject} on ${background} has insufficient contrast: ${ratio.toFixed(2)}`);
+        throw new Error(
+          `${accentName} accent, ${mode} theme: ${subject} on ${background} has insufficient contrast ${ratio.toFixed(2)}`,
+        );
       }
     }
   }

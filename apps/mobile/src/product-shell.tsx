@@ -7,7 +7,8 @@ import type { MobileSurface } from './mobile-shell-state';
 import { Alert } from './ui/alert';
 import { Button } from './ui/button';
 import { Card, CardDescription, CardTitle } from './ui/card';
-import { Field, Input } from './ui/field';
+import { Field } from './ui/field';
+import { Input } from './ui/input';
 import { Text } from './ui/text';
 import { useColors } from './ui/theme';
 

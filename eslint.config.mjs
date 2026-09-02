@@ -351,6 +351,126 @@ const architecturePlugin = {
   },
 };
 
+const rawColorPattern = /#[0-9a-fA-F]{3,8}(?![\w/-])|\b(?:rgba?|hsla?|oklch)\(/;
+// Color, spacing, radius, shadow, and type utilities always resolve from the
+// token scales; size and position utilities may use relative units (vh, %, fr)
+// but never restate an absolute length the spacing scale owns.
+const arbitraryUtilityPattern =
+  /(?:^|[\s"'`:])(?:bg|text|border|ring|fill|stroke|shadow|rounded|gap|[pm][trblxyse]?|space-[xy])-\[/;
+const arbitraryAbsoluteSizePattern =
+  /(?:^|[\s"'`:])(?:size|w|h|max-w|min-w|max-h|min-h|inset|top|right|bottom|left)-\[[^\]]*(?:px|rem)/;
+
+const designPlugin = {
+  rules: {
+    "no-raw-visual-values": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const check = (value, node) => {
+          if (typeof value !== "string") {
+            return;
+          }
+          if (rawColorPattern.test(value)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "Colors resolve from semantic design tokens, never raw color literals." },
+            });
+            return;
+          }
+          if (arbitraryUtilityPattern.test(value) || arbitraryAbsoluteSizePattern.test(value)) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: {
+                message: "Token-owned utilities (color, spacing, size, radius, shadow) never take arbitrary values.",
+              },
+            });
+          }
+        };
+        return {
+          Literal(node) {
+            check(node.value, node);
+          },
+          TemplateElement(node) {
+            check(node.value.cooked ?? node.value.raw, node);
+          },
+        };
+      },
+    },
+    "product-through-components": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const controls = new Set(["button", "input", "select", "textarea"]);
+        return {
+          JSXOpeningElement(node) {
+            if (node.name.type === "JSXIdentifier" && controls.has(node.name.name)) {
+              context.report({
+                node,
+                messageId: "restricted",
+                data: { message: `Screens render <${node.name.name}> through the ui component layer.` },
+              });
+            }
+          },
+        };
+      },
+    },
+    "mobile-through-components": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        const owned = new Set(["Text", "TextInput", "Pressable", "Switch", "ActivityIndicator", "Button"]);
+        return {
+          ImportDeclaration(node) {
+            if (node.source.value !== "react-native") {
+              return;
+            }
+            for (const specifier of node.specifiers) {
+              if (
+                specifier.type === "ImportSpecifier" &&
+                specifier.imported.type === "Identifier" &&
+                owned.has(specifier.imported.name)
+              ) {
+                context.report({
+                  node: specifier,
+                  messageId: "restricted",
+                  data: { message: `Screens render ${specifier.imported.name} through the ui component layer.` },
+                });
+              }
+            }
+          },
+        };
+      },
+    },
+    "mobile-no-raw-visual-values": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        return {
+          Property(node) {
+            const key = node.key.type === "Identifier" ? node.key.name : node.key.value;
+            if (typeof key !== "string") {
+              return;
+            }
+            if (/^font(?:Size|Family|Weight)$/.test(key)) {
+              context.report({
+                node,
+                messageId: "restricted",
+                data: { message: "Type is owned by the ui text component and its variants." },
+              });
+              return;
+            }
+            if (/[cC]olor$/.test(key) && node.value.type === "Literal") {
+              context.report({
+                node,
+                messageId: "restricted",
+                data: { message: "Colors resolve from theme tokens, never raw color literals." },
+              });
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
 export default tseslint.config(
   {
     ignores: [
@@ -371,7 +491,7 @@ export default tseslint.config(
   {
     files: ["**/*.{ts,tsx,cts}"],
     extends: [eslint.configs.recommended, ...tseslint.configs.recommendedTypeChecked, prettier],
-    plugins: { "node-import": nodeImport, unicorn, architecture: architecturePlugin },
+    plugins: { "node-import": nodeImport, unicorn, architecture: architecturePlugin, design: designPlugin },
     languageOptions: {
       parserOptions: { project: "tsconfig.eslint.json", tsconfigRootDir: import.meta.dirname },
     },
@@ -436,6 +556,16 @@ export default tseslint.config(
     files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
+      "design/no-raw-visual-values": "error",
+      "design/product-through-components": "error",
+    },
+  },
+  {
+    files: ["apps/mobile/src/**/*.{ts,tsx}"],
+    ignores: ["apps/mobile/src/ui/**"],
+    rules: {
+      "design/mobile-through-components": "error",
+      "design/mobile-no-raw-visual-values": "error",
     },
   },
   {

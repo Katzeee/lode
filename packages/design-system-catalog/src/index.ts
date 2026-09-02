@@ -11,7 +11,16 @@ export const alertTones = ["neutral", "success", "warning", "destructive"] as co
 export type AlertTone = (typeof alertTones)[number];
 
 export type CatalogPageId =
-  "overview" | "color" | "typography" | "geometry" | "buttons" | "forms" | "status" | "surfaces" | "product";
+  | "overview"
+  | "color"
+  | "theming"
+  | "typography"
+  | "geometry"
+  | "buttons"
+  | "forms"
+  | "status"
+  | "surfaces"
+  | "product";
 
 export type CatalogPage = Readonly<{
   description: string;
@@ -52,6 +61,12 @@ export const catalogSections: readonly CatalogSection[] = [
         "foundations/color",
         "Color",
         "Semantic roles resolved per theme; components never touch raw values.",
+      ),
+      page(
+        "theming",
+        "foundations/theming",
+        "Theming",
+        "One semantic vocabulary, two resolutions; any region flips wholesale.",
       ),
       page("typography", "foundations/typography", "Typography", "HarmonyOS Sans SC and the eight-step type scale."),
       page(

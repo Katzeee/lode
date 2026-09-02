@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -871,6 +871,64 @@ test("enforces the desktop renderer, host, daemon, and mobile boundaries", async
       "architecture/desktop-product-boundary",
     ),
   );
+});
+
+test("enforces the design system boundaries", async (t) => {
+  const cases = [
+    {
+      name: "desktop screens cannot carry raw color literals",
+      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      source: 'export const bad = <div className="bg-white text-[#1A2B3C]" />;\n',
+      ruleId: "design/no-raw-visual-values",
+    },
+    {
+      name: "desktop screens cannot use arbitrary values for token-owned utilities",
+      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      source: 'export const bad = <div className="p-[13px]" />;\n',
+      ruleId: "design/no-raw-visual-values",
+    },
+    {
+      name: "desktop screens render controls through the ui layer",
+      filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
+      source: "export const bad = <button type=\"button\">Save</button>;\n",
+      ruleId: "design/product-through-components",
+    },
+    {
+      name: "mobile screens render text through the ui layer",
+      filePath: "apps/mobile/src/App.tsx",
+      source: 'import { Text } from "react-native";\nexport const bad = Text;\n',
+      ruleId: "design/mobile-through-components",
+    },
+    {
+      name: "mobile screens cannot set type or raw colors directly",
+      filePath: "apps/mobile/src/App.tsx",
+      source: "export const bad = { fontSize: 17 };\n",
+      ruleId: "design/mobile-no-raw-visual-values",
+    },
+  ];
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      assert.ok((await lintRuleIds(fixture.source, fixture.filePath)).includes(fixture.ruleId));
+    });
+  }
+  await t.test("the mobile ui layer itself may bind the owned primitives", async () => {
+    const ids = await lintRuleIds('import { Text } from "react-native";\nexport const ok = Text;\n', "apps/mobile/src/ui/text.tsx");
+    assert.ok(!ids.includes("design/mobile-through-components"));
+  });
+});
+
+test("desktop and mobile ship the same ui component vocabulary", async () => {
+  const components = async (directory) =>
+    new Set((await readdir(directory)).map((entry) => entry.replace(/\.tsx?$/u, "")));
+  const desktop = await components("apps/desktop/src/renderer/ui");
+  const mobile = await components("apps/mobile/src/ui");
+  // Web styling utilities with no React Native counterpart, and vice versa:
+  // cn/separator are CSS-layer concerns; text/theme exist because React Native
+  // has no cascade to own typography and theme scoping.
+  const desktopOnly = new Set(["cn", "separator"]);
+  const mobileOnly = new Set(["text", "theme"]);
+  const shared = (all, extras) => [...all].filter((name) => !extras.has(name)).sort();
+  assert.deepEqual(shared(desktop, desktopOnly), shared(mobile, mobileOnly));
 });
 
 async function lintRuleIds(source, filePath) {

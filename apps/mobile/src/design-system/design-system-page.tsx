@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@lode/design-tokens';
 import {
@@ -9,8 +9,14 @@ import {
 } from '@lode/design-system-catalog';
 
 import { Button } from '../ui/button';
+import { NavRow } from '../ui/nav';
 import { Text } from '../ui/text';
-import { ThemeProvider, useColors, type ThemeMode } from '../ui/theme';
+import {
+  ThemeProvider,
+  useColors,
+  type AccentName,
+  type ThemeMode,
+} from '../ui/theme';
 import {
   ButtonsPage,
   FormsPage,
@@ -20,15 +26,19 @@ import {
 import { ColorPage, GeometryPage, TypographyPage } from './foundation-pages';
 import { OverviewPage } from './overview-page';
 import { ProductPreviewPage } from './product-preview';
+import { ThemingPage } from './theming-page';
 
 export function MobileDesignSystemPage({
   onClose,
 }: Readonly<{ onClose: () => void }>) {
   const [page, setPage] = useState<CatalogPage>(overviewPage);
   const [theme, setTheme] = useState<ThemeMode>('light');
+  const [accent, setAccent] = useState<AccentName>('forest');
   return (
-    <ThemeProvider mode={theme}>
+    <ThemeProvider accent={accent} mode={theme}>
       <CatalogScreen
+        accent={accent}
+        onAccentChange={setAccent}
         onClose={onClose}
         onNavigate={setPage}
         onThemeChange={setTheme}
@@ -40,12 +50,16 @@ export function MobileDesignSystemPage({
 }
 
 function CatalogScreen({
+  accent,
+  onAccentChange,
   onClose,
   onNavigate,
   onThemeChange,
   page,
   theme,
 }: Readonly<{
+  accent: AccentName;
+  onAccentChange: (accent: AccentName) => void;
   onClose: () => void;
   onNavigate: (page: CatalogPage) => void;
   onThemeChange: (mode: ThemeMode) => void;
@@ -89,7 +103,11 @@ function CatalogScreen({
         </Button>
       </View>
 
-      <PageContent page={page} />
+      <PageContent
+        accent={accent}
+        onAccentChange={onAccentChange}
+        page={page}
+      />
 
       {page.id === 'overview' ? <CatalogIndex onNavigate={onNavigate} /> : null}
 
@@ -105,7 +123,6 @@ function CatalogScreen({
 function CatalogIndex({
   onNavigate,
 }: Readonly<{ onNavigate: (page: CatalogPage) => void }>) {
-  const colors = useColors();
   return (
     <View style={styles.index}>
       {catalogSections.map(section => (
@@ -119,26 +136,12 @@ function CatalogIndex({
             {section.title.toUpperCase()}
           </Text>
           {section.pages.map(sectionPage => (
-            <Pressable
-              accessibilityRole="button"
+            <NavRow
+              description={sectionPage.description}
               key={sectionPage.id}
               onPress={() => onNavigate(sectionPage)}
-              style={({ pressed }) => [
-                styles.indexRow,
-                { backgroundColor: colors.card, borderColor: colors.border },
-                pressed && { opacity: tokens.opacity.pressed },
-              ]}
-            >
-              <View style={styles.indexRowCopy}>
-                <Text weight="medium">{sectionPage.title}</Text>
-                <Text color="muted-foreground" variant="caption">
-                  {sectionPage.description}
-                </Text>
-              </View>
-              <Text color="muted-foreground" variant="title-small">
-                ›
-              </Text>
-            </Pressable>
+              title={sectionPage.title}
+            />
           ))}
         </View>
       ))}
@@ -146,13 +149,24 @@ function CatalogIndex({
   );
 }
 
-function PageContent({ page }: Readonly<{ page: CatalogPage }>) {
+function PageContent({
+  accent,
+  onAccentChange,
+  page,
+}: Readonly<{
+  accent: AccentName;
+  onAccentChange: (accent: AccentName) => void;
+  page: CatalogPage;
+}>) {
   switch (page.id) {
     case 'overview': {
       return <OverviewPage />;
     }
     case 'color': {
       return <ColorPage />;
+    }
+    case 'theming': {
+      return <ThemingPage accent={accent} onAccentChange={onAccentChange} />;
     }
     case 'typography': {
       return <TypographyPage />;
@@ -189,17 +203,6 @@ const styles = StyleSheet.create({
   index: { gap: tokens.space.lg },
   indexSection: { gap: tokens.space.xs },
   indexTitle: { letterSpacing: 1.1, marginBottom: tokens.space['2xs'] },
-  indexRow: {
-    alignItems: 'center',
-    borderRadius: tokens.radius.md,
-    borderWidth: tokens.stroke.thin,
-    flexDirection: 'row',
-    gap: tokens.space.sm,
-    justifyContent: 'space-between',
-    paddingHorizontal: tokens.space.md,
-    paddingVertical: tokens.space.sm,
-  },
-  indexRowCopy: { flex: 1, gap: 2, minWidth: 0 },
   footer: {
     borderTopWidth: tokens.stroke.thin,
     marginTop: tokens.space['2xl'],

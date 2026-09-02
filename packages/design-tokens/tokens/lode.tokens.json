@@ -93,6 +93,92 @@
         }
       }
     },
+    "accent": {
+      "forest": {
+        "light": {
+          "$type": "color",
+          "primary": { "$value": "{color.ref.forest.600}" },
+          "primary-foreground": { "$value": "{color.ref.paper.white}" },
+          "accent": { "$value": "{color.ref.forest.50}" },
+          "accent-foreground": { "$value": "{color.ref.forest.700}" },
+          "ring": { "$value": "{color.ref.forest.500}" }
+        },
+        "dark": {
+          "$type": "color",
+          "primary": { "$value": "{color.ref.night.mint}" },
+          "primary-foreground": { "$value": "{color.ref.night.canvas}" },
+          "accent": { "$value": "{color.ref.night.selected}" },
+          "accent-foreground": { "$value": "{color.ref.night.mint}" },
+          "ring": { "$value": "{color.ref.night.mint}" }
+        }
+      },
+      "indigo": {
+        "light": {
+          "$type": "color",
+          "primary": {
+            "$value": { "colorSpace": "srgb", "components": [0.243, 0.388, 0.867], "alpha": 1, "hex": "#3E63DD" }
+          },
+          "primary-foreground": { "$value": "{color.ref.paper.white}" },
+          "accent": {
+            "$value": { "colorSpace": "srgb", "components": [0.933, 0.945, 0.992], "alpha": 1, "hex": "#EEF1FD" }
+          },
+          "accent-foreground": {
+            "$value": { "colorSpace": "srgb", "components": [0.184, 0.243, 0.62], "alpha": 1, "hex": "#2F3E9E" }
+          },
+          "ring": {
+            "$value": { "colorSpace": "srgb", "components": [0.243, 0.388, 0.867], "alpha": 1, "hex": "#3E63DD" }
+          }
+        },
+        "dark": {
+          "$type": "color",
+          "primary": {
+            "$value": { "colorSpace": "srgb", "components": [0.62, 0.694, 1], "alpha": 1, "hex": "#9EB1FF" }
+          },
+          "primary-foreground": { "$value": "{color.ref.night.canvas}" },
+          "accent": {
+            "$value": { "colorSpace": "srgb", "components": [0.122, 0.165, 0.337], "alpha": 1, "hex": "#1F2A56" }
+          },
+          "accent-foreground": {
+            "$value": { "colorSpace": "srgb", "components": [0.714, 0.769, 1], "alpha": 1, "hex": "#B6C4FF" }
+          },
+          "ring": { "$value": { "colorSpace": "srgb", "components": [0.62, 0.694, 1], "alpha": 1, "hex": "#9EB1FF" } }
+        }
+      },
+      "plum": {
+        "light": {
+          "$type": "color",
+          "primary": {
+            "$value": { "colorSpace": "srgb", "components": [0.541, 0.231, 0.576], "alpha": 1, "hex": "#8A3B93" }
+          },
+          "primary-foreground": { "$value": "{color.ref.paper.white}" },
+          "accent": {
+            "$value": { "colorSpace": "srgb", "components": [0.973, 0.929, 0.976], "alpha": 1, "hex": "#F8EDF9" }
+          },
+          "accent-foreground": {
+            "$value": { "colorSpace": "srgb", "components": [0.427, 0.169, 0.455], "alpha": 1, "hex": "#6D2B74" }
+          },
+          "ring": {
+            "$value": { "colorSpace": "srgb", "components": [0.541, 0.231, 0.576], "alpha": 1, "hex": "#8A3B93" }
+          }
+        },
+        "dark": {
+          "$type": "color",
+          "primary": {
+            "$value": { "colorSpace": "srgb", "components": [0.89, 0.659, 0.918], "alpha": 1, "hex": "#E3A8EA" }
+          },
+          "primary-foreground": { "$value": "{color.ref.night.canvas}" },
+          "accent": {
+            "$value": { "colorSpace": "srgb", "components": [0.216, 0.122, 0.239], "alpha": 1, "hex": "#371F3D" }
+          },
+          "accent-foreground": {
+            "$value": { "colorSpace": "srgb", "components": [0.937, 0.776, 0.957], "alpha": 1, "hex": "#EFC6F4" }
+          },
+          "ring": {
+            "$value": { "colorSpace": "srgb", "components": [0.89, 0.659, 0.918], "alpha": 1, "hex": "#E3A8EA" }
+          }
+        }
+      }
+    },
     "sys": {
       "light": {
         "$type": "color",
@@ -102,14 +188,14 @@
         "card-foreground": { "$value": "{color.ref.ink.900}" },
         "popover": { "$value": "{color.ref.paper.white}" },
         "popover-foreground": { "$value": "{color.ref.ink.900}" },
-        "primary": { "$value": "{color.ref.forest.600}" },
-        "primary-foreground": { "$value": "{color.ref.paper.white}" },
+        "primary": { "$value": "{color.accent.forest.light.primary}" },
+        "primary-foreground": { "$value": "{color.accent.forest.light.primary-foreground}" },
         "secondary": { "$value": "{color.ref.paper.muted}" },
         "secondary-foreground": { "$value": "{color.ref.ink.700}" },
         "muted": { "$value": "{color.ref.paper.muted}" },
         "muted-foreground": { "$value": "{color.ref.ink.500}" },
-        "accent": { "$value": "{color.ref.forest.50}" },
-        "accent-foreground": { "$value": "{color.ref.forest.700}" },
+        "accent": { "$value": "{color.accent.forest.light.accent}" },
+        "accent-foreground": { "$value": "{color.accent.forest.light.accent-foreground}" },
         "destructive": { "$value": "{color.ref.red.600}" },
         "destructive-foreground": { "$value": "{color.ref.paper.white}" },
         "destructive-subtle": { "$value": "{color.ref.red.100}" },
@@ -128,7 +214,7 @@
         "warning-strong": { "$value": "{color.ref.amber.800}" },
         "border": { "$value": "{color.ref.ink.100}" },
         "input": { "$value": "{color.ref.ink.200}" },
-        "ring": { "$value": "{color.ref.forest.500}" }
+        "ring": { "$value": "{color.accent.forest.light.ring}" }
       },
       "dark": {
         "$type": "color",
@@ -138,14 +224,14 @@
         "card-foreground": { "$value": "{color.ref.night.text-primary}" },
         "popover": { "$value": "{color.ref.night.raised}" },
         "popover-foreground": { "$value": "{color.ref.night.text-primary}" },
-        "primary": { "$value": "{color.ref.night.mint}" },
-        "primary-foreground": { "$value": "{color.ref.night.canvas}" },
+        "primary": { "$value": "{color.accent.forest.dark.primary}" },
+        "primary-foreground": { "$value": "{color.accent.forest.dark.primary-foreground}" },
         "secondary": { "$value": "{color.ref.night.muted}" },
         "secondary-foreground": { "$value": "{color.ref.night.text-primary}" },
         "muted": { "$value": "{color.ref.night.muted}" },
         "muted-foreground": { "$value": "{color.ref.night.text-muted}" },
-        "accent": { "$value": "{color.ref.night.selected}" },
-        "accent-foreground": { "$value": "{color.ref.night.mint}" },
+        "accent": { "$value": "{color.accent.forest.dark.accent}" },
+        "accent-foreground": { "$value": "{color.accent.forest.dark.accent-foreground}" },
         "destructive": {
           "$value": { "colorSpace": "srgb", "components": [1, 0.569, 0.549], "alpha": 1, "hex": "#FF918C" }
         },
@@ -178,7 +264,7 @@
         },
         "border": { "$value": "{color.ref.night.border}" },
         "input": { "$value": "{color.ref.night.border-strong}" },
-        "ring": { "$value": "{color.ref.night.mint}" }
+        "ring": { "$value": "{color.accent.forest.dark.ring}" }
       }
     }
   },
