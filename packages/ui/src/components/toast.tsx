@@ -56,7 +56,7 @@ function ToastList() {
     const mark = data.tone === "neutral" ? undefined : toneMarks[data.tone];
     return (
       <BaseToast.Root
-        className="lode-overlay-popup pointer-events-auto w-96 max-w-full rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-lg"
+        className="lode-toast pointer-events-auto w-96 max-w-full rounded-lg border border-border bg-popover p-4 text-popover-foreground shadow-lg"
         data-ui="toast"
         key={item.id}
         swipeDirection={["up", "right"]}
@@ -68,9 +68,13 @@ function ToastList() {
               <Icon name={mark.icon} size="sm" />
             </span>
           )}
-          <div className="min-w-0 flex-1 pt-0.5">
-            <BaseToast.Title className="text-label font-semibold" />
-            <BaseToast.Description className="mt-0.5 text-caption text-muted-foreground" />
+          <div className="min-w-0 flex-1">
+            {/* A single-line title centers against the tone bubble or the
+                close button; descriptions flow below the shared baseline. */}
+            <BaseToast.Title
+              className={`flex items-center text-label font-semibold ${mark === undefined ? "min-h-7" : "min-h-8"}`}
+            />
+            <BaseToast.Description className="text-caption text-muted-foreground" />
             {data.action === undefined ? null : (
               <BaseToast.Action className="mt-2.5" render={<Button size="sm" variant="outline" />}>
                 {data.action.label}
@@ -80,7 +84,13 @@ function ToastList() {
           <BaseToast.Close
             aria-label="Dismiss notification"
             data-ui="toast-close"
-            render={<Button className="-mt-1.5 -mr-1.5 size-7 shrink-0" size="icon" variant="ghost" />}
+            render={
+              <Button
+                className={`-mr-1.5 size-7 shrink-0 self-start ${mark === undefined ? "" : "mt-0.5"}`}
+                size="icon"
+                variant="ghost"
+              />
+            }
           >
             <Icon name="x" size="sm" />
           </BaseToast.Close>

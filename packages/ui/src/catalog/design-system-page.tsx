@@ -12,6 +12,7 @@ import { CatalogModeContext, type CatalogMode, type ThemeName } from "./catalog-
 import { ButtonsPage, FormsPage, StatusPage, SurfacesPage } from "./component-pages.js";
 import { ContentPage } from "./content-page.js";
 import { ColorPage, GeometryPage, TypographyPage } from "./foundation-pages.js";
+import { NavigationPage } from "./navigation-page.js";
 import { OverviewPage } from "./overview-page.js";
 import { OverlaysPage } from "./overlays-page.js";
 import { LayoutPage } from "./layout-page.js";
@@ -141,6 +142,9 @@ function PageContent({
     }
     case "forms": {
       return <FormsPage />;
+    }
+    case "navigation": {
+      return <NavigationPage />;
     }
     case "overlays": {
       return <OverlaysPage />;

@@ -84,6 +84,47 @@
     scale: 0.96;
   }
 
+  /* Toasts track the finger while swiping and exit along the swipe axis;
+     only untouched dismissals fade-and-scale like other overlays. Movement
+     must live on `transform`: Base UI drives the drag with an inline
+     transform that overrides this declaration, then hands position back to
+     the movement variables on release. */
+  .lode-toast {
+    transform: translate(var(--toast-swipe-movement-x, 0px), var(--toast-swipe-movement-y, 0px));
+    transition-property: opacity, scale, transform;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-toast[data-starting-style] {
+    opacity: 0;
+    scale: 0.96;
+  }
+
+  .lode-toast[data-ending-style] {
+    opacity: 0;
+  }
+
+  .lode-toast[data-ending-style]:not([data-swipe-direction]) {
+    scale: 0.96;
+  }
+
+  .lode-toast[data-ending-style][data-swipe-direction="up"] {
+    transform: translate(var(--toast-swipe-movement-x, 0px), calc(var(--toast-swipe-movement-y, 0px) - 150%));
+  }
+
+  .lode-toast[data-ending-style][data-swipe-direction="down"] {
+    transform: translate(var(--toast-swipe-movement-x, 0px), calc(var(--toast-swipe-movement-y, 0px) + 150%));
+  }
+
+  .lode-toast[data-ending-style][data-swipe-direction="left"] {
+    transform: translate(calc(var(--toast-swipe-movement-x, 0px) - 150%), var(--toast-swipe-movement-y, 0px));
+  }
+
+  .lode-toast[data-ending-style][data-swipe-direction="right"] {
+    transform: translate(calc(var(--toast-swipe-movement-x, 0px) + 150%), var(--toast-swipe-movement-y, 0px));
+  }
+
   /* Side sheets slide from their anchored edge instead of scaling in place. */
   .lode-overlay-drawer {
     transition-property: translate;
@@ -145,5 +186,19 @@
   .lode-overlay-drawer[data-ending-style] {
     translate: 0 0;
     opacity: 0;
+  }
+
+  .lode-toast {
+    transition-property: opacity;
+  }
+
+  .lode-toast[data-starting-style],
+  .lode-toast[data-ending-style] {
+    scale: 1;
+  }
+
+  /* Without motion, a swiped toast fades out where it was released. */
+  .lode-toast[data-ending-style][data-swipe-direction] {
+    transform: translate(var(--toast-swipe-movement-x, 0px), var(--toast-swipe-movement-y, 0px));
   }
 }

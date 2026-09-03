@@ -1,8 +1,10 @@
 import { useState } from "react";
 
 import { Button } from "../components/button.js";
+import { ContextMenu } from "../components/context-menu.js";
 import { AlertDialog, Dialog } from "../components/dialog.js";
 import { DropdownMenu, type DropdownMenuItem } from "../components/dropdown-menu.js";
+import { Popover } from "../components/popover.js";
 import { Field, FieldLabel } from "../components/field.js";
 import { Icon } from "../components/icon.js";
 import { Input } from "../components/input.js";
@@ -84,6 +86,26 @@ export function OverlaysPage() {
       </Specimen>
       <Specimen description="Menu items accept the same icon names and a destructive tone." title="Dropdown menu">
         <DropdownMenu items={menuItems} label="Workspace actions" />
+      </Specimen>
+      <Specimen
+        description="Right-click on desktop, long-press on touch. The same items as DropdownMenu, anchored to the pointer."
+        title="Context menu"
+      >
+        <ContextMenu items={menuItems}>
+          <div className="grid h-24 w-full max-w-105 place-items-center rounded-md border border-dashed border-input text-label text-muted-foreground select-none">
+            Right-click or long-press this node
+          </div>
+        </ContextMenu>
+      </Specimen>
+      <Specimen
+        description="A Popover holds light, non-blocking content anchored to its trigger; anything modal belongs in a Dialog."
+        title="Popover"
+      >
+        <Popover title="Sync details" trigger={<Button variant="outline">Sync status</Button>}>
+          <p className="text-caption text-muted-foreground">
+            Last reconciled 2 minutes ago. 3 peers hold this Workspace; every fact is durable locally.
+          </p>
+        </Popover>
       </Specimen>
       <Specimen
         description="Hover and keyboard focus reveal concise hints. The same copy action stays available in Workspace actions on touch."

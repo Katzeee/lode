@@ -15,7 +15,9 @@ export const iconNames = [
   "arrow-left",
   "check",
   "chevron-down",
+  "chevron-right",
   "circle-alert",
+  "compass",
   "copy",
   "ellipsis",
   "house",
@@ -48,6 +50,7 @@ export type CatalogPageId =
   | "geometry"
   | "buttons"
   | "forms"
+  | "navigation"
   | "overlays"
   | "status"
   | "surfaces"
@@ -116,7 +119,18 @@ export const catalogSections: readonly CatalogSection[] = [
     pages: [
       page("buttons", "components/buttons", "Buttons", "Action hierarchy, sizes, and busy states."),
       page("forms", "components/forms", "Forms", "Fields, inputs, selection controls, and validation."),
-      page("overlays", "components/overlays", "Overlays", "Dialogs, menus, tooltips, and transient notifications."),
+      page(
+        "navigation",
+        "components/navigation",
+        "Navigation",
+        "Tabs, breadcrumbs, and the patterns that move between views.",
+      ),
+      page(
+        "overlays",
+        "components/overlays",
+        "Overlays",
+        "Dialogs, menus, popovers, tooltips, and transient notifications.",
+      ),
       page("status", "components/status", "Status", "Badges, alerts, and progress indication."),
       page("surfaces", "components/surfaces", "Surfaces", "Cards and the panels that structure a page."),
     ],
@@ -152,6 +166,7 @@ export const catalogPageIcons: Readonly<Record<CatalogPageId, IconName>> = {
   geometry: "shapes",
   buttons: "mouse-pointer-click",
   forms: "text-cursor-input",
+  navigation: "compass",
   overlays: "ellipsis",
   status: "circle-alert",
   surfaces: "layers",
