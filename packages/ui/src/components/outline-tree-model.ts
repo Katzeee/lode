@@ -1,3 +1,5 @@
+import { contentLength, mergeContent, type OutlineContent } from "./outline-content.js";
+
 export type OutlineNode<Value> = Readonly<{
   children?: readonly OutlineNode<Value>[];
   id: string;
@@ -27,6 +29,19 @@ export type OutlineMove = Readonly<{
   index: number;
   sourceKey: string;
   targetParentKey: string | null;
+}>;
+
+export type OutlineEditPosition = Readonly<{
+  caret: number;
+  key: string;
+}>;
+
+export type OutlineEditMergeTarget = OutlineEditPosition & Readonly<{ content: OutlineContent }>;
+
+export type OutlineEditInsertion = Readonly<{
+  displacedKey: string | null;
+  indexInParent: number;
+  parentKey: string | null;
 }>;
 
 export function rowKey(parentKey: string | null, id: string): string {
@@ -124,4 +139,65 @@ export function computeReorder<Value>(
     return null;
   }
   return { index, sourceKey: row.key, targetParentKey: row.parentKey };
+}
+
+export function computeEditNavigation<Value>(
+  rows: readonly OutlineRow<Value>[],
+  key: string,
+  direction: -1 | 1,
+  caret: number | "end",
+  contentOf: (row: OutlineRow<Value>) => OutlineContent,
+): OutlineEditPosition | null {
+  const index = rows.findIndex((row) => row.key === key);
+  const target = rows[index + direction];
+  if (index < 0 || target === undefined) {
+    return null;
+  }
+  const targetLength = contentLength(contentOf(target));
+  return {
+    caret: caret === "end" ? targetLength : Math.max(0, Math.min(caret, targetLength)),
+    key: target.key,
+  };
+}
+
+export function computeEditMergeTarget<Value>(
+  rows: readonly OutlineRow<Value>[],
+  key: string,
+  currentContent: OutlineContent,
+  contentOf: (row: OutlineRow<Value>) => OutlineContent,
+): OutlineEditMergeTarget | null {
+  const position = computeEditNavigation(rows, key, -1, "end", contentOf);
+  const target = position === null ? undefined : rowByKey(rows, position.key);
+  if (position === null || target === undefined) {
+    return null;
+  }
+  return { ...position, content: mergeContent(contentOf(target), currentContent) };
+}
+
+export function computeEditInsertion<Value>(
+  rows: readonly OutlineRow<Value>[],
+  key: string,
+): OutlineEditInsertion | null {
+  const row = rowByKey(rows, key);
+  if (row === undefined) {
+    return null;
+  }
+  const indexInParent = row.indexInParent + 1;
+  const displaced = rows.find(
+    (candidate) => candidate.parentKey === row.parentKey && candidate.indexInParent === indexInParent,
+  );
+  return { displacedKey: displaced?.key ?? null, indexInParent, parentKey: row.parentKey };
+}
+
+export function resolveEditInsertion<Value>(
+  rows: readonly OutlineRow<Value>[],
+  insertion: OutlineEditInsertion,
+): OutlineEditPosition | null {
+  const inserted = rows.find(
+    (row) => row.parentKey === insertion.parentKey && row.indexInParent === insertion.indexInParent,
+  );
+  if (inserted === undefined || inserted.key === insertion.displacedKey) {
+    return null;
+  }
+  return { caret: 0, key: inserted.key };
 }

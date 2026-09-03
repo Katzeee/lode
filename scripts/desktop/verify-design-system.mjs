@@ -186,6 +186,111 @@ async function verifyOutlineTree(page) {
   await breadcrumb.getByRole("button", { name: "All nodes" }).click();
   await breadcrumb.waitFor({ state: "detached" });
 
+  // Remount for a clean editing session.
+  await navigateToCatalogPage(page, "components/buttons");
+  await navigateToCatalogPage(page, "components/outline");
+  const editor = page.locator('[data-ui="outline-editor"]');
+  const editorText = () => editor.textContent();
+  const setEditorCaret = (offset) =>
+    editor.evaluate((element, caret) => element.editor.commands.setTextSelection(caret + 1), offset);
+  const homeLabText = rowByText("Home lab notes").locator('[data-ui="outline-inline-content"]');
+  const clickedCaret = 4;
+  const clickPoint = await homeLabText.evaluate((element, caret) => {
+    const text = element.firstChild;
+    if (!(text instanceof Text)) {
+      throw new Error("the demo row must expose its text for caret verification");
+    }
+    const range = document.createRange();
+    range.setStart(text, caret - 1);
+    range.setEnd(text, caret);
+    const bounds = range.getBoundingClientRect();
+    return { x: bounds.right - 0.25, y: (bounds.top + bounds.bottom) / 2 };
+  }, clickedCaret);
+  await page.mouse.click(clickPoint.x, clickPoint.y);
+  await editor.waitFor({ state: "visible" });
+  assert.equal(
+    await editor.evaluate((element) => element.editor.state.selection.from - 1),
+    clickedCaret,
+    "clicking within row text must preserve the clicked caret position",
+  );
+  await editor.press("Tab");
+  assert.equal(
+    await editor.evaluate((input) => input.closest('[data-ui="outline-row"]')?.getAttribute("aria-level")),
+    "3",
+    "Tab in edit mode must indent the row and keep its editor active",
+  );
+  assert.equal(await editorText(), "Home lab notes", "a structural edit must preserve the editor draft");
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  await rowByText("Engine facts and projections").locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  assert.equal(await editorText(), "Engine facts and projections", "clicking row text must enter edit mode");
+  await editor.press("End");
+  await editor.pressSequentially(" edited");
+  await setEditorCaret(6);
+  await editor.press("Enter");
+  await page.waitForFunction(
+    (value) => document.querySelector('[data-ui="outline-editor"]')?.textContent === value,
+    " facts and projections edited",
+  );
+  assert.equal(
+    await editorText(),
+    " facts and projections edited",
+    "Enter in the middle must split and edit the trailing node",
+  );
+  await setEditorCaret((await editorText()).length);
+  await editor.press("Enter");
+  await page.waitForFunction(() => document.querySelector('[data-ui="outline-editor"]')?.textContent === "");
+  assert.equal(await editorText(), "", "Enter at the end must create and edit an empty sibling");
+  await editor.press("Backspace");
+  await page.waitForFunction(
+    (value) => document.querySelector('[data-ui="outline-editor"]')?.textContent === value,
+    " facts and projections edited",
+  );
+  await setEditorCaret(0);
+  await editor.press("Backspace");
+  await page.waitForFunction(
+    (value) => document.querySelector('[data-ui="outline-editor"]')?.textContent === value,
+    "Engine facts and projections edited",
+  );
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  await rowByText("Engine facts and projections edited").waitFor({ state: "visible" });
+
+  await rowByText("CRDT ordering survey").locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("End");
+  await editor.pressSequentially("[[");
+  const referencePicker = page.getByRole("listbox", { name: "References" });
+  await referencePicker.waitFor({ state: "visible" });
+  await referencePicker.getByRole("option", { name: "Local-first software essay" }).click();
+  const editedRow = editor.locator('xpath=ancestor::*[@data-ui="outline-row"]');
+  await editedRow.locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" }).waitFor({
+    state: "visible",
+  });
+  const rowsBeforeCompositionEnter = await page.locator('[data-ui="outline-row"]').count();
+  await editor.evaluate((surface) => {
+    surface.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "中" }));
+    surface.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, isComposing: true, key: "Enter" }),
+    );
+  });
+  assert.equal(
+    await page.locator('[data-ui="outline-row"]').count(),
+    rowsBeforeCompositionEnter,
+    "Enter during IME composition must not create or split a node",
+  );
+  assert.equal(await editor.count(), 1, "Enter during IME composition must keep the editor active");
+  await editor.evaluate((surface) => {
+    surface.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "中" }));
+  });
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  await rowByText("CRDT ordering survey")
+    .locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" })
+    .waitFor({ state: "visible" });
+
   // Remount for a clean structure, then restructure by dragging a bullet.
   await navigateToCatalogPage(page, "components/buttons");
   await navigateToCatalogPage(page, "components/outline");
@@ -197,9 +302,7 @@ async function verifyOutlineTree(page) {
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
   await page.mouse.down();
   await page.mouse.move(treeBox.x + 30, lodeBox.y + 3, { steps: 10 });
-  const indicator = await page.evaluate(
-    () => document.querySelector('[role="tree"] .bg-primary.h-0\\.5') !== null,
-  );
+  const indicator = await page.evaluate(() => document.querySelector('[role="tree"] .bg-primary.h-0\\.5') !== null);
   assert.equal(indicator, true, "an eligible drop position must show the insertion line");
   await page.mouse.up();
   const moved = rowByText("Home lab notes");

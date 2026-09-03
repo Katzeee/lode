@@ -15,7 +15,17 @@ export { Icon } from "./components/icon.js";
 export { Input } from "./components/input.js";
 export { ListDetail } from "./components/list-detail.js";
 export { NavItem, NavRailItem, NavSectionLabel } from "./components/nav.js";
-export { OutlineTree, type OutlineMove, type OutlineNode, type OutlineRow } from "./components/outline-tree.js";
+export {
+  OutlineInlineContent,
+  OutlineTree,
+  type OutlineContent,
+  type OutlineInline,
+  type OutlineMark,
+  type OutlineMove,
+  type OutlineNode,
+  type OutlineRow,
+  type OutlineTreeEditing,
+} from "./components/outline-tree.js";
 export { PageScaffold } from "./components/page-scaffold.js";
 export { Popover } from "./components/popover.js";
 export { Progress } from "./components/progress.js";
