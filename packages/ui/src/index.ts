@@ -3,6 +3,8 @@ export { AppShell, type AppShellItem, type AppShellSection, type AppShellUtility
 export { Badge, BadgeDot } from "./components/badge.js";
 export { Button } from "./components/button.js";
 export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/card.js";
+export { Checkbox } from "./components/checkbox.js";
+export { Combobox, type ComboboxOption } from "./components/combobox.js";
 export { Dialog, AlertDialog, type DialogAction } from "./components/dialog.js";
 export { DropdownMenu, type DropdownMenuItem } from "./components/dropdown-menu.js";
 export { Field, FieldDescription, FieldError, FieldLabel } from "./components/field.js";
@@ -11,6 +13,8 @@ export { Input } from "./components/input.js";
 export { ListDetail } from "./components/list-detail.js";
 export { NavItem, NavRailItem, NavSectionLabel } from "./components/nav.js";
 export { PageScaffold } from "./components/page-scaffold.js";
+export { Radio, RadioGroup } from "./components/radio-group.js";
+export { Select, type SelectOption } from "./components/select.js";
 export { Separator } from "./components/separator.js";
 export { Spinner } from "./components/spinner.js";
 export { Switch } from "./components/switch.js";

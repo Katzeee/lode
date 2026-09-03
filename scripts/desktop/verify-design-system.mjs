@@ -273,7 +273,9 @@ async function assertVisibleTouchTargets(page, target, title) {
       'button:not([disabled]), input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]), textarea:not([disabled]), a[href], [role="menuitem"]:not([aria-disabled="true"]), [role="switch"]:not([disabled])';
     return [...document.querySelectorAll(selector)].flatMap((element) => {
       const rectangle = element.getBoundingClientRect();
-      if (rectangle.width === 0 || rectangle.height === 0) {
+      // Form-serialization inputs render at 1×1; nothing at or below that
+      // size is a real pointer target.
+      if (rectangle.width <= 1 || rectangle.height <= 1) {
         return [];
       }
       const inputArea = element.matches("input") ? element.parentElement?.closest('[data-ui="input-hit-area"]') : null;

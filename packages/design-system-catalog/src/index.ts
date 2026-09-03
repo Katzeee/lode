@@ -115,7 +115,7 @@ export const catalogSections: readonly CatalogSection[] = [
     title: "Components",
     pages: [
       page("buttons", "components/buttons", "Buttons", "Action hierarchy, sizes, and busy states."),
-      page("forms", "components/forms", "Forms", "Fields, inputs, validation, and switches."),
+      page("forms", "components/forms", "Forms", "Fields, inputs, selection controls, and validation."),
       page("overlays", "components/overlays", "Overlays", "Dialogs, menus, tooltips, and transient notifications."),
       page("status", "components/status", "Status", "Badges, alerts, and progress indication."),
       page("surfaces", "components/surfaces", "Surfaces", "Cards and the panels that structure a page."),

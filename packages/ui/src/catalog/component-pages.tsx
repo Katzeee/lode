@@ -5,8 +5,12 @@ import { Alert, AlertTitle } from "../components/alert.js";
 import { Badge, BadgeDot } from "../components/badge.js";
 import { Button } from "../components/button.js";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/card.js";
+import { Checkbox } from "../components/checkbox.js";
+import { Combobox } from "../components/combobox.js";
 import { Field, FieldDescription, FieldLabel } from "../components/field.js";
 import { Input } from "../components/input.js";
+import { Radio, RadioGroup } from "../components/radio-group.js";
+import { Select } from "../components/select.js";
 import { Spinner } from "../components/spinner.js";
 import { Switch } from "../components/switch.js";
 import { Textarea } from "../components/textarea.js";
@@ -90,6 +94,58 @@ export function FormsPage() {
           <FieldDescription>Use a multiline field for notes and other prose input.</FieldDescription>
         </Field>
       </Specimen>
+      <Specimen
+        className="max-w-105 flex-col flex-nowrap items-stretch gap-5"
+        description="Select owns a fixed set of options; Combobox filters a large one as you type."
+        title="Select & Combobox"
+      >
+        <Field>
+          <FieldLabel>Theme</FieldLabel>
+          <Select
+            defaultValue="forest"
+            name="theme"
+            options={[
+              { label: "Forest", value: "forest" },
+              { label: "Slate", value: "slate" },
+              { label: "High contrast", value: "high-contrast", disabled: true },
+            ]}
+          />
+        </Field>
+        <Field>
+          <FieldLabel>Move to Workspace</FieldLabel>
+          <Combobox
+            name="workspace-target"
+            options={[
+              { label: "Personal knowledge", value: "personal" },
+              { label: "Field notes", value: "field-notes" },
+              { label: "Research", value: "research" },
+              { label: "Reading inbox", value: "reading-inbox" },
+              { label: "Archive", value: "archive" },
+            ]}
+            placeholder="Search Workspaces…"
+          />
+        </Field>
+      </Specimen>
+      <Specimen
+        className="max-w-105 flex-col flex-nowrap items-stretch gap-4"
+        description="Checkboxes toggle independent options; use a Switch only for settings that apply immediately."
+        title="Checkbox"
+      >
+        <CheckboxRow defaultChecked description="Include node references in the export." label="Export references" />
+        <CheckboxRow description="Also export archived nodes." label="Include archived" />
+        <CheckboxRow disabled description="Unavailable until a peer is connected." label="Export shared nodes" />
+      </Specimen>
+      <Specimen
+        className="max-w-105 flex-col flex-nowrap items-stretch gap-4"
+        description="Radios pick exactly one of a small, always-visible set."
+        title="Radio group"
+      >
+        <RadioGroup aria-label="Workspace visibility" defaultValue="private">
+          <RadioRow description="Only unlocked Actors on this device can open it." label="Private" value="private" />
+          <RadioRow description="Visible to every Actor in this Home." label="Home" value="home" />
+          <RadioRow description="Published to connected peers." label="Shared" value="shared" />
+        </RadioGroup>
+      </Specimen>
       <Specimen className="max-w-105 flex-col flex-nowrap items-stretch gap-4" title="Switch">
         <SwitchRow
           defaultChecked
@@ -100,6 +156,32 @@ export function FormsPage() {
         <SwitchRow disabled description="Unavailable until a Workspace exists." label="Background sync" />
       </Specimen>
     </>
+  );
+}
+
+function CheckboxRow(
+  properties: Readonly<{ defaultChecked?: boolean; description: string; disabled?: boolean; label: string }>,
+) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3">
+      <Checkbox className="mt-0.5" defaultChecked={properties.defaultChecked} disabled={properties.disabled} />
+      <span className="flex min-w-0 flex-col flex-nowrap gap-0.5">
+        <span className="text-label font-medium">{properties.label}</span>
+        <span className="text-caption text-muted-foreground">{properties.description}</span>
+      </span>
+    </label>
+  );
+}
+
+function RadioRow(properties: Readonly<{ description: string; label: string; value: string }>) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3">
+      <Radio className="mt-0.5" value={properties.value} />
+      <span className="flex min-w-0 flex-col flex-nowrap gap-0.5">
+        <span className="text-label font-medium">{properties.label}</span>
+        <span className="text-caption text-muted-foreground">{properties.description}</span>
+      </span>
+    </label>
   );
 }
 
