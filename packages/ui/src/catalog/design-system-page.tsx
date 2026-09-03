@@ -1,7 +1,13 @@
-import { findCatalogPage, overviewPage, type CatalogPage } from "@lode/design-system-catalog";
+import {
+  catalogPageIcons,
+  catalogSections,
+  findCatalogPage,
+  overviewPage,
+  type CatalogPage,
+} from "@lode/design-system-catalog";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { CatalogNavigation } from "./catalog-navigation.js";
+import { AppShell, type AppShellSection, type AppShellUtility } from "../components/app-shell.js";
 import { CatalogModeContext, type CatalogMode, type ThemeName } from "./catalog-theme.js";
 import { ButtonsPage, FormsPage, StatusPage, SurfacesPage } from "./component-pages.js";
 import { ContentPage } from "./content-page.js";
@@ -25,6 +31,24 @@ function initialCatalogAppearance(): Readonly<{ mode: CatalogMode; theme: ThemeN
     theme: parameters.get("theme") === "slate" ? "slate" : "forest",
   };
 }
+
+function toShellItem(page: CatalogPage): AppShellSection["items"][number] {
+  return {
+    icon: catalogPageIcons[page.id],
+    id: page.id,
+    label: page.title,
+    target: `#/design-system/${page.path}`,
+  };
+}
+
+const shellSections: readonly AppShellSection[] = [
+  { id: "overview", items: [toShellItem(overviewPage)] },
+  ...catalogSections.map((section) => ({
+    id: section.id,
+    items: section.pages.map(toShellItem),
+    label: section.title,
+  })),
+];
 
 export function DesignSystemPage({ productPreview }: Readonly<{ productPreview: ReactNode }>) {
   const [initialAppearance] = useState(initialCatalogAppearance);
@@ -56,19 +80,27 @@ export function DesignSystemPage({ productPreview }: Readonly<{ productPreview: 
     };
   }, [mode, theme]);
 
+  const utilities: readonly AppShellUtility[] = [
+    {
+      icon: mode === "light" ? "moon" : "sun",
+      id: "mode",
+      label: mode === "light" ? "Switch to dark mode" : "Switch to light mode",
+      onSelect: () => setMode(mode === "light" ? "dark" : "light"),
+    },
+    { icon: "arrow-left", id: "return", label: "Return to Lode", target: "#/" },
+  ];
+
   return (
     <CatalogModeContext.Provider value={mode}>
-      <div
-        className="lode-safe-area mx-auto flex min-h-screen w-full max-w-320 items-start gap-4 px-3 md:gap-10 md:px-10"
-        data-ui="design-system"
-      >
-        <CatalogNavigation currentPage={page} mode={mode} onModeChange={setMode} />
-        <main className="min-w-0 flex-1 py-6 md:py-10">
-          <PageContent onThemeChange={setTheme} page={page} productPreview={productPreview} theme={theme} />
-          <footer className="mt-16 border-t border-border pt-6 text-caption text-muted-foreground">
-            Lode Design System — one token source, one component layer.
-          </footer>
-        </main>
+      <div data-ui="design-system">
+        <AppShell activeItemId={page.id} brand="Lode Design System" sections={shellSections} utilities={utilities}>
+          <main className="mx-auto w-full max-w-280 px-4 py-6 @shell-medium/app-shell:px-10 @shell-medium/app-shell:py-10">
+            <PageContent onThemeChange={setTheme} page={page} productPreview={productPreview} theme={theme} />
+            <footer className="mt-16 border-t border-border pt-6 text-caption text-muted-foreground">
+              Lode Design System — one token source, one component layer.
+            </footer>
+          </main>
+        </AppShell>
       </div>
     </CatalogModeContext.Provider>
   );

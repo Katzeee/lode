@@ -7,7 +7,7 @@ import {
   CardHeader,
   CardTitle,
   PageScaffold,
-  type AppShellItem,
+  type AppShellSection,
 } from "@lode/ui";
 import { useEffect, useState } from "react";
 
@@ -27,10 +27,15 @@ const bootState: DesktopState = {
   error: null,
 };
 
-const navigationItems: readonly AppShellItem[] = [
-  { id: "product", icon: "house", label: "Home", target: "#/" },
-  { id: "design-system", icon: "shapes", label: "Design system", target: "#/design-system" },
-  { id: "legal", icon: "type", label: "Legal", target: "#/legal" },
+const navigationSections: readonly AppShellSection[] = [
+  {
+    id: "primary",
+    items: [
+      { id: "product", icon: "house", label: "Home", target: "#/" },
+      { id: "design-system", icon: "shapes", label: "Design system", target: "#/design-system" },
+      { id: "legal", icon: "type", label: "Legal", target: "#/legal" },
+    ],
+  },
 ];
 
 export function DesktopApp({ bridge }: Readonly<{ bridge: DesktopBridge }>) {
@@ -56,7 +61,7 @@ export function DesktopApp({ bridge }: Readonly<{ bridge: DesktopBridge }>) {
 
   const healthy = state.authority === "owned" || state.authority === "reused";
   return (
-    <AppShell activeItemId="product" items={navigationItems}>
+    <AppShell activeItemId="product" sections={navigationSections}>
       <PageScaffold
         actions={
           <Badge className="min-w-0" data-testid="authority" tone={healthy ? "success" : "warning"}>

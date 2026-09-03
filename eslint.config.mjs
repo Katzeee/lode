@@ -1151,6 +1151,12 @@ export default tseslint.config(
     },
   },
   {
+    // JSX lays one attribute per line, so a TSX file carries roughly two-thirds
+    // fewer concepts per line than plain TS; the tripwire moves accordingly.
+    files: ["**/*.tsx"],
+    rules: { "max-lines": ["error", { max: 450, skipBlankLines: true, skipComments: true }] },
+  },
+  {
     files: ["**/*.test.ts"],
     rules: { "max-lines": "off" },
   },

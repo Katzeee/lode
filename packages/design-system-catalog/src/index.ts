@@ -12,6 +12,7 @@ export type AlertTone = (typeof alertTones)[number];
 
 export const iconNames = [
   "app-window",
+  "arrow-left",
   "check",
   "chevron-down",
   "circle-alert",
@@ -20,10 +21,13 @@ export const iconNames = [
   "house",
   "layers",
   "layout-template",
+  "menu",
   "messages-square",
   "moon",
   "mouse-pointer-click",
   "palette",
+  "panel-left-close",
+  "panel-left-open",
   "pencil",
   "shapes",
   "sun",

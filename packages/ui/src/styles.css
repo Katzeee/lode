@@ -40,6 +40,13 @@
     @apply bg-primary/15;
   }
 
+  /* Scrollbars are interface surfaces too: thin, token-colored, and mode-aware
+     instead of platform chrome. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--lode-color-input) transparent;
+  }
+
   button,
   input {
     font: inherit;
@@ -75,6 +82,18 @@
   .lode-overlay-popup[data-starting-style],
   .lode-overlay-popup[data-ending-style] {
     scale: 0.96;
+  }
+
+  /* Side sheets slide from their anchored edge instead of scaling in place. */
+  .lode-overlay-drawer {
+    transition-property: translate;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-overlay-drawer[data-starting-style],
+  .lode-overlay-drawer[data-ending-style] {
+    translate: -100% 0;
   }
 }
 
@@ -116,5 +135,15 @@
   .lode-overlay-popup[data-starting-style],
   .lode-overlay-popup[data-ending-style] {
     scale: 1;
+  }
+
+  .lode-overlay-drawer {
+    transition-property: opacity;
+  }
+
+  .lode-overlay-drawer[data-starting-style],
+  .lode-overlay-drawer[data-ending-style] {
+    translate: 0 0;
+    opacity: 0;
   }
 }

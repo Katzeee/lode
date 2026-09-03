@@ -56,8 +56,13 @@ const browserBundle = {
 await Promise.all([
   build({
     ...browserBundle,
-    entryPoints: [join(source, 'index.tsx')],
-    outfile: join(output, 'index.js'),
+    // The design-system catalog loads through a dynamic import, so the page
+    // bundle ships as ES modules and the catalog splits into its own chunk.
+    chunkNames: 'chunks/[name]-[hash]',
+    entryPoints: { index: join(source, 'index.tsx') },
+    format: 'esm',
+    outdir: output,
+    splitting: true,
   }),
   build({
     ...browserBundle,

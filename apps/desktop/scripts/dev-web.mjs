@@ -38,9 +38,11 @@ const buildContext = await context({
     "@lode/ui/catalog": uiCatalogEntry,
   },
   bundle: true,
+  chunkNames: "chunks/[name]-[hash]",
   define: { "process.env.NODE_ENV": '"development"' },
   entryPoints: { renderer: join(source, "renderer.tsx") },
   external: ["./assets/*"],
+  format: "esm",
   legalComments: "none",
   loader: { ".tsx": "tsx" },
   logLevel: "info",
@@ -48,6 +50,7 @@ const buildContext = await context({
   outdir: output,
   platform: "browser",
   sourcemap: true,
+  splitting: true,
   target: ["chrome142"],
 });
 

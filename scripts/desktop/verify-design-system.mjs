@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { _electron } from "playwright-core";
 
 import { catalogPages } from "../../packages/design-system-catalog/dist/index.js";
+import { tokens } from "../../packages/design-tokens/dist/index.js";
 import { verifyCatalogAccessibility } from "./catalog-accessibility.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
@@ -13,29 +14,46 @@ const documentPath = join(repositoryRoot, "apps", "desktop", "dist", "index.html
 const harnessPath = join(scriptDirectory, "design-system-harness.cjs");
 const application = await _electron.launch({ args: [harnessPath, documentPath], cwd: repositoryRoot });
 
+// Representative window sizes from the smallest supported phone through
+// tablets in both orientations up to a full desktop. The catalog must fit
+// every one of them without horizontal overflow, and the app shell must pick
+// the navigation tier its container width mandates.
+const deviceViewports = [
+  { label: "folded phone (320×568)", width: 320, height: 568 },
+  { label: "phone (360×800)", width: 360, height: 800 },
+  { label: "large phone (390×844)", width: 390, height: 844 },
+  { label: "phone landscape (844×390)", width: 844, height: 390 },
+  { label: "tablet portrait (768×1024)", width: 768, height: 1024 },
+  { label: "tablet landscape (1024×768)", width: 1024, height: 768 },
+  { label: "small laptop (1280×800)", width: 1280, height: 800 },
+  { label: "laptop (1366×768)", width: 1366, height: 768 },
+  { label: "desktop (1920×1080)", width: 1920, height: 1080 },
+];
+
 try {
   const page = await application.firstWindow({ timeout: 30_000 });
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
   await verifyCatalogAccessibility(page);
-  await verifyCatalogWidths(page);
+  await page.setViewportSize({ height: 844, width: 390 });
+  await verifyCatalogAccessibility(page);
+  await verifyDeviceViewports(page);
+  await verifyOverlaysAtShortViewport(page);
+  await verifyCatalogDrawer(page);
+  await page.setViewportSize({ height: 900, width: 1000 });
   await verifyResponsivePatterns(page);
   await verifyCoarsePointerBehavior(page);
   process.stdout.write(
-    `Verified ${catalogPages.length} accessible catalog pages, the responsive layout tiers, and coarse-pointer touch targets.\n`,
+    `Verified ${catalogPages.length} accessible catalog pages across ${String(deviceViewports.length)} device viewports, the responsive layout tiers, the compact navigation drawer, short-viewport overlays, and coarse-pointer touch targets.\n`,
   );
 } finally {
   await application.close();
 }
 
-async function verifyCatalogWidths(page) {
-  for (const width of [360, 600, 800]) {
-    await page.setViewportSize({ height: 900, width });
+async function verifyDeviceViewports(page) {
+  for (const viewport of deviceViewports) {
+    await page.setViewportSize({ height: viewport.height, width: viewport.width });
     for (const catalogPage of catalogPages) {
-      const path = catalogPage.path === "" ? "" : `/${catalogPage.path}`;
-      await page.evaluate((hash) => {
-        window.location.hash = hash;
-      }, `#/design-system${path}`);
-      await page.locator("main h1").first().waitFor({ state: "visible" });
+      await navigateToCatalogPage(page, catalogPage.path);
       const measurement = await page.evaluate(() => ({
         overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         offenders: [...document.querySelectorAll("body *")]
@@ -48,18 +66,96 @@ async function verifyCatalogWidths(page) {
       }));
       assert.ok(
         measurement.overflow <= 1,
-        `${catalogPage.title} overflows its ${String(width)}px viewport by ${String(measurement.overflow)}px: ${measurement.offenders.join(", ")}`,
+        `${catalogPage.title} overflows the ${viewport.label} viewport by ${String(measurement.overflow)}px: ${measurement.offenders.join(", ")}`,
       );
     }
+    await verifyShellTier(page, viewport);
   }
-  await page.setViewportSize({ height: 900, width: 1000 });
+}
+
+async function verifyShellTier(page, viewport) {
+  await navigateToCatalogPage(page, "templates/product");
+  await page.locator('[data-ui="app-shell"]').first().waitFor({ state: "visible" });
+  // The product template nests the previewed product shell inside the
+  // catalog's own shell; each one must pick the tier its container mandates.
+  const shells = await page.evaluate(() =>
+    [...document.querySelectorAll('[data-ui="app-shell"]')].map((element) => ({
+      visible: [...element.querySelectorAll("[data-layout]")]
+        .filter((candidate) => candidate.closest('[data-ui="app-shell"]') === element)
+        .filter((candidate) => candidate.checkVisibility())
+        .map((candidate) => candidate.dataset.layout),
+      width: element.getBoundingClientRect().width,
+    })),
+  );
+  assert.equal(shells.length, 2, `the product template must render the catalog shell and the previewed shell`);
+  const { expanded, medium } = tokens.layout.breakpoint;
+  for (const shell of shells) {
+    const expectedTier = shell.width >= expanded ? "expanded" : shell.width >= medium ? "medium" : "compact";
+    assert.deepEqual(
+      shell.visible,
+      [expectedTier],
+      `the ${viewport.label} viewport must show only the ${expectedTier} navigation tier for a ${String(Math.round(shell.width))}px shell container`,
+    );
+  }
+}
+
+async function verifyOverlaysAtShortViewport(page) {
+  const viewport = deviceViewports.find((candidate) => candidate.label.startsWith("phone landscape"));
+  await page.setViewportSize({ height: viewport.height, width: viewport.width });
+  await navigateToCatalogPage(page, "components/overlays");
+
+  await page.getByRole("button", { name: "Open dialog" }).click();
+  const dialog = page.locator('[role="dialog"].lode-overlay-popup');
+  await dialog.waitFor({ state: "visible" });
+  const dialogBox = await dialog.boundingBox();
+  assert.ok(dialogBox !== null, "the Dialog must be measurable on a landscape phone");
+  assertWithinViewport(dialogBox, viewport, "Dialog");
+  const confirm = page.getByRole("button", { name: "Save changes" });
+  await confirm.scrollIntoViewIfNeeded();
+  assert.equal(await confirm.isVisible(), true, "the Dialog actions must stay reachable on a landscape phone");
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "detached" });
+
+  await page.getByRole("button", { name: "Show toast" }).click();
+  const toast = page.locator('[data-ui="toast"]');
+  await toast.waitFor({ state: "visible" });
+  const toastBox = await toast.boundingBox();
+  assert.ok(toastBox !== null, "the Toast must be measurable on a landscape phone");
+  assertWithinViewport(toastBox, viewport, "Toast");
+  await toast.locator('[data-ui="toast-close"]').click();
+  await toast.waitFor({ state: "detached" });
+}
+
+async function verifyCatalogDrawer(page) {
+  await page.setViewportSize({ height: 844, width: 390 });
+  await navigateToCatalogPage(page, "");
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const drawer = page.getByRole("dialog", { name: "Lode Design System navigation" });
+  await drawer.waitFor({ state: "visible" });
+  await drawer.getByRole("link", { name: "Buttons" }).click();
+  await drawer.waitFor({ state: "detached" });
+  await page.locator("main h1").first().waitFor({ state: "visible" });
+  assert.equal(
+    await page.locator("main h1").first().textContent(),
+    "Buttons",
+    "selecting a drawer destination must navigate and close the drawer",
+  );
+}
+
+function assertWithinViewport(box, viewport, label) {
+  const fits =
+    box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1;
+  assert.ok(
+    fits,
+    `${label} must fit inside the ${viewport.label} viewport; got ${String(Math.round(box.width))}×${String(Math.round(box.height))} at (${String(Math.round(box.x))}, ${String(Math.round(box.y))})`,
+  );
 }
 
 async function verifyResponsivePatterns(page) {
   await page.evaluate(() => {
     window.location.hash = "#/design-system/templates/product";
   });
-  const shell = page.locator('[data-ui="app-shell"]');
+  const shell = page.locator('main [data-ui="app-shell"]');
   await shell.waitFor({ state: "visible" });
   for (const [width, expected] of [
     [500, "compact"],
@@ -69,8 +165,8 @@ async function verifyResponsivePatterns(page) {
     await shell.evaluate((element, nextWidth) => {
       element.style.width = `${nextWidth}px`;
     }, width);
-    await page.locator(`[data-layout="${expected}"]`).waitFor({ state: "visible" });
-    const visibleTiers = await page.locator('[data-ui="app-shell"] [data-layout]:visible').count();
+    await shell.locator(`[data-layout="${expected}"]`).waitFor({ state: "visible" });
+    const visibleTiers = await shell.locator("[data-layout]:visible").count();
     assert.equal(visibleTiers, 1, `${String(width)}px must expose only the ${expected} navigation tier`);
   }
 

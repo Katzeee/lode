@@ -1,6 +1,7 @@
 import type { IconName } from "@lode/design-system-catalog";
 import {
   AppWindow,
+  ArrowLeft,
   Check,
   ChevronDown,
   CircleAlert,
@@ -9,10 +10,13 @@ import {
   House,
   Layers,
   LayoutTemplate,
+  Menu,
   MessagesSquare,
   Moon,
   MousePointerClick,
   Palette,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Shapes,
   Sun,
@@ -28,6 +32,7 @@ import { cn } from "./cn.js";
 
 const icons: Readonly<Record<IconName, LucideIcon>> = {
   "app-window": AppWindow,
+  "arrow-left": ArrowLeft,
   check: Check,
   "chevron-down": ChevronDown,
   "circle-alert": CircleAlert,
@@ -36,10 +41,13 @@ const icons: Readonly<Record<IconName, LucideIcon>> = {
   house: House,
   layers: Layers,
   "layout-template": LayoutTemplate,
+  menu: Menu,
   "messages-square": MessagesSquare,
   moon: Moon,
   "mouse-pointer-click": MousePointerClick,
   palette: Palette,
+  "panel-left-close": PanelLeftClose,
+  "panel-left-open": PanelLeftOpen,
   pencil: Pencil,
   shapes: Shapes,
   sun: Sun,

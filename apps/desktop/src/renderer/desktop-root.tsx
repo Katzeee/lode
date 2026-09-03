@@ -1,10 +1,16 @@
-import { DesignSystemPage } from "@lode/ui/catalog";
-import { LegalPage, ToastProvider, TooltipProvider } from "@lode/ui";
-import { useEffect, useState } from "react";
+import { LegalPage, Spinner, ToastProvider, TooltipProvider } from "@lode/ui";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import type { DesktopBridge } from "../bridge/contract.cjs";
 import { DesktopApp } from "./product/desktop-app.js";
 import { DesktopProductPreview } from "./product/desktop-product-preview.js";
+
+// The catalog is a review surface most sessions never open; it stays out of
+// the product's startup bundle and loads on demand.
+const DesignSystemPage = lazy(async () => {
+  const { DesignSystemPage: page } = await import("@lode/ui/catalog");
+  return { default: page };
+});
 
 type DesktopSurface = "design-system" | "legal" | "product";
 
@@ -42,7 +48,17 @@ export function DesktopRoot({ bridge }: Readonly<{ bridge?: DesktopBridge }>) {
   }
   return (
     <TooltipProvider>
-      <ToastProvider>{content}</ToastProvider>
+      <ToastProvider>
+        <Suspense fallback={<SurfaceLoading />}>{content}</Suspense>
+      </ToastProvider>
     </TooltipProvider>
+  );
+}
+
+function SurfaceLoading() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-background">
+      <Spinner className="text-primary" label="Loading" />
+    </div>
   );
 }

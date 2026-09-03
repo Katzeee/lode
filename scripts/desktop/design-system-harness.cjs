@@ -6,6 +6,10 @@ if (documentPath === undefined) {
 }
 
 app.disableHardwareAcceleration();
+// Phone-class viewports in the matrix assume the overlay scrollbars real
+// mobile WebViews use; classic scrollbars would steal gutter width and
+// report false horizontal overflow at the 320px floor.
+app.commandLine.appendSwitch("enable-features", "OverlayScrollbar");
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
     frame: false,

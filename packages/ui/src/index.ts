@@ -1,5 +1,5 @@
 export { Alert, AlertTitle } from "./components/alert.js";
-export { AppShell, type AppShellItem } from "./components/app-shell.js";
+export { AppShell, type AppShellItem, type AppShellSection, type AppShellUtility } from "./components/app-shell.js";
 export { Badge, BadgeDot } from "./components/badge.js";
 export { Button } from "./components/button.js";
 export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./components/card.js";

@@ -1,12 +1,18 @@
-import { LegalPage, ToastProvider, TooltipProvider } from '@lode/ui';
-import { DesignSystemPage } from '@lode/ui/catalog';
-import { useEffect, useState } from 'react';
+import { LegalPage, Spinner, ToastProvider, TooltipProvider } from '@lode/ui';
+import { lazy, Suspense, useEffect, useState } from 'react';
 
 import { createMobileEngineClient } from './engine-worker-client.js';
 import type { EngineHostState } from './engine-worker/protocol.js';
 import { ProductShell } from './product-shell.js';
 
 type MobileSurface = 'design-system' | 'legal' | 'product';
+
+// The catalog is a review surface most sessions never open; it stays out of
+// the product's startup bundle and loads on demand.
+const DesignSystemPage = lazy(async () => {
+  const { DesignSystemPage: page } = await import('@lode/ui/catalog');
+  return { default: page };
+});
 
 const startingState: EngineHostState = {
   phase: 'starting',
@@ -77,8 +83,18 @@ export default function App() {
 
   return (
     <TooltipProvider>
-      <ToastProvider>{content}</ToastProvider>
+      <ToastProvider>
+        <Suspense fallback={<SurfaceLoading />}>{content}</Suspense>
+      </ToastProvider>
     </TooltipProvider>
+  );
+}
+
+function SurfaceLoading() {
+  return (
+    <div className="grid min-h-screen place-items-center bg-background">
+      <Spinner className="text-primary" label="Loading" />
+    </div>
   );
 }
 

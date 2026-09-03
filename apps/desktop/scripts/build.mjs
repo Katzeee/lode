@@ -60,10 +60,14 @@ await Promise.all([
   }),
   build({
     bundle: true,
+    // The design-system catalog loads through a dynamic import, so the
+    // renderer ships as ES modules and the catalog splits into its own chunk.
+    chunkNames: "chunks/[name]-[hash]",
     define: { "process.env.NODE_ENV": '"production"' },
     entryNames: "[name]",
     entryPoints: { renderer: join(source, "renderer.tsx") },
     external: ["./assets/*"],
+    format: "esm",
     legalComments: "none",
     loader: { ".tsx": "tsx" },
     logLevel: "info",
@@ -71,6 +75,7 @@ await Promise.all([
     outdir: output,
     platform: "browser",
     sourcemap: false,
+    splitting: true,
     target: ["chrome142"],
   }),
 ]);

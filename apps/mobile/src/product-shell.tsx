@@ -13,22 +13,27 @@ import {
   FieldLabel,
   Input,
   PageScaffold,
-  type AppShellItem,
+  type AppShellSection,
 } from '@lode/ui';
 import { useState } from 'react';
 
 import type { EngineHostState } from './engine-worker/protocol.js';
 import { describeError } from './host-message.js';
 
-const navigationItems: readonly AppShellItem[] = [
-  { id: 'product', icon: 'house', label: 'Home', target: '#/' },
+const navigationSections: readonly AppShellSection[] = [
   {
-    id: 'design-system',
-    icon: 'shapes',
-    label: 'Design system',
-    target: '#/design-system',
+    id: 'primary',
+    items: [
+      { id: 'product', icon: 'house', label: 'Home', target: '#/' },
+      {
+        id: 'design-system',
+        icon: 'shapes',
+        label: 'Design system',
+        target: '#/design-system',
+      },
+      { id: 'legal', icon: 'type', label: 'Legal', target: '#/legal' },
+    ],
   },
-  { id: 'legal', icon: 'type', label: 'Legal', target: '#/legal' },
 ];
 
 export function ProductShell({
@@ -69,7 +74,7 @@ export function ProductShell({
   };
 
   return (
-    <AppShell activeItemId="product" items={navigationItems}>
+    <AppShell activeItemId="product" sections={navigationSections}>
       <PageScaffold
         actions={
           <Badge tone={unlocked ? 'success' : ready ? 'warning' : 'neutral'}>
