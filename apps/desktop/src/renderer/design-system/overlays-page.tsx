@@ -3,7 +3,9 @@ import { useState } from "react";
 import { Button } from "../ui/button.js";
 import { AlertDialog, Dialog } from "../ui/dialog.js";
 import { DropdownMenu, type DropdownMenuItem } from "../ui/dropdown-menu.js";
+import { Field, FieldLabel } from "../ui/field.js";
 import { Icon } from "../ui/icon.js";
+import { Input } from "../ui/input.js";
 import { toast } from "../ui/toast.js";
 import { Tooltip } from "../ui/tooltip.js";
 import { PageIntro, Specimen } from "./specimen.js";
@@ -66,7 +68,10 @@ export function OverlaysPage() {
           open={dialogOpen}
           title="Rename Workspace"
         >
-          <p className="text-body text-muted-foreground">Personal knowledge base</p>
+          <Field>
+            <FieldLabel>Workspace label</FieldLabel>
+            <Input defaultValue="Personal knowledge base" name="workspace-label" />
+          </Field>
         </Dialog>
         <AlertDialog
           confirmLabel="Delete Workspace"

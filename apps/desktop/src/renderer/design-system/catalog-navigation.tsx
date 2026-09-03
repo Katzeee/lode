@@ -40,11 +40,12 @@ function SidebarNavigation({ currentPage, mode, onModeChange }: NavigationProper
       </header>
 
       <Button
-        className="justify-start"
+        className="justify-start px-2.5 font-medium"
         onClick={() => onModeChange(mode === "light" ? "dark" : "light")}
         size="sm"
-        variant="outline"
+        variant="ghost"
       >
+        <Icon name={mode === "light" ? "moon" : "sun"} size="sm" />
         {mode === "light" ? "Switch to dark mode" : "Switch to light mode"}
       </Button>
 
