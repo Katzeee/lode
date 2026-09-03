@@ -8,6 +8,7 @@ export type OutlineContent = readonly OutlineInline[];
 
 type EditorMark = { type: OutlineMark };
 type EditorInline =
+  | { marks?: EditorMark[]; type: "hardBreak" }
   | { marks?: EditorMark[]; text: string; type: "text" }
   | { attrs: { id: string; label: string }; type: "outlineReference" };
 
@@ -54,15 +55,18 @@ export function normalizeContent(content: OutlineContent): OutlineContent {
 }
 
 export function contentToDoc(content: OutlineContent): OutlineEditorDocument {
-  const inline = normalizeContent(content).map((item): EditorInline =>
-    item.type === "reference"
-      ? { attrs: { id: item.id, label: item.label }, type: "outlineReference" }
-      : {
-          marks: item.marks?.map((mark) => ({ type: mark })),
-          text: item.text,
-          type: "text",
-        },
-  );
+  const inline = normalizeContent(content).flatMap((item): EditorInline[] => {
+    if (item.type === "reference") {
+      return [{ attrs: { id: item.id, label: item.label }, type: "outlineReference" }];
+    }
+    const marks = item.marks?.map((mark) => ({ type: mark }));
+    return item.text
+      .split("\n")
+      .flatMap((text, index): EditorInline[] => [
+        ...(index === 0 ? [] : [{ marks, type: "hardBreak" as const }]),
+        ...(text.length === 0 ? [] : [{ marks, text, type: "text" as const }]),
+      ]);
+  });
   return { content: [{ ...(inline.length === 0 ? {} : { content: inline }), type: "paragraph" }], type: "doc" };
 }
 
@@ -90,6 +94,9 @@ export function docToContent(document: unknown): OutlineContent {
     const node = recordOf(candidate);
     if (node?.type === "text" && typeof node.text === "string") {
       return [{ marks: marksFrom(node.marks), text: node.text, type: "text" }];
+    }
+    if (node?.type === "hardBreak") {
+      return [{ marks: marksFrom(node.marks), text: "\n", type: "text" }];
     }
     const attributes = recordOf(node?.attrs);
     return node?.type === "outlineReference" &&

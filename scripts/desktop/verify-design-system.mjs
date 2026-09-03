@@ -148,8 +148,413 @@ async function verifyOutlineTree(page) {
   const tree = page.getByRole("tree");
   await tree.waitFor({ state: "visible" });
   const rowByText = (text) => page.locator('[data-ui="outline-row"]', { hasText: text }).first();
+  const editor = page.locator('[data-ui="outline-editor"]');
+
+  const lodeBullet = rowByText("Lode").locator('[data-ui="outline-bullet"]');
+  await lodeBullet.hover();
+  assert.equal(
+    await lodeBullet.evaluate((element) => getComputedStyle(element).cursor),
+    "pointer",
+    "a clickable bullet must use the pointer cursor before a drag starts",
+  );
+  assert.match(
+    await lodeBullet.getAttribute("class"),
+    /hover:bg-secondary/u,
+    "a bullet hit target must own the design-system hover halo",
+  );
+
+  for (const [label, datatype] of [
+    ["Status", "options"],
+    ["Owner", "options-from-supertag"],
+    ["Review date", "date"],
+    ["Ready", "checkbox"],
+  ]) {
+    assert.equal(
+      await rowByText(label)
+        .locator(`[data-kind="field"][data-datatype="${datatype}"] [data-ui="outline-field-type-mark"]`)
+        .count(),
+      1,
+      `the ${label} Field node must expose its datatype through the bullet glyph`,
+    );
+  }
+  assert.equal(
+    await rowByText("In progress").locator('[data-kind="field-value"] [data-ui="outline-field-type-mark"]').count(),
+    0,
+    "a Field Value node must keep the ordinary node dot instead of inheriting its Field's type glyph",
+  );
+  assert.ok(
+    (await tree
+      .locator('[data-kind="field-definition"][data-datatype="plain"] [data-ui="outline-field-type-mark"]')
+      .count()) > 0,
+    "a Field Definition occurrence must use the definition glyph inside the normal bullet hit target",
+  );
+  const ownerField = tree.locator('[data-occurrence-id="owner-field"]');
+  assert.equal(await ownerField.getAttribute("aria-expanded"), null, "a Field node must not expose disclosure state");
+  assert.equal(
+    await ownerField.getByRole("button", { name: /^Expand/u }).count(),
+    0,
+    "a Field node must not expose the ordinary Node expansion control",
+  );
+  assert.equal(
+    await tree.locator('[data-parent-key="projects/lode/owner-field"][data-layout-column="trailing"]').count(),
+    2,
+    "the Owner Field must project Kei and Lode team as its two value occurrences",
+  );
+  assert.equal(
+    await tree.locator('[data-parent-key="projects/lode/owner-field"][data-layout-column="single"]').count(),
+    0,
+    "a Field Value draft must never escape into an extra indented ordinary row",
+  );
+
+  const referenceRow = tree.locator('[data-occurrence-id="local-first-reference"]');
+  assert.equal(await referenceRow.getAttribute("data-node-id"), "local-first");
+  assert.equal(await referenceRow.getAttribute("aria-expanded"), "true");
+  assert.equal(
+    await referenceRow.locator('[data-kind="reference"] [data-ui="outline-reference-ring"]').count(),
+    1,
+    "a Reference occurrence must use the ring-and-dot appearance observed in Tana",
+  );
+  const referenceRingBox = await referenceRow.locator('[data-ui="outline-reference-ring"]').boundingBox();
+  const collapsedNodeRingBox = await tree
+    .locator('[data-occurrence-id="local-first-original"] [data-ui="outline-bullet-mark"]')
+    .boundingBox();
+  assert.ok(
+    referenceRingBox !== null &&
+      collapsedNodeRingBox !== null &&
+      Math.abs(referenceRingBox.width - collapsedNodeRingBox.width) <= 1 &&
+      Math.abs(referenceRingBox.height - collapsedNodeRingBox.height) <= 1,
+    "Reference and collapsed-child bullet rings must share one geometric footprint",
+  );
+  const referenceChild = tree.locator(
+    '[data-parent-key="projects/lode/roadmap/local-first-reference"][data-occurrence-id="local-first-summary"]',
+  );
+  assert.equal(
+    await referenceChild.count(),
+    1,
+    "an expanded Reference must unfold the target Node's child occurrences",
+  );
+  assert.equal(
+    await referenceChild.locator('[data-kind="node"]').count(),
+    1,
+    "a child unfolded through a Reference keeps its own occurrence appearance",
+  );
+
+  const fieldLabelBox = await rowByText("Status").boundingBox();
+  const firstValueBox = await rowByText("In progress").boundingBox();
+  const firstOwnerBox = await page
+    .locator('[data-ui="outline-row"][data-layout-column="trailing"]', { hasText: "Kei" })
+    .first()
+    .boundingBox();
+  const secondOwnerBox = await page
+    .locator('[data-ui="outline-row"][data-layout-column="trailing"]', { hasText: "Lode team" })
+    .first()
+    .boundingBox();
+  assert.ok(fieldLabelBox !== null && firstValueBox !== null, "Field and Field Value rows must be measurable");
+  assert.ok(fieldLabelBox.width <= 260, "the Field label column must stay close to Tana's compact value offset");
+  assert.equal(
+    await tree
+      .locator('[data-occurrence-id="in-progress"]')
+      .locator('[data-ui="outline-inline-content"]')
+      .evaluate((element) => getComputedStyle(element).textDecorationLine),
+    "none",
+    "a reference-backed Field Value must not invent a dotted text underline",
+  );
+  assert.ok(
+    Math.abs(fieldLabelBox.y - firstValueBox.y) <= 1,
+    "a Field node and its first Field Value node must share one visual line",
+  );
+  assert.ok(firstOwnerBox !== null && secondOwnerBox !== null, "list Field Value rows must be measurable");
+  assert.ok(
+    Math.abs(firstOwnerBox.x - secondOwnerBox.x) <= 1,
+    "later Field Value nodes must align with the first Field Value node",
+  );
+
+  const lodeEditingRow = tree.locator('[data-occurrence-id="lode"]');
+  await lodeEditingRow.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  const lodeEditingBackground = await lodeEditingRow.evaluate((element) => getComputedStyle(element).backgroundColor);
+  assert.equal(
+    lodeEditingBackground,
+    "rgba(0, 0, 0, 0)",
+    "editing one Node must not paint the full-width multi-selection background",
+  );
+  const editorBox = await editor.boundingBox();
+  const supertagBox = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
+  assert.ok(
+    editorBox !== null && supertagBox !== null && Math.abs(editorBox.y - supertagBox.y) <= 2,
+    "Supertags must remain inline beside the Node editor",
+  );
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  const statusValue = tree.locator('[data-occurrence-id="in-progress"]');
+  await statusValue.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  const suggestions = page.getByRole("listbox", { name: "Suggested values" });
+  assert.equal(await suggestions.count(), 0, "focusing an existing Options value must leave Enter available to insert");
+  await editor.press("Control+A");
+  await editor.pressSequentially("I");
+  await suggestions.waitFor({ state: "visible" });
+  assert.equal(
+    await suggestions.getByRole("option", { name: "In progress" }).count(),
+    1,
+    "an Options datatype provides candidates inside the ordinary Node editor",
+  );
+  await editor.press("Control+A");
+  await editor.pressSequentially("Custom status");
+  assert.equal(await editor.textContent(), "Custom status", "datatype suggestions must not reject arbitrary Node text");
+  await tree.locator('[data-occurrence-id="review-date-field"]').click();
+  await suggestions.waitFor({ state: "detached" });
+  await editor.waitFor({ state: "detached" });
+  assert.notEqual(
+    await statusValue.getAttribute("data-node-id"),
+    "status-in-progress",
+    "free text in a Reference-backed Field Value must become a new ordinary Node instead of renaming its target",
+  );
+  await statusValue.locator('[data-ui="outline-row-text"]').click();
+  assert.equal(await suggestions.count(), 0, "an existing arbitrary value reopens as an ordinary Node editor");
+  await editor.press("Enter");
+  const statusValues = tree.locator('[data-parent-key="projects/lode/status-field"][data-layout-column="trailing"]');
+  await statusValues.nth(1).waitFor({ state: "visible" });
+  await editor.pressSequentially("Another status value");
+  const insertedEditorBox = await editor.boundingBox();
+  assert.ok(
+    insertedEditorBox !== null && insertedEditorBox.width >= 96 && insertedEditorBox.height < 40,
+    "a newly inserted Node editor must keep a usable horizontal line box",
+  );
+  if (await suggestions.isVisible()) {
+    await editor.press("Escape");
+  }
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  const fieldDefinition = tree.locator('[data-occurrence-id="status-definition-occurrence"]');
+  const titleBeforeFieldDefinition = await page.locator("main h1").first().textContent();
+  await fieldDefinition.locator('[data-ui="outline-bullet"]').click();
+  assert.equal(
+    await page.locator("main h1").first().textContent(),
+    titleBeforeFieldDefinition,
+    "the component reports Field Definition bullet activation without forcing page navigation",
+  );
+  assert.equal(
+    await tree.locator('[data-ui="outline-row-details"]').count(),
+    0,
+    "node rows must not leak model explanations into secondary text",
+  );
+
+  const lodeTeam = tree.locator('[data-occurrence-id="team-owner"]');
+  await lodeTeam.getByRole("button", { name: "Expand lode-team" }).click();
+  const lodeTeamPlaceholder = tree.locator(
+    '[data-ui="outline-empty-child-placeholder"][data-parent-key="projects/lode/owner-field/team-owner"]',
+  );
+  await lodeTeamPlaceholder.waitFor({ state: "visible" });
+  assert.equal(
+    await lodeTeamPlaceholder.getAttribute("data-layout-column"),
+    "trailing",
+    "an empty-child placeholder under a Field Value must remain in the value column",
+  );
+  const lodeTeamBulletBox = await lodeTeam.locator('[data-ui="outline-bullet"]').boundingBox();
+  const lodeTeamChildBulletBox = await lodeTeamPlaceholder.locator('[data-ui="outline-bullet-mark"]').boundingBox();
+  assert.ok(
+    lodeTeamBulletBox !== null && lodeTeamChildBulletBox !== null && lodeTeamChildBulletBox.x > lodeTeamBulletBox.x,
+    "an empty-child placeholder must indent locally from its Field Value parent",
+  );
+  assert.equal(
+    await tree.locator('[data-parent-key="projects/lode/owner-field/team-owner"][data-ui="outline-row"]').count(),
+    0,
+    "expanding an empty Node must not materialize a model Node",
+  );
+  assert.equal(await lodeTeamPlaceholder.locator('[data-ui="outline-placeholder-bullet"]').count(), 1);
+  assert.doesNotMatch(
+    (await lodeTeamPlaceholder.textContent()) ?? "",
+    /Type \/ for commands/u,
+    "an unfocused empty-child placeholder keeps Tana's quiet bullet-only appearance",
+  );
+
+  await tree.getByRole("button", { name: "Expand empty-container" }).click();
+  const emptyChildPlaceholder = tree.locator(
+    '[data-ui="outline-empty-child-placeholder"][data-parent-key="projects/lode/roadmap/empty-container"]',
+  );
+  await emptyChildPlaceholder.waitFor({ state: "visible" });
+  assert.equal(await emptyChildPlaceholder.getAttribute("data-level"), "5");
+  assert.equal(
+    await emptyChildPlaceholder.locator('[data-ui="outline-placeholder-bullet"]').count(),
+    1,
+    "expanding an empty Node must project Tana's empty-child placeholder without changing the model",
+  );
+  const inactivePlaceholderBox = await emptyChildPlaceholder.boundingBox();
+  await emptyChildPlaceholder.click();
+  const emptyChild = tree.locator('[data-ui="outline-row"][data-parent-key="projects/lode/roadmap/empty-container"]');
+  await emptyChild.waitFor({ state: "visible" });
+  await editor.waitFor({ state: "visible" });
+  const activePlaceholderBox = await emptyChild.locator('[data-ui="outline-placeholder"]').boundingBox();
+  const emptyChildBox = await emptyChild.boundingBox();
+  assert.ok(
+    activePlaceholderBox !== null &&
+      emptyChildBox !== null &&
+      activePlaceholderBox.height <= 24 &&
+      activePlaceholderBox.y + activePlaceholderBox.height <= emptyChildBox.y + emptyChildBox.height,
+    "an active empty Node placeholder must remain on one clipped line inside its row",
+  );
+  assert.ok(
+    inactivePlaceholderBox !== null &&
+      emptyChildBox !== null &&
+      Math.abs(inactivePlaceholderBox.height - emptyChildBox.height) <= 1,
+    "activating an empty-child placeholder must not change the visual row height",
+  );
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  await emptyChild.waitFor({ state: "visible" });
+  assert.equal(
+    await emptyChild.locator('[data-ui="outline-placeholder-bullet"]').count(),
+    0,
+    "a materialized empty Node must remain a normal Node after focus leaves it",
+  );
+  assert.equal(
+    await emptyChildPlaceholder.count(),
+    0,
+    "a parent with a real empty child must not also project the no-child placeholder",
+  );
+  await emptyChild.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("Enter");
+  const emptyChildren = tree.locator(
+    '[data-ui="outline-row"][data-parent-key="projects/lode/roadmap/empty-container"]',
+  );
+  await emptyChildren.nth(1).waitFor({ state: "visible" });
+  assert.equal(
+    await emptyChildren.count(),
+    2,
+    "Enter on an empty Node must preserve it and advance to a new empty Node",
+  );
+  assert.equal(
+    await emptyChildren.first().locator('[data-ui="outline-placeholder-bullet"]').count(),
+    0,
+    "the empty Node fixed by Enter must retain ordinary Node identity",
+  );
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  assert.equal(await emptyChildren.count(), 2, "the next empty Node must also survive an unfocused state");
+  await rowByText("Status").click();
+  await rowByText("Owner").click({ modifiers: ["Shift"] });
+  await page.getByRole("toolbar", { name: "4 nodes selected" }).waitFor({ state: "visible" });
+  assert.equal(
+    await tree.locator('[data-ui="outline-row"][aria-selected="true"]').count(),
+    4,
+    "Shift selection must include every visible Node occurrence in the range",
+  );
+  await page.keyboard.press("Escape");
+  await page.getByRole("toolbar", { name: "4 nodes selected" }).waitFor({ state: "detached" });
+
+  assert.equal(
+    await rowByText("Open design decisions").locator('[data-kind="search"]').count(),
+    1,
+    "a Search Node must expose its semantic bullet treatment",
+  );
+  const searchMarkBox = await rowByText("Open design decisions")
+    .locator('[data-ui="outline-search-mark"]')
+    .boundingBox();
+  const searchBulletBox = await rowByText("Open design decisions")
+    .locator('[data-ui="outline-bullet-mark"]')
+    .boundingBox();
+  assert.ok(
+    searchMarkBox !== null &&
+      searchBulletBox !== null &&
+      searchBulletBox.width >= 13 &&
+      searchBulletBox.height >= 13 &&
+      searchMarkBox.width < searchBulletBox.width &&
+      searchMarkBox.height < searchBulletBox.height,
+    "the Search glyph must remain inside the shared outer bullet footprint reserved for occurrence state",
+  );
+  assert.equal(
+    await rowByText("Daily notes").locator('[data-kind="calendar"]').count(),
+    1,
+    "a date-backed system node must support a semantic bullet replacement",
+  );
+  assert.equal(
+    await page.locator('[data-ui="outline-row"] [data-kind="person"]').count(),
+    1,
+    "a person node must support an avatar bullet replacement",
+  );
+  await rowByText("Open design decisions").locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("Escape");
+  await tree.locator('[data-occurrence-id="kei"] [data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  assert.equal(
+    await rowByText("Interaction coverage").getByRole("progressbar").getAttribute("aria-valuenow"),
+    "3",
+    "a node row must expose secondary progress as accessible metadata",
+  );
+  await rowByText("Daily notes").locator('[data-ui="outline-row-text"]').click();
+  assert.equal(
+    await page.locator('[data-ui="outline-editor"]').count(),
+    0,
+    "a date-backed system node whose name is owned by the domain must remain read-only",
+  );
+
+  const originalRow = tree.locator('[data-occurrence-id="local-first-original"]');
+  await referenceRow.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("End");
+  await editor.pressSequentially("!");
+  await originalRow.locator('[data-ui="outline-inline-content"]', { hasText: "Local-first software essay!" }).waitFor({
+    state: "visible",
+  });
+  assert.equal(await editor.count(), 1, "a Reference edit must update its Original while the editor remains focused");
+  await editor.press("Backspace");
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  await originalRow.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("End");
+  await editor.pressSequentially("!");
+  await referenceRow.locator('[data-ui="outline-inline-content"]', { hasText: "Local-first software essay!" }).waitFor({
+    state: "visible",
+  });
+  assert.equal(await editor.count(), 1, "an Original edit must update its References while the editor remains focused");
+  await editor.press("Backspace");
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  await referenceChild.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("End");
+  await editor.press("Enter");
+  await editor.pressSequentially("Shared through reference");
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  await tree
+    .locator('[data-parent-key="projects/lode/roadmap/local-first-reference"]', { hasText: "Shared through reference" })
+    .waitFor({ state: "visible" });
+
+  await referenceRow.locator('[data-ui="outline-bullet"]').click();
+  await page.getByRole("heading", { name: "Local-first software essay", level: 3 }).waitFor({ state: "visible" });
+  const referenceBreadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  assert.equal(
+    await referenceBreadcrumb.getByText("Reading inbox", { exact: true }).count(),
+    1,
+    "activating a Reference navigates through the target Node's Original path",
+  );
+  assert.equal(
+    await referenceBreadcrumb.getByText("Design system roadmap", { exact: true }).count(),
+    0,
+    "Reference navigation must not turn the Reference occurrence path into the target's owning path",
+  );
+  assert.equal(
+    await page.locator('[data-ui="outline-row"]', { hasText: "Shared through reference" }).count(),
+    1,
+    "structural edits through a Reference must update the target Node seen from its Original occurrence",
+  );
+  await navigateToCatalogPage(page, "components/buttons");
+  await navigateToCatalogPage(page, "components/outline");
+  await tree.waitFor({ state: "visible" });
 
   await tree.focus();
+  await page.keyboard.press("Home");
   await page.keyboard.press("ArrowLeft");
   assert.equal(
     await rowByText("Projects").getAttribute("aria-expanded"),
@@ -189,12 +594,12 @@ async function verifyOutlineTree(page) {
   // Remount for a clean editing session.
   await navigateToCatalogPage(page, "components/buttons");
   await navigateToCatalogPage(page, "components/outline");
-  const editor = page.locator('[data-ui="outline-editor"]');
   const editorText = () => editor.textContent();
   const setEditorCaret = (offset) =>
     editor.evaluate((element, caret) => element.editor.commands.setTextSelection(caret + 1), offset);
   const homeLabText = rowByText("Home lab notes").locator('[data-ui="outline-inline-content"]');
   const clickedCaret = 4;
+  await homeLabText.scrollIntoViewIfNeeded();
   const clickPoint = await homeLabText.evaluate((element, caret) => {
     const text = element.firstChild;
     if (!(text instanceof Text)) {
@@ -254,6 +659,15 @@ async function verifyOutlineTree(page) {
     (value) => document.querySelector('[data-ui="outline-editor"]')?.textContent === value,
     "Engine facts and projections edited",
   );
+  await setEditorCaret((await editorText()).length);
+  await editor.press("Shift+Enter");
+  await editor.pressSequentially("supporting detail");
+  assert.equal(
+    await editorText(),
+    "Engine facts and projections editedsupporting detail",
+    "a soft line break must keep both lines inside one edited node",
+  );
+  assert.equal(await editor.locator("br").count(), 1, "Shift+Enter must render a semantic soft line break");
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
   await rowByText("Engine facts and projections edited").waitFor({ state: "visible" });
@@ -291,12 +705,81 @@ async function verifyOutlineTree(page) {
     .locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" })
     .waitFor({ state: "visible" });
 
+  const quickCapture = tree.locator('[data-occurrence-id="quick-capture"]');
+  assert.equal(
+    await quickCapture.locator('[data-ui="outline-placeholder-bullet"]').count(),
+    0,
+    "a real empty Node must not inherit the synthetic placeholder bullet",
+  );
+  await quickCapture.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+  assert.equal(await quickCapture.count(), 1, "focusing and leaving a real empty Node must not remove it");
+
+  await quickCapture.locator('[data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.pressSequentially("/");
+  const commandPicker = page.getByRole("listbox", { name: "Commands" });
+  await commandPicker.waitFor({ state: "visible" });
+  await commandPicker.getByRole("option", { name: /Make task/ }).click();
+  assert.equal(await editorText(), "", "choosing a slash command must remove its query from node content");
+  assert.equal(
+    await editor.locator('xpath=ancestor::*[@data-ui="outline-row"]').getByRole("checkbox").count(),
+    1,
+    "a slash command must hand the semantic node transformation to its owner",
+  );
+  await editor.press("Escape");
+  await editor.waitFor({ state: "detached" });
+
+  // A field is selected through the editor, but the resulting Field and Field Value remain distinct Node rows.
+  await navigateToCatalogPage(page, "components/buttons");
+  await navigateToCatalogPage(page, "components/outline");
+  await page.getByRole("tree").focus();
+  await page.keyboard.press("End");
+  await tree.locator('[data-occurrence-id="quick-capture"] [data-ui="outline-row-text"]').click();
+  await editor.waitFor({ state: "visible" });
+  await editor.pressSequentially(">");
+  const fieldPicker = page.getByRole("listbox", { name: "Fields" });
+  await fieldPicker.waitFor({ state: "visible" });
+  await fieldPicker.getByRole("option", { name: "Notes" }).click();
+  await editor.waitFor({ state: "detached" });
+  await page.getByRole("tree").focus();
+  await page.keyboard.press("End");
+  const createdField = page
+    .locator('[data-ui="outline-row"][data-layout-column="leading"]', { hasText: "Notes" })
+    .first();
+  const createdValue = page.locator('[data-ui="outline-row"][data-layout-column="trailing"]').last();
+  await page.waitForTimeout(200);
+  const createdRows = await page
+    .locator('[data-ui="outline-row"]')
+    .evaluateAll((rows) => rows.map((row) => ({ layout: row.dataset.layoutColumn, text: row.textContent })));
+  assert.equal(
+    await createdField.count(),
+    1,
+    `choosing a definition must create a Field Node: ${JSON.stringify(createdRows)}`,
+  );
+  assert.ok(
+    await createdValue.count(),
+    `choosing a definition must create a Field Value Node: ${JSON.stringify(createdRows)}`,
+  );
+  const createdFieldBox = await createdField.boundingBox();
+  const createdValueBox = await createdValue.boundingBox();
+  assert.ok(createdFieldBox !== null && createdValueBox !== null, "created Field nodes must be measurable");
+  assert.ok(
+    Math.abs(createdFieldBox.y - createdValueBox.y) <= 1,
+    `a newly created Field and its first Field Value Node must share one visual line: ${JSON.stringify({ createdFieldBox, createdValueBox })}`,
+  );
+
   // Remount for a clean structure, then restructure by dragging a bullet.
   await navigateToCatalogPage(page, "components/buttons");
   await navigateToCatalogPage(page, "components/outline");
+  const lodeRow = page.locator('[data-ui="outline-row"][data-occurrence-id="lode"]');
+  await lodeRow.getByRole("button", { name: "Collapse lode" }).click();
   const handle = rowByText("Home lab notes").locator('[data-ui="outline-bullet"]');
+  await handle.scrollIntoViewIfNeeded();
   const handleBox = await handle.boundingBox();
-  const lodeBox = await rowByText("Lode").boundingBox();
+  const lodeBox = await lodeRow.boundingBox();
   const treeBox = await page.getByRole("tree").boundingBox();
   assert.ok(handleBox !== null && lodeBox !== null && treeBox !== null, "drag geometry must be measurable");
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -311,6 +794,7 @@ async function verifyOutlineTree(page) {
 
   // Dropping a subtree into its own descendant must be rejected.
   const projectsHandle = rowByText("Projects").locator('[data-ui="outline-bullet"]');
+  await projectsHandle.scrollIntoViewIfNeeded();
   const projectsBox = await projectsHandle.boundingBox();
   const roadmapBox = await rowByText("Design system roadmap").boundingBox();
   assert.ok(projectsBox !== null && roadmapBox !== null, "illegal-drop geometry must be measurable");

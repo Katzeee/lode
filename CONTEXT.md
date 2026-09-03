@@ -175,7 +175,7 @@ _Avoid_: Supertag Search, Search Node, saved query
 
 **Search Node**:
 A Node of type Search whose Configuration Graph owns one Search Expression. Search identity, expression, Proposal, History, and Trash lifecycle are persistent domain state, while matching results are evaluated from the selected Projection perspective and remain derived reads.
-_Avoid_: Saved result list, query blob, Supertag Instances Query
+_Avoid_: Query Node, Saved result list, query blob, Supertag Instances Query
 
 **Search Expression**:
 An identity-bearing recursive expression tree owned beneath a Search Node's Metanode or a View Filter. Each expression receives its identity from the Authored Action that adds it, so configuration, movement, removal, and restoration preserve the same semantic target without persisting the derived graph. Ordered `and`/`or` operands, negation, Supertag, text, Field presence and typed value, Date comparison, scope, and reference predicates define the persistent query, while evaluation produces derived Search Result References.

@@ -10,12 +10,13 @@ import {
   computeReorder,
   flattenOutline,
   resolveEditInsertion,
-  type OutlineNode,
+  type OutlineOccurrence,
 } from "./outline-tree-model.js";
 
-const node = (id: string, children?: readonly OutlineNode<string>[]): OutlineNode<string> => ({
+const node = (id: string, children?: readonly OutlineOccurrence<string>[]): OutlineOccurrence<string> => ({
   children,
-  id,
+  nodeId: id,
+  occurrenceId: id,
   value: id,
 });
 
@@ -39,10 +40,34 @@ describe("flattenOutline", () => {
     expect(open.map((row) => row.depth)).toEqual([0, 1, 2, 2, 1, 0]);
   });
 
-  it("keys repeated node ids by their path, so references stay distinct", () => {
-    const shared = node("shared");
-    const rows = flattenOutline([node("x", [shared]), node("y", [shared])], new Set(["x", "y"]));
-    expect(rows.map((row) => row.key)).toEqual(["x", "x/shared", "y", "y/shared"]);
+  it("keys occurrences independently while an expanded Reference unfolds the target's children", () => {
+    const child = node("shared-child");
+    const original = { ...node("shared-original", [child]), nodeId: "shared" };
+    const reference = {
+      ...node("shared-reference", [child]),
+      appearance: "reference" as const,
+      nodeId: "shared",
+    };
+    const rows = flattenOutline(
+      [node("x", [original]), node("y", [reference])],
+      new Set(["x", "x/shared-original", "y", "y/shared-reference"]),
+    );
+    expect(rows.map((row) => row.key)).toEqual([
+      "x",
+      "x/shared-original",
+      "x/shared-original/shared-child",
+      "y",
+      "y/shared-reference",
+      "y/shared-reference/shared-child",
+    ]);
+    expect(rows[1]?.occurrence.nodeId).toBe(rows[4]?.occurrence.nodeId);
+    expect(rows[4]?.occurrence.appearance).toBe("reference");
+    expect(rows[5]?.occurrence.appearance).toBeUndefined();
+  });
+
+  it("allows an empty Node to enter expanded state without inventing a child model", () => {
+    const [row] = flattenOutline([node("empty")], new Set(["empty"]));
+    expect(row).toMatchObject({ expandable: true, expanded: true, hasChildren: false });
   });
 });
 
@@ -50,42 +75,51 @@ describe("structure edits", () => {
   const rows = flattenOutline(sample, new Set(["projects", "projects/a"]));
 
   it("indent makes the row the last child of its previous sibling", () => {
-    expect(computeIndent(rows, "projects/b")).toEqual({
+    expect(computeIndent(rows, ["projects/b"])).toEqual({
       index: 2,
-      sourceKey: "projects/b",
+      sourceKeys: ["projects/b"],
       targetParentKey: "projects/a",
     });
-    expect(computeIndent(rows, "projects"), "the first sibling has nothing to indent under").toBeNull();
+    expect(computeIndent(rows, ["projects"]), "the first sibling has nothing to indent under").toBeNull();
   });
 
   it("outdent moves the row right after its parent", () => {
-    expect(computeOutdent(rows, "projects/a/a2")).toEqual({
+    expect(computeOutdent(rows, ["projects/a/a2"])).toEqual({
       index: 1,
-      sourceKey: "projects/a/a2",
+      sourceKeys: ["projects/a/a2"],
       targetParentKey: "projects",
     });
-    expect(computeOutdent(rows, "inbox"), "root rows cannot outdent").toBeNull();
+    expect(computeOutdent(rows, ["inbox"]), "root rows cannot outdent").toBeNull();
   });
 
   it("reorder swaps within siblings and stops at the edges", () => {
-    expect(computeReorder(rows, "projects/a/a2", -1)).toEqual({
+    expect(computeReorder(rows, ["projects/a/a2"], -1)).toEqual({
       index: 0,
-      sourceKey: "projects/a/a2",
+      sourceKeys: ["projects/a/a2"],
       targetParentKey: "projects/a",
     });
-    expect(computeReorder(rows, "projects/a/a1", -1)).toBeNull();
-    expect(computeReorder(rows, "projects", 1)).toEqual({
+    expect(computeReorder(rows, ["projects/a/a1"], -1)).toBeNull();
+    expect(computeReorder(rows, ["projects"], 1)).toEqual({
       index: 1,
-      sourceKey: "projects",
+      sourceKeys: ["projects"],
       targetParentKey: null,
     });
-    expect(computeReorder(rows, "inbox", 1)).toBeNull();
+    expect(computeReorder(rows, ["inbox"], 1)).toBeNull();
+  });
+
+  it("moves a contiguous multi-selection as one ordered sibling run", () => {
+    expect(computeReorder(rows, ["projects/a/a1", "projects/a/a2"], 1)).toBeNull();
+    expect(computeOutdent(rows, ["projects/a/a1", "projects/a/a2"])).toEqual({
+      index: 1,
+      sourceKeys: ["projects/a/a1", "projects/a/a2"],
+      targetParentKey: "projects",
+    });
   });
 });
 
 describe("editing targets", () => {
   const rows = flattenOutline(sample, new Set(["projects", "projects/a"]));
-  const contentOf = (row: (typeof rows)[number]): OutlineContent => [{ text: row.node.value, type: "text" }];
+  const contentOf = (row: (typeof rows)[number]): OutlineContent => [{ text: row.occurrence.value, type: "text" }];
 
   it("moves between visible rows and clamps the requested caret column", () => {
     expect(computeEditNavigation(rows, "projects/a/a1", 1, 8, contentOf)).toEqual({

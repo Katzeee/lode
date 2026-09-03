@@ -47,6 +47,25 @@ describe("outline content mapping", () => {
       docToContent({ content: [{ content: [{ attrs: { id: 3 }, type: "outlineReference" }] }], type: "doc" }),
     ).toEqual([]);
   });
+
+  it("round-trips soft line breaks without turning a node into multiple blocks", () => {
+    const content: OutlineContent = [{ marks: ["italic"], text: "first\nsecond", type: "text" }];
+
+    expect(contentToDoc(content)).toEqual({
+      content: [
+        {
+          content: [
+            { marks: [{ type: "italic" }], text: "first", type: "text" },
+            { marks: [{ type: "italic" }], type: "hardBreak" },
+            { marks: [{ type: "italic" }], text: "second", type: "text" },
+          ],
+          type: "paragraph",
+        },
+      ],
+      type: "doc",
+    });
+    expect(docToContent(contentToDoc(content))).toEqual(content);
+  });
 });
 
 describe("outline content operations", () => {

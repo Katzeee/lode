@@ -7,7 +7,6 @@ import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
 
 import {
   contentLength,
@@ -16,14 +15,28 @@ import {
   type OutlineContent,
   type OutlineInline,
 } from "./outline-content.js";
-import { menuItemClassName, menuPopupClassName } from "./dropdown-menu.js";
-import type { OutlineEditorBinding, OutlineEditorCommand, OutlineReferenceSearchResult } from "./outline-tree-edit.js";
+import { completionPicker, pickerPosition } from "./outline-editor-picker.js";
+import { OutlineInlinePicker, type OutlinePickerState } from "./outline-inline-picker.js";
+import type {
+  OutlineCompletionItem,
+  OutlineEditorBinding,
+  OutlineEditorCommand,
+} from "./outline-tree-edit-contract.js";
 
 const referenceClassName =
-  "inline-flex items-center rounded-full border border-transparent bg-accent px-1.5 text-caption font-medium whitespace-nowrap text-accent-foreground";
+  "mx-0.5 inline-flex max-w-full items-center rounded-full border border-primary/15 bg-primary/10 px-1.5 align-middle text-caption font-medium whitespace-normal break-words text-primary";
 
 const SingleLineDocument = Document.extend({ content: "paragraph" });
 const SingleLineParagraph = Paragraph.extend({ content: "inline*" });
+const OutlineHardBreak = TiptapNode.create({
+  group: "inline",
+  inline: true,
+  name: "hardBreak",
+  parseHTML: () => [{ tag: "br" }],
+  renderHTML: () => ["br"],
+  renderText: () => "\n",
+  selectable: false,
+});
 
 const OutlineReference = TiptapNode.create({
   addAttributes() {
@@ -64,23 +77,16 @@ const OutlineReference = TiptapNode.create({
   selectable: true,
 });
 
-type PickerState = Readonly<{
-  activeIndex: number;
-  from: number;
-  query: string;
-  results: readonly OutlineReferenceSearchResult[];
-  to: number;
-}>;
+type InlineEditorContextValue = Readonly<{ binding: OutlineEditorBinding | null; placeholder: string }>;
 
-type PickerPosition = Readonly<{ left: number; placement: "above" | "below"; top: number }>;
-
-const InlineEditorContext = createContext<OutlineEditorBinding | null>(null);
+const InlineEditorContext = createContext<InlineEditorContextValue>({ binding: null, placeholder: "" });
 
 export function OutlineInlineEditorProvider({
   binding,
   children,
-}: Readonly<{ binding: OutlineEditorBinding | null; children: ReactNode }>) {
-  return <InlineEditorContext.Provider value={binding}>{children}</InlineEditorContext.Provider>;
+  placeholder,
+}: Readonly<{ binding: OutlineEditorBinding | null; children: ReactNode; placeholder: string }>) {
+  return <InlineEditorContext.Provider value={{ binding, placeholder }}>{children}</InlineEditorContext.Provider>;
 }
 
 function MarkedText({ inline }: Readonly<{ inline: Extract<OutlineInline, { type: "text" }> }>) {
@@ -98,55 +104,29 @@ function MarkedText({ inline }: Readonly<{ inline: Extract<OutlineInline, { type
 }
 
 export function OutlineInlineContent({ content }: Readonly<{ content: OutlineContent }>) {
-  const binding = useContext(InlineEditorContext);
+  const { binding, placeholder } = useContext(InlineEditorContext);
   if (binding !== null) {
     return <OutlineTreeEditor binding={binding} />;
   }
   return (
-    <span data-ui="outline-inline-content">
-      {content.map((inline, index) =>
-        inline.type === "reference" ? (
-          <span className={referenceClassName} data-reference-id={inline.id} data-ui="outline-reference" key={index}>
-            {inline.label}
-          </span>
-        ) : (
-          <MarkedText inline={inline} key={index} />
-        ),
+    <span className="inline-block min-h-5.5 whitespace-pre-wrap break-words align-top" data-ui="outline-inline-content">
+      {content.length === 0 && placeholder.length > 0 ? (
+        <span className="select-none text-muted-foreground" data-ui="outline-placeholder">
+          {placeholder}
+        </span>
+      ) : (
+        content.map((inline, index) =>
+          inline.type === "reference" ? (
+            <span className={referenceClassName} data-reference-id={inline.id} data-ui="outline-reference" key={index}>
+              {inline.label}
+            </span>
+          ) : (
+            <MarkedText inline={inline} key={index} />
+          ),
+        )
       )}
     </span>
   );
-}
-
-function referenceQuery(editor: Editor): Omit<PickerState, "activeIndex" | "results"> | null {
-  const { selection } = editor.state;
-  if (!selection.empty || selection.$from.parent.type.name !== "paragraph") {
-    return null;
-  }
-  const before = selection.$from.parent.textBetween(0, selection.$from.parentOffset, "", "");
-  const match = /(\[\[|@)([^\u005B\u005D@\n]*)$/.exec(before);
-  const trigger = match?.[1];
-  const query = match?.[2];
-  if (match === null || match === undefined || trigger === undefined || query === undefined) {
-    return null;
-  }
-  return {
-    from: selection.from - trigger.length - query.length,
-    query,
-    to: selection.from,
-  };
-}
-
-function pickerPosition(editor: Editor): PickerPosition {
-  const coordinates = editor.view.coordsAtPos(editor.state.selection.from);
-  const editorBounds = editor.view.dom.getBoundingClientRect();
-  const roomAbove = editorBounds.top;
-  const roomBelow = globalThis.innerHeight - editorBounds.bottom;
-  const placement = roomBelow >= 240 || roomBelow >= roomAbove ? "below" : "above";
-  return {
-    left: Math.max(8, Math.min(coordinates.left, globalThis.innerWidth - 328)),
-    placement,
-    top: placement === "above" ? editorBounds.top - 6 : editorBounds.bottom + 6,
-  };
 }
 
 function currentContent(editor: Editor): OutlineContent {
@@ -173,7 +153,7 @@ function editorCommand(editor: Editor, event: KeyboardEvent): OutlineEditorComma
   if (event.key === "Tab") {
     return { caret: offsets.from, content, operation: event.shiftKey ? "outdent" : "indent", type: "structure" };
   }
-  if (modified && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+  if (modified && event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
     return {
       caret: offsets.from,
       content,
@@ -181,7 +161,13 @@ function editorCommand(editor: Editor, event: KeyboardEvent): OutlineEditorComma
       type: "structure",
     };
   }
-  if (!modified && !event.altKey && !event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+  if (
+    !modified &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+    editor.view.endOfTextblock(event.key === "ArrowUp" ? "up" : "down")
+  ) {
     return { caret: offsets.from, content, direction: event.key === "ArrowUp" ? -1 : 1, type: "navigate" };
   }
   if (event.key === "ArrowLeft" && editor.state.selection.empty && offsets.from === 0) {
@@ -200,40 +186,36 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
   const bindingRef = useRef(binding);
   const editorRef = useRef<Editor | null>(null);
   const pickerElementRef = useRef<HTMLDivElement | null>(null);
-  const pickerRef = useRef<PickerState | null>(null);
-  const [picker, setPickerState] = useState<PickerState | null>(null);
+  const pickerRef = useRef<OutlinePickerState | null>(null);
+  const [empty, setEmpty] = useState(contentLength(binding.content) === 0);
+  const [picker, setPickerState] = useState<OutlinePickerState | null>(null);
   bindingRef.current = binding;
 
-  const setPicker = (next: PickerState | null) => {
+  const setPicker = (next: OutlinePickerState | null) => {
     pickerRef.current = next;
     setPickerState(next);
   };
 
-  const syncPicker = (updatedEditor: Editor) => {
-    const match = referenceQuery(updatedEditor);
-    if (match === null) {
-      setPicker(null);
-      return;
-    }
-    const results = bindingRef.current.searchNodes(match.query.trim());
-    const currentPicker = pickerRef.current;
-    const activeIndex =
-      currentPicker?.query === match.query ? Math.min(currentPicker.activeIndex, Math.max(0, results.length - 1)) : 0;
-    setPicker({ ...match, activeIndex, results });
+  const syncPicker = (updatedEditor: Editor, providers = bindingRef.current.completionProviders) => {
+    setPicker(completionPicker(updatedEditor, providers, pickerRef.current));
   };
 
-  const selectReference = (result: OutlineReferenceSearchResult) => {
+  const selectCompletion = (item: OutlineCompletionItem) => {
     const activeEditor = editorRef.current;
     const activePicker = pickerRef.current;
     if (activeEditor === null || activePicker === null) {
       return;
     }
-    activeEditor
-      .chain()
-      .focus()
-      .insertContentAt({ from: activePicker.from, to: activePicker.to }, { attrs: result, type: "outlineReference" })
-      .run();
+    const replacement = contentToDoc(item.replacement).content?.[0]?.content ?? [];
+    const chain = activeEditor.chain().focus();
+    if (replacement.length === 0) {
+      chain.deleteRange({ from: activePicker.from, to: activePicker.to }).run();
+    } else {
+      chain.insertContentAt({ from: activePicker.from, to: activePicker.to }, replacement).run();
+    }
+    const content = currentContent(activeEditor);
     setPicker(null);
+    bindingRef.current.onCompletion(activePicker.provider.id, item.id, content);
   };
 
   const handleKeyDown = (activeEditor: Editor, event: KeyboardEvent): boolean => {
@@ -252,10 +234,15 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
       setPicker({ ...activePicker, activeIndex: count === 0 ? 0 : (activePicker.activeIndex + delta + count) % count });
       return true;
     }
-    if (activePicker !== null && event.key === "Enter") {
+    if (event.key === "Enter" && event.shiftKey) {
+      activeEditor.chain().focus().insertContent({ type: "hardBreak" }).run();
+      setPicker(null);
+      return true;
+    }
+    if (activePicker !== null && event.key === "Enter" && activePicker.results.length > 0) {
       const result = activePicker.results[activePicker.activeIndex];
       if (result !== undefined) {
-        selectReference(result);
+        selectCompletion(result);
       }
       return true;
     }
@@ -277,7 +264,8 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     editorProps: {
       attributes: {
         "aria-label": binding.ariaLabel,
-        class: "min-w-0 whitespace-pre text-body text-current outline-none",
+        class:
+          "inline-block w-max min-w-24 max-w-full whitespace-pre-wrap break-words text-body text-current outline-none",
         "data-ui": "outline-editor",
       },
       handleDOMEvents: {
@@ -291,11 +279,14 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
         return activeEditor === null ? false : handleKeyDown(activeEditor, event);
       },
     },
-    extensions: [SingleLineDocument, SingleLineParagraph, Text, Bold, Italic, Code, OutlineReference],
+    extensions: [SingleLineDocument, SingleLineParagraph, Text, Bold, Italic, Code, OutlineHardBreak, OutlineReference],
     immediatelyRender: true,
-    onSelectionUpdate: ({ editor: updatedEditor }) => syncPicker(updatedEditor),
+    onSelectionUpdate: ({ editor: updatedEditor }) =>
+      syncPicker(updatedEditor, pickerRef.current === null ? [] : [pickerRef.current.provider]),
     onUpdate: ({ editor: updatedEditor }) => {
-      bindingRef.current.onChange(currentContent(updatedEditor));
+      const content = currentContent(updatedEditor);
+      setEmpty(contentLength(content) === 0);
+      bindingRef.current.onChange(content);
       syncPicker(updatedEditor);
     },
   });
@@ -333,6 +324,9 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     if (editor === null) {
       return;
     }
+    if (JSON.stringify(currentContent(editor)) !== JSON.stringify(binding.content)) {
+      return;
+    }
     const position = Math.min(binding.initialCaret + 1, editor.state.doc.content.size - 1);
     editor.commands.setTextSelection(position);
   }, [binding.initialCaret, editor]);
@@ -344,50 +338,41 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     // Strict Mode remounts EditorContent once in development. Focusing in the
     // next task prevents its transient unmount from ending the session.
     const timer = globalThis.setTimeout(() => {
-      if (editor.isDestroyed || editor.view.hasFocus()) {
+      if (editor.isDestroyed) {
         return;
       }
-      editor.view.focus();
+      if (!editor.view.hasFocus()) {
+        editor.view.focus();
+      }
+      if (contentLength(currentContent(editor)) === 0) {
+        syncPicker(
+          editor,
+          bindingRef.current.completionProviders.filter((provider) => provider.openOnEmptyFocus === true),
+        );
+      }
     }, 0);
     return () => globalThis.clearTimeout(timer);
-  }, [editor]);
+  }, [binding.content, editor]);
 
   return (
     <>
-      <EditorContent className="min-w-0 flex-1" editor={editor} onClick={(event) => event.stopPropagation()} />
-      {picker === null
-        ? null
-        : createPortal(
-            <div
-              aria-label="References"
-              className={`${menuPopupClassName} fixed z-50 max-h-56 max-w-80 overflow-y-auto`}
-              onMouseDown={(event) => event.preventDefault()}
-              ref={pickerElementRef}
-              role="listbox"
-            >
-              {picker.results.length === 0 ? (
-                <div className="px-2.5 py-2 text-label text-muted-foreground">No matching nodes</div>
-              ) : (
-                picker.results.map((result, index) => (
-                  <button
-                    aria-selected={index === picker.activeIndex}
-                    className={menuItemClassName(undefined)}
-                    data-highlighted={index === picker.activeIndex ? "" : undefined}
-                    key={result.id}
-                    onClick={() => selectReference(result)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    role="option"
-                    tabIndex={-1}
-                    type="button"
-                  >
-                    {result.label}
-                  </button>
-                ))
-              )}
-            </div>,
-            document.body,
-            "outline-reference-picker",
-          )}
+      <div className={`relative inline-flex min-w-24 max-w-full align-top ${empty ? "w-full" : "w-max"}`}>
+        <EditorContent
+          className="inline-flex w-max min-w-24 max-w-full"
+          editor={editor}
+          onClick={(event) => event.stopPropagation()}
+        />
+        {empty ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 truncate whitespace-nowrap text-body text-muted-foreground"
+            data-ui="outline-placeholder"
+          >
+            {binding.placeholder}
+          </span>
+        ) : null}
+      </div>
+      <OutlineInlinePicker elementRef={pickerElementRef} onSelect={selectCompletion} picker={picker} />
     </>
   );
 }

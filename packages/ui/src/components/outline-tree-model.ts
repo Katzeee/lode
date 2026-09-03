@@ -1,33 +1,34 @@
 import { contentLength, mergeContent, type OutlineContent } from "./outline-content.js";
 
-export type OutlineNode<Value> = Readonly<{
-  children?: readonly OutlineNode<Value>[];
-  id: string;
-  /**
-   * Every entry in a children array is one appearance of a node. A
-   * "reference" appearance embeds a node whose original lives elsewhere;
-   * the tree marks it on the bullet so borrowed structure stays legible.
-   */
-  kind?: "node" | "reference";
+export type OutlineOccurrence<Value> = Readonly<{
+  /** Appearance belongs to this Occurrence; Reference children can still expose the target Node's own Occurrences. */
+  appearance?: "original" | "reference";
+  children?: readonly OutlineOccurrence<Value>[];
+  /** Controls whether this occurrence exposes a disclosure affordance; false keeps existing children visible. */
+  expandable?: boolean;
+  nodeId: string;
+  /** Stable placement identity, independent from the Node shared by Original and Reference appearances. */
+  occurrenceId: string;
   value: Value;
 }>;
 
-// A row is one *appearance* of a node: the same node can appear under many
-// parents (references), so rows key on the full path, never the node id.
+// A row projects one Occurrence. References can share a Node while keeping
+// independent placement identity, so rows key on the occurrence path.
 export type OutlineRow<Value> = Readonly<{
   depth: number;
   expanded: boolean;
+  expandable: boolean;
   hasChildren: boolean;
   indexInParent: number;
   key: string;
-  node: OutlineNode<Value>;
+  occurrence: OutlineOccurrence<Value>;
   parentKey: string | null;
   siblingCount: number;
 }>;
 
 export type OutlineMove = Readonly<{
   index: number;
-  sourceKey: string;
+  sourceKeys: readonly string[];
   targetParentKey: string | null;
 }>;
 
@@ -44,36 +45,38 @@ export type OutlineEditInsertion = Readonly<{
   parentKey: string | null;
 }>;
 
-export function rowKey(parentKey: string | null, id: string): string {
-  return parentKey === null ? id : `${parentKey}/${id}`;
+export function rowKey(parentKey: string | null, occurrenceId: string): string {
+  return parentKey === null ? occurrenceId : `${parentKey}/${occurrenceId}`;
 }
 
 export function flattenOutline<Value>(
-  nodes: readonly OutlineNode<Value>[],
+  occurrences: readonly OutlineOccurrence<Value>[],
   expandedKeys: ReadonlySet<string>,
 ): OutlineRow<Value>[] {
   const rows: OutlineRow<Value>[] = [];
-  const visit = (siblings: readonly OutlineNode<Value>[], parentKey: string | null, depth: number) => {
-    siblings.forEach((node, indexInParent) => {
-      const key = rowKey(parentKey, node.id);
-      const hasChildren = node.children !== undefined && node.children.length > 0;
-      const expanded = hasChildren && expandedKeys.has(key);
+  const visit = (siblings: readonly OutlineOccurrence<Value>[], parentKey: string | null, depth: number) => {
+    siblings.forEach((occurrence, indexInParent) => {
+      const key = rowKey(parentKey, occurrence.occurrenceId);
+      const hasChildren = occurrence.children !== undefined && occurrence.children.length > 0;
+      const expandable = occurrence.expandable !== false;
+      const expanded = hasChildren && !expandable ? true : expandable && expandedKeys.has(key);
       rows.push({
         depth,
         expanded,
+        expandable,
         hasChildren,
         indexInParent,
         key,
-        node,
+        occurrence,
         parentKey,
         siblingCount: siblings.length,
       });
-      if (expanded && node.children !== undefined) {
-        visit(node.children, key, depth + 1);
+      if (expanded && occurrence.children !== undefined) {
+        visit(occurrence.children, key, depth + 1);
       }
     });
   };
-  visit(nodes, null, 0);
+  visit(occurrences, null, 0);
   return rows;
 }
 
@@ -90,10 +93,34 @@ function previousSibling<Value>(
   );
 }
 
-/** Tab: the row becomes the last child of its previous sibling. */
-export function computeIndent<Value>(rows: readonly OutlineRow<Value>[], key: string): OutlineMove | null {
-  const row = rowByKey(rows, key);
-  if (row === undefined || row.indexInParent === 0) {
+function siblingSelection<Value>(
+  rows: readonly OutlineRow<Value>[],
+  sourceKeys: readonly string[],
+): readonly OutlineRow<Value>[] | null {
+  const selected = sourceKeys
+    .map((key) => rowByKey(rows, key))
+    .filter((row): row is OutlineRow<Value> => row !== undefined)
+    .sort((left, right) => left.indexInParent - right.indexInParent);
+  const parentKey = selected[0]?.parentKey;
+  if (
+    selected.length !== sourceKeys.length ||
+    selected.length === 0 ||
+    selected.some((row) => row.parentKey !== parentKey) ||
+    selected.some((row, index) => index > 0 && row.indexInParent !== selected[index - 1]!.indexInParent + 1)
+  ) {
+    return null;
+  }
+  return selected;
+}
+
+/** Tab: the selected sibling run becomes the last children of its previous sibling. */
+export function computeIndent<Value>(
+  rows: readonly OutlineRow<Value>[],
+  sourceKeys: readonly string[],
+): OutlineMove | null {
+  const selected = siblingSelection(rows, sourceKeys);
+  const row = selected?.[0];
+  if (selected === null || row === undefined || row.indexInParent === 0) {
     return null;
   }
   const target = previousSibling(rows, row);
@@ -101,16 +128,20 @@ export function computeIndent<Value>(rows: readonly OutlineRow<Value>[], key: st
     return null;
   }
   return {
-    index: target.node.children?.length ?? 0,
-    sourceKey: row.key,
+    index: target.occurrence.children?.length ?? 0,
+    sourceKeys: selected.map((candidate) => candidate.key),
     targetParentKey: target.key,
   };
 }
 
-/** Shift+Tab: the row moves out to sit right after its parent. */
-export function computeOutdent<Value>(rows: readonly OutlineRow<Value>[], key: string): OutlineMove | null {
-  const row = rowByKey(rows, key);
-  if (row === undefined || row.parentKey === null) {
+/** Shift+Tab: the selected sibling run moves out to sit right after its parent. */
+export function computeOutdent<Value>(
+  rows: readonly OutlineRow<Value>[],
+  sourceKeys: readonly string[],
+): OutlineMove | null {
+  const selected = siblingSelection(rows, sourceKeys);
+  const row = selected?.[0];
+  if (selected === null || row === undefined || row.parentKey === null) {
     return null;
   }
   const parent = rowByKey(rows, row.parentKey);
@@ -119,26 +150,34 @@ export function computeOutdent<Value>(rows: readonly OutlineRow<Value>[], key: s
   }
   return {
     index: parent.indexInParent + 1,
-    sourceKey: row.key,
+    sourceKeys: selected.map((candidate) => candidate.key),
     targetParentKey: parent.parentKey,
   };
 }
 
-/** Ctrl+ArrowUp / Ctrl+ArrowDown: reorder among siblings, jumping subtrees. */
+/** Ctrl+Shift+Arrow: reorder a selected sibling run, jumping whole subtrees. */
 export function computeReorder<Value>(
   rows: readonly OutlineRow<Value>[],
-  key: string,
+  sourceKeys: readonly string[],
   direction: -1 | 1,
 ): OutlineMove | null {
-  const row = rowByKey(rows, key);
-  if (row === undefined) {
+  const selected = siblingSelection(rows, sourceKeys);
+  const first = selected?.[0];
+  const last = selected?.at(-1);
+  if (selected === null || first === undefined || last === undefined) {
     return null;
   }
-  const index = row.indexInParent + direction;
-  if (index < 0 || index >= row.siblingCount) {
+  if (
+    (direction === -1 && first.indexInParent === 0) ||
+    (direction === 1 && last.indexInParent >= last.siblingCount - 1)
+  ) {
     return null;
   }
-  return { index, sourceKey: row.key, targetParentKey: row.parentKey };
+  return {
+    index: first.indexInParent + direction,
+    sourceKeys: selected.map((candidate) => candidate.key),
+    targetParentKey: first.parentKey,
+  };
 }
 
 export function computeEditNavigation<Value>(

@@ -14,39 +14,17 @@ import {
   type OutlineMove,
   type OutlineRow,
 } from "./outline-tree-model.js";
+import type { OutlineEditorBinding, OutlineEditorCommand, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
 
-export type OutlineReferenceSearchResult = Readonly<{ id: string; label: string }>;
-
-export type OutlineTreeEditing<Value> = Readonly<{
-  contentOf: (row: OutlineRow<Value>) => OutlineContent;
-  onContentCommit: (key: string, content: OutlineContent) => void;
-  onCreateAfter: (key: string) => void;
-  onDeleteEmpty: (key: string) => void;
-  onMergeUp?: (key: string) => void;
-  onSplit: (key: string, before: OutlineContent, after: OutlineContent) => void;
-  searchNodes: (query: string) => readonly OutlineReferenceSearchResult[];
-}>;
-
-export type OutlineEditorCommand =
-  | Readonly<{ content: OutlineContent; from: number; to: number; type: "enter" }>
-  | Readonly<{ content: OutlineContent; type: "backspace" | "escape" }>
-  | Readonly<{ caret: number | "end"; content: OutlineContent; direction: -1 | 1; type: "navigate" }>
-  | Readonly<{
-      caret: number;
-      content: OutlineContent;
-      operation: "indent" | "outdent" | "reorder-down" | "reorder-up";
-      type: "structure";
-    }>;
-
-export type OutlineEditorBinding = Readonly<{
-  ariaLabel: string;
-  content: OutlineContent;
-  initialCaret: number;
-  onBlur: (content: OutlineContent) => void;
-  onChange: (content: OutlineContent) => void;
-  onCommand: (command: OutlineEditorCommand) => boolean;
-  searchNodes: (query: string) => readonly OutlineReferenceSearchResult[];
-}>;
+export type {
+  OutlineCompletionContext,
+  OutlineCompletionItem,
+  OutlineCompletionMatch,
+  OutlineCompletionProvider,
+  OutlineEditorBinding,
+  OutlineEditorCommand,
+  OutlineTreeEditing,
+} from "./outline-tree-edit-contract.js";
 
 type EditSession = Readonly<{ ariaLabel: string; content: OutlineContent; key: string }>;
 
@@ -95,13 +73,20 @@ export function useOutlineEdit<Value>({
     if (index >= 0) {
       scrollToIndex(index);
     }
-    setSession({ ariaLabel: `Edit ${row.node.id}`, content, key: row.key });
+    setSession({ ariaLabel: `Edit ${row.occurrence.nodeId}`, content, key: row.key });
   };
 
   const activatePosition = (position: OutlineEditPosition, predictedContent?: OutlineContent) => {
     const row = rows.find((candidate) => candidate.key === position.key);
     const activeEditing = editingRef.current;
     if (row !== undefined && activeEditing !== undefined) {
+      if (activeEditing.isEditable?.(row) === false) {
+        onCursorChange(row.key);
+        scrollToIndex(rows.indexOf(row));
+        setSession(null);
+        globalThis.requestAnimationFrame(() => containerRef.current?.focus());
+        return;
+      }
       activate(row, predictedContent ?? activeEditing.contentOf(row), position.caret);
     }
   };
@@ -119,7 +104,7 @@ export function useOutlineEdit<Value>({
     desiredCaretRef.current = 0;
     onCursorChange(row.key);
     scrollToIndex(rows.indexOf(row));
-    setSession({ ariaLabel: `Edit ${row.node.id}`, content: editing.contentOf(row), key: row.key });
+    setSession({ ariaLabel: `Edit ${row.occurrence.nodeId}`, content: editing.contentOf(row), key: row.key });
   }, [editing, onCursorChange, pendingInsertion, rows, scrollToIndex]);
 
   useEffect(() => {
@@ -130,7 +115,7 @@ export function useOutlineEdit<Value>({
   }, [editing]);
 
   const startAtEnd = (row: OutlineRow<Value>, appendedText = "") => {
-    if (editing === undefined) {
+    if (editing === undefined || editing.isEditable?.(row) === false) {
       return;
     }
     setPendingInsertion(null);
@@ -139,12 +124,21 @@ export function useOutlineEdit<Value>({
   };
 
   const startAtCaret = (row: OutlineRow<Value>, caret: number) => {
-    if (editing === undefined) {
+    if (editing === undefined || editing.isEditable?.(row) === false) {
       return;
     }
     setPendingInsertion(null);
     const content = editing.contentOf(row);
     activate(row, content, caret);
+  };
+
+  const createChild = (parent: OutlineRow<Value>) => {
+    const activeEditing = editingRef.current;
+    if (activeEditing?.onCreateChild === undefined) {
+      return;
+    }
+    setPendingInsertion({ displacedKey: null, indexInParent: 0, parentKey: parent.key });
+    activeEditing.onCreateChild(parent.key);
   };
 
   const commitAndExit = useCallback(() => {
@@ -210,7 +204,8 @@ export function useOutlineEdit<Value>({
       return false;
     }
     const merge = computeEditMergeTarget(rows, key, content, activeEditing.contentOf);
-    if (merge === null) {
+    const target = merge === null ? undefined : rows.find((row) => row.key === merge.key);
+    if (merge === null || target === undefined || activeEditing.isEditable?.(target) === false) {
       return false;
     }
     commit(key, content);
@@ -225,10 +220,10 @@ export function useOutlineEdit<Value>({
     }
     const move =
       command.operation === "indent"
-        ? computeIndent(rows, key)
+        ? computeIndent(rows, [key])
         : command.operation === "outdent"
-          ? computeOutdent(rows, key)
-          : computeReorder(rows, key, command.operation === "reorder-up" ? -1 : 1);
+          ? computeOutdent(rows, [key])
+          : computeReorder(rows, [key], command.operation === "reorder-up" ? -1 : 1);
     if (move !== null) {
       commit(key, command.content);
       const targetKey = onMove(move);
@@ -264,11 +259,21 @@ export function useOutlineEdit<Value>({
     return command.type === "structure" ? restructure(key, command) : false;
   };
 
+  const activeRow = session === null ? undefined : rows.find((row) => row.key === session.key);
   const binding: OutlineEditorBinding | null =
     session === null || editing === undefined
       ? null
       : {
           ariaLabel: session.ariaLabel,
+          completionProviders:
+            activeRow === undefined
+              ? []
+              : (editing.completionProviders ?? [])
+                  .filter((provider) => provider.enabled?.(activeRow) !== false)
+                  .map(({ enabled: _enabled, ...provider }) => ({
+                    ...provider,
+                    items: (query: string) => provider.items(activeRow, query),
+                  })),
           content: session.content,
           initialCaret: desiredCaretRef.current,
           onBlur: (content) => {
@@ -282,16 +287,27 @@ export function useOutlineEdit<Value>({
             const current = sessionRef.current;
             if (current?.key === session.key) {
               sessionRef.current = { ...current, content };
+              editingRef.current?.onContentChange(session.key, content);
             }
           },
           onCommand: (command) => handleCommand(session.key, command),
-          searchNodes: editing.searchNodes,
+          onCompletion: (providerId, itemId, content) => {
+            const provider = editing.completionProviders?.find((candidate) => candidate.id === providerId);
+            editing.onCompletion?.(session.key, providerId, itemId, content);
+            if (provider?.exitOnSelect === true) {
+              setPendingInsertion(null);
+              setSession(null);
+              globalThis.requestAnimationFrame(() => containerRef.current?.focus());
+            }
+          },
+          placeholder: editing.emptyPlaceholder ?? "Type / for commands or [[ to link a node…",
         };
 
   return {
     activeKey: binding === null ? null : (session?.key ?? null),
     binding,
     commitAndExit,
+    createChild,
     startAtCaret,
     startAtEnd,
   };

@@ -5,15 +5,25 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
-  type PointerEvent as ReactPointerEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 
-import { cn } from "./cn.js";
-import { Icon } from "./icon.js";
+import { caretOffsetAtPoint } from "./outline-caret.js";
+import { OutlineEmptyChild } from "./outline-empty-child.js";
 import { OUTLINE_INDENT, useOutlineDrag } from "./outline-tree-drag.js";
-import { useOutlineEdit, type OutlineTreeEditing } from "./outline-tree-edit.js";
-import { OutlineInlineContent, OutlineInlineEditorProvider } from "./outline-tree-editor.js";
+import {
+  useOutlineEdit,
+  type OutlineCompletionContext,
+  type OutlineCompletionItem,
+  type OutlineCompletionMatch,
+  type OutlineCompletionProvider,
+  type OutlineTreeEditing,
+} from "./outline-tree-edit.js";
+import { groupOutlineRows, projectEmptyChildRows, type OutlineRowLayout } from "./outline-row-layout.js";
+import { OutlineInlineContent } from "./outline-tree-editor.js";
+import { OutlineSelectionToolbar } from "./outline-tree-controls.js";
+import { OutlineTreeRow } from "./outline-tree-row.js";
 import {
   computeIndent,
   computeOutdent,
@@ -21,123 +31,159 @@ import {
   flattenOutline,
   rowKey,
   type OutlineMove,
-  type OutlineNode,
+  type OutlineOccurrence,
   type OutlineRow,
 } from "./outline-tree-model.js";
+import {
+  emptyOutlineSelection,
+  extendOutlineSelection,
+  normalizeOutlineSelection,
+  selectOutlineRow,
+  selectedOutlineRoots,
+  toggleOutlineRow,
+  type OutlineSelection,
+} from "./outline-selection.js";
 
 export { OutlineInlineContent };
+export { OutlineBullet, type OutlineBulletAppearance } from "./outline-bullet.js";
+export type { OutlineRowLayout } from "./outline-row-layout.js";
+export { OutlineRowContent, OutlineRowProgress, type OutlineRowBadge } from "./outline-row.js";
 export type { OutlineContent, OutlineInline, OutlineMark } from "./outline-content.js";
-export type { OutlineMove, OutlineNode, OutlineRow, OutlineTreeEditing };
-
-type CaretCandidate = Readonly<{ offset: number; x: number; y: number }>;
-
-function caretOffsetAtPoint(root: HTMLElement, clientX: number, clientY: number): number {
-  const candidates: CaretCandidate[] = [];
-  const range = root.ownerDocument.createRange();
-  let offset = 0;
-  const visit = (node: Node) => {
-    if (node instanceof Element && node.getAttribute("data-ui") === "outline-reference") {
-      const bounds = node.getBoundingClientRect();
-      const y = bounds.top + bounds.height / 2;
-      candidates.push({ offset, x: bounds.left, y }, { offset: offset + 1, x: bounds.right, y });
-      offset += 1;
-      return;
-    }
-    if (node instanceof Text) {
-      for (let index = 0; index < node.data.length; index += 1) {
-        range.setStart(node, index);
-        range.setEnd(node, index + 1);
-        for (const bounds of range.getClientRects()) {
-          const y = bounds.top + bounds.height / 2;
-          candidates.push(
-            { offset: offset + index, x: bounds.left, y },
-            { offset: offset + index + 1, x: bounds.right, y },
-          );
-        }
-      }
-      offset += node.data.length;
-      return;
-    }
-    for (const child of node.childNodes) {
-      visit(child);
-    }
-  };
-  visit(root);
-  if (candidates.length === 0) {
-    return 0;
-  }
-  return candidates.reduce((closest, candidate) => {
-    const distance = (candidate.x - clientX) ** 2 + (candidate.y - clientY) ** 2;
-    const closestDistance = (closest.x - clientX) ** 2 + (closest.y - clientY) ** 2;
-    return distance < closestDistance ? candidate : closest;
-  }).offset;
-}
+export type {
+  OutlineCompletionContext,
+  OutlineCompletionItem,
+  OutlineCompletionMatch,
+  OutlineCompletionProvider,
+  OutlineMove,
+  OutlineOccurrence,
+  OutlineRow,
+  OutlineSelection,
+  OutlineTreeEditing,
+};
 
 type OutlineTreeProperties<Value> = Readonly<{
   editing?: OutlineTreeEditing<Value>;
   expandedKeys: ReadonlySet<string>;
+  /** Projects related nodes into visual columns without changing their tree relationship or identity. */
+  getRowLayout?: (row: OutlineRow<Value>) => OutlineRowLayout;
   label: string;
-  nodes: readonly OutlineNode<Value>[];
+  occurrences: readonly OutlineOccurrence<Value>[];
   onExpandedChange: (key: string, expanded: boolean) => void;
-  /** Structure edits: keyboard Tab/Shift+Tab indents, Ctrl+Arrow reorders. */
+  /** Structure edits: Tab/Shift+Tab indents and Ctrl/Cmd+Shift+Arrow reorders the selection atomically. */
   onMove?: (move: OutlineMove) => void;
+  onDeleteSelection?: (keys: readonly string[]) => void;
+  /** Reports bullet activation with the complete projected Occurrence; navigation belongs to the consumer. */
+  onBulletClick?: (row: OutlineRow<Value>, event: ReactMouseEvent<HTMLButtonElement>) => void;
   onSelect?: (key: string) => void;
-  /** Bullet activation promotes the row to the view root. */
-  onZoomIn?: (key: string) => void;
+  onSelectionChange?: (selection: OutlineSelection) => void;
+  /** Replaces the standard solid or reference bullet for typed nodes such as queries, people, or dates. */
+  renderBullet?: (row: OutlineRow<Value>, state: Readonly<{ selected: boolean }>) => ReactNode;
   renderRow: (row: OutlineRow<Value>) => ReactNode;
+  selection?: OutlineSelection;
   showGuides?: boolean;
 }>;
 
 export function OutlineTree<Value>({
   editing,
   expandedKeys,
+  getRowLayout,
   label,
-  nodes,
+  occurrences,
+  onDeleteSelection,
+  onBulletClick,
   onExpandedChange,
   onMove,
   onSelect,
-  onZoomIn,
+  onSelectionChange,
+  renderBullet,
   renderRow,
-  showGuides = true,
+  selection,
+  showGuides = false,
 }: OutlineTreeProperties<Value>) {
   const treeId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
-  const rows = useMemo(() => flattenOutline(nodes, expandedKeys), [nodes, expandedKeys]);
-  const [cursorKey, setCursorKey] = useState<string | null>(null);
+  const rows = useMemo(() => flattenOutline(occurrences, expandedKeys), [occurrences, expandedKeys]);
+  const groupedRows = useMemo(() => groupOutlineRows(rows, getRowLayout), [getRowLayout, rows]);
+  const supportsEmptyChildren = editing?.onCreateChild !== undefined;
+  const visualRows = useMemo(
+    () => projectEmptyChildRows(groupedRows, supportsEmptyChildren),
+    [groupedRows, supportsEmptyChildren],
+  );
+  const visualIndexByKey = useMemo(
+    () =>
+      new Map(
+        visualRows.flatMap((visualRow, visualIndex) =>
+          visualRow.kind === "nodes"
+            ? visualRow.visualRow.entries.map((entry) => [entry.row.key, visualIndex] as const)
+            : [],
+        ),
+      ),
+    [visualRows],
+  );
+  const [internalSelection, setInternalSelection] = useState<OutlineSelection>(emptyOutlineSelection);
+  const activeSelection = useMemo(
+    () => normalizeOutlineSelection(rows, selection ?? internalSelection),
+    [internalSelection, rows, selection],
+  );
+  const cursorKey = activeSelection.focusKey;
   const cursorIndex = cursorKey === null ? -1 : rows.findIndex((row) => row.key === cursorKey);
-
   const virtualizer = useWindowVirtualizer({
-    count: rows.length,
+    count: visualRows.length,
     estimateSize: () => 32,
+    getItemKey: (index) => visualRows[index]?.key ?? index,
     overscan: 12,
     scrollMargin: containerRef.current?.offsetTop ?? 0,
   });
 
   const rowDomId = (key: string) => `${treeId}-${key}`;
 
-  const moveCursor = (index: number) => {
+  const commitSelection = (next: OutlineSelection) => {
+    if (selection === undefined) {
+      setInternalSelection(next);
+    }
+    onSelectionChange?.(next);
+    if (next.focusKey !== null) {
+      onSelect?.(next.focusKey);
+    }
+  };
+
+  const selectOnly = (key: string) => commitSelection(selectOutlineRow(key));
+
+  const requestExpandedChange = (key: string, expanded: boolean) => {
+    onExpandedChange(key, expanded);
+  };
+
+  const moveCursor = (index: number, extend = false) => {
     const row = rows[index];
     if (row === undefined) {
       return;
     }
-    setCursorKey(row.key);
-    virtualizer.scrollToIndex(index);
+    commitSelection(extend ? extendOutlineSelection(rows, activeSelection, row.key) : selectOutlineRow(row.key));
+    virtualizer.scrollToIndex(visualIndexByKey.get(row.key) ?? index);
   };
 
   const applyMove = (move: OutlineMove | null): string | null => {
     if (move === null || onMove === undefined) {
       return null;
     }
-    const source = rows.find((row) => row.key === move.sourceKey);
+    const sources = move.sourceKeys
+      .map((sourceKey) => rows.find((row) => row.key === sourceKey))
+      .filter((source): source is OutlineRow<Value> => source !== undefined);
     // The destination must be visible, or the row would vanish on landing.
     if (move.targetParentKey !== null && !expandedKeys.has(move.targetParentKey)) {
       onExpandedChange(move.targetParentKey, true);
     }
     onMove(move);
-    if (source !== undefined) {
-      const targetKey = rowKey(move.targetParentKey, source.node.id);
-      setCursorKey(targetKey);
-      return targetKey;
+    if (sources.length > 0) {
+      const targetKeys = sources.map((source) => rowKey(move.targetParentKey, source.occurrence.occurrenceId));
+      const focusSourceIndex = Math.max(0, move.sourceKeys.indexOf(activeSelection.focusKey ?? ""));
+      const focusKey = targetKeys[focusSourceIndex] ?? targetKeys.at(-1) ?? null;
+      commitSelection({
+        anchorKey: targetKeys[0] ?? null,
+        focusKey,
+        keys: new Set(targetKeys),
+      });
+      return focusKey;
     }
     return null;
   };
@@ -145,10 +191,13 @@ export function OutlineTree<Value>({
   const edit = useOutlineEdit({
     containerRef,
     editing,
-    onCursorChange: setCursorKey,
+    onCursorChange: selectOnly,
     onMove: onMove === undefined ? undefined : applyMove,
     rows,
-    scrollToIndex: (index) => virtualizer.scrollToIndex(index),
+    scrollToIndex: (index) => {
+      const row = rows[index];
+      virtualizer.scrollToIndex(row === undefined ? index : (visualIndexByKey.get(row.key) ?? index));
+    },
   });
 
   const { consumeDragClick, drag, handlePointerDown } = useOutlineDrag({
@@ -160,38 +209,59 @@ export function OutlineTree<Value>({
     },
     onExpandedChange,
     rows,
+    selectedKeys: activeSelection.keys,
   });
-  const draggedRow = drag === null ? undefined : rows.find((row) => row.key === drag.sourceKey);
+  const draggedRows =
+    drag === null
+      ? []
+      : drag.sourceKeys
+          .map((sourceKey) => rows.find((row) => row.key === sourceKey))
+          .filter((row): row is OutlineRow<Value> => row !== undefined);
+
+  const selectionRoots = selectedOutlineRoots(rows, activeSelection.keys);
+
+  const performSelectionMove = (operation: "indent" | "outdent" | "reorder-down" | "reorder-up") => {
+    if (onMove === undefined || selectionRoots.length === 0) {
+      return;
+    }
+    const move =
+      operation === "indent"
+        ? computeIndent(rows, selectionRoots)
+        : operation === "outdent"
+          ? computeOutdent(rows, selectionRoots)
+          : computeReorder(rows, selectionRoots, operation === "reorder-up" ? -1 : 1);
+    applyMove(move);
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing) {
       return;
     }
     const cursor = cursorIndex >= 0 ? rows[cursorIndex] : undefined;
-    const structural = onMove !== undefined && (event.ctrlKey || event.metaKey);
+    const structural = onMove !== undefined && (event.ctrlKey || event.metaKey) && event.shiftKey;
     let handled = true;
 
     if (event.key === "ArrowDown") {
       if (structural && cursor !== undefined) {
-        applyMove(computeReorder(rows, cursor.key, 1));
+        performSelectionMove("reorder-down");
       } else {
-        moveCursor(cursorIndex + 1);
+        moveCursor(cursorIndex + 1, event.shiftKey);
       }
     } else if (event.key === "ArrowUp") {
       if (structural && cursor !== undefined) {
-        applyMove(computeReorder(rows, cursor.key, -1));
+        performSelectionMove("reorder-up");
       } else {
-        moveCursor(Math.max(0, cursorIndex - 1));
+        moveCursor(Math.max(0, cursorIndex - 1), event.shiftKey);
       }
     } else if (event.key === "ArrowRight" && cursor !== undefined) {
-      if (cursor.hasChildren && !cursor.expanded) {
-        onExpandedChange(cursor.key, true);
+      if (cursor.expandable && !cursor.expanded) {
+        requestExpandedChange(cursor.key, true);
       } else if (cursor.hasChildren) {
         moveCursor(cursorIndex + 1);
       }
     } else if (event.key === "ArrowLeft" && cursor !== undefined) {
-      if (cursor.expanded) {
-        onExpandedChange(cursor.key, false);
+      if (cursor.expandable && cursor.expanded) {
+        requestExpandedChange(cursor.key, false);
       } else if (cursor.parentKey !== null) {
         moveCursor(rows.findIndex((row) => row.key === cursor.parentKey));
       }
@@ -200,16 +270,28 @@ export function OutlineTree<Value>({
     } else if (event.key === "End") {
       moveCursor(rows.length - 1);
     } else if (event.key === "Enter" && cursor !== undefined) {
-      if (editing === undefined) {
+      if (activeSelection.keys.size > 1 || editing === undefined || editing.isEditable?.(cursor) === false) {
         onSelect?.(cursor.key);
       } else {
         edit.startAtEnd(cursor);
       }
     } else if (event.key === "Tab" && onMove !== undefined && cursor !== undefined) {
-      applyMove(event.shiftKey ? computeOutdent(rows, cursor.key) : computeIndent(rows, cursor.key));
+      performSelectionMove(event.shiftKey ? "outdent" : "indent");
+    } else if (
+      event.key === "Backspace" &&
+      event.shiftKey &&
+      (event.ctrlKey || event.metaKey) &&
+      onDeleteSelection !== undefined &&
+      selectionRoots.length > 0
+    ) {
+      onDeleteSelection(selectionRoots);
+      commitSelection(emptyOutlineSelection);
+    } else if (event.key === "Escape" && activeSelection.keys.size > 1 && cursorKey !== null) {
+      selectOnly(cursorKey);
     } else if (
       editing !== undefined &&
       cursor !== undefined &&
+      editing.isEditable?.(cursor) !== false &&
       event.key.length === 1 &&
       !event.altKey &&
       !event.ctrlKey &&
@@ -229,10 +311,14 @@ export function OutlineTree<Value>({
     <div
       aria-activedescendant={cursorKey === null || edit.activeKey !== null ? undefined : rowDomId(cursorKey)}
       aria-label={label}
+      aria-multiselectable="true"
       className="relative w-full rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/45"
       onFocus={() => {
         if (cursorKey === null && rows.length > 0) {
-          setCursorKey(rows[0]?.key ?? null);
+          const firstKey = rows[0]?.key;
+          if (firstKey !== undefined) {
+            selectOnly(firstKey);
+          }
         }
       }}
       onKeyDown={handleKeyDown}
@@ -242,84 +328,123 @@ export function OutlineTree<Value>({
       tabIndex={0}
     >
       {virtualizer.getVirtualItems().map((item) => {
-        const row = rows[item.index];
-        if (row === undefined) {
+        const visualRow = visualRows[item.index];
+        if (visualRow === undefined) {
           return null;
         }
+        const entries = visualRow.kind === "nodes" ? visualRow.visualRow.entries : [];
+        const placeholderLayout = visualRow.kind === "empty-child" ? visualRow.layout : undefined;
+        const usesColumns =
+          placeholderLayout?.column !== undefined || entries.some((entry) => entry.layout.column !== undefined);
+        const beginsInTrailingColumn =
+          placeholderLayout?.column === "trailing" || entries[0]?.layout.column === "trailing";
         return (
           <div
-            aria-expanded={row.hasChildren ? row.expanded : undefined}
-            aria-level={row.depth + 1}
-            aria-posinset={row.indexInParent + 1}
-            aria-selected={row.key === cursorKey}
-            aria-setsize={row.siblingCount}
-            className={cn(
-              "absolute inset-x-0 top-0 flex items-start gap-1 rounded-sm py-1 pr-2 transition-colors",
-              row.key === cursorKey ? "bg-accent text-accent-foreground" : "hover:bg-accent/50",
-              drag?.sourceKey === row.key && "opacity-40",
-            )}
+            className="absolute inset-x-0 top-0 grid min-h-8 items-start has-[[role=listbox]]:z-30"
             data-index={item.index}
-            data-ui="outline-row"
-            id={rowDomId(row.key)}
-            key={row.key}
-            onClick={() => {
-              setCursorKey(row.key);
-              onSelect?.(row.key);
-            }}
+            data-ui="outline-visual-row"
+            key={visualRow.key}
             ref={virtualizer.measureElement}
-            role="treeitem"
-            style={{ transform: `translateY(${String(item.start - virtualizer.options.scrollMargin)}px)` }}
+            style={{
+              gridTemplateColumns: usesColumns ? "min(16rem, 42%) minmax(0, 1fr)" : "minmax(0, 1fr)",
+              transform: `translateY(${String(item.start - virtualizer.options.scrollMargin)}px)`,
+            }}
           >
-            {Array.from({ length: row.depth }, (_, level) => (
-              <span
-                aria-hidden
-                className={cn("w-5 shrink-0 self-stretch", showGuides && "border-l border-border/70 ml-2.5 w-2.5")}
-                key={level}
+            {beginsInTrailingColumn ? <span aria-hidden /> : null}
+            {visualRow.kind === "empty-child" ? (
+              <OutlineEmptyChild
+                column={visualRow.layout.column}
+                indentDepth={visualRow.layout.indentDepth ?? visualRow.parent.depth + 1}
+                onActivate={() => edit.createChild(visualRow.parent)}
+                parentKey={visualRow.parent.key}
+                parentNodeId={visualRow.parent.occurrence.nodeId}
+                showGuides={showGuides}
               />
-            ))}
-            <OutlineRowControls
-              beforeIntent={edit.commitAndExit}
-              consumeDragClick={consumeDragClick}
-              draggable={onMove !== undefined}
-              onDragHandleDown={(event) => {
-                edit.commitAndExit();
-                handlePointerDown(row.key)(event);
-              }}
-              onExpandedChange={onExpandedChange}
-              onZoomIn={onZoomIn}
-              row={row}
-            />
-            <div className="min-w-0 flex-1 pt-0.5 text-body">
-              {editing === undefined ? (
-                renderRow(row)
-              ) : (
-                <OutlineInlineEditorProvider binding={edit.activeKey === row.key ? edit.binding : null}>
-                  <div
-                    className="flex max-w-full min-w-0"
-                    data-ui="outline-row-text"
-                    onClick={(event) => {
+            ) : (
+              visualRow.visualRow.entries.map(({ index, layout, row }) => {
+                const selected = activeSelection.keys.has(row.key);
+                return (
+                  <OutlineTreeRow
+                    consumeDragClick={consumeDragClick}
+                    cursor={row.key === cursorKey}
+                    draggable={onMove !== undefined}
+                    dragged={drag?.sourceKeys.includes(row.key) === true}
+                    editActiveKey={edit.activeKey}
+                    editBinding={edit.binding}
+                    editing={editing}
+                    indentDepth={layout.indentDepth ?? row.depth}
+                    key={row.key}
+                    layout={layout}
+                    logicalIndex={index}
+                    onCommitAndExit={edit.commitAndExit}
+                    onExpandedChange={requestExpandedChange}
+                    onPointerDown={(event) => {
+                      edit.commitAndExit();
+                      handlePointerDown(row.key)(event);
+                    }}
+                    onRowClick={(event) => {
+                      if (event.shiftKey) {
+                        commitSelection(extendOutlineSelection(rows, activeSelection, row.key));
+                      } else if (event.ctrlKey || event.metaKey) {
+                        commitSelection(toggleOutlineRow(activeSelection, row.key));
+                      } else {
+                        selectOnly(row.key);
+                      }
+                    }}
+                    onTextClick={(event) => {
                       event.stopPropagation();
-                      setCursorKey(row.key);
-                      onSelect?.(row.key);
+                      if (event.shiftKey) {
+                        commitSelection(extendOutlineSelection(rows, activeSelection, row.key));
+                        containerRef.current?.focus();
+                        return;
+                      }
+                      if (event.ctrlKey || event.metaKey) {
+                        commitSelection(toggleOutlineRow(activeSelection, row.key));
+                        containerRef.current?.focus();
+                        return;
+                      }
+                      selectOnly(row.key);
+                      if (editing?.isEditable?.(row) === false) {
+                        return;
+                      }
                       const content = event.currentTarget.querySelector<HTMLElement>(
                         '[data-ui="outline-inline-content"]',
                       );
                       if (content === null) {
                         edit.startAtEnd(row);
                       } else {
-                        const caret = caretOffsetAtPoint(content, event.clientX, event.clientY);
-                        edit.startAtCaret(row, caret);
+                        edit.startAtCaret(row, caretOffsetAtPoint(content, event.clientX, event.clientY));
                       }
                     }}
-                  >
-                    {renderRow(row)}
-                  </div>
-                </OutlineInlineEditorProvider>
-              )}
-            </div>
+                    onBulletClick={onBulletClick}
+                    renderBullet={renderBullet}
+                    renderRow={renderRow}
+                    row={row}
+                    rowDomId={rowDomId(row.key)}
+                    selected={selected}
+                    selectionSize={activeSelection.keys.size}
+                    showGuides={showGuides}
+                  />
+                );
+              })
+            )}
           </div>
         );
       })}
+      {activeSelection.keys.size > 1 ? (
+        <OutlineSelectionToolbar
+          count={activeSelection.keys.size}
+          onDelete={
+            onDeleteSelection === undefined
+              ? undefined
+              : () => {
+                  onDeleteSelection(selectionRoots);
+                  commitSelection(emptyOutlineSelection);
+                }
+          }
+          onMove={onMove === undefined ? undefined : performSelectionMove}
+        />
+      ) : null}
       {drag?.target == null ? null : (
         <div
           className="pointer-events-none absolute right-2 z-10 flex items-center"
@@ -329,105 +454,17 @@ export function OutlineTree<Value>({
           <span className="h-0.5 min-w-0 flex-1 rounded-full bg-primary" />
         </div>
       )}
-      {drag === null || draggedRow === undefined ? null : (
+      {drag === null || draggedRows[0] === undefined ? null : (
         <div
           className="pointer-events-none fixed z-50 max-w-72 rounded-md border border-border bg-popover px-3 py-1.5 text-body text-popover-foreground shadow-lg"
           style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 12 }}
         >
-          {renderRow(draggedRow)}
+          {renderRow(draggedRows[0])}
+          {draggedRows.length <= 1 ? null : (
+            <span className="ml-2 text-caption text-muted-foreground">+{String(draggedRows.length - 1)}</span>
+          )}
         </div>
       )}
     </div>
-  );
-}
-
-function OutlineRowControls<Value>({
-  beforeIntent,
-  consumeDragClick,
-  draggable,
-  onDragHandleDown,
-  onExpandedChange,
-  onZoomIn,
-  row,
-}: Readonly<{
-  beforeIntent: () => void;
-  consumeDragClick: () => boolean;
-  draggable: boolean;
-  onDragHandleDown: (event: ReactPointerEvent) => void;
-  onExpandedChange: (key: string, expanded: boolean) => void;
-  onZoomIn?: (key: string) => void;
-  row: OutlineRow<Value>;
-}>) {
-  return (
-    <span className="flex shrink-0 items-center gap-0.5 pt-0.5">
-      <button
-        aria-label={row.expanded ? `Collapse ${row.node.id}` : `Expand ${row.node.id}`}
-        className={cn(
-          "grid size-5 place-items-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/45",
-          !row.hasChildren && "invisible",
-        )}
-        onClick={(event) => {
-          event.stopPropagation();
-          beforeIntent();
-          onExpandedChange(row.key, !row.expanded);
-        }}
-        onMouseDown={(event) => event.preventDefault()}
-        tabIndex={-1}
-        type="button"
-      >
-        <Icon
-          className={cn("size-3.5 transition-transform duration-(--lode-duration-fast)", row.expanded && "rotate-90")}
-          name="chevron-right"
-        />
-      </button>
-      {onZoomIn === undefined ? (
-        <span
-          aria-hidden
-          className={cn("grid size-5 place-items-center", draggable && "cursor-grab touch-none")}
-          data-ui="outline-bullet"
-          onPointerDown={draggable ? onDragHandleDown : undefined}
-        >
-          <OutlineBullet reference={row.node.kind === "reference"} haloed={row.hasChildren && !row.expanded} />
-        </span>
-      ) : (
-        <button
-          aria-label={`Open ${row.node.id} as page`}
-          className={cn(
-            "grid size-5 place-items-center rounded-full outline-none hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring/45",
-            draggable && "cursor-grab touch-none",
-          )}
-          data-ui="outline-bullet"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (!consumeDragClick()) {
-              beforeIntent();
-              onZoomIn(row.key);
-            }
-          }}
-          onMouseDown={(event) => event.preventDefault()}
-          onPointerDown={draggable ? onDragHandleDown : undefined}
-          tabIndex={-1}
-          type="button"
-        >
-          <OutlineBullet reference={row.node.kind === "reference"} haloed={row.hasChildren && !row.expanded} />
-        </button>
-      )}
-    </span>
-  );
-}
-
-// The Tana-style bullet: a collapsed node with children wears a soft halo so
-// hidden depth stays visible; a reference appearance is hollow because its
-// original lives elsewhere.
-function OutlineBullet({ haloed, reference }: Readonly<{ haloed: boolean; reference: boolean }>) {
-  return (
-    <span className={cn("grid size-3 place-items-center rounded-full", haloed && "bg-secondary")}>
-      <span
-        className={cn(
-          "size-1.5 rounded-full",
-          reference ? "border border-muted-foreground bg-transparent" : "bg-muted-foreground",
-        )}
-      />
-    </span>
   );
 }

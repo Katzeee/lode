@@ -17,13 +17,24 @@ export { ListDetail } from "./components/list-detail.js";
 export { NavItem, NavRailItem, NavSectionLabel } from "./components/nav.js";
 export {
   OutlineInlineContent,
+  OutlineBullet,
+  OutlineRowContent,
+  OutlineRowProgress,
   OutlineTree,
+  type OutlineBulletAppearance,
   type OutlineContent,
+  type OutlineCompletionContext,
+  type OutlineCompletionItem,
+  type OutlineCompletionMatch,
+  type OutlineCompletionProvider,
   type OutlineInline,
   type OutlineMark,
   type OutlineMove,
-  type OutlineNode,
+  type OutlineOccurrence,
   type OutlineRow,
+  type OutlineRowLayout,
+  type OutlineRowBadge,
+  type OutlineSelection,
   type OutlineTreeEditing,
 } from "./components/outline-tree.js";
 export { PageScaffold } from "./components/page-scaffold.js";

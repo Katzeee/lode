@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
 import type { OutlineMove, OutlineRow } from "./outline-tree-model.js";
+import { selectedOutlineRoots } from "./outline-selection.js";
 
 // One indent level in pixels; must match the rail width in the row layout.
 export const OUTLINE_INDENT = 20;
@@ -18,7 +19,7 @@ export type OutlineDropTarget = Readonly<{
 
 export type OutlineDragState = Readonly<{
   pointer: Readonly<{ x: number; y: number }>;
-  sourceKey: string;
+  sourceKeys: readonly string[];
   target: OutlineDropTarget | null;
 }>;
 
@@ -28,13 +29,21 @@ type DragOptions<Value> = Readonly<{
   onCommit: (move: OutlineMove) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   rows: readonly OutlineRow<Value>[];
+  selectedKeys: ReadonlySet<string>;
 }>;
 
-export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpandedChange, rows }: DragOptions<Value>) {
+export function useOutlineDrag<Value>({
+  containerRef,
+  enabled,
+  onCommit,
+  onExpandedChange,
+  rows,
+  selectedKeys,
+}: DragOptions<Value>) {
   const [drag, setDrag] = useState<OutlineDragState | null>(null);
   const session = useRef<{
     pointerId: number;
-    sourceKey: string;
+    sourceKeys: readonly string[];
     springKey: string | null;
     springTimer: number | null;
     startX: number;
@@ -54,6 +63,10 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
     if (drag === null) {
       return;
     }
+    const previousCursor = document.body.style.cursor;
+    const previousSelection = document.body.style.userSelect;
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
     let frame = 0;
     const step = () => {
       const pointer = dragRef.current?.pointer;
@@ -67,7 +80,11 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
       frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelection;
+    };
   }, [drag !== null]);
 
   const resolveTarget = (x: number, y: number): OutlineDropTarget | null => {
@@ -103,7 +120,7 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
     const desired = Math.round((x - containerRect.left) / OUTLINE_INDENT);
     const depth = Math.max(minDepth, Math.min(maxDepth, desired));
 
-    const move = resolveMove(currentRows, active.sourceKey, above, depth);
+    const move = resolveMove(currentRows, active.sourceKeys, above, depth);
     if (move === null) {
       return null;
     }
@@ -112,7 +129,7 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
 
   const scheduleSpringLoad = (hovered: OutlineRow<Value>) => {
     const active = session.current;
-    if (active === null || !hovered.hasChildren || hovered.expanded || hovered.key === active.sourceKey) {
+    if (active === null || !hovered.hasChildren || hovered.expanded || active.sourceKeys.includes(hovered.key)) {
       return;
     }
     if (active.springKey === hovered.key) {
@@ -138,10 +155,11 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
     if (!enabled || event.button !== 0) {
       return;
     }
+    const sourceKeys = selectedKeys.has(sourceKey) ? selectedOutlineRoots(rowsRef.current, selectedKeys) : [sourceKey];
     suppressClickRef.current = false;
     session.current = {
       pointerId: event.pointerId,
-      sourceKey,
+      sourceKeys,
       springKey: null,
       springTimer: null,
       startX: event.clientX,
@@ -160,7 +178,7 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
       moveEvent.preventDefault();
       setDrag({
         pointer: { x: moveEvent.clientX, y: moveEvent.clientY },
-        sourceKey: active.sourceKey,
+        sourceKeys: active.sourceKeys,
         target: resolveTarget(moveEvent.clientX, moveEvent.clientY),
       });
     };
@@ -202,17 +220,17 @@ export function useOutlineDrag<Value>({ containerRef, enabled, onCommit, onExpan
 /** Resolve the gap "after `above`, at `depth`" into a concrete move. */
 function resolveMove<Value>(
   rows: readonly OutlineRow<Value>[],
-  sourceKey: string,
+  sourceKeys: readonly string[],
   above: OutlineRow<Value> | undefined,
   depth: number,
 ): OutlineMove | null {
   let move: OutlineMove;
   if (above === undefined) {
-    move = { index: 0, sourceKey, targetParentKey: null };
+    move = { index: 0, sourceKeys, targetParentKey: null };
   } else if (depth === above.depth + 1) {
     move = {
-      index: above.expanded ? 0 : (above.node.children?.length ?? 0),
-      sourceKey,
+      index: above.expanded ? 0 : (above.occurrence.children?.length ?? 0),
+      sourceKeys,
       targetParentKey: above.key,
     };
   } else {
@@ -224,21 +242,25 @@ function resolveMove<Value>(
     if (sibling === undefined) {
       return null;
     }
-    move = { index: sibling.indexInParent + 1, sourceKey, targetParentKey: sibling.parentKey };
+    move = { index: sibling.indexInParent + 1, sourceKeys, targetParentKey: sibling.parentKey };
   }
 
   // A subtree cannot land inside itself, and landing beside itself is a no-op.
   if (
     move.targetParentKey !== null &&
-    (move.targetParentKey === sourceKey || move.targetParentKey.startsWith(`${sourceKey}/`))
+    sourceKeys.some(
+      (sourceKey) => move.targetParentKey === sourceKey || move.targetParentKey?.startsWith(`${sourceKey}/`) === true,
+    )
   ) {
     return null;
   }
-  const source = rows.find((row) => row.key === sourceKey);
+  const sources = sourceKeys
+    .map((sourceKey) => rows.find((row) => row.key === sourceKey))
+    .filter((source): source is OutlineRow<Value> => source !== undefined);
   if (
-    source !== undefined &&
-    move.targetParentKey === source.parentKey &&
-    (move.index === source.indexInParent || move.index === source.indexInParent + 1)
+    sources.length === 1 &&
+    move.targetParentKey === sources[0]?.parentKey &&
+    (move.index === sources[0]?.indexInParent || move.index === (sources[0]?.indexInParent ?? -1) + 1)
   ) {
     return null;
   }
