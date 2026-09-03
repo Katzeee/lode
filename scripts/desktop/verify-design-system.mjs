@@ -40,10 +40,11 @@ try {
   await verifyOverlaysAtShortViewport(page);
   await verifyCatalogDrawer(page);
   await page.setViewportSize({ height: 900, width: 1000 });
+  await verifyOutlineTree(page);
   await verifyResponsivePatterns(page);
   await verifyCoarsePointerBehavior(page);
   process.stdout.write(
-    `Verified ${catalogPages.length} accessible catalog pages across ${String(deviceViewports.length)} device viewports, the responsive layout tiers, the compact navigation drawer, short-viewport overlays, and coarse-pointer touch targets.\n`,
+    `Verified ${catalogPages.length} accessible catalog pages across ${String(deviceViewports.length)} device viewports, the responsive layout tiers, the compact navigation drawer, the outline tree, short-viewport overlays, and coarse-pointer touch targets.\n`,
   );
 } finally {
   await application.close();
@@ -139,6 +140,85 @@ async function verifyCatalogDrawer(page) {
     await page.locator("main h1").first().textContent(),
     "Buttons",
     "selecting a drawer destination must navigate and close the drawer",
+  );
+}
+
+async function verifyOutlineTree(page) {
+  await navigateToCatalogPage(page, "components/outline");
+  const tree = page.getByRole("tree");
+  await tree.waitFor({ state: "visible" });
+  const rowByText = (text) => page.locator('[data-ui="outline-row"]', { hasText: text }).first();
+
+  await tree.focus();
+  await page.keyboard.press("ArrowLeft");
+  assert.equal(
+    await rowByText("Projects").getAttribute("aria-expanded"),
+    "false",
+    "ArrowLeft must collapse the cursor row",
+  );
+  await page.keyboard.press("ArrowRight");
+  assert.equal(
+    await rowByText("Projects").getAttribute("aria-expanded"),
+    "true",
+    "ArrowRight must expand the cursor row",
+  );
+
+  const inbox = rowByText("Reading inbox");
+  assert.equal(await inbox.getAttribute("aria-level"), "1", "the demo starts with Reading inbox at the root level");
+  await inbox.click();
+  await page.keyboard.press("Tab");
+  await page
+    .locator('[data-ui="outline-row"][aria-level="2"]', { hasText: "Reading inbox" })
+    .first()
+    .waitFor({ state: "visible" });
+
+  await rowByText("Projects").locator('[data-ui="outline-bullet"]').click();
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
+  await breadcrumb.waitFor({ state: "visible" });
+  assert.equal(
+    (await breadcrumb.locator('[aria-current="page"]').textContent())?.trim(),
+    "Projects",
+    "zooming a node must land its title in the breadcrumb",
+  );
+  await page.locator('[data-ui="outline-row"][aria-level="1"]', { hasText: "Lode" }).first().waitFor({
+    state: "visible",
+  });
+  await breadcrumb.getByRole("button", { name: "All nodes" }).click();
+  await breadcrumb.waitFor({ state: "detached" });
+
+  // Remount for a clean structure, then restructure by dragging a bullet.
+  await navigateToCatalogPage(page, "components/buttons");
+  await navigateToCatalogPage(page, "components/outline");
+  const handle = rowByText("Home lab notes").locator('[data-ui="outline-bullet"]');
+  const handleBox = await handle.boundingBox();
+  const lodeBox = await rowByText("Lode").boundingBox();
+  const treeBox = await page.getByRole("tree").boundingBox();
+  assert.ok(handleBox !== null && lodeBox !== null && treeBox !== null, "drag geometry must be measurable");
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(treeBox.x + 30, lodeBox.y + 3, { steps: 10 });
+  const indicator = await page.evaluate(
+    () => document.querySelector('[role="tree"] .bg-primary.h-0\\.5') !== null,
+  );
+  assert.equal(indicator, true, "an eligible drop position must show the insertion line");
+  await page.mouse.up();
+  const moved = rowByText("Home lab notes");
+  assert.equal(await moved.getAttribute("aria-level"), "2", "the dragged row must land under Projects");
+  assert.equal(await moved.getAttribute("aria-posinset"), "1", "the dragged row must land before Lode");
+
+  // Dropping a subtree into its own descendant must be rejected.
+  const projectsHandle = rowByText("Projects").locator('[data-ui="outline-bullet"]');
+  const projectsBox = await projectsHandle.boundingBox();
+  const roadmapBox = await rowByText("Design system roadmap").boundingBox();
+  assert.ok(projectsBox !== null && roadmapBox !== null, "illegal-drop geometry must be measurable");
+  await page.mouse.move(projectsBox.x + projectsBox.width / 2, projectsBox.y + projectsBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(roadmapBox.x + roadmapBox.width / 2, roadmapBox.y + roadmapBox.height - 3, { steps: 10 });
+  await page.mouse.up();
+  assert.equal(
+    await rowByText("Projects").getAttribute("aria-level"),
+    "1",
+    "a subtree must never move into its own descendants",
   );
 }
 

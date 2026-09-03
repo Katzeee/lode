@@ -18,7 +18,9 @@
     "clean": "node ../../scripts/clean-package-dist.mjs",
     "prebuild": "npm run clean",
     "build": "tsc",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "typecheck:test": "tsc -p tsconfig.test.json",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
@@ -26,14 +28,18 @@
     "@base-ui/react": "^1.7.0",
     "@lode/design-system-catalog": "file:../design-system-catalog",
     "@lode/design-tokens": "file:../design-tokens",
+    "@tanstack/react-virtual": "^3.14.10",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.39.0",
     "react": "19.2.3",
+    "react-dom": "^19.2.3",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.11"
   }
 }

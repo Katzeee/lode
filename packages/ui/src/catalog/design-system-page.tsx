@@ -13,6 +13,7 @@ import { ButtonsPage, FormsPage, StatusPage, SurfacesPage } from "./component-pa
 import { ContentPage } from "./content-page.js";
 import { ColorPage, GeometryPage, TypographyPage } from "./foundation-pages.js";
 import { NavigationPage } from "./navigation-page.js";
+import { OutlinePage } from "./outline-page.js";
 import { OverviewPage } from "./overview-page.js";
 import { OverlaysPage } from "./overlays-page.js";
 import { LayoutPage } from "./layout-page.js";
@@ -145,6 +146,9 @@ function PageContent({
     }
     case "navigation": {
       return <NavigationPage />;
+    }
+    case "outline": {
+      return <OutlinePage />;
     }
     case "overlays": {
       return <OverlaysPage />;

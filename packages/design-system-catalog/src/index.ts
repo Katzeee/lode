@@ -23,6 +23,7 @@ export const iconNames = [
   "house",
   "layers",
   "layout-template",
+  "list-tree",
   "menu",
   "messages-square",
   "moon",
@@ -51,6 +52,7 @@ export type CatalogPageId =
   | "buttons"
   | "forms"
   | "navigation"
+  | "outline"
   | "overlays"
   | "status"
   | "surfaces"
@@ -126,6 +128,12 @@ export const catalogSections: readonly CatalogSection[] = [
         "Tabs, breadcrumbs, and the patterns that move between views.",
       ),
       page(
+        "outline",
+        "components/outline",
+        "Outline",
+        "The node tree behind every surface: rows, zoom, and keyboard structure editing.",
+      ),
+      page(
         "overlays",
         "components/overlays",
         "Overlays",
@@ -167,6 +175,7 @@ export const catalogPageIcons: Readonly<Record<CatalogPageId, IconName>> = {
   buttons: "mouse-pointer-click",
   forms: "text-cursor-input",
   navigation: "compass",
+  outline: "list-tree",
   overlays: "ellipsis",
   status: "circle-alert",
   surfaces: "layers",

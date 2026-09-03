@@ -216,6 +216,13 @@ export function StatusPage() {
             {tone.charAt(0).toUpperCase() + tone.slice(1)}
           </Badge>
         ))}
+        <p className="w-full text-body">
+          The inline size rides along body text: a node tagged{" "}
+          <Badge size="inline" tone="accent">
+            #project
+          </Badge>{" "}
+          keeps its line height.
+        </p>
       </Specimen>
       <Specimen className="flex-col flex-nowrap items-stretch" title="Alerts">
         {alertTones.map((tone) => (

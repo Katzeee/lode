@@ -564,6 +564,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/ui/src/**/*.test.ts"],
+    languageOptions: {
+      parserOptions: { project: "packages/ui/tsconfig.test.json", tsconfigRootDir: import.meta.dirname },
+    },
+  },
+  {
     files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
