@@ -1,14 +1,22 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { tokens } from '@lode/design-tokens';
+import type { IconName } from '@lode/design-system-catalog';
 
+import { Icon } from './icon';
 import { Text } from './text';
 import { useColors } from './theme';
 
 export function NavRow({
   description,
+  icon,
   onPress,
   title,
-}: Readonly<{ description?: string; onPress: () => void; title: string }>) {
+}: Readonly<{
+  description?: string;
+  icon?: IconName;
+  onPress: () => void;
+  title: string;
+}>) {
   const colors = useColors();
   return (
     <Pressable
@@ -20,6 +28,9 @@ export function NavRow({
         pressed && { opacity: tokens.opacity.pressed },
       ]}
     >
+      {icon === undefined ? null : (
+        <Icon color="muted-foreground" name={icon} />
+      )}
       <View style={styles.copy}>
         <Text weight="medium">{title}</Text>
         {description === undefined ? null : (

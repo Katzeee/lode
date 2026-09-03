@@ -475,6 +475,8 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/build/**",
+      "**/out/**",
       "**/node_modules/**",
       "**/coverage/**",
       "**/src/gen/**",

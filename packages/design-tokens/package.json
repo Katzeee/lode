@@ -15,6 +15,7 @@
     "clean": "node ../../scripts/clean-package-dist.mjs",
     "prebuild": "npm run clean",
     "build": "node scripts/generate.mjs && tsc",
+    "test": "node --test scripts/generate.test.mjs",
     "typecheck": "node scripts/generate.mjs --source-only && tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

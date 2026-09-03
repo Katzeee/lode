@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { themeVariableGroups } from "@lode/design-tokens";
+import { useEffect, useState } from "react";
 
 import { Alert } from "../ui/alert.js";
 import { Badge, BadgeDot } from "../ui/badge.js";
@@ -6,7 +7,14 @@ import { Button } from "../ui/button.js";
 import { Field, FieldLabel } from "../ui/field.js";
 import { Input } from "../ui/input.js";
 import { Textarea } from "../ui/textarea.js";
-import { applyUserTheme, clearUserTheme, themeNames, type ThemeName } from "./catalog-theme.js";
+import {
+  applyUserTheme,
+  clearUserTheme,
+  observeThemeVariableChanges,
+  themeNames,
+  type ThemeName,
+  useCatalogMode,
+} from "./catalog-theme.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
 export function ThemingPage({
@@ -48,8 +56,78 @@ export function ThemingPage({
           </div>
         ))}
       </Specimen>
+      <ThemeVariablesSpecimen theme={theme} />
       <CustomThemeSpecimen />
     </>
+  );
+}
+
+function ThemeVariablesSpecimen({ theme }: Readonly<{ theme: ThemeName }>) {
+  const mode = useCatalogMode();
+  const [values, setValues] = useState<Record<string, string>>(() => fallbackVariableValues(theme, mode));
+
+  useEffect(() => {
+    const update = () => {
+      const computed = getComputedStyle(document.documentElement);
+      setValues(
+        Object.fromEntries(
+          themeVariableGroups.flatMap(({ variables }) =>
+            variables.map(({ name }) => [name, computed.getPropertyValue(name).trim()]),
+          ),
+        ),
+      );
+    };
+    const frame = window.requestAnimationFrame(update);
+    const stopObserving = observeThemeVariableChanges(update);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      stopObserving();
+    };
+  }, [mode, theme]);
+
+  return (
+    <Specimen
+      className="flex-col flex-nowrap items-stretch gap-6"
+      description="This generated list is the complete custom-theme API. Values are read from the catalog root, so they reflect the active theme, mode, and custom CSS."
+      title="Variables"
+    >
+      {themeVariableGroups.map((group) => (
+        <div className="flex flex-col gap-2" key={group.id}>
+          <h3 className="text-label font-semibold">{group.title}</h3>
+          <div className="overflow-hidden rounded-md border border-border">
+            {group.variables.map((variable) => {
+              const value = values[variable.name] ?? variable.values[theme][mode];
+              return (
+                <div
+                  className="grid grid-cols-1 gap-1 border-b border-border px-3 py-2 last:border-b-0 @xl:grid-cols-2 @xl:items-center"
+                  key={variable.name}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    {variable.kind === "color" ? (
+                      <span
+                        aria-hidden
+                        className="size-6 shrink-0 rounded-xs border border-border"
+                        style={{ backgroundColor: value }}
+                      />
+                    ) : null}
+                    <code className="min-w-0 break-all font-mono text-caption text-foreground">{variable.name}</code>
+                  </div>
+                  <code className="break-all font-mono text-caption text-muted-foreground">{value}</code>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+    </Specimen>
+  );
+}
+
+function fallbackVariableValues(theme: ThemeName, mode: "light" | "dark"): Record<string, string> {
+  return Object.fromEntries(
+    themeVariableGroups.flatMap(({ variables }) =>
+      variables.map((variable) => [variable.name, variable.values[theme][mode]]),
+    ),
   );
 }
 

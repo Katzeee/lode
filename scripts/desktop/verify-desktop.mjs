@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 
 import { _electron } from "playwright-core";
 
+import { verifyCatalogAccessibility } from "./catalog-accessibility.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const architecture = process.arch === "arm64" ? "arm64" : "x64";
@@ -72,6 +74,7 @@ try {
   assert.ok(overflow <= 1, `The normal 800px window has ${overflow}px of horizontal overflow`);
   await mkdir(dirname(verificationImage), { recursive: true });
   await cold.page.screenshot({ path: verificationImage, fullPage: true });
+  await verifyCatalogAccessibility(cold.page);
   const coldShutdown = await closePackaged(cold);
   assert.equal(coldShutdown.shutdown?.ownedExited, true);
   await assertAuthorityFilesAbsent(home);
@@ -164,10 +167,7 @@ async function verifyArtifact() {
   const sourceFont = await readFile(
     join(repositoryRoot, "packages", "design-tokens", "assets", "fonts", "HarmonyOS_Sans_SC.ttf"),
   );
-  const packagedFont = asar.extractFile(
-    packagePath,
-    join("dist", "assets", "fonts", "HarmonyOS_Sans_SC.ttf"),
-  );
+  const packagedFont = asar.extractFile(packagePath, join("dist", "assets", "fonts", "HarmonyOS_Sans_SC.ttf"));
   assert.equal(sha256(packagedFont), sha256(sourceFont), "Packaged HarmonyOS Sans must remain byte-identical");
 }
 

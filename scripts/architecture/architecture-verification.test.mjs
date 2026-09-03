@@ -358,6 +358,37 @@ test("counts an aliased require resolver as a production package dependency", as
   );
 });
 
+test("counts a required peer of an imported package as a production dependency", async () => {
+  await withFixture(
+    {
+      "packages/a/src/index.ts": 'import "render-kit"; export const ready = true;\n',
+      "node_modules/render-kit/package.json": JSON.stringify({
+        name: "render-kit",
+        peerDependencies: { "native-canvas": "^1.0.0" },
+      }),
+    },
+    async (result) => assert.deepEqual(result.diagnostics, []),
+    undefined,
+    { dependencies: { "native-canvas": "^1.0.0", "render-kit": "^1.0.0" } },
+  );
+});
+
+test("does not count an optional peer as a production dependency", async () => {
+  await withFixture(
+    {
+      "packages/a/src/index.ts": 'import "render-kit"; export const ready = true;\n',
+      "node_modules/render-kit/package.json": JSON.stringify({
+        name: "render-kit",
+        peerDependencies: { "optional-adapter": "^1.0.0" },
+        peerDependenciesMeta: { "optional-adapter": { optional: true } },
+      }),
+    },
+    async (result) => assert.deepEqual(categories(result), ["unused package dependency"]),
+    undefined,
+    { dependencies: { "optional-adapter": "^1.0.0", "render-kit": "^1.0.0" } },
+  );
+});
+
 test("counts import.meta resolve as a production package dependency", async () => {
   await withFixture(
     {
@@ -923,10 +954,11 @@ test("desktop and mobile ship the same ui component vocabulary", async () => {
   const desktop = await components("apps/desktop/src/renderer/ui");
   const mobile = await components("apps/mobile/src/ui");
   // Web styling utilities with no React Native counterpart, and vice versa:
-  // cn/separator are CSS-layer concerns; text/theme exist because React Native
-  // has no cascade to own typography and theme scoping.
-  const desktopOnly = new Set(["cn", "separator"]);
-  const mobileOnly = new Set(["text", "theme"]);
+  // cn/separator/tooltip are CSS or hover-layer concerns; text/theme/motion
+  // exist because React Native has no cascade, media-query motion layer, or
+  // hover interaction. Long-press actions are owned by DropdownMenu instead.
+  const desktopOnly = new Set(["cn", "separator", "tooltip"]);
+  const mobileOnly = new Set(["text", "theme", "motion"]);
   const shared = (all, extras) => [...all].filter((name) => !extras.has(name)).sort();
   assert.deepEqual(shared(desktop, desktopOnly), shared(mobile, mobileOnly));
 });

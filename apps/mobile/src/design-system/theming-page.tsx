@@ -1,5 +1,5 @@
 import { StyleSheet, View } from 'react-native';
-import { tokens } from '@lode/design-tokens';
+import { themeVariableGroups, tokens } from '@lode/design-tokens';
 
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -10,6 +10,7 @@ import {
   themeNames,
   ThemeProvider,
   useColors,
+  useThemeMode,
   type ThemeMode,
   type ThemeName,
 } from '../ui/theme';
@@ -57,7 +58,63 @@ export function ThemingPage({
           )),
         )}
       </Specimen>
+      <ThemeVariablesSpecimen theme={theme} />
     </>
+  );
+}
+
+function ThemeVariablesSpecimen({ theme }: Readonly<{ theme: ThemeName }>) {
+  const mode = useThemeMode();
+  const colors = useColors();
+  return (
+    <Specimen
+      description="This generated list is the complete desktop custom-theme API. Values resolve for the active built-in theme and mode; mobile consumes the same source tokens directly."
+      title="Variables"
+    >
+      {themeVariableGroups.map(group => (
+        <View key={group.id} style={styles.variableGroup}>
+          <Text variant="label" weight="semibold">
+            {group.title}
+          </Text>
+          {group.variables.map(variable => {
+            const value = variable.values[theme][mode];
+            return (
+              <View
+                key={variable.name}
+                style={[styles.variableRow, { borderColor: colors.border }]}
+              >
+                {variable.kind === 'color' ? (
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no"
+                    style={[
+                      styles.variableSwatch,
+                      {
+                        backgroundColor: value,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  />
+                ) : null}
+                <View style={styles.variableText}>
+                  <Text mono selectable variant="caption">
+                    {variable.name}
+                  </Text>
+                  <Text
+                    color="muted-foreground"
+                    mono
+                    selectable
+                    variant="caption"
+                  >
+                    {value}
+                  </Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      ))}
+    </Specimen>
   );
 }
 
@@ -114,4 +171,19 @@ const styles = StyleSheet.create({
   },
   frameLabel: { letterSpacing: 1.1 },
   frameActions: { flexDirection: 'row', gap: tokens.space.xs },
+  variableGroup: { gap: tokens.space.xs },
+  variableRow: {
+    alignItems: 'center',
+    borderTopWidth: tokens.stroke.thin,
+    flexDirection: 'row',
+    gap: tokens.space.sm,
+    paddingTop: tokens.space.xs,
+  },
+  variableSwatch: {
+    borderRadius: tokens.radius.xs,
+    borderWidth: tokens.stroke.thin,
+    height: tokens.control.height.compact,
+    width: tokens.control.height.compact,
+  },
+  variableText: { flex: 1, gap: tokens.space['2xs'] },
 });

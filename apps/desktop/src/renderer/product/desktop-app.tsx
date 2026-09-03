@@ -4,8 +4,10 @@ import type { DesktopBridge, DesktopState } from "../../bridge/contract.cjs";
 import { ActionPanel } from "./action-panel.js";
 import { authorityText, shortIdentity } from "./desktop-state-presentation.js";
 import { Alert } from "../ui/alert.js";
+import { AppShell, type AppShellItem } from "../ui/app-shell.js";
 import { Badge, BadgeDot } from "../ui/badge.js";
 import { Card, CardHeader, CardTitle } from "../ui/card.js";
+import { PageScaffold } from "../ui/page-scaffold.js";
 
 const bootState: DesktopState = {
   phase: "initializing",
@@ -18,6 +20,12 @@ const bootState: DesktopState = {
   notice: null,
   error: null,
 };
+
+const navigationItems: readonly AppShellItem[] = [
+  { id: "product", icon: "house", label: "Home", target: "#/" },
+  { id: "design-system", icon: "shapes", label: "Design system", target: "#/design-system" },
+  { id: "legal", icon: "type", label: "Legal", target: "#/legal" },
+];
 
 export function DesktopApp({ bridge }: Readonly<{ bridge: DesktopBridge }>) {
   const [state, setState] = useState(bootState);
@@ -40,84 +48,46 @@ export function DesktopApp({ bridge }: Readonly<{ bridge: DesktopBridge }>) {
     };
   }, [bridge]);
 
+  const healthy = state.authority === "owned" || state.authority === "reused";
   return (
-    <main
-      className="@container mx-auto flex min-h-screen w-full max-w-280 flex-col px-6 pb-14 @3xl:px-10"
-      data-phase={state.phase}
-    >
-      <Topbar authority={state.authority} />
-
-      <section
-        className="grid items-end gap-10 py-12 @3xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,1fr)]"
-        id="main-panel"
+    <AppShell activeItemId="product" items={navigationItems}>
+      <PageScaffold
+        actions={
+          <Badge className="min-w-0" data-testid="authority" tone={healthy ? "success" : "warning"}>
+            <BadgeDot />
+            <span className="truncate">{authorityText(state.authority)}</span>
+          </Badge>
+        }
+        description={state.detail}
+        eyebrow="Local knowledge, one authority"
+        title={state.headline}
       >
-        <div>
-          <p className="mb-3 text-caption font-semibold tracking-widest text-primary uppercase">
-            Local knowledge, one authority
-          </p>
-          <h1 className="text-display font-medium tracking-tight text-balance" data-testid="phase">
+        <div data-phase={state.phase}>
+          <span className="sr-only" data-testid="phase">
             {state.headline}
-          </h1>
-          <p className="mt-4 max-w-165 text-body-large text-muted-foreground">{state.detail}</p>
+          </span>
+          <HomeIdentity state={state} />
+
+          {state.notice === null ? null : (
+            <Alert className="mt-6" data-testid="notice" tone="warning">
+              {state.notice}
+            </Alert>
+          )}
+          {state.error === null ? null : (
+            <Alert className="mt-6" data-testid="error" tone="destructive">
+              {state.error}
+            </Alert>
+          )}
+
+          <section className="mt-6 grid items-start gap-6 @3xl/app-shell:grid-cols-[minmax(0,1fr)_minmax(20rem,0.85fr)]">
+            <Card className="p-7 shadow-md @3xl/app-shell:p-8">
+              <ActionPanel bridge={bridge} state={state} setState={setState} />
+            </Card>
+            <Inventory state={state} />
+          </section>
         </div>
-        <HomeIdentity state={state} />
-      </section>
-
-      {state.notice === null ? null : (
-        <Alert className="mb-8" data-testid="notice" tone="warning">
-          {state.notice}
-        </Alert>
-      )}
-      {state.error === null ? null : (
-        <Alert className="mb-8" data-testid="error" tone="destructive">
-          {state.error}
-        </Alert>
-      )}
-
-      <section className="grid flex-1 items-start gap-6 @3xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
-        <Card className="p-7 shadow-md @3xl:p-8">
-          <ActionPanel bridge={bridge} state={state} setState={setState} />
-        </Card>
-        <Inventory state={state} />
-      </section>
-    </main>
-  );
-}
-
-function Topbar({ authority }: Readonly<{ authority: DesktopState["authority"] }>) {
-  const healthy = authority === "owned" || authority === "reused";
-  return (
-    <header className="flex min-h-20 items-center justify-between gap-4 border-b border-border">
-      <a
-        aria-label="Lode home"
-        className="flex items-center gap-2.5 text-body-large font-bold tracking-tight"
-        href="#main-panel"
-      >
-        <span className="grid size-8 place-items-center rounded-sm bg-primary text-label font-bold text-primary-foreground">
-          L
-        </span>
-        Lode
-      </a>
-      <nav className="flex min-w-0 items-center gap-1.5">
-        <TopbarLink href="#/design-system">Design system</TopbarLink>
-        <TopbarLink href="#/legal">Legal</TopbarLink>
-        <Badge className="min-w-0" data-testid="authority" tone={healthy ? "success" : "warning"}>
-          <BadgeDot />
-          <span className="truncate">{authorityText(authority)}</span>
-        </Badge>
-      </nav>
-    </header>
-  );
-}
-
-function TopbarLink({ children, href }: Readonly<{ children: string; href: string }>) {
-  return (
-    <a
-      className="hidden rounded-sm px-2.5 py-1.5 text-label font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground @2xl:inline-block"
-      href={href}
-    >
-      {children}
-    </a>
+      </PageScaffold>
+    </AppShell>
   );
 }
 

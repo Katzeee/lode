@@ -1,37 +1,11 @@
-import { catalogSections, overviewPage, type CatalogPage, type CatalogPageId } from "@lode/design-system-catalog";
-import {
-  AppWindow,
-  CircleAlert,
-  House,
-  Layers,
-  Moon,
-  MousePointerClick,
-  Palette,
-  Shapes,
-  Sun,
-  SunMoon,
-  TextCursorInput,
-  Type,
-  type LucideIcon,
-} from "lucide-react";
+import { catalogPageIcons, catalogSections, overviewPage, type CatalogPage } from "@lode/design-system-catalog";
 
 import { Button } from "../ui/button.js";
+import { Icon } from "../ui/icon.js";
 import { NavItem, NavRailItem, NavSectionLabel } from "../ui/nav.js";
 import { Separator } from "../ui/separator.js";
+import { Tooltip } from "../ui/tooltip.js";
 import type { CatalogMode } from "./catalog-theme.js";
-
-const pageIcons: Readonly<Record<CatalogPageId, LucideIcon>> = {
-  overview: House,
-  color: Palette,
-  theming: SunMoon,
-  typography: Type,
-  geometry: Shapes,
-  buttons: MousePointerClick,
-  forms: TextCursorInput,
-  status: CircleAlert,
-  surfaces: Layers,
-  product: AppWindow,
-};
 
 function pageHref(page: CatalogPage): string {
   return `#/design-system/${page.path}`;
@@ -78,7 +52,7 @@ function SidebarNavigation({ currentPage, mode, onModeChange }: NavigationProper
         <NavItem
           active={currentPage.id === overviewPage.id}
           href={pageHref(overviewPage)}
-          icon={pageIcons[overviewPage.id]}
+          icon={catalogPageIcons[overviewPage.id]}
         >
           {overviewPage.title}
         </NavItem>
@@ -90,7 +64,7 @@ function SidebarNavigation({ currentPage, mode, onModeChange }: NavigationProper
                 <NavItem
                   active={currentPage.id === page.id}
                   href={pageHref(page)}
-                  icon={pageIcons[page.id]}
+                  icon={catalogPageIcons[page.id]}
                   key={page.id}
                 >
                   {page.title}
@@ -105,7 +79,7 @@ function SidebarNavigation({ currentPage, mode, onModeChange }: NavigationProper
 }
 
 function DockNavigation({ currentPage, mode, onModeChange }: NavigationProperties) {
-  const ThemeIcon = mode === "light" ? Moon : Sun;
+  const themeIcon = mode === "light" ? "moon" : "sun";
   const themeLabel = mode === "light" ? "Switch to dark mode" : "Switch to light mode";
   return (
     <aside className="sticky top-0 flex max-h-screen w-13 shrink-0 flex-col items-center gap-3 overflow-y-auto py-4 md:hidden">
@@ -114,7 +88,7 @@ function DockNavigation({ currentPage, mode, onModeChange }: NavigationPropertie
         <NavRailItem
           active={currentPage.id === overviewPage.id}
           href={pageHref(overviewPage)}
-          icon={pageIcons[overviewPage.id]}
+          icon={catalogPageIcons[overviewPage.id]}
           label={overviewPage.title}
         />
         {catalogSections.map((section) => (
@@ -129,7 +103,7 @@ function DockNavigation({ currentPage, mode, onModeChange }: NavigationPropertie
               <NavRailItem
                 active={currentPage.id === page.id}
                 href={pageHref(page)}
-                icon={pageIcons[page.id]}
+                icon={catalogPageIcons[page.id]}
                 key={page.id}
                 label={page.title}
               />
@@ -137,16 +111,17 @@ function DockNavigation({ currentPage, mode, onModeChange }: NavigationPropertie
           </div>
         ))}
       </nav>
-      <Button
-        aria-label={themeLabel}
-        className="mt-auto"
-        onClick={() => onModeChange(mode === "light" ? "dark" : "light")}
-        size="icon"
-        title={themeLabel}
-        variant="ghost"
-      >
-        <ThemeIcon aria-hidden="true" className="size-4.5" />
-      </Button>
+      <Tooltip content={themeLabel}>
+        <Button
+          aria-label={themeLabel}
+          className="mt-auto"
+          onClick={() => onModeChange(mode === "light" ? "dark" : "light")}
+          size="icon"
+          variant="ghost"
+        >
+          <Icon name={themeIcon} />
+        </Button>
+      </Tooltip>
     </aside>
   );
 }

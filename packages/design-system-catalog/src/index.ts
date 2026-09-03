@@ -10,16 +10,44 @@ export type BadgeTone = (typeof badgeTones)[number];
 export const alertTones = ["neutral", "success", "warning", "destructive"] as const;
 export type AlertTone = (typeof alertTones)[number];
 
+export const iconNames = [
+  "app-window",
+  "check",
+  "chevron-down",
+  "circle-alert",
+  "copy",
+  "ellipsis",
+  "house",
+  "layers",
+  "layout-template",
+  "messages-square",
+  "moon",
+  "mouse-pointer-click",
+  "palette",
+  "pencil",
+  "shapes",
+  "sun",
+  "sun-moon",
+  "text-cursor-input",
+  "trash",
+  "type",
+  "x",
+] as const;
+export type IconName = (typeof iconNames)[number];
+
 export type CatalogPageId =
   | "overview"
   | "color"
   | "theming"
   | "typography"
+  | "content"
   | "geometry"
   | "buttons"
   | "forms"
+  | "overlays"
   | "status"
   | "surfaces"
+  | "layouts"
   | "product";
 
 export type CatalogPage = Readonly<{
@@ -69,6 +97,7 @@ export const catalogSections: readonly CatalogSection[] = [
         "One semantic vocabulary, two resolutions; any region flips wholesale.",
       ),
       page("typography", "foundations/typography", "Typography", "HarmonyOS Sans SC and the eight-step type scale."),
+      page("content", "foundations/content", "Content", "Sentence patterns and naming rules for clear interface copy."),
       page(
         "geometry",
         "foundations/geometry",
@@ -83,6 +112,7 @@ export const catalogSections: readonly CatalogSection[] = [
     pages: [
       page("buttons", "components/buttons", "Buttons", "Action hierarchy, sizes, and busy states."),
       page("forms", "components/forms", "Forms", "Fields, inputs, validation, and switches."),
+      page("overlays", "components/overlays", "Overlays", "Dialogs, menus, tooltips, and transient notifications."),
       page("status", "components/status", "Status", "Badges, alerts, and progress indication."),
       page("surfaces", "components/surfaces", "Surfaces", "Cards and the panels that structure a page."),
     ],
@@ -91,6 +121,12 @@ export const catalogSections: readonly CatalogSection[] = [
     id: "templates",
     title: "Templates",
     pages: [
+      page(
+        "layouts",
+        "templates/layouts",
+        "Responsive layouts",
+        "App shell, page scaffold, and the list-detail navigation pattern.",
+      ),
       page(
         "product",
         "templates/product",
@@ -102,6 +138,22 @@ export const catalogSections: readonly CatalogSection[] = [
 ];
 
 export const catalogPages: readonly CatalogPage[] = [overviewPage, ...catalogSections.flatMap(({ pages }) => pages)];
+
+export const catalogPageIcons: Readonly<Record<CatalogPageId, IconName>> = {
+  overview: "house",
+  color: "palette",
+  theming: "sun-moon",
+  typography: "type",
+  content: "messages-square",
+  geometry: "shapes",
+  buttons: "mouse-pointer-click",
+  forms: "text-cursor-input",
+  overlays: "ellipsis",
+  status: "circle-alert",
+  surfaces: "layers",
+  layouts: "layout-template",
+  product: "app-window",
+};
 
 export function findCatalogPage(path: string): CatalogPage | undefined {
   const normalized = path.replace(/^\/+|\/+$/g, "");

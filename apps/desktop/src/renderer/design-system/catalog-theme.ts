@@ -12,6 +12,7 @@ export function useCatalogMode(): CatalogMode {
 }
 
 const userThemeStyleId = "lode-user-theme";
+const themeVariablesChangedEvent = "lode-theme-variables-changed";
 
 // A user theme is plain CSS loaded after the token stylesheet; overriding the
 // documented --lode-* variables is the entire contract, and nothing stops a
@@ -24,8 +25,15 @@ export function applyUserTheme(css: string): void {
     document.head.append(element);
   }
   element.textContent = css;
+  window.dispatchEvent(new Event(themeVariablesChangedEvent));
 }
 
 export function clearUserTheme(): void {
   document.getElementById(userThemeStyleId)?.remove();
+  window.dispatchEvent(new Event(themeVariablesChangedEvent));
+}
+
+export function observeThemeVariableChanges(listener: () => void): () => void {
+  window.addEventListener(themeVariablesChangedEvent, listener);
+  return () => window.removeEventListener(themeVariablesChangedEvent, listener);
 }

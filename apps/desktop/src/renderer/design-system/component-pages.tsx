@@ -9,6 +9,7 @@ import { Field, FieldDescription, FieldLabel } from "../ui/field.js";
 import { Input } from "../ui/input.js";
 import { Spinner } from "../ui/spinner.js";
 import { Switch } from "../ui/switch.js";
+import { Textarea } from "../ui/textarea.js";
 import { useCatalogMode } from "./catalog-theme.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
@@ -82,6 +83,11 @@ export function FormsPage() {
         <Field>
           <FieldLabel>Disabled</FieldLabel>
           <Input disabled name="disabled" placeholder="Unavailable while locked" />
+        </Field>
+        <Field>
+          <FieldLabel>Workspace description</FieldLabel>
+          <Textarea name="description" placeholder="What belongs in this Workspace?" rows={4} />
+          <FieldDescription>Use a multiline field for notes and other prose input.</FieldDescription>
         </Field>
       </Specimen>
       <Specimen className="max-w-105 flex-col flex-nowrap items-stretch gap-4" title="Switch">

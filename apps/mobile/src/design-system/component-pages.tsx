@@ -16,6 +16,7 @@ import { Field } from '../ui/field';
 import { Input } from '../ui/input';
 import { Spinner } from '../ui/spinner';
 import { Switch } from '../ui/switch';
+import { Textarea } from '../ui/textarea';
 import { PageIntro, Specimen } from './specimen';
 
 function capitalize(value: string): string {
@@ -105,6 +106,12 @@ export function FormsPage() {
         </Field>
         <Field label="Disabled">
           <Input editable={false} placeholder="Unavailable while locked" />
+        </Field>
+        <Field
+          description="Use a multiline field for notes and other prose input."
+          label="Workspace description"
+        >
+          <Textarea placeholder="What belongs in this Workspace?" />
         </Field>
       </Specimen>
       <Specimen title="Switch">

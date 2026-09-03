@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { StatusBar, StyleSheet, View } from 'react-native';
+import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
@@ -11,6 +11,7 @@ import { database, executeStorageOperation } from './native-database';
 import { ProductShell } from './product-shell';
 import { startingState, type MobileSurface } from './mobile-shell-state';
 import { ThemeProvider } from './ui/theme';
+import { ToastProvider } from './ui/toast';
 
 function App() {
   return (
@@ -21,6 +22,7 @@ function App() {
 }
 
 function MobileShell() {
+  const systemMode = useColorScheme() ?? 'light';
   const webView = useRef<WebView<object>>(null);
   const [hostState, setHostState] = useState(startingState);
   const [passphrase, setPassphrase] = useState('');
@@ -127,27 +129,35 @@ function MobileShell() {
   return (
     <View style={styles.screen}>
       <StatusBar
-        barStyle={surface === 'product' ? 'light-content' : 'dark-content'}
+        barStyle={
+          surface === 'design-system' || systemMode === 'light'
+            ? 'dark-content'
+            : 'light-content'
+        }
       />
       {surface === 'design-system' ? (
         <MobileDesignSystemPage onClose={() => setSurface('product')} />
       ) : surface === 'legal' ? (
-        <ThemeProvider mode="light">
-          <MobileLegalPage onClose={() => setSurface('product')} />
+        <ThemeProvider>
+          <ToastProvider>
+            <MobileLegalPage onClose={() => setSurface('product')} />
+          </ToastProvider>
         </ThemeProvider>
       ) : (
-        <ThemeProvider mode="dark">
-          <ProductShell
-            busy={busy}
-            error={error}
-            hostState={hostState}
-            onNavigate={setSurface}
-            onOpenLocal={openLocal}
-            onPassphraseChange={setPassphrase}
-            onWorkspaceLabelChange={setWorkspaceLabel}
-            passphrase={passphrase}
-            workspaceLabel={workspaceLabel}
-          />
+        <ThemeProvider>
+          <ToastProvider>
+            <ProductShell
+              busy={busy}
+              error={error}
+              hostState={hostState}
+              onNavigate={setSurface}
+              onOpenLocal={openLocal}
+              onPassphraseChange={setPassphrase}
+              onWorkspaceLabelChange={setWorkspaceLabel}
+              passphrase={passphrase}
+              workspaceLabel={workspaceLabel}
+            />
+          </ToastProvider>
         </ThemeProvider>
       )}
 

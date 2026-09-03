@@ -1,1 +1,1 @@
-export { fontNotices, tokens } from "./generated.js";
+export { fontNotices, themeVariableGroups, tokens } from "./generated.js";

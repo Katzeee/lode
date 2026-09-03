@@ -45,11 +45,15 @@ const modes = systemModes(resolved);
 const namedThemes = requiredRecord(resolved, "theme");
 for (const [name, theme] of Object.entries(namedThemes)) {
   const color = requiredRecord(theme, "color");
-  validateModes({
-    light: { ...modes.light, ...requiredRecord(color, "light") },
-    dark: { ...modes.dark, ...requiredRecord(color, "dark") },
-  }, name);
+  validateModes(
+    {
+      light: { ...modes.light, ...requiredRecord(color, "light") },
+      dark: { ...modes.dark, ...requiredRecord(color, "dark") },
+    },
+    name,
+  );
 }
+const variableGroups = themeVariableGroups();
 const generated = `// Generated from tokens and licensed design assets. Do not edit.\nexport const tokens = ${JSON.stringify(resolved)} as const;\nexport const fontNotices = ${JSON.stringify(
   {
     harmonyOsSans: {
@@ -57,7 +61,7 @@ const generated = `// Generated from tokens and licensed design assets. Do not e
       license: harmonyLicense,
     },
   },
-)} as const;\n`;
+)} as const;\nexport const themeVariableGroups = ${JSON.stringify(variableGroups)} as const;\n`;
 await writeFile(generatedPath, generated, "utf8");
 
 if (!sourceOnly) {
@@ -76,6 +80,7 @@ function geometryDeclarations(theme) {
   );
   lines.push(`  --lode-spacing: ${theme.spacing ?? 4}px;`);
   lines.push(`  --lode-duration-standard: ${theme.motion?.duration?.standard ?? resolved.motion.duration.standard}ms;`);
+  lines.push(`  --lode-duration-panel: ${theme.motion?.duration?.panel ?? resolved.motion.duration.panel}ms;`);
   return lines;
 }
 
@@ -94,11 +99,14 @@ function runtimeCss() {
     `  --lode-font-sans: ${cssValue(resolveValue(tokens.get("font.family.interface").value, []), "fontFamily")};`,
     `  --lode-font-mono: ${cssValue(resolveValue(tokens.get("font.family.code").value, []), "fontFamily")};`,
     `  --lode-duration-standard: ${resolved.motion.duration.standard}ms;`,
+    `  --lode-duration-panel: ${resolved.motion.duration.panel}ms;`,
     `  --lode-ease-standard: ${cssValue(resolveValue(tokens.get("motion.easing.standard").value, []), "cubicBezier")};`,
   ].join("\n");
   const themeDeclarations = (theme, mode) =>
     [
-      ...Object.entries(theme.color[mode]).map(([role, value]) => `  --lode-color-${role}: ${value};`),
+      ...Object.entries(requiredRecord(requiredRecord(theme, "color"), mode)).map(
+        ([role, value]) => `  --lode-color-${role}: ${value};`,
+      ),
       ...geometryDeclarations(theme),
     ].join("\n");
   // Theme blocks are mode-aware so a theme scope composes with any nested
@@ -108,13 +116,124 @@ function runtimeCss() {
   // --lode-* variables; that is the entire user-theming contract.
   const themeBlocks = Object.entries(namedThemes).map(
     ([name, theme]) =>
-      `[data-theme="${name}"]:not([data-mode="dark"]),\n[data-theme="${name}"] :where([data-mode="light"]) {\n${themeDeclarations(theme, "light")}\n}\n\n[data-theme="${name}"][data-mode="dark"],\n[data-theme="${name}"] :where([data-mode="dark"]) {\n${themeDeclarations(theme, "dark")}\n}`,
+      `[data-theme="${name}"][data-mode="light"],\n[data-mode="light"] [data-theme="${name}"]:not([data-mode]),\n[data-theme="${name}"] :where([data-mode="light"]),\n[data-theme="${name}"]:not([data-mode]) {\n${themeDeclarations(theme, "light")}\n}\n\n[data-theme="${name}"][data-mode="dark"],\n[data-mode="dark"] [data-theme="${name}"]:not([data-mode]),\n[data-theme="${name}"] :where([data-mode="dark"]) {\n${themeDeclarations(theme, "dark")}\n}`,
+  );
+  const systemDarkThemeBlocks = Object.entries(namedThemes).map(
+    ([name, theme]) =>
+      `  [data-theme="${name}"]:not([data-mode]) {\n${indent(themeDeclarations(theme, "dark"), 2)}\n  }`,
   );
   // Everything ships inside a cascade layer so an unlayered user stylesheet
   // (the custom-theme contract) beats built-in declarations regardless of the
   // selector specificity the mode/theme scoping needs internally.
-  const body = `:root {\n${baseGeometry}\n}\n\n:root,\n[data-mode="light"] {\n${declarations("light")}\n}\n\n[data-mode="dark"] {\n${declarations("dark")}\n}\n\n${themeBlocks.join("\n\n")}`;
+  const systemDark = `@media (prefers-color-scheme: dark) {\n  :root:not([data-mode]) {\n${indent(declarations("dark"), 2)}\n  }\n\n${systemDarkThemeBlocks.join("\n\n")}\n}`;
+  const body = `:root {\n${baseGeometry}\n}\n\n:root,\n[data-mode="light"] {\n${declarations("light")}\n}\n\n[data-mode="dark"] {\n${declarations("dark")}\n}\n\n${themeBlocks.join("\n\n")}\n\n${systemDark}`;
   return `@layer lode-tokens {\n${body}\n}\n`;
+}
+
+function themeVariableGroups() {
+  const valuesByTheme = (resolveThemeValue) =>
+    Object.fromEntries(
+      Object.entries(namedThemes).map(([name, theme]) => [
+        name,
+        {
+          light: resolveThemeValue(theme, "light"),
+          dark: resolveThemeValue(theme, "dark"),
+        },
+      ]),
+    );
+  const themeMode = (theme, mode) => ({
+    ...modes[mode],
+    ...requiredRecord(requiredRecord(theme, "color"), mode),
+  });
+  const themeRadius = (theme, name) => {
+    const radius = isRecord(theme.radius) ? theme.radius : {};
+    return `${typeof radius[name] === "number" ? radius[name] : resolved.radius[name]}px`;
+  };
+  const themeSpacing = (theme) => `${typeof theme.spacing === "number" ? theme.spacing : 4}px`;
+  const themeDuration = (theme, name) => {
+    const motion = isRecord(theme.motion) ? theme.motion : {};
+    const duration = isRecord(motion.duration) ? motion.duration : {};
+    return `${typeof duration[name] === "number" ? duration[name] : resolved.motion.duration[name]}ms`;
+  };
+  return [
+    {
+      id: "color",
+      title: "Color",
+      variables: Object.keys(modes.light).map((role) => ({
+        name: `--lode-color-${role}`,
+        kind: "color",
+        values: valuesByTheme((theme, mode) => themeMode(theme, mode)[role]),
+      })),
+    },
+    {
+      id: "geometry",
+      title: "Geometry",
+      variables: [
+        ...Object.keys(resolved.radius).map((name) => ({
+          name: `--lode-radius-${name}`,
+          kind: "value",
+          values: valuesByTheme((theme) => themeRadius(theme, name)),
+        })),
+        {
+          name: "--lode-spacing",
+          kind: "value",
+          values: valuesByTheme((theme) => themeSpacing(theme)),
+        },
+      ],
+    },
+    {
+      id: "typography-motion",
+      title: "Typography & motion",
+      variables: [
+        {
+          name: "--lode-font-sans",
+          kind: "value",
+          values: valuesByTheme(() =>
+            cssValue(resolveValue(tokens.get("font.family.interface").value, []), "fontFamily"),
+          ),
+        },
+        {
+          name: "--lode-font-mono",
+          kind: "value",
+          values: valuesByTheme(() => cssValue(resolveValue(tokens.get("font.family.code").value, []), "fontFamily")),
+        },
+        {
+          name: "--lode-duration-standard",
+          kind: "value",
+          values: valuesByTheme((theme) => themeDuration(theme, "standard")),
+        },
+        {
+          name: "--lode-duration-panel",
+          kind: "value",
+          values: valuesByTheme((theme) => themeDuration(theme, "panel")),
+        },
+        {
+          name: "--lode-ease-standard",
+          kind: "value",
+          values: valuesByTheme(() =>
+            cssValue(resolveValue(tokens.get("motion.easing.standard").value, []), "cubicBezier"),
+          ),
+        },
+      ],
+    },
+    {
+      id: "elevation",
+      title: "Elevation",
+      variables: Object.keys(shadows.light).map((name) => ({
+        name: `--lode-shadow-${name}`,
+        kind: "value",
+        values: valuesByTheme((_theme, mode) => shadows[mode][name]),
+      })),
+    },
+  ];
+}
+
+function indent(value, spaces) {
+  const prefix = " ".repeat(spaces);
+  return value
+    .split("\n")
+    .map((line) => `${prefix}${line}`)
+    .join("\n");
 }
 
 function themeCss() {
@@ -153,6 +272,8 @@ function themeCss() {
   lines.push(`  --breakpoint-lg: ${resolved.layout.breakpoint.expanded}px;`);
   lines.push(`  --breakpoint-xl: ${resolved.layout.breakpoint.large}px;`);
   lines.push(`  --breakpoint-2xl: ${resolved.layout.breakpoint["extra-large"]}px;`);
+  lines.push(`  --container-shell-medium: ${resolved.layout.breakpoint.medium}px;`);
+  lines.push(`  --container-shell-expanded: ${resolved.layout.breakpoint.expanded}px;`);
   lines.push("");
   lines.push("  /* The rhythm every spacing utility multiplies; themes may retune it. */");
   lines.push("  --spacing: var(--lode-spacing);");
@@ -169,9 +290,7 @@ function themeCss() {
 function systemModes(value) {
   const color = requiredRecord(value, "color");
   const system = requiredRecord(color, "sys");
-  return Object.fromEntries(
-    ["light", "dark"].map((mode) => [mode, { ...requiredRecord(system, mode) }]),
-  );
+  return Object.fromEntries(["light", "dark"].map((mode) => [mode, { ...requiredRecord(system, mode) }]));
 }
 
 function validateModes(candidate, themeName = "default") {

@@ -1,14 +1,16 @@
-import type { LucideIcon } from "lucide-react";
+import type { IconName } from "@lode/design-system-catalog";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { cn } from "./cn.js";
+import { Icon } from "./icon.js";
+import { Tooltip } from "./tooltip.js";
 
 const activeClasses = "bg-accent text-accent-foreground";
 const idleClasses = "text-muted-foreground hover:bg-accent/60 hover:text-foreground";
 
-type NavItemProperties = ComponentPropsWithoutRef<"a"> & Readonly<{ active?: boolean; icon?: LucideIcon }>;
+type NavItemProperties = ComponentPropsWithoutRef<"a"> & Readonly<{ active?: boolean; icon?: IconName }>;
 
-export function NavItem({ active = false, children, className, icon: Icon, ...properties }: NavItemProperties) {
+export function NavItem({ active = false, children, className, icon, ...properties }: NavItemProperties) {
   return (
     <a
       {...properties}
@@ -19,30 +21,31 @@ export function NavItem({ active = false, children, className, icon: Icon, ...pr
         className,
       )}
     >
-      {Icon === undefined ? null : <Icon aria-hidden="true" className="size-4 shrink-0" />}
+      {icon === undefined ? null : <Icon name={icon} size="sm" />}
       {children}
     </a>
   );
 }
 
 type NavRailItemProperties = ComponentPropsWithoutRef<"a"> &
-  Readonly<{ active?: boolean; icon: LucideIcon; label: string }>;
+  Readonly<{ active?: boolean; icon: IconName; label: string }>;
 
-export function NavRailItem({ active = false, className, icon: Icon, label, ...properties }: NavRailItemProperties) {
+export function NavRailItem({ active = false, className, icon, label, ...properties }: NavRailItemProperties) {
   return (
-    <a
-      {...properties}
-      aria-current={active ? "page" : undefined}
-      aria-label={label}
-      className={cn(
-        "grid size-10 place-items-center rounded-md transition-colors",
-        active ? activeClasses : idleClasses,
-        className,
-      )}
-      title={label}
-    >
-      <Icon aria-hidden="true" className="size-4.5" />
-    </a>
+    <Tooltip content={label}>
+      <a
+        {...properties}
+        aria-current={active ? "page" : undefined}
+        aria-label={label}
+        className={cn(
+          "grid size-10 place-items-center rounded-md transition-colors",
+          active ? activeClasses : idleClasses,
+          className,
+        )}
+      >
+        <Icon name={icon} />
+      </a>
+    </Tooltip>
   );
 }
 

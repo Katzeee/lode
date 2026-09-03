@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@lode/design-tokens';
 import {
+  catalogPageIcons,
   catalogSections,
   overviewPage,
   type CatalogPage,
@@ -11,6 +12,7 @@ import {
 import { Button } from '../ui/button';
 import { NavRow } from '../ui/nav';
 import { Text } from '../ui/text';
+import { ToastProvider } from '../ui/toast';
 import {
   ThemeProvider,
   useColors,
@@ -24,7 +26,10 @@ import {
   SurfacesPage,
 } from './component-pages';
 import { ColorPage, GeometryPage, TypographyPage } from './foundation-pages';
+import { ContentPage } from './content-page';
 import { OverviewPage } from './overview-page';
+import { OverlaysPage } from './overlays-page';
+import { LayoutPage } from './layout-page';
 import { ProductPreviewPage } from './product-preview';
 import { ThemingPage } from './theming-page';
 
@@ -36,15 +41,17 @@ export function MobileDesignSystemPage({
   const [themeName, setThemeName] = useState<ThemeName>('forest');
   return (
     <ThemeProvider mode={theme} name={themeName}>
-      <CatalogScreen
-        onClose={onClose}
-        onNavigate={setPage}
-        onThemeChange={setTheme}
-        onThemeNameChange={setThemeName}
-        page={page}
-        theme={theme}
-        themeName={themeName}
-      />
+      <ToastProvider>
+        <CatalogScreen
+          onClose={onClose}
+          onNavigate={setPage}
+          onThemeChange={setTheme}
+          onThemeNameChange={setThemeName}
+          page={page}
+          theme={theme}
+          themeName={themeName}
+        />
+      </ToastProvider>
     </ThemeProvider>
   );
 }
@@ -138,6 +145,7 @@ function CatalogIndex({
           {section.pages.map(sectionPage => (
             <NavRow
               description={sectionPage.description}
+              icon={catalogPageIcons[sectionPage.id]}
               key={sectionPage.id}
               onPress={() => onNavigate(sectionPage)}
               title={sectionPage.title}
@@ -173,6 +181,9 @@ function PageContent({
     case 'typography': {
       return <TypographyPage />;
     }
+    case 'content': {
+      return <ContentPage />;
+    }
     case 'geometry': {
       return <GeometryPage />;
     }
@@ -182,11 +193,17 @@ function PageContent({
     case 'forms': {
       return <FormsPage />;
     }
+    case 'overlays': {
+      return <OverlaysPage />;
+    }
     case 'status': {
       return <StatusPage />;
     }
     case 'surfaces': {
       return <SurfacesPage />;
+    }
+    case 'layouts': {
+      return <LayoutPage />;
     }
     case 'product': {
       return <ProductPreviewPage />;

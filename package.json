@@ -29,9 +29,10 @@
     "verify:eol": "node scripts/verify-eol.mjs",
     "verify:acceptance-catalog": "node scripts/verify-acceptance-catalog.mjs",
     "verify:desktop": "node scripts/desktop/verify-desktop.mjs",
+    "verify:design-system": "node scripts/desktop/verify-design-system.mjs",
     "verify:fact-sot": "npm run typecheck:test --workspace=@lode/engine && npm run test --workspace=@lode/engine -- src/subsystems/workspace/fact-sot.acceptance.test.ts tests/fact-sot-governance.acceptance.test.ts tests/proposal-mode.property.test.ts",
     "verify:architecture": "node --test scripts/architecture/architecture-verification.test.mjs && node scripts/verify-architecture.mjs",
-    "verify": "npm run verify:eol && npm run build && npm run verify:wire && npm run typecheck && npm run lint && npm run test && npm run verify:architecture && npm run verify:acceptance-catalog",
+    "verify": "npm run verify:eol && npm run build && npm run verify:design-system && npm run verify:wire && npm run typecheck && npm run lint && npm run test && npm run verify:architecture && npm run verify:acceptance-catalog",
     "prepare": "husky"
   },
   "lint-staged": {

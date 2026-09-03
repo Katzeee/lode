@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { CatalogNavigation } from "./catalog-navigation.js";
 import { CatalogModeContext, type CatalogMode, type ThemeName } from "./catalog-theme.js";
 import { ButtonsPage, FormsPage, StatusPage, SurfacesPage } from "./component-pages.js";
+import { ContentPage } from "./content-page.js";
 import { ColorPage, GeometryPage, TypographyPage } from "./foundation-pages.js";
 import { OverviewPage } from "./overview-page.js";
+import { OverlaysPage } from "./overlays-page.js";
+import { LayoutPage } from "./layout-page.js";
 import { ProductPreviewPage } from "./product-preview.js";
 import { ThemingPage } from "./theming-page.js";
 
@@ -14,10 +17,20 @@ function currentCatalogPath(): string {
   return route.replace(/^\/+|\/+$/g, "");
 }
 
+function initialCatalogAppearance(): Readonly<{ mode: CatalogMode; theme: ThemeName }> {
+  const query = window.location.hash.split("?")[1] ?? "";
+  const parameters = new URLSearchParams(query);
+  return {
+    mode: parameters.get("mode") === "dark" ? "dark" : "light",
+    theme: parameters.get("theme") === "slate" ? "slate" : "forest",
+  };
+}
+
 export function DesktopDesignSystemPage() {
+  const [initialAppearance] = useState(initialCatalogAppearance);
   const [page, setPage] = useState(() => findCatalogPage(currentCatalogPath()) ?? overviewPage);
-  const [mode, setMode] = useState<CatalogMode>("light");
-  const [theme, setTheme] = useState<ThemeName>("forest");
+  const [mode, setMode] = useState<CatalogMode>(initialAppearance.mode);
+  const [theme, setTheme] = useState<ThemeName>(initialAppearance.theme);
 
   useEffect(() => {
     const previousScrollRestoration = history.scrollRestoration;
@@ -76,6 +89,9 @@ function PageContent({
     case "typography": {
       return <TypographyPage />;
     }
+    case "content": {
+      return <ContentPage />;
+    }
     case "geometry": {
       return <GeometryPage />;
     }
@@ -85,11 +101,17 @@ function PageContent({
     case "forms": {
       return <FormsPage />;
     }
+    case "overlays": {
+      return <OverlaysPage />;
+    }
     case "status": {
       return <StatusPage />;
     }
     case "surfaces": {
       return <SurfacesPage />;
+    }
+    case "layouts": {
+      return <LayoutPage />;
     }
     case "product": {
       return <ProductPreviewPage />;

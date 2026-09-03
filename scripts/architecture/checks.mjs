@@ -1,4 +1,4 @@
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { dirname, extname, join, normalize, relative, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { displayPath, resolveManifestTargets, stronglyConnectedComponents } from "./import-graph.mjs";
@@ -10,7 +10,7 @@ export async function verifyRepositoryArchitecture(repository, graph, packageImp
     ...directoryCycleDiagnostics(repository, graph),
     ...unreachableSourceDiagnostics(repository, graph),
     ...(await staleArchitecturePathDiagnostics(repository)),
-    ...packageDependencyDiagnostics(repository, packageImports),
+    ...(await packageDependencyDiagnostics(repository, packageImports)),
   ];
 }
 
@@ -244,7 +244,7 @@ function expandBraceAlternatives(pattern) {
     .flatMap((alternative) => expandBraceAlternatives(`${prefix}${alternative}${suffix}`));
 }
 
-function packageDependencyDiagnostics(repository, packageImports) {
+async function packageDependencyDiagnostics(repository, packageImports) {
   const productionFiles = new Set(repository.productionFiles);
   const diagnostics = [];
   for (const workspace of repository.workspaces.values()) {
@@ -257,8 +257,9 @@ function packageDependencyDiagnostics(repository, packageImports) {
       (file) => !productionFiles.has(file) && within(file, workspace.root),
     );
     const declaredDependencies = new Set(Object.keys(workspace.manifest.dependencies ?? {}));
+    const requiredPeers = await requiredPeerDependencies(repository, workspace, productionImports);
     for (const dependency of declaredDependencies) {
-      if (productionImports.has(dependency)) {
+      if (productionImports.has(dependency) || requiredPeers.has(dependency)) {
         continue;
       }
       diagnostics.push({
@@ -276,6 +277,35 @@ function packageDependencyDiagnostics(repository, packageImports) {
     }
   }
   return diagnostics;
+}
+
+async function requiredPeerDependencies(repository, workspace, productionImports) {
+  const peers = new Set();
+  for (const imported of productionImports) {
+    const manifest =
+      repository.workspaces.get(imported)?.manifest ??
+      (await readExternalPackageManifest(repository.repositoryRoot, workspace.root, imported));
+    for (const peer of Object.keys(manifest?.peerDependencies ?? {})) {
+      if (manifest.peerDependenciesMeta?.[peer]?.optional !== true) {
+        peers.add(peer);
+      }
+    }
+  }
+  return peers;
+}
+
+async function readExternalPackageManifest(repositoryRoot, workspaceRoot, packageName) {
+  const packagePath = [...packageName.split("/"), "package.json"];
+  for (const nodeModules of [join(workspaceRoot, "node_modules"), join(repositoryRoot, "node_modules")]) {
+    try {
+      return JSON.parse(await readFile(join(nodeModules, ...packagePath), "utf8"));
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  return undefined;
 }
 
 function packageEntryRoots(repository) {

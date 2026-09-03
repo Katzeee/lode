@@ -37,3 +37,41 @@
     font: inherit;
   }
 }
+
+@layer components {
+  .lode-overlay-backdrop {
+    transition-property: opacity;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-overlay-popup {
+    transform-origin: var(--transform-origin, center);
+    transition-property: opacity, scale;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-overlay-backdrop[data-starting-style],
+  .lode-overlay-backdrop[data-ending-style],
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    opacity: 0;
+  }
+
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    scale: 0.96;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lode-overlay-popup {
+    transition-property: opacity;
+  }
+
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    scale: 1;
+  }
+}
