@@ -27,18 +27,13 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
-    "@base-ui/react": "^1.7.0",
     "@lode/daemon": "file:../../packages/daemon",
-    "@lode/design-system-catalog": "file:../../packages/design-system-catalog",
     "@lode/design-tokens": "file:../../packages/design-tokens",
     "@lode/desktop-client": "file:../../packages/desktop-client",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
+    "@lode/ui": "file:../../packages/ui",
     "electron": "41.10.7",
-    "lucide-react": "^1.39.0",
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "tailwind-merge": "^3.6.0"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",

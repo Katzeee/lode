@@ -9,11 +9,10 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
+    "build": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run build --workspace=@lode/system-schema && npm run build --workspace=@lode/protocol && npm run build --workspace=@lode/sdk && npm run build --workspace=@lode/node-endpoint && npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-desktop && npm run build --workspace=@lode/engine-platform-mobile && npm run build --workspace=@lode/app-mobile && npm run build --workspace=@lode/desktop-client && npm run build --workspace=@lode/daemon && npm run build --workspace=@lode/app-cli && npm run build --workspace=@lode/app-desktop",
     "build:desktop": "node scripts/desktop/build-desktop.mjs",
-    "dev:desktop-web": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run dev:web --workspace=@lode/app-desktop",
-    "build:mobile-host": "npm run build:host --workspace=@lode/app-mobile",
-    "build:mobile:android": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && node scripts/mobile/build-android.mjs",
+    "dev:desktop-web": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog && npm run build --workspace=@lode/ui && npm run dev:web --workspace=@lode/app-desktop",
+    "build:mobile:android": "node scripts/mobile/build-android.mjs",
     "test": "npm run test --workspaces --if-present",
     "test:engine": "npm run test --workspace=@lode/engine",
     "test:daemon": "npm run test --workspace=@lode/daemon",

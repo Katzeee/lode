@@ -1,11 +1,10 @@
+import { DesignSystemPage } from "@lode/ui/catalog";
+import { LegalPage, ToastProvider, TooltipProvider } from "@lode/ui";
 import { useEffect, useState } from "react";
 
 import type { DesktopBridge } from "../bridge/contract.cjs";
-import { DesktopDesignSystemPage } from "./design-system/design-system-page.js";
 import { DesktopApp } from "./product/desktop-app.js";
-import { DesktopLegalPage } from "./product/legal-page.js";
-import { ToastProvider } from "./ui/toast.js";
-import { TooltipProvider } from "./ui/tooltip.js";
+import { DesktopProductPreview } from "./product/desktop-product-preview.js";
 
 type DesktopSurface = "design-system" | "legal" | "product";
 
@@ -30,11 +29,16 @@ export function DesktopRoot({ bridge }: Readonly<{ bridge?: DesktopBridge }>) {
 
   let content;
   if (surface === "design-system") {
-    content = <DesktopDesignSystemPage />;
+    content = <DesignSystemPage productPreview={<DesktopProductPreview />} />;
   } else if (surface === "legal") {
-    content = <DesktopLegalPage />;
+    content = <LegalPage />;
   } else {
-    content = bridge === undefined ? <DesktopDesignSystemPage /> : <DesktopApp bridge={bridge} />;
+    content =
+      bridge === undefined ? (
+        <DesignSystemPage productPreview={<DesktopProductPreview />} />
+      ) : (
+        <DesktopApp bridge={bridge} />
+      );
   }
   return (
     <TooltipProvider>

@@ -348,6 +348,35 @@ const architecturePlugin = {
         });
       },
     },
+    "ui-host-neutral": {
+      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
+      create(context) {
+        return moduleVisitors((node) => {
+          const source = moduleSource(node);
+          if (typeof source !== "string") {
+            return;
+          }
+          const hostOwned =
+            source.startsWith("node:") ||
+            source === "electron" ||
+            source.startsWith("@capacitor/") ||
+            source === "react-native" ||
+            source.startsWith("react-native/") ||
+            source === "@lode/desktop-client" ||
+            source.startsWith("@lode/desktop-client/") ||
+            source === "@lode/engine" ||
+            source.startsWith("@lode/engine/") ||
+            source.startsWith("@lode/app-");
+          if (hostOwned) {
+            context.report({
+              node,
+              messageId: "restricted",
+              data: { message: "The shared web UI cannot depend on a host, product engine, or platform transport." },
+            });
+          }
+        });
+      },
+    },
   },
 };
 
@@ -408,60 +437,6 @@ const designPlugin = {
                 node,
                 messageId: "restricted",
                 data: { message: `Screens render <${node.name.name}> through the ui component layer.` },
-              });
-            }
-          },
-        };
-      },
-    },
-    "mobile-through-components": {
-      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
-      create(context) {
-        const owned = new Set(["Text", "TextInput", "Pressable", "Switch", "ActivityIndicator", "Button"]);
-        return {
-          ImportDeclaration(node) {
-            if (node.source.value !== "react-native") {
-              return;
-            }
-            for (const specifier of node.specifiers) {
-              if (
-                specifier.type === "ImportSpecifier" &&
-                specifier.imported.type === "Identifier" &&
-                owned.has(specifier.imported.name)
-              ) {
-                context.report({
-                  node: specifier,
-                  messageId: "restricted",
-                  data: { message: `Screens render ${specifier.imported.name} through the ui component layer.` },
-                });
-              }
-            }
-          },
-        };
-      },
-    },
-    "mobile-no-raw-visual-values": {
-      meta: { type: "problem", schema: [], messages: { restricted: "{{message}}" } },
-      create(context) {
-        return {
-          Property(node) {
-            const key = node.key.type === "Identifier" ? node.key.name : node.key.value;
-            if (typeof key !== "string") {
-              return;
-            }
-            if (/^font(?:Size|Family|Weight)$/.test(key)) {
-              context.report({
-                node,
-                messageId: "restricted",
-                data: { message: "Type is owned by the ui text component and its variants." },
-              });
-              return;
-            }
-            if (/[cC]olor$/.test(key) && node.value.type === "Literal") {
-              context.report({
-                node,
-                messageId: "restricted",
-                data: { message: "Colors resolve from theme tokens, never raw color literals." },
               });
             }
           },
@@ -540,6 +515,31 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/mobile/src/**/*.tsx"],
+    rules: {
+      "design/no-raw-visual-values": "error",
+      "design/product-through-components": "error",
+      "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
+    },
+  },
+  {
+    files: ["apps/mobile/src/**/*.{ts,tsx}"],
+    ignores: ["apps/mobile/src/engine-worker/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@lode/engine", "@lode/engine/**", "@lode/engine-platform-mobile"],
+              message: "The Android UI reaches the Engine only through its dedicated Web Worker client.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["apps/desktop/src/**/*.{ts,tsx,cts}"],
     languageOptions: {
       parserOptions: { project: "apps/desktop/tsconfig.json", tsconfigRootDir: import.meta.dirname },
@@ -555,25 +555,25 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx"],
+    files: ["packages/ui/src/**/*.{ts,tsx}"],
+    languageOptions: {
+      parserOptions: { project: "packages/ui/tsconfig.json", tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "architecture/ui-host-neutral": "error",
+    },
+  },
+  {
+    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],
       "design/no-raw-visual-values": "error",
     },
   },
   {
-    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx"],
-    ignores: ["apps/desktop/src/renderer/ui/**"],
+    files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/catalog/**/*.tsx"],
     rules: {
       "design/product-through-components": "error",
-    },
-  },
-  {
-    files: ["apps/mobile/src/**/*.{ts,tsx}"],
-    ignores: ["apps/mobile/src/ui/**"],
-    rules: {
-      "design/mobile-through-components": "error",
-      "design/mobile-no-raw-visual-values": "error",
     },
   },
   {

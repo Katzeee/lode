@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const androidRoot = join(repositoryRoot, "apps", "mobile", "android");
+const mobileRoot = join(repositoryRoot, "apps", "mobile");
 const isWindows = process.platform === "win32";
 
 const options = parseOptions(process.argv.slice(2));
@@ -20,6 +21,24 @@ const javaHome = findJavaHome();
 const javaExecutable = join(javaHome, "bin", isWindows ? "java.exe" : "java");
 
 requireDirectory(join(repositoryRoot, "node_modules"), "Workspace dependencies");
+
+const npmCli = process.env.npm_execpath;
+if (npmCli === undefined) {
+  fail("build:mobile:android must run through npm so its current CLI can be reused.");
+}
+for (const workspace of [
+  "@lode/design-tokens",
+  "@lode/design-system-catalog",
+  "@lode/ui",
+  "@lode/engine",
+  "@lode/engine-platform-mobile",
+  "@lode/app-mobile",
+]) {
+  run(process.execPath, [npmCli, "run", "build", `--workspace=${workspace}`], { cwd: repositoryRoot });
+}
+const capacitorCli = join(repositoryRoot, "node_modules", "@capacitor", "cli", "bin", "capacitor");
+requireFile(capacitorCli, "The Capacitor CLI is missing");
+run(process.execPath, [capacitorCli, "sync", "android"], { cwd: mobileRoot });
 
 const environment = {
   ...process.env,

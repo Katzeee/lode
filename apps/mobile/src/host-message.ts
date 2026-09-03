@@ -3,10 +3,10 @@ import type {
   HostMessage,
   NativeStorageOperation,
   NativeStorageRequest,
-} from './engine-host-protocol';
+} from './engine-worker/protocol.js';
 
-export function parseHostMessage(source: string): HostMessage {
-  const candidate = recordValue(JSON.parse(source), 'Engine Host message');
+export function parseHostMessage(value: unknown): HostMessage {
+  const candidate = recordValue(value, 'Engine Worker message');
   if (candidate.type === 'native-storage-request') {
     return parseNativeStorageRequest(candidate);
   }
@@ -39,7 +39,7 @@ export function parseHostMessage(source: string): HostMessage {
       ...(error === undefined ? {} : { error }),
     };
   }
-  throw new Error('Engine Host sent an unsupported message');
+  throw new Error('Engine Worker sent an unsupported message');
 }
 
 export function describeError(error: unknown): string {
@@ -106,19 +106,19 @@ function parseNativeStorageOperation(value: unknown): NativeStorageOperation {
       };
     default:
       throw new Error(
-        `Engine Host requested unsupported storage method ${method}`,
+        `Engine Worker requested unsupported storage method ${method}`,
       );
   }
 }
 
 function parseEngineHostState(value: unknown): EngineHostState {
-  const state = recordValue(value, 'Engine Host state');
+  const state = recordValue(value, 'Engine Worker state');
   const phase = state.phase;
   if (phase !== 'starting' && phase !== 'locked' && phase !== 'ready') {
-    throw new Error('Engine Host sent an invalid phase');
+    throw new Error('Engine Worker sent an invalid phase');
   }
   if (!Array.isArray(state.actors) || !Array.isArray(state.workspaces)) {
-    throw new Error('Engine Host sent invalid collections');
+    throw new Error('Engine Worker sent invalid collections');
   }
   return {
     phase,

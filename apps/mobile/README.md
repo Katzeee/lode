@@ -1,17 +1,23 @@
 # Lode mobile shell
 
-The Android shell runs React Native for native UI and hosts the shared `@lode/engine` inside an invisible WebView. The host composes it through `@lode/engine-platform-mobile` and persists identity and normalized Workspace document data through the Android SQLite bridge. SQLite is the sole authority; the WebView does not use IndexedDB.
+The Android application is a Capacitor shell around the shared `@lode/ui` web surface. The application page and its dedicated Web Worker are separate bundles: the page owns rendering and the Capacitor bridge, while the Worker composes the shared `@lode/engine` through `@lode/engine-platform-mobile`. The UI cannot import the Engine directly.
 
-The shell header exposes **Design system** and **Legal** entries. The native review surface uses the same Overview, Foundations, Components, Patterns, Templates & pages, and Review catalog as Desktop while keeping navigation and specimens touch-native. The Legal surface exposes the complete HarmonyOS Sans attribution and license without stopping the Engine Host.
+The Worker sends the existing mobile persistence operations to the page with structured messages. The page forwards each operation to the local `LodeDatabase` Capacitor plugin, whose Kotlin implementation stores identity and normalized Workspace document data in Android SQLite. SQLite remains the sole authority; the web surface does not use IndexedDB.
 
-Mobile bundles the same unmodified `HarmonyOS_Sans_SC.ttf` used by Desktop and registers it as the default application text family. The Android minimum is API 28 so React Native can apply the catalog's 400, 500, 600, and 700 numeric weights to the variable font through Android's weighted `Typeface` API. The asset and its official license enter the APK directly from `packages/design-tokens/assets`; they are never copied, subset, converted, or renamed internally.
+The product, Design system, and Legal routes render from `@lode/ui`, so Desktop and Android use the same components, catalog, attribution, and HarmonyOS Sans asset. The mobile viewport applies the shared touch target and safe-area behavior. The unmodified font and its official license enter the APK from `packages/design-tokens/assets` during the web build.
 
-Run the repository build command from the workspace root:
+Build and synchronize the web bundles without invoking Gradle from `apps/mobile`:
+
+```sh
+npm run sync:android
+```
+
+Build the installable debug APK from the workspace root:
 
 ```sh
 npm run build:mobile:android
 ```
 
-The cross-platform Node build script discovers the Android SDK and JDK from explicit environment variables, `PATH`, Android Studio's local configuration, or each operating system's conventional install locations. It leaves Gradle on its normal global cache, builds the WebView Engine Host, and produces the installable debug APK at `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Run `npm run build:mobile:android -- --install` to install it on the currently connected Android device. Debug builds use the `com.lode.mobile.debug` application ID, so developers can use their normal shared debug keystore without replacing an installed release build.
+The build script discovers the Android SDK and JDK from the explicit Android environment variables, Android's `local.properties`, `PATH`, Android Studio, or conventional platform locations. It builds the required workspaces, synchronizes Capacitor, and writes `apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Passing `--install` installs that APK on the connected device. Debug builds use `com.lode.mobile.debug`, while release builds use `com.lode.mobile`.
 
-Use `--configuration=Release` for a release build. A signed release reads its keystore path, alias, store password, and key password from `LODE_ANDROID_KEYSTORE`, `LODE_ANDROID_KEY_ALIAS`, `LODE_ANDROID_STORE_PASSWORD`, and `LODE_ANDROID_KEY_PASSWORD`; no signing material or machine path is stored in the repository. Without those variables, the result is an unsigned release artifact and cannot be installed.
+Passing `--configuration=Release` produces a release build. A signed release reads its keystore path, alias, store password, and key password from `LODE_ANDROID_KEYSTORE`, `LODE_ANDROID_KEY_ALIAS`, `LODE_ANDROID_STORE_PASSWORD`, and `LODE_ANDROID_KEY_PASSWORD`. Without those variables, Gradle produces an unsigned release artifact.

@@ -1,13 +1,19 @@
+import {
+  Alert,
+  AppShell,
+  Badge,
+  BadgeDot,
+  Card,
+  CardHeader,
+  CardTitle,
+  PageScaffold,
+  type AppShellItem,
+} from "@lode/ui";
 import { useEffect, useState } from "react";
 
 import type { DesktopBridge, DesktopState } from "../../bridge/contract.cjs";
 import { ActionPanel } from "./action-panel.js";
 import { authorityText, shortIdentity } from "./desktop-state-presentation.js";
-import { Alert } from "../ui/alert.js";
-import { AppShell, type AppShellItem } from "../ui/app-shell.js";
-import { Badge, BadgeDot } from "../ui/badge.js";
-import { Card, CardHeader, CardTitle } from "../ui/card.js";
-import { PageScaffold } from "../ui/page-scaffold.js";
 
 const bootState: DesktopState = {
   phase: "initializing",

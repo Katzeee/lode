@@ -1,0 +1,120 @@
+@import "tailwindcss";
+@import "@lode/design-tokens/tokens.css";
+@import "@lode/design-tokens/theme.css";
+
+@font-face {
+  font-family: "HarmonyOS Sans SC";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url("./assets/fonts/HarmonyOS_Sans_SC.ttf") format("truetype");
+}
+
+:root {
+  --lode-safe-area-top: env(safe-area-inset-top, 0px);
+  --lode-safe-area-right: env(safe-area-inset-right, 0px);
+  --lode-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --lode-safe-area-left: env(safe-area-inset-left, 0px);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  /* Reserve the scrollbar track so page changes never shift centered content. */
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  body {
+    @apply bg-background font-sans text-body text-foreground antialiased;
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    font-synthesis: none;
+  }
+
+  ::selection {
+    @apply bg-primary/15;
+  }
+
+  button,
+  input {
+    font: inherit;
+  }
+}
+
+@layer components {
+  .lode-safe-area {
+    padding-block: var(--lode-safe-area-top) var(--lode-safe-area-bottom);
+    padding-inline: var(--lode-safe-area-left) var(--lode-safe-area-right);
+  }
+
+  .lode-overlay-backdrop {
+    transition-property: opacity;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-overlay-popup {
+    transform-origin: var(--transform-origin, center);
+    transition-property: opacity, scale;
+    transition-duration: var(--lode-duration-panel);
+    transition-timing-function: var(--lode-ease-standard);
+  }
+
+  .lode-overlay-backdrop[data-starting-style],
+  .lode-overlay-backdrop[data-ending-style],
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    opacity: 0;
+  }
+
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    scale: 0.96;
+  }
+}
+
+@media (pointer: coarse) {
+  :where(button, a[href], [role="menuitem"], [role="switch"]) {
+    position: relative;
+  }
+
+  :where(button, a[href], [role="menuitem"], [role="switch"])::after {
+    position: absolute;
+    z-index: 1;
+    inset-block-start: 50%;
+    inset-inline-start: 50%;
+    inline-size: max(100%, var(--lode-control-hit-target));
+    block-size: max(100%, var(--lode-control-hit-target));
+    content: "";
+    pointer-events: auto;
+    transform: translate(-50%, -50%);
+  }
+
+  .lode-input-hit-area {
+    min-block-size: var(--lode-control-hit-target);
+  }
+
+  textarea {
+    min-block-size: var(--lode-control-hit-target);
+  }
+
+  .lode-tooltip-popup {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lode-overlay-popup {
+    transition-property: opacity;
+  }
+
+  .lode-overlay-popup[data-starting-style],
+  .lode-overlay-popup[data-ending-style] {
+    scale: 1;
+  }
+}

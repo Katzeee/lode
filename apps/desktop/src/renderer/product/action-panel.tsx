@@ -1,10 +1,7 @@
+import { Button, Field, FieldLabel, Input, Spinner } from "@lode/ui";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import type { DesktopBridge, DesktopState } from "../../bridge/contract.cjs";
-import { Button } from "../ui/button.js";
-import { Field, FieldLabel } from "../ui/field.js";
-import { Input } from "../ui/input.js";
-import { Spinner } from "../ui/spinner.js";
 
 type ActionProperties = Readonly<{
   bridge: DesktopBridge;

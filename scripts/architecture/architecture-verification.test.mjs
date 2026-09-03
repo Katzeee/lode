@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -921,20 +921,20 @@ test("enforces the design system boundaries", async (t) => {
     {
       name: "desktop screens render controls through the ui layer",
       filePath: "apps/desktop/src/renderer/product/desktop-app.tsx",
-      source: "export const bad = <button type=\"button\">Save</button>;\n",
+      source: 'export const bad = <button type="button">Save</button>;\n',
       ruleId: "design/product-through-components",
     },
     {
-      name: "mobile screens render text through the ui layer",
+      name: "mobile screens render controls through the ui layer",
       filePath: "apps/mobile/src/App.tsx",
-      source: 'import { Text } from "react-native";\nexport const bad = Text;\n',
-      ruleId: "design/mobile-through-components",
+      source: 'export const bad = <button type="button">Save</button>;\n',
+      ruleId: "design/product-through-components",
     },
     {
-      name: "mobile screens cannot set type or raw colors directly",
+      name: "mobile screens cannot use arbitrary values for token-owned utilities",
       filePath: "apps/mobile/src/App.tsx",
-      source: "export const bad = { fontSize: 17 };\n",
-      ruleId: "design/mobile-no-raw-visual-values",
+      source: 'export const bad = <div className="p-[13px]" />;\n',
+      ruleId: "design/no-raw-visual-values",
     },
   ];
   for (const fixture of cases) {
@@ -942,25 +942,18 @@ test("enforces the design system boundaries", async (t) => {
       assert.ok((await lintRuleIds(fixture.source, fixture.filePath)).includes(fixture.ruleId));
     });
   }
-  await t.test("the mobile ui layer itself may bind the owned primitives", async () => {
-    const ids = await lintRuleIds('import { Text } from "react-native";\nexport const ok = Text;\n', "apps/mobile/src/ui/text.tsx");
-    assert.ok(!ids.includes("design/mobile-through-components"));
+  await t.test("the shared web ui stays host-neutral", async () => {
+    const ids = await lintRuleIds('import "electron";\n', "packages/ui/src/index.ts");
+    assert.ok(ids.includes("architecture/ui-host-neutral"));
   });
 });
 
-test("desktop and mobile ship the same ui component vocabulary", async () => {
-  const components = async (directory) =>
-    new Set((await readdir(directory)).map((entry) => entry.replace(/\.tsx?$/u, "")));
-  const desktop = await components("apps/desktop/src/renderer/ui");
-  const mobile = await components("apps/mobile/src/ui");
-  // Web styling utilities with no React Native counterpart, and vice versa:
-  // cn/separator/tooltip are CSS or hover-layer concerns; text/theme/motion
-  // exist because React Native has no cascade, media-query motion layer, or
-  // hover interaction. Long-press actions are owned by DropdownMenu instead.
-  const desktopOnly = new Set(["cn", "separator", "tooltip"]);
-  const mobileOnly = new Set(["text", "theme", "motion"]);
-  const shared = (all, extras) => [...all].filter((name) => !extras.has(name)).sort();
-  assert.deepEqual(shared(desktop, desktopOnly), shared(mobile, mobileOnly));
+test("keeps mobile Engine work inside the dedicated Worker", async () => {
+  const uiIds = await lintRuleIds('import "@lode/engine";\n', "apps/mobile/src/App.tsx");
+  assert.ok(uiIds.includes("no-restricted-imports"));
+
+  const workerIds = await lintRuleIds('import "@lode/engine";\n', "apps/mobile/src/engine-worker/index.ts");
+  assert.ok(!workerIds.includes("no-restricted-imports"));
 });
 
 async function lintRuleIds(source, filePath) {

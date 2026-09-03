@@ -3,43 +3,35 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/App.js",
+  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/App.js",
-    "./engine-host": "./dist/engine-host/index.js"
+    ".": "./dist/index.js",
+    "./engine-worker": "./dist/engine-worker/index.js"
   },
   "scripts": {
-    "preandroid": "npm run build --workspace=@lode/design-tokens && npm run build --workspace=@lode/design-system-catalog",
-    "android": "react-native run-android",
-    "build:host": "npm run build --workspace=@lode/engine && npm run build --workspace=@lode/engine-platform-mobile && node scripts/build-engine-host.mjs",
+    "build": "node scripts/build-web.mjs",
+    "build:web": "node scripts/build-web.mjs",
     "build:android": "node ../../scripts/mobile/build-android.mjs",
+    "sync:android": "npm run build && cap sync android",
     "lint": "eslint src",
-    "start": "react-native start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lode/design-system-catalog": "file:../../packages/design-system-catalog",
-    "@lode/design-tokens": "file:../../packages/design-tokens",
+    "@capacitor/core": "8.5.1",
     "@lode/engine": "file:../../packages/engine",
     "@lode/engine-platform-mobile": "file:../../packages/engine-platform-mobile",
-    "lucide-react-native": "1.39.0",
+    "@lode/ui": "file:../../packages/ui",
     "react": "19.2.3",
-    "react-native": "0.87.1",
-    "react-native-safe-area-context": "^5.5.2",
-    "react-native-svg": "15.15.5",
-    "react-native-webview": "^14.0.1"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.2",
-    "@babel/preset-env": "^7.25.3",
-    "@babel/runtime": "^7.25.0",
-    "@react-native-community/cli": "20.2.0",
-    "@react-native-community/cli-platform-android": "20.2.0",
-    "@react-native/babel-preset": "0.87.1",
-    "@react-native/metro-config": "0.87.1",
-    "@react-native/typescript-config": "0.87.1",
+    "@capacitor/android": "8.5.1",
+    "@capacitor/cli": "8.5.1",
     "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.5",
+    "@tailwindcss/cli": "^4.3.3",
     "esbuild": "^0.28.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3"
   },
   "engines": {

@@ -1,197 +1,102 @@
-import { useCallback, useRef, useState } from 'react';
-import { StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { WebView } from 'react-native-webview';
+import { LegalPage, ToastProvider, TooltipProvider } from '@lode/ui';
+import { DesignSystemPage } from '@lode/ui/catalog';
+import { useEffect, useState } from 'react';
 
-import type { NativeStorageRequest } from './engine-host-protocol';
-import { MobileDesignSystemPage } from './design-system/design-system-page';
-import { describeError, parseHostMessage } from './host-message';
-import { MobileLegalPage } from './legal-page';
-import { database, executeStorageOperation } from './native-database';
-import { ProductShell } from './product-shell';
-import { startingState, type MobileSurface } from './mobile-shell-state';
-import { ThemeProvider } from './ui/theme';
-import { ToastProvider } from './ui/toast';
+import { createMobileEngineClient } from './engine-worker-client.js';
+import type { EngineHostState } from './engine-worker/protocol.js';
+import { ProductShell } from './product-shell.js';
 
-function App() {
-  return (
-    <SafeAreaProvider>
-      <MobileShell />
-    </SafeAreaProvider>
-  );
+type MobileSurface = 'design-system' | 'legal' | 'product';
+
+const startingState: EngineHostState = {
+  phase: 'starting',
+  vaultExists: false,
+  actors: [],
+  workspaces: [],
+};
+
+function currentSurface(): MobileSurface {
+  if (window.location.hash.startsWith('#/design-system')) {
+    return 'design-system';
+  }
+  return window.location.hash === '#/legal' ? 'legal' : 'product';
 }
 
-function MobileShell() {
-  const systemMode = useColorScheme() ?? 'light';
-  const webView = useRef<WebView<object>>(null);
+export default function App() {
+  const [client] = useState(createMobileEngineClient);
   const [hostState, setHostState] = useState(startingState);
-  const [passphrase, setPassphrase] = useState('');
-  const [workspaceLabel, setWorkspaceLabel] = useState('My Workspace');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [surface, setSurface] = useState<MobileSurface>('product');
+  const [surface, setSurface] = useState(currentSurface);
 
-  const respondToNative = useCallback(
-    (id: string, response: Readonly<Record<string, unknown>>) => {
-      webView.current?.postMessage(
-        JSON.stringify({ type: 'native-storage-response', id, ...response }),
-      );
-    },
-    [],
-  );
+  useEffect(() => {
+    const unsubscribeState = client.onState(state => {
+      setHostState(state);
+      setError(null);
+    });
+    const unsubscribeError = client.onError(setError);
+    return () => {
+      unsubscribeState();
+      unsubscribeError();
+      client.dispose();
+    };
+  }, [client]);
 
-  const handleNativeStorage = useCallback(
-    async (request: NativeStorageRequest) => {
-      if (database === undefined) {
-        respondToNative(request.id, {
-          ok: false,
-          error: 'The Android SQLite module is unavailable',
-        });
-        return;
-      }
-      try {
-        const value = await executeStorageOperation(
-          database,
-          request.operation,
-        );
-        respondToNative(request.id, { ok: true, value });
-      } catch (caught: unknown) {
-        respondToNative(request.id, {
-          ok: false,
-          error: describeError(caught),
-        });
-      }
-    },
-    [respondToNative],
-  );
+  useEffect(() => {
+    const updateSurface = () => setSurface(currentSurface());
+    window.addEventListener('hashchange', updateSurface);
+    return () => window.removeEventListener('hashchange', updateSurface);
+  }, []);
 
-  const receiveHostMessage = useCallback(
-    (source: string) => {
-      try {
-        const message = parseHostMessage(source);
-        if (message.type === 'native-storage-request') {
-          void handleNativeStorage(message);
-          return;
-        }
-        if (message.type === 'engine-state') {
-          setHostState(message.state);
-          setError(null);
-          return;
-        }
-        if (message.type === 'engine-error') {
-          setError(message.message);
-          setBusy(false);
-          return;
-        }
-        if (message.type === 'engine-command-response') {
-          setBusy(false);
-          if (message.ok && message.state !== undefined) {
-            setHostState(message.state);
-            setPassphrase('');
-            setError(null);
-          } else {
-            setError(message.error ?? 'The Engine command failed');
-          }
-        }
-      } catch (caught: unknown) {
-        setError(describeError(caught));
-        setBusy(false);
-      }
-    },
-    [handleNativeStorage],
-  );
+  const openLocal = async (
+    passphrase: string,
+    workspaceLabel: string,
+  ): Promise<void> => {
+    const state = await client.openLocal({
+      kind: 'open-local',
+      passphrase,
+      actorLabel: 'Mobile Owner',
+      workspaceLabel,
+    });
+    setHostState(state);
+  };
 
-  const openLocal = useCallback(() => {
-    if (passphrase.length < 8) {
-      setError('Passphrase must contain at least 8 characters.');
-      return;
-    }
-    if (workspaceLabel.trim().length === 0) {
-      setError('Workspace name is required.');
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    webView.current?.postMessage(
-      JSON.stringify({
-        type: 'engine-command',
-        id: `open-${Date.now()}`,
-        command: {
-          kind: 'open-local',
-          passphrase,
-          actorLabel: 'Mobile Owner',
-          workspaceLabel: workspaceLabel.trim(),
-        },
-      }),
+  let content;
+  if (surface === 'design-system') {
+    content = <DesignSystemPage productPreview={<MobileProductPreview />} />;
+  } else if (surface === 'legal') {
+    content = <LegalPage />;
+  } else {
+    content = (
+      <ProductShell
+        error={error}
+        hostState={hostState}
+        onOpenLocal={openLocal}
+      />
     );
-  }, [passphrase, workspaceLabel]);
+  }
 
   return (
-    <View style={styles.screen}>
-      <StatusBar
-        barStyle={
-          surface === 'design-system' || systemMode === 'light'
-            ? 'dark-content'
-            : 'light-content'
-        }
-      />
-      {surface === 'design-system' ? (
-        <MobileDesignSystemPage onClose={() => setSurface('product')} />
-      ) : surface === 'legal' ? (
-        <ThemeProvider>
-          <ToastProvider>
-            <MobileLegalPage onClose={() => setSurface('product')} />
-          </ToastProvider>
-        </ThemeProvider>
-      ) : (
-        <ThemeProvider>
-          <ToastProvider>
-            <ProductShell
-              busy={busy}
-              error={error}
-              hostState={hostState}
-              onNavigate={setSurface}
-              onOpenLocal={openLocal}
-              onPassphraseChange={setPassphrase}
-              onWorkspaceLabelChange={setWorkspaceLabel}
-              passphrase={passphrase}
-              workspaceLabel={workspaceLabel}
-            />
-          </ToastProvider>
-        </ThemeProvider>
-      )}
-
-      <View
-        importantForAccessibility="no-hide-descendants"
-        pointerEvents="none"
-        style={styles.engineHostContainer}
-      >
-        <WebView<object>
-          ref={webView}
-          allowFileAccess
-          javaScriptEnabled
-          originWhitelist={['file://*']}
-          source={{ uri: 'file:///android_asset/lode-engine/index.html' }}
-          onMessage={event => receiveHostMessage(event.nativeEvent.data)}
-          style={styles.engineHost}
-        />
-      </View>
-    </View>
+    <TooltipProvider>
+      <ToastProvider>{content}</ToastProvider>
+    </TooltipProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  engineHostContainer: {
-    bottom: 0,
-    height: 1,
-    left: 0,
-    opacity: 0.01,
-    overflow: 'hidden',
-    position: 'absolute',
-    width: 1,
-  },
-  engineHost: { flex: 1 },
-});
-
-export default App;
+function MobileProductPreview() {
+  return (
+    <ProductShell
+      error={null}
+      hostState={{
+        phase: 'ready',
+        vaultExists: true,
+        actors: [
+          { actorId: 'actor_preview', label: 'Mobile Owner', unlocked: true },
+        ],
+        workspaces: [
+          { workspaceId: 'workspace_preview', label: 'Personal knowledge' },
+        ],
+      }}
+      onOpenLocal={() => Promise.resolve()}
+    />
+  );
+}

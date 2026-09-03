@@ -13,6 +13,8 @@ const output = join(appRoot, "build", "web-preview");
 const designAssets = resolve(appRoot, "../../packages/design-tokens/assets");
 const designCatalogEntry = resolve(appRoot, "../../packages/design-system-catalog/src/index.ts");
 const designTokensEntry = resolve(appRoot, "../../packages/design-tokens/src/index.ts");
+const uiEntry = resolve(appRoot, "../../packages/ui/src/index.ts");
+const uiCatalogEntry = resolve(appRoot, "../../packages/ui/src/catalog/index.ts");
 const require = createRequire(import.meta.url);
 const tailwindCli = join(dirname(require.resolve("@tailwindcss/cli/package.json")), "dist/index.mjs");
 
@@ -32,6 +34,8 @@ const buildContext = await context({
   alias: {
     "@lode/design-system-catalog": designCatalogEntry,
     "@lode/design-tokens": designTokensEntry,
+    "@lode/ui": uiEntry,
+    "@lode/ui/catalog": uiCatalogEntry,
   },
   bundle: true,
   define: { "process.env.NODE_ENV": '"development"' },

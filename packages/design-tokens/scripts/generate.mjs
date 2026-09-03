@@ -101,6 +101,7 @@ function runtimeCss() {
     `  --lode-duration-standard: ${resolved.motion.duration.standard}ms;`,
     `  --lode-duration-panel: ${resolved.motion.duration.panel}ms;`,
     `  --lode-ease-standard: ${cssValue(resolveValue(tokens.get("motion.easing.standard").value, []), "cubicBezier")};`,
+    `  --lode-control-hit-target: ${resolved.control.height.comfortable}px;`,
   ].join("\n");
   const themeDeclarations = (theme, mode) =>
     [
@@ -178,6 +179,11 @@ function themeVariableGroups() {
           name: "--lode-spacing",
           kind: "value",
           values: valuesByTheme((theme) => themeSpacing(theme)),
+        },
+        {
+          name: "--lode-control-hit-target",
+          kind: "value",
+          values: valuesByTheme(() => `${resolved.control.height.comfortable}px`),
         },
       ],
     },
