@@ -7,10 +7,13 @@ import { Button } from "../components/button.js";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../components/card.js";
 import { Checkbox } from "../components/checkbox.js";
 import { Combobox } from "../components/combobox.js";
+import { EmptyState } from "../components/empty-state.js";
 import { Field, FieldDescription, FieldLabel } from "../components/field.js";
 import { Input } from "../components/input.js";
+import { Progress } from "../components/progress.js";
 import { Radio, RadioGroup } from "../components/radio-group.js";
 import { Select } from "../components/select.js";
+import { Skeleton } from "../components/skeleton.js";
 import { Spinner } from "../components/spinner.js";
 import { Switch } from "../components/switch.js";
 import { Textarea } from "../components/textarea.js";
@@ -222,11 +225,49 @@ export function StatusPage() {
           </Alert>
         ))}
       </Specimen>
-      <Specimen title="Progress">
-        <Spinner className="text-primary" label="Loading" />
-        <Button loading variant="secondary">
-          Restoring index
-        </Button>
+      <Specimen
+        description="A determinate bar reports measurable work; the spinner covers short, unmeasurable waits."
+        title="Progress"
+      >
+        <div className="flex w-full max-w-105 flex-col gap-5">
+          <Progress label="Restoring index" value={64} />
+          <div className="flex items-center gap-4">
+            <Spinner className="text-primary" label="Loading" />
+            <Button loading variant="secondary">
+              Restoring index
+            </Button>
+          </div>
+        </div>
+      </Specimen>
+      <Specimen
+        description="Skeletons hold the layout of known content while it loads; never skeleton whole pages."
+        title="Skeleton"
+      >
+        <div className="flex w-full max-w-105 items-start gap-3">
+          <Skeleton className="size-8 rounded-full" />
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <Skeleton className="h-4 w-2/5" />
+            <Skeleton className="h-3 w-full" />
+            <Skeleton className="h-3 w-4/5" />
+          </div>
+        </div>
+      </Specimen>
+      <Specimen
+        className="items-stretch"
+        description="An empty state names what is missing and leads to the action that creates the first item."
+        title="Empty state"
+      >
+        <EmptyState
+          action={
+            <Button size="sm" variant="outline">
+              Connect a peer
+            </Button>
+          }
+          className="max-w-120"
+          description="Peers you connect will keep this Workspace in sync."
+          icon="messages-square"
+          title="No peers connected"
+        />
       </Specimen>
     </>
   );

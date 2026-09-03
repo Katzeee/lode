@@ -1,6 +1,6 @@
 import { Alert } from "../components/alert.js";
 import { Button } from "../components/button.js";
-import { Card, CardDescription, CardTitle } from "../components/card.js";
+import { EmptyState } from "../components/empty-state.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
 export function ContentPage() {
@@ -21,13 +21,13 @@ export function ContentPage() {
         description="Name what is missing and pair it with the action that creates the first item."
         title="Empty states lead somewhere"
       >
-        <Card className="max-w-120 p-6">
-          <CardTitle>No workspaces yet</CardTitle>
-          <CardDescription className="mt-2">
-            Create a workspace to organize documents and invite collaborators.
-          </CardDescription>
-          <Button className="mt-5">Create workspace</Button>
-        </Card>
+        <EmptyState
+          action={<Button>Create workspace</Button>}
+          className="max-w-120"
+          description="Create a workspace to organize documents and invite collaborators."
+          icon="layers"
+          title="No workspaces yet"
+        />
       </Specimen>
       <Specimen
         description="Buttons use a specific verb and object. Avoid Submit, Yes, and OK when the actual outcome has a name."
