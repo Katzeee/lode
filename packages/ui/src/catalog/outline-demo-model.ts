@@ -1,3 +1,5 @@
+import { demoInlineToken } from "./outline-demo-inline.js";
+
 import type { OutlineContent } from "../components/outline/outline-content.js";
 
 export type FieldDatatype = "checkbox" | "date" | "number" | "options" | "options-from-supertag" | "plain";
@@ -8,7 +10,7 @@ export type NodeValue = Readonly<{
   field?: Readonly<{ datatype: FieldDatatype; kind: "definition" }> | Readonly<{ definitionId: string; kind: "field" }>;
   intrinsicNodeType?: "calendar" | "search";
   progress?: Readonly<{ max: number; value: number }>;
-  tags?: readonly string[];
+  supertag?: boolean;
   todo?: "done" | "open";
 }>;
 
@@ -103,7 +105,7 @@ const localFirstChildren = [
 
 const initialSeeds: readonly Seed[] = [
   seed("projects", { content: textContent("Projects") }, [
-    seed("lode", { content: textContent("Lode"), tags: ["#project"] }, [
+    seed("lode", { content: [...textContent("Lode "), demoInlineToken("supertag", "supertag-project", "project")] }, [
       field("status-field", "status-definition", "Status", [
         fieldValue("in-progress", "In progress", { targetNodeId: "status-in-progress" }),
       ]),
@@ -126,8 +128,8 @@ const initialSeeds: readonly Seed[] = [
         }),
         seed("command-palette", {
           content: [
-            { text: "Command palette follows ", type: "text" },
-            { id: "outline-m1", label: "Outline tree structure engine", type: "reference" },
+            { text: "**Command palette** follows ", type: "text" },
+            demoInlineToken("reference", "outline-m1", "Outline tree structure engine"),
           ],
           todo: "open",
         }),
@@ -139,7 +141,9 @@ const initialSeeds: readonly Seed[] = [
       ]),
       seed("engine", { content: textContent("Engine facts and projections") }),
     ]),
-    seed("home-lab", { content: textContent("Home lab notes"), tags: ["#project"] }),
+    seed("home-lab", {
+      content: [...textContent("Home lab notes "), demoInlineToken("supertag", "supertag-project", "project")],
+    }),
   ]),
   seed(
     "field-definitions",
@@ -159,7 +163,7 @@ const initialSeeds: readonly Seed[] = [
   ),
   seed("daily-notes", { content: textContent("Daily notes"), editable: false, intrinsicNodeType: "calendar" }),
   seed("open-decisions", { content: textContent("Open design decisions"), intrinsicNodeType: "search" }),
-  seed("kei", { content: textContent("Kei"), tags: ["#person"] }),
+  seed("kei", { content: [...textContent("Kei "), demoInlineToken("supertag", "supertag-person", "person")] }),
   seed("inbox", { content: textContent("Reading inbox") }, [
     seed("local-first-original", { content: textContent("Local-first software essay") }, localFirstChildren, {
       nodeId: "local-first",
@@ -169,6 +173,10 @@ const initialSeeds: readonly Seed[] = [
   ]),
   seed("archive", { content: textContent("Archive") }, [
     seed("value-library", { content: textContent("Value library") }, [
+      seed("project-tag", { content: textContent("project"), supertag: true }, undefined, {
+        nodeId: "supertag-project",
+      }),
+      seed("person-tag", { content: textContent("person"), supertag: true }, undefined, { nodeId: "supertag-person" }),
       seed("status-planned-original", { content: textContent("Planned") }, undefined, { nodeId: "status-planned" }),
       seed("status-in-progress-original", { content: textContent("In progress") }, undefined, {
         nodeId: "status-in-progress",
@@ -207,13 +215,3 @@ function graphFromSeeds(seeds: readonly Seed[]): DemoGraph {
 }
 
 export const initialGraph = graphFromSeeds(initialSeeds);
-
-export const outlineCommands = [
-  { description: "Add an actionable checkbox to this node", id: "task", keywords: ["todo"], label: "Make task" },
-  {
-    description: "Apply the #project Supertag",
-    id: "project",
-    keywords: ["tag", "supertag"],
-    label: "Add #project",
-  },
-] as const;

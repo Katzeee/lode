@@ -5,12 +5,17 @@ export function caretOffsetAtPoint(root: HTMLElement, clientX: number, clientY: 
   const range = root.ownerDocument.createRange();
   let offset = 0;
   const visit = (node: Node) => {
-    if (node instanceof Element && node.getAttribute("data-ui") === "outline-reference") {
+    if (node instanceof Element && node.hasAttribute("data-source-token")) {
+      offset = Number(node.getAttribute("data-source-start"));
+      const end = Number(node.getAttribute("data-source-end"));
       const bounds = node.getBoundingClientRect();
       const y = bounds.top + bounds.height / 2;
-      candidates.push({ offset, x: bounds.left, y }, { offset: offset + 1, x: bounds.right, y });
-      offset += 1;
+      candidates.push({ offset, x: bounds.left, y }, { offset: end, x: bounds.right, y });
+      offset = end;
       return;
+    }
+    if (node instanceof Element && node.hasAttribute("data-source-start")) {
+      offset = Number(node.getAttribute("data-source-start"));
     }
     if (node instanceof Text) {
       for (let index = 0; index < node.data.length; index += 1) {

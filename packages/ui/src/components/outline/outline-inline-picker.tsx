@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 
 import { menuItemClassName, menuPopupClassName } from "../dropdown-menu.js";
@@ -39,6 +39,7 @@ export function OutlineInlinePicker({
       ) : (
         picker.results.map((item, index) => (
           <PickerButton
+            content={picker.provider.renderItem?.(item, index === picker.activeIndex)}
             active={index === picker.activeIndex}
             description={item.description}
             key={item.id}
@@ -54,11 +55,12 @@ export function OutlineInlinePicker({
 }
 
 function PickerButton({
+  content,
   active,
   description,
   label,
   onSelect,
-}: Readonly<{ active: boolean; description?: string; label: string; onSelect: () => void }>) {
+}: Readonly<{ active: boolean; content?: ReactNode; description?: string; label: string; onSelect: () => void }>) {
   return (
     <button
       aria-selected={active}
@@ -70,12 +72,14 @@ function PickerButton({
       tabIndex={-1}
       type="button"
     >
-      <span className="flex min-w-0 flex-col items-start">
-        <span className="font-medium">{label}</span>
-        {description === undefined ? null : (
-          <span className="truncate text-caption text-muted-foreground">{description}</span>
-        )}
-      </span>
+      {content ?? (
+        <span className="flex min-w-0 flex-col items-start">
+          <span className="font-medium">{label}</span>
+          {description === undefined ? null : (
+            <span className="truncate text-caption text-muted-foreground">{description}</span>
+          )}
+        </span>
+      )}
     </button>
   );
 }

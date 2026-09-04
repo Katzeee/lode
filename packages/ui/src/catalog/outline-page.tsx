@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 
 import { Breadcrumbs, type BreadcrumbItem } from "../components/breadcrumbs.js";
-import { contentToPlainText } from "../components/outline/outline-content.js";
+import { demoNodeLabel } from "./outline-demo-inline.js";
 import {
   OutlineTree,
   type OutlineContent,
@@ -22,6 +22,8 @@ import { presentOutline } from "./outline-demo-presenter.js";
 import { demoOutlinePresentationRegistry, type DemoOutlinePresentationAction } from "./outline-demo-presentation.js";
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
 import { initialGraph, textContent, type DemoGraph, type DemoNode, type DemoOccurrence } from "./outline-demo-model.js";
+import { demoInlineExtensions } from "./outline-demo-inline-presentation.js";
+import { demoOutlineCommands } from "./outline-demo-commands.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
 function siblingLocation(graph: DemoGraph, key: string): Readonly<{ index: number; parentKey: string | null }> | null {
@@ -67,6 +69,7 @@ export function OutlinePage() {
   const completionProviders = useMemo(
     () =>
       createDemoCompletionProviders({
+        commands: demoOutlineCommands,
         fieldDefinitionIdsByKey: presentedOutline.fieldDefinitionIdsByKey,
         graph,
       }),
@@ -83,7 +86,7 @@ export function OutlinePage() {
       .map((segment, index, segments) => {
         const path = segments.slice(0, index + 1).join("/");
         return {
-          label: contentToPlainText(resolveGraphPath(graph, path)?.node.value.content ?? textContent(segment)),
+          label: demoNodeLabel(resolveGraphPath(graph, path)?.node.value.content ?? textContent(segment)),
           onSelect: () => setZoomKey(path),
         };
       }),
@@ -181,21 +184,22 @@ export function OutlinePage() {
       />
       <Specimen
         className="flex-col flex-nowrap items-stretch gap-4"
-        description="Expand Lode to inspect Field Values presented in a shared column, then expand the Local-first Reference to see the same target-owned child graph as its Original. Datatypes provide suggestions and validation without restricting a Value Node's content."
+        description="Click text to edit its source, including formatting, references and Supertags. Use / for commands, @ to reference a node, # to apply a Supertag, and > to choose a field. Field values share a column and remain editable as ordinary nodes."
         title="Node outline"
       >
         {zoomKey === null ? null : (
           <header className="flex flex-col gap-0.5 border-b border-border pb-3">
             <Breadcrumbs items={breadcrumbItems} />
             <h3 className="text-title-small font-semibold tracking-tight">
-              {contentToPlainText(resolveGraphPath(graph, zoomKey)?.node.value.content ?? [])}
+              {demoNodeLabel(resolveGraphPath(graph, zoomKey)?.node.value.content ?? [])}
             </h3>
           </header>
         )}
         <OutlineTree
+          inlineExtensions={demoInlineExtensions}
           editing={{
             completionProviders,
-            emptyPlaceholder: "Type / for commands, > for a field, or [[ to link a node…",
+            emptyPlaceholder: "Type / for commands, @ to reference, # for a Supertag, or > for a field…",
             onCompletion: (key, providerId, itemId, content) => {
               const sourceKey = modelPath(key);
               const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
@@ -233,14 +237,12 @@ export function OutlinePage() {
               setGraph((previous) =>
                 updateGraphNode(previous, resolved.node.id, (node) => ({
                   ...node,
-                  value: {
-                    ...node.value,
-                    content,
-                    ...(providerId === completionIds.command && itemId === "task" ? { todo: "open" as const } : {}),
-                    ...(providerId === completionIds.command && itemId === "project"
-                      ? { tags: [...new Set([...(node.value.tags ?? []), "#project"])] }
-                      : {}),
-                  },
+                  value:
+                    providerId === completionIds.command
+                      ? (demoOutlineCommands
+                          .find((command) => command.id === itemId)
+                          ?.apply?.({ ...node.value, content }) ?? { ...node.value, content })
+                      : { ...node.value, content },
                 })),
               );
             },

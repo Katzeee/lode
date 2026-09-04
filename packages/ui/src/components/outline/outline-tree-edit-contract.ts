@@ -1,4 +1,5 @@
 import type { OutlineContent } from "./outline-content.js";
+import type { ReactNode } from "react";
 import type { OutlineMerge } from "./outline-tree-view-model.js";
 
 export type OutlineCompletionItem = Readonly<{
@@ -11,12 +12,14 @@ export type OutlineCompletionItem = Readonly<{
 export type OutlineCompletionMatch = Readonly<{ from: number; query: string; to: number }>;
 
 export type OutlineCompletionContext = Readonly<{
+  content: OutlineContent;
   selection: Readonly<{ from: number; to: number }>;
   text: string;
   textBeforeCaret: string;
 }>;
 
 export type OutlineCompletionProvider = Readonly<{
+  renderItem?: (item: OutlineCompletionItem, active: boolean) => ReactNode;
   ariaLabel: string;
   emptyLabel: string;
   enabled?: (key: string) => boolean;
@@ -53,16 +56,10 @@ export type OutlineEditorCommand =
       type: "structure";
     }>;
 
-export type OutlineEditorCompletionProvider = Readonly<{
-  ariaLabel: string;
-  emptyLabel: string;
-  exitOnSelect?: boolean;
-  heading: string;
-  id: string;
-  items: (query: string) => readonly OutlineCompletionItem[];
-  match: (context: OutlineCompletionContext) => OutlineCompletionMatch | null;
-  openOnEmptyFocus?: boolean;
-}>;
+export type OutlineEditorCompletionProvider = Omit<OutlineCompletionProvider, "enabled" | "items"> &
+  Readonly<{
+    items: (query: string) => readonly OutlineCompletionItem[];
+  }>;
 
 export type OutlineEditorBinding = Readonly<{
   ariaLabel: string;

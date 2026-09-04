@@ -1,4 +1,4 @@
-import { contentToPlainText } from "../components/outline/outline-content.js";
+import { demoNodeLabel } from "./outline-demo-inline.js";
 import type { OutlineItemViewModel } from "../components/outline/outline-tree.js";
 import type { DemoFieldGlyph, DemoOutlinePresentation } from "./outline-demo-presentation.js";
 import { resolveGraphPath } from "./outline-demo-graph.js";
@@ -54,7 +54,7 @@ function presentOccurrenceIds(
     const nextAncestors = new Set(ancestorNodeIds).add(node.id);
     return [
       {
-        accessibilityLabel: contentToPlainText(node.value.content) || "Untitled item",
+        accessibilityLabel: demoNodeLabel(node.value.content) || "Untitled item",
         children:
           cyclic || node.childOccurrenceIds.length === 0
             ? undefined
@@ -69,6 +69,7 @@ function presentOccurrenceIds(
               ),
         content: node.value.content,
         editable: node.value.editable !== false,
+        readonlyReason: node.value.editable === false ? readonlyReason(node.value) : undefined,
         expandable: cyclic ? false : occurrence.expandable,
         key,
         presentation: presentNode(graph, node.value, occurrence, fieldDefinitionId !== undefined),
@@ -79,6 +80,17 @@ function presentOccurrenceIds(
 
 function fieldGlyph(datatype: FieldDatatype): DemoFieldGlyph {
   return datatype === "plain" ? "text" : datatype === "options-from-supertag" ? "supertag" : datatype;
+}
+
+function readonlyReason(value: NodeValue): string {
+  if (value.field !== undefined) {
+    return value.field.kind === "field"
+      ? "Name comes from the field definition."
+      : "This name is managed in field configuration.";
+  }
+  return value.intrinsicNodeType === "calendar"
+    ? "This name is managed by the calendar."
+    : "This name is managed by the system.";
 }
 
 function fieldDatatype(graph: DemoGraph, value: NodeValue): FieldDatatype | undefined {
@@ -97,11 +109,10 @@ function presentNode(
 ): DemoOutlinePresentation {
   const base = {
     appearance: occurrence.appearance === "reference" ? ("reference" as const) : ("node" as const),
-    badges: value.tags?.map((label) => ({ label, tone: "accent" as const })),
     checkbox:
       value.todo === undefined
         ? undefined
-        : { checked: value.todo === "done", label: `Toggle ${contentToPlainText(value.content)}` },
+        : { checked: value.todo === "done", label: `Toggle ${demoNodeLabel(value.content)}` },
     childrenLayout: value.field?.kind === "field" ? ("beside" as const) : undefined,
     contentStyle: {
       decoration: value.todo === "done" ? ("line-through" as const) : undefined,

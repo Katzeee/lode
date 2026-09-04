@@ -289,7 +289,7 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
               globalThis.requestAnimationFrame(() => containerRef.current?.focus());
             }
           },
-          placeholder: editing.emptyPlaceholder ?? "Type / for commands or [[ to link a node…",
+          placeholder: editing.emptyPlaceholder ?? "Start typing…",
         };
 
   return {

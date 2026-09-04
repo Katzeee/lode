@@ -190,18 +190,25 @@ async function verifyOutlinePresentation(page) {
     "rgba(0, 0, 0, 0)",
     "editing one Node must not paint the full-width multi-selection background",
   );
-  const editorBox = await editor.boundingBox();
-  const supertagBox = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
-  assert.ok(
-    editorBox !== null &&
-      supertagBox !== null &&
-      lodeSupertagBeforeEditing !== null &&
-      Math.abs(editorBox.y - supertagBox.y) <= 2 &&
-      Math.abs(lodeSupertagBeforeEditing.x - supertagBox.x) <= 1,
-    "Supertags must remain inline without shifting when a short Node enters edit mode",
+  assert.equal(
+    await editor.textContent(),
+    "Lode #{project}",
+    "Supertags reveal their closed source in the same editor",
+  );
+  assert.equal(
+    await lodeEditingRow.locator('[data-ui="outline-row-badge"]').count(),
+    0,
+    "a Supertag must not render a duplicate badge beside its editable source",
   );
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
+  const supertagBox = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
+  assert.ok(
+    supertagBox !== null &&
+      lodeSupertagBeforeEditing !== null &&
+      Math.abs(lodeSupertagBeforeEditing.x - supertagBox.x) <= 1,
+    "leaving source editing restores the Supertag's inline position",
+  );
 
   const pendingMilestone = rowByPath("projects/lode/roadmap/outline-m2");
   const pendingCheckbox = pendingMilestone.getByRole("checkbox");
@@ -562,7 +569,7 @@ async function verifyOutlineEditing(page) {
   const clickedCaret = 4;
   await homeLabText.scrollIntoViewIfNeeded();
   const clickPoint = await homeLabText.evaluate((element, caret) => {
-    const text = element.firstChild;
+    const text = element.querySelector("[data-source-start]")?.firstChild;
     if (!(text instanceof Text)) {
       throw new Error("the demo row must expose its text for caret verification");
     }
@@ -588,7 +595,7 @@ async function verifyOutlineEditing(page) {
   );
   assert.equal(
     await rowByText("Home lab notes").locator('[data-ui="outline-inline-content"]').textContent(),
-    "Home lab notes",
+    "Home lab notes #project",
     "a structural intent must preserve the committed editor draft",
   );
 
@@ -639,14 +646,15 @@ async function verifyOutlineEditing(page) {
   await rowByText("CRDT ordering survey").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.press("End");
-  await editor.pressSequentially("[[");
+  await editor.pressSequentially(" @");
   const referencePicker = page.getByRole("listbox", { name: "References" });
   await referencePicker.waitFor({ state: "visible" });
   await referencePicker.getByRole("option", { name: "Local-first software essay" }).click();
-  const editedRow = editor.locator('xpath=ancestor::*[@data-ui="outline-row"]');
-  await editedRow.locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" }).waitFor({
-    state: "visible",
-  });
+  assert.equal(
+    await editorText(),
+    "CRDT ordering survey @{Local-first software essay}",
+    "choosing a reference must insert editable closed source",
+  );
   const rowsBeforeCompositionEnter = await page.locator('[data-ui="outline-row"]').count();
   await editor.evaluate((surface) => {
     surface.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "中" }));

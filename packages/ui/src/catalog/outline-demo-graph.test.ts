@@ -32,6 +32,18 @@ function presentedItem(graph: typeof initialGraph, modelPath: string) {
 }
 
 describe("outline demo presenter", () => {
+  it("supplies the reason for readonly names without imposing it on editable nodes", () => {
+    expect(presentedItem(initialGraph, "projects/lode/status-field")).toMatchObject({
+      editable: false,
+      readonlyReason: "Name comes from the field definition.",
+    });
+    expect(presentedItem(initialGraph, "daily-notes")).toMatchObject({
+      editable: false,
+      readonlyReason: "This name is managed by the calendar.",
+    });
+    expect(presentedItem(initialGraph, "projects")?.readonlyReason).toBeUndefined();
+  });
+
   it("presents Original and Reference children from one target Node", () => {
     const referencePath = "projects/lode/roadmap/local-first-reference";
     const originalPath = "inbox/local-first-original";
@@ -136,6 +148,7 @@ describe("outline demo presenter", () => {
       throw new Error("Expected the Status Field Value ViewModel");
     }
     const providers = createDemoCompletionProviders({
+      commands: [],
       fieldDefinitionIdsByKey: presented.fieldDefinitionIdsByKey,
       graph: renamed,
     });
@@ -148,6 +161,7 @@ describe("outline demo presenter", () => {
     }));
     const plainPresented = presentOutline(plainDefinition);
     const plainProviders = createDemoCompletionProviders({
+      commands: [],
       fieldDefinitionIdsByKey: plainPresented.fieldDefinitionIdsByKey,
       graph: plainDefinition,
     });

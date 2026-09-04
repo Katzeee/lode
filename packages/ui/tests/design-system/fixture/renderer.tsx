@@ -1,8 +1,9 @@
-import { StrictMode } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AppShell, ToastProvider, TooltipProvider, type AppShellSection } from "../../../dist/index.js";
 import { DesignSystemPage } from "../../../dist/catalog/index.js";
+import { OutlineExtensionFixture } from "./outline-extension-fixture.js";
 
 const previewSections: readonly AppShellSection[] = [
   {
@@ -33,11 +34,25 @@ if (root === null) {
   throw new Error("The design-system test root is missing");
 }
 
+function TestSurface() {
+  const [hash, setHash] = useState(window.location.hash);
+  useEffect(() => {
+    const update = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  return hash === "#/outline-extension-fixture" ? (
+    <OutlineExtensionFixture />
+  ) : (
+    <DesignSystemPage productPreview={<SharedProductPreview />} />
+  );
+}
+
 createRoot(root).render(
   <StrictMode>
     <TooltipProvider>
       <ToastProvider>
-        <DesignSystemPage productPreview={<SharedProductPreview />} />
+        <TestSurface />
       </ToastProvider>
     </TooltipProvider>
   </StrictMode>,

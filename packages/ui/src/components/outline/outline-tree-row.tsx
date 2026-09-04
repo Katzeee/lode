@@ -47,6 +47,7 @@ export function OutlineTreeRow({
 }>) {
   return (
     <div
+      aria-description={row.item.editable === false ? row.item.readonlyReason : undefined}
       aria-expanded={row.expandable ? row.expanded : undefined}
       aria-level={row.depth + 1}
       aria-posinset={row.indexInParent + 1}
@@ -83,11 +84,7 @@ export function OutlineTreeRow({
         ) : (
           <OutlineInlineEditorProvider
             binding={editActiveKey === row.key ? editBinding : null}
-            placeholder={
-              cursor || editActiveKey === row.key
-                ? (editing.emptyPlaceholder ?? "Type / for commands or [[ to link a node…")
-                : ""
-            }
+            placeholder={cursor || editActiveKey === row.key ? (editing.emptyPlaceholder ?? "Start typing…") : ""}
           >
             <div
               className="flex min-h-6 max-w-full min-w-0 items-start py-0.5"
@@ -123,7 +120,13 @@ export function OutlineItemContent({
       suffix={presentation.suffix}
       trailing={presentation.trailing}
     >
-      <span className={cn(contentStyle?.weight === "medium" && "font-medium")}>
+      <span
+        className={cn(
+          row.item.editable === false ? "lode-outline-readonly" : "cursor-text",
+          contentStyle?.weight === "medium" && "font-medium",
+        )}
+        data-ui={row.item.editable === false ? "outline-readonly-text" : undefined}
+      >
         <OutlineInlineContent content={row.item.content} />
       </span>
     </OutlineRowContent>

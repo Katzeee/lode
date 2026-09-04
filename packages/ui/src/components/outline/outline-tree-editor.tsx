@@ -1,20 +1,11 @@
-import { mergeAttributes, Node as TiptapNode, type Editor } from "@tiptap/core";
-import Bold from "@tiptap/extension-bold";
-import Code from "@tiptap/extension-code";
-import Document from "@tiptap/extension-document";
-import Italic from "@tiptap/extension-italic";
-import Paragraph from "@tiptap/extension-paragraph";
-import Text from "@tiptap/extension-text";
+import type { Editor } from "@tiptap/core";
 import { EditorContent, useEditor } from "@tiptap/react";
 import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
-import {
-  contentLength,
-  contentToDoc,
-  docToContent,
-  type OutlineContent,
-  type OutlineInline,
-} from "./outline-content.js";
+import { contentLength, contentToDoc, docToContent, type OutlineContent } from "./outline-content.js";
+import { outlineEditorDocument } from "./outline-editor-document.js";
+import { OutlineSourceContent, useOutlineInlineExtensions } from "./outline-source-content.js";
+import type { OutlineSourceEdit } from "./outline-inline-extension.js";
 import { completionPicker, pickerPosition } from "./outline-editor-picker.js";
 import { OutlineInlinePicker, type OutlinePickerState } from "./outline-inline-picker.js";
 import type {
@@ -22,60 +13,6 @@ import type {
   OutlineEditorBinding,
   OutlineEditorCommand,
 } from "./outline-tree-edit-contract.js";
-
-const referenceClassName =
-  "mx-0.5 inline-flex max-w-full items-center rounded-full border border-primary/15 bg-primary/10 px-1.5 align-middle text-caption font-medium whitespace-normal break-words text-primary";
-
-const SingleLineDocument = Document.extend({ content: "paragraph" });
-const SingleLineParagraph = Paragraph.extend({ content: "inline*" });
-const OutlineHardBreak = TiptapNode.create({
-  group: "inline",
-  inline: true,
-  name: "hardBreak",
-  parseHTML: () => [{ tag: "br" }],
-  renderHTML: () => ["br"],
-  renderText: () => "\n",
-  selectable: false,
-});
-
-const OutlineReference = TiptapNode.create({
-  addAttributes() {
-    return {
-      id: {
-        default: "",
-        parseHTML: (element) => element.getAttribute("data-reference-id") ?? "",
-        renderHTML: (attributes) => ({ "data-reference-id": String(attributes.id ?? "") }),
-      },
-      label: {
-        default: "",
-        parseHTML: (element) => element.textContent ?? "",
-        renderHTML: () => ({}),
-      },
-    };
-  },
-  atom: true,
-  group: "inline",
-  inline: true,
-  name: "outlineReference",
-  parseHTML() {
-    return [{ tag: 'span[data-ui="outline-reference"]' }];
-  },
-  renderHTML({ HTMLAttributes, node }) {
-    return [
-      "span",
-      mergeAttributes(HTMLAttributes, {
-        class: referenceClassName,
-        contenteditable: "false",
-        "data-ui": "outline-reference",
-      }),
-      String(node.attrs.label ?? ""),
-    ];
-  },
-  renderText({ node }) {
-    return String(node.attrs.label ?? "");
-  },
-  selectable: true,
-});
 
 type InlineEditorContextValue = Readonly<{ binding: OutlineEditorBinding | null; placeholder: string }>;
 
@@ -87,20 +24,6 @@ export function OutlineInlineEditorProvider({
   placeholder,
 }: Readonly<{ binding: OutlineEditorBinding | null; children: ReactNode; placeholder: string }>) {
   return <InlineEditorContext.Provider value={{ binding, placeholder }}>{children}</InlineEditorContext.Provider>;
-}
-
-function MarkedText({ inline }: Readonly<{ inline: Extract<OutlineInline, { type: "text" }> }>) {
-  let rendered: ReactNode = inline.text;
-  if (inline.marks?.includes("code") === true) {
-    rendered = <code>{rendered}</code>;
-  }
-  if (inline.marks?.includes("italic") === true) {
-    rendered = <em>{rendered}</em>;
-  }
-  if (inline.marks?.includes("bold") === true) {
-    rendered = <strong>{rendered}</strong>;
-  }
-  return rendered;
 }
 
 export function OutlineInlineContent({ content }: Readonly<{ content: OutlineContent }>) {
@@ -115,15 +38,7 @@ export function OutlineInlineContent({ content }: Readonly<{ content: OutlineCon
           {placeholder}
         </span>
       ) : (
-        content.map((inline, index) =>
-          inline.type === "reference" ? (
-            <span className={referenceClassName} data-reference-id={inline.id} data-ui="outline-reference" key={index}>
-              {inline.label}
-            </span>
-          ) : (
-            <MarkedText inline={inline} key={index} />
-          ),
-        )
+        <OutlineSourceContent content={content} />
       )}
     </span>
   );
@@ -182,7 +97,30 @@ function editorCommand(editor: Editor, event: KeyboardEvent): OutlineEditorComma
   return null;
 }
 
+function replaceSource(editor: Editor, edit: OutlineSourceEdit) {
+  const replacement = contentToDoc(edit.replacement).content[0].content ?? [];
+  const chain = editor.chain().focus();
+  const range = { from: edit.from + 1, to: edit.to + 1 };
+  if (replacement.length === 0) {
+    chain.deleteRange(range);
+  } else {
+    chain.insertContentAt(range, replacement);
+  }
+  if (edit.selection !== undefined) {
+    chain.setTextSelection({ from: edit.selection.from + 1, to: edit.selection.to + 1 });
+  }
+  chain
+    .command(({ tr }) => {
+      tr.setStoredMarks([]);
+      return true;
+    })
+    .run();
+}
+
 function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding }>) {
+  const extensions = useOutlineInlineExtensions();
+  const extensionsRef = useRef(extensions);
+  extensionsRef.current = extensions;
   const bindingRef = useRef(binding);
   const editorRef = useRef<Editor | null>(null);
   const pickerElementRef = useRef<HTMLDivElement | null>(null);
@@ -206,13 +144,11 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     if (activeEditor === null || activePicker === null) {
       return;
     }
-    const replacement = contentToDoc(item.replacement).content?.[0]?.content ?? [];
-    const chain = activeEditor.chain().focus();
-    if (replacement.length === 0) {
-      chain.deleteRange({ from: activePicker.from, to: activePicker.to }).run();
-    } else {
-      chain.insertContentAt({ from: activePicker.from, to: activePicker.to }, replacement).run();
-    }
+    replaceSource(activeEditor, {
+      from: activePicker.from - 1,
+      to: activePicker.to - 1,
+      replacement: item.replacement,
+    });
     const content = currentContent(activeEditor);
     setPicker(null);
     bindingRef.current.onCompletion(activePicker.provider.id, item.id, content);
@@ -246,14 +182,15 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
       }
       return true;
     }
-    if (
-      event.key === "Backspace" &&
-      activeEditor.state.selection.empty &&
-      activeEditor.state.selection.$from.nodeBefore?.type.name === "outlineReference"
-    ) {
-      const position = activeEditor.state.selection.from;
-      activeEditor.view.dispatch(activeEditor.state.tr.delete(position - 1, position));
-      return true;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey) {
+      const extension = extensionsRef.current.find((candidate) => candidate.shortcut?.key === event.key.toLowerCase());
+      if (extension?.shortcut !== undefined) {
+        replaceSource(
+          activeEditor,
+          extension.shortcut.apply(currentContent(activeEditor), selectionOffsets(activeEditor)),
+        );
+        return true;
+      }
     }
     const command = editorCommand(activeEditor, event);
     return command === null ? false : bindingRef.current.onCommand(command);
@@ -278,7 +215,7 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
         return activeEditor === null ? false : handleKeyDown(activeEditor, event);
       },
     },
-    extensions: [SingleLineDocument, SingleLineParagraph, Text, Bold, Italic, Code, OutlineHardBreak, OutlineReference],
+    extensions: outlineEditorDocument,
     immediatelyRender: true,
     onSelectionUpdate: ({ editor: updatedEditor }) =>
       syncPicker(updatedEditor, pickerRef.current === null ? [] : [pickerRef.current.provider]),
@@ -334,7 +271,7 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     if (JSON.stringify(currentContent(editor)) !== JSON.stringify(binding.content)) {
       return;
     }
-    const position = Math.min(binding.initialCaret + 1, editor.state.doc.content.size - 1);
+    const position = Math.max(1, Math.min(binding.initialCaret + 1, editor.state.doc.content.size - 1));
     editor.commands.setTextSelection(position);
   }, [binding.initialCaret, editor]);
 

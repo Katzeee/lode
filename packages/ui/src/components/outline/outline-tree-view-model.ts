@@ -6,6 +6,8 @@ export type OutlineItemViewModel<Presentation = unknown> = Readonly<{
   children?: readonly OutlineItemViewModel<Presentation>[];
   content: OutlineContent;
   editable?: boolean;
+  /** The host explains why this name cannot be edited here. */
+  readonlyReason?: string;
   /** Controls whether this item exposes a disclosure affordance; false keeps existing children visible. */
   expandable?: boolean;
   /** Stable, opaque identity for this presented appearance. OutlineTree never parses or constructs it. */

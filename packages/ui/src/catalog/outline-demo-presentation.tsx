@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { Badge } from "../components/badge.js";
 import { Checkbox } from "../components/checkbox.js";
 import { cn } from "../components/cn.js";
 import {
@@ -17,7 +16,6 @@ export type DemoFieldGlyph = "checkbox" | "date" | "number" | "options" | "super
 
 type DemoPresentationBase = Readonly<{
   appearance: "node" | "reference";
-  badges?: readonly Readonly<{ label: string; tone: "accent" }>[];
   checkbox?: Readonly<{ checked: boolean; label: string }>;
   childrenLayout?: OutlineChildrenLayout;
   contentStyle?: OutlineContentStyle;
@@ -209,23 +207,6 @@ function bullet(
   };
 }
 
-function suffix(presentation: DemoOutlinePresentation): ReactNode {
-  if (presentation.badges === undefined) {
-    return undefined;
-  }
-  return presentation.badges.map((badge) => (
-    <Badge
-      className="ml-1.5 align-[0.08em]"
-      data-ui="outline-row-badge"
-      key={badge.label}
-      size="inline"
-      tone={badge.tone}
-    >
-      {badge.label}
-    </Badge>
-  ));
-}
-
 export const demoOutlinePresentationRegistry: OutlinePresentationRegistry<
   DemoOutlinePresentation,
   DemoOutlinePresentationAction
@@ -246,7 +227,6 @@ export const demoOutlinePresentationRegistry: OutlinePresentationRegistry<
           tabIndex={-1}
         />
       ),
-    suffix: suffix(presentation),
     trailing:
       presentation.progress === undefined ? undefined : (
         <OutlineRowProgress max={presentation.progress.max} value={presentation.progress.value} />

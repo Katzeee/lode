@@ -11,6 +11,8 @@ import {
   type OutlineTreeEditing,
 } from "./outline-tree-edit.js";
 import { OutlineInlineContent } from "./outline-tree-editor.js";
+import { OutlineInlineExtensionsProvider } from "./outline-source-content.js";
+import type { OutlineInlineExtension } from "./outline-inline-extension.js";
 import { OutlineSelectionToolbar } from "./outline-tree-controls.js";
 import { OutlineChildren, OutlineNodeEnvironmentProvider, type OutlineNodeEnvironment } from "./outline-tree-node.js";
 import { OutlineItemContent } from "./outline-tree-row.js";
@@ -38,7 +40,9 @@ import {
 export { OutlineInlineContent };
 export { OutlineBullet, OutlineBulletDot } from "./outline-bullet.js";
 export { OutlineRowProgress } from "./outline-row.js";
-export type { OutlineContent, OutlineInline, OutlineMark } from "./outline-content.js";
+export type { OutlineContent, OutlineInline, OutlineToken } from "./outline-content.js";
+export type { OutlineInlineExtension, OutlineSourceEdit, OutlineSyntaxMatch } from "./outline-inline-extension.js";
+export { outlineFormatting } from "./outline-formatting.js";
 export type {
   OutlineBulletPresentation,
   OutlineChildrenLayout,
@@ -62,6 +66,7 @@ export type {
 };
 
 type OutlineTreeProperties<Presentation, Action> = Readonly<{
+  inlineExtensions?: readonly OutlineInlineExtension[];
   editing?: OutlineTreeEditing;
   expandedKeys: ReadonlySet<string>;
   items: readonly OutlineItemViewModel<Presentation>[];
@@ -78,6 +83,7 @@ type OutlineTreeProperties<Presentation, Action> = Readonly<{
 }>;
 
 export function OutlineTree<Presentation, Action>({
+  inlineExtensions = [],
   editing,
   expandedKeys,
   items,
@@ -304,6 +310,7 @@ export function OutlineTree<Presentation, Action>({
         return;
       }
       if (row.item.editable === false) {
+        containerRef.current?.focus({ preventScroll: true });
         return;
       }
       const content = event.currentTarget.querySelector<HTMLElement>('[data-ui="outline-inline-content"]');
@@ -340,9 +347,11 @@ export function OutlineTree<Presentation, Action>({
       role="tree"
       tabIndex={0}
     >
-      <OutlineNodeEnvironmentProvider value={environment}>
-        <OutlineChildren items={items} parent={null} />
-      </OutlineNodeEnvironmentProvider>
+      <OutlineInlineExtensionsProvider value={inlineExtensions}>
+        <OutlineNodeEnvironmentProvider value={environment}>
+          <OutlineChildren items={items} parent={null} />
+        </OutlineNodeEnvironmentProvider>
+      </OutlineInlineExtensionsProvider>
       {activeSelection.keys.size > 1 ? (
         <OutlineSelectionToolbar
           count={activeSelection.keys.size}
@@ -362,7 +371,9 @@ export function OutlineTree<Presentation, Action>({
           className="pointer-events-none fixed z-50 max-w-72 rounded-md border border-border bg-popover px-3 py-1.5 text-body text-popover-foreground shadow-lg"
           style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 12 }}
         >
-          <OutlineItemContent presentation={presentRow(draggedRows[0], false)} row={draggedRows[0]} />
+          <OutlineInlineExtensionsProvider value={inlineExtensions}>
+            <OutlineItemContent presentation={presentRow(draggedRows[0], false)} row={draggedRows[0]} />
+          </OutlineInlineExtensionsProvider>
           {draggedRows.length <= 1 ? null : (
             <span className="ml-2 text-caption text-muted-foreground">+{String(draggedRows.length - 1)}</span>
           )}

@@ -1,70 +1,60 @@
-export type OutlineMark = "bold" | "code" | "italic";
-
+/** Source text and externally owned tokens form the portable editing document. */
 export type OutlineInline =
-  | Readonly<{ marks?: readonly OutlineMark[]; text: string; type: "text" }>
-  | Readonly<{ id: string; label: string; type: "reference" }>;
-
+  | Readonly<{ text: string; type: "text" }>
+  | Readonly<{ data: unknown; extension: string; label: string; source: string; type: "token" }>;
+export type OutlineToken = Extract<OutlineInline, { type: "token" }>;
 export type OutlineContent = readonly OutlineInline[];
+export type OutlineContentSplit = Readonly<{ after: OutlineContent; before: OutlineContent }>;
 
-type EditorMark = { type: OutlineMark };
 type EditorInline =
-  | { marks?: EditorMark[]; type: "hardBreak" }
-  | { marks?: EditorMark[]; text: string; type: "text" }
-  | { attrs: { id: string; label: string }; type: "outlineReference" };
-
+  | { marks?: { attrs: OutlineToken & { instance: string }; type: "outlineToken" }[]; text: string; type: "text" }
+  | { type: "hardBreak" };
 export type OutlineEditorDocument = {
   content: [{ content?: EditorInline[]; type: "paragraph" }];
   type: "doc";
 };
 
-export type OutlineContentSplit = Readonly<{ after: OutlineContent; before: OutlineContent }>;
-
-const markOrder: readonly OutlineMark[] = ["bold", "italic", "code"];
-
-function normalizedMarks(marks: readonly OutlineMark[] | undefined): readonly OutlineMark[] | undefined {
-  const normalized = markOrder.filter((mark) => marks?.includes(mark) === true);
-  return normalized.length === 0 ? undefined : normalized;
+export function inlineSource(inline: OutlineInline): string {
+  return inline.type === "text" ? inline.text : inline.source;
 }
 
-function sameMarks(left: readonly OutlineMark[] | undefined, right: readonly OutlineMark[] | undefined): boolean {
-  if (left === undefined || right === undefined) {
-    return left === right;
-  }
-  return left.length === right.length && left.every((mark, index) => mark === right[index]);
+export function contentToSource(content: OutlineContent): string {
+  return content.map(inlineSource).join("");
 }
 
 export function normalizeContent(content: OutlineContent): OutlineContent {
   const normalized: OutlineInline[] = [];
   for (const inline of content) {
-    if (inline.type === "reference") {
+    if (inline.type === "token") {
       normalized.push(inline);
-      continue;
-    }
-    if (inline.text.length === 0) {
-      continue;
-    }
-    const marks = normalizedMarks(inline.marks);
-    const previous = normalized.at(-1);
-    if (previous?.type === "text" && sameMarks(previous.marks, marks)) {
-      normalized[normalized.length - 1] = { marks, text: `${previous.text}${inline.text}`, type: "text" };
-    } else {
-      normalized.push({ marks, text: inline.text, type: "text" });
+    } else if (inline.text.length > 0) {
+      const previous = normalized.at(-1);
+      if (previous?.type === "text") {
+        normalized[normalized.length - 1] = { text: previous.text + inline.text, type: "text" };
+      } else {
+        normalized.push(inline);
+      }
     }
   }
   return normalized;
 }
 
 export function contentToDoc(content: OutlineContent): OutlineEditorDocument {
-  const inline = normalizeContent(content).flatMap((item): EditorInline[] => {
-    if (item.type === "reference") {
-      return [{ attrs: { id: item.id, label: item.label }, type: "outlineReference" }];
-    }
-    const marks = item.marks?.map((mark) => ({ type: mark }));
-    return item.text
+  const inline = content.flatMap((item): EditorInline[] => {
+    const attrs = item.type === "token" ? { ...item, instance: crypto.randomUUID() } : undefined;
+    return inlineSource(item)
       .split("\n")
       .flatMap((text, index): EditorInline[] => [
-        ...(index === 0 ? [] : [{ marks, type: "hardBreak" as const }]),
-        ...(text.length === 0 ? [] : [{ marks, text, type: "text" as const }]),
+        ...(index === 0 ? [] : [{ type: "hardBreak" as const }]),
+        ...(text.length === 0
+          ? []
+          : [
+              {
+                ...(attrs === undefined ? {} : { marks: [{ attrs, type: "outlineToken" as const }] }),
+                text,
+                type: "text" as const,
+              },
+            ]),
       ]);
   });
   return { content: [{ ...(inline.length === 0 ? {} : { content: inline }), type: "paragraph" }], type: "doc" };
@@ -74,15 +64,14 @@ function recordOf(value: unknown): Readonly<Record<string, unknown>> | null {
   return typeof value === "object" && value !== null ? (value as Readonly<Record<string, unknown>>) : null;
 }
 
-function marksFrom(value: unknown): readonly OutlineMark[] | undefined {
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const marks = value.flatMap((candidate): OutlineMark[] => {
-    const type = recordOf(candidate)?.type;
-    return type === "bold" || type === "italic" || type === "code" ? [type] : [];
-  });
-  return normalizedMarks(marks);
+function tokenFrom(value: unknown): OutlineToken | null {
+  const token = recordOf(value);
+  return token?.type === "token" &&
+    typeof token.extension === "string" &&
+    typeof token.source === "string" &&
+    typeof token.label === "string"
+    ? { data: token.data, extension: token.extension, label: token.label, source: token.source, type: "token" }
+    : null;
 }
 
 export function docToContent(document: unknown): OutlineContent {
@@ -90,43 +79,65 @@ export function docToContent(document: unknown): OutlineContent {
   const blocks = root?.type === "doc" && Array.isArray(root.content) ? root.content : [];
   const paragraph = recordOf(blocks[0]);
   const nodes = paragraph?.type === "paragraph" && Array.isArray(paragraph.content) ? paragraph.content : [];
-  const content = nodes.flatMap((candidate): OutlineInline[] => {
+  const content: OutlineInline[] = [];
+  let pending: { instance: unknown; text: string; token: OutlineToken | null } | null = null;
+  const flush = () => {
+    if (pending !== null) {
+      // Changing any source character removes its binding; completion explicitly chooses a new identity.
+      content.push(pending.token?.source === pending.text ? pending.token : { text: pending.text, type: "text" });
+      pending = null;
+    }
+  };
+  for (const candidate of nodes) {
     const node = recordOf(candidate);
-    if (node?.type === "text" && typeof node.text === "string") {
-      return [{ marks: marksFrom(node.marks), text: node.text, type: "text" }];
-    }
     if (node?.type === "hardBreak") {
-      return [{ marks: marksFrom(node.marks), text: "\n", type: "text" }];
+      flush();
+      content.push({ text: "\n", type: "text" });
+      continue;
     }
-    const attributes = recordOf(node?.attrs);
-    return node?.type === "outlineReference" &&
-      typeof attributes?.id === "string" &&
-      typeof attributes.label === "string"
-      ? [{ id: attributes.id, label: attributes.label, type: "reference" }]
-      : [];
-  });
+    if (node?.type !== "text" || typeof node.text !== "string") {
+      continue;
+    }
+    const mark = Array.isArray(node.marks)
+      ? node.marks.map(recordOf).find((item) => item?.type === "outlineToken")
+      : null;
+    const token = tokenFrom(mark?.attrs);
+    const instance = recordOf(mark?.attrs)?.instance;
+    if (
+      pending !== null &&
+      token !== null &&
+      pending.instance === instance &&
+      JSON.stringify(pending.token) === JSON.stringify(token)
+    ) {
+      pending.text += node.text;
+    } else {
+      flush();
+      pending = { instance, text: node.text, token };
+    }
+  }
+  flush();
   return normalizeContent(content);
 }
 
 export function contentLength(content: OutlineContent): number {
-  return content.reduce((length, inline) => length + (inline.type === "text" ? inline.text.length : 1), 0);
+  return contentToSource(content).length;
 }
 
 export function contentToPlainText(content: OutlineContent): string {
   return content.map((inline) => (inline.type === "text" ? inline.text : inline.label)).join("");
 }
 
-function sliceContent(content: OutlineContent, from: number, to: number): OutlineContent {
+export function sliceContent(content: OutlineContent, from: number, to: number): OutlineContent {
   const sliced: OutlineInline[] = [];
   let offset = 0;
   for (const inline of content) {
-    const length = inline.type === "text" ? inline.text.length : 1;
+    const source = inlineSource(inline);
     const start = Math.max(0, from - offset);
-    const end = Math.min(length, to - offset);
+    const end = Math.min(source.length, to - offset);
     if (start < end) {
-      sliced.push(inline.type === "text" ? { ...inline, text: inline.text.slice(start, end) } : inline);
+      sliced.push(start === 0 && end === source.length ? inline : { text: source.slice(start, end), type: "text" });
     }
-    offset += length;
+    offset += source.length;
   }
   return normalizeContent(sliced);
 }
@@ -147,5 +158,5 @@ export function mergeContent(...contents: readonly OutlineContent[]): OutlineCon
 }
 
 export function appendText(content: OutlineContent, text: string): OutlineContent {
-  return text.length === 0 ? content : mergeContent(content, [{ text, type: "text" }]);
+  return mergeContent(content, [{ text, type: "text" }]);
 }

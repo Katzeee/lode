@@ -122,7 +122,7 @@ describe("editing targets", () => {
     const remainder: OutlineContent = [{ text: " remainder", type: "text" }];
     expect(computeEditMergeTarget(rows, keys.alphaTwo, remainder)).toEqual({
       caret: 2,
-      content: [{ marks: undefined, text: "a1 remainder", type: "text" }],
+      content: [{ text: "a1 remainder", type: "text" }],
       key: keys.alphaOne,
     });
     expect(computeEditMergeTarget(rows, keys.projects, [{ text: "orphan", type: "text" }])).toBeNull();

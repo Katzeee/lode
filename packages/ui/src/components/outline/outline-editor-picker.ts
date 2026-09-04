@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import { contentToSource, docToContent } from "./outline-content.js";
 
 import type { OutlinePickerState } from "./outline-inline-picker.js";
 import type { OutlineEditorCompletionProvider } from "./outline-tree-edit-contract.js";
@@ -13,13 +14,15 @@ export function completionPicker(
   if (paragraph.type.name !== "paragraph") {
     return null;
   }
-  const text = paragraph.textBetween(0, paragraph.content.size, "", "");
+  const content = docToContent(editor.getJSON());
+  const text = contentToSource(content);
   const from = Math.max(0, selection.from - 1);
   const to = Math.max(0, selection.to - 1);
   const context = {
+    content,
     selection: { from, to },
     text,
-    textBeforeCaret: paragraph.textBetween(0, selection.$from.parentOffset, "", ""),
+    textBeforeCaret: text.slice(0, from),
   } as const;
   for (const provider of providers) {
     const match = provider.match(context);

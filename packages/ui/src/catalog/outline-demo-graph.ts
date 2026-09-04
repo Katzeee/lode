@@ -1,4 +1,4 @@
-import { contentToPlainText } from "../components/outline/outline-content.js";
+import { demoNodeLabel } from "./outline-demo-inline.js";
 import type { DemoGraph, DemoNode, DemoOccurrence } from "./outline-demo-model.js";
 
 export function resolveGraphPath(
@@ -139,7 +139,7 @@ export function removeGraphOccurrence(graph: DemoGraph, key: string): DemoGraph 
 export function searchNodes(graph: DemoGraph, query: string): readonly { id: string; label: string }[] {
   const normalized = query.toLocaleLowerCase();
   return Object.values(graph.nodes)
-    .map((node) => ({ id: node.id, label: contentToPlainText(node.value.content) }))
+    .map((node) => ({ id: node.id, label: demoNodeLabel(node.value.content) }))
     .filter((node) => node.label.toLocaleLowerCase().includes(normalized))
     .slice(0, 20);
 }

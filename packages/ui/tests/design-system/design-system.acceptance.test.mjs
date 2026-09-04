@@ -4,6 +4,8 @@ import "./accessibility.acceptance.mjs";
 import "./coarse-pointer.acceptance.mjs";
 import "./navigation.acceptance.mjs";
 import "./outline.acceptance.mjs";
+import "./outline-inline-editing.acceptance.mjs";
+import "./outline-readonly.acceptance.mjs";
 import "./overlays.acceptance.mjs";
 import "./responsive-patterns.acceptance.mjs";
 import "./viewport.acceptance.mjs";
