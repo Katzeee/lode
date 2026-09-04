@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
-import type { OutlineMove, OutlineRow } from "./outline-tree-model.js";
+import type { OutlineMove, OutlineRowViewModel } from "./outline-tree-view-model.js";
 import { selectedOutlineRoots } from "./outline-selection.js";
 
 // One indent level in pixels; must match the rail width in the row layout.
@@ -10,38 +10,50 @@ const EDGE_ZONE = 48;
 const EDGE_STEP = 14;
 const SPRING_LOAD_DELAY = 550;
 
-export type OutlineDropTarget = Readonly<{
-  depth: number;
-  move: OutlineMove;
-  /** Container-relative Y of the insertion line. */
-  y: number;
-}>;
+export function resolveDragDepth(targetDepth: number, targetBulletX: number, pointerX: number): number {
+  return targetDepth + Math.round((pointerX - targetBulletX) / OUTLINE_INDENT);
+}
+
+// Rows only span their own column, so a pointer over indentation or a label
+// column still has to resolve to the row sharing its line; prefer horizontal
+// containment, then the nearest row on that line.
+function hoveredRowElement(container: HTMLElement, x: number, y: number): HTMLElement | null {
+  let nearest: HTMLElement | null = null;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const element of container.querySelectorAll<HTMLElement>('[data-ui="outline-row"]')) {
+    const rect = element.getBoundingClientRect();
+    if (y < rect.top || y >= rect.bottom) {
+      continue;
+    }
+    const distance = x < rect.left ? rect.left - x : x > rect.right ? x - rect.right : 0;
+    if (distance < nearestDistance) {
+      nearest = element;
+      nearestDistance = distance;
+    }
+  }
+  return nearest;
+}
 
 export type OutlineDragState = Readonly<{
   pointer: Readonly<{ x: number; y: number }>;
   sourceKeys: readonly string[];
-  target: OutlineDropTarget | null;
+  /** The insertion gap the pointer currently resolves to; its parent's children container draws the line. */
+  target: OutlineMove | null;
 }>;
 
-type DragOptions<Value> = Readonly<{
+type DragOptions = Readonly<{
   containerRef: RefObject<HTMLDivElement | null>;
   enabled: boolean;
   onCommit: (move: OutlineMove) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
-  rows: readonly OutlineRow<Value>[];
+  rows: readonly OutlineRowViewModel[];
   selectedKeys: ReadonlySet<string>;
 }>;
 
-export function useOutlineDrag<Value>({
-  containerRef,
-  enabled,
-  onCommit,
-  onExpandedChange,
-  rows,
-  selectedKeys,
-}: DragOptions<Value>) {
+export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChange, rows, selectedKeys }: DragOptions) {
   const [drag, setDrag] = useState<OutlineDragState | null>(null);
   const session = useRef<{
+    dragging: boolean;
     pointerId: number;
     sourceKeys: readonly string[];
     springKey: string | null;
@@ -87,20 +99,18 @@ export function useOutlineDrag<Value>({
     };
   }, [drag !== null]);
 
-  const resolveTarget = (x: number, y: number): OutlineDropTarget | null => {
+  const resolveTarget = (x: number, y: number): OutlineMove | null => {
     const container = containerRef.current;
     const active = session.current;
     if (container === null || active === null) {
       return null;
     }
-    const hoveredElement = document
-      .elementsFromPoint(x, y)
-      .find((candidate) => candidate instanceof HTMLElement && candidate.dataset["ui"] === "outline-row");
-    if (!(hoveredElement instanceof HTMLElement)) {
+    const hoveredElement = hoveredRowElement(container, x, y);
+    if (hoveredElement === null) {
       return null;
     }
-    const hoveredIndex = Number(hoveredElement.dataset["index"]);
     const currentRows = rowsRef.current;
+    const hoveredIndex = currentRows.findIndex((row) => row.key === hoveredElement.dataset["itemKey"]);
     const hovered = currentRows[hoveredIndex];
     if (hovered === undefined) {
       return null;
@@ -109,7 +119,12 @@ export function useOutlineDrag<Value>({
     scheduleSpringLoad(hovered);
 
     const rect = hoveredElement.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
+    const targetBullet = hoveredElement.querySelector<HTMLElement>('[data-ui="outline-bullet"]');
+    if (targetBullet === null) {
+      return null;
+    }
+    const targetBulletRect = targetBullet.getBoundingClientRect();
+    const targetBulletX = targetBulletRect.left + targetBulletRect.width / 2;
     const below = y > rect.top + rect.height / 2;
     const gap = hoveredIndex + (below ? 1 : 0);
     const above = currentRows[gap - 1];
@@ -117,17 +132,13 @@ export function useOutlineDrag<Value>({
 
     const maxDepth = above === undefined ? 0 : above.depth + 1;
     const minDepth = beneath?.depth ?? 0;
-    const desired = Math.round((x - containerRect.left) / OUTLINE_INDENT);
+    const desired = resolveDragDepth(hovered.depth, targetBulletX, x);
     const depth = Math.max(minDepth, Math.min(maxDepth, desired));
 
-    const move = resolveMove(currentRows, active.sourceKeys, above, depth);
-    if (move === null) {
-      return null;
-    }
-    return { depth, move, y: (below ? rect.bottom : rect.top) - containerRect.top };
+    return resolveDropMove(currentRows, active.sourceKeys, above, depth);
   };
 
-  const scheduleSpringLoad = (hovered: OutlineRow<Value>) => {
+  const scheduleSpringLoad = (hovered: OutlineRowViewModel) => {
     const active = session.current;
     if (active === null || !hovered.hasChildren || hovered.expanded || active.sourceKeys.includes(hovered.key)) {
       return;
@@ -155,9 +166,14 @@ export function useOutlineDrag<Value>({
     if (!enabled || event.button !== 0) {
       return;
     }
+    const source = rowsRef.current.find((row) => row.key === sourceKey);
+    if (source === undefined) {
+      return;
+    }
     const sourceKeys = selectedKeys.has(sourceKey) ? selectedOutlineRoots(rowsRef.current, selectedKeys) : [sourceKey];
     suppressClickRef.current = false;
     session.current = {
+      dragging: false,
       pointerId: event.pointerId,
       sourceKeys,
       springKey: null,
@@ -172,9 +188,10 @@ export function useOutlineDrag<Value>({
         return;
       }
       const distance = Math.hypot(moveEvent.clientX - active.startX, moveEvent.clientY - active.startY);
-      if (dragRef.current === null && distance < DRAG_THRESHOLD) {
+      if (!active.dragging && distance < DRAG_THRESHOLD) {
         return;
       }
+      active.dragging = true;
       moveEvent.preventDefault();
       setDrag({
         pointer: { x: moveEvent.clientX, y: moveEvent.clientY },
@@ -191,14 +208,15 @@ export function useOutlineDrag<Value>({
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
       window.removeEventListener("pointercancel", handleUp);
-      const target = dragRef.current?.target ?? null;
-      const wasDragging = dragRef.current !== null;
+      const wasDragging = active.dragging;
+      const target =
+        wasDragging && upEvent.type !== "pointercancel" ? resolveTarget(upEvent.clientX, upEvent.clientY) : null;
       endSession();
       if (wasDragging) {
         upEvent.preventDefault();
         suppressClickRef.current = true;
         if (target !== null) {
-          onCommit(target.move);
+          onCommit(target);
         }
       }
     };
@@ -218,10 +236,10 @@ export function useOutlineDrag<Value>({
 }
 
 /** Resolve the gap "after `above`, at `depth`" into a concrete move. */
-function resolveMove<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function resolveDropMove(
+  rows: readonly OutlineRowViewModel[],
   sourceKeys: readonly string[],
-  above: OutlineRow<Value> | undefined,
+  above: OutlineRowViewModel | undefined,
   depth: number,
 ): OutlineMove | null {
   let move: OutlineMove;
@@ -229,13 +247,13 @@ function resolveMove<Value>(
     move = { index: 0, sourceKeys, targetParentKey: null };
   } else if (depth === above.depth + 1) {
     move = {
-      index: above.expanded ? 0 : (above.occurrence.children?.length ?? 0),
+      index: above.expanded ? 0 : (above.item.children?.length ?? 0),
       sourceKeys,
       targetParentKey: above.key,
     };
   } else {
     const byKey = new Map(rows.map((row) => [row.key, row]));
-    let sibling: OutlineRow<Value> | undefined = above;
+    let sibling: OutlineRowViewModel | undefined = above;
     while (sibling !== undefined && sibling.depth > depth) {
       sibling = sibling.parentKey === null ? undefined : byKey.get(sibling.parentKey);
     }
@@ -246,17 +264,17 @@ function resolveMove<Value>(
   }
 
   // A subtree cannot land inside itself, and landing beside itself is a no-op.
-  if (
-    move.targetParentKey !== null &&
-    sourceKeys.some(
-      (sourceKey) => move.targetParentKey === sourceKey || move.targetParentKey?.startsWith(`${sourceKey}/`) === true,
-    )
-  ) {
-    return null;
+  const byKey = new Map(rows.map((row) => [row.key, row]));
+  let ancestorKey = move.targetParentKey;
+  while (ancestorKey !== null) {
+    if (sourceKeys.includes(ancestorKey)) {
+      return null;
+    }
+    ancestorKey = byKey.get(ancestorKey)?.parentKey ?? null;
   }
   const sources = sourceKeys
     .map((sourceKey) => rows.find((row) => row.key === sourceKey))
-    .filter((source): source is OutlineRow<Value> => source !== undefined);
+    .filter((source): source is OutlineRowViewModel => source !== undefined);
   if (
     sources.length === 1 &&
     move.targetParentKey === sources[0]?.parentKey &&

@@ -1,27 +1,54 @@
+import type { OutlineBulletViewModel } from "./outline-bullet.js";
 import { contentLength, mergeContent, type OutlineContent } from "./outline-content.js";
+import type { OutlineRowBadge } from "./outline-row.js";
 
-export type OutlineOccurrence<Value> = Readonly<{
-  /** Appearance belongs to this Occurrence; Reference children can still expose the target Node's own Occurrences. */
-  appearance?: "original" | "reference";
-  children?: readonly OutlineOccurrence<Value>[];
-  /** Controls whether this occurrence exposes a disclosure affordance; false keeps existing children visible. */
-  expandable?: boolean;
-  nodeId: string;
-  /** Stable placement identity, independent from the Node shared by Original and Reference appearances. */
-  occurrenceId: string;
-  value: Value;
+export type OutlineCheckboxViewModel = Readonly<{
+  checked: boolean;
+  label?: string;
 }>;
 
-// A row projects one Occurrence. References can share a Node while keeping
-// independent placement identity, so rows key on the occurrence path.
-export type OutlineRow<Value> = Readonly<{
+export type OutlineProgressViewModel = Readonly<{
+  label?: string;
+  max: number;
+  value: number;
+}>;
+
+/**
+ * Where an item's children render relative to its own row: "indented" stacks them below with one
+ * indent step; "beside" places them in a column to the right, so the first child shares the row.
+ */
+export type OutlineChildrenLayout = "beside" | "indented";
+
+/** The complete presentation contract consumed by OutlineTree. It contains no host Model. */
+export type OutlineItemViewModel = Readonly<{
+  accessibilityLabel: string;
+  badges?: readonly OutlineRowBadge[];
+  bullet?: OutlineBulletViewModel;
+  checkbox?: OutlineCheckboxViewModel;
+  children?: readonly OutlineItemViewModel[];
+  childrenLayout?: OutlineChildrenLayout;
+  content: OutlineContent;
+  editable?: boolean;
+  /** Controls whether this item exposes a disclosure affordance; false keeps existing children visible. */
+  expandable?: boolean;
+  /** Stable, opaque identity for this projected appearance. OutlineTree never parses or constructs it. */
+  key: string;
+  progress?: OutlineProgressViewModel;
+  textStyle?: Readonly<{
+    decoration?: "line-through";
+    tone?: "default" | "muted";
+    weight?: "medium" | "normal";
+  }>;
+}>;
+
+export type OutlineRowViewModel = Readonly<{
   depth: number;
   expanded: boolean;
   expandable: boolean;
   hasChildren: boolean;
   indexInParent: number;
+  item: OutlineItemViewModel;
   key: string;
-  occurrence: OutlineOccurrence<Value>;
   parentKey: string | null;
   siblingCount: number;
 }>;
@@ -30,6 +57,12 @@ export type OutlineMove = Readonly<{
   index: number;
   sourceKeys: readonly string[];
   targetParentKey: string | null;
+}>;
+
+export type OutlineMerge = Readonly<{
+  content: OutlineContent;
+  sourceKey: string;
+  targetKey: string;
 }>;
 
 export type OutlineEditPosition = Readonly<{
@@ -45,61 +78,56 @@ export type OutlineEditInsertion = Readonly<{
   parentKey: string | null;
 }>;
 
-export function rowKey(parentKey: string | null, occurrenceId: string): string {
-  return parentKey === null ? occurrenceId : `${parentKey}/${occurrenceId}`;
-}
-
-export function flattenOutline<Value>(
-  occurrences: readonly OutlineOccurrence<Value>[],
+export function flattenOutline(
+  items: readonly OutlineItemViewModel[],
   expandedKeys: ReadonlySet<string>,
-): OutlineRow<Value>[] {
-  const rows: OutlineRow<Value>[] = [];
-  const visit = (siblings: readonly OutlineOccurrence<Value>[], parentKey: string | null, depth: number) => {
-    siblings.forEach((occurrence, indexInParent) => {
-      const key = rowKey(parentKey, occurrence.occurrenceId);
-      const hasChildren = occurrence.children !== undefined && occurrence.children.length > 0;
-      const expandable = occurrence.expandable !== false;
-      const expanded = hasChildren && !expandable ? true : expandable && expandedKeys.has(key);
+): OutlineRowViewModel[] {
+  const rows: OutlineRowViewModel[] = [];
+  const visit = (siblings: readonly OutlineItemViewModel[], parentKey: string | null, depth: number) => {
+    siblings.forEach((item, indexInParent) => {
+      const hasChildren = item.children !== undefined && item.children.length > 0;
+      const expandable = item.expandable !== false;
+      const expanded = hasChildren && !expandable ? true : expandable && expandedKeys.has(item.key);
       rows.push({
         depth,
         expanded,
         expandable,
         hasChildren,
         indexInParent,
-        key,
-        occurrence,
+        item,
+        key: item.key,
         parentKey,
         siblingCount: siblings.length,
       });
-      if (expanded && occurrence.children !== undefined) {
-        visit(occurrence.children, key, depth + 1);
+      if (expanded && item.children !== undefined) {
+        visit(item.children, item.key, depth + 1);
       }
     });
   };
-  visit(occurrences, null, 0);
+  visit(items, null, 0);
   return rows;
 }
 
-function rowByKey<Value>(rows: readonly OutlineRow<Value>[], key: string): OutlineRow<Value> | undefined {
+function rowByKey(rows: readonly OutlineRowViewModel[], key: string): OutlineRowViewModel | undefined {
   return rows.find((row) => row.key === key);
 }
 
-function previousSibling<Value>(
-  rows: readonly OutlineRow<Value>[],
-  row: OutlineRow<Value>,
-): OutlineRow<Value> | undefined {
+function previousSibling(
+  rows: readonly OutlineRowViewModel[],
+  row: OutlineRowViewModel,
+): OutlineRowViewModel | undefined {
   return rows.find(
     (candidate) => candidate.parentKey === row.parentKey && candidate.indexInParent === row.indexInParent - 1,
   );
 }
 
-function siblingSelection<Value>(
-  rows: readonly OutlineRow<Value>[],
+function siblingSelection(
+  rows: readonly OutlineRowViewModel[],
   sourceKeys: readonly string[],
-): readonly OutlineRow<Value>[] | null {
+): readonly OutlineRowViewModel[] | null {
   const selected = sourceKeys
     .map((key) => rowByKey(rows, key))
-    .filter((row): row is OutlineRow<Value> => row !== undefined)
+    .filter((row): row is OutlineRowViewModel => row !== undefined)
     .sort((left, right) => left.indexInParent - right.indexInParent);
   const parentKey = selected[0]?.parentKey;
   if (
@@ -114,10 +142,7 @@ function siblingSelection<Value>(
 }
 
 /** Tab: the selected sibling run becomes the last children of its previous sibling. */
-export function computeIndent<Value>(
-  rows: readonly OutlineRow<Value>[],
-  sourceKeys: readonly string[],
-): OutlineMove | null {
+export function computeIndent(rows: readonly OutlineRowViewModel[], sourceKeys: readonly string[]): OutlineMove | null {
   const selected = siblingSelection(rows, sourceKeys);
   const row = selected?.[0];
   if (selected === null || row === undefined || row.indexInParent === 0) {
@@ -128,15 +153,15 @@ export function computeIndent<Value>(
     return null;
   }
   return {
-    index: target.occurrence.children?.length ?? 0,
+    index: target.item.children?.length ?? 0,
     sourceKeys: selected.map((candidate) => candidate.key),
     targetParentKey: target.key,
   };
 }
 
 /** Shift+Tab: the selected sibling run moves out to sit right after its parent. */
-export function computeOutdent<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function computeOutdent(
+  rows: readonly OutlineRowViewModel[],
   sourceKeys: readonly string[],
 ): OutlineMove | null {
   const selected = siblingSelection(rows, sourceKeys);
@@ -156,8 +181,8 @@ export function computeOutdent<Value>(
 }
 
 /** Ctrl+Shift+Arrow: reorder a selected sibling run, jumping whole subtrees. */
-export function computeReorder<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function computeReorder(
+  rows: readonly OutlineRowViewModel[],
   sourceKeys: readonly string[],
   direction: -1 | 1,
 ): OutlineMove | null {
@@ -180,43 +205,38 @@ export function computeReorder<Value>(
   };
 }
 
-export function computeEditNavigation<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function computeEditNavigation(
+  rows: readonly OutlineRowViewModel[],
   key: string,
   direction: -1 | 1,
   caret: number | "end",
-  contentOf: (row: OutlineRow<Value>) => OutlineContent,
 ): OutlineEditPosition | null {
   const index = rows.findIndex((row) => row.key === key);
   const target = rows[index + direction];
   if (index < 0 || target === undefined) {
     return null;
   }
-  const targetLength = contentLength(contentOf(target));
+  const targetLength = contentLength(target.item.content);
   return {
     caret: caret === "end" ? targetLength : Math.max(0, Math.min(caret, targetLength)),
     key: target.key,
   };
 }
 
-export function computeEditMergeTarget<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function computeEditMergeTarget(
+  rows: readonly OutlineRowViewModel[],
   key: string,
   currentContent: OutlineContent,
-  contentOf: (row: OutlineRow<Value>) => OutlineContent,
 ): OutlineEditMergeTarget | null {
-  const position = computeEditNavigation(rows, key, -1, "end", contentOf);
+  const position = computeEditNavigation(rows, key, -1, "end");
   const target = position === null ? undefined : rowByKey(rows, position.key);
   if (position === null || target === undefined) {
     return null;
   }
-  return { ...position, content: mergeContent(contentOf(target), currentContent) };
+  return { ...position, content: mergeContent(target.item.content, currentContent) };
 }
 
-export function computeEditInsertion<Value>(
-  rows: readonly OutlineRow<Value>[],
-  key: string,
-): OutlineEditInsertion | null {
+export function computeEditInsertion(rows: readonly OutlineRowViewModel[], key: string): OutlineEditInsertion | null {
   const row = rowByKey(rows, key);
   if (row === undefined) {
     return null;
@@ -228,8 +248,8 @@ export function computeEditInsertion<Value>(
   return { displacedKey: displaced?.key ?? null, indexInParent, parentKey: row.parentKey };
 }
 
-export function resolveEditInsertion<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function resolveEditInsertion(
+  rows: readonly OutlineRowViewModel[],
   insertion: OutlineEditInsertion,
 ): OutlineEditPosition | null {
   const inserted = rows.find(

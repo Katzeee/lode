@@ -28,7 +28,6 @@
     "@base-ui/react": "^1.7.0",
     "@lode/design-system-catalog": "file:../design-system-catalog",
     "@lode/design-tokens": "file:../design-tokens",
-    "@tanstack/react-virtual": "^3.14.10",
     "@tiptap/core": "^3.31.1",
     "@tiptap/extension-bold": "^3.31.1",
     "@tiptap/extension-code": "^3.31.1",
@@ -45,8 +44,15 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
     "@types/node": "^20.19.43",
     "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "axe-core": "^4.13.0",
+    "electron": "41.10.7",
+    "esbuild": "0.28.2",
+    "playwright-core": "1.62.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vitest": "^4.1.11"
   }

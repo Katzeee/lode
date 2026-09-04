@@ -1,13 +1,14 @@
-import type { MouseEvent, PointerEvent, ReactNode } from "react";
+import type { MouseEvent, PointerEvent } from "react";
 
+import { Checkbox } from "./checkbox.js";
 import { cn } from "./cn.js";
 import type { OutlineEditorBinding, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
-import { OutlineInlineEditorProvider } from "./outline-tree-editor.js";
+import { OutlineInlineEditorProvider, OutlineInlineContent } from "./outline-tree-editor.js";
 import { OutlineRowControls } from "./outline-tree-controls.js";
-import type { OutlineRowLayout } from "./outline-row-layout.js";
-import type { OutlineRow } from "./outline-tree-model.js";
+import { OutlineRowContent, OutlineRowProgress } from "./outline-row.js";
+import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
-export function OutlineTreeRow<Value>({
+export function OutlineTreeRow({
   consumeDragClick,
   cursor,
   draggable,
@@ -15,22 +16,17 @@ export function OutlineTreeRow<Value>({
   editActiveKey,
   editBinding,
   editing,
-  indentDepth,
-  layout,
-  logicalIndex,
   onCommitAndExit,
-  onBulletClick,
+  onActivate,
+  onCheckedChange,
   onExpandedChange,
   onPointerDown,
   onRowClick,
   onTextClick,
-  renderBullet,
-  renderRow,
   row,
   rowDomId,
   selected,
   selectionSize,
-  showGuides,
 }: Readonly<{
   consumeDragClick: () => boolean;
   cursor: boolean;
@@ -38,23 +34,18 @@ export function OutlineTreeRow<Value>({
   dragged: boolean;
   editActiveKey: string | null;
   editBinding: OutlineEditorBinding | null;
-  editing?: OutlineTreeEditing<Value>;
-  indentDepth: number;
-  layout: OutlineRowLayout;
-  logicalIndex: number;
+  editing?: OutlineTreeEditing;
   onCommitAndExit: () => void;
-  onBulletClick?: (row: OutlineRow<Value>, event: MouseEvent<HTMLButtonElement>) => void;
+  onActivate?: (key: string) => void;
+  onCheckedChange?: (key: string, checked: boolean) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onPointerDown: (event: PointerEvent) => void;
   onRowClick: (event: MouseEvent) => void;
   onTextClick: (event: MouseEvent<HTMLDivElement>) => void;
-  renderBullet?: (row: OutlineRow<Value>, state: Readonly<{ selected: boolean }>) => ReactNode;
-  renderRow: (row: OutlineRow<Value>) => ReactNode;
-  row: OutlineRow<Value>;
+  row: OutlineRowViewModel;
   rowDomId: string;
   selected: boolean;
   selectionSize: number;
-  showGuides: boolean;
 }>) {
   return (
     <div
@@ -70,40 +61,27 @@ export function OutlineTreeRow<Value>({
         dragged && "opacity-40",
       )}
       data-editing={editActiveKey === row.key ? "true" : undefined}
-      data-index={logicalIndex}
-      data-layout-column={layout.column ?? "single"}
-      data-node-id={row.occurrence.nodeId}
-      data-occurrence-id={row.occurrence.occurrenceId}
+      data-item-key={row.key}
       data-parent-key={row.parentKey ?? undefined}
-      data-readonly={editing?.isEditable?.(row) === false ? "true" : undefined}
+      data-readonly={row.item.editable === false ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
       data-ui="outline-row"
       id={rowDomId}
       onClick={onRowClick}
       role="treeitem"
     >
-      {Array.from({ length: indentDepth }, (_, level) => (
-        <span
-          aria-hidden
-          className={cn("w-5 shrink-0 self-stretch", showGuides && "ml-2.5 w-2.5 border-l border-border/45")}
-          key={level}
-        />
-      ))}
       <OutlineRowControls
-        active={cursor || editActiveKey === row.key}
         beforeIntent={onCommitAndExit}
         consumeDragClick={consumeDragClick}
         draggable={draggable}
         onDragHandleDown={onPointerDown}
-        onBulletClick={onBulletClick}
+        onActivate={onActivate}
         onExpandedChange={onExpandedChange}
-        renderBullet={renderBullet}
         row={row}
-        selected={selected && selectionSize > 1}
       />
       <div className="min-w-0 flex-1 text-body leading-5.5">
         {editing === undefined ? (
-          renderRow(row)
+          <OutlineItemContent onCheckedChange={onCheckedChange} row={row} />
         ) : (
           <OutlineInlineEditorProvider
             binding={editActiveKey === row.key ? editBinding : null}
@@ -118,11 +96,52 @@ export function OutlineTreeRow<Value>({
               data-ui="outline-row-text"
               onClick={onTextClick}
             >
-              {renderRow(row)}
+              <OutlineItemContent onCheckedChange={onCheckedChange} row={row} />
             </div>
           </OutlineInlineEditorProvider>
         )}
       </div>
     </div>
+  );
+}
+
+export function OutlineItemContent({
+  onCheckedChange,
+  row,
+}: Readonly<{
+  onCheckedChange?: (key: string, checked: boolean) => void;
+  row: OutlineRowViewModel;
+}>) {
+  const { item } = row;
+  return (
+    <OutlineRowContent
+      badges={item.badges}
+      className={cn(
+        item.textStyle?.tone === "muted" && "text-muted-foreground",
+        item.textStyle?.decoration === "line-through" && "line-through",
+      )}
+      leading={
+        item.checkbox === undefined ? undefined : (
+          <Checkbox
+            aria-label={item.checkbox.label ?? `Toggle ${item.accessibilityLabel}`}
+            checked={item.checkbox.checked}
+            className="size-4"
+            disabled={onCheckedChange === undefined}
+            onCheckedChange={(checked) => onCheckedChange?.(row.key, checked)}
+            onClick={(event) => event.stopPropagation()}
+            tabIndex={-1}
+          />
+        )
+      }
+      trailing={
+        item.progress === undefined ? undefined : (
+          <OutlineRowProgress label={item.progress.label} max={item.progress.max} value={item.progress.value} />
+        )
+      }
+    >
+      <span className={cn(item.textStyle?.weight === "medium" && "font-medium")}>
+        <OutlineInlineContent content={item.content} />
+      </span>
+    </OutlineRowContent>
   );
 }

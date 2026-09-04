@@ -1,9 +1,9 @@
-import type { MouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 
 import { cn } from "./cn.js";
 import { Icon } from "./icon.js";
-import { OutlineBullet } from "./outline-bullet.js";
-import type { OutlineRow } from "./outline-tree-model.js";
+import { OutlineItemBullet } from "./outline-bullet.js";
+import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
 export function OutlineSelectionToolbar({
   count,
@@ -18,7 +18,7 @@ export function OutlineSelectionToolbar({
     "grid size-7 place-items-center rounded-sm text-label text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/45";
   return (
     <div
-      aria-label={`${String(count)} nodes selected`}
+      aria-label={`${String(count)} items selected`}
       className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
       data-ui="outline-selection-toolbar"
       onClick={(event) => event.stopPropagation()}
@@ -28,7 +28,7 @@ export function OutlineSelectionToolbar({
       {onMove === undefined ? null : (
         <>
           <button
-            aria-label="Outdent selected nodes"
+            aria-label="Outdent selected items"
             className={actionClass}
             onClick={() => onMove("outdent")}
             type="button"
@@ -36,7 +36,7 @@ export function OutlineSelectionToolbar({
             ←
           </button>
           <button
-            aria-label="Indent selected nodes"
+            aria-label="Indent selected items"
             className={actionClass}
             onClick={() => onMove("indent")}
             type="button"
@@ -44,7 +44,7 @@ export function OutlineSelectionToolbar({
             →
           </button>
           <button
-            aria-label="Move selected nodes up"
+            aria-label="Move selected items up"
             className={actionClass}
             onClick={() => onMove("reorder-up")}
             type="button"
@@ -52,7 +52,7 @@ export function OutlineSelectionToolbar({
             ↑
           </button>
           <button
-            aria-label="Move selected nodes down"
+            aria-label="Move selected items down"
             className={actionClass}
             onClick={() => onMove("reorder-down")}
             type="button"
@@ -62,7 +62,7 @@ export function OutlineSelectionToolbar({
         </>
       )}
       {onDelete === undefined ? null : (
-        <button aria-label="Delete selected nodes" className={actionClass} onClick={onDelete} type="button">
+        <button aria-label="Delete selected items" className={actionClass} onClick={onDelete} type="button">
           <Icon className="size-3.5" name="trash" />
         </button>
       )}
@@ -70,33 +70,27 @@ export function OutlineSelectionToolbar({
   );
 }
 
-export function OutlineRowControls<Value>({
-  active,
+export function OutlineRowControls({
   beforeIntent,
   consumeDragClick,
   draggable,
   onDragHandleDown,
-  onBulletClick,
+  onActivate,
   onExpandedChange,
-  renderBullet,
   row,
-  selected,
 }: Readonly<{
-  active: boolean;
   beforeIntent: () => void;
   consumeDragClick: () => boolean;
   draggable: boolean;
   onDragHandleDown: (event: ReactPointerEvent) => void;
-  onBulletClick?: (row: OutlineRow<Value>, event: MouseEvent<HTMLButtonElement>) => void;
+  onActivate?: (key: string) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
-  renderBullet?: (row: OutlineRow<Value>, state: Readonly<{ selected: boolean }>) => ReactNode;
-  row: OutlineRow<Value>;
-  selected: boolean;
+  row: OutlineRowViewModel;
 }>) {
   return (
     <span className="flex shrink-0 items-center gap-0.5 py-0.5">
       <button
-        aria-label={row.expanded ? `Collapse ${row.occurrence.nodeId}` : `Expand ${row.occurrence.nodeId}`}
+        aria-label={row.expanded ? `Collapse ${row.item.accessibilityLabel}` : `Expand ${row.item.accessibilityLabel}`}
         className={cn(
           "grid size-5 place-items-center rounded-sm text-muted-foreground/70 outline-none transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/45 group-hover/outline-row:opacity-100",
           row.expanded ? "opacity-50" : "opacity-0",
@@ -116,31 +110,23 @@ export function OutlineRowControls<Value>({
           name="chevron-right"
         />
       </button>
-      {onBulletClick === undefined ? (
+      {onActivate === undefined ? (
         <span
           aria-hidden
           className={cn(
-            "grid size-5 place-items-center rounded-full transition-colors hover:bg-secondary",
-            active && "bg-secondary",
+            "grid size-5 place-items-center rounded-full",
             draggable && "cursor-grab touch-none active:cursor-grabbing",
           )}
           data-ui="outline-bullet"
           onPointerDown={draggable ? onDragHandleDown : undefined}
         >
-          {renderBullet?.(row, { selected }) ?? (
-            <OutlineBullet
-              appearance={row.occurrence.appearance === "reference" ? "reference" : "node"}
-              haloed={row.hasChildren && !row.expanded}
-              selected={selected}
-            />
-          )}
+          <OutlineItemBullet haloed={row.hasChildren && !row.expanded} viewModel={row.item.bullet} />
         </span>
       ) : (
         <button
-          aria-label={`Activate ${row.occurrence.nodeId}`}
+          aria-label={`Activate ${row.item.accessibilityLabel}`}
           className={cn(
-            "grid size-5 cursor-pointer place-items-center rounded-full outline-none transition-colors hover:bg-secondary focus-visible:ring-2 focus-visible:ring-ring/45",
-            active && "bg-secondary",
+            "grid size-5 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
             draggable && "touch-none active:cursor-grabbing",
           )}
           data-ui="outline-bullet"
@@ -148,7 +134,7 @@ export function OutlineRowControls<Value>({
             event.stopPropagation();
             if (!consumeDragClick()) {
               beforeIntent();
-              onBulletClick(row, event);
+              onActivate(row.key);
             }
           }}
           onMouseDown={(event) => event.preventDefault()}
@@ -156,13 +142,7 @@ export function OutlineRowControls<Value>({
           tabIndex={-1}
           type="button"
         >
-          {renderBullet?.(row, { selected }) ?? (
-            <OutlineBullet
-              appearance={row.occurrence.appearance === "reference" ? "reference" : "node"}
-              haloed={row.hasChildren && !row.expanded}
-              selected={selected}
-            />
-          )}
+          <OutlineItemBullet haloed={row.hasChildren && !row.expanded} viewModel={row.item.bullet} />
         </button>
       )}
     </span>

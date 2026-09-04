@@ -1,5 +1,5 @@
 import type { OutlineContent } from "./outline-content.js";
-import type { OutlineRow } from "./outline-tree-model.js";
+import type { OutlineMerge } from "./outline-tree-view-model.js";
 
 export type OutlineCompletionItem = Readonly<{
   description?: string;
@@ -16,23 +16,21 @@ export type OutlineCompletionContext = Readonly<{
   textBeforeCaret: string;
 }>;
 
-export type OutlineCompletionProvider<Value> = Readonly<{
+export type OutlineCompletionProvider = Readonly<{
   ariaLabel: string;
   emptyLabel: string;
-  enabled?: (row: OutlineRow<Value>) => boolean;
+  enabled?: (key: string) => boolean;
   exitOnSelect?: boolean;
   heading: string;
   id: string;
-  items: (row: OutlineRow<Value>, query: string) => readonly OutlineCompletionItem[];
+  items: (key: string, query: string) => readonly OutlineCompletionItem[];
   match: (context: OutlineCompletionContext) => OutlineCompletionMatch | null;
   openOnEmptyFocus?: boolean;
 }>;
 
-export type OutlineTreeEditing<Value> = Readonly<{
-  completionProviders?: readonly OutlineCompletionProvider<Value>[];
-  contentOf: (row: OutlineRow<Value>) => OutlineContent;
+export type OutlineTreeEditing = Readonly<{
+  completionProviders?: readonly OutlineCompletionProvider[];
   emptyPlaceholder?: string;
-  isEditable?: (row: OutlineRow<Value>) => boolean;
   onCompletion?: (key: string, providerId: string, itemId: string, content: OutlineContent) => void;
   onContentChange: (key: string, content: OutlineContent) => void;
   onContentCommit: (key: string, content: OutlineContent) => void;
@@ -40,7 +38,7 @@ export type OutlineTreeEditing<Value> = Readonly<{
   /** Materializes a child only after the component's empty-child placeholder is activated. */
   onCreateChild?: (key: string) => void;
   onDeleteEmpty: (key: string) => void;
-  onMergeUp?: (key: string) => void;
+  onMerge?: (merge: OutlineMerge) => void;
   onSplit: (key: string, before: OutlineContent, after: OutlineContent) => void;
 }>;
 

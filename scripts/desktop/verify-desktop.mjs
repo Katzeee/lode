@@ -9,8 +9,6 @@ import { fileURLToPath } from "node:url";
 
 import { _electron } from "playwright-core";
 
-import { verifyCatalogAccessibility } from "./catalog-accessibility.mjs";
-
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const architecture = process.arch === "arm64" ? "arm64" : "x64";
@@ -74,7 +72,7 @@ try {
   assert.ok(overflow <= 1, `The normal 800px window has ${overflow}px of horizontal overflow`);
   await mkdir(dirname(verificationImage), { recursive: true });
   await cold.page.screenshot({ path: verificationImage, fullPage: true });
-  await verifyCatalogAccessibility(cold.page);
+  await assertCatalogIntegration(cold.page);
   const coldShutdown = await closePackaged(cold);
   assert.equal(coldShutdown.shutdown?.ownedExited, true);
   await assertAuthorityFilesAbsent(home);
@@ -254,6 +252,18 @@ async function assertLockedHome(run, workspaceIdentity) {
   assert.equal(
     await run.page.locator("[data-workspace-id]").first().getAttribute("data-workspace-id"),
     workspaceIdentity,
+  );
+}
+
+async function assertCatalogIntegration(page) {
+  await page.evaluate(() => {
+    window.location.hash = "#/design-system";
+  });
+  await page.getByRole("heading", { level: 1, name: "Overview" }).waitFor({ state: "visible" });
+  assert.equal(
+    await page.locator('[data-ui="design-system"]').count(),
+    1,
+    "The packaged desktop must render the shared design-system catalog",
   );
 }
 

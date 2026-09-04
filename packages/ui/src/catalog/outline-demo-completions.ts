@@ -2,10 +2,9 @@ import type {
   OutlineCompletionContext,
   OutlineCompletionMatch,
   OutlineCompletionProvider,
-  OutlineRow,
 } from "../components/outline-tree.js";
 import { contentToPlainText } from "../components/outline-content.js";
-import { fieldValueSuggestionIds, outlineCommands, type DemoGraph, type NodeValue } from "./outline-demo-model.js";
+import { fieldValueSuggestionIds, outlineCommands, type DemoGraph } from "./outline-demo-model.js";
 import { searchNodes } from "./outline-demo-graph.js";
 
 export const completionIds = {
@@ -16,9 +15,8 @@ export const completionIds = {
 } as const;
 
 type CompletionOptions = Readonly<{
-  fieldValueKeys: ReadonlySet<string>;
+  fieldDefinitionIdsByKey: ReadonlyMap<string, string>;
   graph: DemoGraph;
-  rows: readonly OutlineRow<NodeValue>[];
 }>;
 
 function matched(
@@ -42,10 +40,9 @@ function matched(
 }
 
 export function createDemoCompletionProviders({
-  fieldValueKeys,
+  fieldDefinitionIdsByKey,
   graph,
-  rows,
-}: CompletionOptions): readonly OutlineCompletionProvider<NodeValue>[] {
+}: CompletionOptions): readonly OutlineCompletionProvider[] {
   return [
     {
       ariaLabel: "Fields",
@@ -53,7 +50,7 @@ export function createDemoCompletionProviders({
       exitOnSelect: true,
       heading: "Use a field definition",
       id: completionIds.field,
-      items: (_row, query) => {
+      items: (_key, query) => {
         const normalized = query.toLocaleLowerCase();
         return Object.values(graph.nodes).flatMap((node) => {
           const label = contentToPlainText(node.value.content);
@@ -69,7 +66,7 @@ export function createDemoCompletionProviders({
       emptyLabel: "No matching nodes",
       heading: "Link a node",
       id: completionIds.reference,
-      items: (_row, query) =>
+      items: (_key, query) =>
         searchNodes(graph, query).map((node) => ({
           ...node,
           replacement: [{ id: node.id, label: node.label, type: "reference" as const }],
@@ -81,7 +78,7 @@ export function createDemoCompletionProviders({
       emptyLabel: "No matching commands",
       heading: "Insert or transform",
       id: completionIds.command,
-      items: (_row, query) => {
+      items: (_key, query) => {
         const normalized = query.toLocaleLowerCase();
         return outlineCommands
           .filter((command) =>
@@ -97,13 +94,12 @@ export function createDemoCompletionProviders({
     {
       ariaLabel: "Suggested values",
       emptyLabel: "No matching suggested values",
-      enabled: (row) => fieldValueKeys.has(row.key),
+      enabled: (key) => fieldDefinitionIdsByKey.has(key),
       heading: "Suggested values",
       id: completionIds.value,
-      items: (row, query) => {
-        const parent = row.parentKey === null ? undefined : rows.find((candidate) => candidate.key === row.parentKey);
-        const field = parent?.occurrence.value.field;
-        const definition = field?.kind === "field" ? graph.nodes[field.definitionId] : undefined;
+      items: (key, query) => {
+        const fieldDefinitionId = fieldDefinitionIdsByKey.get(key);
+        const definition = fieldDefinitionId === undefined ? undefined : graph.nodes[fieldDefinitionId];
         const datatype = definition?.value.field?.kind === "definition" ? definition.value.field.datatype : undefined;
         const suggestions =
           datatype === "options" || datatype === "options-from-supertag" ? fieldValueSuggestionIds[datatype] : [];

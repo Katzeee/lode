@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { flattenOutline, type OutlineOccurrence } from "./outline-tree-model.js";
+import { flattenOutline, type OutlineItemViewModel } from "./outline-tree-view-model.js";
 import {
   extendOutlineSelection,
   selectOutlineRow,
@@ -8,14 +8,14 @@ import {
   toggleOutlineRow,
 } from "./outline-selection.js";
 
-const node = (id: string, children?: readonly OutlineOccurrence<string>[]): OutlineOccurrence<string> => ({
+const item = (id: string, children?: readonly OutlineItemViewModel[]): OutlineItemViewModel => ({
+  accessibilityLabel: id,
   children,
-  nodeId: id,
-  occurrenceId: id,
-  value: id,
+  content: [{ text: id, type: "text" }],
+  key: id,
 });
 
-const rows = flattenOutline([node("a", [node("a1"), node("a2")]), node("b"), node("c")], new Set(["a"]));
+const rows = flattenOutline([item("a", [item("a/a1"), item("a/a2")]), item("b"), item("c")], new Set(["a"]));
 
 describe("outline selection", () => {
   it("extends and shrinks a contiguous range through visible rows", () => {

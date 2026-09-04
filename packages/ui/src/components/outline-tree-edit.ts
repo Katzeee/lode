@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { appendText, contentLength, splitContent, type OutlineContent } from "./outline-content.js";
 import {
@@ -12,8 +12,8 @@ import {
   type OutlineEditInsertion,
   type OutlineEditPosition,
   type OutlineMove,
-  type OutlineRow,
-} from "./outline-tree-model.js";
+  type OutlineRowViewModel,
+} from "./outline-tree-view-model.js";
 import type { OutlineEditorBinding, OutlineEditorCommand, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
 
 export type {
@@ -28,23 +28,16 @@ export type {
 
 type EditSession = Readonly<{ ariaLabel: string; content: OutlineContent; key: string }>;
 
-type EditOptions<Value> = Readonly<{
+type EditOptions = Readonly<{
   containerRef: RefObject<HTMLDivElement | null>;
-  editing?: OutlineTreeEditing<Value>;
+  editing?: OutlineTreeEditing;
   onCursorChange: (key: string) => void;
-  onMove?: (move: OutlineMove) => string | null;
-  rows: readonly OutlineRow<Value>[];
-  scrollToIndex: (index: number) => void;
+  onMove?: (move: OutlineMove) => void;
+  rows: readonly OutlineRowViewModel[];
+  scrollToKey: (key: string) => void;
 }>;
 
-export function useOutlineEdit<Value>({
-  containerRef,
-  editing,
-  onCursorChange,
-  onMove,
-  rows,
-  scrollToIndex,
-}: EditOptions<Value>) {
+export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, rows, scrollToKey }: EditOptions) {
   const [session, setSessionState] = useState<EditSession | null>(null);
   const [pendingInsertion, setPendingInsertion] = useState<OutlineEditInsertion | null>(null);
   const sessionRef = useRef(session);
@@ -66,32 +59,31 @@ export function useOutlineEdit<Value>({
     editingRef.current?.onContentCommit(key, content);
   };
 
-  const activate = (row: OutlineRow<Value>, content: OutlineContent, caret: number) => {
+  const activate = (row: OutlineRowViewModel, content: OutlineContent, caret: number) => {
     desiredCaretRef.current = Math.min(caret, contentLength(content));
     onCursorChange(row.key);
-    const index = rows.findIndex((candidate) => candidate.key === row.key);
-    if (index >= 0) {
-      scrollToIndex(index);
-    }
-    setSession({ ariaLabel: `Edit ${row.occurrence.nodeId}`, content, key: row.key });
+    scrollToKey(row.key);
+    setSession({ ariaLabel: `Edit ${row.item.accessibilityLabel}`, content, key: row.key });
   };
 
   const activatePosition = (position: OutlineEditPosition, predictedContent?: OutlineContent) => {
     const row = rows.find((candidate) => candidate.key === position.key);
     const activeEditing = editingRef.current;
     if (row !== undefined && activeEditing !== undefined) {
-      if (activeEditing.isEditable?.(row) === false) {
+      if (row.item.editable === false) {
         onCursorChange(row.key);
-        scrollToIndex(rows.indexOf(row));
+        scrollToKey(row.key);
         setSession(null);
         globalThis.requestAnimationFrame(() => containerRef.current?.focus());
         return;
       }
-      activate(row, predictedContent ?? activeEditing.contentOf(row), position.caret);
+      activate(row, predictedContent ?? row.item.content, position.caret);
     }
   };
 
-  useEffect(() => {
+  // The inserted row must take over the editor in the same paint that reveals
+  // it; a passive effect would leave the editor on the old row for a frame.
+  useLayoutEffect(() => {
     if (pendingInsertion === null || editing === undefined) {
       return;
     }
@@ -103,9 +95,9 @@ export function useOutlineEdit<Value>({
     setPendingInsertion(null);
     desiredCaretRef.current = 0;
     onCursorChange(row.key);
-    scrollToIndex(rows.indexOf(row));
-    setSession({ ariaLabel: `Edit ${row.occurrence.nodeId}`, content: editing.contentOf(row), key: row.key });
-  }, [editing, onCursorChange, pendingInsertion, rows, scrollToIndex]);
+    scrollToKey(row.key);
+    setSession({ ariaLabel: `Edit ${row.item.accessibilityLabel}`, content: row.item.content, key: row.key });
+  }, [editing, onCursorChange, pendingInsertion, rows, scrollToKey]);
 
   useEffect(() => {
     if (editing === undefined && sessionRef.current !== null) {
@@ -114,25 +106,25 @@ export function useOutlineEdit<Value>({
     }
   }, [editing]);
 
-  const startAtEnd = (row: OutlineRow<Value>, appendedText = "") => {
-    if (editing === undefined || editing.isEditable?.(row) === false) {
+  const startAtEnd = (row: OutlineRowViewModel, appendedText = "") => {
+    if (editing === undefined || row.item.editable === false) {
       return;
     }
     setPendingInsertion(null);
-    const content = appendText(editing.contentOf(row), appendedText);
+    const content = appendText(row.item.content, appendedText);
     activate(row, content, contentLength(content));
   };
 
-  const startAtCaret = (row: OutlineRow<Value>, caret: number) => {
-    if (editing === undefined || editing.isEditable?.(row) === false) {
+  const startAtCaret = (row: OutlineRowViewModel, caret: number) => {
+    if (editing === undefined || row.item.editable === false) {
       return;
     }
     setPendingInsertion(null);
-    const content = editing.contentOf(row);
+    const content = row.item.content;
     activate(row, content, caret);
   };
 
-  const createChild = (parent: OutlineRow<Value>) => {
+  const createChild = (parent: OutlineRowViewModel) => {
     const activeEditing = editingRef.current;
     if (activeEditing?.onCreateChild === undefined) {
       return;
@@ -155,7 +147,7 @@ export function useOutlineEdit<Value>({
     if (activeEditing === undefined) {
       return false;
     }
-    const position = computeEditNavigation(rows, key, direction, caret, activeEditing.contentOf);
+    const position = computeEditNavigation(rows, key, direction, caret);
     if (position === null) {
       return false;
     }
@@ -190,7 +182,7 @@ export function useOutlineEdit<Value>({
     if (activeEditing === undefined) {
       return false;
     }
-    const previous = computeEditNavigation(rows, key, -1, "end", activeEditing.contentOf);
+    const previous = computeEditNavigation(rows, key, -1, "end");
     if (previous === null) {
       return false;
     }
@@ -200,16 +192,16 @@ export function useOutlineEdit<Value>({
       activatePosition(previous);
       return true;
     }
-    if (activeEditing.onMergeUp === undefined) {
+    if (activeEditing.onMerge === undefined) {
       return false;
     }
-    const merge = computeEditMergeTarget(rows, key, content, activeEditing.contentOf);
+    const merge = computeEditMergeTarget(rows, key, content);
     const target = merge === null ? undefined : rows.find((row) => row.key === merge.key);
-    if (merge === null || target === undefined || activeEditing.isEditable?.(target) === false) {
+    if (merge === null || target === undefined || target.item.editable === false) {
       return false;
     }
     commit(key, content);
-    activeEditing.onMergeUp(key);
+    activeEditing.onMerge({ content: merge.content, sourceKey: key, targetKey: merge.key });
     activatePosition(merge, merge.content);
     return true;
   };
@@ -226,12 +218,9 @@ export function useOutlineEdit<Value>({
           : computeReorder(rows, [key], command.operation === "reorder-up" ? -1 : 1);
     if (move !== null) {
       commit(key, command.content);
-      const targetKey = onMove(move);
-      const current = sessionRef.current;
-      if (targetKey !== null && current !== null) {
-        desiredCaretRef.current = command.caret;
-        setSession({ ...current, content: command.content, key: targetKey });
-      }
+      onMove(move);
+      setSession(null);
+      globalThis.requestAnimationFrame(() => containerRef.current?.focus());
     }
     return true;
   };
@@ -269,10 +258,10 @@ export function useOutlineEdit<Value>({
             activeRow === undefined
               ? []
               : (editing.completionProviders ?? [])
-                  .filter((provider) => provider.enabled?.(activeRow) !== false)
+                  .filter((provider) => provider.enabled?.(activeRow.key) !== false)
                   .map(({ enabled: _enabled, ...provider }) => ({
                     ...provider,
-                    items: (query: string) => provider.items(activeRow, query),
+                    items: (query: string) => provider.items(activeRow.key, query),
                   })),
           content: session.content,
           initialCaret: desiredCaretRef.current,

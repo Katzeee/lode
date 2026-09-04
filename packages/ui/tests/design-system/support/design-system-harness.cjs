@@ -2,7 +2,7 @@ const { app, BrowserWindow } = require("electron");
 
 const documentPath = process.argv[2];
 if (documentPath === undefined) {
-  throw new Error("The design-system harness requires the built desktop document path");
+  throw new Error("The design-system harness requires the built catalog document path");
 }
 
 app.disableHardwareAcceleration();

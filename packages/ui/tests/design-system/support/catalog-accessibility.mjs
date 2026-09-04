@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-import { catalogPages } from "../../packages/design-system-catalog/dist/index.js";
+import { catalogPages } from "../../../../design-system-catalog/dist/index.js";
 
 const require = createRequire(import.meta.url);
 const axePath = require.resolve("axe-core/axe.min.js");

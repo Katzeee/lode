@@ -461,6 +461,7 @@ export default tseslint.config(
       "vitest.config.ts",
       "packages/daemon/vitest.config.ts",
       "packages/engine/vitest.config.ts",
+      "packages/ui/vitest.config.ts",
       "packages/engine/tests/benchmark/**",
       "experiments/**",
     ],
@@ -564,7 +565,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["packages/ui/src/**/*.test.ts"],
+    files: ["packages/ui/src/**/*.test.ts", "packages/ui/tests/**/*.tsx"],
     languageOptions: {
       parserOptions: { project: "packages/ui/tsconfig.test.json", tsconfigRootDir: import.meta.dirname },
     },

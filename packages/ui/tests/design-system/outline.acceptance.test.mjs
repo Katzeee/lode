@@ -1,153 +1,21 @@
 import assert from "node:assert/strict";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
-import { _electron } from "playwright-core";
+import { designSystemTest, navigateToCatalogPage } from "./support/browser.mjs";
 
-import { catalogPages } from "../../packages/design-system-catalog/dist/index.js";
-import { tokens } from "../../packages/design-tokens/dist/index.js";
-import { verifyCatalogAccessibility } from "./catalog-accessibility.mjs";
+designSystemTest(
+  "the outline ViewModel renders its occurrence, field, and selection states",
+  verifyOutlinePresentation,
+);
 
-const scriptDirectory = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(scriptDirectory, "..", "..");
-const documentPath = join(repositoryRoot, "apps", "desktop", "dist", "index.html");
-const harnessPath = join(scriptDirectory, "design-system-harness.cjs");
-const application = await _electron.launch({ args: [harnessPath, documentPath], cwd: repositoryRoot });
-
-// Representative window sizes from the smallest supported phone through
-// tablets in both orientations up to a full desktop. The catalog must fit
-// every one of them without horizontal overflow, and the app shell must pick
-// the navigation tier its container width mandates.
-const deviceViewports = [
-  { label: "folded phone (320×568)", width: 320, height: 568 },
-  { label: "phone (360×800)", width: 360, height: 800 },
-  { label: "large phone (390×844)", width: 390, height: 844 },
-  { label: "phone landscape (844×390)", width: 844, height: 390 },
-  { label: "tablet portrait (768×1024)", width: 768, height: 1024 },
-  { label: "tablet landscape (1024×768)", width: 1024, height: 768 },
-  { label: "small laptop (1280×800)", width: 1280, height: 800 },
-  { label: "laptop (1366×768)", width: 1366, height: 768 },
-  { label: "desktop (1920×1080)", width: 1920, height: 1080 },
-];
-
-try {
-  const page = await application.firstWindow({ timeout: 30_000 });
-  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
-  await verifyCatalogAccessibility(page);
-  await page.setViewportSize({ height: 844, width: 390 });
-  await verifyCatalogAccessibility(page);
-  await verifyDeviceViewports(page);
-  await verifyOverlaysAtShortViewport(page);
-  await verifyCatalogDrawer(page);
-  await page.setViewportSize({ height: 900, width: 1000 });
-  await verifyOutlineTree(page);
-  await verifyResponsivePatterns(page);
-  await verifyCoarsePointerBehavior(page);
-  process.stdout.write(
-    `Verified ${catalogPages.length} accessible catalog pages across ${String(deviceViewports.length)} device viewports, the responsive layout tiers, the compact navigation drawer, the outline tree, short-viewport overlays, and coarse-pointer touch targets.\n`,
-  );
-} finally {
-  await application.close();
-}
-
-async function verifyDeviceViewports(page) {
-  for (const viewport of deviceViewports) {
-    await page.setViewportSize({ height: viewport.height, width: viewport.width });
-    for (const catalogPage of catalogPages) {
-      await navigateToCatalogPage(page, catalogPage.path);
-      const measurement = await page.evaluate(() => ({
-        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
-        offenders: [...document.querySelectorAll("body *")]
-          .filter((element) => element.getBoundingClientRect().right > document.documentElement.clientWidth + 1)
-          .slice(0, 3)
-          .map(
-            (element) =>
-              `${element.tagName.toLowerCase()}.${element.className}:${element.textContent?.trim().slice(0, 40) ?? ""}`,
-          ),
-      }));
-      assert.ok(
-        measurement.overflow <= 1,
-        `${catalogPage.title} overflows the ${viewport.label} viewport by ${String(measurement.overflow)}px: ${measurement.offenders.join(", ")}`,
-      );
-    }
-    await verifyShellTier(page, viewport);
-  }
-}
-
-async function verifyShellTier(page, viewport) {
-  await navigateToCatalogPage(page, "templates/product");
-  await page.locator('[data-ui="app-shell"]').first().waitFor({ state: "visible" });
-  // The product template nests the previewed product shell inside the
-  // catalog's own shell; each one must pick the tier its container mandates.
-  const shells = await page.evaluate(() =>
-    [...document.querySelectorAll('[data-ui="app-shell"]')].map((element) => ({
-      visible: [...element.querySelectorAll("[data-layout]")]
-        .filter((candidate) => candidate.closest('[data-ui="app-shell"]') === element)
-        .filter((candidate) => candidate.checkVisibility())
-        .map((candidate) => candidate.dataset.layout),
-      width: element.getBoundingClientRect().width,
-    })),
-  );
-  assert.equal(shells.length, 2, `the product template must render the catalog shell and the previewed shell`);
-  const { expanded, medium } = tokens.layout.breakpoint;
-  for (const shell of shells) {
-    const expectedTier = shell.width >= expanded ? "expanded" : shell.width >= medium ? "medium" : "compact";
-    assert.deepEqual(
-      shell.visible,
-      [expectedTier],
-      `the ${viewport.label} viewport must show only the ${expectedTier} navigation tier for a ${String(Math.round(shell.width))}px shell container`,
-    );
-  }
-}
-
-async function verifyOverlaysAtShortViewport(page) {
-  const viewport = deviceViewports.find((candidate) => candidate.label.startsWith("phone landscape"));
-  await page.setViewportSize({ height: viewport.height, width: viewport.width });
-  await navigateToCatalogPage(page, "components/overlays");
-
-  await page.getByRole("button", { name: "Open dialog" }).click();
-  const dialog = page.locator('[role="dialog"].lode-overlay-popup');
-  await dialog.waitFor({ state: "visible" });
-  const dialogBox = await dialog.boundingBox();
-  assert.ok(dialogBox !== null, "the Dialog must be measurable on a landscape phone");
-  assertWithinViewport(dialogBox, viewport, "Dialog");
-  const confirm = page.getByRole("button", { name: "Save changes" });
-  await confirm.scrollIntoViewIfNeeded();
-  assert.equal(await confirm.isVisible(), true, "the Dialog actions must stay reachable on a landscape phone");
-  await page.keyboard.press("Escape");
-  await dialog.waitFor({ state: "detached" });
-
-  await page.getByRole("button", { name: "Show toast" }).click();
-  const toast = page.locator('[data-ui="toast"]');
-  await toast.waitFor({ state: "visible" });
-  const toastBox = await toast.boundingBox();
-  assert.ok(toastBox !== null, "the Toast must be measurable on a landscape phone");
-  assertWithinViewport(toastBox, viewport, "Toast");
-  await toast.locator('[data-ui="toast-close"]').click();
-  await toast.waitFor({ state: "detached" });
-}
-
-async function verifyCatalogDrawer(page) {
-  await page.setViewportSize({ height: 844, width: 390 });
-  await navigateToCatalogPage(page, "");
-  await page.getByRole("button", { name: "Open navigation" }).click();
-  const drawer = page.getByRole("dialog", { name: "Lode Design System navigation" });
-  await drawer.waitFor({ state: "visible" });
-  await drawer.getByRole("link", { name: "Buttons" }).click();
-  await drawer.waitFor({ state: "detached" });
-  await page.locator("main h1").first().waitFor({ state: "visible" });
-  assert.equal(
-    await page.locator("main h1").first().textContent(),
-    "Buttons",
-    "selecting a drawer destination must navigate and close the drawer",
-  );
-}
-
-async function verifyOutlineTree(page) {
+async function verifyOutlinePresentation(page) {
   await navigateToCatalogPage(page, "components/outline");
   const tree = page.getByRole("tree");
   await tree.waitFor({ state: "visible" });
   const rowByText = (text) => page.locator('[data-ui="outline-row"]', { hasText: text }).first();
+  const itemKey = (modelPath) => `outline-item:${encodeURIComponent(modelPath)}`;
+  const rowByPath = (modelPath) => tree.locator(`[data-item-key=${JSON.stringify(itemKey(modelPath))}]`);
+  const childrenOfPath = (modelPath) =>
+    tree.locator(`[data-ui="outline-row"][data-parent-key=${JSON.stringify(itemKey(modelPath))}]`);
   const editor = page.locator('[data-ui="outline-editor"]');
 
   const lodeBullet = rowByText("Lode").locator('[data-ui="outline-bullet"]');
@@ -157,38 +25,76 @@ async function verifyOutlineTree(page) {
     "pointer",
     "a clickable bullet must use the pointer cursor before a drag starts",
   );
-  assert.match(
-    await lodeBullet.getAttribute("class"),
-    /hover:bg-secondary/u,
-    "a bullet hit target must own the design-system hover halo",
+  assert.equal(
+    await lodeBullet.evaluate((element) => getComputedStyle(element).backgroundColor),
+    "rgba(0, 0, 0, 0)",
+    "hovering a bullet must keep its hit target visually transparent",
+  );
+
+  const selectedNodeRow = rowByText("Design system roadmap");
+  await selectedNodeRow.click();
+  assert.equal(await selectedNodeRow.getAttribute("aria-selected"), "true");
+  const selectedBulletTarget = selectedNodeRow.locator('[data-ui="outline-bullet"]');
+  const selectedBulletMark = selectedNodeRow.locator('[data-ui="outline-bullet-mark"]');
+  const selectedNodeDot = selectedNodeRow.locator('[data-ui="outline-node-dot"]');
+  const [selectedBulletMarkBox, selectedNodeDotBox] = await Promise.all([
+    selectedBulletMark.boundingBox(),
+    selectedNodeDot.boundingBox(),
+  ]);
+  assert.ok(
+    selectedBulletMarkBox !== null &&
+      selectedNodeDotBox !== null &&
+      Math.abs(selectedBulletMarkBox.width - 15) < 0.1 &&
+      Math.abs(selectedBulletMarkBox.height - 15) < 0.1 &&
+      Math.abs(selectedNodeDotBox.width - 5) < 0.1 &&
+      Math.abs(selectedNodeDotBox.height - 5) < 0.1,
+    "an ordinary bullet must use Tana's 15px footprint and 5px visible dot",
+  );
+  assert.deepEqual(
+    await Promise.all(
+      [selectedBulletTarget, selectedBulletMark].map((locator) =>
+        locator.evaluate((element) => getComputedStyle(element).backgroundColor),
+      ),
+    ),
+    ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"],
+    "the current Node must not add a selection halo to its bullet",
+  );
+  assert.equal(
+    await selectedNodeDot.evaluate((element) => getComputedStyle(element).backgroundColor),
+    await rowByText("Why local-first changes product design")
+      .locator('[data-ui="outline-node-dot"]')
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+    "selection must not recolor the ordinary Node dot",
   );
 
   for (const [label, datatype] of [
     ["Status", "options"],
-    ["Owner", "options-from-supertag"],
+    ["Owner", "supertag"],
     ["Review date", "date"],
     ["Ready", "checkbox"],
   ]) {
     assert.equal(
       await rowByText(label)
-        .locator(`[data-kind="field"][data-datatype="${datatype}"] [data-ui="outline-field-type-mark"]`)
+        .locator(`[data-ui="outline-field-mark"][data-datatype="${datatype}"] [data-ui="outline-field-type-mark"]`)
         .count(),
       1,
       `the ${label} Field node must expose its datatype through the bullet glyph`,
     );
   }
   assert.equal(
-    await rowByText("In progress").locator('[data-kind="field-value"] [data-ui="outline-field-type-mark"]').count(),
+    await rowByText("In progress").locator('[data-ui="outline-field-type-mark"]').count(),
     0,
     "a Field Value node must keep the ordinary node dot instead of inheriting its Field's type glyph",
   );
   assert.ok(
     (await tree
-      .locator('[data-kind="field-definition"][data-datatype="plain"] [data-ui="outline-field-type-mark"]')
+      .locator(
+        '[data-ui="outline-field-mark"][data-prominence="strong"][data-datatype="text"] [data-ui="outline-field-type-mark"]',
+      )
       .count()) > 0,
     "a Field Definition occurrence must use the definition glyph inside the normal bullet hit target",
   );
-  const ownerField = tree.locator('[data-occurrence-id="owner-field"]');
+  const ownerField = rowByPath("projects/lode/owner-field");
   assert.equal(await ownerField.getAttribute("aria-expanded"), null, "a Field node must not expose disclosure state");
   assert.equal(
     await ownerField.getByRole("button", { name: /^Expand/u }).count(),
@@ -196,27 +102,40 @@ async function verifyOutlineTree(page) {
     "a Field node must not expose the ordinary Node expansion control",
   );
   assert.equal(
-    await tree.locator('[data-parent-key="projects/lode/owner-field"][data-layout-column="trailing"]').count(),
+    await childrenOfPath("projects/lode/owner-field").count(),
     2,
     "the Owner Field must project Kei and Lode team as its two value occurrences",
   );
   assert.equal(
-    await tree.locator('[data-parent-key="projects/lode/owner-field"][data-layout-column="single"]').count(),
-    0,
-    "a Field Value draft must never escape into an extra indented ordinary row",
+    await rowByPath("projects/lode/owner-field").locator("..").getAttribute("data-children-layout"),
+    "beside",
+    "a Field node must place its children beside its label",
   );
 
-  const referenceRow = tree.locator('[data-occurrence-id="local-first-reference"]');
-  assert.equal(await referenceRow.getAttribute("data-node-id"), "local-first");
+  const referenceRow = rowByPath("projects/lode/roadmap/local-first-reference");
+  assert.equal(
+    await referenceRow.getAttribute("data-item-key"),
+    itemKey("projects/lode/roadmap/local-first-reference"),
+  );
+  assert.equal(
+    await referenceRow.getAttribute("data-node-id"),
+    null,
+    "the component DOM must not expose a host Node id",
+  );
+  assert.equal(
+    await referenceRow.getAttribute("data-occurrence-id"),
+    null,
+    "the component DOM must not expose a host Occurrence id",
+  );
   assert.equal(await referenceRow.getAttribute("aria-expanded"), "true");
   assert.equal(
-    await referenceRow.locator('[data-kind="reference"] [data-ui="outline-reference-ring"]').count(),
+    await referenceRow.locator('[data-appearance="reference"] [data-ui="outline-reference-ring"]').count(),
     1,
     "a Reference occurrence must use the ring-and-dot appearance observed in Tana",
   );
   const referenceRingBox = await referenceRow.locator('[data-ui="outline-reference-ring"]').boundingBox();
-  const collapsedNodeRingBox = await tree
-    .locator('[data-occurrence-id="local-first-original"] [data-ui="outline-bullet-mark"]')
+  const collapsedNodeRingBox = await rowByPath("inbox/local-first-original")
+    .locator('[data-ui="outline-bullet-mark"]')
     .boundingBox();
   assert.ok(
     referenceRingBox !== null &&
@@ -225,35 +144,27 @@ async function verifyOutlineTree(page) {
       Math.abs(referenceRingBox.height - collapsedNodeRingBox.height) <= 1,
     "Reference and collapsed-child bullet rings must share one geometric footprint",
   );
-  const referenceChild = tree.locator(
-    '[data-parent-key="projects/lode/roadmap/local-first-reference"][data-occurrence-id="local-first-summary"]',
-  );
+  const referenceChild = rowByPath("projects/lode/roadmap/local-first-reference/local-first-summary");
   assert.equal(
     await referenceChild.count(),
     1,
     "an expanded Reference must unfold the target Node's child occurrences",
   );
   assert.equal(
-    await referenceChild.locator('[data-kind="node"]').count(),
+    await referenceChild.locator('[data-appearance="node"]').count(),
     1,
     "a child unfolded through a Reference keeps its own occurrence appearance",
   );
 
   const fieldLabelBox = await rowByText("Status").boundingBox();
   const firstValueBox = await rowByText("In progress").boundingBox();
-  const firstOwnerBox = await page
-    .locator('[data-ui="outline-row"][data-layout-column="trailing"]', { hasText: "Kei" })
-    .first()
-    .boundingBox();
-  const secondOwnerBox = await page
-    .locator('[data-ui="outline-row"][data-layout-column="trailing"]', { hasText: "Lode team" })
-    .first()
-    .boundingBox();
+  const firstOwnerBox = await rowByPath("projects/lode/owner-field/kei-owner").boundingBox();
+  const secondOwnerBox = await rowByPath("projects/lode/owner-field/team-owner").boundingBox();
   assert.ok(fieldLabelBox !== null && firstValueBox !== null, "Field and Field Value rows must be measurable");
   assert.ok(fieldLabelBox.width <= 260, "the Field label column must stay close to Tana's compact value offset");
   assert.equal(
     await tree
-      .locator('[data-occurrence-id="in-progress"]')
+      .locator(`[data-item-key=${JSON.stringify(itemKey("projects/lode/status-field/in-progress"))}]`)
       .locator('[data-ui="outline-inline-content"]')
       .evaluate((element) => getComputedStyle(element).textDecorationLine),
     "none",
@@ -269,7 +180,7 @@ async function verifyOutlineTree(page) {
     "later Field Value nodes must align with the first Field Value node",
   );
 
-  const lodeEditingRow = tree.locator('[data-occurrence-id="lode"]');
+  const lodeEditingRow = rowByPath("projects/lode");
   await lodeEditingRow.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   const lodeEditingBackground = await lodeEditingRow.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -287,7 +198,21 @@ async function verifyOutlineTree(page) {
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
 
-  const statusValue = tree.locator('[data-occurrence-id="in-progress"]');
+  const pendingMilestone = rowByPath("projects/lode/roadmap/outline-m2");
+  const pendingCheckbox = pendingMilestone.getByRole("checkbox");
+  assert.equal(await pendingCheckbox.isChecked(), false, "the checkbox ViewModel must render its current state");
+  await pendingCheckbox.click();
+  assert.equal(await pendingCheckbox.isChecked(), true, "checkbox activation must emit the component's checked intent");
+  assert.equal(
+    await pendingMilestone
+      .locator('[data-ui="outline-row-content"]')
+      .evaluate((element) => getComputedStyle(element).textDecorationLine),
+    "line-through",
+    "the host must project the updated Model back into the component ViewModel",
+  );
+  await pendingCheckbox.click();
+
+  const statusValue = rowByPath("projects/lode/status-field/in-progress");
   await statusValue.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   const suggestions = page.getByRole("listbox", { name: "Suggested values" });
@@ -303,19 +228,27 @@ async function verifyOutlineTree(page) {
   await editor.press("Control+A");
   await editor.pressSequentially("Custom status");
   assert.equal(await editor.textContent(), "Custom status", "datatype suggestions must not reject arbitrary Node text");
-  await tree.locator('[data-occurrence-id="review-date-field"]').click();
+  await rowByPath("projects/lode/review-date-field").click();
   await suggestions.waitFor({ state: "detached" });
   await editor.waitFor({ state: "detached" });
-  assert.notEqual(
-    await statusValue.getAttribute("data-node-id"),
-    "status-in-progress",
-    "free text in a Reference-backed Field Value must become a new ordinary Node instead of renaming its target",
+  assert.equal(
+    await statusValue.locator('[data-appearance="reference"]').count(),
+    0,
+    "free text in a reference-backed Field Value must project an ordinary item instead of renaming its target",
   );
   await statusValue.locator('[data-ui="outline-row-text"]').click();
   assert.equal(await suggestions.count(), 0, "an existing arbitrary value reopens as an ordinary Node editor");
   await editor.press("Enter");
-  const statusValues = tree.locator('[data-parent-key="projects/lode/status-field"][data-layout-column="trailing"]');
+  const statusValues = childrenOfPath("projects/lode/status-field");
   await statusValues.nth(1).waitFor({ state: "visible" });
+  const [firstStatusBox, secondStatusBox] = await Promise.all([
+    statusValues.nth(0).boundingBox(),
+    statusValues.nth(1).boundingBox(),
+  ]);
+  assert.ok(
+    firstStatusBox !== null && secondStatusBox !== null && Math.abs(firstStatusBox.x - secondStatusBox.x) <= 1,
+    "a Field Value inserted with Enter must stay in the value column instead of escaping into an indented row",
+  );
   await editor.pressSequentially("Another status value");
   const insertedEditorBox = await editor.boundingBox();
   assert.ok(
@@ -328,7 +261,7 @@ async function verifyOutlineTree(page) {
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
 
-  const fieldDefinition = tree.locator('[data-occurrence-id="status-definition-occurrence"]');
+  const fieldDefinition = rowByPath("field-definitions/status-definition-occurrence");
   const titleBeforeFieldDefinition = await page.locator("main h1").first().textContent();
   await fieldDefinition.locator('[data-ui="outline-bullet"]').click();
   assert.equal(
@@ -342,15 +275,18 @@ async function verifyOutlineTree(page) {
     "node rows must not leak model explanations into secondary text",
   );
 
-  const lodeTeam = tree.locator('[data-occurrence-id="team-owner"]');
-  await lodeTeam.getByRole("button", { name: "Expand lode-team" }).click();
+  const lodeTeam = rowByPath("projects/lode/owner-field/team-owner");
+  await lodeTeam.getByRole("button", { name: "Expand Lode team" }).click();
   const lodeTeamPlaceholder = tree.locator(
-    '[data-ui="outline-empty-child-placeholder"][data-parent-key="projects/lode/owner-field/team-owner"]',
+    `[data-ui="outline-empty-child-placeholder"][data-parent-key=${JSON.stringify(itemKey("projects/lode/owner-field/team-owner"))}]`,
   );
   await lodeTeamPlaceholder.waitFor({ state: "visible" });
-  assert.equal(
-    await lodeTeamPlaceholder.getAttribute("data-layout-column"),
-    "trailing",
+  const [lodeTeamBox, lodeTeamPlaceholderBox] = await Promise.all([
+    lodeTeam.boundingBox(),
+    lodeTeamPlaceholder.boundingBox(),
+  ]);
+  assert.ok(
+    lodeTeamBox !== null && lodeTeamPlaceholderBox !== null && lodeTeamPlaceholderBox.x >= lodeTeamBox.x,
     "an empty-child placeholder under a Field Value must remain in the value column",
   );
   const lodeTeamBulletBox = await lodeTeam.locator('[data-ui="outline-bullet"]').boundingBox();
@@ -360,7 +296,7 @@ async function verifyOutlineTree(page) {
     "an empty-child placeholder must indent locally from its Field Value parent",
   );
   assert.equal(
-    await tree.locator('[data-parent-key="projects/lode/owner-field/team-owner"][data-ui="outline-row"]').count(),
+    await childrenOfPath("projects/lode/owner-field/team-owner").count(),
     0,
     "expanding an empty Node must not materialize a model Node",
   );
@@ -371,12 +307,21 @@ async function verifyOutlineTree(page) {
     "an unfocused empty-child placeholder keeps Tana's quiet bullet-only appearance",
   );
 
-  await tree.getByRole("button", { name: "Expand empty-container" }).click();
+  await tree.getByRole("button", { name: "Expand Expandable empty node" }).click();
   const emptyChildPlaceholder = tree.locator(
-    '[data-ui="outline-empty-child-placeholder"][data-parent-key="projects/lode/roadmap/empty-container"]',
+    `[data-ui="outline-empty-child-placeholder"][data-parent-key=${JSON.stringify(itemKey("projects/lode/roadmap/empty-container"))}]`,
   );
   await emptyChildPlaceholder.waitFor({ state: "visible" });
-  assert.equal(await emptyChildPlaceholder.getAttribute("data-level"), "5");
+  const [emptyContainerBulletBox, emptyPlaceholderBulletBox] = await Promise.all([
+    rowByPath("projects/lode/roadmap/empty-container").locator('[data-ui="outline-bullet"]').boundingBox(),
+    emptyChildPlaceholder.locator('[data-ui="outline-bullet-mark"]').boundingBox(),
+  ]);
+  assert.ok(
+    emptyContainerBulletBox !== null &&
+      emptyPlaceholderBulletBox !== null &&
+      emptyPlaceholderBulletBox.x > emptyContainerBulletBox.x + 10,
+    "the empty-child placeholder must sit one indent step inside its parent",
+  );
   assert.equal(
     await emptyChildPlaceholder.locator('[data-ui="outline-placeholder-bullet"]').count(),
     1,
@@ -384,7 +329,7 @@ async function verifyOutlineTree(page) {
   );
   const inactivePlaceholderBox = await emptyChildPlaceholder.boundingBox();
   await emptyChildPlaceholder.click();
-  const emptyChild = tree.locator('[data-ui="outline-row"][data-parent-key="projects/lode/roadmap/empty-container"]');
+  const emptyChild = childrenOfPath("projects/lode/roadmap/empty-container");
   await emptyChild.waitFor({ state: "visible" });
   await editor.waitFor({ state: "visible" });
   const activePlaceholderBox = await emptyChild.locator('[data-ui="outline-placeholder"]').boundingBox();
@@ -418,9 +363,7 @@ async function verifyOutlineTree(page) {
   await emptyChild.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.press("Enter");
-  const emptyChildren = tree.locator(
-    '[data-ui="outline-row"][data-parent-key="projects/lode/roadmap/empty-container"]',
-  );
+  const emptyChildren = childrenOfPath("projects/lode/roadmap/empty-container");
   await emptyChildren.nth(1).waitFor({ state: "visible" });
   assert.equal(
     await emptyChildren.count(),
@@ -437,17 +380,17 @@ async function verifyOutlineTree(page) {
   assert.equal(await emptyChildren.count(), 2, "the next empty Node must also survive an unfocused state");
   await rowByText("Status").click();
   await rowByText("Owner").click({ modifiers: ["Shift"] });
-  await page.getByRole("toolbar", { name: "4 nodes selected" }).waitFor({ state: "visible" });
+  await page.getByRole("toolbar", { name: "4 items selected" }).waitFor({ state: "visible" });
   assert.equal(
     await tree.locator('[data-ui="outline-row"][aria-selected="true"]').count(),
     4,
     "Shift selection must include every visible Node occurrence in the range",
   );
   await page.keyboard.press("Escape");
-  await page.getByRole("toolbar", { name: "4 nodes selected" }).waitFor({ state: "detached" });
+  await page.getByRole("toolbar", { name: "4 items selected" }).waitFor({ state: "detached" });
 
   assert.equal(
-    await rowByText("Open design decisions").locator('[data-kind="search"]').count(),
+    await rowByText("Open design decisions").locator('[data-bullet-marker="search"]').count(),
     1,
     "a Search Node must expose its semantic bullet treatment",
   );
@@ -460,26 +403,26 @@ async function verifyOutlineTree(page) {
   assert.ok(
     searchMarkBox !== null &&
       searchBulletBox !== null &&
-      searchBulletBox.width >= 13 &&
-      searchBulletBox.height >= 13 &&
+      searchBulletBox.width >= 15 &&
+      searchBulletBox.height >= 15 &&
       searchMarkBox.width < searchBulletBox.width &&
       searchMarkBox.height < searchBulletBox.height,
-    "the Search glyph must remain inside the shared outer bullet footprint reserved for occurrence state",
+    "the Search glyph must remain inside the shared 15px outer bullet footprint",
   );
   assert.equal(
-    await rowByText("Daily notes").locator('[data-kind="calendar"]').count(),
+    await rowByText("Daily notes").locator('[data-bullet-marker="calendar"]').count(),
     1,
     "a date-backed system node must support a semantic bullet replacement",
   );
   assert.equal(
-    await page.locator('[data-ui="outline-row"] [data-kind="person"]').count(),
+    await page.locator('[data-ui="outline-row"] [data-bullet-marker="person"]').count(),
     1,
     "a person node must support an avatar bullet replacement",
   );
   await rowByText("Open design decisions").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.press("Escape");
-  await tree.locator('[data-occurrence-id="kei"] [data-ui="outline-row-text"]').click();
+  await rowByPath("kei").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
@@ -495,7 +438,7 @@ async function verifyOutlineTree(page) {
     "a date-backed system node whose name is owned by the domain must remain read-only",
   );
 
-  const originalRow = tree.locator('[data-occurrence-id="local-first-original"]');
+  const originalRow = rowByPath("inbox/local-first-original");
   await referenceRow.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.press("End");
@@ -527,8 +470,8 @@ async function verifyOutlineTree(page) {
   await editor.pressSequentially("Shared through reference");
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
-  await tree
-    .locator('[data-parent-key="projects/lode/roadmap/local-first-reference"]', { hasText: "Shared through reference" })
+  await childrenOfPath("projects/lode/roadmap/local-first-reference")
+    .filter({ hasText: "Shared through reference" })
     .waitFor({ state: "visible" });
 
   await referenceRow.locator('[data-ui="outline-bullet"]').click();
@@ -590,10 +533,18 @@ async function verifyOutlineTree(page) {
   });
   await breadcrumb.getByRole("button", { name: "All nodes" }).click();
   await breadcrumb.waitFor({ state: "detached" });
+}
 
-  // Remount for a clean editing session.
-  await navigateToCatalogPage(page, "components/buttons");
+designSystemTest("outline editing emits content and structural intents", verifyOutlineEditing);
+
+async function verifyOutlineEditing(page) {
   await navigateToCatalogPage(page, "components/outline");
+  const tree = page.getByRole("tree");
+  await tree.waitFor({ state: "visible" });
+  const rowByText = (text) => page.locator('[data-ui="outline-row"]', { hasText: text }).first();
+  const itemKey = (modelPath) => `outline-item:${encodeURIComponent(modelPath)}`;
+  const rowByPath = (modelPath) => tree.locator(`[data-item-key=${JSON.stringify(itemKey(modelPath))}]`);
+  const editor = page.locator('[data-ui="outline-editor"]');
   const editorText = () => editor.textContent();
   const setEditorCaret = (offset) =>
     editor.evaluate((element, caret) => element.editor.commands.setTextSelection(caret + 1), offset);
@@ -619,14 +570,17 @@ async function verifyOutlineTree(page) {
     "clicking within row text must preserve the clicked caret position",
   );
   await editor.press("Tab");
-  assert.equal(
-    await editor.evaluate((input) => input.closest('[data-ui="outline-row"]')?.getAttribute("aria-level")),
-    "3",
-    "Tab in edit mode must indent the row and keep its editor active",
-  );
-  assert.equal(await editorText(), "Home lab notes", "a structural edit must preserve the editor draft");
-  await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
+  assert.equal(
+    await rowByText("Home lab notes").getAttribute("aria-level"),
+    "3",
+    "Tab in edit mode must emit an indent intent without predicting the host's next ViewModel key",
+  );
+  assert.equal(
+    await rowByText("Home lab notes").locator('[data-ui="outline-inline-content"]').textContent(),
+    "Home lab notes",
+    "a structural intent must preserve the committed editor draft",
+  );
 
   await rowByText("Engine facts and projections").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
@@ -705,7 +659,7 @@ async function verifyOutlineTree(page) {
     .locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" })
     .waitFor({ state: "visible" });
 
-  const quickCapture = tree.locator('[data-occurrence-id="quick-capture"]');
+  const quickCapture = rowByPath("inbox/quick-capture");
   assert.equal(
     await quickCapture.locator('[data-ui="outline-placeholder-bullet"]').count(),
     0,
@@ -737,7 +691,7 @@ async function verifyOutlineTree(page) {
   await navigateToCatalogPage(page, "components/outline");
   await page.getByRole("tree").focus();
   await page.keyboard.press("End");
-  await tree.locator('[data-occurrence-id="quick-capture"] [data-ui="outline-row-text"]').click();
+  await rowByPath("inbox/quick-capture").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   await editor.pressSequentially(">");
   const fieldPicker = page.getByRole("listbox", { name: "Fields" });
@@ -747,20 +701,23 @@ async function verifyOutlineTree(page) {
   await page.getByRole("tree").focus();
   await page.keyboard.press("End");
   const createdField = page
-    .locator('[data-ui="outline-row"][data-layout-column="leading"]', { hasText: "Notes" })
+    .locator('[data-ui="outline-node"][data-children-layout="beside"] > [data-ui="outline-row"]', { hasText: "Notes" })
     .first();
-  const createdValue = page.locator('[data-ui="outline-row"][data-layout-column="trailing"]').last();
   await page.waitForTimeout(200);
   const createdRows = await page
     .locator('[data-ui="outline-row"]')
-    .evaluateAll((rows) => rows.map((row) => ({ layout: row.dataset.layoutColumn, text: row.textContent })));
+    .evaluateAll((rows) => rows.map((row) => ({ parent: row.dataset.parentKey, text: row.textContent })));
   assert.equal(
     await createdField.count(),
     1,
     `choosing a definition must create a Field Node: ${JSON.stringify(createdRows)}`,
   );
-  assert.ok(
+  const createdValue = tree.locator(
+    `[data-ui="outline-row"][data-parent-key=${JSON.stringify(await createdField.getAttribute("data-item-key"))}]`,
+  );
+  assert.equal(
     await createdValue.count(),
+    1,
     `choosing a definition must create a Field Value Node: ${JSON.stringify(createdRows)}`,
   );
   const createdFieldBox = await createdField.boundingBox();
@@ -770,22 +727,30 @@ async function verifyOutlineTree(page) {
     Math.abs(createdFieldBox.y - createdValueBox.y) <= 1,
     `a newly created Field and its first Field Value Node must share one visual line: ${JSON.stringify({ createdFieldBox, createdValueBox })}`,
   );
+}
 
-  // Remount for a clean structure, then restructure by dragging a bullet.
-  await navigateToCatalogPage(page, "components/buttons");
+designSystemTest("outline drag and drop preserves tree constraints", verifyOutlineDragging);
+
+async function verifyOutlineDragging(page) {
   await navigateToCatalogPage(page, "components/outline");
-  const lodeRow = page.locator('[data-ui="outline-row"][data-occurrence-id="lode"]');
-  await lodeRow.getByRole("button", { name: "Collapse lode" }).click();
+  const tree = page.getByRole("tree");
+  await tree.waitFor({ state: "visible" });
+  const rowByText = (text) => page.locator('[data-ui="outline-row"]', { hasText: text }).first();
+  const itemKey = (modelPath) => `outline-item:${encodeURIComponent(modelPath)}`;
+  const rowByPath = (modelPath) => tree.locator(`[data-item-key=${JSON.stringify(itemKey(modelPath))}]`);
+  const lodeRow = rowByPath("projects/lode");
+  await lodeRow.getByRole("button", { name: "Collapse Lode" }).click();
   const handle = rowByText("Home lab notes").locator('[data-ui="outline-bullet"]');
   await handle.scrollIntoViewIfNeeded();
   const handleBox = await handle.boundingBox();
   const lodeBox = await lodeRow.boundingBox();
-  const treeBox = await page.getByRole("tree").boundingBox();
-  assert.ok(handleBox !== null && lodeBox !== null && treeBox !== null, "drag geometry must be measurable");
+  assert.ok(handleBox !== null && lodeBox !== null, "drag geometry must be measurable");
   await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(treeBox.x + 30, lodeBox.y + 3, { steps: 10 });
-  const indicator = await page.evaluate(() => document.querySelector('[role="tree"] .bg-primary.h-0\\.5') !== null);
+  await page.mouse.move(handleBox.x + handleBox.width / 2, lodeBox.y + 3);
+  const indicator = await page.evaluate(
+    () => document.querySelector('[role="tree"] [data-ui="outline-drop-indicator"]') !== null,
+  );
   assert.equal(indicator, true, "an eligible drop position must show the insertion line");
   await page.mouse.up();
   const moved = rowByText("Home lab notes");
@@ -793,6 +758,7 @@ async function verifyOutlineTree(page) {
   assert.equal(await moved.getAttribute("aria-posinset"), "1", "the dragged row must land before Lode");
 
   // Dropping a subtree into its own descendant must be rejected.
+  await lodeRow.getByRole("button", { name: "Expand Lode" }).click();
   const projectsHandle = rowByText("Projects").locator('[data-ui="outline-bullet"]');
   await projectsHandle.scrollIntoViewIfNeeded();
   const projectsBox = await projectsHandle.boundingBox();
@@ -800,7 +766,7 @@ async function verifyOutlineTree(page) {
   assert.ok(projectsBox !== null && roadmapBox !== null, "illegal-drop geometry must be measurable");
   await page.mouse.move(projectsBox.x + projectsBox.width / 2, projectsBox.y + projectsBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(roadmapBox.x + roadmapBox.width / 2, roadmapBox.y + roadmapBox.height - 3, { steps: 10 });
+  await page.mouse.move(roadmapBox.x + roadmapBox.width / 2, roadmapBox.y + roadmapBox.height - 3);
   await page.mouse.up();
   assert.equal(
     await rowByText("Projects").getAttribute("aria-level"),
@@ -809,224 +775,174 @@ async function verifyOutlineTree(page) {
   );
 }
 
-function assertWithinViewport(box, viewport, label) {
-  const fits =
-    box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width + 1 && box.y + box.height <= viewport.height + 1;
-  assert.ok(
-    fits,
-    `${label} must fit inside the ${viewport.label} viewport; got ${String(Math.round(box.width))}×${String(Math.round(box.height))} at (${String(Math.round(box.x))}, ${String(Math.round(box.y))})`,
-  );
-}
-
-async function verifyResponsivePatterns(page) {
-  await page.evaluate(() => {
-    window.location.hash = "#/design-system/templates/product";
-  });
-  const shell = page.locator('main [data-ui="app-shell"]');
-  await shell.waitFor({ state: "visible" });
-  for (const [width, expected] of [
-    [500, "compact"],
-    [700, "medium"],
-    [900, "expanded"],
-  ]) {
-    await shell.evaluate((element, nextWidth) => {
-      element.style.width = `${nextWidth}px`;
-    }, width);
-    await shell.locator(`[data-layout="${expected}"]`).waitFor({ state: "visible" });
-    const visibleTiers = await shell.locator("[data-layout]:visible").count();
-    assert.equal(visibleTiers, 1, `${String(width)}px must expose only the ${expected} navigation tier`);
-  }
-
-  await page.evaluate(() => {
-    window.location.hash = "#/design-system/templates/layouts";
-  });
-  const pattern = page.locator('[data-ui="list-detail"]');
-  await pattern.waitFor({ state: "visible" });
-  await pattern.evaluate((element) => {
-    element.style.width = "500px";
-  });
-  await pattern.locator('[data-pane="list"]').waitFor({ state: "visible" });
-  assert.equal(await pattern.locator('[data-pane="detail"]').isVisible(), false);
-  await pattern.getByRole("button", { name: /Field notes/u }).click();
-  await pattern.locator('[data-pane="detail"]').waitFor({ state: "visible" });
-  assert.equal(await pattern.locator('[data-pane="list"]').isVisible(), false);
-  await pattern.getByRole("button", { name: "← Back to list" }).click();
-  await pattern.locator('[data-pane="list"]').waitFor({ state: "visible" });
-  await pattern.evaluate((element) => {
-    element.style.width = "900px";
-  });
-  await pattern.locator('[data-pane="detail"]').waitFor({ state: "visible" });
-  assert.equal(await pattern.locator('[data-pane="list"]').isVisible(), true);
-}
-
-async function verifyCoarsePointerBehavior(page) {
-  await navigateToCatalogPage(page, "components/overlays");
-  await page.getByRole("button", { name: "Show actionable toast" }).click();
-  const fineToast = await measureToast(page);
-  await dismissToast(page);
-
-  const session = await page.context().newCDPSession(page);
-  await session.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-  try {
-    assert.equal(
-      await page.evaluate(() => window.matchMedia("(pointer: coarse)").matches),
-      true,
-      "the touch verification pass must activate (pointer: coarse)",
+async function outlineDragContext(page) {
+  await navigateToCatalogPage(page, "components/outline");
+  const tree = page.getByRole("tree");
+  await tree.waitFor({ state: "visible" });
+  const itemKey = (modelPath) => `outline-item:${encodeURIComponent(modelPath)}`;
+  const rowByPath = (modelPath) => tree.locator(`[data-item-key=${JSON.stringify(itemKey(modelPath))}]`);
+  const drag = async (source, target, { depthOffset = 0, edge = "after" } = {}) => {
+    const handle = source.locator('[data-ui="outline-bullet"]');
+    const targetHandle = target.locator('[data-ui="outline-bullet"]');
+    const [handleBox, targetHandleBox, targetBox] = await Promise.all([
+      handle.boundingBox(),
+      targetHandle.boundingBox(),
+      target.boundingBox(),
+    ]);
+    assert.ok(
+      handleBox !== null && targetHandleBox !== null && targetBox !== null,
+      "the dragged Node and target bullets must be measurable",
     );
-    const target = await page.evaluate(() =>
-      Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--lode-control-hit-target")),
+    await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      targetHandleBox.x + targetHandleBox.width / 2 + depthOffset * 20,
+      edge === "before" ? targetBox.y + 2 : targetBox.y + targetBox.height - 2,
     );
-    assert.equal(target, 48, "the touch target token must resolve to 48px");
-
-    for (const catalogPage of catalogPages) {
-      await navigateToCatalogPage(page, catalogPage.path);
-      await assertVisibleTouchTargets(page, target, catalogPage.title);
-    }
-
-    await navigateToCatalogPage(page, "components/forms");
-    const switchControl = page.getByRole("switch").first();
-    const switchGeometry = await measureTouchTarget(switchControl);
-    assert.equal(switchGeometry.visualHeight, 24, "the visible Switch pill must remain 24px tall");
-    assertEffectiveTouchTarget(switchGeometry, target, "Switch");
-    await assertExpandedHitArea(page, switchControl, target, "Switch");
-
-    const input = page.locator('input[name="workspace"]');
-    await input.scrollIntoViewIfNeeded();
-    const inputHitArea = input.locator('xpath=parent::*[@data-ui="input-hit-area"]');
-    const inputBox = await input.boundingBox();
-    const inputHitBox = await inputHitArea.boundingBox();
-    assert.ok(inputBox !== null && inputHitBox !== null, "the Input and its touch wrapper must be visible");
-    assert.equal(inputBox.height, 40, "the visible Input must remain 40px tall");
-    assert.ok(inputHitBox.height >= target, "the Input wrapper must expose the touch target height");
-    await page.mouse.click(inputHitBox.x + inputHitBox.width / 2, inputHitBox.y + 2);
-    assert.equal(await input.evaluate((element) => document.activeElement === element), true);
-
-    await navigateToCatalogPage(page, "components/buttons");
-    const smallButton = page.getByRole("button", { name: "Size sm" });
-    const buttonGeometry = await measureTouchTarget(smallButton);
-    assert.equal(buttonGeometry.visualHeight, 32, "the visible small Button must remain 32px tall");
-    assertEffectiveTouchTarget(buttonGeometry, target, "small Button");
-    await assertExpandedHitArea(page, smallButton, target, "small Button");
-
-    await navigateToCatalogPage(page, "components/overlays");
-    await page.getByRole("button", { name: "Show actionable toast" }).click();
-    const coarseToast = await measureToast(page);
-    assertGeometryEqual(coarseToast, fineToast, "Toast layout must not change under a coarse pointer");
-    const closeButton = page.locator('[data-ui="toast-close"]');
-    const closeGeometry = await measureTouchTarget(closeButton);
-    assert.equal(closeGeometry.visualHeight, 28, "the visible Toast close button must remain 28px tall");
-    assertEffectiveTouchTarget(closeGeometry, target, "Toast close button");
-    await assertExpandedHitArea(page, closeButton, target, "Toast close button");
-    await dismissToast(page);
-  } finally {
-    await session.send("Emulation.setTouchEmulationEnabled", { enabled: false });
-    await session.detach();
-  }
-}
-
-async function navigateToCatalogPage(page, path) {
-  await page.evaluate(
-    (hash) => {
-      window.location.hash = hash;
-    },
-    path === "" ? "#/design-system" : `#/design-system/${path}`,
-  );
-  await page.locator("main h1").first().waitFor({ state: "visible" });
-}
-
-async function assertVisibleTouchTargets(page, target, title) {
-  const offenders = await page.evaluate((minimum) => {
-    const selector =
-      'button:not([disabled]), input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]):not([disabled]), textarea:not([disabled]), a[href], [role="menuitem"]:not([aria-disabled="true"]), [role="switch"]:not([disabled])';
-    return [...document.querySelectorAll(selector)].flatMap((element) => {
-      const rectangle = element.getBoundingClientRect();
-      // Form-serialization inputs render at 1×1; nothing at or below that
-      // size is a real pointer target.
-      if (rectangle.width <= 1 || rectangle.height <= 1) {
-        return [];
-      }
-      const inputArea = element.matches("input") ? element.parentElement?.closest('[data-ui="input-hit-area"]') : null;
-      const areaRectangle = inputArea?.getBoundingClientRect();
-      const pseudo = getComputedStyle(element, "::after");
-      const effectiveWidth = areaRectangle?.width ?? Math.max(rectangle.width, Number.parseFloat(pseudo.width) || 0);
-      const effectiveHeight =
-        areaRectangle?.height ?? Math.max(rectangle.height, Number.parseFloat(pseudo.height) || 0);
-      return effectiveWidth + 0.01 < minimum || effectiveHeight + 0.01 < minimum
-        ? [
-            `${element.tagName.toLowerCase()}[${element.getAttribute("aria-label") ?? element.textContent?.trim() ?? ""}] ${effectiveWidth}x${effectiveHeight}`,
-          ]
-        : [];
-    });
-  }, target);
-  assert.deepEqual(offenders, [], `${title} contains undersized coarse-pointer targets: ${offenders.join(", ")}`);
-}
-
-async function measureTouchTarget(locator) {
-  return locator.evaluate((element) => {
-    const rectangle = element.getBoundingClientRect();
-    const pseudo = getComputedStyle(element, "::after");
-    return {
-      effectiveHeight: Math.max(rectangle.height, Number.parseFloat(pseudo.height) || 0),
-      effectiveWidth: Math.max(rectangle.width, Number.parseFloat(pseudo.width) || 0),
-      visualHeight: rectangle.height,
-      visualWidth: rectangle.width,
-    };
-  });
-}
-
-function assertEffectiveTouchTarget(geometry, target, label) {
-  assert.ok(geometry.effectiveHeight >= target, `${label} must expose at least ${String(target)}px of touch height`);
-  assert.ok(geometry.effectiveWidth >= target, `${label} must expose at least ${String(target)}px of touch width`);
-}
-
-async function assertExpandedHitArea(page, locator, target, label) {
-  await locator.scrollIntoViewIfNeeded();
-  const point = await locator.evaluate((element, minimum) => {
-    const rectangle = element.getBoundingClientRect();
-    const expansion = (minimum - rectangle.height) / 2;
-    const x = rectangle.left + rectangle.width / 2;
-    const y = rectangle.top - Math.min(4, expansion / 2);
-    const hit = document.elementFromPoint(x, y);
-    return {
-      hit: hit?.outerHTML.slice(0, 200) ?? "nothing",
-      owned: hit === element || element.contains(hit),
-      x,
-      y,
-    };
-  }, target);
-  assert.equal(point.owned, true, `${label} must receive hits outside its visible box; hit ${point.hit}`);
-  await page.mouse.move(point.x, point.y);
-}
-
-async function measureToast(page) {
-  const toast = page.locator('[data-ui="toast"]');
-  await toast.waitFor({ state: "visible" });
-  const content = toast.locator('[data-ui="toast-content"]');
-  const close = toast.locator('[data-ui="toast-close"]');
-  const [toastBox, contentBox, closeBox] = await Promise.all([
-    toast.boundingBox(),
-    content.boundingBox(),
-    close.boundingBox(),
-  ]);
-  assert.ok(toastBox !== null && contentBox !== null && closeBox !== null, "the Toast geometry must be measurable");
-  return {
-    closeHeight: closeBox.height,
-    closeWidth: closeBox.width,
-    contentHeight: contentBox.height,
-    contentWidth: contentBox.width,
-    toastHeight: toastBox.height,
-    toastWidth: toastBox.width,
+    await page.waitForTimeout(50);
+    const indicatorBox = await tree.locator('[data-ui="outline-drop-indicator"]').first().boundingBox();
+    await page.mouse.up();
+    return indicatorBox;
   };
+  const reset = async () => {
+    await navigateToCatalogPage(page, "components/buttons");
+    await navigateToCatalogPage(page, "components/outline");
+    await tree.waitFor({ state: "visible" });
+  };
+  const nodeOf = (row) => row.locator("..");
+  return { drag, itemKey, nodeOf, reset, rowByPath, tree };
 }
 
-function assertGeometryEqual(actual, expected, message) {
-  for (const key of Object.keys(expected)) {
-    assert.ok(Math.abs(actual[key] - expected[key]) <= 0.01, `${message}: ${key} changed`);
-  }
-}
+designSystemTest("outline Nodes move independently of Field presentation columns", async (page) => {
+  const { drag, itemKey, nodeOf, reset, rowByPath } = await outlineDragContext(page);
 
-async function dismissToast(page) {
-  const toast = page.locator('[data-ui="toast"]');
-  await toast.locator('[data-ui="toast-close"]').click();
-  await toast.waitFor({ state: "detached" });
-}
+  const reviewField = rowByPath("projects/lode/review-date-field");
+  const statusField = rowByPath("projects/lode/status-field");
+  const statusFieldBox = await statusField.boundingBox();
+  const reorderIndicatorBox = await drag(reviewField, statusField, { edge: "before" });
+  assert.ok(reorderIndicatorBox !== null, "the Field reorder must expose a drop target");
+  assert.ok(
+    statusFieldBox !== null && Math.abs(reorderIndicatorBox.x - statusFieldBox.x) <= 8,
+    "the insertion line for a Field reorder must start at the Field label column",
+  );
+  assert.equal(
+    await reviewField.getAttribute("data-parent-key"),
+    itemKey("projects/lode"),
+    "vertical movement in the leading column must reorder the Field without changing its parent",
+  );
+  assert.equal(await reviewField.getAttribute("aria-posinset"), "1", "the Field must reorder before Status");
+
+  await reset();
+  const roadmap = rowByPath("projects/lode/roadmap");
+  const ownerValue = rowByPath("projects/lode/owner-field/team-owner");
+  const ownerValueBox = await ownerValue.boundingBox();
+  const valueIndicatorBox = await drag(roadmap, ownerValue);
+  assert.ok(valueIndicatorBox !== null, "the Field Value column must expose its owning Field depth as a drop target");
+  assert.ok(
+    ownerValueBox !== null && Math.abs(valueIndicatorBox.x - ownerValueBox.x) <= 8,
+    `the insertion line for a drop beside a Field Value must start in the value column: ${JSON.stringify({ ownerValueBox, valueIndicatorBox })}`,
+  );
+  const movedRoadmap = rowByPath("projects/lode/owner-field/roadmap");
+  assert.equal(
+    await movedRoadmap.getAttribute("data-parent-key"),
+    itemKey("projects/lode/owner-field"),
+    "a Node dropped beside a Field Value must become another child of that Field",
+  );
+  const [movedRoadmapBox, keiBox] = await Promise.all([
+    movedRoadmap.boundingBox(),
+    rowByPath("projects/lode/owner-field/kei-owner").boundingBox(),
+  ]);
+  assert.ok(
+    movedRoadmapBox !== null && keiBox !== null && Math.abs(movedRoadmapBox.x - keiBox.x) <= 1,
+    "a Node that became a Field Value must align with the Field's other values",
+  );
+
+  await reset();
+  const fieldInField = rowByPath("projects/lode/review-date-field");
+  const firstOwnerValue = rowByPath("projects/lode/owner-field/kei-owner");
+  assert.ok(
+    (await drag(fieldInField, firstOwnerValue, { edge: "before" })) !== null,
+    "a Field must be movable to the first child position of another Field",
+  );
+  const directFieldPath = "projects/lode/owner-field/review-date-field";
+  const directField = rowByPath(directFieldPath);
+  const directValue = rowByPath(`${directFieldPath}/review-date-value`);
+  const ownerField = rowByPath("projects/lode/owner-field");
+  assert.equal(await directField.getAttribute("data-parent-key"), itemKey("projects/lode/owner-field"));
+  assert.equal(await nodeOf(directField).getAttribute("data-children-layout"), "beside");
+  assert.equal(await directField.locator('[data-ui="outline-field-mark"]').count(), 1, "the moved Field stays a Field");
+  assert.equal(await directField.getAttribute("data-readonly"), "true", "the Field label stays read-only");
+  const [ownerFieldBox, directFieldBox, directValueBox] = await Promise.all([
+    ownerField.boundingBox(),
+    directField.boundingBox(),
+    directValue.boundingBox(),
+  ]);
+  assert.ok(
+    ownerFieldBox !== null && directFieldBox !== null && directValueBox !== null,
+    "the nested Field chain must be measurable",
+  );
+  assert.ok(
+    Math.abs(ownerFieldBox.y - directFieldBox.y) <= 1 && Math.abs(directFieldBox.y - directValueBox.y) <= 1,
+    "a first-child Field and its first Value must chain across the owning Field's visual row",
+  );
+
+  await reset();
+  const nestedReviewField = rowByPath("projects/lode/review-date-field");
+  const nestedOwnerValue = rowByPath("projects/lode/owner-field/team-owner");
+  const nestedOwnerValueBox = await nestedOwnerValue.boundingBox();
+  const nestedIndicatorBox = await drag(nestedReviewField, nestedOwnerValue, { depthOffset: 1 });
+  assert.ok(nestedIndicatorBox !== null, "one explicit depth step must expose the Field Value Node as a parent");
+  assert.ok(
+    nestedOwnerValueBox !== null && nestedIndicatorBox.x > nestedOwnerValueBox.x + 10,
+    "the insertion line for a child drop must sit one indent step inside the Field Value row",
+  );
+  const nestedFieldPath = "projects/lode/owner-field/team-owner/review-date-field";
+  const nestedField = rowByPath(nestedFieldPath);
+  const nestedValue = rowByPath(`${nestedFieldPath}/review-date-value`);
+  assert.equal(
+    await nestedField.getAttribute("data-parent-key"),
+    itemKey("projects/lode/owner-field/team-owner"),
+    "a Field must be allowed to enter a Field Value subtree",
+  );
+  assert.equal(await nodeOf(nestedField).getAttribute("data-children-layout"), "beside");
+  const [nestedFieldBox, nestedValueBox, nestedParentBox] = await Promise.all([
+    nestedField.boundingBox(),
+    nestedValue.boundingBox(),
+    nestedOwnerValue.boundingBox(),
+  ]);
+  assert.ok(
+    nestedFieldBox !== null && nestedValueBox !== null && nestedParentBox !== null,
+    "the nested tuple must be measurable",
+  );
+  assert.ok(
+    Math.abs(nestedFieldBox.y - nestedValueBox.y) <= 1 && nestedValueBox.x >= nestedFieldBox.x + nestedFieldBox.width,
+    "the first child must share the Field row in the local trailing column",
+  );
+  assert.ok(
+    nestedFieldBox.x > nestedParentBox.x + 10,
+    "a Field inside a Field Value subtree must indent from its parent like any other child",
+  );
+
+  await reset();
+  const detachableValue = rowByPath("projects/lode/owner-field/team-owner");
+  const detachTarget = rowByPath("projects/lode/review-date-field");
+  assert.ok(
+    (await drag(detachableValue, detachTarget, { edge: "before" })) !== null,
+    "the ordinary parent position must expose a drop target",
+  );
+  const detachedValue = rowByPath("projects/lode/team-owner");
+  assert.equal(
+    await detachedValue.getAttribute("data-parent-key"),
+    itemKey("projects/lode"),
+    "a Field Value Node must be allowed to leave its Field",
+  );
+  const [detachedValueBox, siblingFieldBox] = await Promise.all([
+    detachedValue.boundingBox(),
+    rowByPath("projects/lode/review-date-field").boundingBox(),
+  ]);
+  assert.ok(
+    detachedValueBox !== null && siblingFieldBox !== null && Math.abs(detachedValueBox.x - siblingFieldBox.x) <= 1,
+    "the former Value must use ordinary Node layout under an ordinary parent",
+  );
+  assert.equal(await nodeOf(detachedValue).getAttribute("data-children-layout"), "indented");
+});

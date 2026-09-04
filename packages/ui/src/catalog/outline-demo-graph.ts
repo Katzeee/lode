@@ -1,45 +1,5 @@
 import { contentToPlainText } from "../components/outline-content.js";
-import type { OutlineOccurrence } from "../components/outline-tree.js";
-import type { DemoGraph, DemoNode, DemoOccurrence, NodeValue } from "./outline-demo-model.js";
-
-export function projectOutline(
-  graph: DemoGraph,
-  parentKey: string | null = null,
-): readonly OutlineOccurrence<NodeValue>[] {
-  const ids =
-    parentKey === null ? graph.rootOccurrenceIds : (resolveGraphPath(graph, parentKey)?.node.childOccurrenceIds ?? []);
-  const parentNodeId = parentKey === null ? undefined : resolveGraphPath(graph, parentKey)?.node.id;
-  return projectOccurrenceIds(graph, ids, parentNodeId === undefined ? new Set() : new Set([parentNodeId]));
-}
-
-function projectOccurrenceIds(
-  graph: DemoGraph,
-  ids: readonly string[],
-  ancestorNodeIds: ReadonlySet<string>,
-): readonly OutlineOccurrence<NodeValue>[] {
-  return ids.flatMap((occurrenceId) => {
-    const occurrence = graph.occurrences[occurrenceId];
-    const node = occurrence === undefined ? undefined : graph.nodes[occurrence.nodeId];
-    if (occurrence === undefined || node === undefined) {
-      return [];
-    }
-    const cyclic = ancestorNodeIds.has(node.id);
-    const nextAncestors = new Set(ancestorNodeIds).add(node.id);
-    return [
-      {
-        appearance: occurrence.appearance,
-        children:
-          cyclic || node.childOccurrenceIds.length === 0
-            ? undefined
-            : projectOccurrenceIds(graph, node.childOccurrenceIds, nextAncestors),
-        expandable: cyclic ? false : occurrence.expandable,
-        nodeId: node.id,
-        occurrenceId: occurrence.id,
-        value: node.value,
-      },
-    ];
-  });
-}
+import type { DemoGraph, DemoNode, DemoOccurrence } from "./outline-demo-model.js";
 
 export function resolveGraphPath(
   graph: DemoGraph,
@@ -61,9 +21,6 @@ export function resolveGraphPath(
   }
   return resolved;
 }
-
-export const absoluteKey = (zoomKey: string | null, key: string | null): string | null =>
-  key === null ? zoomKey : zoomKey === null ? key : `${zoomKey}/${key}`;
 
 export function updateGraphNode(graph: DemoGraph, nodeId: string, update: (node: DemoNode) => DemoNode): DemoGraph {
   const current = graph.nodes[nodeId];

@@ -1,17 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { flattenOutline } from "../components/outline-tree-model.js";
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
 import {
   findOriginalOccurrenceKey,
   insertGraphNode,
-  projectOutline,
+  removeGraphOccurrence,
   replaceGraphOccurrenceNode,
   resolveGraphPath,
   retargetGraphOccurrence,
   updateGraphNode,
 } from "./outline-demo-graph.js";
 import { fieldValueSuggestionIds, initialGraph, textContent } from "./outline-demo-model.js";
+import { projectOutline } from "./outline-demo-projection.js";
+
+function projectedItem(graph: typeof initialGraph, modelPath: string) {
+  const projection = projectOutline(graph);
+  const key = [...projection.modelPathsByKey].find(([, path]) => path === modelPath)?.[0];
+  const visit = (items: typeof projection.items): (typeof projection.items)[number] | undefined => {
+    for (const item of items) {
+      if (item.key === key) {
+        return item;
+      }
+      const nested = visit(item.children ?? []);
+      if (nested !== undefined) {
+        return nested;
+      }
+    }
+    return undefined;
+  };
+  return visit(projection.items);
+}
 
 describe("outline demo graph projection", () => {
   it("projects Original and Reference children from one target Node", () => {
@@ -39,11 +57,14 @@ describe("outline demo graph projection", () => {
       value: { ...node.value, content: textContent("Updated target") },
     }));
     const projected = projectOutline(graph);
-    const reference = projected[0]?.children?.[0]?.children?.[4]?.children?.[4];
-    const original = projected[5]?.children?.[0];
+    const reference = projected.items[0]?.children?.[0]?.children?.[4]?.children?.[4];
+    const original = projected.items[5]?.children?.[0];
 
-    expect(reference?.value.content).toEqual(textContent("Updated target"));
-    expect(original?.value.content).toEqual(textContent("Updated target"));
+    expect(reference?.content).toEqual(textContent("Updated target"));
+    expect(original?.content).toEqual(textContent("Updated target"));
+    expect(reference).not.toHaveProperty("nodeId");
+    expect(reference).not.toHaveProperty("occurrenceId");
+    expect(projected.modelPathsByKey.get(reference?.key ?? "")).toBe("projects/lode/roadmap/local-first-reference");
   });
 
   it("keeps a cycle Reference visible but terminates expansion by Node identity", () => {
@@ -61,8 +82,9 @@ describe("outline demo graph projection", () => {
       rootOccurrenceIds: ["a-original", "b-original"],
     } as const;
 
-    const cycle = projectOutline(graph)[0]?.children?.[0]?.children?.[0];
-    expect(cycle?.nodeId).toBe("a");
+    const cycle = projectOutline(graph).items[0]?.children?.[0]?.children?.[0];
+    expect(cycle?.accessibilityLabel).toBe("A");
+    expect(cycle?.bullet?.appearance).toBe("reference");
     expect(cycle?.children).toBeUndefined();
     expect(cycle?.expandable).toBe(false);
     expect(findOriginalOccurrenceKey(graph, "b")).toBe("b-original");
@@ -106,28 +128,51 @@ describe("outline demo graph projection", () => {
       ...node,
       value: { ...node.value, content: textContent("Underway") },
     }));
-    const rows = flattenOutline(projectOutline(renamed), new Set(["projects", "projects/lode"]));
-    const valueRow = rows.find((row) => row.occurrence.occurrenceId === "in-progress");
-    if (valueRow === undefined) {
-      throw new Error("Expected the Status Field Value row");
+    const projection = projectOutline(renamed);
+    const valueKey = [...projection.modelPathsByKey].find(
+      ([, path]) => path === "projects/lode/status-field/in-progress",
+    )?.[0];
+    if (valueKey === undefined) {
+      throw new Error("Expected the Status Field Value ViewModel");
     }
     const providers = createDemoCompletionProviders({
-      fieldValueKeys: new Set([valueRow.key]),
+      fieldDefinitionIdsByKey: projection.fieldDefinitionIdsByKey,
       graph: renamed,
-      rows,
     });
     const valueProvider = providers.find((provider) => provider.id === completionIds.value);
-    expect(valueProvider?.items(valueRow, "Under")).toMatchObject([{ id: "status-in-progress", label: "Underway" }]);
+    expect(valueProvider?.items(valueKey, "Under")).toMatchObject([{ id: "status-in-progress", label: "Underway" }]);
 
     const plainDefinition = updateGraphNode(renamed, "status-definition", (node) => ({
       ...node,
       value: { ...node.value, field: { datatype: "plain", kind: "definition" } },
     }));
+    const plainProjection = projectOutline(plainDefinition);
     const plainProviders = createDemoCompletionProviders({
-      fieldValueKeys: new Set([valueRow.key]),
+      fieldDefinitionIdsByKey: plainProjection.fieldDefinitionIdsByKey,
       graph: plainDefinition,
-      rows,
     });
-    expect(plainProviders.find((provider) => provider.id === completionIds.value)?.items(valueRow, "")).toEqual([]);
+    expect(plainProviders.find((provider) => provider.id === completionIds.value)?.items(valueKey, "")).toEqual([]);
+  });
+
+  it("projects a Field's presentation from the Node alone, wherever the Field is moved", () => {
+    const fieldPath = "projects/lode/review-date-field";
+    const field = resolveGraphPath(initialGraph, fieldPath);
+    if (field === null) {
+      throw new Error("Expected the Review date Field");
+    }
+    const detached = removeGraphOccurrence(initialGraph, fieldPath);
+    for (const targetPath of ["projects/lode/owner-field/team-owner", "projects/lode/owner-field"]) {
+      const graph = insertGraphNode(detached, targetPath, 0, field.node, field.occurrence);
+      const nestedFieldPath = `${targetPath}/review-date-field`;
+      const nestedField = projectedItem(graph, nestedFieldPath);
+
+      expect(nestedField?.childrenLayout).toBe("beside");
+      expect(nestedField?.bullet?.marker?.type).toBe("field");
+      expect(nestedField?.editable).toBe(false);
+      expect(projectedItem(graph, `${nestedFieldPath}/review-date-value`)?.childrenLayout).toBeUndefined();
+      expect(resolveGraphPath(graph, `${nestedFieldPath}/review-date-value`)?.node.value.content).toEqual(
+        textContent("Sep 12, 2026"),
+      );
+    }
   });
 });

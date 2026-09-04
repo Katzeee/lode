@@ -1,4 +1,4 @@
-import type { OutlineRow } from "./outline-tree-model.js";
+import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
 export type OutlineSelection = Readonly<{
   anchorKey: string | null;
@@ -16,8 +16,8 @@ export function selectOutlineRow(key: string): OutlineSelection {
   return { anchorKey: key, focusKey: key, keys: new Set([key]) };
 }
 
-export function extendOutlineSelection<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function extendOutlineSelection(
+  rows: readonly OutlineRowViewModel[],
   selection: OutlineSelection,
   focusKey: string,
 ): OutlineSelection {
@@ -58,8 +58,8 @@ export function toggleOutlineRow(selection: OutlineSelection, key: string): Outl
   };
 }
 
-export function normalizeOutlineSelection<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function normalizeOutlineSelection(
+  rows: readonly OutlineRowViewModel[],
   selection: OutlineSelection,
 ): OutlineSelection {
   const visible = new Set(rows.map((row) => row.key));
@@ -72,8 +72,8 @@ export function normalizeOutlineSelection<Value>(
   return { anchorKey, focusKey, keys };
 }
 
-export function selectedOutlineRoots<Value>(
-  rows: readonly OutlineRow<Value>[],
+export function selectedOutlineRoots(
+  rows: readonly OutlineRowViewModel[],
   selectedKeys: ReadonlySet<string>,
 ): readonly string[] {
   const byKey = new Map(rows.map((row) => [row.key, row]));

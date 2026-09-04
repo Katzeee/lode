@@ -1,20 +1,11 @@
 import { useMemo, useRef, useState } from "react";
 
 import { Breadcrumbs, type BreadcrumbItem } from "../components/breadcrumbs.js";
-import { contentToPlainText, mergeContent } from "../components/outline-content.js";
+import { contentToPlainText } from "../components/outline-content.js";
+import { OutlineTree, type OutlineContent, type OutlineMerge, type OutlineMove } from "../components/outline-tree.js";
 import {
-  OutlineTree,
-  type OutlineContent,
-  type OutlineMove,
-  type OutlineRow,
-  type OutlineRowLayout,
-} from "../components/outline-tree.js";
-import { flattenOutline } from "../components/outline-tree-model.js";
-import {
-  absoluteKey,
   findOriginalOccurrenceKey,
   insertGraphNode,
-  projectOutline,
   replaceGraphOccurrenceNode,
   removeGraphOccurrence,
   retargetGraphOccurrence,
@@ -22,72 +13,10 @@ import {
   updateGraphNode,
   updateGraphOccurrence,
 } from "./outline-demo-graph.js";
+import { projectOutline } from "./outline-demo-projection.js";
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
-import {
-  initialGraph,
-  textContent,
-  type DemoGraph,
-  type DemoNode,
-  type DemoOccurrence,
-  type FieldDatatype,
-  type NodeValue,
-} from "./outline-demo-model.js";
-import { DemoBullet, DemoRow } from "./outline-demo-row.js";
+import { initialGraph, textContent, type DemoGraph, type DemoNode, type DemoOccurrence } from "./outline-demo-model.js";
 import { PageIntro, Specimen } from "./specimen.js";
-
-type RowProjection = Readonly<{
-  fieldDatatype?: FieldDatatype;
-  fieldValue: boolean;
-  layout: OutlineRowLayout;
-}>;
-
-function fieldDatatype(graph: DemoGraph, value: NodeValue): FieldDatatype | undefined {
-  if (value.field?.kind === "definition") {
-    return value.field.datatype;
-  }
-  const definition = value.field?.kind === "field" ? graph.nodes[value.field.definitionId] : undefined;
-  return definition?.value.field?.kind === "definition" ? definition.value.field.datatype : undefined;
-}
-
-function projectRows(graph: DemoGraph, rows: readonly OutlineRow<NodeValue>[]): ReadonlyMap<string, RowProjection> {
-  const projections = new Map<string, RowProjection>();
-  const valueRootDepths = new Map<string, number>();
-  const rowsByKey = new Map(rows.map((row) => [row.key, row]));
-  for (const row of rows) {
-    if (row.occurrence.value.field?.kind === "field") {
-      projections.set(row.key, {
-        fieldDatatype: fieldDatatype(graph, row.occurrence.value),
-        fieldValue: false,
-        layout: { column: "leading" },
-      });
-      continue;
-    }
-    const parent = row.parentKey === null ? undefined : rowsByKey.get(row.parentKey);
-    if (parent?.occurrence.value.field?.kind === "field") {
-      projections.set(row.key, {
-        fieldValue: true,
-        layout: { column: "trailing", indentDepth: 0, pairWithPrevious: row.indexInParent === 0 },
-      });
-      valueRootDepths.set(row.key, row.depth);
-      continue;
-    }
-    const valueRootDepth = row.parentKey === null ? undefined : valueRootDepths.get(row.parentKey);
-    if (valueRootDepth !== undefined) {
-      projections.set(row.key, {
-        fieldValue: false,
-        layout: { column: "trailing", indentDepth: row.depth - valueRootDepth },
-      });
-      valueRootDepths.set(row.key, valueRootDepth);
-      continue;
-    }
-    projections.set(row.key, {
-      fieldDatatype: fieldDatatype(graph, row.occurrence.value),
-      fieldValue: false,
-      layout: {},
-    });
-  }
-  return projections;
-}
 
 function siblingLocation(graph: DemoGraph, key: string): Readonly<{ index: number; parentKey: string | null }> | null {
   const segments = key.split("/");
@@ -111,36 +40,34 @@ function insertExistingOccurrence(
 
 export function OutlinePage() {
   const [graph, setGraph] = useState(initialGraph);
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(
-    () =>
-      new Set([
-        "projects",
-        "projects/lode",
-        "projects/lode/roadmap",
-        "projects/lode/roadmap/local-first-reference",
-        "field-definitions",
-        "inbox",
-      ]),
-  );
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => {
+    const expandedModelPaths = new Set([
+      "projects",
+      "projects/lode",
+      "projects/lode/roadmap",
+      "projects/lode/roadmap/local-first-reference",
+      "field-definitions",
+      "inbox",
+    ]);
+    return new Set(
+      [...projectOutline(initialGraph).modelPathsByKey]
+        .filter(([, path]) => expandedModelPaths.has(path))
+        .map(([key]) => key),
+    );
+  });
   const [zoomKey, setZoomKey] = useState<string | null>(null);
   const nextNodeId = useRef(0);
-  const projectedOccurrences = useMemo(() => projectOutline(graph, zoomKey), [graph, zoomKey]);
-  const visibleRows = useMemo(
-    () => flattenOutline(projectedOccurrences, expandedKeys),
-    [expandedKeys, projectedOccurrences],
-  );
-  const rowProjections = useMemo(() => projectRows(graph, visibleRows), [graph, visibleRows]);
+  const outlineProjection = useMemo(() => projectOutline(graph, zoomKey), [graph, zoomKey]);
   const completionProviders = useMemo(
     () =>
       createDemoCompletionProviders({
-        fieldValueKeys: new Set(
-          [...rowProjections].filter(([, projection]) => projection.fieldValue).map(([key]) => key),
-        ),
+        fieldDefinitionIdsByKey: outlineProjection.fieldDefinitionIdsByKey,
         graph,
-        rows: visibleRows,
       }),
-    [graph, rowProjections, visibleRows],
+    [graph, outlineProjection.fieldDefinitionIdsByKey],
   );
+
+  const modelPath = (key: string): string | null => outlineProjection.modelPathsByKey.get(key) ?? null;
 
   const breadcrumbItems: readonly BreadcrumbItem[] = [
     { label: "All nodes", onSelect: () => setZoomKey(null) },
@@ -167,9 +94,12 @@ export function OutlinePage() {
 
   const applyMove = (move: OutlineMove) => {
     const sourceKeys = move.sourceKeys
-      .map((sourceKey) => absoluteKey(zoomKey, sourceKey))
+      .map((sourceKey) => modelPath(sourceKey))
       .filter((sourceKey): sourceKey is string => sourceKey !== null);
-    const targetParentKey = absoluteKey(zoomKey, move.targetParentKey);
+    const targetParentKey = move.targetParentKey === null ? zoomKey : modelPath(move.targetParentKey);
+    if (sourceKeys.length !== move.sourceKeys.length || (move.targetParentKey !== null && targetParentKey === null)) {
+      return;
+    }
     setGraph((previous) => {
       const occurrences = sourceKeys
         .map((sourceKey) => resolveGraphPath(previous, sourceKey)?.occurrence)
@@ -187,7 +117,7 @@ export function OutlinePage() {
   };
 
   const updateContent = (key: string, content: OutlineContent) => {
-    const sourceKey = absoluteKey(zoomKey, key);
+    const sourceKey = modelPath(key);
     const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
     if (sourceKey === null || resolved === null) {
       return;
@@ -195,7 +125,7 @@ export function OutlinePage() {
     if (JSON.stringify(resolved.node.value.content) === JSON.stringify(content)) {
       return;
     }
-    if (rowProjections.get(key)?.fieldValue === true && resolved.occurrence.appearance === "reference") {
+    if (outlineProjection.fieldDefinitionIdsByKey.has(key) && resolved.occurrence.appearance === "reference") {
       const replacement = createNode(content);
       setGraph((previous) => replaceGraphOccurrenceNode(previous, resolved.occurrence.id, replacement.node));
       return;
@@ -211,7 +141,7 @@ export function OutlinePage() {
   return (
     <>
       <PageIntro
-        description="Every visible item is a Node occurrence projected from one normalized graph. Original and Reference occurrences share one node identity and therefore always unfold the same owned children. The Outline renders those projections and emits edit intents; navigation and domain mutations remain host responsibilities."
+        description="This page owns a normalized demo graph and projects it into the Outline component's ViewModel. Original and Reference occurrences share one node identity in that Model, while the component receives only presentation data and opaque keys, renders the complete view, and emits semantic edit intents back to the page."
         title="Outline"
       />
       <Specimen
@@ -230,12 +160,9 @@ export function OutlinePage() {
         <OutlineTree
           editing={{
             completionProviders,
-            contentOf: (row) => row.occurrence.value.content,
             emptyPlaceholder: "Type / for commands, > for a field, or [[ to link a node…",
-            isEditable: (row) =>
-              rowProjections.get(row.key)?.fieldValue === true || row.occurrence.value.editable !== false,
             onCompletion: (key, providerId, itemId, content) => {
-              const sourceKey = absoluteKey(zoomKey, key);
+              const sourceKey = modelPath(key);
               const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
               if (sourceKey === null || resolved === null) {
                 return;
@@ -285,7 +212,7 @@ export function OutlinePage() {
             onContentChange: updateContent,
             onContentCommit: updateContent,
             onCreateAfter: (key) => {
-              const sourceKey = absoluteKey(zoomKey, key);
+              const sourceKey = modelPath(key);
               if (sourceKey === null) {
                 return;
               }
@@ -298,7 +225,7 @@ export function OutlinePage() {
               });
             },
             onCreateChild: (key) => {
-              const sourceKey = absoluteKey(zoomKey, key);
+              const sourceKey = modelPath(key);
               const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
               if (resolved === null || resolved.node.childOccurrenceIds.length > 0) {
                 return;
@@ -307,32 +234,31 @@ export function OutlinePage() {
               setGraph((previous) => insertGraphNode(previous, sourceKey, 0, created.node, created.occurrence));
             },
             onDeleteEmpty: (key) => {
-              const sourceKey = absoluteKey(zoomKey, key);
+              const sourceKey = modelPath(key);
               if (sourceKey !== null) {
                 setGraph((previous) => removeGraphOccurrence(previous, sourceKey));
               }
             },
-            onMergeUp: (key) => {
-              const sourceIndex = visibleRows.findIndex((row) => row.key === key);
-              const previousRow = visibleRows[sourceIndex - 1];
-              const sourceKey = absoluteKey(zoomKey, key);
-              if (sourceKey === null || previousRow === undefined) {
+            onMerge: ({ content, sourceKey, targetKey }: OutlineMerge) => {
+              const sourcePath = modelPath(sourceKey);
+              const targetPath = modelPath(targetKey);
+              if (sourcePath === null || targetPath === null) {
                 return;
               }
               setGraph((previous) => {
-                const source = resolveGraphPath(previous, sourceKey);
-                if (source === null) {
+                const target = resolveGraphPath(previous, targetPath);
+                if (target === null) {
                   return previous;
                 }
-                const merged = updateGraphNode(previous, previousRow.occurrence.nodeId, (node) => ({
+                const merged = updateGraphNode(previous, target.node.id, (node) => ({
                   ...node,
-                  value: { ...node.value, content: mergeContent(node.value.content, source.node.value.content) },
+                  value: { ...node.value, content },
                 }));
-                return removeGraphOccurrence(merged, sourceKey);
+                return removeGraphOccurrence(merged, sourcePath);
               });
             },
             onSplit: (key, before, after) => {
-              const sourceKey = absoluteKey(zoomKey, key);
+              const sourceKey = modelPath(key);
               if (sourceKey === null) {
                 return;
               }
@@ -358,13 +284,13 @@ export function OutlinePage() {
             },
           }}
           expandedKeys={expandedKeys}
-          getRowLayout={(row) => rowProjections.get(row.key)?.layout ?? {}}
+          items={outlineProjection.items}
           label="Demo outline"
-          occurrences={projectedOccurrences}
           onDeleteSelection={(keys) => {
-            const sourceKeys = keys
-              .map((key) => absoluteKey(zoomKey, key))
-              .filter((key): key is string => key !== null);
+            const sourceKeys = keys.map((key) => modelPath(key)).filter((key): key is string => key !== null);
+            if (sourceKeys.length !== keys.length) {
+              return;
+            }
             setGraph((previous) => sourceKeys.reduce(removeGraphOccurrence, previous));
           }}
           onExpandedChange={(key, expanded) => {
@@ -378,29 +304,37 @@ export function OutlinePage() {
               return next;
             });
           }}
-          onBulletClick={(row) => {
-            if (row.occurrence.value.field !== undefined) {
+          onActivate={(key) => {
+            const sourcePath = modelPath(key);
+            const resolved = sourcePath === null ? null : resolveGraphPath(graph, sourcePath);
+            if (sourcePath === null || resolved === null || resolved.node.value.field !== undefined) {
               return;
             }
             const targetKey =
-              row.occurrence.appearance === "reference"
-                ? findOriginalOccurrenceKey(graph, row.occurrence.nodeId)
-                : absoluteKey(zoomKey, row.key);
+              resolved.occurrence.appearance === "reference"
+                ? findOriginalOccurrenceKey(graph, resolved.node.id)
+                : sourcePath;
             if (targetKey !== null) {
               setZoomKey(targetKey);
               setExpandedKeys(new Set());
             }
           }}
+          onCheckedChange={(key, checked) => {
+            const sourcePath = modelPath(key);
+            if (sourcePath === null) {
+              return;
+            }
+            setGraph((previous) => {
+              const resolved = resolveGraphPath(previous, sourcePath);
+              return resolved === null
+                ? previous
+                : updateGraphNode(previous, resolved.node.id, (node) => ({
+                    ...node,
+                    value: { ...node.value, todo: checked ? "done" : "open" },
+                  }));
+            });
+          }}
           onMove={applyMove}
-          renderBullet={(row, state) => (
-            <DemoBullet
-              fieldDatatype={rowProjections.get(row.key)?.fieldDatatype}
-              fieldValue={rowProjections.get(row.key)?.fieldValue === true}
-              row={row}
-              selected={state.selected}
-            />
-          )}
-          renderRow={(row) => <DemoRow row={row} />}
           showGuides
         />
       </Specimen>
