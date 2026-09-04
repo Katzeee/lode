@@ -33,6 +33,10 @@ export type OutlineMove = Readonly<{
   targetParentKey: string | null;
 }>;
 
+/** The host maps appearances whose opaque keys change after a move. */
+export type OutlineMoveResult = Readonly<{ keyMap: ReadonlyMap<string, string> }>;
+export type OutlineInsertionPlacement = "before" | "after" | "child";
+
 export type OutlineMerge = Readonly<{
   content: OutlineContent;
   sourceKey: string;
@@ -42,6 +46,7 @@ export type OutlineMerge = Readonly<{
 export type OutlineEditPosition = Readonly<{
   caret: number;
   key: string;
+  selectionEnd?: number;
 }>;
 
 export type OutlineEditMergeTarget = OutlineEditPosition & Readonly<{ content: OutlineContent }>;
@@ -154,7 +159,7 @@ export function computeOutdent(
   };
 }
 
-/** Ctrl+Shift+Arrow: reorder a selected sibling run, jumping whole subtrees. */
+/** Reorder a selected sibling run, jumping whole subtrees. */
 export function computeReorder(
   rows: readonly OutlineRowViewModel[],
   sourceKeys: readonly string[],
@@ -202,6 +207,9 @@ export function computeEditMergeTarget(
   key: string,
   currentContent: OutlineContent,
 ): OutlineEditMergeTarget | null {
+  if (rowByKey(rows, key)?.hasChildren === true) {
+    return null;
+  }
   const position = computeEditNavigation(rows, key, -1, "end");
   const target = position === null ? undefined : rowByKey(rows, position.key);
   if (position === null || target === undefined) {
@@ -210,16 +218,21 @@ export function computeEditMergeTarget(
   return { ...position, content: mergeContent(target.item.content, currentContent) };
 }
 
-export function computeEditInsertion(rows: readonly OutlineRowViewModel[], key: string): OutlineEditInsertion | null {
+export function computeEditInsertion(
+  rows: readonly OutlineRowViewModel[],
+  key: string,
+  placement: OutlineInsertionPlacement = "after",
+): OutlineEditInsertion | null {
   const row = rowByKey(rows, key);
   if (row === undefined) {
     return null;
   }
-  const indexInParent = row.indexInParent + 1;
+  const parentKey = placement === "child" ? row.key : row.parentKey;
+  const indexInParent = placement === "child" ? 0 : row.indexInParent + (placement === "after" ? 1 : 0);
   const displaced = rows.find(
-    (candidate) => candidate.parentKey === row.parentKey && candidate.indexInParent === indexInParent,
+    (candidate) => candidate.parentKey === parentKey && candidate.indexInParent === indexInParent,
   );
-  return { displacedKey: displaced?.key ?? null, indexInParent, parentKey: row.parentKey };
+  return { displacedKey: displaced?.key ?? null, indexInParent, parentKey };
 }
 
 export function resolveEditInsertion(

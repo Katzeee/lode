@@ -33,6 +33,7 @@ async function verifyOutlinePresentation(page) {
 
   const selectedNodeRow = rowByText("Design system roadmap");
   await selectedNodeRow.click();
+  await page.keyboard.press("Escape");
   assert.equal(await selectedNodeRow.getAttribute("aria-selected"), "true");
   const selectedBulletTarget = selectedNodeRow.locator('[data-ui="outline-bullet"]');
   const selectedBulletMark = selectedNodeRow.locator('[data-ui="outline-bullet-mark"]');
@@ -200,7 +201,7 @@ async function verifyOutlinePresentation(page) {
     0,
     "a Supertag must not render a duplicate badge beside its editable source",
   );
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   const supertagBox = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
   assert.ok(
@@ -233,9 +234,9 @@ async function verifyOutlinePresentation(page) {
   await editor.pressSequentially("I");
   await suggestions.waitFor({ state: "visible" });
   assert.equal(
-    await suggestions.getByRole("option", { name: "In progress" }).count(),
+    await suggestions.getByRole("option", { name: "I", exact: true }).count(),
     1,
-    "an Options datatype provides candidates inside the ordinary Node editor",
+    "an Options datatype derives candidates from their targets' current content",
   );
   await editor.press("Control+A");
   await editor.pressSequentially("Custom status");
@@ -245,8 +246,8 @@ async function verifyOutlinePresentation(page) {
   await editor.waitFor({ state: "detached" });
   assert.equal(
     await statusValue.locator('[data-appearance="reference"]').count(),
-    0,
-    "free text in a reference-backed Field Value must present an ordinary item instead of renaming its target",
+    1,
+    "editing a reference-backed Field Value preserves its shared target identity",
   );
   await statusValue.locator('[data-ui="outline-row-text"]').click();
   assert.equal(await suggestions.count(), 0, "an existing arbitrary value reopens as an ordinary Node editor");
@@ -270,7 +271,7 @@ async function verifyOutlinePresentation(page) {
   if (await suggestions.isVisible()) {
     await editor.press("Escape");
   }
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
 
   const fieldDefinition = rowByPath("field-definitions/status-definition-occurrence");
@@ -359,7 +360,7 @@ async function verifyOutlinePresentation(page) {
       Math.abs(inactivePlaceholderBox.height - emptyChildBox.height) <= 1,
     "activating an empty-child placeholder must not change the visual row height",
   );
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   await emptyChild.waitFor({ state: "visible" });
   assert.equal(
@@ -387,11 +388,13 @@ async function verifyOutlinePresentation(page) {
     0,
     "the empty Node fixed by Enter must retain ordinary Node identity",
   );
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   assert.equal(await emptyChildren.count(), 2, "the next empty Node must also survive an unfocused state");
   await rowByText("Status").click();
-  await rowByText("Owner").click({ modifiers: ["Shift"] });
+  for (let index = 0; index < 4; index += 1) {
+    await page.keyboard.press("Shift+ArrowDown");
+  }
   await page.getByRole("toolbar", { name: "4 items selected" }).waitFor({ state: "visible" });
   assert.equal(
     await tree.locator('[data-ui="outline-row"][aria-selected="true"]').count(),
@@ -441,7 +444,7 @@ async function verifyOutlinePresentation(page) {
   await editor.press("Escape");
   await rowByPath("kei").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   assert.equal(
     await rowByText("Interaction coverage").getByRole("progressbar").getAttribute("aria-valuenow"),
@@ -465,7 +468,7 @@ async function verifyOutlinePresentation(page) {
   });
   assert.equal(await editor.count(), 1, "a Reference edit must update its Original while the editor remains focused");
   await editor.press("Backspace");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
 
   await originalRow.locator('[data-ui="outline-row-text"]').click();
@@ -477,7 +480,7 @@ async function verifyOutlinePresentation(page) {
   });
   assert.equal(await editor.count(), 1, "an Original edit must update its References while the editor remains focused");
   await editor.press("Backspace");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
 
   await referenceChild.locator('[data-ui="outline-row-text"]').click();
@@ -485,7 +488,7 @@ async function verifyOutlinePresentation(page) {
   await editor.press("End");
   await editor.press("Enter");
   await editor.pressSequentially("Shared through reference");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   await childrenOfPath("projects/lode/roadmap/local-first-reference")
     .filter({ hasText: "Shared through reference" })
@@ -515,17 +518,17 @@ async function verifyOutlinePresentation(page) {
 
   await tree.focus();
   await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Control+ArrowUp");
   assert.equal(
     await rowByText("Projects").getAttribute("aria-expanded"),
     "false",
-    "ArrowLeft must collapse the cursor row",
+    "Ctrl+ArrowUp collapses the editing row",
   );
-  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("Control+ArrowDown");
   assert.equal(
     await rowByText("Projects").getAttribute("aria-expanded"),
     "true",
-    "ArrowRight must expand the cursor row",
+    "Ctrl+ArrowDown expands the editing row",
   );
 
   const inbox = rowByText("Reading inbox");
@@ -587,16 +590,16 @@ async function verifyOutlineEditing(page) {
     "clicking within row text must preserve the clicked caret position",
   );
   await editor.press("Tab");
-  await editor.waitFor({ state: "detached" });
+  await rowByPath("projects/lode/home-lab").locator('[data-ui="outline-editor"]').waitFor();
   assert.equal(
     await rowByText("Home lab notes").getAttribute("aria-level"),
     "3",
     "Tab in edit mode must emit an indent intent without predicting the host's next ViewModel key",
   );
   assert.equal(
-    await rowByText("Home lab notes").locator('[data-ui="outline-inline-content"]').textContent(),
-    "Home lab notes #project",
-    "a structural intent must preserve the committed editor draft",
+    await editor.textContent(),
+    "Home lab notes #{project}",
+    "a structural intent preserves the draft and keeps its editor active",
   );
 
   await rowByText("Engine facts and projections").locator('[data-ui="outline-row-text"]').click();
@@ -633,13 +636,13 @@ async function verifyOutlineEditing(page) {
   await setEditorCaret((await editorText()).length);
   await editor.press("Shift+Enter");
   await editor.pressSequentially("supporting detail");
+  assert.equal(await editorText(), "supporting detail", "Shift+Enter creates a sibling and edits its content");
   assert.equal(
-    await editorText(),
-    "Engine facts and projections editedsupporting detail",
-    "a soft line break must keep both lines inside one edited node",
+    await rowByText("Engine facts and projections edited").locator('[data-ui="outline-inline-content"]').textContent(),
+    "Engine facts and projections edited",
+    "forced sibling insertion preserves the original node",
   );
-  assert.equal(await editor.locator("br").count(), 1, "Shift+Enter must render a semantic soft line break");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   await rowByText("Engine facts and projections edited").waitFor({ state: "visible" });
 
@@ -671,7 +674,7 @@ async function verifyOutlineEditing(page) {
   await editor.evaluate((surface) => {
     surface.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "中" }));
   });
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   await rowByText("CRDT ordering survey")
     .locator('[data-ui="outline-reference"]', { hasText: "Local-first software essay" })
@@ -689,7 +692,7 @@ async function verifyOutlineEditing(page) {
     ((await editor.boundingBox())?.width ?? 0) >= 96,
     "an empty Node editor must retain a usable horizontal click target",
   );
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
   assert.equal(await quickCapture.count(), 1, "focusing and leaving a real empty Node must not remove it");
 
@@ -705,7 +708,7 @@ async function verifyOutlineEditing(page) {
     1,
     "a slash command must hand the semantic node transformation to its owner",
   );
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await editor.waitFor({ state: "detached" });
 
   // A field is selected through the editor, but the resulting Field and Field Value remain distinct Node rows.
@@ -719,7 +722,7 @@ async function verifyOutlineEditing(page) {
   const fieldPicker = page.getByRole("listbox", { name: "Fields" });
   await fieldPicker.waitFor({ state: "visible" });
   await fieldPicker.getByRole("option", { name: "Notes" }).click();
-  await editor.waitFor({ state: "detached" });
+  await page.locator('[data-ui="outline-editor"]:focus').waitFor();
   await page.getByRole("tree").focus();
   await page.keyboard.press("End");
   const createdField = page

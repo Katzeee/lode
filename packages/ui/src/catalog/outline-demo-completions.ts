@@ -6,8 +6,7 @@ import type {
 import { inlineSource } from "../components/outline/outline-content.js";
 import { demoInlineToken, demoNodeLabel } from "./outline-demo-inline.js";
 import type { DemoOutlineCommand } from "./outline-demo-commands.js";
-import { fieldValueSuggestionIds, type DemoGraph } from "./outline-demo-model.js";
-import { searchNodes } from "./outline-demo-graph.js";
+import { fieldValueSuggestionIds, type DemoGraph, type DemoNode } from "./outline-demo-model.js";
 
 export const completionIds = {
   command: "command",
@@ -22,6 +21,22 @@ type CompletionOptions = Readonly<{
   fieldDefinitionIdsByKey: ReadonlyMap<string, string>;
   graph: DemoGraph;
 }>;
+
+/** Candidate eligibility and query normalization belong to the registered node provider. */
+function namedCandidates(
+  graph: DemoGraph,
+  query: string,
+  ids: readonly string[] = Object.keys(graph.nodes),
+): readonly Readonly<{ node: DemoNode; label: string }>[] {
+  const normalized = query.trim().toLocaleLowerCase();
+  return ids.flatMap((id) => {
+    const node = graph.nodes[id];
+    const label = node === undefined ? "" : demoNodeLabel(node.value.content);
+    return node !== undefined && label.trim().length > 0 && label.toLocaleLowerCase().includes(normalized)
+      ? [{ node, label }]
+      : [];
+  });
+}
 
 function matched(
   context: OutlineCompletionContext,
@@ -104,15 +119,10 @@ export function createDemoCompletionProviders({
       exitOnSelect: true,
       heading: "Use a field definition",
       id: completionIds.field,
-      items: (_key, query) => {
-        const normalized = query.toLocaleLowerCase();
-        return Object.values(graph.nodes).flatMap((node) => {
-          const label = demoNodeLabel(node.value.content);
-          return node.value.field?.kind === "definition" && label.toLocaleLowerCase().includes(normalized)
-            ? [{ id: node.id, label, replacement: node.value.content }]
-            : [];
-        });
-      },
+      items: (_key, query) =>
+        namedCandidates(graph, query)
+          .filter(({ node }) => node.value.field?.kind === "definition")
+          .map(({ node, label }) => ({ id: node.id, label, replacement: node.value.content })),
       match: (context) => matched(context, /^>([^>\n]*)$/u, () => 1),
     },
     {
@@ -121,10 +131,13 @@ export function createDemoCompletionProviders({
       heading: "Link a node",
       id: completionIds.reference,
       items: (_key, query) =>
-        searchNodes(graph, query).map((node) => ({
-          ...node,
-          replacement: [demoInlineToken("reference", node.id, node.label)],
-        })),
+        namedCandidates(graph, query)
+          .slice(0, 20)
+          .map(({ node, label }) => ({
+            id: node.id,
+            label,
+            replacement: [demoInlineToken("reference", node.id, label)],
+          })),
       match: (context) => matchToken(context, "@"),
     },
     {
@@ -133,12 +146,13 @@ export function createDemoCompletionProviders({
       heading: "Apply a Supertag",
       id: completionIds.supertag,
       items: (_key, query) =>
-        Object.values(graph.nodes).flatMap((node) => {
-          const label = demoNodeLabel(node.value.content);
-          return node.value.supertag === true && label.toLocaleLowerCase().includes(query.toLocaleLowerCase())
-            ? [{ id: node.id, label, replacement: [demoInlineToken("supertag", node.id, label)] }]
-            : [];
-        }),
+        namedCandidates(graph, query)
+          .filter(({ node }) => node.value.supertag === true)
+          .map(({ node, label }) => ({
+            id: node.id,
+            label,
+            replacement: [demoInlineToken("supertag", node.id, label)],
+          })),
       match: (context) => matchToken(context, "#"),
     },
     {
@@ -147,12 +161,14 @@ export function createDemoCompletionProviders({
       heading: "Insert or transform",
       id: completionIds.command,
       items: (_key, query) => {
-        const normalized = query.toLocaleLowerCase();
-        return commands.filter((command) =>
-          [command.label, command.description ?? "", ...(command.keywords ?? [])]
-            .join(" ")
-            .toLocaleLowerCase()
-            .includes(normalized),
+        const normalized = query.trim().toLocaleLowerCase();
+        return commands.filter(
+          (command) =>
+            command.label.trim().length > 0 &&
+            [command.label, command.description ?? "", ...(command.keywords ?? [])]
+              .join(" ")
+              .toLocaleLowerCase()
+              .includes(normalized),
         );
       },
       match: (context) => matched(context, /(?:^|\s)\/([^\s/]*)$/u, () => 1),
@@ -169,14 +185,11 @@ export function createDemoCompletionProviders({
         const datatype = definition?.value.field?.kind === "definition" ? definition.value.field.datatype : undefined;
         const suggestions =
           datatype === "options" || datatype === "options-from-supertag" ? fieldValueSuggestionIds[datatype] : [];
-        const normalized = query.toLocaleLowerCase();
-        return suggestions.flatMap((nodeId) => {
-          const node = graph.nodes[nodeId];
-          const label = node === undefined ? "" : demoNodeLabel(node.value.content);
-          return node !== undefined && label.toLocaleLowerCase().includes(normalized)
-            ? [{ id: node.id, label, replacement: node.value.content }]
-            : [];
-        });
+        return namedCandidates(graph, query, suggestions).map(({ node, label }) => ({
+          id: node.id,
+          label,
+          replacement: node.value.content,
+        }));
       },
       match: (context) =>
         context.selection.from === context.selection.to

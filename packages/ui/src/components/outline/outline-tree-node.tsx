@@ -23,8 +23,7 @@ export type OutlineNodeEnvironment = Readonly<{
   onCommitAndExit: () => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onPointerDown: (key: string) => (event: PointerEvent) => void;
-  onRowClick: (row: OutlineRowViewModel) => (event: MouseEvent) => void;
-  onTextClick: (row: OutlineRowViewModel) => (event: MouseEvent<HTMLDivElement>) => void;
+  onRowMouseDown: (row: OutlineRowViewModel) => (event: MouseEvent<HTMLDivElement>) => void;
   rowDomId: (key: string) => string;
   present: (row: OutlineRowViewModel, selected: boolean) => ResolvedOutlineRowPresentation;
   rowsByKey: ReadonlyMap<string, OutlineRowViewModel>;
@@ -122,13 +121,11 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
         onCommitAndExit={environment.onCommitAndExit}
         onExpandedChange={environment.onExpandedChange}
         onPointerDown={environment.onPointerDown(row.key)}
-        onRowClick={environment.onRowClick(row)}
-        onTextClick={environment.onTextClick(row)}
+        onRowMouseDown={environment.onRowMouseDown(row)}
         row={row}
         rowDomId={environment.rowDomId(row.key)}
         presentation={presentation}
         selected={selected}
-        selectionSize={environment.selectedKeys.size}
       />
       <OutlineChildren items={item.children ?? []} parent={row} parentPresentation={presentation} />
     </div>

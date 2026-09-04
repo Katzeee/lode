@@ -1,6 +1,10 @@
 import { useMemo, useRef, useState } from "react";
+import { useOutlineDemoHistory } from "./outline-demo-history.js";
+import { copyDemoItems, pasteDemoItems } from "./outline-demo-clipboard.js";
+import { duplicateDemoItems } from "./outline-demo-duplicate.js";
 
 import { Breadcrumbs, type BreadcrumbItem } from "../components/breadcrumbs.js";
+import { contentLength } from "../components/outline/outline-content.js";
 import { demoNodeLabel } from "./outline-demo-inline.js";
 import {
   OutlineTree,
@@ -10,31 +14,22 @@ import {
 } from "../components/outline/outline-tree.js";
 import {
   findOriginalOccurrenceKey,
+  siblingLocation,
   insertGraphNode,
-  replaceGraphOccurrenceNode,
   removeGraphOccurrence,
   retargetGraphOccurrence,
   resolveGraphPath,
   updateGraphNode,
+  updateGraphContent,
   updateGraphOccurrence,
 } from "./outline-demo-graph.js";
-import { presentOutline } from "./outline-demo-presenter.js";
+import { outlineDemoItemKey, presentOutline } from "./outline-demo-presenter.js";
 import { demoOutlinePresentationRegistry, type DemoOutlinePresentationAction } from "./outline-demo-presentation.js";
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
 import { initialGraph, textContent, type DemoGraph, type DemoNode, type DemoOccurrence } from "./outline-demo-model.js";
 import { demoInlineExtensions } from "./outline-demo-inline-presentation.js";
 import { demoOutlineCommands } from "./outline-demo-commands.js";
 import { PageIntro, Specimen } from "./specimen.js";
-
-function siblingLocation(graph: DemoGraph, key: string): Readonly<{ index: number; parentKey: string | null }> | null {
-  const segments = key.split("/");
-  const occurrenceId = segments.pop();
-  const parentKey = segments.length === 0 ? null : segments.join("/");
-  const ids =
-    parentKey === null ? graph.rootOccurrenceIds : resolveGraphPath(graph, parentKey)?.node.childOccurrenceIds;
-  const index = occurrenceId === undefined ? -1 : (ids?.indexOf(occurrenceId) ?? -1);
-  return index < 0 ? null : { index, parentKey };
-}
 
 function insertExistingOccurrence(
   graph: DemoGraph,
@@ -47,8 +42,7 @@ function insertExistingOccurrence(
 }
 
 export function OutlinePage() {
-  const [graph, setGraph] = useState(initialGraph);
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => {
+  const initialExpanded = useMemo<ReadonlySet<string>>(() => {
     const expandedModelPaths = new Set([
       "projects",
       "projects/lode",
@@ -62,9 +56,14 @@ export function OutlinePage() {
         .filter(([, path]) => expandedModelPaths.has(path))
         .map(([key]) => key),
     );
-  });
+  }, []);
+  const { graph, setGraph, expandedKeys, setExpandedKeys, history } = useOutlineDemoHistory(
+    initialGraph,
+    initialExpanded,
+  );
   const [zoomKey, setZoomKey] = useState<string | null>(null);
   const nextNodeId = useRef(0);
+  const clipboardScope = useRef(crypto.randomUUID());
   const presentedOutline = useMemo(() => presentOutline(graph, zoomKey), [graph, zoomKey]);
   const completionProviders = useMemo(
     () =>
@@ -107,7 +106,20 @@ export function OutlinePage() {
       .filter((sourceKey): sourceKey is string => sourceKey !== null);
     const targetParentKey = move.targetParentKey === null ? zoomKey : modelPath(move.targetParentKey);
     if (sourceKeys.length !== move.sourceKeys.length || (move.targetParentKey !== null && targetParentKey === null)) {
-      return;
+      return null;
+    }
+    const keyMap = new Map<string, string>();
+    for (const sourcePath of sourceKeys) {
+      const occurrence = resolveGraphPath(graph, sourcePath)?.occurrence;
+      if (occurrence === undefined) {
+        return null;
+      }
+      const destination = targetParentKey === null ? occurrence.id : `${targetParentKey}/${occurrence.id}`;
+      for (const [key, path] of presentedOutline.modelPathsByKey) {
+        if (path === sourcePath || path.startsWith(`${sourcePath}/`)) {
+          keyMap.set(key, outlineDemoItemKey(destination + path.slice(sourcePath.length)));
+        }
+      }
     }
     setGraph((previous) => {
       const occurrences = sourceKeys
@@ -123,28 +135,15 @@ export function OutlinePage() {
         withoutSources,
       );
     });
+    setExpandedKeys((previous) => new Set([...previous].map((key) => keyMap.get(key) ?? key)));
+    return { keyMap };
   };
 
   const updateContent = (key: string, content: OutlineContent) => {
     const sourceKey = modelPath(key);
-    const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
-    if (sourceKey === null || resolved === null) {
-      return;
+    if (sourceKey !== null) {
+      setGraph((previous) => updateGraphContent(previous, sourceKey, content));
     }
-    if (JSON.stringify(resolved.node.value.content) === JSON.stringify(content)) {
-      return;
-    }
-    if (presentedOutline.fieldDefinitionIdsByKey.has(key) && resolved.occurrence.appearance === "reference") {
-      const replacement = createNode(content);
-      setGraph((previous) => replaceGraphOccurrenceNode(previous, resolved.occurrence.id, replacement.node));
-      return;
-    }
-    setGraph((previous) =>
-      updateGraphNode(previous, resolved.node.id, (node) => ({
-        ...node,
-        value: { ...node.value, content },
-      })),
-    );
   };
 
   const handlePresentationAction = (key: string, action: DemoOutlinePresentationAction) => {
@@ -198,6 +197,53 @@ export function OutlinePage() {
         <OutlineTree
           inlineExtensions={demoInlineExtensions}
           editing={{
+            history,
+            onDuplicate: (keys) => {
+              const paths = keys.flatMap((key) => {
+                const path = modelPath(key);
+                return path === null ? [] : [path];
+              });
+              const result = duplicateDemoItems(graph, paths, createNode);
+              if (result === null) {
+                return null;
+              }
+              setGraph(result.graph);
+              return result.position;
+            },
+            onCreateRoot: (content) => {
+              const created = createNode(content);
+              setGraph((graph) => insertGraphNode(graph, zoomKey, 0, created.node, created.occurrence));
+              return {
+                key: outlineDemoItemKey(
+                  zoomKey === null ? created.occurrence.id : `${zoomKey}/${created.occurrence.id}`,
+                ),
+                caret: contentLength(content),
+              };
+            },
+            onCopy: (keys) =>
+              copyDemoItems(
+                graph,
+                keys.flatMap((key) => {
+                  const path = modelPath(key);
+                  return path === null ? [] : [path];
+                }),
+                clipboardScope.current,
+              ),
+            onPaste: (key, paste) => {
+              const path = key === null ? null : modelPath(key);
+              const result =
+                key !== null && path === null
+                  ? null
+                  : pasteDemoItems(graph, path, paste, clipboardScope.current, createNode, zoomKey);
+              if (result === null) {
+                return null;
+              }
+              setGraph(result.graph);
+              if (paste.placement === "child" && key !== null) {
+                setExpandedKeys((keys) => new Set(keys).add(key));
+              }
+              return result.position;
+            },
             completionProviders,
             emptyPlaceholder: "Type / for commands, @ to reference, # for a Supertag, or > for a field…",
             onCompletion: (key, providerId, itemId, content) => {
@@ -232,7 +278,7 @@ export function OutlinePage() {
                   }));
                   return insertGraphNode(withBehavior, sourceKey, 0, created.node, created.occurrence);
                 });
-                return;
+                return { key: outlineDemoItemKey(`${sourceKey}/${created.occurrence.id}`), caret: 0 };
               }
               setGraph((previous) =>
                 updateGraphNode(previous, resolved.node.id, (node) => ({
@@ -245,9 +291,42 @@ export function OutlinePage() {
                       : { ...node.value, content },
                 })),
               );
+              return undefined;
             },
             onContentChange: updateContent,
             onContentCommit: updateContent,
+            onToggle: (key) => {
+              const path = modelPath(key);
+              if (path === null) {
+                return;
+              }
+              setGraph((previous) => {
+                const target = resolveGraphPath(previous, path);
+                return target === null
+                  ? previous
+                  : updateGraphNode(previous, target.node.id, (node) =>
+                      node.value.editable === false
+                        ? node
+                        : {
+                            ...node,
+                            value: { ...node.value, todo: node.value.todo === "open" ? "done" : "open" },
+                          },
+                    );
+              });
+            },
+            onCreateBefore: (key) => {
+              const sourceKey = modelPath(key);
+              if (sourceKey === null) {
+                return;
+              }
+              const created = createNode([]);
+              setGraph((previous) => {
+                const location = siblingLocation(previous, sourceKey);
+                return location === null
+                  ? previous
+                  : insertGraphNode(previous, location.parentKey, location.index, created.node, created.occurrence);
+              });
+            },
             onCreateAfter: (key) => {
               const sourceKey = modelPath(key);
               if (sourceKey === null) {
@@ -264,7 +343,7 @@ export function OutlinePage() {
             onCreateChild: (key) => {
               const sourceKey = modelPath(key);
               const resolved = sourceKey === null ? null : resolveGraphPath(graph, sourceKey);
-              if (resolved === null || resolved.node.childOccurrenceIds.length > 0) {
+              if (resolved === null) {
                 return;
               }
               const created = createNode([]);
@@ -294,7 +373,7 @@ export function OutlinePage() {
                 return removeGraphOccurrence(merged, sourcePath);
               });
             },
-            onSplit: (key, before, after) => {
+            onSplit: (key, before, after, placement) => {
               const sourceKey = modelPath(key);
               if (sourceKey === null) {
                 return;
@@ -312,8 +391,8 @@ export function OutlinePage() {
                 }));
                 return insertGraphNode(
                   updated,
-                  location.parentKey,
-                  location.index + 1,
+                  placement === "child" ? sourceKey : location.parentKey,
+                  placement === "child" ? 0 : location.index + 1,
                   created.node,
                   created.occurrence,
                 );

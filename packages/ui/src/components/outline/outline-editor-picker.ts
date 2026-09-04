@@ -1,14 +1,21 @@
 import type { Editor } from "@tiptap/core";
 import { contentToSource, docToContent } from "./outline-content.js";
 
-import type { OutlinePickerState } from "./outline-inline-picker.js";
-import type { OutlineEditorCompletionProvider } from "./outline-tree-edit-contract.js";
+import type {
+  OutlineCompletionContext,
+  OutlineCompletionItem,
+  OutlineEditorCompletionProvider,
+} from "./outline-tree-edit-contract.js";
 
-export function completionPicker(
-  editor: Editor,
-  providers: readonly OutlineEditorCompletionProvider[],
-  current: OutlinePickerState | null,
-): OutlinePickerState | null {
+export type OutlinePickerState = Readonly<{
+  from: number;
+  provider: OutlineEditorCompletionProvider;
+  query: string;
+  results: readonly OutlineCompletionItem[];
+  to: number;
+}>;
+
+export function completionContext(editor: Editor): OutlineCompletionContext | null {
   const { selection } = editor.state;
   const paragraph = selection.$from.parent;
   if (paragraph.type.name !== "paragraph") {
@@ -18,24 +25,29 @@ export function completionPicker(
   const text = contentToSource(content);
   const from = Math.max(0, selection.from - 1);
   const to = Math.max(0, selection.to - 1);
-  const context = {
+  return {
     content,
     selection: { from, to },
     text,
     textBeforeCaret: text.slice(0, from),
   } as const;
+}
+
+export function completionPicker(
+  editor: Editor,
+  providers: readonly OutlineEditorCompletionProvider[],
+): OutlinePickerState | null {
+  const context = completionContext(editor);
+  if (context === null) {
+    return null;
+  }
   for (const provider of providers) {
     const match = provider.match(context);
     if (match === null) {
       continue;
     }
-    const results = provider.items(match.query.trim());
-    const activeIndex =
-      current?.provider.id === provider.id && current.query === match.query
-        ? Math.min(current.activeIndex, Math.max(0, results.length - 1))
-        : 0;
+    const results = provider.items(match.query);
     return {
-      activeIndex,
       from: match.from + 1,
       provider,
       query: match.query,

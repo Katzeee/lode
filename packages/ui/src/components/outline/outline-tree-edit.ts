@@ -1,127 +1,94 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { RefObject } from "react";
+import { useOutlineEditSession } from "./outline-edit-session.js";
 
-import { appendText, contentLength, splitContent, type OutlineContent } from "./outline-content.js";
+import { contentLength } from "./outline-content.js";
 import {
-  computeEditInsertion,
-  computeEditMergeTarget,
-  computeEditNavigation,
   computeIndent,
   computeOutdent,
   computeReorder,
-  resolveEditInsertion,
-  type OutlineEditInsertion,
   type OutlineEditPosition,
   type OutlineMove,
+  type OutlineMoveResult,
+  type OutlineInsertionPlacement,
   type OutlineRowViewModel,
 } from "./outline-tree-view-model.js";
-import type { OutlineEditorBinding, OutlineEditorCommand, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
-
-export type {
-  OutlineCompletionContext,
-  OutlineCompletionItem,
-  OutlineCompletionMatch,
-  OutlineCompletionProvider,
+import {
+  dispatchEditIntent,
+  insertFromEditor,
+  positionAfterDisclosure,
+  resumeTyping,
+  type OutlineEditIntentContext,
+} from "./outline-edit-intents.js";
+import type {
   OutlineEditorBinding,
   OutlineEditorCommand,
   OutlineTreeEditing,
+  OutlineTextKeyContext,
 } from "./outline-tree-edit-contract.js";
-
-type EditSession = Readonly<{ ariaLabel: string; content: OutlineContent; key: string }>;
 
 type EditOptions = Readonly<{
   containerRef: RefObject<HTMLDivElement | null>;
   editing?: OutlineTreeEditing;
   onCursorChange: (key: string) => void;
-  onMove?: (move: OutlineMove) => void;
+  onTextInput: () => void;
+  onKeyDown: (event: KeyboardEvent, context: OutlineTextKeyContext) => boolean;
+  onMove?: (move: OutlineMove) => OutlineMoveResult | null;
+  onExpandedChange: (key: string, expanded: boolean) => void;
+  onDeleteSelection?: (keys: readonly string[]) => void;
   rows: readonly OutlineRowViewModel[];
   scrollToKey: (key: string) => void;
 }>;
 
-export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, rows, scrollToKey }: EditOptions) {
-  const [session, setSessionState] = useState<EditSession | null>(null);
-  const [pendingInsertion, setPendingInsertion] = useState<OutlineEditInsertion | null>(null);
-  const sessionRef = useRef(session);
-  const editingRef = useRef(editing);
-  const desiredCaretRef = useRef(0);
-  editingRef.current = editing;
-
-  const setSession = (next: EditSession | null) => {
-    sessionRef.current = next;
-    setSessionState(next);
-  };
-
-  const commit = (key: string, content: OutlineContent) => {
-    const current = sessionRef.current;
-    if (current?.key !== key) {
-      return;
-    }
-    sessionRef.current = { ...current, content };
-    editingRef.current?.onContentCommit(key, content);
-  };
-
-  const activate = (row: OutlineRowViewModel, content: OutlineContent, caret: number) => {
-    desiredCaretRef.current = Math.min(caret, contentLength(content));
-    onCursorChange(row.key);
-    scrollToKey(row.key);
-    setSession({ ariaLabel: `Edit ${row.item.accessibilityLabel}`, content, key: row.key });
-  };
-
-  const activatePosition = (position: OutlineEditPosition, predictedContent?: OutlineContent) => {
-    const row = rows.find((candidate) => candidate.key === position.key);
-    const activeEditing = editingRef.current;
-    if (row !== undefined && activeEditing !== undefined) {
-      if (row.item.editable === false) {
-        onCursorChange(row.key);
-        scrollToKey(row.key);
-        setSession(null);
-        globalThis.requestAnimationFrame(() => containerRef.current?.focus());
-        return;
-      }
-      activate(row, predictedContent ?? row.item.content, position.caret);
-    }
-  };
-
-  // The inserted row must take over the editor in the same paint that reveals
-  // it; a passive effect would leave the editor on the old row for a frame.
-  useLayoutEffect(() => {
-    if (pendingInsertion === null || editing === undefined) {
-      return;
-    }
-    const position = resolveEditInsertion(rows, pendingInsertion);
-    const row = position === null ? undefined : rows.find((candidate) => candidate.key === position.key);
-    if (position === null || row === undefined) {
-      return;
-    }
-    setPendingInsertion(null);
-    desiredCaretRef.current = 0;
-    onCursorChange(row.key);
-    scrollToKey(row.key);
-    setSession({ ariaLabel: `Edit ${row.item.accessibilityLabel}`, content: row.item.content, key: row.key });
-  }, [editing, onCursorChange, pendingInsertion, rows, scrollToKey]);
-
-  useEffect(() => {
-    if (editing === undefined && sessionRef.current !== null) {
-      setPendingInsertion(null);
-      setSession(null);
-    }
-  }, [editing]);
+export function useOutlineEdit({
+  containerRef,
+  editing,
+  onCursorChange,
+  onTextInput,
+  onKeyDown,
+  onMove,
+  onExpandedChange,
+  onDeleteSelection,
+  rows,
+  scrollToKey,
+}: EditOptions) {
+  const {
+    session,
+    sessionRef,
+    editingRef,
+    lastPositionRef,
+    desiredCaretRef,
+    desiredSelectionEndRef,
+    setSession,
+    setPending,
+    commit,
+    activate,
+    activatePosition,
+    commitAndExit,
+  } = useOutlineEditSession({
+    containerRef,
+    editing,
+    onCursorChange,
+    rows,
+    scrollToKey,
+  });
 
   const startAtEnd = (row: OutlineRowViewModel, appendedText = "") => {
     if (editing === undefined || row.item.editable === false) {
       return;
     }
-    setPendingInsertion(null);
-    const content = appendText(row.item.content, appendedText);
-    activate(row, content, contentLength(content));
+    setPending(null);
+    const remembered = lastPositionRef.current?.key === row.key ? lastPositionRef.current : null;
+    const resumed = resumeTyping(row.item.content, remembered, appendedText);
+    activate(row, resumed.content, resumed.caret);
   };
 
-  const startAtCaret = (row: OutlineRowViewModel, caret: number) => {
+  const startAtCaret = (row: OutlineRowViewModel, caret: number, selectionEnd = caret) => {
     if (editing === undefined || row.item.editable === false) {
       return;
     }
-    setPendingInsertion(null);
+    setPending(null);
     const content = row.item.content;
-    activate(row, content, caret);
+    activate(row, content, caret, selectionEnd);
   };
 
   const createChild = (parent: OutlineRowViewModel) => {
@@ -129,82 +96,38 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
     if (activeEditing?.onCreateChild === undefined) {
       return;
     }
-    setPendingInsertion({ displacedKey: null, indexInParent: 0, parentKey: parent.key });
+    setPending({ type: "insertion", insertion: { displacedKey: null, indexInParent: 0, parentKey: parent.key } });
     activeEditing.onCreateChild(parent.key);
   };
 
-  const commitAndExit = useCallback(() => {
+  const setExpanded = (key: string, expanded: boolean) => {
     const current = sessionRef.current;
-    if (current !== null) {
-      editingRef.current?.onContentCommit(current.key, current.content);
+    const resting = document.activeElement === containerRef.current ? lastPositionRef.current : null;
+    const position = positionAfterDisclosure(
+      rows,
+      key,
+      expanded,
+      current === null ? resting : { key: current.key, caret: 0 },
+    );
+    if (position !== null && (current === null || position.key !== current.key)) {
+      if (current !== null) {
+        commit(current.key, current.content);
+      }
+      activatePosition(position);
     }
-    setPendingInsertion(null);
-    setSession(null);
-  }, []);
-
-  const navigate = (key: string, content: OutlineContent, direction: -1 | 1, caret: number | "end") => {
-    const activeEditing = editingRef.current;
-    if (activeEditing === undefined) {
-      return false;
-    }
-    const position = computeEditNavigation(rows, key, direction, caret);
-    if (position === null) {
-      return false;
-    }
-    commit(key, content);
-    activatePosition(position);
-    return true;
+    onExpandedChange(key, expanded);
   };
 
-  const enter = (key: string, content: OutlineContent, from: number, to: number) => {
-    const activeEditing = editingRef.current;
-    const insertion = computeEditInsertion(rows, key);
-    if (activeEditing === undefined || insertion === null) {
-      return false;
-    }
-    commit(key, content);
-    setPendingInsertion(insertion);
-    if (from === to && to === contentLength(content)) {
-      activeEditing.onCreateAfter(key);
-      return true;
-    }
-    const split = splitContent(content, from, to);
-    const current = sessionRef.current;
-    if (current !== null) {
-      setSession({ ...current, content: split.before });
-    }
-    activeEditing.onSplit(key, split.before, split.after);
-    return true;
-  };
-
-  const backspace = (key: string, content: OutlineContent) => {
-    const activeEditing = editingRef.current;
-    if (activeEditing === undefined) {
-      return false;
-    }
-    const previous = computeEditNavigation(rows, key, -1, "end");
-    if (previous === null) {
-      return false;
-    }
-    if (contentLength(content) === 0) {
-      commit(key, content);
-      activeEditing.onDeleteEmpty(key);
-      activatePosition(previous);
-      return true;
-    }
-    if (activeEditing.onMerge === undefined) {
-      return false;
-    }
-    const merge = computeEditMergeTarget(rows, key, content);
-    const target = merge === null ? undefined : rows.find((row) => row.key === merge.key);
-    if (merge === null || target === undefined || target.item.editable === false) {
-      return false;
-    }
-    commit(key, content);
-    activeEditing.onMerge({ content: merge.content, sourceKey: key, targetKey: merge.key });
-    activatePosition(merge, merge.content);
-    return true;
-  };
+  const intentContext = (): OutlineEditIntentContext => ({
+    editing: editingRef.current,
+    rows,
+    commit,
+    activate: activatePosition,
+    remove: onDeleteSelection,
+    exit: commitAndExit,
+    expand: setExpanded,
+    insert: (insertion) => setPending({ type: "insertion", insertion }),
+  });
 
   const restructure = (key: string, command: Extract<OutlineEditorCommand, { type: "structure" }>) => {
     if (onMove === undefined) {
@@ -218,9 +141,13 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
           : computeReorder(rows, [key], command.operation === "reorder-up" ? -1 : 1);
     if (move !== null) {
       commit(key, command.content);
-      onMove(move);
-      setSession(null);
-      globalThis.requestAnimationFrame(() => containerRef.current?.focus());
+      const result = onMove(move);
+      if (result !== null) {
+        setPending({
+          type: "position",
+          position: { key: result.keyMap.get(key) ?? key, caret: command.caret, selectionEnd: command.selectionEnd },
+        });
+      }
     }
     return true;
   };
@@ -229,23 +156,40 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
     if (sessionRef.current?.key !== key) {
       return false;
     }
-    if (command.type === "escape") {
-      commit(key, command.content);
-      setPendingInsertion(null);
-      setSession(null);
-      globalThis.requestAnimationFrame(() => containerRef.current?.focus());
+    if (command.type === "history") {
+      return history(command.direction);
+    }
+    if (command.type !== "navigate" && command.type !== "disclosure") {
+      editingRef.current?.history?.checkpoint(lastPositionRef.current, "operation");
+    }
+    if (command.type === "duplicate") {
+      const position = editingRef.current?.onDuplicate?.([key]);
+      if (position != null) {
+        setPending({ type: "position", position });
+      }
       return true;
     }
-    if (command.type === "enter") {
-      return enter(key, command.content, command.from, command.to);
+    return command.type === "structure" ? restructure(key, command) : dispatchEditIntent(intentContext(), key, command);
+  };
+
+  const history = (direction: "undo" | "redo") => {
+    const capability = editingRef.current?.history;
+    if (capability === undefined) {
+      return false;
     }
-    if (command.type === "backspace") {
-      return backspace(key, command.content);
+    const result = capability[direction](lastPositionRef.current);
+    if (result !== null) {
+      onTextInput();
+      const position = result.position;
+      if (position !== null) {
+        setPending({ type: "position", position });
+      } else {
+        setPending(null);
+        setSession(null);
+        containerRef.current?.focus({ preventScroll: true });
+      }
     }
-    if (command.type === "navigate") {
-      return navigate(key, command.content, command.direction, command.caret);
-    }
-    return command.type === "structure" ? restructure(key, command) : false;
+    return true;
   };
 
   const activeRow = session === null ? undefined : rows.find((row) => row.key === session.key);
@@ -259,32 +203,61 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
               ? []
               : (editing.completionProviders ?? [])
                   .filter((provider) => provider.enabled?.(activeRow.key) !== false)
-                  .map(({ enabled: _enabled, ...provider }) => ({
+                  .map(({ enabled: _enabled, canAccept, ...provider }) => ({
                     ...provider,
+                    canAccept:
+                      canAccept === undefined ? undefined : (item, context) => canAccept(activeRow.key, item, context),
                     items: (query: string) => provider.items(activeRow.key, query),
                   })),
           content: session.content,
+          revision: session.revision,
           initialCaret: desiredCaretRef.current,
-          onBlur: (content) => {
+          initialSelectionEnd: desiredSelectionEndRef.current,
+          onBlur: (content, position) => {
             if (sessionRef.current?.key === session.key) {
+              lastPositionRef.current = { key: session.key, caret: position.from, selectionEnd: position.to };
               commit(session.key, content);
-              setPendingInsertion(null);
+              setPending(null);
               setSession(null);
             }
           },
-          onChange: (content) => {
+          onChange: (content, before, group) => {
             const current = sessionRef.current;
             if (current?.key === session.key) {
+              editingRef.current?.history?.checkpoint(
+                { key: session.key, caret: before.from, selectionEnd: before.to },
+                group,
+              );
               sessionRef.current = { ...current, content };
+              onCursorChange(session.key);
+              onTextInput();
               editingRef.current?.onContentChange(session.key, content);
             }
           },
+          onSelectionChange: (position) => {
+            lastPositionRef.current = { key: session.key, caret: position.from, selectionEnd: position.to };
+          },
+          onKeyDown,
           onCommand: (command) => handleCommand(session.key, command),
           onCompletion: (providerId, itemId, content) => {
+            const current = sessionRef.current;
+            if (current?.key !== session.key) {
+              return;
+            }
+            sessionRef.current = { ...current, content };
+            editing.history?.checkpoint(lastPositionRef.current, "operation");
             const provider = editing.completionProviders?.find((candidate) => candidate.id === providerId);
-            editing.onCompletion?.(session.key, providerId, itemId, content);
+            if (editing.onCompletion === undefined) {
+              editing.onContentChange(session.key, content);
+            } else {
+              const position = editing.onCompletion(session.key, providerId, itemId, content);
+              if (position !== undefined) {
+                setPending({ type: "position", position });
+                return;
+              }
+            }
             if (provider?.exitOnSelect === true) {
-              setPendingInsertion(null);
+              setPending(null);
               setSession(null);
               globalThis.requestAnimationFrame(() => containerRef.current?.focus());
             }
@@ -297,6 +270,41 @@ export function useOutlineEdit({ containerRef, editing, onCursorChange, onMove, 
     binding,
     commitAndExit,
     createChild,
+    setExpanded,
+    history,
+    getPosition: () => lastPositionRef.current,
+    restore: (position: OutlineEditPosition) => setPending({ type: "position", position }),
+    commit: () => {
+      const current = sessionRef.current;
+      if (current !== null) {
+        commit(current.key, current.content);
+      }
+    },
+    selectText: (from: number, to: number) => {
+      const current = sessionRef.current;
+      const row = rows.find((candidate) => candidate.key === current?.key);
+      if (current !== null && row !== undefined) {
+        activate(row, current.content, from, to);
+      }
+    },
+    remapPosition: (mapping: ReadonlyMap<string, string>) => {
+      const position = lastPositionRef.current;
+      if (position !== null) {
+        lastPositionRef.current = { ...position, key: mapping.get(position.key) ?? position.key };
+      }
+    },
+    enterFromSelection: (row: OutlineRowViewModel, forced?: OutlineInsertionPlacement) => {
+      const position = lastPositionRef.current?.key === row.key ? lastPositionRef.current : null;
+      const caret = position?.caret ?? contentLength(row.item.content);
+      return insertFromEditor(
+        intentContext(),
+        row.key,
+        row.item.content,
+        caret,
+        position?.selectionEnd ?? caret,
+        forced,
+      );
+    },
     startAtCaret,
     startAtEnd,
   };

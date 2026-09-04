@@ -98,7 +98,6 @@ export function OutlineRowControls({
         )}
         onClick={(event) => {
           event.stopPropagation();
-          beforeIntent();
           onExpandedChange(row.key, !row.expanded);
         }}
         onMouseDown={(event) => event.preventDefault()}

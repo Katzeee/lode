@@ -38,6 +38,7 @@ export {
   outlineFormatting,
   type OutlineMerge,
   type OutlineMove,
+  type OutlineMoveResult,
   type OutlinePresentationContext,
   type OutlinePresentationRegistry,
   type OutlinePresentationRowState,
@@ -45,6 +46,10 @@ export {
   type OutlineRowViewModel,
   type OutlineSelection,
   type OutlineTreeEditing,
+  type OutlineClipboardItem,
+  type OutlinePaste,
+  type OutlineEditHistory,
+  type OutlineEditPosition,
 } from "./components/outline/outline-tree.js";
 export { PageScaffold } from "./components/page-scaffold.js";
 export { Popover } from "./components/popover.js";
@@ -60,3 +65,14 @@ export { Textarea } from "./components/textarea.js";
 export { toast, ToastProvider } from "./components/toast.js";
 export { Tooltip, TooltipProvider } from "./components/tooltip.js";
 export { LegalPage } from "./legal-page.js";
+export {
+  SuggestionList,
+  useSuggestionList,
+  type SuggestionItem,
+  type SuggestionListController,
+} from "./components/suggestion-list/suggestion-list.js";
+export {
+  defaultSuggestionKeyBindings,
+  type SuggestionAction,
+  type SuggestionKeyBinding,
+} from "./components/suggestion-list/suggestion-navigation.js";

@@ -1,4 +1,6 @@
-import { demoNodeLabel } from "./outline-demo-inline.js";
+import { demoInlineIds, demoTokenTarget } from "./outline-demo-inline.js";
+import { resolveDemoContent } from "./outline-demo-content.js";
+import type { OutlineContent } from "../components/outline/outline-content.js";
 import type { DemoGraph, DemoNode, DemoOccurrence } from "./outline-demo-model.js";
 
 export function resolveGraphPath(
@@ -24,7 +26,29 @@ export function resolveGraphPath(
 
 export function updateGraphNode(graph: DemoGraph, nodeId: string, update: (node: DemoNode) => DemoNode): DemoGraph {
   const current = graph.nodes[nodeId];
-  return current === undefined ? graph : { ...graph, nodes: { ...graph.nodes, [nodeId]: update(current) } };
+  if (current === undefined) {
+    return graph;
+  }
+  const updated = update(current);
+  const proposed = { ...graph, nodes: { ...graph.nodes, [nodeId]: updated } };
+  const content = resolveDemoContent(proposed, updated.value.content);
+  const next = { ...updated, value: { ...updated.value, content } };
+  return JSON.stringify(current) === JSON.stringify(next)
+    ? graph
+    : {
+        ...proposed,
+        nodes: { ...proposed.nodes, [nodeId]: next },
+      };
+}
+
+export function updateGraphContent(graph: DemoGraph, path: string, content: OutlineContent): DemoGraph {
+  const resolved = resolveGraphPath(graph, path);
+  return resolved === null
+    ? graph
+    : updateGraphNode(graph, resolved.node.id, (node) => ({
+        ...node,
+        value: { ...node.value, content },
+      }));
 }
 
 export function updateGraphOccurrence(
@@ -36,18 +60,6 @@ export function updateGraphOccurrence(
   return current === undefined
     ? graph
     : { ...graph, occurrences: { ...graph.occurrences, [occurrenceId]: update(current) } };
-}
-
-export function replaceGraphOccurrenceNode(graph: DemoGraph, occurrenceId: string, node: DemoNode): DemoGraph {
-  const occurrence = graph.occurrences[occurrenceId];
-  if (occurrence === undefined) {
-    return graph;
-  }
-  const withNode = {
-    ...graph,
-    nodes: { ...graph.nodes, [node.id]: node },
-  };
-  return retargetGraphOccurrence(withNode, occurrenceId, node.id, undefined);
 }
 
 export function retargetGraphOccurrence(
@@ -67,19 +79,38 @@ export function retargetGraphOccurrence(
   const reachableNodeIds = new Set<string>();
   const reachableOccurrenceIds = new Set<string>();
   const pending = [...retargeted.rootOccurrenceIds];
-  while (pending.length > 0) {
+  const pendingNodes: string[] = [];
+  while (pending.length > 0 || pendingNodes.length > 0) {
     const candidateId = pending.pop();
-    if (candidateId === undefined || reachableOccurrenceIds.has(candidateId)) {
+    if (candidateId !== undefined) {
+      const occurrence = retargeted.occurrences[candidateId];
+      if (occurrence !== undefined && !reachableOccurrenceIds.has(candidateId)) {
+        reachableOccurrenceIds.add(candidateId);
+        pendingNodes.push(occurrence.nodeId);
+      }
       continue;
     }
-    const candidate = retargeted.occurrences[candidateId];
-    const candidateNode = candidate === undefined ? undefined : retargeted.nodes[candidate.nodeId];
-    if (candidate === undefined || candidateNode === undefined) {
+    const nodeId = pendingNodes.pop();
+    const node = nodeId === undefined ? undefined : retargeted.nodes[nodeId];
+    if (node === undefined || reachableNodeIds.has(node.id)) {
       continue;
     }
-    reachableOccurrenceIds.add(candidate.id);
-    reachableNodeIds.add(candidateNode.id);
-    pending.push(...candidateNode.childOccurrenceIds);
+    reachableNodeIds.add(node.id);
+    pending.push(...node.childOccurrenceIds);
+    if (node.value.field?.kind === "field") {
+      pendingNodes.push(node.value.field.definitionId);
+    }
+    for (const inline of node.value.content) {
+      if (
+        inline.type === "token" &&
+        (inline.extension === demoInlineIds.reference || inline.extension === demoInlineIds.supertag)
+      ) {
+        const target = demoTokenTarget(inline);
+        if (target !== null) {
+          pendingNodes.push(target);
+        }
+      }
+    }
   }
   return {
     nodes: Object.fromEntries(Object.entries(retargeted.nodes).filter(([id]) => reachableNodeIds.has(id))),
@@ -119,11 +150,8 @@ export function insertGraphNode(
     nodes: { ...graph.nodes, [node.id]: node },
     occurrences: { ...graph.occurrences, [occurrence.id]: occurrence },
   };
-  return replaceContainer(withRecords, parentKey, (ids) => [
-    ...ids.slice(0, index),
-    occurrence.id,
-    ...ids.slice(index),
-  ]);
+  const normalized = updateGraphNode(withRecords, node.id, (current) => current);
+  return replaceContainer(normalized, parentKey, (ids) => [...ids.slice(0, index), occurrence.id, ...ids.slice(index)]);
 }
 
 export function removeGraphOccurrence(graph: DemoGraph, key: string): DemoGraph {
@@ -136,12 +164,17 @@ export function removeGraphOccurrence(graph: DemoGraph, key: string): DemoGraph 
       );
 }
 
-export function searchNodes(graph: DemoGraph, query: string): readonly { id: string; label: string }[] {
-  const normalized = query.toLocaleLowerCase();
-  return Object.values(graph.nodes)
-    .map((node) => ({ id: node.id, label: demoNodeLabel(node.value.content) }))
-    .filter((node) => node.label.toLocaleLowerCase().includes(normalized))
-    .slice(0, 20);
+export function siblingLocation(
+  graph: DemoGraph,
+  key: string,
+): Readonly<{ index: number; parentKey: string | null }> | null {
+  const segments = key.split("/");
+  const occurrenceId = segments.pop();
+  const parentKey = segments.length === 0 ? null : segments.join("/");
+  const ids =
+    parentKey === null ? graph.rootOccurrenceIds : resolveGraphPath(graph, parentKey)?.node.childOccurrenceIds;
+  const index = occurrenceId === undefined ? -1 : (ids?.indexOf(occurrenceId) ?? -1);
+  return index < 0 ? null : { index, parentKey };
 }
 
 export function findOriginalOccurrenceKey(graph: DemoGraph, nodeId: string): string | null {

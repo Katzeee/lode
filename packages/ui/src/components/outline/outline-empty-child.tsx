@@ -7,13 +7,13 @@ export function OutlineEmptyChild({
 }: Readonly<{
   onActivate: () => void;
   parentLabel: string;
-  parentKey: string;
+  parentKey: string | null;
 }>) {
   return (
     <button
-      aria-label={`Create child under ${parentLabel}`}
+      aria-label={parentKey === null ? "Create node" : `Create child under ${parentLabel}`}
       className="group/outline-row flex min-h-8 w-full min-w-0 items-start gap-1 rounded-md bg-transparent py-1 pr-1.5 text-left outline-none transition-colors hover:bg-accent/35 focus-visible:ring-2 focus-visible:ring-ring/45"
-      data-parent-key={parentKey}
+      data-parent-key={parentKey ?? undefined}
       data-ui="outline-empty-child-placeholder"
       onClick={onActivate}
       onMouseDown={(event) => event.preventDefault()}

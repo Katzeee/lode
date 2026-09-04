@@ -571,6 +571,22 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/ui/src/components/suggestion-list/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/outline/**", "**/catalog/**"],
+              message: "Suggestion lists own navigation and rendering; editor and domain adapters depend on them.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],

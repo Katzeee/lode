@@ -21,7 +21,7 @@ designSystemTest("outline source editing keeps single-line rows and following bu
     const editor = page.locator('[data-ui="outline-editor"]');
     await editor.waitFor({ state: "visible" });
     assert.deepEqual(await geometry(), before, "entering source editing preserves row heights and bullet positions");
-    await editor.press("Escape");
+    await page.getByRole("heading", { name: "Outline", exact: true }).click();
     await editor.waitFor({ state: "detached" });
     assert.deepEqual(await geometry(), before, "leaving source editing preserves row heights and bullet positions");
   }
@@ -59,7 +59,7 @@ designSystemTest("outline completions close at spaces and stay closed after comp
     assert.equal(await editor.textContent(), `${source} more text`);
     assert.equal(await page.getByRole("listbox").count(), 0, "typing after completed content never reopens its search");
   }
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   const row = page.locator('[data-item-key="outline-item:projects%2Flode%2Froadmap%2Fcommand-palette"]');
   await row.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor();
@@ -78,9 +78,11 @@ designSystemTest("outline formatting reveals editable source and preserves the c
   await editor.evaluate((element) => element.editor.commands.setTextSelection({ from: 6, to: 10 }));
   await editor.press("Control+b");
   assert.equal(await editor.textContent(), "Read **bold** today");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   await row.locator("strong").waitFor();
   assert.equal(await row.locator("strong").textContent(), "bold");
+  assert.equal(await editor.count(), 0);
+  await row.locator("strong").scrollIntoViewIfNeeded();
   const point = await row.locator("strong").evaluate((element) => {
     const text = element.querySelector("[data-source-start]").firstChild;
     const range = document.createRange();
@@ -119,7 +121,7 @@ designSystemTest("outline references and Supertags store closed source with targ
   await editor.pressSequentially(" #pro");
   await page.getByRole("listbox", { name: "Supertags" }).getByRole("option", { name: "project", exact: true }).click();
   assert.equal(await editor.textContent(), "@{Local-first software essay} #{project}");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   assert.equal(await row.locator('[data-ui="outline-reference"]').getAttribute("data-reference-id"), "local-first");
   assert.equal(await row.locator('[data-ui="outline-row-badge"]').textContent(), "#project");
   await row.locator('[data-ui="outline-row-text"]').click();
@@ -134,7 +136,7 @@ designSystemTest("outline references and Supertags store closed source with targ
     .getByRole("option", { name: "CRDT ordering survey", exact: true })
     .click();
   assert.equal(await editor.textContent(), "@{CRDT ordering survey} #{project}");
-  await editor.press("Escape");
+  await page.getByRole("heading", { name: "Outline", exact: true }).click();
   assert.equal(await row.locator('[data-ui="outline-reference"]').getAttribute("data-reference-id"), "crdt-survey");
 });
 
@@ -151,7 +153,7 @@ designSystemTest(
     await editor.waitFor();
     await editor.pressSequentially("@ # / **bold**");
     assert.equal(await page.getByRole("listbox").count(), 0, "the core installs no @, # or / trigger");
-    await editor.press("Escape");
+    await page.getByLabel("Saved document").click();
     assert.equal(await tree.locator("strong").count(), 0, "formatting is explicitly installed by the host");
     await tree.locator('[data-ui="outline-row-text"]').click();
     await editor.press("Control+a");
@@ -161,7 +163,7 @@ designSystemTest(
     assert.equal(await panel.locator("em").textContent(), " supplied by host");
     await editor.press("Enter");
     assert.equal(await editor.textContent(), "%{Ticket}");
-    await editor.press("Escape");
+    await page.getByLabel("Saved document").click();
     assert.equal(await tree.locator('[data-ui="host-ticket"]').textContent(), "Ticket");
     const saved = JSON.parse(await page.getByLabel("Saved document").textContent());
     assert.deepEqual(saved, [

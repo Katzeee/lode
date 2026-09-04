@@ -4,6 +4,7 @@ import { contentToSource, type OutlineContent } from "../components/outline/outl
 import { createDemoCompletionProviders, completionIds } from "./outline-demo-completions.js";
 import { demoInlineToken } from "./outline-demo-inline.js";
 import { initialGraph, textContent } from "./outline-demo-model.js";
+import { updateGraphNode } from "./outline-demo-graph.js";
 
 const providers = createDemoCompletionProviders({
   commands: [],
@@ -23,6 +24,46 @@ const match = (providerId: string, content: OutlineContent, caret = contentToSou
 };
 
 describe("host-owned inline completions", () => {
+  it("excludes unnamed nodes and commands in the external providers", () => {
+    let graph = initialGraph;
+    for (const id of ["kei", "lode-team", "status-definition", "supertag-person"]) {
+      graph = updateGraphNode(graph, id, (node) => ({
+        ...node,
+        value: { ...node.value, content: textContent(" \t ") },
+      }));
+    }
+    const registered = createDemoCompletionProviders({
+      commands: [
+        { id: "blank", label: " ", replacement: [] },
+        { id: "named", label: "Visible command", replacement: [] },
+      ],
+      fieldDefinitionIdsByKey: new Map([["owner-value", "owner-definition"]]),
+      graph,
+    });
+    for (const provider of registered) {
+      expect(provider.items("owner-value", "").every((item) => item.label.trim().length > 0)).toBe(true);
+    }
+    expect(registered.find((provider) => provider.id === completionIds.value)?.items("owner-value", "")).toEqual([]);
+    expect(
+      registered
+        .find((provider) => provider.id === completionIds.field)
+        ?.items("", "")
+        .map((item) => item.id),
+    ).not.toContain("status-definition");
+    expect(
+      registered
+        .find((provider) => provider.id === completionIds.supertag)
+        ?.items("", "")
+        .map((item) => item.id),
+    ).toEqual(["supertag-project"]);
+    expect(
+      registered
+        .find((provider) => provider.id === completionIds.command)
+        ?.items("", "")
+        .map((item) => item.id),
+    ).toEqual(["named"]);
+  });
+
   it("uses @ and # for searches and leaves double brackets and email addresses as ordinary text", () => {
     expect(match(completionIds.reference, textContent("@Local-first"))).toEqual({
       from: 0,

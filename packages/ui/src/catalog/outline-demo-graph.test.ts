@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
+import { demoInlineToken } from "./outline-demo-inline.js";
 import {
   findOriginalOccurrenceKey,
   insertGraphNode,
   removeGraphOccurrence,
-  replaceGraphOccurrenceNode,
   resolveGraphPath,
   retargetGraphOccurrence,
   updateGraphNode,
+  updateGraphContent,
 } from "./outline-demo-graph.js";
 import { fieldValueSuggestionIds, initialGraph, textContent } from "./outline-demo-model.js";
 import { presentOutline } from "./outline-demo-presenter.js";
@@ -102,29 +103,52 @@ describe("outline demo presenter", () => {
     expect(findOriginalOccurrenceKey(graph, "b")).toBe("b-original");
   });
 
-  it("can replace one Reference occurrence with a new ordinary Node without renaming its target", () => {
-    const replacement = {
-      childOccurrenceIds: [],
-      id: "custom-status",
-      value: { content: textContent("Custom status") },
-    } as const;
-    const graph = replaceGraphOccurrenceNode(initialGraph, "in-progress", replacement);
-
-    expect(graph.nodes["status-in-progress"]?.value.content).toEqual(textContent("In progress"));
-    expect(graph.occurrences["in-progress"]).toMatchObject({ appearance: undefined, nodeId: "custom-status" });
-    expect(resolveGraphPath(graph, "projects/lode/status-field/in-progress")?.node.id).toBe("custom-status");
-  });
-
   it("removes an unreachable temporary Node when its occurrence is retargeted", () => {
-    const custom = replaceGraphOccurrenceNode(initialGraph, "in-progress", {
-      childOccurrenceIds: [],
-      id: "custom-status",
-      value: { content: textContent("Custom status") },
-    });
-    const graph = retargetGraphOccurrence(custom, "in-progress", "status-planned", "reference");
+    const custom = insertGraphNode(
+      initialGraph,
+      "projects/lode/status-field",
+      1,
+      {
+        childOccurrenceIds: [],
+        id: "custom-status",
+        value: { content: textContent("Custom status") },
+      },
+      { id: "custom-status-occurrence", nodeId: "custom-status" },
+    );
+    const graph = retargetGraphOccurrence(custom, "custom-status-occurrence", "status-planned", "reference");
 
     expect(graph.nodes["custom-status"]).toBeUndefined();
-    expect(graph.occurrences["in-progress"]).toMatchObject({ appearance: "reference", nodeId: "status-planned" });
+    expect(graph.occurrences["custom-status-occurrence"]).toMatchObject({
+      appearance: "reference",
+      nodeId: "status-planned",
+    });
+  });
+
+  it("edits each Field Reference through its target identity", () => {
+    for (const [path, original, id] of [
+      [
+        "projects/lode/status-field/in-progress",
+        "archive/value-library/status-in-progress-original",
+        "status-in-progress",
+      ],
+      ["projects/lode/owner-field/kei-owner", "kei", "kei"],
+      ["projects/lode/owner-field/team-owner", "archive/value-library/lode-team-original", "lode-team"],
+    ] as const) {
+      const graph = updateGraphContent(initialGraph, path, textContent("Updated target"));
+      expect(resolveGraphPath(graph, path)?.occurrence).toMatchObject({ appearance: "reference", nodeId: id });
+      expect(resolveGraphPath(graph, original)?.node.value.content).toEqual(textContent("Updated target"));
+      expect(Object.keys(graph.nodes)).toEqual(Object.keys(initialGraph.nodes));
+    }
+  });
+
+  it("retains targets that remain reachable through inline references when a Field is retargeted", () => {
+    const referenced = updateGraphContent(initialGraph, "inbox/crdt-survey", [
+      demoInlineToken("reference", "kei", "Kei"),
+    ]);
+    const withoutOriginal = removeGraphOccurrence(referenced, "kei");
+    const graph = retargetGraphOccurrence(withoutOriginal, "kei-owner", "lode-team", "reference");
+    expect(graph.nodes.kei?.value.content).toEqual(initialGraph.nodes.kei?.value.content);
+    expect(graph.occurrences["kei-owner"]?.nodeId).toBe("lode-team");
   });
 
   it("backs every suggested Reference with a real Node and Original occurrence", () => {

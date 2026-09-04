@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 import { AppShell, ToastProvider, TooltipProvider, type AppShellSection } from "../../../dist/index.js";
 import { DesignSystemPage } from "../../../dist/catalog/index.js";
 import { OutlineExtensionFixture } from "./outline-extension-fixture.js";
+import { OutlineSuggestionFixture } from "./outline-suggestion-fixture.js";
 
 const previewSections: readonly AppShellSection[] = [
   {
@@ -41,6 +42,9 @@ function TestSurface() {
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
+  if (hash === "#/outline-suggestion-fixture") {
+    return <OutlineSuggestionFixture />;
+  }
   return hash === "#/outline-extension-fixture" ? (
     <OutlineExtensionFixture />
   ) : (

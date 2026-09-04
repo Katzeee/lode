@@ -28,13 +28,14 @@ export function OutlineExtensionFixture() {
               heading: "External tickets",
               id: "tickets",
               match: (context) =>
-                context.textBeforeCaret.endsWith("^")
-                  ? { from: context.selection.from - 1, to: context.selection.to, query: "" }
+                context.textBeforeCaret.startsWith("^")
+                  ? { from: 0, to: context.selection.to, query: context.textBeforeCaret.slice(1) }
                   : null,
-              items: () => [
+              items: (_key, query) => [
                 {
                   id: "issue-42",
-                  label: "Ticket",
+                  label: "",
+                  description: query,
                   replacement: [
                     {
                       data: { id: "issue-42" },
@@ -48,8 +49,9 @@ export function OutlineExtensionFixture() {
               ],
               renderItem: (item) => (
                 <span>
-                  {item.label}
+                  Ticket
                   <em> supplied by host</em>
+                  <code data-ui="provided-query">{JSON.stringify(item.description)}</code>
                 </span>
               ),
             },
@@ -57,6 +59,7 @@ export function OutlineExtensionFixture() {
           onContentChange: (_key, value) => setContent(value),
           onContentCommit: (_key, value) => setContent(value),
           onCreateAfter: () => undefined,
+          onCreateBefore: () => undefined,
           onDeleteEmpty: () => undefined,
           onSplit: () => undefined,
         }}

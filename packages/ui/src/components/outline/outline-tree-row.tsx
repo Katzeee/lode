@@ -19,13 +19,11 @@ export function OutlineTreeRow({
   onCommitAndExit,
   onExpandedChange,
   onPointerDown,
-  onRowClick,
-  onTextClick,
+  onRowMouseDown,
   row,
   rowDomId,
   presentation,
   selected,
-  selectionSize,
 }: Readonly<{
   consumeDragClick: () => boolean;
   cursor: boolean;
@@ -37,13 +35,11 @@ export function OutlineTreeRow({
   onCommitAndExit: () => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onPointerDown: (event: PointerEvent) => void;
-  onRowClick: (event: MouseEvent) => void;
-  onTextClick: (event: MouseEvent<HTMLDivElement>) => void;
+  onRowMouseDown: (event: MouseEvent<HTMLDivElement>) => void;
   row: OutlineRowViewModel;
   rowDomId: string;
   presentation: ResolvedOutlineRowPresentation;
   selected: boolean;
-  selectionSize: number;
 }>) {
   return (
     <div
@@ -55,8 +51,7 @@ export function OutlineTreeRow({
       aria-setsize={row.siblingCount}
       className={cn(
         "group/outline-row flex min-h-8 min-w-0 items-start gap-1 rounded-md py-1 pr-1.5 transition-colors",
-        selected && selectionSize > 1 && "bg-primary/12 text-foreground",
-        cursor && selectionSize > 1 && "ring-1 ring-inset ring-primary/35",
+        selected && "bg-primary/12 text-foreground",
         dragged && "opacity-40",
       )}
       data-editing={editActiveKey === row.key ? "true" : undefined}
@@ -66,7 +61,7 @@ export function OutlineTreeRow({
       data-selected={selected ? "true" : undefined}
       data-ui="outline-row"
       id={rowDomId}
-      onClick={onRowClick}
+      onMouseDown={onRowMouseDown}
       role="treeitem"
     >
       <OutlineRowControls
@@ -86,11 +81,7 @@ export function OutlineTreeRow({
             binding={editActiveKey === row.key ? editBinding : null}
             placeholder={cursor || editActiveKey === row.key ? (editing.emptyPlaceholder ?? "Start typing…") : ""}
           >
-            <div
-              className="flex min-h-6 max-w-full min-w-0 items-start py-0.5"
-              data-ui="outline-row-text"
-              onClick={onTextClick}
-            >
+            <div className="flex min-h-6 max-w-full min-w-0 items-start py-0.5" data-ui="outline-row-text">
               <OutlineItemContent presentation={presentation} row={row} />
             </div>
           </OutlineInlineEditorProvider>
