@@ -1,11 +1,11 @@
 import type { MouseEvent, PointerEvent } from "react";
 
-import { Checkbox } from "./checkbox.js";
-import { cn } from "./cn.js";
+import { cn } from "../cn.js";
+import type { ResolvedOutlineRowPresentation } from "./outline-presentation.js";
 import type { OutlineEditorBinding, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
 import { OutlineInlineEditorProvider, OutlineInlineContent } from "./outline-tree-editor.js";
 import { OutlineRowControls } from "./outline-tree-controls.js";
-import { OutlineRowContent, OutlineRowProgress } from "./outline-row.js";
+import { OutlineRowContent } from "./outline-row.js";
 import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
 export function OutlineTreeRow({
@@ -17,14 +17,13 @@ export function OutlineTreeRow({
   editBinding,
   editing,
   onCommitAndExit,
-  onActivate,
-  onCheckedChange,
   onExpandedChange,
   onPointerDown,
   onRowClick,
   onTextClick,
   row,
   rowDomId,
+  presentation,
   selected,
   selectionSize,
 }: Readonly<{
@@ -36,14 +35,13 @@ export function OutlineTreeRow({
   editBinding: OutlineEditorBinding | null;
   editing?: OutlineTreeEditing;
   onCommitAndExit: () => void;
-  onActivate?: (key: string) => void;
-  onCheckedChange?: (key: string, checked: boolean) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onPointerDown: (event: PointerEvent) => void;
   onRowClick: (event: MouseEvent) => void;
   onTextClick: (event: MouseEvent<HTMLDivElement>) => void;
   row: OutlineRowViewModel;
   rowDomId: string;
+  presentation: ResolvedOutlineRowPresentation;
   selected: boolean;
   selectionSize: number;
 }>) {
@@ -72,16 +70,16 @@ export function OutlineTreeRow({
     >
       <OutlineRowControls
         beforeIntent={onCommitAndExit}
+        bullet={presentation.bullet}
         consumeDragClick={consumeDragClick}
         draggable={draggable}
         onDragHandleDown={onPointerDown}
-        onActivate={onActivate}
         onExpandedChange={onExpandedChange}
         row={row}
       />
       <div className="min-w-0 flex-1 text-body leading-5.5">
         {editing === undefined ? (
-          <OutlineItemContent onCheckedChange={onCheckedChange} row={row} />
+          <OutlineItemContent presentation={presentation} row={row} />
         ) : (
           <OutlineInlineEditorProvider
             binding={editActiveKey === row.key ? editBinding : null}
@@ -96,7 +94,7 @@ export function OutlineTreeRow({
               data-ui="outline-row-text"
               onClick={onTextClick}
             >
-              <OutlineItemContent onCheckedChange={onCheckedChange} row={row} />
+              <OutlineItemContent presentation={presentation} row={row} />
             </div>
           </OutlineInlineEditorProvider>
         )}
@@ -106,41 +104,27 @@ export function OutlineTreeRow({
 }
 
 export function OutlineItemContent({
-  onCheckedChange,
+  presentation,
   row,
 }: Readonly<{
-  onCheckedChange?: (key: string, checked: boolean) => void;
+  presentation: ResolvedOutlineRowPresentation;
   row: OutlineRowViewModel;
 }>) {
-  const { item } = row;
+  const { contentStyle } = presentation;
   return (
     <OutlineRowContent
-      badges={item.badges}
       className={cn(
-        item.textStyle?.tone === "muted" && "text-muted-foreground",
-        item.textStyle?.decoration === "line-through" && "line-through",
+        contentStyle?.tone === "muted" && "text-muted-foreground",
+        contentStyle?.decoration === "line-through" && "line-through",
       )}
-      leading={
-        item.checkbox === undefined ? undefined : (
-          <Checkbox
-            aria-label={item.checkbox.label ?? `Toggle ${item.accessibilityLabel}`}
-            checked={item.checkbox.checked}
-            className="size-4"
-            disabled={onCheckedChange === undefined}
-            onCheckedChange={(checked) => onCheckedChange?.(row.key, checked)}
-            onClick={(event) => event.stopPropagation()}
-            tabIndex={-1}
-          />
-        )
-      }
-      trailing={
-        item.progress === undefined ? undefined : (
-          <OutlineRowProgress label={item.progress.label} max={item.progress.max} value={item.progress.value} />
-        )
-      }
+      details={presentation.details}
+      leading={presentation.leading}
+      prefix={presentation.prefix}
+      suffix={presentation.suffix}
+      trailing={presentation.trailing}
     >
-      <span className={cn(item.textStyle?.weight === "medium" && "font-medium")}>
-        <OutlineInlineContent content={item.content} />
+      <span className={cn(contentStyle?.weight === "medium" && "font-medium")}>
+        <OutlineInlineContent content={row.item.content} />
       </span>
     </OutlineRowContent>
   );

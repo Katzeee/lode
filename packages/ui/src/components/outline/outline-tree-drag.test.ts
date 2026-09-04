@@ -8,6 +8,7 @@ const item = (key: string, children?: readonly OutlineItemViewModel[]): OutlineI
   children,
   content: [],
   key,
+  presentation: null,
 });
 
 describe("resolveDragDepth", () => {

@@ -264,8 +264,7 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     editorProps: {
       attributes: {
         "aria-label": binding.ariaLabel,
-        class:
-          "inline-block w-max min-w-24 max-w-full whitespace-pre-wrap break-words text-body text-current outline-none",
+        class: "inline-block w-max max-w-full whitespace-pre-wrap break-words text-body text-current outline-none",
         "data-ui": "outline-editor",
       },
       handleDOMEvents: {
@@ -292,6 +291,14 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
   });
   editorRef.current = editor;
   const pickerOpen = picker !== null;
+
+  useLayoutEffect(() => {
+    if (editor === null) {
+      return;
+    }
+    // Tiptap owns this DOM node; only an empty editor needs a stable hit target.
+    editor.view.dom.classList.toggle("min-w-24", empty);
+  }, [editor, empty]);
 
   useEffect(() => {
     if (editor === null || !pickerOpen) {
@@ -356,9 +363,9 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
 
   return (
     <>
-      <div className={`relative inline-flex min-w-24 max-w-full align-top ${empty ? "w-full" : "w-max"}`}>
+      <div className={`relative inline-flex max-w-full align-top ${empty ? "w-full min-w-24" : "w-max"}`}>
         <EditorContent
-          className="inline-flex w-max min-w-24 max-w-full"
+          className={`inline-flex max-w-full ${empty ? "w-full min-w-24" : "w-max"}`}
           editor={editor}
           onClick={(event) => event.stopPropagation()}
         />

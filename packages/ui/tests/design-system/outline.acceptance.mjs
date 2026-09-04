@@ -104,7 +104,7 @@ async function verifyOutlinePresentation(page) {
   assert.equal(
     await childrenOfPath("projects/lode/owner-field").count(),
     2,
-    "the Owner Field must project Kei and Lode team as its two value occurrences",
+    "the Owner Field must present Kei and Lode team as its two Value occurrences",
   );
   assert.equal(
     await rowByPath("projects/lode/owner-field").locator("..").getAttribute("data-children-layout"),
@@ -181,6 +181,7 @@ async function verifyOutlinePresentation(page) {
   );
 
   const lodeEditingRow = rowByPath("projects/lode");
+  const lodeSupertagBeforeEditing = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
   await lodeEditingRow.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
   const lodeEditingBackground = await lodeEditingRow.evaluate((element) => getComputedStyle(element).backgroundColor);
@@ -192,8 +193,12 @@ async function verifyOutlinePresentation(page) {
   const editorBox = await editor.boundingBox();
   const supertagBox = await lodeEditingRow.locator('[data-ui="outline-row-badge"]').boundingBox();
   assert.ok(
-    editorBox !== null && supertagBox !== null && Math.abs(editorBox.y - supertagBox.y) <= 2,
-    "Supertags must remain inline beside the Node editor",
+    editorBox !== null &&
+      supertagBox !== null &&
+      lodeSupertagBeforeEditing !== null &&
+      Math.abs(editorBox.y - supertagBox.y) <= 2 &&
+      Math.abs(lodeSupertagBeforeEditing.x - supertagBox.x) <= 1,
+    "Supertags must remain inline without shifting when a short Node enters edit mode",
   );
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
@@ -208,7 +213,7 @@ async function verifyOutlinePresentation(page) {
       .locator('[data-ui="outline-row-content"]')
       .evaluate((element) => getComputedStyle(element).textDecorationLine),
     "line-through",
-    "the host must project the updated Model back into the component ViewModel",
+    "the host must map the updated Model back into the component ViewModel",
   );
   await pendingCheckbox.click();
 
@@ -234,7 +239,7 @@ async function verifyOutlinePresentation(page) {
   assert.equal(
     await statusValue.locator('[data-appearance="reference"]').count(),
     0,
-    "free text in a reference-backed Field Value must project an ordinary item instead of renaming its target",
+    "free text in a reference-backed Field Value must present an ordinary item instead of renaming its target",
   );
   await statusValue.locator('[data-ui="outline-row-text"]').click();
   assert.equal(await suggestions.count(), 0, "an existing arbitrary value reopens as an ordinary Node editor");
@@ -325,7 +330,7 @@ async function verifyOutlinePresentation(page) {
   assert.equal(
     await emptyChildPlaceholder.locator('[data-ui="outline-placeholder-bullet"]').count(),
     1,
-    "expanding an empty Node must project Tana's empty-child placeholder without changing the model",
+    "expanding an empty Node must render Tana's empty-child placeholder without changing the Model",
   );
   const inactivePlaceholderBox = await emptyChildPlaceholder.boundingBox();
   await emptyChildPlaceholder.click();
@@ -358,7 +363,7 @@ async function verifyOutlinePresentation(page) {
   assert.equal(
     await emptyChildPlaceholder.count(),
     0,
-    "a parent with a real empty child must not also project the no-child placeholder",
+    "a parent with a real empty child must not also render the no-child placeholder",
   );
   await emptyChild.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
@@ -415,9 +420,14 @@ async function verifyOutlinePresentation(page) {
     "a date-backed system node must support a semantic bullet replacement",
   );
   assert.equal(
-    await page.locator('[data-ui="outline-row"] [data-bullet-marker="person"]').count(),
+    await rowByPath("kei").locator('[data-bullet-marker="default"]').count(),
     1,
-    "a person node must support an avatar bullet replacement",
+    "a Person supertag instance must retain the ordinary Node bullet",
+  );
+  assert.equal(
+    await rowByPath("kei").locator('[data-ui="outline-row-badge"]', { hasText: "#person" }).count(),
+    1,
+    "a Person classification must render through its supertag badge rather than a component-owned bullet type",
   );
   await rowByText("Open design decisions").locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
@@ -667,6 +677,10 @@ async function verifyOutlineEditing(page) {
   );
   await quickCapture.locator('[data-ui="outline-row-text"]').click();
   await editor.waitFor({ state: "visible" });
+  assert.ok(
+    ((await editor.boundingBox())?.width ?? 0) >= 96,
+    "an empty Node editor must retain a usable horizontal click target",
+  );
   await editor.press("Escape");
   await editor.waitFor({ state: "detached" });
   assert.equal(await quickCapture.count(), 1, "focusing and leaving a real empty Node must not remove it");

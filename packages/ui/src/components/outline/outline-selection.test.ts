@@ -13,6 +13,7 @@ const item = (id: string, children?: readonly OutlineItemViewModel[]): OutlineIt
   children,
   content: [{ text: id, type: "text" }],
   key: id,
+  presentation: null,
 });
 
 const rows = flattenOutline([item("a", [item("a/a1"), item("a/a2")]), item("b"), item("c")], new Set(["a"]));

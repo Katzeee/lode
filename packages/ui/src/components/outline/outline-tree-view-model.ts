@@ -1,53 +1,25 @@
-import type { OutlineBulletViewModel } from "./outline-bullet.js";
 import { contentLength, mergeContent, type OutlineContent } from "./outline-content.js";
-import type { OutlineRowBadge } from "./outline-row.js";
 
-export type OutlineCheckboxViewModel = Readonly<{
-  checked: boolean;
-  label?: string;
-}>;
-
-export type OutlineProgressViewModel = Readonly<{
-  label?: string;
-  max: number;
-  value: number;
-}>;
-
-/**
- * Where an item's children render relative to its own row: "indented" stacks them below with one
- * indent step; "beside" places them in a column to the right, so the first child shares the row.
- */
-export type OutlineChildrenLayout = "beside" | "indented";
-
-/** The complete presentation contract consumed by OutlineTree. It contains no host Model. */
-export type OutlineItemViewModel = Readonly<{
+/** The complete component contract consumed by OutlineTree. Its presentation is opaque host data. */
+export type OutlineItemViewModel<Presentation = unknown> = Readonly<{
   accessibilityLabel: string;
-  badges?: readonly OutlineRowBadge[];
-  bullet?: OutlineBulletViewModel;
-  checkbox?: OutlineCheckboxViewModel;
-  children?: readonly OutlineItemViewModel[];
-  childrenLayout?: OutlineChildrenLayout;
+  children?: readonly OutlineItemViewModel<Presentation>[];
   content: OutlineContent;
   editable?: boolean;
   /** Controls whether this item exposes a disclosure affordance; false keeps existing children visible. */
   expandable?: boolean;
-  /** Stable, opaque identity for this projected appearance. OutlineTree never parses or constructs it. */
+  /** Stable, opaque identity for this presented appearance. OutlineTree never parses or constructs it. */
   key: string;
-  progress?: OutlineProgressViewModel;
-  textStyle?: Readonly<{
-    decoration?: "line-through";
-    tone?: "default" | "muted";
-    weight?: "medium" | "normal";
-  }>;
+  presentation: Presentation;
 }>;
 
-export type OutlineRowViewModel = Readonly<{
+export type OutlineRowViewModel<Presentation = unknown> = Readonly<{
   depth: number;
   expanded: boolean;
   expandable: boolean;
   hasChildren: boolean;
   indexInParent: number;
-  item: OutlineItemViewModel;
+  item: OutlineItemViewModel<Presentation>;
   key: string;
   parentKey: string | null;
   siblingCount: number;
@@ -78,12 +50,12 @@ export type OutlineEditInsertion = Readonly<{
   parentKey: string | null;
 }>;
 
-export function flattenOutline(
-  items: readonly OutlineItemViewModel[],
+export function flattenOutline<Presentation>(
+  items: readonly OutlineItemViewModel<Presentation>[],
   expandedKeys: ReadonlySet<string>,
-): OutlineRowViewModel[] {
-  const rows: OutlineRowViewModel[] = [];
-  const visit = (siblings: readonly OutlineItemViewModel[], parentKey: string | null, depth: number) => {
+): OutlineRowViewModel<Presentation>[] {
+  const rows: OutlineRowViewModel<Presentation>[] = [];
+  const visit = (siblings: readonly OutlineItemViewModel<Presentation>[], parentKey: string | null, depth: number) => {
     siblings.forEach((item, indexInParent) => {
       const hasChildren = item.children !== undefined && item.children.length > 0;
       const expandable = item.expandable !== false;

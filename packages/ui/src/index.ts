@@ -16,29 +16,32 @@ export { Input } from "./components/input.js";
 export { ListDetail } from "./components/list-detail.js";
 export { NavItem, NavRailItem, NavSectionLabel } from "./components/nav.js";
 export {
+  OutlineBullet,
+  OutlineBulletDot,
   OutlineInlineContent,
+  OutlineRowProgress,
   OutlineTree,
-  type OutlineBulletMarker,
-  type OutlineBulletViewModel,
-  type OutlineCheckboxViewModel,
+  type OutlineBulletPresentation,
   type OutlineChildrenLayout,
   type OutlineContent,
+  type OutlineContentStyle,
   type OutlineCompletionContext,
   type OutlineCompletionItem,
   type OutlineCompletionMatch,
   type OutlineCompletionProvider,
-  type OutlineFieldBulletDatatype,
   type OutlineInline,
   type OutlineItemViewModel,
   type OutlineMark,
   type OutlineMerge,
   type OutlineMove,
-  type OutlineProgressViewModel,
-  type OutlineRowBadge,
+  type OutlinePresentationContext,
+  type OutlinePresentationRegistry,
+  type OutlinePresentationRowState,
+  type OutlineRowPresentation,
   type OutlineRowViewModel,
   type OutlineSelection,
   type OutlineTreeEditing,
-} from "./components/outline-tree.js";
+} from "./components/outline/outline-tree.js";
 export { PageScaffold } from "./components/page-scaffold.js";
 export { Popover } from "./components/popover.js";
 export { Progress } from "./components/progress.js";

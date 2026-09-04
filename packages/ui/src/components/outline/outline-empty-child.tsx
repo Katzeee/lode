@@ -1,4 +1,4 @@
-import { OutlineBullet } from "./outline-bullet.js";
+import { OutlineBullet, OutlineBulletDot } from "./outline-bullet.js";
 
 export function OutlineEmptyChild({
   onActivate,
@@ -23,7 +23,9 @@ export function OutlineEmptyChild({
       <span className="flex shrink-0 items-center gap-0.5 py-0.5">
         <span aria-hidden className="size-5" />
         <span className="grid size-5 place-items-center rounded-full transition-colors group-hover/outline-row:bg-secondary">
-          <OutlineBullet appearance="placeholder" haloed={false} />
+          <OutlineBullet>
+            <OutlineBulletDot quiet />
+          </OutlineBullet>
         </span>
       </span>
       <span aria-hidden className="min-w-0 flex-1 py-0.5">

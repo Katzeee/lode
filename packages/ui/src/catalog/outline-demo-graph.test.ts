@@ -11,12 +11,12 @@ import {
   updateGraphNode,
 } from "./outline-demo-graph.js";
 import { fieldValueSuggestionIds, initialGraph, textContent } from "./outline-demo-model.js";
-import { projectOutline } from "./outline-demo-projection.js";
+import { presentOutline } from "./outline-demo-presenter.js";
 
-function projectedItem(graph: typeof initialGraph, modelPath: string) {
-  const projection = projectOutline(graph);
-  const key = [...projection.modelPathsByKey].find(([, path]) => path === modelPath)?.[0];
-  const visit = (items: typeof projection.items): (typeof projection.items)[number] | undefined => {
+function presentedItem(graph: typeof initialGraph, modelPath: string) {
+  const presented = presentOutline(graph);
+  const key = [...presented.modelPathsByKey].find(([, path]) => path === modelPath)?.[0];
+  const visit = (items: typeof presented.items): (typeof presented.items)[number] | undefined => {
     for (const item of items) {
       if (item.key === key) {
         return item;
@@ -28,11 +28,11 @@ function projectedItem(graph: typeof initialGraph, modelPath: string) {
     }
     return undefined;
   };
-  return visit(projection.items);
+  return visit(presented.items);
 }
 
-describe("outline demo graph projection", () => {
-  it("projects Original and Reference children from one target Node", () => {
+describe("outline demo presenter", () => {
+  it("presents Original and Reference children from one target Node", () => {
     const referencePath = "projects/lode/roadmap/local-first-reference";
     const originalPath = "inbox/local-first-original";
     const inserted = {
@@ -51,20 +51,20 @@ describe("outline demo graph projection", () => {
     expect(resolveGraphPath(graph, `${originalPath}/shared-child-occurrence`)?.node.id).toBe(inserted.id);
   });
 
-  it("updates shared Node content once for every projected occurrence", () => {
+  it("updates shared Node content once for every presented occurrence", () => {
     const graph = updateGraphNode(initialGraph, "local-first", (node) => ({
       ...node,
       value: { ...node.value, content: textContent("Updated target") },
     }));
-    const projected = projectOutline(graph);
-    const reference = projected.items[0]?.children?.[0]?.children?.[4]?.children?.[4];
-    const original = projected.items[5]?.children?.[0];
+    const presented = presentOutline(graph);
+    const reference = presented.items[0]?.children?.[0]?.children?.[4]?.children?.[4];
+    const original = presented.items[5]?.children?.[0];
 
     expect(reference?.content).toEqual(textContent("Updated target"));
     expect(original?.content).toEqual(textContent("Updated target"));
     expect(reference).not.toHaveProperty("nodeId");
     expect(reference).not.toHaveProperty("occurrenceId");
-    expect(projected.modelPathsByKey.get(reference?.key ?? "")).toBe("projects/lode/roadmap/local-first-reference");
+    expect(presented.modelPathsByKey.get(reference?.key ?? "")).toBe("projects/lode/roadmap/local-first-reference");
   });
 
   it("keeps a cycle Reference visible but terminates expansion by Node identity", () => {
@@ -82,9 +82,9 @@ describe("outline demo graph projection", () => {
       rootOccurrenceIds: ["a-original", "b-original"],
     } as const;
 
-    const cycle = projectOutline(graph).items[0]?.children?.[0]?.children?.[0];
+    const cycle = presentOutline(graph).items[0]?.children?.[0]?.children?.[0];
     expect(cycle?.accessibilityLabel).toBe("A");
-    expect(cycle?.bullet?.appearance).toBe("reference");
+    expect(cycle?.presentation.appearance).toBe("reference");
     expect(cycle?.children).toBeUndefined();
     expect(cycle?.expandable).toBe(false);
     expect(findOriginalOccurrenceKey(graph, "b")).toBe("b-original");
@@ -128,15 +128,15 @@ describe("outline demo graph projection", () => {
       ...node,
       value: { ...node.value, content: textContent("Underway") },
     }));
-    const projection = projectOutline(renamed);
-    const valueKey = [...projection.modelPathsByKey].find(
+    const presented = presentOutline(renamed);
+    const valueKey = [...presented.modelPathsByKey].find(
       ([, path]) => path === "projects/lode/status-field/in-progress",
     )?.[0];
     if (valueKey === undefined) {
       throw new Error("Expected the Status Field Value ViewModel");
     }
     const providers = createDemoCompletionProviders({
-      fieldDefinitionIdsByKey: projection.fieldDefinitionIdsByKey,
+      fieldDefinitionIdsByKey: presented.fieldDefinitionIdsByKey,
       graph: renamed,
     });
     const valueProvider = providers.find((provider) => provider.id === completionIds.value);
@@ -146,15 +146,15 @@ describe("outline demo graph projection", () => {
       ...node,
       value: { ...node.value, field: { datatype: "plain", kind: "definition" } },
     }));
-    const plainProjection = projectOutline(plainDefinition);
+    const plainPresented = presentOutline(plainDefinition);
     const plainProviders = createDemoCompletionProviders({
-      fieldDefinitionIdsByKey: plainProjection.fieldDefinitionIdsByKey,
+      fieldDefinitionIdsByKey: plainPresented.fieldDefinitionIdsByKey,
       graph: plainDefinition,
     });
     expect(plainProviders.find((provider) => provider.id === completionIds.value)?.items(valueKey, "")).toEqual([]);
   });
 
-  it("projects a Field's presentation from the Node alone, wherever the Field is moved", () => {
+  it("presents a Field from the Node alone, wherever the Field is moved", () => {
     const fieldPath = "projects/lode/review-date-field";
     const field = resolveGraphPath(initialGraph, fieldPath);
     if (field === null) {
@@ -164,12 +164,11 @@ describe("outline demo graph projection", () => {
     for (const targetPath of ["projects/lode/owner-field/team-owner", "projects/lode/owner-field"]) {
       const graph = insertGraphNode(detached, targetPath, 0, field.node, field.occurrence);
       const nestedFieldPath = `${targetPath}/review-date-field`;
-      const nestedField = projectedItem(graph, nestedFieldPath);
+      const nestedField = presentedItem(graph, nestedFieldPath);
 
-      expect(nestedField?.childrenLayout).toBe("beside");
-      expect(nestedField?.bullet?.marker?.type).toBe("field");
+      expect(nestedField?.presentation).toMatchObject({ childrenLayout: "beside", kind: "field" });
       expect(nestedField?.editable).toBe(false);
-      expect(projectedItem(graph, `${nestedFieldPath}/review-date-value`)?.childrenLayout).toBeUndefined();
+      expect(presentedItem(graph, `${nestedFieldPath}/review-date-value`)?.presentation.childrenLayout).toBeUndefined();
       expect(resolveGraphPath(graph, `${nestedFieldPath}/review-date-value`)?.node.value.content).toEqual(
         textContent("Sep 12, 2026"),
       );

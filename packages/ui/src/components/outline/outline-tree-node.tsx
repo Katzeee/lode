@@ -1,7 +1,8 @@
 import { createContext, Fragment, useContext, type MouseEvent, type PointerEvent } from "react";
 
-import { cn } from "./cn.js";
+import { cn } from "../cn.js";
 import { OutlineEmptyChild } from "./outline-empty-child.js";
+import type { ResolvedOutlineRowPresentation } from "./outline-presentation.js";
 import type { OutlineEditorBinding, OutlineTreeEditing } from "./outline-tree-edit-contract.js";
 import { OutlineTreeRow } from "./outline-tree-row.js";
 import type { OutlineItemViewModel, OutlineMove, OutlineRowViewModel } from "./outline-tree-view-model.js";
@@ -19,14 +20,13 @@ export type OutlineNodeEnvironment = Readonly<{
   editBinding: OutlineEditorBinding | null;
   editing?: OutlineTreeEditing;
   focusKey: string | null;
-  onActivate?: (key: string) => void;
-  onCheckedChange?: (key: string, checked: boolean) => void;
   onCommitAndExit: () => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onPointerDown: (key: string) => (event: PointerEvent) => void;
   onRowClick: (row: OutlineRowViewModel) => (event: MouseEvent) => void;
   onTextClick: (row: OutlineRowViewModel) => (event: MouseEvent<HTMLDivElement>) => void;
   rowDomId: (key: string) => string;
+  present: (row: OutlineRowViewModel, selected: boolean) => ResolvedOutlineRowPresentation;
   rowsByKey: ReadonlyMap<string, OutlineRowViewModel>;
   selectedKeys: ReadonlySet<string>;
   showGuides: boolean;
@@ -48,13 +48,15 @@ function useOutlineNodeEnvironment(): OutlineNodeEnvironment {
 export function OutlineChildren({
   items,
   parent,
+  parentPresentation,
 }: Readonly<{
   items: readonly OutlineItemViewModel[];
   parent: OutlineRowViewModel | null;
+  parentPresentation?: ResolvedOutlineRowPresentation;
 }>) {
   const environment = useOutlineNodeEnvironment();
   const parentKey = parent?.key ?? null;
-  const beside = parent?.item.childrenLayout === "beside";
+  const beside = parentPresentation?.childrenLayout === "beside";
   const visible = parent === null || parent.expanded ? items : [];
   const dropIndex =
     environment.dropTarget?.targetParentKey === parentKey
@@ -99,7 +101,9 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
   if (row === undefined) {
     return null;
   }
-  const beside = item.childrenLayout === "beside";
+  const selected = environment.selectedKeys.has(row.key);
+  const presentation = environment.present(row, selected);
+  const beside = presentation.childrenLayout === "beside";
   return (
     <div
       className={cn("min-w-0", beside && "grid items-start")}
@@ -115,8 +119,6 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
         editActiveKey={environment.editActiveKey}
         editBinding={environment.editBinding}
         editing={environment.editing}
-        onActivate={environment.onActivate}
-        onCheckedChange={environment.onCheckedChange}
         onCommitAndExit={environment.onCommitAndExit}
         onExpandedChange={environment.onExpandedChange}
         onPointerDown={environment.onPointerDown(row.key)}
@@ -124,10 +126,11 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
         onTextClick={environment.onTextClick(row)}
         row={row}
         rowDomId={environment.rowDomId(row.key)}
-        selected={environment.selectedKeys.has(row.key)}
+        presentation={presentation}
+        selected={selected}
         selectionSize={environment.selectedKeys.size}
       />
-      <OutlineChildren items={item.children ?? []} parent={row} />
+      <OutlineChildren items={item.children ?? []} parent={row} parentPresentation={presentation} />
     </div>
   );
 }

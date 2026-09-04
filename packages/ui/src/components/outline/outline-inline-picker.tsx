@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 
-import { menuItemClassName, menuPopupClassName } from "./dropdown-menu.js";
+import { menuItemClassName, menuPopupClassName } from "../dropdown-menu.js";
 import type { OutlineCompletionItem, OutlineEditorCompletionProvider } from "./outline-tree-edit-contract.js";
 
 export type OutlinePickerState = Readonly<{

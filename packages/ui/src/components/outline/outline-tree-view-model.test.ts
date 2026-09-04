@@ -18,6 +18,7 @@ const item = (key: string, label: string, children?: readonly OutlineItemViewMod
   children,
   content: label.length === 0 ? [] : [{ text: label, type: "text" }],
   key,
+  presentation: null,
 });
 
 const keys = {
@@ -25,8 +26,8 @@ const keys = {
   alphaOne: "leaf one",
   alphaTwo: "leaf:two",
   beta: "opaque beta",
-  inbox: "inbox#projection",
-  projects: "projection projects",
+  inbox: "inbox#appearance",
+  projects: "appearance projects",
 } as const;
 
 const sample = [

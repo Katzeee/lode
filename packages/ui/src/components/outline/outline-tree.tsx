@@ -14,17 +14,15 @@ import { OutlineInlineContent } from "./outline-tree-editor.js";
 import { OutlineSelectionToolbar } from "./outline-tree-controls.js";
 import { OutlineChildren, OutlineNodeEnvironmentProvider, type OutlineNodeEnvironment } from "./outline-tree-node.js";
 import { OutlineItemContent } from "./outline-tree-row.js";
+import { resolveOutlinePresentation, type OutlinePresentationRegistry } from "./outline-presentation.js";
 import {
   computeIndent,
   computeOutdent,
   computeReorder,
   flattenOutline,
-  type OutlineCheckboxViewModel,
-  type OutlineChildrenLayout,
   type OutlineItemViewModel,
   type OutlineMerge,
   type OutlineMove,
-  type OutlineProgressViewModel,
   type OutlineRowViewModel,
 } from "./outline-tree-view-model.js";
 import {
@@ -38,56 +36,61 @@ import {
 } from "./outline-selection.js";
 
 export { OutlineInlineContent };
-export type { OutlineBulletMarker, OutlineBulletViewModel, OutlineFieldBulletDatatype } from "./outline-bullet.js";
-export type { OutlineRowBadge } from "./outline-row.js";
+export { OutlineBullet, OutlineBulletDot } from "./outline-bullet.js";
+export { OutlineRowProgress } from "./outline-row.js";
 export type { OutlineContent, OutlineInline, OutlineMark } from "./outline-content.js";
+export type {
+  OutlineBulletPresentation,
+  OutlineChildrenLayout,
+  OutlineContentStyle,
+  OutlinePresentationContext,
+  OutlinePresentationRegistry,
+  OutlinePresentationRowState,
+  OutlineRowPresentation,
+} from "./outline-presentation.js";
 export type {
   OutlineCompletionContext,
   OutlineCompletionItem,
   OutlineCompletionMatch,
   OutlineCompletionProvider,
-  OutlineCheckboxViewModel,
-  OutlineChildrenLayout,
   OutlineItemViewModel,
   OutlineMerge,
   OutlineMove,
-  OutlineProgressViewModel,
   OutlineRowViewModel,
   OutlineSelection,
   OutlineTreeEditing,
 };
 
-type OutlineTreeProperties = Readonly<{
+type OutlineTreeProperties<Presentation, Action> = Readonly<{
   editing?: OutlineTreeEditing;
   expandedKeys: ReadonlySet<string>;
-  items: readonly OutlineItemViewModel[];
+  items: readonly OutlineItemViewModel<Presentation>[];
   label: string;
   onExpandedChange: (key: string, expanded: boolean) => void;
   /** Structure edits: Tab/Shift+Tab indents and Ctrl/Cmd+Shift+Arrow reorders the selection atomically. */
   onMove?: (move: OutlineMove) => void;
   onDeleteSelection?: (keys: readonly string[]) => void;
-  /** Reports explicit Enter or bullet activation; navigation belongs to the consumer. */
-  onActivate?: (key: string) => void;
-  onCheckedChange?: (key: string, checked: boolean) => void;
+  onPresentationAction?: (key: string, action: Action) => void;
   onSelectionChange?: (selection: OutlineSelection) => void;
   selection?: OutlineSelection;
   showGuides?: boolean;
+  presentation: OutlinePresentationRegistry<Presentation, Action>;
 }>;
 
-export function OutlineTree({
+export function OutlineTree<Presentation, Action>({
   editing,
   expandedKeys,
   items,
   label,
-  onActivate,
-  onCheckedChange,
   onDeleteSelection,
   onExpandedChange,
   onMove,
+  onPresentationAction,
   onSelectionChange,
+  presentation,
   selection,
   showGuides = false,
-}: OutlineTreeProperties) {
+}: OutlineTreeProperties<Presentation, Action>) {
   const treeId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const rows = useMemo(() => flattenOutline(items, expandedKeys), [expandedKeys, items]);
@@ -99,6 +102,21 @@ export function OutlineTree({
   );
   const cursorKey = activeSelection.focusKey;
   const cursorIndex = cursorKey === null ? -1 : rows.findIndex((row) => row.key === cursorKey);
+  const presentRow = (row: OutlineRowViewModel, selected: boolean) =>
+    resolveOutlinePresentation(
+      presentation,
+      row.item.presentation as Presentation,
+      row.key,
+      row.item.accessibilityLabel,
+      {
+        depth: row.depth,
+        expanded: row.expanded,
+        expandable: row.expandable,
+        hasChildren: row.hasChildren,
+        selected,
+      },
+      onPresentationAction,
+    );
 
   const rowDomId = (key: string) => `${treeId}-${encodeURIComponent(key)}`;
   const scrollToKey = (key: string) => {
@@ -159,7 +177,7 @@ export function OutlineTree({
       ? []
       : drag.sourceKeys
           .map((sourceKey) => rowsByKey.get(sourceKey))
-          .filter((row): row is OutlineRowViewModel => row !== undefined);
+          .filter((row): row is OutlineRowViewModel<Presentation> => row !== undefined);
 
   const selectionRoots = selectedOutlineRoots(rows, activeSelection.keys);
 
@@ -214,7 +232,7 @@ export function OutlineTree({
       moveCursor(rows.length - 1);
     } else if (event.key === "Enter" && cursor !== undefined) {
       if (activeSelection.keys.size > 1 || editing === undefined || cursor.item.editable === false) {
-        onActivate?.(cursor.key);
+        presentRow(cursor, activeSelection.keys.has(cursor.key)).bullet.onActivate?.();
       } else {
         edit.startAtEnd(cursor);
       }
@@ -270,8 +288,6 @@ export function OutlineTree({
     editBinding: edit.binding,
     editing,
     focusKey: cursorKey,
-    onActivate,
-    onCheckedChange,
     onCommitAndExit: edit.commitAndExit,
     onExpandedChange,
     onPointerDown: (key) => (event) => {
@@ -297,6 +313,7 @@ export function OutlineTree({
         edit.startAtCaret(row, caretOffsetAtPoint(content, event.clientX, event.clientY));
       }
     },
+    present: presentRow,
     rowDomId,
     rowsByKey,
     selectedKeys: activeSelection.keys,
@@ -345,7 +362,7 @@ export function OutlineTree({
           className="pointer-events-none fixed z-50 max-w-72 rounded-md border border-border bg-popover px-3 py-1.5 text-body text-popover-foreground shadow-lg"
           style={{ left: drag.pointer.x + 14, top: drag.pointer.y + 12 }}
         >
-          <OutlineItemContent onCheckedChange={onCheckedChange} row={draggedRows[0]} />
+          <OutlineItemContent presentation={presentRow(draggedRows[0], false)} row={draggedRows[0]} />
           {draggedRows.length <= 1 ? null : (
             <span className="ml-2 text-caption text-muted-foreground">+{String(draggedRows.length - 1)}</span>
           )}

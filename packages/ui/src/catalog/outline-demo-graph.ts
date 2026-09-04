@@ -1,4 +1,4 @@
-import { contentToPlainText } from "../components/outline-content.js";
+import { contentToPlainText } from "../components/outline/outline-content.js";
 import type { DemoGraph, DemoNode, DemoOccurrence } from "./outline-demo-model.js";
 
 export function resolveGraphPath(

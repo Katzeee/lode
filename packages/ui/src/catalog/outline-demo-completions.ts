@@ -2,8 +2,8 @@ import type {
   OutlineCompletionContext,
   OutlineCompletionMatch,
   OutlineCompletionProvider,
-} from "../components/outline-tree.js";
-import { contentToPlainText } from "../components/outline-content.js";
+} from "../components/outline/outline-tree.js";
+import { contentToPlainText } from "../components/outline/outline-content.js";
 import { fieldValueSuggestionIds, outlineCommands, type DemoGraph } from "./outline-demo-model.js";
 import { searchNodes } from "./outline-demo-graph.js";
 

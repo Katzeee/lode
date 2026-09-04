@@ -1,12 +1,12 @@
-import type { OutlineContent } from "../components/outline-content.js";
+import type { OutlineContent } from "../components/outline/outline-content.js";
 
 export type FieldDatatype = "checkbox" | "date" | "number" | "options" | "options-from-supertag" | "plain";
 
 export type NodeValue = Readonly<{
-  bullet?: "calendar" | "person" | "search";
   content: OutlineContent;
   editable?: boolean;
   field?: Readonly<{ datatype: FieldDatatype; kind: "definition" }> | Readonly<{ definitionId: string; kind: "field" }>;
+  intrinsicNodeType?: "calendar" | "search";
   progress?: Readonly<{ max: number; value: number }>;
   tags?: readonly string[];
   todo?: "done" | "open";
@@ -157,9 +157,9 @@ const initialSeeds: readonly Seed[] = [
       ),
     ),
   ),
-  seed("daily-notes", { bullet: "calendar", content: textContent("Daily notes"), editable: false }),
-  seed("open-decisions", { bullet: "search", content: textContent("Open design decisions") }),
-  seed("kei", { bullet: "person", content: textContent("Kei") }),
+  seed("daily-notes", { content: textContent("Daily notes"), editable: false, intrinsicNodeType: "calendar" }),
+  seed("open-decisions", { content: textContent("Open design decisions"), intrinsicNodeType: "search" }),
+  seed("kei", { content: textContent("Kei"), tags: ["#person"] }),
   seed("inbox", { content: textContent("Reading inbox") }, [
     seed("local-first-original", { content: textContent("Local-first software essay") }, localFirstChildren, {
       nodeId: "local-first",
@@ -211,7 +211,7 @@ export const initialGraph = graphFromSeeds(initialSeeds);
 export const outlineCommands = [
   { description: "Add an actionable checkbox to this node", id: "task", keywords: ["todo"], label: "Make task" },
   {
-    description: "Apply the project supertag presentation",
+    description: "Apply the #project Supertag",
     id: "project",
     keywords: ["tag", "supertag"],
     label: "Add #project",

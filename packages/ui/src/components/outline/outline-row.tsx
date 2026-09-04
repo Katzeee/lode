@@ -1,28 +1,22 @@
 import type { ReactNode } from "react";
 
-import { Badge } from "./badge.js";
-import { cn } from "./cn.js";
-
-export type OutlineRowBadge = Readonly<{
-  label: string;
-  tone?: "accent" | "destructive" | "neutral" | "success" | "warning";
-}>;
+import { cn } from "../cn.js";
 
 export function OutlineRowContent({
-  badges = [],
   children,
   className,
   details,
   leading,
   prefix,
+  suffix,
   trailing,
 }: Readonly<{
-  badges?: readonly OutlineRowBadge[];
   children: ReactNode;
   className?: string;
   details?: ReactNode;
   leading?: ReactNode;
   prefix?: ReactNode;
+  suffix?: ReactNode;
   trailing?: ReactNode;
 }>) {
   return (
@@ -36,17 +30,7 @@ export function OutlineRowContent({
             </span>
           )}
           {children}
-          {badges.map((badge) => (
-            <Badge
-              className="ml-1.5 align-[0.08em]"
-              data-ui="outline-row-badge"
-              key={badge.label}
-              size="inline"
-              tone={badge.tone}
-            >
-              {badge.label}
-            </Badge>
-          ))}
+          {suffix}
           {trailing === undefined ? null : (
             <span className="ml-1.5 inline-flex align-middle" data-ui="outline-row-trailing">
               {trailing}

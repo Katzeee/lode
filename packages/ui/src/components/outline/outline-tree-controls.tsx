@@ -1,8 +1,8 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 
-import { cn } from "./cn.js";
-import { Icon } from "./icon.js";
-import { OutlineItemBullet } from "./outline-bullet.js";
+import { cn } from "../cn.js";
+import { Icon } from "../icon.js";
+import type { ResolvedOutlineBulletPresentation } from "./outline-presentation.js";
 import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
 export function OutlineSelectionToolbar({
@@ -72,18 +72,18 @@ export function OutlineSelectionToolbar({
 
 export function OutlineRowControls({
   beforeIntent,
+  bullet,
   consumeDragClick,
   draggable,
   onDragHandleDown,
-  onActivate,
   onExpandedChange,
   row,
 }: Readonly<{
   beforeIntent: () => void;
+  bullet: ResolvedOutlineBulletPresentation;
   consumeDragClick: () => boolean;
   draggable: boolean;
   onDragHandleDown: (event: ReactPointerEvent) => void;
-  onActivate?: (key: string) => void;
   onExpandedChange: (key: string, expanded: boolean) => void;
   row: OutlineRowViewModel;
 }>) {
@@ -110,7 +110,7 @@ export function OutlineRowControls({
           name="chevron-right"
         />
       </button>
-      {onActivate === undefined ? (
+      {bullet.onActivate === undefined ? (
         <span
           aria-hidden
           className={cn(
@@ -120,11 +120,11 @@ export function OutlineRowControls({
           data-ui="outline-bullet"
           onPointerDown={draggable ? onDragHandleDown : undefined}
         >
-          <OutlineItemBullet haloed={row.hasChildren && !row.expanded} viewModel={row.item.bullet} />
+          {bullet.content}
         </span>
       ) : (
         <button
-          aria-label={`Activate ${row.item.accessibilityLabel}`}
+          aria-label={bullet.accessibilityLabel ?? `Activate ${row.item.accessibilityLabel}`}
           className={cn(
             "grid size-5 cursor-pointer place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/45",
             draggable && "touch-none active:cursor-grabbing",
@@ -134,7 +134,7 @@ export function OutlineRowControls({
             event.stopPropagation();
             if (!consumeDragClick()) {
               beforeIntent();
-              onActivate(row.key);
+              bullet.onActivate?.();
             }
           }}
           onMouseDown={(event) => event.preventDefault()}
@@ -142,7 +142,7 @@ export function OutlineRowControls({
           tabIndex={-1}
           type="button"
         >
-          <OutlineItemBullet haloed={row.hasChildren && !row.expanded} viewModel={row.item.bullet} />
+          {bullet.content}
         </button>
       )}
     </span>

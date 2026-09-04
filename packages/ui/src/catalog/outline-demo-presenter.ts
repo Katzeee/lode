@@ -1,24 +1,21 @@
-import { contentToPlainText } from "../components/outline-content.js";
-import type {
-  OutlineBulletMarker,
-  OutlineFieldBulletDatatype,
-  OutlineItemViewModel,
-} from "../components/outline-tree.js";
+import { contentToPlainText } from "../components/outline/outline-content.js";
+import type { OutlineItemViewModel } from "../components/outline/outline-tree.js";
+import type { DemoFieldGlyph, DemoOutlinePresentation } from "./outline-demo-presentation.js";
 import { resolveGraphPath } from "./outline-demo-graph.js";
 import type { DemoGraph, DemoNode, DemoOccurrence, FieldDatatype, NodeValue } from "./outline-demo-model.js";
 
-export type DemoOutlineProjection = Readonly<{
+export type DemoPresentedOutline = Readonly<{
   fieldDefinitionIdsByKey: ReadonlyMap<string, string>;
-  items: readonly OutlineItemViewModel[];
+  items: readonly OutlineItemViewModel<DemoOutlinePresentation>[];
   modelPathsByKey: ReadonlyMap<string, string>;
 }>;
 
-export function projectOutline(graph: DemoGraph, parentKey: string | null = null): DemoOutlineProjection {
+export function presentOutline(graph: DemoGraph, parentKey: string | null = null): DemoPresentedOutline {
   const parent = parentKey === null ? null : resolveGraphPath(graph, parentKey);
   const ids = parentKey === null ? graph.rootOccurrenceIds : (parent?.node.childOccurrenceIds ?? []);
   const modelPathsByKey = new Map<string, string>();
   const fieldDefinitionIdsByKey = new Map<string, string>();
-  const items = projectOccurrenceIds(
+  const items = presentOccurrenceIds(
     graph,
     ids,
     parentKey,
@@ -30,7 +27,7 @@ export function projectOutline(graph: DemoGraph, parentKey: string | null = null
   return { fieldDefinitionIdsByKey, items, modelPathsByKey };
 }
 
-function projectOccurrenceIds(
+function presentOccurrenceIds(
   graph: DemoGraph,
   ids: readonly string[],
   parentPath: string | null,
@@ -38,7 +35,7 @@ function projectOccurrenceIds(
   ancestorNodeIds: ReadonlySet<string>,
   modelPathsByKey: Map<string, string>,
   fieldDefinitionIdsByKey: Map<string, string>,
-): readonly OutlineItemViewModel[] {
+): readonly OutlineItemViewModel<DemoOutlinePresentation>[] {
   return ids.flatMap((occurrenceId) => {
     const occurrence = graph.occurrences[occurrenceId];
     const node = occurrence === undefined ? undefined : graph.nodes[occurrence.nodeId];
@@ -58,16 +55,10 @@ function projectOccurrenceIds(
     return [
       {
         accessibilityLabel: contentToPlainText(node.value.content) || "Untitled item",
-        badges: node.value.tags?.map((label) => ({ label, tone: "accent" })),
-        bullet: projectBullet(graph, node.value, occurrence, fieldDefinitionId !== undefined),
-        checkbox:
-          node.value.todo === undefined
-            ? undefined
-            : { checked: node.value.todo === "done", label: `Toggle ${contentToPlainText(node.value.content)}` },
         children:
           cyclic || node.childOccurrenceIds.length === 0
             ? undefined
-            : projectOccurrenceIds(
+            : presentOccurrenceIds(
                 graph,
                 node.childOccurrenceIds,
                 modelPath,
@@ -76,23 +67,17 @@ function projectOccurrenceIds(
                 modelPathsByKey,
                 fieldDefinitionIdsByKey,
               ),
-        childrenLayout: node.value.field?.kind === "field" ? "beside" : undefined,
         content: node.value.content,
         editable: node.value.editable !== false,
         expandable: cyclic ? false : occurrence.expandable,
         key,
-        progress: node.value.progress,
-        textStyle: {
-          decoration: node.value.todo === "done" ? "line-through" : undefined,
-          tone: node.value.todo === "done" || node.value.field?.kind === "field" ? "muted" : "default",
-          weight: node.value.field?.kind === "field" ? "medium" : "normal",
-        },
+        presentation: presentNode(graph, node.value, occurrence, fieldDefinitionId !== undefined),
       },
     ];
   });
 }
 
-function fieldBulletDatatype(datatype: FieldDatatype): OutlineFieldBulletDatatype {
+function fieldGlyph(datatype: FieldDatatype): DemoFieldGlyph {
   return datatype === "plain" ? "text" : datatype === "options-from-supertag" ? "supertag" : datatype;
 }
 
@@ -104,25 +89,35 @@ function fieldDatatype(graph: DemoGraph, value: NodeValue): FieldDatatype | unde
   return definition?.value.field?.kind === "definition" ? definition.value.field.datatype : undefined;
 }
 
-function projectBullet(
+function presentNode(
   graph: DemoGraph,
   value: NodeValue,
   occurrence: DemoOccurrence,
   fieldValue: boolean,
-): OutlineItemViewModel["bullet"] {
-  let marker: OutlineBulletMarker | undefined;
-  if (value.field !== undefined) {
-    marker = {
-      datatype: fieldBulletDatatype(fieldDatatype(graph, value) ?? "plain"),
-      prominence: value.field.kind === "definition" ? "strong" : "default",
-      type: "field",
-    };
-  } else if (!fieldValue && value.bullet !== undefined) {
-    marker = { type: value.bullet };
-  }
-  return {
-    appearance: occurrence.appearance === "reference" ? "reference" : "node",
-    marker,
-    tone: value.tags === undefined ? "default" : "accent",
+): DemoOutlinePresentation {
+  const base = {
+    appearance: occurrence.appearance === "reference" ? ("reference" as const) : ("node" as const),
+    badges: value.tags?.map((label) => ({ label, tone: "accent" as const })),
+    checkbox:
+      value.todo === undefined
+        ? undefined
+        : { checked: value.todo === "done", label: `Toggle ${contentToPlainText(value.content)}` },
+    childrenLayout: value.field?.kind === "field" ? ("beside" as const) : undefined,
+    contentStyle: {
+      decoration: value.todo === "done" ? ("line-through" as const) : undefined,
+      tone: value.todo === "done" || value.field?.kind === "field" ? ("muted" as const) : ("default" as const),
+      weight: value.field?.kind === "field" ? ("medium" as const) : ("normal" as const),
+    },
+    progress: value.progress,
   };
+  if (value.field !== undefined) {
+    return {
+      ...base,
+      datatype: fieldGlyph(fieldDatatype(graph, value) ?? "plain"),
+      kind: "field",
+      prominence: value.field.kind === "definition" ? "strong" : "default",
+    };
+  }
+  const kind = fieldValue ? "plain" : (value.intrinsicNodeType ?? "plain");
+  return { ...base, kind };
 }
