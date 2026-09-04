@@ -703,7 +703,7 @@ async function verifyOutlineEditing(page) {
   const createdField = page
     .locator('[data-ui="outline-node"][data-children-layout="beside"] > [data-ui="outline-row"]', { hasText: "Notes" })
     .first();
-  await page.waitForTimeout(200);
+  await createdField.waitFor({ state: "visible" });
   const createdRows = await page
     .locator('[data-ui="outline-row"]')
     .evaluateAll((rows) => rows.map((row) => ({ parent: row.dataset.parentKey, text: row.textContent })));
@@ -799,8 +799,9 @@ async function outlineDragContext(page) {
       targetHandleBox.x + targetHandleBox.width / 2 + depthOffset * 20,
       edge === "before" ? targetBox.y + 2 : targetBox.y + targetBox.height - 2,
     );
-    await page.waitForTimeout(50);
-    const indicatorBox = await tree.locator('[data-ui="outline-drop-indicator"]').first().boundingBox();
+    const indicator = tree.locator('[data-ui="outline-drop-indicator"] > div').first();
+    await indicator.waitFor({ state: "visible" });
+    const indicatorBox = await indicator.boundingBox();
     await page.mouse.up();
     return indicatorBox;
   };

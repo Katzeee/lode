@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 
 import { designSystemTest, navigateToCatalogPage } from "./support/browser.mjs";
-import { deviceViewports } from "./support/device-viewports.mjs";
 
 designSystemTest("overlays remain reachable in a short viewport", verifyOverlaysAtShortViewport);
 
 async function verifyOverlaysAtShortViewport(page) {
-  const viewport = deviceViewports.find((candidate) => candidate.label.startsWith("phone landscape"));
+  const viewport = { height: 390, label: "phone landscape", width: 844 };
   await page.setViewportSize({ height: viewport.height, width: viewport.width });
   await navigateToCatalogPage(page, "components/overlays");
 

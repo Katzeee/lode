@@ -11,12 +11,17 @@ app.disableHardwareAcceleration();
 // report false horizontal overflow at the 320px floor.
 app.commandLine.appendSwitch("enable-features", "OverlayScrollbar");
 app.whenReady().then(async () => {
+  // Playwright stability checks need foreground-rate animation frames. Chromium considers a hidden
+  // window backgrounded, so the harness stays compositor-visible but outside the desktop and taskbar.
   const window = new BrowserWindow({
     frame: false,
     height: 900,
-    show: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    show: true,
+    skipTaskbar: true,
+    webPreferences: { backgroundThrottling: false, contextIsolation: true, nodeIntegration: false },
     width: 1280,
+    x: -10_000,
+    y: -10_000,
   });
   await window.loadFile(documentPath);
 });

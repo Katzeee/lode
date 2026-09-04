@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { tokens } from "../../../design-tokens/dist/index.js";
 import { designSystemTest } from "./support/browser.mjs";
 
 designSystemTest("responsive patterns select the correct layout", verifyResponsivePatterns);
@@ -10,10 +11,11 @@ async function verifyResponsivePatterns(page) {
   });
   const shell = page.locator('main [data-ui="app-shell"]');
   await shell.waitFor({ state: "visible" });
+  const { expanded, medium } = tokens.layout.breakpoint;
   for (const [width, expected] of [
-    [500, "compact"],
-    [700, "medium"],
-    [900, "expanded"],
+    [medium - 1, "compact"],
+    [medium, "medium"],
+    [expanded, "expanded"],
   ]) {
     await shell.evaluate((element, nextWidth) => {
       element.style.width = `${nextWidth}px`;
