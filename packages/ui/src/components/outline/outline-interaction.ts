@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObjec
 import { contentLength } from "./outline-content.js";
 import type { OutlineContent } from "./outline-content.js";
 import { outlineClipboard } from "./outline-clipboard.js";
+import { outlineCommandForKey, outlineCommandDispatcher, type OutlineHostCommand } from "./outline-commands.js";
 import { discloseOutline } from "./outline-edit-intents.js";
 import { handleOutlineNodeKey, type OutlineSelectionOperation } from "./outline-node-keyboard.js";
 import { useOutlinePointer } from "./outline-pointer.js";
@@ -34,6 +35,7 @@ type InteractionOptions = Readonly<{
   onExpandedChange: (key: string, expanded: boolean) => void;
   scrollToKey: (key: string) => void;
   onActivate: (row: OutlineRowViewModel) => void;
+  commands?: readonly OutlineHostCommand[];
 }>;
 
 export function useOutlineInteraction(options: InteractionOptions) {
@@ -93,6 +95,8 @@ export function useOutlineInteraction(options: InteractionOptions) {
     rows,
     scrollToKey,
     onKeyDown: (event, context) => handleNodeKey(event, context),
+    onExecuteCommand: (id, content) => dispatchCommand(id, "completion", undefined, content),
+    canExecuteCommand: (id) => canExecuteCommand(id, undefined, "completion"),
     onMove: onMove === undefined ? undefined : applyMove,
   });
 
@@ -150,8 +154,22 @@ export function useOutlineInteraction(options: InteractionOptions) {
     edit.startAtCaret(row, caret);
     scrollToKey(row.key);
   };
-  const handleNodeKey = (event: KeyboardEvent | globalThis.KeyboardEvent, context: OutlineTextKeyContext) =>
-    handleOutlineNodeKey(event, context, {
+  const { execute: dispatchCommand, canExecute: canExecuteCommand } = outlineCommandDispatcher({
+    commands: options.commands ?? [],
+    rows,
+    selectedKeys: selectedOutlineRoots(rows, selection.keys),
+    cursorKey,
+    getPosition: edit.getPosition,
+    checkpoint: (position) => editing?.history?.checkpoint(position, "operation"),
+    restore: edit.restore,
+  });
+  const executeCommand = (...args: Parameters<typeof dispatchCommand>) => dispatchCommand(...args) !== false;
+  const handleNodeKey = (event: KeyboardEvent | globalThis.KeyboardEvent, context: OutlineTextKeyContext) => {
+    const command = outlineCommandForKey(options.commands ?? [], event);
+    if (command !== undefined && executeCommand(command.id, "keyboard", undefined, context.content)) {
+      return true;
+    }
+    return handleOutlineNodeKey(event, context, {
       rows,
       cursorKey: cursorKey ?? selection.focusKey ?? rows[0]?.key ?? null,
       selection,
@@ -173,8 +191,8 @@ export function useOutlineInteraction(options: InteractionOptions) {
           activate(row, position.caret);
         }
       },
-      toggle: (key) => editing?.onToggle?.(key),
     });
+  };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.target !== event.currentTarget || event.nativeEvent.isComposing) {
@@ -217,15 +235,13 @@ export function useOutlineInteraction(options: InteractionOptions) {
     }
     const modified = event.ctrlKey || event.metaKey;
     let handled = true;
-    if (modified && !event.altKey && event.key === "Enter") {
-      editing?.onToggle?.(cursor.key);
-    } else if (modified && !event.altKey && ["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) {
+    if (modified && !event.altKey && ["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) {
       discloseOutline(cursor, event.key === "ArrowDown" || event.key === "PageDown", event.shiftKey, expand);
     } else if (event.altKey && event.shiftKey && !modified && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       move([cursor.key], event.key === "ArrowUp" ? "reorder-up" : "reorder-down");
     } else if (event.key === "Tab" && !modified && !event.altKey) {
       move([cursor.key], event.shiftKey ? "outdent" : "indent");
-    } else if (event.key === "Enter" && !event.altKey) {
+    } else if (event.key === "Enter" && !event.altKey && !modified) {
       if (editing === undefined || cursor.item.editable === false) {
         options.onActivate(cursor);
       } else {
@@ -270,6 +286,8 @@ export function useOutlineInteraction(options: InteractionOptions) {
     remove,
   });
   return {
+    executeCommand,
+    canExecuteCommand,
     clipboard,
     createRoot,
     edit,

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { taskCommandIds } from "./outline-demo-task-commands.js";
 
 import { Checkbox } from "../components/checkbox.js";
 import { cn } from "../components/cn.js";
@@ -32,10 +33,7 @@ export type DemoOutlinePresentation = DemoPresentationBase &
       }>
   );
 
-export type DemoOutlinePresentationAction =
-  | Readonly<{ type: "configure-field" }>
-  | Readonly<{ type: "open-node" }>
-  | Readonly<{ checked: boolean; type: "set-checked" }>;
+export type DemoOutlinePresentationAction = Readonly<{ type: "configure-field" }> | Readonly<{ type: "open-node" }>;
 
 function FieldTypeGlyph({ datatype }: Readonly<{ datatype: DemoFieldGlyph }>) {
   if (datatype === "checkbox") {
@@ -221,8 +219,12 @@ export const demoOutlinePresentationRegistry: OutlinePresentationRegistry<
           aria-label={presentation.checkbox.label}
           checked={presentation.checkbox.checked}
           className="size-4"
-          disabled={!context.canDispatch}
-          onCheckedChange={(checked) => context.dispatch({ checked, type: "set-checked" })}
+          disabled={
+            !context.canExecuteCommand(presentation.checkbox.checked ? taskCommandIds.reopen : taskCommandIds.complete)
+          }
+          onCheckedChange={(checked) =>
+            context.executeCommand(checked ? taskCommandIds.complete : taskCommandIds.reopen)
+          }
           onClick={(event) => event.stopPropagation()}
           tabIndex={-1}
         />

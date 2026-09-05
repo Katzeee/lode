@@ -587,6 +587,22 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/ui/src/components/outline/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/catalog/**"],
+              message: "Outline owns editing mechanisms; catalog domain adapters depend on Outline.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["apps/desktop/src/renderer.tsx", "apps/desktop/src/renderer/**/*.tsx", "packages/ui/src/**/*.tsx"],
     rules: {
       "no-restricted-globals": ["error", "Buffer", "__dirname", "__filename", "global", "module", "process", "require"],

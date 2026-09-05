@@ -1,6 +1,8 @@
 import { useId, useMemo, useRef } from "react";
 
 import { useOutlineInteraction } from "./outline-interaction.js";
+import type { OutlineHostCommand } from "./outline-commands.js";
+export type { OutlineHostCommand, OutlineCommandContext, OutlineCommandKeyBinding } from "./outline-commands.js";
 import { OutlineEmptyChild } from "./outline-empty-child.js";
 import { useOutlineDrag } from "./outline-tree-drag.js";
 import type {
@@ -29,7 +31,7 @@ import {
   type OutlineEditPosition,
   type OutlineRowViewModel,
 } from "./outline-tree-view-model.js";
-import type { OutlineSelection } from "./outline-selection.js";
+import { outlineSelectionCoverage, selectedOutlineRoots, type OutlineSelection } from "./outline-selection.js";
 
 export { OutlineInlineContent };
 export { OutlineBullet, OutlineBulletDot } from "./outline-bullet.js";
@@ -65,6 +67,7 @@ export type {
 };
 
 type OutlineTreeProperties<Presentation, Action> = Readonly<{
+  commands?: readonly OutlineHostCommand[];
   inlineExtensions?: readonly OutlineInlineExtension[];
   editing?: OutlineTreeEditing;
   expandedKeys: ReadonlySet<string>;
@@ -82,6 +85,7 @@ type OutlineTreeProperties<Presentation, Action> = Readonly<{
 }>;
 
 export function OutlineTree<Presentation, Action>({
+  commands,
   inlineExtensions = [],
   editing,
   expandedKeys,
@@ -108,9 +112,14 @@ export function OutlineTree<Presentation, Action>({
       row.item.accessibilityLabel,
       { depth: row.depth, expanded: row.expanded, expandable: row.expandable, hasChildren: row.hasChildren, selected },
       onPresentationAction,
+      {
+        executeCommand: (id) => interaction.executeCommand(id, "presentation", [row.key]),
+        canExecuteCommand: (id) => interaction.canExecuteCommand(id, [row.key]),
+      },
     );
   const rowDomId = (key: string) => `${treeId}-${encodeURIComponent(key)}`;
   const interaction = useOutlineInteraction({
+    commands,
     containerRef,
     rows,
     editing,
@@ -123,13 +132,16 @@ export function OutlineTree<Presentation, Action>({
     onActivate: (row) => presentRow(row, false).bullet.onActivate?.(),
   });
   const { edit, cursorKey, selection: nodeSelection } = interaction;
+  const coverage = useMemo(() => outlineSelectionCoverage(rows, nodeSelection.keys), [rows, nodeSelection.keys]);
+  const selectedKeys = useMemo(() => new Set(coverage.keys()), [coverage]);
+  const selectionRoots = useMemo(() => selectedOutlineRoots(rows, nodeSelection.keys), [rows, nodeSelection.keys]);
   const { consumeDragClick, drag, handlePointerDown } = useOutlineDrag({
     containerRef,
     enabled: onMove !== undefined,
     onCommit: interaction.moveTo,
     onExpandedChange,
     rows,
-    selectedKeys: nodeSelection.keys,
+    selectedKeys,
   });
   const draggedRows =
     drag === null
@@ -154,7 +166,8 @@ export function OutlineTree<Presentation, Action>({
     present: presentRow,
     rowDomId,
     rowsByKey,
-    selectedKeys: nodeSelection.keys,
+    selectedKeys,
+    selectionRootKeys: new Set(selectionRoots),
     showGuides,
     supportsEmptyChildren: editing?.onCreateChild !== undefined,
   };
@@ -180,7 +193,12 @@ export function OutlineTree<Presentation, Action>({
       </OutlineInlineExtensionsProvider>
       {nodeSelection.keys.size === 0 ? null : (
         <OutlineSelectionToolbar
-          count={nodeSelection.keys.size}
+          count={selectionRoots.length}
+          containerRef={containerRef}
+          anchorKey={selectionRoots[0] ?? null}
+          commands={commands?.filter((command) => command.inSelectionToolbar)}
+          canExecuteCommand={(id) => interaction.canExecuteCommand(id, undefined, "toolbar")}
+          executeCommand={(id) => interaction.executeCommand(id, "toolbar")}
           onDelete={onDeleteSelection === undefined ? undefined : interaction.deleteSelected}
           onMove={onMove === undefined ? undefined : interaction.moveSelected}
         />

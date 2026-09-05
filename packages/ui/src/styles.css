@@ -54,6 +54,22 @@
 }
 
 @layer components {
+  /* Selection covers the subtree once; only its selected root receives a name frame. */
+  [data-ui="outline-node"][data-selection-root="true"]::before {
+    @apply pointer-events-none absolute inset-y-1 left-5.5 right-0 rounded-sm bg-primary/12;
+    content: "";
+  }
+
+  [data-selection-root-row="true"]::after,
+  [data-ui="outline-node"][data-selection-root="true"][data-children-layout="beside"]::after {
+    @apply pointer-events-none absolute inset-y-1 left-5.5 right-0 rounded-sm ring-1 ring-inset ring-primary/40;
+    content: "";
+  }
+
+  [data-ui="outline-node"][data-children-layout="beside"] > [data-selection-root-row="true"]::after {
+    content: none;
+  }
+
   /* Native 20px geometry keeps the compact pencil and crossing stroke distinct. */
   .lode-outline-readonly {
     cursor:

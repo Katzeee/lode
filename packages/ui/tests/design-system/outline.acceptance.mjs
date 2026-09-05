@@ -395,14 +395,14 @@ async function verifyOutlinePresentation(page) {
   for (let index = 0; index < 4; index += 1) {
     await page.keyboard.press("Shift+ArrowDown");
   }
-  await page.getByRole("toolbar", { name: "4 items selected" }).waitFor({ state: "visible" });
+  await page.getByRole("toolbar", { name: "2 items selected" }).waitFor({ state: "visible" });
   assert.equal(
     await tree.locator('[data-ui="outline-row"][aria-selected="true"]').count(),
-    4,
-    "Shift selection must include every visible Node occurrence in the range",
+    6,
+    "Shift selection includes the values of both selected Field nodes",
   );
   await page.keyboard.press("Escape");
-  await page.getByRole("toolbar", { name: "4 items selected" }).waitFor({ state: "detached" });
+  await page.getByRole("toolbar", { name: "2 items selected" }).waitFor({ state: "detached" });
 
   assert.equal(
     await rowByText("Open design decisions").locator('[data-bullet-marker="search"]').count(),

@@ -108,11 +108,6 @@ export function dispatchEditIntent(
     }
     case "delete":
       return deleteFromEditor(context, key, command.content);
-    case "toggle": {
-      context.commit(key, command.content);
-      context.editing?.onToggle?.(key);
-      return true;
-    }
     case "disclosure": {
       context.commit(key, command.content);
       const row = context.rows.find((candidate) => candidate.key === key);

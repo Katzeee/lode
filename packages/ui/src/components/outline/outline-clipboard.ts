@@ -82,7 +82,22 @@ type ClipboardContext = Readonly<{
 
 export function outlineClipboard(context: ClipboardContext) {
   const copy = (event: ClipboardEvent, cut = false) => {
-    if (context.roots.length === 0) {
+    if (!(event.target instanceof Element) || event.target.closest("input, textarea")) {
+      return;
+    }
+    const position = context.edit.getPosition();
+    const hasTextSelection =
+      (window.getSelection()?.toString().length ?? 0) > 0 ||
+      (context.edit.activeKey !== null &&
+        position !== null &&
+        position.caret !== (position.selectionEnd ?? position.caret));
+    const roots =
+      context.roots.length > 0
+        ? context.roots
+        : !hasTextSelection && context.cursorKey !== null
+          ? [context.cursorKey]
+          : [];
+    if (roots.length === 0) {
       return;
     }
     const item = (row: OutlineRowViewModel["item"]): OutlineClipboardItem => ({
@@ -90,8 +105,8 @@ export function outlineClipboard(context: ClipboardContext) {
       children: (row.children ?? []).map(item),
     });
     const items =
-      context.editing?.onCopy?.(context.roots) ??
-      context.roots.flatMap((key) => {
+      context.editing?.onCopy?.(roots) ??
+      roots.flatMap((key) => {
         const row = context.rows.find((row) => row.key === key);
         return row === undefined ? [] : [item(row.item)];
       });
@@ -99,7 +114,7 @@ export function outlineClipboard(context: ClipboardContext) {
     event.stopPropagation();
     writeOutlineClipboard(event.clipboardData, items);
     if (cut) {
-      context.remove(context.roots);
+      context.remove(roots);
     }
   };
   const paste = (event: ClipboardEvent) => {

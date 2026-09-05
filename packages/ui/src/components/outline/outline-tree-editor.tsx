@@ -78,7 +78,7 @@ function editorCommand(editor: Editor, event: KeyboardEvent): OutlineEditorComma
   }
   if (event.key === "Enter") {
     if (modified && !event.shiftKey) {
-      return { content, type: "toggle" };
+      return null;
     }
     return {
       content,
@@ -209,7 +209,7 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     }
     const content = currentContent(activeEditor);
     setPicker(null);
-    bindingRef.current.onCompletion(activePicker.provider.id, item.id, content);
+    bindingRef.current.onCompletion(activePicker.provider.id, item.id, content, item.commandId);
   };
 
   const suggestions = useSuggestionList({
@@ -217,6 +217,9 @@ function OutlineTreeEditor({ binding }: Readonly<{ binding: OutlineEditorBinding
     sessionKey: picker === null ? null : JSON.stringify([picker.provider.id, picker.from, picker.query]),
     keyBindings: picker?.provider.keyBindings,
     canAccept: (item) => {
+      if (item.commandId !== undefined && !bindingRef.current.canExecuteCommand(item.commandId)) {
+        return false;
+      }
       const activeEditor = editorRef.current;
       const context = activeEditor === null ? null : completionContext(activeEditor);
       return context !== null && pickerRef.current?.provider.canAccept?.(item, context) !== false;

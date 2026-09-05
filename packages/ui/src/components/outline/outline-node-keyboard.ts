@@ -20,7 +20,6 @@ export type OutlineNodeKeyboardContext = Readonly<{
   move: (keys: readonly string[], operation: OutlineSelectionOperation) => void;
   remove: (keys: readonly string[]) => void;
   duplicate: (keys: readonly string[]) => void;
-  toggle: (key: string) => void;
   expand: (key: string, expanded: boolean) => void;
 }>;
 
@@ -92,10 +91,6 @@ export function handleOutlineNodeKey(
   }
   if (!event.altKey && (event.key === "Backspace" || event.key === "Delete")) {
     context.remove(roots);
-    return true;
-  }
-  if (modified && !event.altKey && event.key === "Enter") {
-    roots.forEach(context.toggle);
     return true;
   }
   if (modified && !event.altKey && ["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) {

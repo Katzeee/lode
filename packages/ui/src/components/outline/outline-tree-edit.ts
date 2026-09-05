@@ -1,7 +1,8 @@
 import type { RefObject } from "react";
+import { bindOutlineCompletionProviders } from "./outline-editor-picker.js";
 import { useOutlineEditSession } from "./outline-edit-session.js";
 
-import { contentLength } from "./outline-content.js";
+import { contentLength, type OutlineContent } from "./outline-content.js";
 import {
   computeIndent,
   computeOutdent,
@@ -32,6 +33,8 @@ type EditOptions = Readonly<{
   onCursorChange: (key: string) => void;
   onTextInput: () => void;
   onKeyDown: (event: KeyboardEvent, context: OutlineTextKeyContext) => boolean;
+  onExecuteCommand: (id: string, content: OutlineContent) => boolean | OutlineEditPosition;
+  canExecuteCommand: (id: string) => boolean;
   onMove?: (move: OutlineMove) => OutlineMoveResult | null;
   onExpandedChange: (key: string, expanded: boolean) => void;
   onDeleteSelection?: (keys: readonly string[]) => void;
@@ -45,6 +48,8 @@ export function useOutlineEdit({
   onCursorChange,
   onTextInput,
   onKeyDown,
+  onExecuteCommand,
+  canExecuteCommand,
   onMove,
   onExpandedChange,
   onDeleteSelection,
@@ -197,18 +202,9 @@ export function useOutlineEdit({
     session === null || editing === undefined
       ? null
       : {
+          canExecuteCommand,
           ariaLabel: session.ariaLabel,
-          completionProviders:
-            activeRow === undefined
-              ? []
-              : (editing.completionProviders ?? [])
-                  .filter((provider) => provider.enabled?.(activeRow.key) !== false)
-                  .map(({ enabled: _enabled, canAccept, ...provider }) => ({
-                    ...provider,
-                    canAccept:
-                      canAccept === undefined ? undefined : (item, context) => canAccept(activeRow.key, item, context),
-                    items: (query: string) => provider.items(activeRow.key, query),
-                  })),
+          completionProviders: bindOutlineCompletionProviders(editing.completionProviders ?? [], activeRow?.key),
           content: session.content,
           revision: session.revision,
           initialCaret: desiredCaretRef.current,
@@ -239,18 +235,24 @@ export function useOutlineEdit({
           },
           onKeyDown,
           onCommand: (command) => handleCommand(session.key, command),
-          onCompletion: (providerId, itemId, content) => {
+          onCompletion: (providerId, itemId, content, commandId) => {
             const current = sessionRef.current;
             if (current?.key !== session.key) {
               return;
             }
             sessionRef.current = { ...current, content };
-            editing.history?.checkpoint(lastPositionRef.current, "operation");
             const provider = editing.completionProviders?.find((candidate) => candidate.id === providerId);
-            if (editing.onCompletion === undefined) {
-              editing.onContentChange(session.key, content);
+            if (commandId !== undefined) {
+              const result = onExecuteCommand(commandId, content);
+              if (result !== true) {
+                return;
+              }
             } else {
-              const position = editing.onCompletion(session.key, providerId, itemId, content);
+              editing.history?.checkpoint(lastPositionRef.current, "operation");
+              const position =
+                editing.onCompletion === undefined
+                  ? editing.onContentChange(session.key, content)
+                  : editing.onCompletion(session.key, providerId, itemId, content);
               if (position !== undefined) {
                 setPending({ type: "position", position });
                 return;

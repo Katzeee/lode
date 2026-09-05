@@ -2,11 +2,10 @@ import type { OutlineCompletionItem } from "../components/outline/outline-tree-e
 import { createElement } from "react";
 import { Icon } from "../components/icon.js";
 import { demoInlineToken } from "./outline-demo-inline.js";
-import type { NodeValue } from "./outline-demo-model.js";
+import { taskCommandIds } from "./outline-demo-task-commands.js";
 
 export type DemoOutlineCommand = OutlineCompletionItem &
   Readonly<{
-    apply?: (value: NodeValue) => NodeValue;
     keywords?: readonly string[];
   }>;
 
@@ -18,7 +17,7 @@ export const demoOutlineCommands: readonly DemoOutlineCommand[] = [
     description: "Add an actionable checkbox to this node",
     keywords: ["todo"],
     replacement: [],
-    apply: (value) => ({ ...value, todo: "open" }),
+    commandId: taskCommandIds.create,
   },
   {
     id: "project",

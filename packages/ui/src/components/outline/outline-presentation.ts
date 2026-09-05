@@ -34,6 +34,8 @@ export type OutlineRowPresentation<Action> = Readonly<{
 }>;
 
 export type OutlinePresentationContext<Action> = Readonly<{
+  executeCommand: (id: string) => boolean;
+  canExecuteCommand: (id: string) => boolean;
   canDispatch: boolean;
   dispatch: (action: Action) => void;
   itemKey: string;
@@ -61,8 +63,11 @@ export function resolveOutlinePresentation<Presentation, Action>(
   itemLabel: string,
   state: OutlinePresentationRowState,
   onAction?: (key: string, action: Action) => void,
+  commands?: Readonly<{ executeCommand: (id: string) => boolean; canExecuteCommand: (id: string) => boolean }>,
 ): ResolvedOutlineRowPresentation {
   const resolved = registry.resolve(presentation, {
+    executeCommand: commands?.executeCommand ?? (() => false),
+    canExecuteCommand: commands?.canExecuteCommand ?? (() => false),
     canDispatch: onAction !== undefined,
     dispatch: (action) => onAction?.(itemKey, action),
     itemKey,

@@ -24,6 +24,7 @@ export function OutlineTreeRow({
   rowDomId,
   presentation,
   selected,
+  selectionRoot,
 }: Readonly<{
   consumeDragClick: () => boolean;
   cursor: boolean;
@@ -40,6 +41,7 @@ export function OutlineTreeRow({
   rowDomId: string;
   presentation: ResolvedOutlineRowPresentation;
   selected: boolean;
+  selectionRoot: boolean;
 }>) {
   return (
     <div
@@ -50,8 +52,7 @@ export function OutlineTreeRow({
       aria-selected={selected}
       aria-setsize={row.siblingCount}
       className={cn(
-        "group/outline-row flex min-h-8 min-w-0 items-start gap-1 rounded-md py-1 pr-1.5 transition-colors",
-        selected && "bg-primary/12 text-foreground",
+        "group/outline-row relative flex min-h-8 min-w-0 items-start gap-1 rounded-md py-1 pr-1.5",
         dragged && "opacity-40",
       )}
       data-editing={editActiveKey === row.key ? "true" : undefined}
@@ -59,6 +60,7 @@ export function OutlineTreeRow({
       data-parent-key={row.parentKey ?? undefined}
       data-readonly={row.item.editable === false ? "true" : undefined}
       data-selected={selected ? "true" : undefined}
+      data-selection-root-row={selectionRoot ? "true" : undefined}
       data-ui="outline-row"
       id={rowDomId}
       onMouseDown={onRowMouseDown}

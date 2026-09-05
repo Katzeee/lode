@@ -1,30 +1,88 @@
-import type { PointerEvent as ReactPointerEvent } from "react";
+import { useLayoutEffect, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 
 import { cn } from "../cn.js";
 import { Icon } from "../icon.js";
+import type { OutlineHostCommand } from "./outline-commands.js";
 import type { ResolvedOutlineBulletPresentation } from "./outline-presentation.js";
 import type { OutlineRowViewModel } from "./outline-tree-view-model.js";
 
 export function OutlineSelectionToolbar({
+  containerRef,
+  anchorKey,
   count,
+  commands,
+  canExecuteCommand,
+  executeCommand,
   onDelete,
   onMove,
 }: Readonly<{
+  containerRef: RefObject<HTMLDivElement | null>;
+  anchorKey: string | null;
   count: number;
+  commands?: readonly OutlineHostCommand[];
+  canExecuteCommand: (id: string) => boolean;
+  executeCommand: (id: string) => boolean;
   onDelete?: () => void;
   onMove?: (operation: "indent" | "outdent" | "reorder-down" | "reorder-up") => void;
 }>) {
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const container = containerRef.current;
+    const toolbar = toolbarRef.current;
+    if (container === null || toolbar === null) {
+      return;
+    }
+    const update = () => {
+      const anchor = Array.from(container.querySelectorAll<HTMLElement>('[data-ui="outline-row"]')).find(
+        (row) => row.dataset.itemKey === anchorKey,
+      );
+      if (anchor === undefined) {
+        return;
+      }
+      const tree = container.getBoundingClientRect();
+      const row = anchor.getBoundingClientRect();
+      const height = toolbar.offsetHeight;
+      const width = toolbar.offsetWidth;
+      const left = Math.max(8, Math.min(row.left + 22, globalThis.innerWidth - width - 8));
+      const top = Math.max(8, Math.min(row.top - height - 6, globalThis.innerHeight - height - 8));
+      toolbar.style.left = `${String(left - tree.left)}px`;
+      toolbar.style.top = `${String(top - tree.top)}px`;
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    observer.observe(toolbar);
+    globalThis.addEventListener("scroll", update, true);
+    globalThis.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      globalThis.removeEventListener("scroll", update, true);
+      globalThis.removeEventListener("resize", update);
+    };
+  }, [containerRef, anchorKey, count]);
   const actionClass =
     "grid size-7 place-items-center rounded-sm text-label text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/45";
   return (
     <div
       aria-label={`${String(count)} items selected`}
-      className="absolute left-1/2 top-2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
+      className="absolute z-20 flex max-w-full flex-wrap items-center gap-0.5 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md"
       data-ui="outline-selection-toolbar"
       onClick={(event) => event.stopPropagation()}
       role="toolbar"
+      ref={toolbarRef}
     >
       <span className="px-2 text-caption font-medium tabular-nums">{String(count)} selected</span>
+      {commands?.map((command) => (
+        <button
+          key={command.id}
+          type="button"
+          className={cn(actionClass, "w-auto px-2 whitespace-nowrap disabled:opacity-50")}
+          disabled={!canExecuteCommand(command.id)}
+          onClick={() => executeCommand(command.id)}
+        >
+          {command.label}
+        </button>
+      ))}
       {onMove === undefined ? null : (
         <>
           <button

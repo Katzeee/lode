@@ -28,6 +28,7 @@ export type OutlineNodeEnvironment = Readonly<{
   present: (row: OutlineRowViewModel, selected: boolean) => ResolvedOutlineRowPresentation;
   rowsByKey: ReadonlyMap<string, OutlineRowViewModel>;
   selectedKeys: ReadonlySet<string>;
+  selectionRootKeys: ReadonlySet<string>;
   showGuides: boolean;
   supportsEmptyChildren: boolean;
 }>;
@@ -105,7 +106,8 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
   const beside = presentation.childrenLayout === "beside";
   return (
     <div
-      className={cn("min-w-0", beside && "grid items-start")}
+      className={cn("relative min-w-0", beside && "grid items-start")}
+      data-selection-root={environment.selectionRootKeys.has(row.key) ? "true" : undefined}
       data-children-layout={beside ? "beside" : "indented"}
       data-ui="outline-node"
       style={beside ? { gridTemplateColumns: OUTLINE_COLUMN_TEMPLATE } : undefined}
@@ -126,6 +128,7 @@ function OutlineNode({ item }: Readonly<{ item: OutlineItemViewModel }>) {
         rowDomId={environment.rowDomId(row.key)}
         presentation={presentation}
         selected={selected}
+        selectionRoot={environment.selectionRootKeys.has(row.key)}
       />
       <OutlineChildren items={item.children ?? []} parent={row} parentPresentation={presentation} />
     </div>

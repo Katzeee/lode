@@ -45,6 +45,9 @@ function TestSurface() {
   if (hash === "#/outline-suggestion-fixture") {
     return <OutlineSuggestionFixture />;
   }
+  if (hash === "#/outline-command-fixture") {
+    return <OutlineExtensionFixture commandsEnabled />;
+  }
   return hash === "#/outline-extension-fixture" ? (
     <OutlineExtensionFixture />
   ) : (

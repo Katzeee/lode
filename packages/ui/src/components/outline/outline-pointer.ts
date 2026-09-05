@@ -79,7 +79,7 @@ export function useOutlinePointer(options: PointerOptions) {
     const { edit, selection, select, containerRef, rows, cursor } = optionsRef.current;
     if (event.ctrlKey || event.metaKey) {
       event.preventDefault();
-      select(toggleOutlineRow(selection, row.key));
+      select(toggleOutlineRow(rows, selection, row.key));
       if (edit.activeKey === null) {
         cursor(row.key);
         containerRef.current?.focus({ preventScroll: true });
@@ -87,6 +87,11 @@ export function useOutlinePointer(options: PointerOptions) {
       return;
     }
     const position = edit.getPosition();
+    if (event.shiftKey && selection.keys.size > 0) {
+      event.preventDefault();
+      select(extendOutlineSelection(rows, selection, row.key));
+      return;
+    }
     if (event.shiftKey && position !== null && edit.activeKey !== null) {
       event.preventDefault();
       const active = rows.find((candidate) => candidate.key === edit.activeKey);

@@ -68,6 +68,8 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
   // A completed drag still fires a click on the handle; the component asks
   // whether to swallow it instead of treating it as bullet activation.
   const suppressClickRef = useRef(false);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => cleanupRef.current?.(), []);
 
   // Hold-near-edge auto scroll: pointermove alone stalls when the pointer
   // rests inside the edge zone, so scrolling runs on its own frame loop.
@@ -107,6 +109,7 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
     }
     const hoveredElement = hoveredRowElement(container, x, y);
     if (hoveredElement === null) {
+      scheduleSpringLoad(undefined);
       return null;
     }
     const currentRows = rowsRef.current;
@@ -138,19 +141,23 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
     return resolveDropMove(currentRows, active.sourceKeys, above, depth);
   };
 
-  const scheduleSpringLoad = (hovered: OutlineRowViewModel) => {
+  const scheduleSpringLoad = (hovered: OutlineRowViewModel | undefined) => {
     const active = session.current;
-    if (active === null || !hovered.hasChildren || hovered.expanded || active.sourceKeys.includes(hovered.key)) {
+    if (active === null) {
       return;
     }
-    if (active.springKey === hovered.key) {
+    const key =
+      hovered !== undefined && hovered.hasChildren && !hovered.expanded && !active.sourceKeys.includes(hovered.key)
+        ? hovered.key
+        : null;
+    if (active.springKey === key) {
       return;
     }
     if (active.springTimer !== null) {
       window.clearTimeout(active.springTimer);
     }
-    active.springKey = hovered.key;
-    active.springTimer = window.setTimeout(() => onExpandedChange(hovered.key, true), SPRING_LOAD_DELAY);
+    active.springKey = key;
+    active.springTimer = key === null ? null : window.setTimeout(() => onExpandedChange(key, true), SPRING_LOAD_DELAY);
   };
 
   const endSession = () => {
@@ -170,6 +177,7 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
     if (source === undefined) {
       return;
     }
+    cleanupRef.current?.();
     const sourceKeys = selectedKeys.has(sourceKey) ? selectedOutlineRoots(rowsRef.current, selectedKeys) : [sourceKey];
     suppressClickRef.current = false;
     session.current = {
@@ -208,6 +216,8 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
       window.removeEventListener("pointercancel", handleUp);
+      window.removeEventListener("keydown", cancel, true);
+      cleanupRef.current = null;
       const wasDragging = active.dragging;
       const target =
         wasDragging && upEvent.type !== "pointercancel" ? resolveTarget(upEvent.clientX, upEvent.clientY) : null;
@@ -221,9 +231,31 @@ export function useOutlineDrag({ containerRef, enabled, onCommit, onExpandedChan
       }
     };
 
+    const cancel = (keyEvent: KeyboardEvent) => {
+      if (keyEvent.key === "Escape") {
+        keyEvent.preventDefault();
+        keyEvent.stopImmediatePropagation();
+        suppressClickRef.current = true;
+        cleanupRef.current?.();
+        endSession();
+      }
+    };
+    cleanupRef.current = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      window.removeEventListener("keydown", cancel, true);
+      if (session.current?.springTimer != null) {
+        window.clearTimeout(session.current.springTimer);
+      }
+      session.current = null;
+      cleanupRef.current = null;
+    };
+
     window.addEventListener("pointermove", handleMove, { passive: false });
     window.addEventListener("pointerup", handleUp);
     window.addEventListener("pointercancel", handleUp);
+    window.addEventListener("keydown", cancel, true);
   };
 
   const consumeDragClick = () => {

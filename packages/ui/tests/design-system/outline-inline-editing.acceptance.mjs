@@ -152,6 +152,8 @@ designSystemTest(
     const editor = page.locator('[data-ui="outline-editor"]');
     await editor.waitFor();
     await editor.pressSequentially("@ # / **bold**");
+    await editor.press("Control+Enter");
+    assert.equal(await editor.textContent(), "@ # / **bold**", "no host command means no product action or insertion");
     assert.equal(await page.getByRole("listbox").count(), 0, "the core installs no @, # or / trigger");
     await page.getByLabel("Saved document").click();
     assert.equal(await tree.locator("strong").count(), 0, "formatting is explicitly installed by the host");

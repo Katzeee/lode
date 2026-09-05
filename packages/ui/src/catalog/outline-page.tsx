@@ -28,6 +28,7 @@ import { demoOutlinePresentationRegistry, type DemoOutlinePresentationAction } f
 import { completionIds, createDemoCompletionProviders } from "./outline-demo-completions.js";
 import { initialGraph, textContent, type DemoGraph, type DemoNode, type DemoOccurrence } from "./outline-demo-model.js";
 import { demoInlineExtensions } from "./outline-demo-inline-presentation.js";
+import { createDemoTaskCommands } from "./outline-demo-task-commands.js";
 import { demoOutlineCommands } from "./outline-demo-commands.js";
 import { PageIntro, Specimen } from "./specimen.js";
 
@@ -151,18 +152,6 @@ export function OutlinePage() {
     if (sourcePath === null || action.type === "configure-field") {
       return;
     }
-    if (action.type === "set-checked") {
-      setGraph((previous) => {
-        const resolved = resolveGraphPath(previous, sourcePath);
-        return resolved === null
-          ? previous
-          : updateGraphNode(previous, resolved.node.id, (node) => ({
-              ...node,
-              value: { ...node.value, todo: action.checked ? "done" : "open" },
-            }));
-      });
-      return;
-    }
     const resolved = resolveGraphPath(graph, sourcePath);
     if (resolved === null || resolved.node.value.field !== undefined) {
       return;
@@ -195,6 +184,7 @@ export function OutlinePage() {
           </header>
         )}
         <OutlineTree
+          commands={createDemoTaskCommands(graph, setGraph, modelPath)}
           inlineExtensions={demoInlineExtensions}
           editing={{
             history,
@@ -283,37 +273,13 @@ export function OutlinePage() {
               setGraph((previous) =>
                 updateGraphNode(previous, resolved.node.id, (node) => ({
                   ...node,
-                  value:
-                    providerId === completionIds.command
-                      ? (demoOutlineCommands
-                          .find((command) => command.id === itemId)
-                          ?.apply?.({ ...node.value, content }) ?? { ...node.value, content })
-                      : { ...node.value, content },
+                  value: { ...node.value, content },
                 })),
               );
               return undefined;
             },
             onContentChange: updateContent,
             onContentCommit: updateContent,
-            onToggle: (key) => {
-              const path = modelPath(key);
-              if (path === null) {
-                return;
-              }
-              setGraph((previous) => {
-                const target = resolveGraphPath(previous, path);
-                return target === null
-                  ? previous
-                  : updateGraphNode(previous, target.node.id, (node) =>
-                      node.value.editable === false
-                        ? node
-                        : {
-                            ...node,
-                            value: { ...node.value, todo: node.value.todo === "open" ? "done" : "open" },
-                          },
-                    );
-              });
-            },
             onCreateBefore: (key) => {
               const sourceKey = modelPath(key);
               if (sourceKey === null) {

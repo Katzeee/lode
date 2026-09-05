@@ -9,11 +9,26 @@ const extensions: readonly OutlineInlineExtension[] = [
   },
 ];
 
-export function OutlineExtensionFixture() {
+export function OutlineExtensionFixture({ commandsEnabled = false }: Readonly<{ commandsEnabled?: boolean }>) {
   const [content, setContent] = useState<OutlineContent>([]);
+  const [invocations, setInvocations] = useState(0);
   return (
     <main>
       <OutlineTree
+        commands={
+          commandsEnabled
+            ? ["run", "focus"].map((id) => ({
+                id,
+                label: id,
+                keyBindings: [{ key: id === "run" ? "r" : "f", alt: true }],
+                execute: (context) => {
+                  setContent(context.content ?? []);
+                  setInvocations((count) => count + 1);
+                  return id === "focus" ? { key: "external", caret: 0 } : undefined;
+                },
+              }))
+            : []
+        }
         expandedKeys={new Set()}
         inlineExtensions={extensions}
         items={[{ accessibilityLabel: "External editor", content, key: "external", presentation: null }]}
@@ -22,6 +37,26 @@ export function OutlineExtensionFixture() {
         presentation={{ resolve: () => ({ bullet: { content: "•" } }) }}
         editing={{
           completionProviders: [
+            ...(commandsEnabled
+              ? [
+                  {
+                    id: "host-command",
+                    ariaLabel: "Host commands",
+                    heading: "Host commands",
+                    emptyLabel: "No commands",
+                    exitOnSelect: true,
+                    match: (context: { textBeforeCaret: string; selection: { to: number } }) =>
+                      context.textBeforeCaret.startsWith("!") ? { from: 0, to: context.selection.to, query: "" } : null,
+                    items: () =>
+                      ["run", "focus"].map((id) => ({
+                        id,
+                        label: id,
+                        commandId: id,
+                        replacement: [{ type: "text" as const, text: "Accepted" }],
+                      })),
+                  },
+                ]
+              : []),
             {
               ariaLabel: "External choices",
               emptyLabel: "Nothing found",
@@ -65,6 +100,7 @@ export function OutlineExtensionFixture() {
         }}
       />
       <output aria-label="Saved document">{JSON.stringify(content)}</output>
+      <output aria-label="Command invocations">{invocations}</output>
     </main>
   );
 }

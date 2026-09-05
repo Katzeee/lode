@@ -7,6 +7,7 @@ import type { SuggestionKeyBinding } from "../suggestion-list/suggestion-navigat
 export type OutlineCompletionItem = SuggestionItem &
   Readonly<{
     replacement: OutlineContent;
+    commandId?: string;
   }>;
 
 export type OutlineCompletionMatch = Readonly<{ from: number; query: string; to: number }>;
@@ -53,7 +54,6 @@ export type OutlineTreeEditing = Readonly<{
   onCreateAfter: (key: string) => void;
   /** Inserts the first child, including when existing children are expanded. */
   onCreateChild?: (key: string) => void;
-  onToggle?: (key: string) => void;
   onDeleteEmpty: (key: string) => void;
   onMerge?: (merge: OutlineMerge) => void;
   onSplit: (key: string, before: OutlineContent, after: OutlineContent, placement: "after" | "child") => void;
@@ -67,7 +67,7 @@ export type OutlineEditorCommand =
       placement?: OutlineInsertionPlacement;
       type: "enter";
     }>
-  | Readonly<{ content: OutlineContent; type: "backspace" | "delete" | "toggle" }>
+  | Readonly<{ content: OutlineContent; type: "backspace" | "delete" }>
   | Readonly<{ content: OutlineContent; type: "delete-forward" }>
   | Readonly<{ direction: "undo" | "redo"; type: "history" }>
   | Readonly<{ type: "duplicate" }>
@@ -88,6 +88,7 @@ export type OutlineEditorCompletionProvider = Omit<OutlineCompletionProvider, "e
   }>;
 
 export type OutlineEditorBinding = Readonly<{
+  canExecuteCommand: (id: string) => boolean;
   ariaLabel: string;
   completionProviders: readonly OutlineEditorCompletionProvider[];
   content: OutlineContent;
@@ -99,7 +100,7 @@ export type OutlineEditorBinding = Readonly<{
   onSelectionChange: (selection: OutlineTextSelection) => void;
   onKeyDown: (event: KeyboardEvent, context: OutlineTextKeyContext) => boolean;
   onCommand: (command: OutlineEditorCommand) => boolean;
-  onCompletion: (providerId: string, itemId: string, content: OutlineContent) => void;
+  onCompletion: (providerId: string, itemId: string, content: OutlineContent, commandId?: string) => void;
   placeholder: string;
 }>;
 

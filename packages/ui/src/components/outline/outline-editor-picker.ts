@@ -4,8 +4,25 @@ import { contentToSource, docToContent } from "./outline-content.js";
 import type {
   OutlineCompletionContext,
   OutlineCompletionItem,
+  OutlineCompletionProvider,
   OutlineEditorCompletionProvider,
 } from "./outline-tree-edit-contract.js";
+
+export function bindOutlineCompletionProviders(
+  providers: readonly OutlineCompletionProvider[],
+  key: string | undefined,
+): readonly OutlineEditorCompletionProvider[] {
+  if (key === undefined) {
+    return [];
+  }
+  return providers
+    .filter((provider) => provider.enabled?.(key) !== false)
+    .map(({ enabled: _enabled, canAccept, ...provider }) => ({
+      ...provider,
+      canAccept: canAccept === undefined ? undefined : (item, context) => canAccept(key, item, context),
+      items: (query: string) => provider.items(key, query),
+    }));
+}
 
 export type OutlinePickerState = Readonly<{
   from: number;

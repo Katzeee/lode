@@ -7,6 +7,8 @@ import "./outline.acceptance.mjs";
 import "./outline-keyboard.acceptance.mjs";
 import "./outline-focus.acceptance.mjs";
 import "./outline-interaction.acceptance.mjs";
+import "./outline-selection.acceptance.mjs";
+import "./outline-host-commands.acceptance.mjs";
 import "./outline-transactions.acceptance.mjs";
 import "./outline-inline-editing.acceptance.mjs";
 import "./outline-readonly.acceptance.mjs";
